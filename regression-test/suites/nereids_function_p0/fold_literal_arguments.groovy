@@ -52,6 +52,18 @@ suite("fold_literal_arguments") {
             date_trunc(concat('2024-03-15', ' 10:00:00.123'), 'month') c2
     """
     qt_date_trunc_string_value_type "desc fold_literal_arguments_ctas"
+    // the time unit next to a typed date literal is folded; when both arguments are foldable strings, only the
+    // time unit is folded, so the derived return type is the same as with a literal time unit
+    qt_date_trunc_typed_date """select date_trunc(DATE '2024-03-15', concat('mon', 'th')),
+            date_trunc(concat('ye', 'ar'), TIMESTAMP '2024-03-15 10:00:00')"""
+    sql "drop table if exists fold_literal_arguments_ctas_zoned"
+    sql """
+        create table fold_literal_arguments_ctas_zoned properties('replication_num' = '1') as
+        select 1 k, date_trunc(concat('2024-01-01 01:02:03+08:00', ''), 'month') c1,
+            date_trunc(concat('2024-01-01 01:02:03+08:00', ''), concat('mon', 'th')) c2,
+            date_trunc(concat('mon', 'th'), concat('2024-01-01 01:02:03+08:00', '')) c3
+    """
+    qt_date_trunc_both_foldable_type "desc fold_literal_arguments_ctas_zoned"
 
     // aggregate functions
     qt_sequence_match "select sequence_match(concat('(?1)', '(?2)'), dt, k = 1, k = 2) from fold_literal_arguments_t"
@@ -60,6 +72,13 @@ suite("fold_literal_arguments") {
             to_bitmap(k), cast(k as varchar), concat('1', '|2'))) from fold_literal_arguments_t"""
     qt_orthogonal_bitmap_expr_calculate_count """select orthogonal_bitmap_expr_calculate_count(
             to_bitmap(k), cast(k as varchar), concat('1', '|2')) from fold_literal_arguments_t"""
+    // a STRING formula is accepted before the type coercion casts it to VARCHAR
+    qt_orthogonal_bitmap_expr_calculate_string """select bitmap_to_string(orthogonal_bitmap_expr_calculate(
+            to_bitmap(k), cast(k as varchar), concat(cast('1' as string), cast('|2' as string))))
+            from fold_literal_arguments_t"""
+    qt_orthogonal_bitmap_expr_calculate_count_string """select orthogonal_bitmap_expr_calculate_count(
+            to_bitmap(k), cast(k as varchar), concat(cast('1' as string), cast('|2' as string)))
+            from fold_literal_arguments_t"""
     qt_topn """select topn(s, 1 + 1) from
             (select 'a' s union all select 'a' union all select 'b' union all select 'b' union all select 'b' union all select 'c') t"""
 

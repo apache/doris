@@ -854,7 +854,7 @@ public class TypeCoercionUtils {
             Expression argument = boundFunction.child(i);
             if (function.needFoldToLiteral(i) && !(argument instanceof Literal) && argument.isConstant()) {
                 Expression folded = FoldConstantRuleOnFE.evaluateWithoutContext(argument);
-                if (folded instanceof Literal) {
+                if (folded instanceof Literal && function.acceptFoldedLiteral(i, (Literal) folded)) {
                     argument = folded;
                     changed = true;
                 }

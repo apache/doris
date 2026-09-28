@@ -66,17 +66,21 @@ public class DateTrunc extends ScalarFunction
 
     @Override
     public boolean needFoldToLiteral(int index) {
-        // Fold a string argument only when it may be the time unit, i.e. the other argument is not a literal
-        // or is a string literal that is not a time unit. A string date value next to a literal time unit is
-        // left unfolded, because folding it would change the derived return type.
-        if (!getArgument(index).getDataType().isStringLikeType()) {
-            return false;
-        }
-        Expression other = getArgument(1 - index);
-        if (other instanceof StringLikeLiteral) {
-            return !LEGAL_TIME_UNIT.contains(((StringLikeLiteral) other).getStringValue().toLowerCase());
-        }
-        return !(other instanceof Literal);
+        // a string argument may be the time unit unless the other argument is already a literal time unit
+        return getArgument(index).getDataType().isStringLikeType() && !isTimeUnit(getArgument(1 - index));
+    }
+
+    @Override
+    public boolean acceptFoldedLiteral(int index, Literal folded) {
+        // Only the time unit is replaced by its folded literal. A string date value is kept unfolded, because
+        // folding it would change the derived return type. When the other argument is a date, the folded
+        // literal is the time unit and an illegal value is reported by checkLegalityBeforeTypeCoercion.
+        return isTimeUnit(folded) || getArgument(1 - index).getDataType().isDateLikeType();
+    }
+
+    private static boolean isTimeUnit(Expression expression) {
+        return expression instanceof StringLikeLiteral
+                && LEGAL_TIME_UNIT.contains(((StringLikeLiteral) expression).getStringValue().toLowerCase());
     }
 
     @Override
