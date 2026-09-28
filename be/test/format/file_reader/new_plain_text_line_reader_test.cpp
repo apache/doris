@@ -21,7 +21,102 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cstring>
+#include <utility>
+
+#include "io/fs/file_reader.h"
+
 namespace doris {
+
+namespace {
+class RecordingSplitFileReader : public io::FileReader {
+public:
+    explicit RecordingSplitFileReader(std::string content) : _content(std::move(content)) {}
+    Status close() override {
+        _closed = true;
+        return Status::OK();
+    }
+    const io::Path& path() const override { return _path; }
+    size_t size() const override { return _content.size(); }
+    bool closed() const override { return _closed; }
+    int64_t mtime() const override { return 0; }
+
+    std::vector<std::pair<size_t, size_t>> requests;
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const io::IOContext*) override {
+        requests.emplace_back(offset, result.size);
+        *bytes_read = std::min(result.size, _content.size() - std::min(offset, _content.size()));
+        if (*bytes_read > 0) {
+            std::memcpy(result.mutable_data(), _content.data() + offset, *bytes_read);
+        }
+        return Status::OK();
+    }
+
+private:
+    io::Path _path {"split-prefix-test"};
+    std::string _content;
+    bool _closed = false;
+};
+} // namespace
+
+TEST(PlainTextSplitPrefixTest, NearbySynchronizationUsesSmallProbe) {
+    const std::string content = std::string(8192, 'x') + "a|||b||c";
+    const size_t split = 8192 + 4;
+    auto file = std::make_shared<RecordingSplitFileReader>(content);
+    RuntimeProfile profile("split_prefix");
+    NewPlainTextLineReader reader(&profile, file, nullptr,
+                                  std::make_shared<PlainTextLineReaderCtx>("||", 2, false),
+                                  content.size() - split + 2, split - 2);
+    bool eof = false;
+    size_t skipped_lines = 0;
+    ASSERT_TRUE(reader.skip_split_prefix(split, "||", &eof, nullptr, &skipped_lines).ok());
+    ASSERT_FALSE(eof);
+    ASSERT_GE(file->requests.size(), 2);
+    EXPECT_EQ(file->requests.front().second, 1024);
+    // The next read replays forward from the synchronization point; no larger probe was needed.
+    EXPECT_GT(file->requests[1].first, file->requests[0].first);
+    EXPECT_EQ(skipped_lines, 2);
+    const uint8_t* line = nullptr;
+    size_t size = 0;
+    ASSERT_TRUE(reader.read_line(&line, &size, &eof, nullptr).ok());
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(line), size), "c");
+}
+
+TEST(PlainTextSplitPrefixTest, LongRunGrowsProbesWithoutRereading) {
+    const std::string prefix = "a" + std::string(256 * 1024 + 1, '|');
+    const std::string content = prefix + "b||c";
+    const size_t split = prefix.size();
+    auto file = std::make_shared<RecordingSplitFileReader>(content);
+    RuntimeProfile profile("split_prefix");
+    NewPlainTextLineReader reader(&profile, file, nullptr,
+                                  std::make_shared<PlainTextLineReaderCtx>("||", 2, false),
+                                  content.size() - split + 2, split - 2);
+    bool eof = false;
+    ASSERT_TRUE(reader.skip_split_prefix(split, "||", &eof, nullptr).ok());
+    ASSERT_FALSE(eof);
+    size_t previous_offset = split - 2;
+    size_t probe_size = 1024;
+    size_t probes = 0;
+    for (const auto& [offset, length] : file->requests) {
+        if (offset >= previous_offset) {
+            break; // Forward replay has begun.
+        }
+        EXPECT_EQ(offset + length, previous_offset);
+        EXPECT_EQ(length, std::min(previous_offset, probe_size));
+        previous_offset = offset;
+        probe_size = std::min(probe_size * 2, size_t {64 * 1024});
+        ++probes;
+    }
+    EXPECT_GT(probes, 6);
+    EXPECT_EQ(previous_offset, 0);
+    const uint8_t* line = nullptr;
+    size_t size = 0;
+    ASSERT_TRUE(reader.read_line(&line, &size, &eof, nullptr).ok());
+    EXPECT_EQ(std::string(reinterpret_cast<const char*>(line), size), "c");
+}
 
 // Base test class for text line reader tests
 class PlainTextLineReaderTest : public testing::Test {

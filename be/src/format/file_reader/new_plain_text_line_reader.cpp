@@ -289,7 +289,8 @@ inline bool NewPlainTextLineReader::update_eof() {
 }
 
 Status NewPlainTextLineReader::skip_split_prefix(size_t split_start, const std::string& delimiter,
-                                                 bool* eof, const io::IOContext* io_ctx) {
+                                                 bool* eof, const io::IOContext* io_ctx,
+                                                 size_t* skipped_lines) {
     DCHECK_EQ(_total_read_bytes, 0);
     DCHECK_EQ(_output_buf_limit, 0);
     bool overlaps = false;
@@ -310,7 +311,8 @@ Status NewPlainTextLineReader::skip_split_prefix(size_t split_start, const std::
         for (unsigned char byte : delimiter) {
             delimiter_bytes[byte] = true;
         }
-        std::vector<char> buffer(64 * 1024);
+        constexpr size_t max_lookbehind_size = 64 * 1024;
+        std::vector<char> buffer(1024);
         size_t sync_offset = _current_offset;
         bool synchronized = false;
         while (sync_offset > 0 && !synchronized) {
@@ -320,7 +322,7 @@ Status NewPlainTextLineReader::skip_split_prefix(size_t split_start, const std::
             RETURN_IF_ERROR(_file_reader->read_at(offset, Slice(buffer.data(), length), &bytes_read,
                                                   io_ctx));
             if (bytes_read != length) {
-                return Status::IOError("Short read while aligning JSON split at offset {}",
+                return Status::IOError("Short read while aligning text split at offset {}",
                                        split_start);
             }
             sync_offset = offset;
@@ -331,6 +333,10 @@ Status NewPlainTextLineReader::skip_split_prefix(size_t split_start, const std::
                     break;
                 }
             }
+            if (!synchronized && sync_offset > 0) {
+                // Extend backward into new bytes; do not reread the already searched suffix.
+                buffer.resize(std::min(buffer.size() * 2, max_lookbehind_size));
+            }
         }
         _min_length += _current_offset - sync_offset;
         _current_offset = sync_offset;
@@ -339,9 +345,14 @@ Status NewPlainTextLineReader::skip_split_prefix(size_t split_start, const std::
     const size_t prefix_length = split_start - _current_offset;
     const uint8_t* line = nullptr;
     size_t size = 0;
+    size_t skipped = 0;
     do {
         RETURN_IF_ERROR(read_line(&line, &size, eof, io_ctx));
+        skipped += !*eof;
     } while (!*eof && _total_read_bytes < prefix_length);
+    if (skipped_lines != nullptr) {
+        *skipped_lines = skipped;
+    }
     return Status::OK();
 }
 

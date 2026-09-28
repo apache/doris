@@ -248,10 +248,11 @@ public:
     Status read_line(const uint8_t** ptr, size_t* size, bool* eof,
                      const io::IOContext* io_ctx) override;
 
-    // Called before the first read of a non-first JSON split. Discard records owned by the
-    // preceding split, preserving the greedy delimiter matching used by an unsplit scan.
+    // Called before the first read of a non-first plain-text split. Discard records owned by the
+    // preceding split, preserving greedy delimiter matching. Not suitable for enclosed CSV:
+    // finding a delimiter synchronization point does not recover quote/escape state.
     Status skip_split_prefix(size_t split_start, const std::string& delimiter, bool* eof,
-                             const io::IOContext* io_ctx);
+                             const io::IOContext* io_ctx, size_t* skipped_lines = nullptr);
 
     inline TextLineReaderCtxPtr text_line_reader_ctx() { return _line_reader_ctx; }
 
