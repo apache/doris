@@ -37,6 +37,40 @@ suite("test_hive_ha_catalog_validation", "p0,external") {
         exception "dfs.nameservices must contain a nameservice"
     }
 
+    test {
+        sql """create catalog test_hive_ha_catalog_validation properties (
+            'type' = 'hms',
+            'hive.metastore.uris' = 'thrift://127.0.0.1:9083',
+            'test_connection' = 'false',
+            'dfs.nameservices' = 'ns1,'
+        )"""
+        exception "dfs.nameservices must not contain empty nameservice"
+    }
+
+    test {
+        sql """create catalog test_hive_ha_catalog_validation properties (
+            'type' = 'hms',
+            'hive.metastore.uris' = 'thrift://127.0.0.1:9083',
+            'test_connection' = 'false',
+            'dfs.nameservices' = 'ns1',
+            'dfs.ha.namenodes.ns1' = 'nn1,nn2'
+        )"""
+        exception "Missing property: dfs.namenode.rpc-address.ns1.nn1"
+    }
+
+    test {
+        sql """create catalog test_hive_ha_catalog_validation properties (
+            'type' = 'hms',
+            'hive.metastore.uris' = 'thrift://127.0.0.1:9083',
+            'test_connection' = 'false',
+            'dfs.nameservices' = 'ns1',
+            'dfs.ha.namenodes.ns1' = 'nn1,nn2',
+            'dfs.namenode.rpc-address.ns1.nn1' = '127.0.0.1:8020',
+            'dfs.namenode.rpc-address.ns1.nn2' = '127.0.0.1:8021'
+        )"""
+        exception "Missing property: dfs.client.failover.proxy.provider.ns1"
+    }
+
     sql """create catalog test_hive_ha_catalog_validation properties (
         'type' = 'hms',
         'hive.metastore.uris' = 'thrift://127.0.0.1:9083',

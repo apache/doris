@@ -75,6 +75,17 @@ class HdfsPropertiesTest {
     }
 
     @Test
+    void nameserviceListWithEmptyEntryIsRejected() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("dfs.nameservices", "ns1,");
+
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class, () -> resolve(raw));
+
+        Assertions.assertTrue(exception.getMessage().contains("empty nameservice"), exception.getMessage());
+    }
+
+    @Test
     void userOverriddenHadoopKeysArePreserved() {
         Map<String, String> raw = new HashMap<>();
         raw.put("fs.defaultFS", "hdfs://ns");

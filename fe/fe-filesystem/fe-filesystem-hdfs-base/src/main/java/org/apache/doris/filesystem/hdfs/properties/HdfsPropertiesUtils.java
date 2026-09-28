@@ -218,6 +218,9 @@ public class HdfsPropertiesUtils {
             // No nameservice configured => HA is not enabled, nothing to validate
             return;
         }
+        if (Arrays.stream(dfsNameservices.split(",", -1)).anyMatch(StringUtils::isBlank)) {
+            throw new IllegalArgumentException("Property dfs.nameservices must not contain empty nameservice");
+        }
         List<String> services = splitAndTrim(dfsNameservices);
         if (services.isEmpty()) {
             throw new IllegalArgumentException("Property dfs.nameservices must contain a nameservice");
