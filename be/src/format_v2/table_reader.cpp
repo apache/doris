@@ -27,6 +27,7 @@
 #include <ranges>
 #include <set>
 #include <sstream>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -53,9 +54,29 @@
 #include "runtime/file_scan_profile.h"
 #include "storage/segment/condition_cache.h"
 #include "util/debug_points.h"
+#include "util/hash_util.hpp"
 #include "util/string_util.h"
 
 namespace doris::format {
+
+std::optional<std::string> TableReader::_get_int96_timezone_override(
+        const TFileScanRangeParams* params) {
+    if (params == nullptr) {
+        return std::nullopt;
+    }
+    // The timezone field predates the version marker. Honor intermediate FEs that send it alone,
+    // including an explicit empty value selecting wall-clock semantics.
+    if (params->__isset.hive_parquet_time_zone) {
+        return params->hive_parquet_time_zone;
+    }
+    // Only a plan lacking both an explicit timezone and the new contract uses the legacy session.
+    if (!params->__isset.parquet_timestamp_semantics_version ||
+        params->parquet_timestamp_semantics_version < 1) {
+        return std::nullopt;
+    }
+    return std::string {};
+}
+
 namespace {
 
 std::optional<uint64_t> build_predicate_snapshot_digest(const VExprContextSPtrs& conjuncts) {
@@ -546,6 +567,10 @@ ColumnDefinition build_schema_column_metadata_from_external_field(
                                                field.initial_default_value_is_base64,
             .is_optional = field.__isset.is_optional ? std::make_optional(field.is_optional)
                                                      : std::nullopt,
+            .timestamp_is_adjusted_to_utc =
+                    field.__isset.timestamp_is_adjusted_to_utc
+                            ? std::make_optional(field.timestamp_is_adjusted_to_utc)
+                            : std::nullopt,
             .is_partition_key = false,
     };
 }
@@ -1407,6 +1432,12 @@ bool TableReader::_should_enable_condition_cache(const FileScanRequest& file_req
     if (file_request.conjuncts.empty()) {
         return false;
     }
+    // Localization may inject schema-evolution casts absent from the scanner's digest. Honor
+    // their uncacheable contract: an unchanged field ID can acquire different timestamp semantics,
+    // and reusing an old all-false granule would silently discard matching rows.
+    if (!build_predicate_snapshot_digest(file_request.conjuncts).has_value()) {
+        return false;
+    }
     // Delete files/deletion vectors are table-format state. They may change independently of the
     // data file path/mtime/size used by the external cache key, so caching their result can become
     // stale. Keep delete filtering enabled, but do not read or write condition cache.
@@ -1441,8 +1472,22 @@ Status TableReader::_init_reader_condition_cache(const FileScanRequest& file_req
     const auto cache_size = _condition_cache_source_range.has_value()
                                     ? _condition_cache_source_range->second
                                     : file.range_size;
+    auto cache_digest = _condition_cache_digest;
+    if (_format == FileFormat::PARQUET) {
+        const auto timezone = _get_int96_timezone_override(_scan_params);
+        if (timezone.has_value()) {
+            // A cached false granule is valid only under the same INT96 interpretation. The
+            // helper normalizes versioned omission to explicit empty; legacy absence keeps
+            // the session-based key. Do not mutate the predicate seed reused by later splits.
+            constexpr std::string_view contract_tag = "parquet-int96-timezone:";
+            cache_digest = HashUtil::xxHash64WithSeed(contract_tag.data(), contract_tag.size(),
+                                                      cache_digest);
+            cache_digest =
+                    HashUtil::xxHash64WithSeed(timezone->data(), timezone->size(), cache_digest);
+        }
+    }
     _condition_cache_key = segment_v2::ConditionCache::ExternalCacheKey(
-            file.path, file.mtime, file.file_size, _condition_cache_digest, cache_start, cache_size,
+            file.path, file.mtime, file.file_size, cache_digest, cache_start, cache_size,
             segment_v2::ConditionCache::ExternalCacheKey::BASE_GRANULE_AWARE_VERSION);
     _condition_cache_initialized = true;
 
@@ -1636,6 +1681,8 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
     const bool enable_mapping_varbinary = _scan_params != nullptr &&
                                           _scan_params->__isset.enable_mapping_varbinary &&
                                           _scan_params->enable_mapping_varbinary;
+    const std::optional<std::string> hive_parquet_time_zone =
+            _get_int96_timezone_override(_scan_params);
     if (_format == FileFormat::PARQUET) {
         // V2 must honor the scan contract directly; otherwise Hive STRING columns backed by an
         // unannotated BYTE_ARRAY are silently exposed as VARBINARY and predicate bytes no longer
@@ -1644,7 +1691,7 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
                 _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
                 _current_task->file_context, _current_task->format_split_id,
-                _current_task->format_split_id_end);
+                _current_task->format_split_id_end, hive_parquet_time_zone);
         return Status::OK();
     }
     if (_format == FileFormat::ORC) {

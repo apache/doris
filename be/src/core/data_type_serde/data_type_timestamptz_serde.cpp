@@ -56,8 +56,21 @@ Status decode_timestamp_tz_orc_values(IColumn& nested_column,
             continue;
         }
         auto& value = data[old_data_size + row];
-        value.from_unixtime(orc_batch->data[source_row], utc_time_zone);
-        value.set_microsecond(cast_set<uint64_t>(orc_batch->nanoseconds[source_row] / 1000));
+        orc_serde_utils::RoundedOrcTimestamp timestamp;
+        auto status = orc_serde_utils::round_orc_timestamp_to_microseconds(
+                orc_batch->data[source_row], orc_batch->nanoseconds[source_row], &timestamp);
+        if (!status.ok()) {
+            data.resize(old_data_size);
+            return status;
+        }
+        DateV2Value<DateTimeV2ValueType> datetime;
+        status = orc_serde_utils::orc_timestamp_to_datetime(
+                timestamp.seconds, timestamp.microseconds, utc_time_zone, false, &datetime);
+        if (!status.ok()) {
+            data.resize(old_data_size);
+            return status;
+        }
+        value = TimestampTzValue(datetime);
     }
     return Status::OK();
 }
@@ -492,6 +505,13 @@ Status DataTypeTimeStampTzSerDe::write_column_to_orc(const std::string& timezone
         int64_t timestamp = 0;
         col_data[row_id].unix_timestamp(&timestamp, UTC);
 
+        // ORC-645 increments this second to zero, making it indistinguishable from a
+        // positive instant. Reject it before the writer can silently corrupt the value.
+        if (timestamp == -1 && col_data[row_id].microsecond() >= 1000) {
+            return Status::NotSupported(
+                    "ORC cannot represent pre-epoch timestamp fractions in [-0.999, 0) seconds "
+                    "without data loss; use Parquet for these values");
+        }
         cur_batch->data[row_id] = timestamp;
         cur_batch->nanoseconds[row_id] = col_data[row_id].microsecond() * micro_to_nano_second;
     }

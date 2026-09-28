@@ -285,6 +285,9 @@ struct ColumnDefinition {
     // metadata. Iceberg uses an explicit false value to reject old files that are missing a
     // required field without an initial default.
     std::optional<bool> is_optional = std::nullopt;
+    // Logical timestamp semantic supplied by a table format when the physical encoding cannot
+    // carry it (for example, Paimon TIMESTAMP versus TIMESTAMP_LTZ stored as INT96).
+    std::optional<bool> timestamp_is_adjusted_to_utc = std::nullopt;
     // Partition columns are constants from split metadata and should not be matched against file
     // schema unless table-format logic explicitly asks for it.
     bool is_partition_key = false;
@@ -366,6 +369,7 @@ struct LocalColumnIndex {
     int32_t index = -1;
     bool project_all_children = true;
     std::vector<LocalColumnIndex> children {};
+    std::optional<bool> timestamp_is_adjusted_to_utc = std::nullopt;
 
     static LocalColumnIndex top_level(LocalColumnId column_id) {
         return {.index = column_id.value()};
@@ -420,20 +424,22 @@ inline bool is_child_projected(const LocalColumnIndex* projection, int32_t local
 
 // Merge two projection trees that point to the same file-local node.
 //
-// A full projection dominates a partial projection. Two partial projections are merged by child id
-// and recursively union their child paths. The caller must only merge projections for the same
-// root/child node.
+// A full projection dominates physical child selection. Children are still retained because table
+// formats can attach logical metadata, such as nested timestamp semantics, to those paths. Child
+// paths are merged by id recursively. The caller must only merge projections for the same node.
 inline Status merge_local_column_index(LocalColumnIndex* target, const LocalColumnIndex& source) {
     DORIS_CHECK(target != nullptr);
     DORIS_CHECK(target->index == source.index);
-    if (target->project_all_children) {
-        return Status::OK();
+    if (!target->timestamp_is_adjusted_to_utc.has_value()) {
+        target->timestamp_is_adjusted_to_utc = source.timestamp_is_adjusted_to_utc;
+    } else if (source.timestamp_is_adjusted_to_utc.has_value() &&
+               target->timestamp_is_adjusted_to_utc != source.timestamp_is_adjusted_to_utc) {
+        return Status::InvalidArgument("Conflicting timestamp semantics for file-local column {}",
+                                       target->index);
     }
-    if (source.project_all_children) {
-        target->project_all_children = true;
-        target->children.clear();
-        return Status::OK();
-    }
+    // Full projection controls physical selection only; discarding child metadata here can make a
+    // nested TIMESTAMP_LTZ column materialize as DATETIMEV2 and crash its timestamp SerDe.
+    target->project_all_children = target->project_all_children || source.project_all_children;
     for (const auto& source_child : source.children) {
         auto target_child_it = std::find_if(
                 target->children.begin(), target->children.end(),
