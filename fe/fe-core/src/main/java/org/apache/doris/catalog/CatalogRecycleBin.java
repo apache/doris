@@ -1004,6 +1004,19 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         return true;
     }
 
+    private static void restoreStoragePolicy(PartitionInfo partitionInfo, long partitionId,
+            String recycledStoragePolicy) {
+        DataProperty dataProperty = partitionInfo.getDataProperty(partitionId);
+        String resolved = recycledStoragePolicy;
+        if (Strings.isNullOrEmpty(resolved) && dataProperty != null) {
+            resolved = dataProperty.getStoragePolicy();
+        }
+        partitionInfo.setStoragePolicy(partitionId, resolved);
+        if (dataProperty != null) {
+            dataProperty.setStoragePolicy(resolved);
+        }
+    }
+
     public void recoverPartition(long dbId, OlapTable table, String partitionName,
             long partitionIdToRecover, String newPartitionName) throws DdlException {
         writeLock();
@@ -1096,11 +1109,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                         recoverPartitionInfo.getInvertedIndexFileStorageFormat());
             }
             if (recoverPartitionInfo.getStoragePolicy() != null) {
-                partitionInfo.setStoragePolicy(partitionId, recoverPartitionInfo.getStoragePolicy());
-                DataProperty dataProperty = partitionInfo.getDataProperty(partitionId);
-                if (dataProperty != null) {
-                    dataProperty.setStoragePolicy(recoverPartitionInfo.getStoragePolicy());
-                }
+                restoreStoragePolicy(partitionInfo, partitionId, recoverPartitionInfo.getStoragePolicy());
             }
 
             // remove from recycle bin
@@ -1173,11 +1182,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                             recyclePartitionInfo.getInvertedIndexFileStorageFormat());
                 }
                 if (recyclePartitionInfo.getStoragePolicy() != null) {
-                    partitionInfo.setStoragePolicy(partitionId, recyclePartitionInfo.getStoragePolicy());
-                    DataProperty dataProperty = partitionInfo.getDataProperty(partitionId);
-                    if (dataProperty != null) {
-                        dataProperty.setStoragePolicy(recyclePartitionInfo.getStoragePolicy());
-                    }
+                    restoreStoragePolicy(partitionInfo, partitionId, recyclePartitionInfo.getStoragePolicy());
                 }
 
                 iterator.remove();

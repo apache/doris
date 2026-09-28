@@ -588,6 +588,48 @@ public class CatalogRecycleBinTest extends TestWithFeService {
     }
 
     @Test
+    public void testRecoverPartitionDoesNotClobberStoragePolicyWhenRecycledPolicyIsEmpty() throws Exception {
+        CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
+
+        Database db = CatalogTestUtil.createSimpleDb(
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testPartitionId1,
+                CatalogTestUtil.testIndexId1,
+                CatalogTestUtil.testTabletId1,
+                CatalogTestUtil.testStartVersion
+            );
+        OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1).get();
+        Partition partition = olapTable.getPartition(CatalogTestUtil.testPartition1);
+
+        DataProperty dataProperty = new DataProperty(TStorageMedium.HDD);
+        dataProperty.setStoragePolicy("real_policy");
+
+        recycleBin.recyclePartition(
+                CatalogTestUtil.testDbId1,
+                CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testTable1,
+                partition,
+                null,
+                null,
+                dataProperty,
+                new ReplicaAllocation((short) 3),
+                false,
+                false,
+                TInvertedIndexFileStorageFormat.SNII,
+                ""
+        );
+
+        recycleBin.recoverPartition(CatalogTestUtil.testDbId1, olapTable, CatalogTestUtil.testPartition1, -1, null);
+
+        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+        Assertions.assertEquals("real_policy",
+                partitionInfo.getStoragePolicy(CatalogTestUtil.testPartitionId1));
+        Assertions.assertEquals("real_policy",
+                partitionInfo.getDataProperty(CatalogTestUtil.testPartitionId1).getStoragePolicy());
+    }
+
+    @Test
     public void testGetRecycleIds() {
         CatalogRecycleBin recycleBin = Env.getCurrentRecycleBin();
 
