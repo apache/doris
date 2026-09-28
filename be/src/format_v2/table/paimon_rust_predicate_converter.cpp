@@ -115,6 +115,8 @@ PaimonRustPredicateConverter::PaimonRustPredicateConverter(
 }
 
 paimon_predicate* PaimonRustPredicateConverter::build(const VExprContextSPtrs& conjuncts) {
+    _converted_conjuncts = 0;
+    _converted_runtime_filters = 0;
     if (_table == nullptr) {
         return nullptr;
     }
@@ -124,6 +126,7 @@ paimon_predicate* PaimonRustPredicateConverter::build(const VExprContextSPtrs& c
             continue;
         }
         auto root = conjunct->root();
+        const bool is_runtime_filter = root->is_rf_wrapper();
         if (root->is_rf_wrapper()) {
             if (auto impl = root->get_impl()) {
                 // A null-aware runtime filter (an EQ_FOR_NULL join) must stay
@@ -164,12 +167,16 @@ paimon_predicate* PaimonRustPredicateConverter::build(const VExprContextSPtrs& c
         if (!pred) {
             continue;
         }
+        ++_converted_conjuncts;
+        _converted_runtime_filters += is_runtime_filter;
         if (!result) {
             result = std::move(pred);
         } else {
             // and consumes both inputs regardless of success.
             result.reset(paimon_predicate_and(result.release(), pred.release()));
             if (!result) {
+                _converted_conjuncts = 0;
+                _converted_runtime_filters = 0;
                 return nullptr;
             }
         }
@@ -468,7 +475,7 @@ std::optional<PaimonRustPredicateConverter::FieldMeta> PaimonRustPredicateConver
         return std::nullopt;
     }
     const auto& [column, type] = it->second;
-    if (!_is_supported_slot_type(type->get_primitive_type(), type->get_precision())) {
+    if (!_is_supported_slot_type(type->get_primitive_type())) {
         return std::nullopt;
     }
     return FieldMeta {column, type};
@@ -790,39 +797,36 @@ bool PaimonRustPredicateConverter::_is_datetime_type(PrimitiveType type) {
     return type == TYPE_DATETIME || type == TYPE_DATETIMEV2;
 }
 
-bool PaimonRustPredicateConverter::_is_supported_slot_type(PrimitiveType type, uint32_t precision) {
+bool PaimonRustPredicateConverter::_is_supported_slot_type(PrimitiveType type) {
     switch (type) {
     case TYPE_BOOLEAN:
     case TYPE_TINYINT:
     case TYPE_SMALLINT:
     case TYPE_INT:
     case TYPE_BIGINT:
-    case TYPE_VARCHAR:
     case TYPE_STRING:
     case TYPE_DATE:
     case TYPE_DATEV2:
+        return true;
+    case TYPE_VARCHAR:
     case TYPE_DATETIME:
     case TYPE_DATETIMEV2:
-        return true;
     case TYPE_DECIMALV2:
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
     case TYPE_DECIMAL128I:
     case TYPE_DECIMAL256:
-        // precision == 0 means "unset"; only a positive precision above the
-        // paimon ceiling is unrepresentable.
-        return precision <= static_cast<uint32_t>(kPaimonDecimalMaxPrecision);
-    case TYPE_DOUBLE:
-        // Doris defines NaN as equal to itself and greater than every finite
-        // value, but the pinned rust evaluator compares doubles with
-        // f64::partial_cmp (IEEE partial ordering: NaN unordered, NaN != NaN).
-        // A pushed `d > 1.0` would drop a stored NaN row Doris retains, and a
-        // pushed IN (NaN) runtime filter would reject it, and rows pruned by
-        // the rust filter cannot be recovered by the residual. Skip DOUBLE
-        // pushdown entirely until the rust evaluator matches Doris total
-        // ordering; TYPE_FLOAT is rejected below for the same reason.
+        // Rust filters files/statistics before reconciling them to the current
+        // schema. The slot cannot prove that historical VARCHAR bounds/decimal
+        // scales or source timestamp precision match Doris. A current-domain IN
+        // member could reject a row that truncation/rescaling would make equal.
+        // Keep these predicates residual until per-file equivalence is known.
         return false;
+    case TYPE_DOUBLE:
     case TYPE_FLOAT:
+        // Rust uses IEEE partial ordering; Doris orders NaN above finite values
+        // and equal to itself. Pruned NaN rows cannot be restored by a residual.
+        return false;
     case TYPE_CHAR:
     default:
         return false;

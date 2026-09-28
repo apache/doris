@@ -32,6 +32,8 @@
 // timer group), and the join leg forces an IN runtime filter
 // (runtime_filter_type=1 + runtime_filter_wait_infinitely) that must be
 // planned onto the probe scan and arrive before the split opens.
+import org.apache.doris.regression.action.ProfileAction
+
 suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -44,7 +46,7 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
 
-    // Table is created via Spark because Doris does not support Paimon DDL.
+    // Use Spark to prepare the timestamp and nested-schema fixtures.
     // Both columns stay nullable: `a <=> b` survives FE's NullSafeEqualToEqual
     // rewrite (which only fires when one side is non-nullable / a NULL literal)
     // precisely when both sides are nullable.
@@ -59,11 +61,9 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
     // plan-time pushed-down timestamp predicates to 3 fractional digits, so a
     // 6-digit literal would reach the readers truncated to milliseconds and
     // the exact residual conjunct would then drop every row it kept — for the
-    // JNI, rust and native readers alike. The rust predicate converter's
-    // sub-millisecond preservation (paimon_datum int_val2 / nanos) is covered
-    // by the PaimonRustPredicateConverterTest unit tests; this suite exercises
-    // the full equality and runtime-filter-join pushdown chains with the
-    // precision the plan can actually deliver.
+    // JNI, Rust and native readers alike. Literal conversion in the BE retains
+    // microseconds, but timestamp predicates remain
+    // residual because a DATETIMEV2 slot cannot reveal source nanosecond precision.
     // ---- NaN differential on DOUBLE (total-ordering semantics) ----
     // t_nan is created below: Doris defines NaN as equal to itself and
     // greater than every finite value, but the pinned rust evaluator compares
@@ -98,6 +98,17 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
         INSERT INTO paimon.${dbName}.t_frac_ts_dim VALUES
             (1, TIMESTAMP '2024-01-01 00:00:00.123456'),
             (2, TIMESTAMP '2024-01-02 00:00:00.999999');
+
+        DROP TABLE IF EXISTS paimon.${dbName}.t_narrowed;
+        CREATE TABLE paimon.${dbName}.t_narrowed (
+            id INT, v VARCHAR(10), amount DECIMAL(10,3)
+        ) USING paimon TBLPROPERTIES ('file.format' = 'parquet');
+        INSERT INTO paimon.${dbName}.t_narrowed VALUES (1, 'abcdef', 1.234), (2, 'xyzuvw', 2.345);
+        DROP TABLE IF EXISTS paimon.${dbName}.t_narrowed_dim;
+        CREATE TABLE paimon.${dbName}.t_narrowed_dim (
+            v VARCHAR(3), amount DECIMAL(10,2)
+        ) USING paimon;
+        INSERT INTO paimon.${dbName}.t_narrowed_dim VALUES ('abc', 1.23);
 
         DROP TABLE IF EXISTS paimon.${dbName}.t_nan;
         CREATE TABLE paimon.${dbName}.t_nan (
@@ -167,6 +178,10 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
     try {
         sql """switch ${catalogName}"""
         sql """use ${dbName}"""
+        // Spark rejects narrowing in its analyzer. Doris forwards these explicit
+        // casts to Paimon and publishes a new schema without rewriting old files.
+        sql "ALTER TABLE t_narrowed MODIFY COLUMN v VARCHAR(3) NULL"
+        sql "ALTER TABLE t_narrowed MODIFY COLUMN amount DECIMAL(10,2) NULL"
         sql """set enable_file_scanner_v2=true"""
         // These tables are parquet append tables, whose DataSplits convert to
         // raw native splits; without forcing, getSplits() would hand both legs
@@ -180,23 +195,17 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
         // TRuntimeFilterType.IN == 1: force the IN runtime-filter shape.
         sql """set runtime_filter_type=1"""
 
-        // Runs one query and returns its profile text via the FE REST API
-        // (`show query profile "/<id>"` only lists profiles in this version).
-        // The profile is finalized asynchronously after the query returns, so
-        // retry briefly until the endpoint serves the finished body.
+        // Reuse the framework's profile readiness polling and configured HTTP credentials.
+        def profileAction = new ProfileAction(context)
         def profileTextOf = { String query ->
             sql(query)
             def queryId = sql("select last_query_id()")[0][0]
-            for (int i = 0; i < 10; i++) {
-                def (code, out, err) = curl("GET",
-                        "http://${context.config.feHttpAddress}/rest/v1/query_profile/text/${queryId}",
-                        null, 30, "root", "")
-                if (code == 0 && out.contains("FileScannerV2")) {
-                    return out
-                }
-                Thread.sleep(1000)
-            }
-            throw new Exception("profile not available for query ${queryId}")
+            profileAction.getProfile(queryId.toString(), ["FileScannerV2"])
+        }
+        def counterValues = { String profile, String name ->
+            def matches = (profile =~ /${name}: ([0-9]+)/).collect { it[1] as long }
+            assertFalse(matches.isEmpty(), "missing ${name} in profile")
+            matches
         }
 
         // The join must generate an IN runtime filter onto the probe ts. The
@@ -310,7 +319,7 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
                  [3, '{"a":30, "b":"z", "c":33}']]
         ]
         // Representative converter query reused for the reader-path checks.
-        String pushdownQuery = testQueries[3]
+        String pushdownQuery = "select * from t_eq_null where a = 1 order by a, b"
 
         sql """set enable_paimon_rust_reader=false"""
         def jniResults = testQueries.collect { query -> sql(query) }
@@ -326,11 +335,28 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
         def rustProfile = profileTextOf(pushdownQuery)
         assertTrue(rustProfile.contains("PaimonRustReader"),
                 "rust leg must use the rust reader (profile timer missing)")
-        // Same for the join leg: the IN runtime filter is applied before the
-        // split opens and flows through the rust converter.
+        assertTrue(counterValues(rustProfile, "RustPredicatesInput").any { it > 0 })
+        assertTrue(counterValues(rustProfile, "RustPredicatesConverted").any { it > 0 })
+        assertTrue(counterValues(rustProfile, "RustPredicatesApplied").any { it > 0 })
+        // Use integer keys for the positive RF control; timestamp keys remain
+        // residual until source precision equivalence can be established.
+        String positiveJoin = """select p.id from t_frac_ts p join
+                (select id from t_frac_ts_dim limit 10) d on p.id = d.id order by p.id"""
+        def positiveExplain = sql("explain verbose " + positiveJoin).flatten().join("\n")
+        assertTrue(positiveExplain.contains("runtime filters") && positiveExplain.contains("[in]"))
+        def positiveJoinProfile = profileTextOf(positiveJoin)
+        assertTrue(positiveJoinProfile.contains("PaimonRustReader"))
+        assertTrue(counterValues(positiveJoinProfile, "RustRuntimeFiltersApplied").any { it > 0 },
+                "the waited-for integer IN filter must actually reach Rust")
         def rustJoinProfile = profileTextOf(testQueries[4])
-        assertTrue(rustJoinProfile.contains("PaimonRustReader"),
-                "rust join leg must use the rust reader (profile timer missing)")
+        assertTrue(rustJoinProfile.contains("PaimonRustReader"))
+        assertTrue(counterValues(rustJoinProfile, "RustRuntimeFiltersApplied").every { it == 0 },
+                "timestamp runtime filters must remain residual")
+        def unsupportedProfile = profileTextOf("select id from t_nan where d > 1.0 order by id")
+        assertTrue(unsupportedProfile.contains("PaimonRustReader"))
+        assertTrue(counterValues(unsupportedProfile, "RustPredicatesInput").any { it > 0 })
+        assertTrue(counterValues(unsupportedProfile, "RustPredicatesApplied").every { it == 0 },
+                "unsupported predicates must not be counted as applied")
         // Same for the null-safe join leg: its differential only means
         // something when the rust reader actually scanned the probe table.
         def rustNullAwareJoinProfile = profileTextOf(testQueries[5])
@@ -362,6 +388,35 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
             // And both must be right, not just mutually consistent: the
             // (1, 1) row is exactly what a wrongly pushed `a IS NULL` drops.
             assertEquals(expectedResults[i].toString(), rustResults[i].toString())
+        }
+
+        // Runtime filters are built from current-domain values. Historical file
+        // values/statistics must not reject them before schema reconciliation.
+        def lossyJoins = [
+                """select p.id from t_narrowed p join
+                    (select v from t_narrowed_dim limit 10) d on p.v = d.v order by p.id""",
+                """select p.id from t_narrowed p join
+                    (select amount from t_narrowed_dim limit 10) d on p.amount = d.amount order by p.id""",
+                // This fixture is written by Flink with real nanoseconds; Spark
+                // TIMESTAMP_NTZ only supports microseconds and cannot cover it.
+                """select p.id from flink_paimon.ts_scale_parquet p join
+                    (select ts9 from flink_paimon.ts_scale_parquet limit 10) d
+                    on p.ts9 = d.ts9 order by p.id"""
+        ]
+        for (String query : lossyJoins) {
+            def plan = sql("explain verbose " + query).flatten().join("\n")
+            assertTrue(plan.contains("runtime filters") && plan.contains("[in]"))
+            sql "set enable_paimon_rust_reader=false"
+            def expected = sql(query)
+            assertFalse(expected.isEmpty())
+            sql "set enable_paimon_rust_reader=true"
+            assertEquals(expected.toString(), sql(query).toString())
+            def profile = profileTextOf(query)
+            assertTrue(profile.contains("PaimonRustReader"))
+            assertTrue(counterValues(profile, "RustRuntimeFiltersInput").any { it > 0 },
+                    "the IN filter must arrive before opening the Rust split")
+            assertTrue(counterValues(profile, "RustRuntimeFiltersApplied").every { it == 0 },
+                    "lossy-domain runtime filters must stay residual")
         }
 
         // ---- TIMESTAMP_LTZ materializes as session-local civil times ----

@@ -24,6 +24,8 @@
 // schema evolution can null-fill it — the JNI reader (which keeps the resolved
 // schema) succeeds. Both readers must return the historical rows with the added
 // column NULL-filled.
+import org.apache.doris.regression.action.ProfileAction
+
 suite("test_paimon_rust_reader_schema_evolution", "p0,external,paimon") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -60,8 +62,17 @@ suite("test_paimon_rust_reader_schema_evolution", "p0,external,paimon") {
     def originalRust = sql("select @@enable_paimon_rust_reader")[0][0]
     def originalForceJni = sql("select @@force_jni_scanner")[0][0]
     def originalV2 = sql("select @@enable_file_scanner_v2")[0][0]
+    def originalEnableProfile = sql("select @@enable_profile")[0][0]
 
     try {
+        sql "set enable_profile=true"
+        def profileAction = new ProfileAction(context)
+        def profileTextOf = { String query ->
+            sql(query)
+            def queryId = sql("select last_query_id()")[0][0]
+            profileAction.getProfile(queryId.toString(), ["FileScannerV2"])
+        }
+
         sql """
             CREATE TABLE `${tableName}` (
                 id INT NOT NULL,
@@ -95,9 +106,13 @@ suite("test_paimon_rust_reader_schema_evolution", "p0,external,paimon") {
         // Baseline through the JNI reader, which keeps the resolved schema.
         sql """SET enable_paimon_rust_reader=false"""
         def jniResults = testQueries.collect { query -> sql(query) }
+        assertFalse(profileTextOf(testQueries[0]).contains("PaimonRustReader"))
 
         sql """SET enable_paimon_rust_reader=true"""
         def rustResults = testQueries.collect { query -> sql(query) }
+        // Equal rows are insufficient: an eligibility fallback can run JNI in both legs.
+        assertTrue(profileTextOf(testQueries[0]).contains("PaimonRustReader"),
+                "enabled leg must reach the FileScannerV2 Rust reader")
 
         assertTrue(rustResults[0].size() > 0)
         for (int i = 0; i < testQueries.size(); i++) {
@@ -109,6 +124,7 @@ suite("test_paimon_rust_reader_schema_evolution", "p0,external,paimon") {
         assertTrue(rustResults[0].every { row -> row[2] == null })
         assertEquals(2, rustResults[2][0][0])
     } finally {
+        sql "set enable_profile=${originalEnableProfile}"
         sql """SET enable_paimon_rust_reader=${originalRust}"""
         sql """SET force_jni_scanner=${originalForceJni}"""
         sql """SET enable_file_scanner_v2=${originalV2}"""

@@ -228,6 +228,14 @@ VExprSPtr decimal_literal(int64_t integer, int64_t fraction) {
             Field::create_field<TYPE_DECIMAL64>(Decimal64::from_int_frac(integer, fraction, 2)));
 }
 
+VExprSPtr runtime_in_filter(VExprSPtr predicate) {
+    TExprNode node;
+    node.__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+    node.__set_node_type(TExprNodeType::IN_PRED);
+    node.__set_is_nullable(true);
+    return RuntimeFilterExpr::create_shared(node, std::move(predicate), 0.0, false, 1);
+}
+
 // A DOUBLE column type.
 const DataTypePtr& double_type() {
     static const auto type = make_nullable(std::make_shared<DataTypeFloat64>());
@@ -481,12 +489,15 @@ TEST_F(PaimonRustPredicateConverterTest, TimestampV2MaxFractionIsPreserved) {
     EXPECT_EQ(holder->datum.int_val2, 999000);
 }
 
-TEST_F(PaimonRustPredicateConverterTest, TimestampV2FractionalEqualityIsPushed) {
-    // The full build path accepts a fractional timestamp literal; the value it
-    // pushes now matches the conjunct exactly (see the datum tests above).
+TEST_F(PaimonRustPredicateConverterTest, TimestampPredicatesWithoutSourcePrecisionStayResidual) {
+    // A DATETIMEV2 slot does not reveal whether its source was TIMESTAMP(9).
     auto predicate =
             push(TExprOpcode::EQ, slot_ref("ts", datetimev2_type()), datetimev2_literal(123456));
-    EXPECT_NE(predicate.get(), nullptr);
+    EXPECT_EQ(predicate.get(), nullptr);
+    EXPECT_EQ(push_expr(runtime_in_filter(in_predicate(false, {slot_ref("ts", datetimev2_type()),
+                                                               datetimev2_literal(123456)})))
+                      .get(),
+              nullptr);
 }
 
 // ---- casted operands are rejected, mirroring the FE converter ----
@@ -515,12 +526,15 @@ TEST_F(PaimonRustPredicateConverterTest, DecimalScaleCastColumnIsNotPushed) {
     EXPECT_EQ(push(TExprOpcode::EQ, std::move(casted), decimal_literal(1, 2)).get(), nullptr);
 }
 
-TEST_F(PaimonRustPredicateConverterTest, DecimalLiteralEqIsPushed) {
-    // Positive control: the same decimal literal converts against the uncast
-    // column, so the rejection above comes from the cast, not decimal support.
+TEST_F(PaimonRustPredicateConverterTest, DecimalPredicatesWithoutFileScaleStayResidual) {
+    // Historical file statistics may still have a larger scale than this slot.
     auto predicate =
             push(TExprOpcode::EQ, slot_ref("amount", decimal_type()), decimal_literal(1, 24));
-    EXPECT_NE(predicate.get(), nullptr);
+    EXPECT_EQ(predicate.get(), nullptr);
+    EXPECT_EQ(push_expr(runtime_in_filter(in_predicate(false, {slot_ref("amount", decimal_type()),
+                                                               decimal_literal(1, 23)})))
+                      .get(),
+              nullptr);
 }
 
 TEST_F(PaimonRustPredicateConverterTest, SingleCastLiteralRhsIsNotPushed) {
@@ -614,6 +628,33 @@ TEST_F(PaimonRustPredicateConverterTest, LikeWithNonDefaultEscapeIsNotPushed) {
                                    std::move(casted_escape)}))
                       .get(),
               nullptr);
+}
+
+TEST_F(PaimonRustPredicateConverterTest, BoundedStringPredicatesStayResidual) {
+    // An old physical value can be longer than the current VARCHAR bound.
+    auto bounded = make_nullable(std::make_shared<DataTypeString>(3, TYPE_VARCHAR));
+    _column_types.back() = bounded;
+    EXPECT_EQ(push(TExprOpcode::EQ, slot_ref("s", bounded), string_literal("abc")).get(), nullptr);
+    EXPECT_EQ(push_expr(runtime_in_filter(in_predicate(
+                                false, {slot_ref("s", bounded), string_literal("abc")})))
+                      .get(),
+              nullptr);
+}
+
+TEST_F(PaimonRustPredicateConverterTest, ConversionCountersExcludeResidualsAndReset) {
+    auto rf = runtime_in_filter(in_predicate(false, {slot_ref("a"), int_literal(1)}));
+    auto timestamp =
+            in_predicate(false, {slot_ref("ts", datetimev2_type()), datetimev2_literal(123456)});
+    PaimonRustPredicateConverter converter(_column_names, _column_types, _table.get());
+    predicate_ptr predicate(converter.build(
+            {VExprContext::create_shared(rf), VExprContext::create_shared(timestamp)}));
+    ASSERT_NE(predicate.get(), nullptr);
+    EXPECT_EQ(converter.converted_conjuncts(), 1);
+    EXPECT_EQ(converter.converted_runtime_filters(), 1);
+    predicate.reset(converter.build({VExprContext::create_shared(timestamp)}));
+    EXPECT_EQ(predicate.get(), nullptr);
+    EXPECT_EQ(converter.converted_conjuncts(), 0);
+    EXPECT_EQ(converter.converted_runtime_filters(), 0);
 }
 
 } // namespace doris

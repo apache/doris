@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -81,6 +82,10 @@ public:
     // nullptr when nothing can be pushed down.
     paimon_predicate* build(const VExprContextSPtrs& conjuncts);
 
+    // Counts top-level conjuncts in the returned filter, not its internal nodes.
+    size_t converted_conjuncts() const { return _converted_conjuncts; }
+    size_t converted_runtime_filters() const { return _converted_runtime_filters; }
+
 private:
     struct FieldMeta {
         // Original file column name passed verbatim to the paimon_predicate_*
@@ -131,13 +136,15 @@ private:
     static bool _is_decimal_type(PrimitiveType type);
     static bool _is_date_type(PrimitiveType type);
     static bool _is_datetime_type(PrimitiveType type);
-    // Whether a slot of this type can be represented as a paimon_datum (mirrors
-    // the type coverage of paimon-cpp's _to_paimon_field_type).
-    static bool _is_supported_slot_type(PrimitiveType type, uint32_t precision);
+    // Only push types whose file and Doris comparison domains are equivalent
+    // without per-file schema bounds, scale, or timestamp precision metadata.
+    static bool _is_supported_slot_type(PrimitiveType type);
 
     std::unordered_map<std::string, std::pair<std::string, DataTypePtr>> _columns_by_name;
     const paimon_table* _table = nullptr;
     cctz::time_zone _utc_tz;
+    size_t _converted_conjuncts = 0;
+    size_t _converted_runtime_filters = 0;
 
 #ifdef BE_TEST
     // Exposed for unit tests so they can inspect the converted paimon_datum

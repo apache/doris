@@ -18,6 +18,8 @@
 // Paimon rust reader under FileScannerV2: enable_paimon_rust_reader=true must work with
 // the default enable_file_scanner_v2=true (before the v2 port, a rust split was rejected by
 // FileScannerV2::is_supported and the reader was only reachable with v2 disabled).
+import org.apache.doris.regression.action.ProfileAction
+
 suite("test_paimon_rust_reader_v2", "p0,external") {
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -36,8 +38,17 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
     // declare the captures outside the try for the same reason).
     def originalForceJni = sql("select @@force_jni_scanner")[0][0]
     def originalV2 = sql("select @@enable_file_scanner_v2")[0][0]
+    def originalEnableProfile = sql("select @@enable_profile")[0][0]
 
     try {
+        sql "set enable_profile=true"
+        def profileAction = new ProfileAction(context)
+        def profileTextOf = { String query ->
+            sql(query)
+            def queryId = sql("select last_query_id()")[0][0]
+            profileAction.getProfile(queryId.toString(), ["FileScannerV2"])
+        }
+
         sql """drop catalog if exists ${catalogName}"""
         sql """create catalog if not exists ${catalogName} properties (
             "type" = "paimon",
@@ -88,9 +99,13 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
         // Default path is JNI when enable_paimon_rust_reader=false.
         sql """set enable_paimon_rust_reader=false"""
         def jniResults = testQueries.collect { query -> sql(query) }
+        assertFalse(profileTextOf(testQueries[0]).contains("PaimonRustReader"))
 
         sql """set enable_paimon_rust_reader=true"""
         def rustResults = testQueries.collect { query -> sql(query) }
+        // Equal rows are insufficient: an eligibility fallback can run JNI in both legs.
+        assertTrue(profileTextOf(testQueries[0]).contains("PaimonRustReader"),
+                "enabled leg must reach the FileScannerV2 Rust reader")
 
         assertTrue(rustResults[0].size() > 0)
         for (int i = 0; i < testQueries.size(); i++) {
@@ -106,6 +121,7 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
             assertEquals(jniResults[i].toString(), v1RustResults[i].toString())
         }
     } finally {
+        sql "set enable_profile=${originalEnableProfile}"
         sql """set enable_paimon_rust_reader=false"""
         sql """set force_jni_scanner=${originalForceJni}"""
         sql """set enable_file_scanner_v2=${originalV2}"""

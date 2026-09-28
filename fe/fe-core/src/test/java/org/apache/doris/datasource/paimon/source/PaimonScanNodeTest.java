@@ -66,7 +66,6 @@ import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.paimon.CoreOptions;
-import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.fs.FileIO;
@@ -77,6 +76,7 @@ import org.apache.paimon.io.DataOutputSerializer;
 import org.apache.paimon.manifest.FileSource;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.predicate.PredicateBuilder;
+import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.stats.SimpleStats;
 import org.apache.paimon.table.AppendOnlyFileStoreTable;
@@ -1874,6 +1874,8 @@ public class PaimonScanNodeTest {
             PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
             Mockito.when(source.getExternalTable()).thenReturn(externalTable);
             Mockito.when(source.getTableLocation()).thenReturn("s3://warehouse/wh/db.db/t");
+            setField(PaimonScanNode.class, node, "backendStorageProperties",
+                    ImmutableMap.of("AWS_ACCESS_KEY", "example-key", "AWS_SECRET_KEY", "example-secret"));
             Mockito.when(externalTable.getDbName()).thenReturn("db");
             Mockito.when(externalTable.getName()).thenReturn("t");
             node.setSource(source);
@@ -1919,6 +1921,8 @@ public class PaimonScanNodeTest {
         PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
         Mockito.when(source.getExternalTable()).thenReturn(externalTable);
         Mockito.when(source.getTableLocation()).thenReturn("s3://warehouse/wh/db.db/t");
+        setField(PaimonScanNode.class, node, "backendStorageProperties",
+                ImmutableMap.of("AWS_ACCESS_KEY", "example-key", "AWS_SECRET_KEY", "example-secret"));
         Mockito.when(externalTable.getDbName()).thenReturn("db");
         Mockito.when(externalTable.getName()).thenReturn("t");
         node.setSource(source);
@@ -1982,6 +1986,8 @@ public class PaimonScanNodeTest {
             PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
             Mockito.when(source.getExternalTable()).thenReturn(externalTable);
             Mockito.when(source.getTableLocation()).thenReturn("s3://warehouse/wh/db.db/t");
+            setField(PaimonScanNode.class, node, "backendStorageProperties",
+                    ImmutableMap.of("AWS_ACCESS_KEY", "example-key", "AWS_SECRET_KEY", "example-secret"));
             Mockito.when(externalTable.getDbName()).thenReturn("db");
             Mockito.when(externalTable.getName()).thenReturn("t");
             node.setSource(source);
@@ -2392,6 +2398,8 @@ public class PaimonScanNodeTest {
         PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
         Mockito.when(okSource.getExternalTable()).thenReturn(externalTable);
         Mockito.when(okSource.getTableLocation()).thenReturn("s3://warehouse/wh/db.db/t");
+        setField(PaimonScanNode.class, okNode, "backendStorageProperties",
+                ImmutableMap.of("AWS_ACCESS_KEY", "example-key", "AWS_SECRET_KEY", "example-secret"));
         Mockito.when(externalTable.getDbName()).thenReturn("db");
         Mockito.when(externalTable.getName()).thenReturn("t");
         okNode.setSource(okSource);
@@ -2483,6 +2491,8 @@ public class PaimonScanNodeTest {
         PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
         Mockito.lenient().when(source.getExternalTable()).thenReturn(externalTable);
         Mockito.when(source.getTableLocation()).thenReturn("s3://warehouse/wh/db.db/t");
+        setField(PaimonScanNode.class, node, "backendStorageProperties",
+                ImmutableMap.of("AWS_ACCESS_KEY", "example-key", "AWS_SECRET_KEY", "example-secret"));
         Mockito.lenient().when(externalTable.getDbName()).thenReturn("db");
         Mockito.lenient().when(externalTable.getName()).thenReturn("t");
         node.setSource(source);
@@ -2724,6 +2734,8 @@ public class PaimonScanNodeTest {
             PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
             Mockito.when(source.getExternalTable()).thenReturn(externalTable);
             Mockito.when(source.getTableLocation()).thenReturn("s3://warehouse/wh/db.db/t");
+            setField(PaimonScanNode.class, node, "backendStorageProperties",
+                    ImmutableMap.of("AWS_ACCESS_KEY", "example-key", "AWS_SECRET_KEY", "example-secret"));
             Mockito.when(externalTable.getDbName()).thenReturn("db");
             Mockito.when(externalTable.getName()).thenReturn("t");
             node.setSource(source);
@@ -2876,6 +2888,8 @@ public class PaimonScanNodeTest {
             PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
             Mockito.when(source.getExternalTable()).thenReturn(externalTable);
             Mockito.when(source.getTableLocation()).thenReturn("s3://warehouse/wh/db.db/t");
+            setField(PaimonScanNode.class, node, "backendStorageProperties",
+                    ImmutableMap.of("AWS_ACCESS_KEY", "example-key", "AWS_SECRET_KEY", "example-secret"));
             Mockito.when(externalTable.getDbName()).thenReturn("db");
             Mockito.when(externalTable.getName()).thenReturn("t");
             node.setSource(source);
@@ -2917,6 +2931,8 @@ public class PaimonScanNodeTest {
         PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
         Mockito.when(source.getExternalTable()).thenReturn(externalTable);
         Mockito.when(source.getTableLocation()).thenReturn("s3://warehouse/wh/db.db/t");
+        setField(PaimonScanNode.class, node, "backendStorageProperties",
+                ImmutableMap.of("AWS_ACCESS_KEY", "example-key", "AWS_SECRET_KEY", "example-secret"));
         Mockito.when(externalTable.getDbName()).thenReturn("db");
         Mockito.when(externalTable.getName()).thenReturn("t");
         node.setSource(source);
@@ -3000,16 +3016,16 @@ public class PaimonScanNodeTest {
     }
 
     @Test
-    public void testRustReaderSelectionAcceptsAnonymousAndDefaultProviderModes() throws Exception {
-        // ANONYMOUS and DEFAULT are translatable by the rust S3 bridge
-        // (s3.anonymous / static credentials), so the rust reader stays
-        // eligible for them. ANONYMOUS on an oss:// warehouse is the
-        // exception: the rust OSS FileIO parser has no skip-signature
-        // switch, so those catalogs fall back to JNI.
+    public void testRustReaderSelectionRequiresExplicitS3Credentials() throws Exception {
+        // DEFAULT without static keys may use JVM-only credentials or anonymous fallback.
         for (String[] shape : new String[][] {
-                {"ANONYMOUS", "s3://warehouse/wh", "PAIMON_RUST"},
-                {"DEFAULT", "s3://warehouse/wh", "PAIMON_RUST"},
-                {"ANONYMOUS", "oss://warehouse/wh", "PAIMON_JNI"}}) {
+                {"ANONYMOUS", "s3://warehouse/wh", "PAIMON_RUST", "", ""},
+                {"DEFAULT", "s3://warehouse/wh", "PAIMON_JNI", "", ""},
+                {"DEFAULT", "s3a://warehouse/wh", "PAIMON_JNI", "example-key", ""},
+                {"DEFAULT", "s3://warehouse/wh", "PAIMON_JNI", " ", " "},
+                {"DEFAULT", "s3://warehouse/wh", "PAIMON_RUST", "example-key", "example-secret"},
+                {"", "s3://warehouse/wh", "PAIMON_JNI", "", ""},
+                {"ANONYMOUS", "oss://warehouse/wh", "PAIMON_JNI", "", ""}}) {
             String mode = shape[0];
             String location = shape[1];
             TPaimonReaderType expected =
@@ -3024,21 +3040,20 @@ public class PaimonScanNodeTest {
             Mockito.when(source.getTableLocation()).thenReturn(location);
             FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
             PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
-            if (expected == TPaimonReaderType.PAIMON_RUST) {
-                // Only the rust path serializes the schema and the table
-                // identity; the JNI iterations must not leave unused stubs.
-                Mockito.when(source.getExternalTable()).thenReturn(externalTable);
-                Mockito.when(paimonTable.schema()).thenReturn(new TableSchema(
-                        0, Collections.singletonList(new DataField(0, "id", new IntType())),
-                        0, Collections.emptyList(), Collections.emptyList(),
-                        Collections.emptyMap(), null));
-                Mockito.when(externalTable.getDbName()).thenReturn("db");
-                Mockito.when(externalTable.getName()).thenReturn("t");
-            }
+            // Supply both paths so an incorrect Rust selection fails the
+            // reader-type assertion rather than unrelated schema setup.
+            Mockito.lenient().when(source.getExternalTable()).thenReturn(externalTable);
+            Mockito.lenient().when(paimonTable.schema()).thenReturn(new TableSchema(
+                    0, Collections.singletonList(new DataField(0, "id", new IntType())),
+                    0, Collections.emptyList(), Collections.emptyList(),
+                    Collections.emptyMap(), null));
+            Mockito.lenient().when(externalTable.getDbName()).thenReturn("db");
+            Mockito.lenient().when(externalTable.getName()).thenReturn("t");
             node.setSource(source);
             setField(PaimonScanNode.class, node, "processedTable", paimonTable);
             setField(PaimonScanNode.class, node, "backendStorageProperties",
-                    ImmutableMap.of("AWS_CREDENTIALS_PROVIDER_TYPE", mode));
+                    ImmutableMap.of("AWS_CREDENTIALS_PROVIDER_TYPE", mode,
+                            "AWS_ACCESS_KEY", shape[3], "AWS_SECRET_KEY", shape[4]));
 
             TFileRangeDesc rangeDesc = new TFileRangeDesc();
             invokePrivateMethod(node, "setPaimonParams",

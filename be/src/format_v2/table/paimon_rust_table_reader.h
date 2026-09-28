@@ -175,6 +175,11 @@ private:
 
     // Profile counters under the "PaimonRustReader" profile group
     // (file_scan_profile::TABLE_READER parent, mirroring JniTableReader).
+    RuntimeProfile::Counter* _rust_predicates_input = nullptr;
+    RuntimeProfile::Counter* _rust_predicates_converted = nullptr;
+    RuntimeProfile::Counter* _rust_predicates_applied = nullptr;
+    RuntimeProfile::Counter* _rust_runtime_filters_input = nullptr;
+    RuntimeProfile::Counter* _rust_runtime_filters_applied = nullptr;
     RuntimeProfile::Counter* _rust_total_time = nullptr;
     RuntimeProfile::Counter* _rust_open_split_time = nullptr;
     RuntimeProfile::Counter* _rust_read_batch_time = nullptr;

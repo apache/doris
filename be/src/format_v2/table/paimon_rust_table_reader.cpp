@@ -175,6 +175,16 @@ Status PaimonRustTableReader::init(format::TableReadOptions&& options) {
                     ADD_CHILD_TIMER(_scanner_profile, "ReadBatchTime", "PaimonRustReader");
             _rust_arrow_to_block_time =
                     ADD_CHILD_TIMER(_scanner_profile, "ArrowToBlockTime", "PaimonRustReader");
+            _rust_predicates_input = ADD_CHILD_COUNTER(_scanner_profile, "RustPredicatesInput",
+                                                       TUnit::UNIT, "PaimonRustReader");
+            _rust_predicates_converted = ADD_CHILD_COUNTER(
+                    _scanner_profile, "RustPredicatesConverted", TUnit::UNIT, "PaimonRustReader");
+            _rust_predicates_applied = ADD_CHILD_COUNTER(_scanner_profile, "RustPredicatesApplied",
+                                                         TUnit::UNIT, "PaimonRustReader");
+            _rust_runtime_filters_input = ADD_CHILD_COUNTER(
+                    _scanner_profile, "RustRuntimeFiltersInput", TUnit::UNIT, "PaimonRustReader");
+            _rust_runtime_filters_applied = ADD_CHILD_COUNTER(
+                    _scanner_profile, "RustRuntimeFiltersApplied", TUnit::UNIT, "PaimonRustReader");
         }
         // Projected column name -> fixed output position, registered with both the exact and
         // the lower-case spelling so mixed-case Rust schema output still resolves (v1
@@ -515,6 +525,14 @@ Status PaimonRustTableReader::_apply_predicate() {
     if (_conjuncts.empty() || !_handles || !_handles->table || !_handles->read_builder) {
         return Status::OK();
     }
+    if (_scanner_profile != nullptr) {
+        COUNTER_UPDATE(_rust_predicates_input, _conjuncts.size());
+        for (const auto& conjunct : _conjuncts) {
+            if (conjunct && conjunct->root() && conjunct->root()->is_rf_wrapper()) {
+                COUNTER_UPDATE(_rust_runtime_filters_input, 1);
+            }
+        }
+    }
     LOG(INFO) << "paimon-rust predicate pushdown: " << _conjuncts.size() << " conjunct(s) input";
     // The conjunct VSlotRefs carry table global indices (positions), so the v2
     // converter mode resolves fields by the projected column names; partition
@@ -532,6 +550,9 @@ Status PaimonRustTableReader::_apply_predicate() {
     }
     PaimonRustPredicateConverter converter(names, types, _handles->table.get());
     paimon_predicate* predicate = converter.build(_conjuncts);
+    if (_scanner_profile != nullptr) {
+        COUNTER_UPDATE(_rust_predicates_converted, converter.converted_conjuncts());
+    }
     if (predicate == nullptr) {
         LOG(INFO) << "paimon-rust predicate pushdown: nothing convertible, no filter applied";
         return Status::OK();
@@ -541,6 +562,12 @@ Status PaimonRustTableReader::_apply_predicate() {
     if (paimon_error* err =
                 paimon_read_builder_with_filter(_handles->read_builder.get(), predicate)) {
         return Status::InternalError("paimon-rust apply filter failed: {}", consume_error(err));
+    }
+    // Count application only after the C API accepts the filter; reader timers
+    // alone cannot distinguish pushdown from Doris residual-only execution.
+    if (_scanner_profile != nullptr) {
+        COUNTER_UPDATE(_rust_predicates_applied, converter.converted_conjuncts());
+        COUNTER_UPDATE(_rust_runtime_filters_applied, converter.converted_runtime_filters());
     }
     LOG(INFO) << "paimon-rust predicate pushdown: applied";
     return Status::OK();

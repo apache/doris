@@ -72,11 +72,11 @@ import org.apache.paimon.format.OrcOptions;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.predicate.Predicate;
+import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.FallbackReadFileStoreTable;
-import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
@@ -903,18 +903,27 @@ public class PaimonScanNode extends FileQueryScanNode {
             boolean providerModeTranslatable = true;
             String providerType = backendStorageProperties == null
                     ? null : backendStorageProperties.get("AWS_CREDENTIALS_PROVIDER_TYPE");
-            if (providerType != null) {
-                String mode = providerType.trim().toUpperCase(Locale.ROOT);
-                providerModeTranslatable = mode.equals("DEFAULT")
-                        || mode.equals("ANONYMOUS");
-                // The rust OSS FileIO parser (oss:// warehouses) has no
-                // skip-signature switch, so an anonymous OSS catalog cannot be
-                // served by the rust reader either — fall back to JNI.
-                if (mode.equals("ANONYMOUS")) {
-                    String location = source.getTableLocation();
-                    if (location != null && location.startsWith("oss://")) {
-                        providerModeTranslatable = false;
-                    }
+            String mode = providerType == null ? "DEFAULT" : providerType.trim().toUpperCase(Locale.ROOT);
+            if (mode.isEmpty()) {
+                mode = "DEFAULT";
+            }
+            String location = source.getTableLocation();
+            if (location != null && (location.startsWith("s3://") || location.startsWith("s3a://"))) {
+                // Java DEFAULT may resolve JVM properties or anonymous credentials;
+                // Rust's ambient chain is different. Only explicit keys or explicit
+                // anonymous access can cross this boundary without changing identity.
+                String accessKey = backendStorageProperties == null
+                        ? null : backendStorageProperties.get("AWS_ACCESS_KEY");
+                String secretKey = backendStorageProperties == null
+                        ? null : backendStorageProperties.get("AWS_SECRET_KEY");
+                boolean staticKeys = accessKey != null && !accessKey.trim().isEmpty()
+                        && secretKey != null && !secretKey.trim().isEmpty();
+                providerModeTranslatable = mode.equals("ANONYMOUS") || (mode.equals("DEFAULT") && staticKeys);
+            } else if (providerType != null) {
+                providerModeTranslatable = mode.equals("DEFAULT") || mode.equals("ANONYMOUS");
+                // OSS has no anonymous FileIO mode in the pinned Rust dependency.
+                if (mode.equals("ANONYMOUS") && location != null && location.startsWith("oss://")) {
+                    providerModeTranslatable = false;
                 }
             }
             // Incremental scans (binlog / changelog / delta / diff) must stay
