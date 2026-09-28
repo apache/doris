@@ -132,6 +132,11 @@ SharedMemtable::~SharedMemtable() {
 
 Status FlushToken::_submit_sub_tasks(ThreadPool* pool,
                                      std::vector<std::shared_ptr<Runnable>> sub_tasks) {
+    const auto& context = _rowset_writer->context();
+    // Non-MoW flushes have no write-stage bitmap work to yield to. Grouped data/binlog
+    // flushes use the owning table's MoW mode so a MoW binlog cannot bypass P2 backpressure.
+    const auto priority = context.enable_unique_key_merge_on_write ? LoadTaskPriority::LOW
+                                                                   : LoadTaskPriority::HIGH;
     for (int i = 0; i < sub_tasks.size(); ++i) {
         {
             std::shared_lock rdlk(_flush_status_lock);
@@ -145,8 +150,7 @@ Status FlushToken::_submit_sub_tasks(ThreadPool* pool,
                 return _flush_status;
             }
         }
-        Status submit_st = pool->submit_load(
-                std::move(sub_tasks[i]), _rowset_writer->context().txn_id, LoadTaskPriority::LOW);
+        Status submit_st = pool->submit_load(std::move(sub_tasks[i]), context.txn_id, priority);
         if (UNLIKELY(!submit_st.ok())) {
             {
                 std::lock_guard wrlk(_flush_status_lock);
@@ -503,7 +507,7 @@ void MemTableFlushExecutor::update_memtable_flush_threads() {
 }
 
 // Each resource domain shares workers across foreground load tasks. Stage priority is
-// applied within a load; is_high_priority no longer selects a separate pool.
+// applied across loads; is_high_priority no longer selects a separate pool.
 Status MemTableFlushExecutor::create_flush_token(
         std::shared_ptr<FlushToken>& flush_token, std::shared_ptr<RowsetWriter> rowset_writer,
         bool /*is_high_priority*/, std::shared_ptr<WorkloadGroup> wg_sptr,

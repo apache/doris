@@ -28,6 +28,7 @@
 #include <chrono>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "common/config.h"
@@ -339,40 +340,68 @@ void tear_down() {
                         .ok());
 }
 
-TEST(MemTableFlushExecutorTest, FlushSharesItsTransactionTurnForEveryKeyType) {
+TEST(MemTableFlushExecutorTest, GlobalPriorityForMowAndNonMowFlushes) {
     using namespace std::chrono_literals;
-    for (auto keys_type : {DUP_KEYS, UNIQUE_KEYS, AGG_KEYS}) {
-        std::unique_ptr<ThreadPool> pool;
-        ASSERT_TRUE(ThreadPoolBuilder("flush_load_fifo_test").set_max_threads(1).build(&pool).ok());
-        std::atomic<int> flush_count = 0;
-        auto writer = std::make_shared<MockRowsetWriter>(&flush_count);
-        RowsetWriterContext context;
-        context.txn_id = 1;
-        context.tablet_schema = std::make_shared<TabletSchema>();
-        context.tablet_schema->_keys_type = keys_type;
-        ASSERT_TRUE(writer->init(context).ok());
-        auto flush = FlushToken::create_shared(pool.get(), nullptr);
-        flush->set_rowset_writer(writer);
-        auto own_bitmap =
-                pool->new_load_token(context.txn_id, LoadTaskPriority::MID, LoadTaskType::LEAF);
-        auto other_bitmap = pool->new_load_token(2, LoadTaskPriority::HIGHEST, LoadTaskType::LEAF);
-        CountDownLatch entered(1), release(1);
-        std::vector<int> order;
-        Defer unblock = [&] { release.count_down(); };
-        EXPECT_TRUE(pool->submit_func([&] {
-                            entered.count_down();
-                            release.wait();
-                        }).ok());
-        EXPECT_TRUE(entered.wait_for(5s));
-        EXPECT_TRUE(flush->_submit_sub_tasks(pool.get(), {std::make_shared<FlushOrderTask>(&order),
+    // UNIQUE_KEYS without MoW must be treated like DUP/AGG, not like a MoW writer.
+    for (auto [keys_type, is_mow] : {std::pair {DUP_KEYS, false},
+                                     {UNIQUE_KEYS, false},
+                                     {UNIQUE_KEYS, true},
+                                     {AGG_KEYS, false}}) {
+        for (bool grouped : {false, true}) {
+            std::unique_ptr<ThreadPool> pool;
+            ASSERT_TRUE(
+                    ThreadPoolBuilder("flush_priority_test").set_max_threads(1).build(&pool).ok());
+            std::atomic<int> flush_count = 0;
+            std::shared_ptr<RowsetWriter> writer = std::make_shared<MockRowsetWriter>(&flush_count);
+            RowsetWriterContext context;
+            context.txn_id = 1;
+            context.enable_unique_key_merge_on_write = is_mow;
+            context.tablet_schema = std::make_shared<TabletSchema>();
+            context.tablet_schema->_keys_type = keys_type;
+            ASSERT_TRUE(writer->init(context).ok());
+            if (grouped) {
+                auto binlog_writer = std::make_shared<MockRowsetWriter>(&flush_count);
+                RowsetWriterContext binlog_context;
+                binlog_context.txn_id = context.txn_id;
+                ASSERT_TRUE(binlog_writer->init(binlog_context).ok());
+                auto group_writer = std::make_shared<GroupRowsetWriter>();
+                group_writer->set_data_writer(writer);
+                group_writer->set_row_binlog_writer(binlog_writer);
+                ASSERT_TRUE(group_writer->init(context).ok());
+                writer = group_writer;
+            }
+            auto flush = FlushToken::create_shared(pool.get(), nullptr);
+            flush->set_rowset_writer(writer);
+            auto write_bitmap = pool->new_load_token(2, LoadTaskPriority::MID, LoadTaskType::LEAF);
+            auto write_end_bitmap =
+                    pool->new_load_token(3, LoadTaskPriority::HIGH, LoadTaskType::LEAF);
+            auto commit_bitmap =
+                    pool->new_load_token(4, LoadTaskPriority::HIGHEST, LoadTaskType::LEAF);
+            CountDownLatch entered(1), release(1);
+            std::vector<int> order;
+            Defer unblock = [&] { release.count_down(); };
+            EXPECT_TRUE(pool->submit_func([&] {
+                                entered.count_down();
+                                release.wait();
+                            }).ok());
+            EXPECT_TRUE(entered.wait_for(5s));
+            EXPECT_TRUE(write_end_bitmap->submit_func([&] { order.push_back(10); }).ok());
+            EXPECT_TRUE(
+                    flush->_submit_sub_tasks(pool.get(), {std::make_shared<FlushOrderTask>(&order),
                                                           std::make_shared<FlushOrderTask>(&order)})
                             .ok());
-        EXPECT_TRUE(other_bitmap->submit_func([&] { order.push_back(2); }).ok());
-        EXPECT_TRUE(own_bitmap->submit_func([&] { order.push_back(1); }).ok());
-        release.count_down();
-        pool->wait();
-        // Our bitmap precedes our flushes, but another load gets the next turn.
-        EXPECT_EQ(order, (std::vector<int> {1, 2, 3, 3}));
+            EXPECT_TRUE(write_end_bitmap->submit_func([&] { order.push_back(11); }).ok());
+            EXPECT_TRUE(write_bitmap->submit_func([&] { order.push_back(2); }).ok());
+            EXPECT_TRUE(commit_bitmap->submit_func([&] { order.push_back(0); }).ok());
+            release.count_down();
+            pool->wait();
+            if (is_mow) {
+                EXPECT_EQ(order, (std::vector<int> {0, 10, 11, 2, 3, 3}));
+            } else {
+                // Non-MoW flushes share P1 FIFO with write-end bitmaps, below P0.
+                EXPECT_EQ(order, (std::vector<int> {0, 10, 3, 3, 11, 2}));
+            }
+        }
     }
 }
 

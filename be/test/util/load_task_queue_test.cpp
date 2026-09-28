@@ -24,50 +24,51 @@
 
 namespace doris {
 
-TEST(LoadTaskQueueTest, LoadFifoThenPriority) {
+TEST(LoadTaskQueueTest, PriorityAcrossLoads) {
     LoadTaskQueue<int> queue;
     queue.push(1, 3, 13);
-    queue.push(1, 2, 12);
-    queue.push(1, 1, 11);
-    queue.push(1, 0, 10);
-    queue.push(2, 3, 23); // DUP load gets a turn despite load 1's bitmap work.
+    queue.push(2, 2, 22);
+    queue.push(3, 1, 31);
+    queue.push(4, 0, 40);
+    queue.push(5, 1, 51); // Non-MoW flush shares P1 with write-end bitmap.
     std::vector<int> actual;
     while (!queue.empty()) {
         actual.push_back(queue.pop());
     }
-    EXPECT_EQ(actual, (std::vector<int> {10, 23, 11, 12, 13}));
+    EXPECT_EQ(actual, (std::vector<int> {40, 31, 51, 22, 13}));
 }
 
-TEST(LoadTaskQueueTest, PriorityDoesNotCrossLoadsAndSamePriorityIsFifo) {
+TEST(LoadTaskQueueTest, SamePriorityIsGlobalFifoWithoutTransactionTurns) {
     LoadTaskQueue<int> queue;
-    queue.push(1, 3, 1);
-    queue.push(2, 0, 2);
-    queue.push(1, 3, 3);
-    queue.push(2, 0, 4);
+    queue.push(1, 1, 1);
+    queue.push(1, 1, 2);
+    queue.push(2, 1, 3);
+    queue.push(1, 1, 4);
     for (int expected : {1, 2, 3, 4}) {
         EXPECT_EQ(queue.pop(), expected);
     }
     EXPECT_TRUE(queue.empty());
 }
 
-TEST(LoadTaskQueueTest, RequeueBeforeExecutionAndReactivateEmptyLoad) {
+TEST(LoadTaskQueueTest, NewHigherPriorityWorkPrecedesQueuedLowerPriorityWork) {
     LoadTaskQueue<int> queue;
     queue.push(1, 3, 1);
-    queue.push(1, 3, 2);
-    queue.push(2, 3, 3);
-    EXPECT_EQ(queue.pop(), 1); // Task 1 need not finish before the next turn.
-    EXPECT_EQ(queue.pop(), 3);
-    EXPECT_EQ(queue.pop(), 2);
-    queue.push(2, 3, 4);
-    queue.push(1, 0, 5); // Empty -> nonempty puts load 1 at the tail exactly once.
-    queue.push(1, 0, 6);
-    for (int expected : {4, 5, 6}) {
+    queue.push(2, 3, 2);
+    EXPECT_EQ(queue.pop(), 1);
+    queue.push(3, 1, 3);
+    queue.push(4, 0, 4);
+    for (int expected : {4, 3, 2}) {
         EXPECT_EQ(queue.pop(), expected);
     }
     EXPECT_TRUE(queue.empty());
+    queue.push(1, 2, 5);
+    queue.push(2, 1, 6);
+    EXPECT_EQ(queue.pop(), 6);
+    EXPECT_EQ(queue.pop(), 5);
+    EXPECT_TRUE(queue.empty());
 }
 
-TEST(LoadTaskQueueTest, CancelOneTokenPreservesOtherTasksAndLoadOrder) {
+TEST(LoadTaskQueueTest, CancelPreservesOtherTasksAndGlobalFifo) {
     LoadTaskQueue<int> queue;
     queue.push(1, 0, 1);
     queue.push(1, 2, 2);
@@ -75,8 +76,8 @@ TEST(LoadTaskQueueTest, CancelOneTokenPreservesOtherTasksAndLoadOrder) {
     queue.push(1, 3, 4);
     EXPECT_EQ(queue.remove_if(1, [](int task) { return task < 3; }), (std::vector<int> {1, 2}));
     EXPECT_EQ(queue.size(), 2);
-    EXPECT_EQ(queue.pop(), 4);
     EXPECT_EQ(queue.pop(), 3);
+    EXPECT_EQ(queue.pop(), 4);
     queue.push(1, 3, 5);
     queue.push(2, 0, 6);
     EXPECT_EQ(queue.remove_if(1, [](int) { return true; }), (std::vector<int> {5}));
@@ -98,24 +99,22 @@ TEST(LoadTaskQueueTest, MoveOnlyTasksAndDeferredDestruction) {
     EXPECT_TRUE(queue.empty());
 }
 
-TEST(LoadTaskQueueTest, BusyHighPriorityLoadDoesNotStarveAnotherLoad) {
+TEST(LoadTaskQueueTest, BitmapBatchDrainsBeforeOtherTransactionsFlushes) {
     LoadTaskQueue<int> queue;
-    queue.push(1, 0, 10);
-    queue.push(1, 0, 11);
-    queue.push(2, 3, 20);
-    queue.push(2, 3, 21);
-    EXPECT_EQ(queue.pop(), 10);
-    queue.push(1, 0, 12);
-    EXPECT_EQ(queue.pop(), 20);
-    EXPECT_EQ(queue.pop(), 11);
-    queue.push(1, 0, 13);
-    EXPECT_EQ(queue.pop(), 21);
-    EXPECT_EQ(queue.pop(), 12);
-    EXPECT_EQ(queue.pop(), 13);
+    queue.push(2, 2, -2);
+    queue.push(3, 3, -3);
+    for (int i = 0; i < 532; ++i) {
+        queue.push(1, 1, i);
+    }
+    for (int i = 0; i < 532; ++i) {
+        EXPECT_EQ(queue.pop(), i);
+    }
+    EXPECT_EQ(queue.pop(), -2);
+    EXPECT_EQ(queue.pop(), -3);
     EXPECT_TRUE(queue.empty());
 }
 
-TEST(LoadTaskQueueTest, CancelMiddleLoadDoesNotInspectOtherLoads) {
+TEST(LoadTaskQueueTest, CancelOnlyAppliesPredicateToMatchingLoad) {
     LoadTaskQueue<int> queue;
     queue.push(1, 3, 10);
     queue.push(2, 0, 20);
@@ -134,13 +133,13 @@ TEST(LoadTaskQueueTest, CancelMiddleLoadDoesNotInspectOtherLoads) {
                          return true;
                      }).empty());
     queue.push(2, 0, 22);
-    for (int expected : {10, 30, 22}) {
+    for (int expected : {30, 22, 10}) {
         EXPECT_EQ(queue.pop(), expected);
     }
     EXPECT_TRUE(queue.empty());
 }
 
-TEST(LoadTaskQueueTest, EraseHandlePreservesOtherHandlesAndTurns) {
+TEST(LoadTaskQueueTest, EraseHandlePreservesOtherHandlesAndGlobalFifo) {
     LoadTaskQueue<int> queue;
     queue.push(1, 0, 10);
     queue.push(1, 0, 11);
@@ -148,11 +147,11 @@ TEST(LoadTaskQueueTest, EraseHandlePreservesOtherHandlesAndTurns) {
     auto last = queue.push(1, 0, 13);
     auto other_load = queue.push(2, 0, 20);
     queue.push(3, 0, 30);
-    EXPECT_EQ(queue.pop(), 10); // Rotate load 1 before erasing its own remaining tasks.
+    EXPECT_EQ(queue.pop(), 10);
     queue.erase(middle);
     EXPECT_EQ(queue.remove_if(1, [](int task) { return task == 11; }), (std::vector<int> {11}));
-    queue.erase(last);       // remove_if must not invalidate another entry's handle.
-    queue.erase(other_load); // Remove another load from the ready list.
+    queue.erase(last); // remove_if must not invalidate another entry's handle.
+    queue.erase(other_load);
     queue.push(1, 0, 14);
     EXPECT_EQ(queue.size(), 2);
     EXPECT_EQ(queue.pop(), 30);
