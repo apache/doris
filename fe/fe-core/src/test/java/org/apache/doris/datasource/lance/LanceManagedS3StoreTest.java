@@ -75,8 +75,8 @@ import java.util.stream.Stream;
  * key, standing in for two endpoints of a table. The namespace vends the endpoint in its own
  * spelling ({@code endpoint}), as a REST catalog may.
  *
- * <p>The FE must plan from the endpoint the BE is handed. That breaks if the SDK reuses the object
- * store another read still holds for the same table, or if the FE environment's
+ * <p>The FE must plan from the endpoint and credentials the BE is handed. That breaks if the SDK
+ * reuses the object store another read still holds for the same table, or if the FE environment's
  * {@code AWS_ENDPOINT} takes the place of the vended endpoint.
  */
 @Disabled("Re-enable after fixing Arrow C Data JNI compatibility: CI libstdc++ lacks CXXABI_1.3.9")
@@ -174,6 +174,37 @@ public class LanceManagedS3StoreTest {
             Assertions.assertEquals(storeA.endpoint(), q1Metadata.getLanceStorageOptions().get("aws_endpoint"));
             Assertions.assertEquals(ROWS_A, q1Metadata.getRowCount());
         } finally {
+            storeA.release();
+            catalog.onClose();
+        }
+    }
+
+    /**
+     * Q1 holds a store built with key ak-1 when the namespace rotates the key to ak-2 and revokes
+     * ak-1. Without an expiry no store refreshes its credentials, so Q2 must build its own with
+     * ak-2, which is what its BE is handed.
+     */
+    @Test
+    public void testOverlappingReadsKeepTheirOwnCredentialsWithoutAnExpiry() throws Exception {
+        LanceExternalCatalog catalog = newCatalog(404, "lance_managed_s3_rotation");
+        try {
+            vendEndpoint(storeA.endpoint(), "access_key_id", "ak-1");
+            storeA.holdNextRequest();
+            CompletableFuture<LanceTableMetadata> q1 = CompletableFuture.supplyAsync(
+                    () -> catalog.loadTableMetadata("default", TABLE));
+            Assertions.assertTrue(storeA.awaitHeld(), "Q1 never reached endpoint A");
+
+            vendEndpoint(storeA.endpoint(), "access_key_id", "ak-2");
+            storeA.revokedKey = "ak-1";
+            LanceTableMetadata q2 = catalog.loadTableMetadata("default", TABLE);
+            Assertions.assertEquals("ak-2", q2.getLanceStorageOptions().get("aws_access_key_id"));
+            Assertions.assertEquals(ROWS_A, q2.getRowCount());
+
+            storeA.revokedKey = null;
+            storeA.release();
+            Assertions.assertEquals(ROWS_A, q1.get(60, TimeUnit.SECONDS).getRowCount());
+        } finally {
+            storeA.revokedKey = null;
             storeA.release();
             catalog.onClose();
         }
@@ -339,7 +370,7 @@ public class LanceManagedS3StoreTest {
     /**
      * Just enough of S3 for Lance to read one version of a dataset by path-style requests: HEAD and
      * whole-object GET, over one bucket kept in a local directory. It can hold the next request
-     * until released, to keep a read, and the store it opened, in flight.
+     * until released, to keep a read, and the store it opened, in flight, and reject one access key.
      */
     private static final class S3Stub {
         private static final DateTimeFormatter HTTP_DATE = DateTimeFormatter.RFC_1123_DATE_TIME
@@ -348,8 +379,10 @@ public class LanceManagedS3StoreTest {
         private final Path root;
         private final HttpServer server;
         private final AtomicBoolean holdNext = new AtomicBoolean();
-        private final CountDownLatch held = new CountDownLatch(1);
-        private final CountDownLatch released = new CountDownLatch(1);
+        private volatile CountDownLatch held = new CountDownLatch(1);
+        private volatile CountDownLatch released = new CountDownLatch(1);
+        /** The access key it rejects, as if revoked. */
+        private volatile String revokedKey;
 
         private S3Stub(Path root) throws IOException {
             this.root = root;
@@ -364,6 +397,8 @@ public class LanceManagedS3StoreTest {
         }
 
         private void holdNextRequest() {
+            held = new CountDownLatch(1);
+            released = new CountDownLatch(1);
             holdNext.set(true);
         }
 
@@ -378,8 +413,15 @@ public class LanceManagedS3StoreTest {
         private void handle(HttpExchange exchange) throws IOException {
             try {
                 if (holdNext.getAndSet(false)) {
+                    CountDownLatch release = released;
                     held.countDown();
-                    released.await(60, TimeUnit.SECONDS);
+                    release.await(60, TimeUnit.SECONDS);
+                }
+                String authorization = exchange.getRequestHeaders().getFirst("Authorization");
+                String revoked = revokedKey;
+                if (revoked != null && authorization != null && authorization.contains("Credential=" + revoked + "/")) {
+                    exchange.sendResponseHeaders(403, -1);
+                    return;
                 }
                 String path = exchange.getRequestURI().getPath();
                 Path file = path.startsWith("/" + BUCKET + "/") ? root.resolve(path.substring(BUCKET.length() + 2))

@@ -112,15 +112,12 @@ public class LanceSdkNamespaceTest {
 
     /**
      * Two reads of one table share a store only if the store would be built the same: another
-     * endpoint, region or addressing style keeps them apart, new credentials alone do not, since
-     * the store takes those from its credential provider and a namespace may vend them on every
-     * describe.
+     * endpoint, region or addressing style keeps them apart.
      */
     @Test
     public void testStoreIdentityFollowsWhereTheStoreConnects() {
         String base = openedId(handed(), Collections.emptyMap());
-        Assertions.assertEquals(base, openedId(handed(), options("access_key_id", "ak-2",
-                "secret_access_key", "sk-2", "session_token", "t-2", "expires_at_millis", "1")));
+        Assertions.assertEquals(base, openedId(handed(), Collections.emptyMap()));
 
         Assertions.assertNotEquals(base, openedId(handed(), options("endpoint", "https://storage-b")));
         Assertions.assertNotEquals(base, openedId(handed(), options("region", "eu-west-1")));
@@ -132,6 +129,28 @@ public class LanceSdkNamespaceTest {
         // The catalog namespace stays recognizable; the options only appear as a digest.
         Assertions.assertTrue(base.contains("RestNamespace"), base);
         Assertions.assertFalse(base.contains("storage-a"), base);
+    }
+
+    /**
+     * Credentials with an expiry do not keep two reads apart: the store refreshes them from the
+     * namespace, which may vend new ones on every describe. Without an expiry the store keeps the
+     * credentials it was built with, so other credentials get another store.
+     */
+    @Test
+    public void testStoreIdentityCountsCredentialsTheStoreDoesNotRefresh() {
+        String expiring = openedId(handed(), options("access_key_id", "ak-2", "secret_access_key", "sk-2",
+                "session_token", "t-2", "expires_at_millis", "1"));
+        Assertions.assertEquals(expiring, openedId(handed(), options("access_key_id", "ak-3",
+                "secret_access_key", "sk-3", "session_token", "t-3", "expires_at_millis", "2")));
+
+        String fixed = openedId(handed(), options("access_key_id", "ak-2", "secret_access_key", "sk-2"));
+        Assertions.assertEquals(fixed,
+                openedId(handed(), options("access_key_id", "ak-2", "secret_access_key", "sk-2")));
+        Assertions.assertNotEquals(fixed, openedId(handed(), options("access_key_id", "ak-3")));
+        Assertions.assertNotEquals(fixed,
+                openedId(handed(), options("access_key_id", "ak-2", "secret_access_key", "sk-3")));
+        Assertions.assertNotEquals(fixed, openedId(handed(), Collections.emptyMap()));
+        Assertions.assertFalse(fixed.contains("ak-2"), fixed);
     }
 
     /**

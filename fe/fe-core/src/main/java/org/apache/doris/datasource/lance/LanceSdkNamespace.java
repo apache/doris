@@ -35,6 +35,7 @@ import org.lance.namespace.model.ListTableVersionsRequest;
 import org.lance.namespace.model.ListTableVersionsResponse;
 
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -57,8 +58,8 @@ import java.util.function.Supplier;
  * the namespace's id and the table id alone, ignoring the options: a read overlapping another one
  * that still holds a store for the same table reuses that store, whatever endpoint it was built
  * for (lance-io {@code StorageOptionsAccessor::accessor_id}, {@code ObjectStoreRegistry::get_store}).
- * {@link #namespaceId} therefore also identifies the options the store is built with, less the
- * credentials the SDK re-reads through its credential provider anyway.
+ * {@link #namespaceId} therefore also identifies the options the store is built with, less
+ * credentials that carry an expiry, which the store refreshes from the namespace anyway.
  *
  * <p>A namespace Lance does not implement natively is called back through JNI, which reports an
  * exception thrown by the callback only as "Java exception was thrown". The last one is kept for
@@ -74,13 +75,14 @@ final class LanceSdkNamespace implements LanceNamespace {
     /** What jni-rs reports for a Java exception a callback threw. */
     private static final String CALLBACK_FAILURE = "Java exception was thrown";
 
+    private static final String EXPIRES_AT_MILLIS = "expires_at_millis";
+
     /**
-     * The options the SDK serves to an object store through its credential provider, refreshing
-     * them from the namespace, rather than fixing them when the store is built: every spelling
-     * lance-io's {@code DynamicCredentials} conversions read for AWS, Azure and GCS, and the
-     * refresh deadline. OSS credentials are not refreshed, but are left out as well: a store is
-     * shared across credentials as it was before, and a namespace that vends new credentials on
-     * every describe would otherwise leave one registry entry behind per read.
+     * The credentials a store takes from its credential provider rather than fixing them when it
+     * is built: every spelling lance-io's {@code DynamicCredentials} conversions read for AWS,
+     * Azure and GCS, the OSS keys its dynamic OpenDAL store re-reads, and the refresh deadline.
+     * The provider refreshes them from the namespace only when they carry
+     * {@value #EXPIRES_AT_MILLIS}; see {@link #storeIdentity}.
      */
     private static final Set<String> CREDENTIAL_OPTIONS = ImmutableSet.of(
             "aws_access_key_id", "access_key_id", "aws_secret_access_key", "secret_access_key",
@@ -90,7 +92,14 @@ final class LanceSdkNamespace implements LanceNamespace {
             "azure_storage_master_key", "access_key", "master_key", "account_key",
             "google_storage_token",
             "oss_access_key_id", "oss_secret_access_key", "oss_security_token",
-            "expires_at_millis");
+            EXPIRES_AT_MILLIS);
+
+    /** Keys the store digest, so an id in a log cannot be checked against guessed credentials. */
+    private static final byte[] IDENTITY_KEY = new byte[32];
+
+    static {
+        new SecureRandom().nextBytes(IDENTITY_KEY);
+    }
 
     private final LanceNamespace catalogNamespace;
     private final Map<String, String> sdkStorageOptions;
@@ -203,11 +212,18 @@ final class LanceSdkNamespace implements LanceNamespace {
     /**
      * A digest of every option that fixes where and how a store connects. The options can name
      * endpoints and account names, so only the digest reaches the id, which Lance logs.
+     *
+     * <p>Credentials that carry an expiry are left out: the store refreshes them from the namespace
+     * before they expire, and a namespace that vends new ones on every describe would otherwise
+     * leave one registry entry behind per read. Without an expiry the store never refreshes, and
+     * keeps the credentials it was built with for as long as any read holds it, so they count, as
+     * they do for a store Lance opens without a namespace.
      */
     static String storeIdentity(Map<String, String> options) {
-        Hasher hasher = Hashing.sha256().newHasher();
+        boolean refreshed = options.containsKey(EXPIRES_AT_MILLIS);
+        Hasher hasher = Hashing.hmacSha256(IDENTITY_KEY).newHasher();
         new TreeMap<>(options).forEach((key, value) -> {
-            if (!CREDENTIAL_OPTIONS.contains(key)) {
+            if (!refreshed || !CREDENTIAL_OPTIONS.contains(key)) {
                 hasher.putInt(key.length()).putString(key, StandardCharsets.UTF_8)
                         .putInt(value.length()).putString(value, StandardCharsets.UTF_8);
             }
