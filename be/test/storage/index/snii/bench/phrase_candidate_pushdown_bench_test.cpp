@@ -78,6 +78,17 @@ struct BenchQuery {
     const char* label;
     InvertedIndexQueryType type;
     const char* text;
+    // One exact term, which a count-only scan answers from its document frequency.
+    bool count = false;
+};
+
+// How a query runs: with the result cache warm, or as a count-only scan.
+struct Profile {
+    bool cached = false;
+    bool count_only = false;
+    // Queries per sample: a microsecond query runs several times so no sample reads zero CPU
+    // time.
+    uint32_t repeats = 1;
 };
 
 // Frequent two- and four-term phrases, a frequent lead with an expanding numeric tail, a
@@ -105,7 +116,14 @@ constexpr BenchQuery kQueries[] = {{.label = "exact_2",
                                     .text = "request 424242 completed"}};
 
 constexpr BenchQuery kDocIdQueries[] = {
-        {.label = "term_dense", .type = InvertedIndexQueryType::MATCH_ANY_QUERY, .text = "latency"},
+        {.label = "term_dense",
+         .type = InvertedIndexQueryType::MATCH_ANY_QUERY,
+         .text = "latency",
+         .count = true},
+        {.label = "term_sparse",
+         .type = InvertedIndexQueryType::MATCH_ANY_QUERY,
+         .text = "424242",
+         .count = true},
         {.label = "or_dense",
          .type = InvertedIndexQueryType::MATCH_ANY_QUERY,
          .text = "retry order latency"},
@@ -150,10 +168,12 @@ constexpr BenchQuery kDocIdQueries[] = {
 constexpr BenchQuery kKeywordQueries[] = {
         {.label = "kw_equal",
          .type = InvertedIndexQueryType::EQUAL_QUERY,
-         .text = "Retry attempt 2 job 1234 failed"},
+         .text = "Retry attempt 2 job 1234 failed",
+         .count = true},
         {.label = "kw_equal_missing",
          .type = InvertedIndexQueryType::EQUAL_QUERY,
-         .text = "Retry attempt 9 job 1234 failed"},
+         .text = "Retry attempt 9 job 1234 failed",
+         .count = true},
         {.label = "kw_prefix",
          .type = InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY,
          .text = "Order 12"}};
@@ -229,16 +249,17 @@ double thread_cpu_ms() {
 }
 
 struct QueryRun {
-    QueryRun() {
+    explicit QueryRun(Profile profile = {}) {
         TQueryOptions query_options;
         query_options.query_type = TQueryType::SELECT;
-        query_options.enable_inverted_index_query_cache = false;
+        query_options.enable_inverted_index_query_cache = profile.cached;
         query_options.enable_inverted_index_searcher_cache = true;
         query_options.inverted_index_max_expansions = 50;
         runtime_state.set_query_options(query_options);
         context->io_ctx = &io_ctx;
         context->stats = &stats;
         context->runtime_state = &runtime_state;
+        context->count_on_index_fastpath = profile.count_only;
     }
 
     OlapReaderStatistics stats;
@@ -359,9 +380,11 @@ protected:
                                                   doc_count, /*column_is_array=*/false);
         }
         if (keyword) {
-            return StringTypeInvertedIndexReader::create_shared(meta, file_reader);
+            return StringTypeInvertedIndexReader::create_shared(meta, file_reader, doc_count,
+                                                                /*column_is_array=*/false);
         }
-        return FullTextIndexReader::create_shared(meta, file_reader);
+        return FullTextIndexReader::create_shared(meta, file_reader, doc_count,
+                                                  /*column_is_array=*/false);
     }
 
     TabletIndex _meta;
@@ -373,8 +396,9 @@ protected:
 // Runs one query and returns its thread CPU time. `consumed` reports whether the reader restricted
 // the evaluation to the candidates.
 double run_query(InvertedIndexReader* reader, const BenchQuery& query,
-                 const roaring::Roaring* candidates, roaring::Roaring* result, bool* consumed) {
-    QueryRun run;
+                 const roaring::Roaring* candidates, roaring::Roaring* result, bool* consumed,
+                 Profile profile = {}) {
+    QueryRun run(profile);
     run.context->candidate_rows = candidates;
     std::shared_ptr<roaring::Roaring> bitmap;
     const Field value = Field::create_field<TYPE_STRING>(std::string(query.text));
@@ -387,7 +411,11 @@ double run_query(InvertedIndexReader* reader, const BenchQuery& query,
     return elapsed;
 }
 
-uint64_t bitmap_checksum(const roaring::Roaring& result) {
+// A count-only answer is compared by its cardinality, since its ids are fabricated.
+uint64_t bitmap_checksum(const roaring::Roaring& result, Profile profile) {
+    if (profile.count_only) {
+        return result.cardinality();
+    }
     uint64_t checksum = 14695981039346656037ULL;
     for (uint32_t docid : result) {
         checksum = (checksum ^ docid) * 1099511628211ULL;
@@ -397,15 +425,19 @@ uint64_t bitmap_checksum(const roaring::Roaring& result) {
 
 double median_query_ms(InvertedIndexReader* reader, const BenchQuery& query,
                        const roaring::Roaring* candidates, uint32_t iterations,
-                       roaring::Roaring* result, std::string_view label) {
+                       roaring::Roaring* result, std::string_view label, Profile profile = {}) {
     std::vector<double> samples;
     bool consumed = false;
     for (uint32_t i = 0; i < iterations; ++i) {
         benchmark::wait_for_turn(label, i);
-        const double elapsed_ms = run_query(reader, query, candidates, result, &consumed);
-        samples.push_back(elapsed_ms);
-        benchmark::report_sample(label, i, 1, static_cast<uint64_t>(elapsed_ms * 1000000.0),
-                                 bitmap_checksum(*result));
+        double elapsed_ms = 0;
+        for (uint32_t repeat = 0; repeat < profile.repeats; ++repeat) {
+            elapsed_ms += run_query(reader, query, candidates, result, &consumed, profile);
+        }
+        samples.push_back(elapsed_ms / profile.repeats);
+        benchmark::report_sample(label, i, profile.repeats,
+                                 static_cast<uint64_t>(elapsed_ms * 1000000.0),
+                                 bitmap_checksum(*result, profile));
     }
     EXPECT_EQ(consumed, candidates != nullptr) << query.label;
     std::ranges::sort(samples);
@@ -421,16 +453,31 @@ void print_row(std::string_view format, const BenchQuery& query, std::string_vie
               << full_ms / restricted_ms << "x" << std::setw(10) << matches << '\n';
 }
 
-void benchmark_reader(InvertedIndexReader* reader, std::string_view format_name, uint32_t doc_count,
-                      uint32_t iterations) {
-    for (const BenchQuery& query : kDocIdQueries) {
+// Runs each query of `queries` over the whole segment, then with the result cache warm, and one
+// exact term as a count-only scan too.
+template <size_t N>
+void benchmark_docid_queries(InvertedIndexReader* reader, std::string_view format_name,
+                             std::string_view group, const BenchQuery (&queries)[N],
+                             uint32_t iterations) {
+    for (const BenchQuery& query : queries) {
         if (!selected("PHRASE_CANDIDATE_BENCH_CASES", query.label)) {
             continue;
         }
         roaring::Roaring full;
-        const std::string label = fmt::format("reader/{}/docids/{}/full", format_name, query.label);
-        median_query_ms(reader, query, nullptr, iterations, &full, label);
+        const std::string label = fmt::format("reader/{}/{}/{}", format_name, group, query.label);
+        median_query_ms(reader, query, nullptr, iterations, &full, label + "/full");
+        median_query_ms(reader, query, nullptr, iterations, &full, label + "/cached",
+                        {.cached = true, .repeats = 16});
+        if (query.count) {
+            median_query_ms(reader, query, nullptr, iterations, &full, label + "/count",
+                            {.count_only = true, .repeats = 16});
+        }
     }
+}
+
+void benchmark_reader(InvertedIndexReader* reader, std::string_view format_name, uint32_t doc_count,
+                      uint32_t iterations) {
+    benchmark_docid_queries(reader, format_name, "docids", kDocIdQueries, iterations);
     for (const BenchQuery& query : kQueries) {
         if (!selected("PHRASE_CANDIDATE_BENCH_CASES", query.label)) {
             continue;
@@ -458,15 +505,7 @@ void benchmark_reader(InvertedIndexReader* reader, std::string_view format_name,
 
 void benchmark_keyword_reader(InvertedIndexReader* reader, std::string_view format_name,
                               uint32_t iterations) {
-    for (const BenchQuery& query : kKeywordQueries) {
-        if (!selected("PHRASE_CANDIDATE_BENCH_CASES", query.label)) {
-            continue;
-        }
-        roaring::Roaring full;
-        const std::string label =
-                fmt::format("reader/{}/keyword/{}/full", format_name, query.label);
-        median_query_ms(reader, query, nullptr, iterations, &full, label);
-    }
+    benchmark_docid_queries(reader, format_name, "keyword", kKeywordQueries, iterations);
 }
 
 TEST_F(PhraseCandidatePushdownBench, DISABLED_RestrictedVersusFullPhrase) {
