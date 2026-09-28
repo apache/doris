@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
 import org.junit.Assert;
@@ -28,9 +29,66 @@ import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.Types;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class JdbcClientTest {
+
+    @Test
+    public void testBinaryMappingsKeepBytesAndDeclaredLength() throws Exception {
+        assertBinaryMapping(JdbcMySQLClient.class, "BINARY", "VARBINARY", "TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB");
+        assertBinaryMapping(JdbcPostgreSQLClient.class, "bytea");
+        assertBinaryMapping(JdbcOracleClient.class, "BLOB");
+        assertBinaryMapping(JdbcSQLServerClient.class, "binary", "varbinary", "image");
+        assertBinaryMapping(JdbcDB2Client.class, "BLOB");
+        JdbcClientConfig config = new JdbcClientConfig().setEnableMappingVarbinary(false);
+        Assert.assertTrue(config.isEnableMappingVarbinary());
+    }
+
+    private void assertBinaryMapping(Class<? extends JdbcClient> clientClass, String... names) throws Exception {
+        JdbcClient client = Mockito.mock(clientClass, Mockito.CALLS_REAL_METHODS);
+        for (String name : names) {
+            JdbcFieldSchema field = new JdbcFieldSchema(Mockito.mock(ResultSet.class));
+            field.setDataTypeName(Optional.of(name));
+            field.setColumnSize(Optional.of(32));
+            Assert.assertEquals(name, ScalarType.createVarbinaryType(32), client.jdbcTypeToDoris(field));
+        }
+    }
+
+    @Test
+    public void testTimestampMappingsIgnoreLegacyFlag() throws Exception {
+        assertTimestampMapping(JdbcMySQLClient.class, "TIMESTAMP", true);
+        assertTimestampMapping(JdbcMySQLClient.class, "DATETIME", false);
+        assertTimestampMapping(JdbcPostgreSQLClient.class, "timestamptz", true);
+        assertTimestampMapping(JdbcPostgreSQLClient.class, "timestamp", false);
+        assertTimestampMapping(JdbcOracleClient.class, "TIMESTAMP(6) WITH LOCAL TIME ZONE", true);
+        assertTimestampMapping(JdbcOracleClient.class, "TIMESTAMP(6)", false);
+    }
+
+    @Test
+    public void testExplicitZonedJdbcTimestampMappings() throws Exception {
+        assertTimestampMapping(JdbcTrinoClient.class, "timestamp(6) with time zone", true);
+        assertTimestampMapping(JdbcTrinoClient.class, "timestamp(6)", false);
+        assertTimestampMapping(JdbcSQLServerClient.class, "datetimeoffset", true);
+        assertTimestampMapping(JdbcSQLServerClient.class, "datetime2", false);
+        assertTimestampMapping(JdbcOracleClient.class, "TIMESTAMP(6) WITH TIME ZONE", true);
+        assertTimestampMapping(JdbcClickHouseClient.class, "DateTime64(6, 'UTC')", true);
+    }
+
+    private void assertTimestampMapping(Class<? extends JdbcClient> clientClass, String typeName,
+            boolean withZone) throws Exception {
+        // Avoid opening remote connections; execute the real metadata conversion with a legacy false flag.
+        JdbcClient client = Mockito.mock(clientClass, Mockito.CALLS_REAL_METHODS);
+        JdbcFieldSchema field = new JdbcFieldSchema(Mockito.mock(ResultSet.class));
+        field.setDataTypeName(Optional.of(typeName));
+        field.setColumnSize(Optional.of(26));
+        field.setDecimalDigits(Optional.of(6));
+        for (boolean flag : new boolean[] {false, true}) {
+            client.enableMappingTimestampTz = flag;
+            Assert.assertEquals(typeName, withZone ? ScalarType.createTimeStampTzType(6)
+                    : ScalarType.createDatetimeV2Type(6), client.jdbcTypeToDoris(field));
+        }
+    }
 
     @Test
     public void testGetJdbcColumnsInfoFiltersWildcardSiblingTable() throws Exception {

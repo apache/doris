@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.util;
 
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -53,6 +54,44 @@ public class StreamingJobUtilsTest {
     @Before
     public void setUp() {
         MockitoAnnotations.initMocks(this);
+    }
+
+    @Test
+    public void testBinarySourceColumnsUseSupportedOlapTypes() {
+        List<Column> columns = new ArrayList<>();
+        columns.add(new Column("payload", ScalarType.createType(PrimitiveType.VARBINARY)));
+        columns.add(new Column("id", ScalarType.createType(PrimitiveType.VARBINARY)));
+        Mockito.when(jdbcClient.getColumnsFromJdbc("source_db", "source_table")).thenReturn(columns);
+
+        List<Column> result = StreamingJobUtils.getColumns(
+                jdbcClient, "source_db", "source_table", Arrays.asList("id"));
+
+        Assert.assertEquals("id", result.get(0).getName());
+        Assert.assertEquals(PrimitiveType.VARCHAR, result.get(0).getDataType());
+        Assert.assertEquals(ScalarType.MAX_VARCHAR_LENGTH, result.get(0).getType().getLength());
+        Assert.assertEquals(PrimitiveType.STRING, result.get(1).getDataType());
+    }
+
+    @Test
+    public void testCdcRetainsTimestampCarrierIndependentlyOfJdbcCatalogMapping() {
+        List<Column> columns = new ArrayList<>();
+        columns.add(new Column("event_time", ScalarType.createTimeStampTzType(6)));
+        columns.add(new Column("millis", ScalarType.createTimeStampTzType(3)));
+        columns.add(new Column("seconds", ScalarType.createTimeStampTzType(0)));
+        columns.add(new Column("local_time", ScalarType.createDatetimeV2Type(6)));
+        columns.add(new Column("events", new ArrayType(new ArrayType(ScalarType.createTimeStampTzType(6)))));
+        Mockito.when(jdbcClient.getColumnsFromJdbc("source_db", "source_table")).thenReturn(columns);
+
+        List<Column> result = StreamingJobUtils.getColumns(
+                jdbcClient, "source_db", "source_table", Arrays.asList("event_time"));
+
+        // CDC emits wall-clock carriers for both snapshots and binlog records, including keys.
+        Assert.assertEquals(ScalarType.createDatetimeV2Type(6), result.get(0).getType());
+        Assert.assertEquals(ScalarType.createDatetimeV2Type(3), result.get(1).getType());
+        Assert.assertEquals(ScalarType.createDatetimeV2Type(0), result.get(2).getType());
+        Assert.assertEquals(ScalarType.createDatetimeV2Type(6), result.get(3).getType());
+        Assert.assertEquals(new ArrayType(new ArrayType(ScalarType.createDatetimeV2Type(6))),
+                result.get(4).getType());
     }
 
     @Test

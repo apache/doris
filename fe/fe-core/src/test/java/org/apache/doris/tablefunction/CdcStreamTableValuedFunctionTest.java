@@ -17,8 +17,10 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
@@ -64,6 +66,18 @@ public class CdcStreamTableValuedFunctionTest {
     }
 
     @Test
+    public void testTimestampColumnsMatchCdcJsonCarrier() throws Exception {
+        List<Column> sourceColumns = new ArrayList<>();
+        sourceColumns.add(new Column("event_time", ScalarType.createTimeStampTzType(6)));
+        sourceColumns.add(new Column("events", new ArrayType(ScalarType.createTimeStampTzType(3))));
+        List<Column> columns = getTableColumns(baseProperties(), sourceColumns);
+
+        // The CDC HTTP stream contains unzoned text, not JDBC's UTC instant carrier.
+        Assert.assertEquals(ScalarType.createDatetimeV2Type(6), columns.get(0).getType());
+        Assert.assertEquals(new ArrayType(ScalarType.createDatetimeV2Type(3)), columns.get(1).getType());
+    }
+
+    @Test
     public void testInvalidIncludeDeleteSignIsRejected() {
         Map<String, String> properties = baseProperties();
         properties.put(CdcStreamTableValuedFunction.INCLUDE_DELETE_SIGN, "invalid");
@@ -86,13 +100,18 @@ public class CdcStreamTableValuedFunctionTest {
     }
 
     private List<Column> getTableColumns(Map<String, String> properties) throws Exception {
-        JdbcClient jdbcClient = Mockito.mock(JdbcClient.class);
         List<Column> sourceColumns = new ArrayList<>();
         sourceColumns.add(new Column("id", PrimitiveType.INT));
+        return getTableColumns(properties, sourceColumns);
+    }
+
+    private List<Column> getTableColumns(Map<String, String> properties, List<Column> sourceColumns) throws Exception {
+        JdbcClient jdbcClient = Mockito.mock(JdbcClient.class);
         Mockito.when(jdbcClient.isTableExist("test_db", "test_table")).thenReturn(true);
         Mockito.when(jdbcClient.getColumnsFromJdbc("test_db", "test_table")).thenReturn(sourceColumns);
 
-        try (MockedStatic<StreamingJobUtils> utils = Mockito.mockStatic(StreamingJobUtils.class)) {
+        try (MockedStatic<StreamingJobUtils> utils =
+                Mockito.mockStatic(StreamingJobUtils.class, Mockito.CALLS_REAL_METHODS)) {
             utils.when(() -> StreamingJobUtils.getJdbcClient(
                             Mockito.eq(DataSourceType.MYSQL), Mockito.anyMap()))
                     .thenReturn(jdbcClient);

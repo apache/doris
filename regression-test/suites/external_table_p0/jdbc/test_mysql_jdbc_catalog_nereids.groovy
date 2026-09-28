@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_mysql_jdbc_catalog_nereids", "p0,external,mysql,external_docker,external_docker_mysql") {
+    // Zoned JDBC types preserve instants; pin their display zone independently of the runner.
+    sql "SET time_zone = '+08:00'"
+
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
@@ -112,6 +115,8 @@ suite("test_mysql_jdbc_catalog_nereids", "p0,external,mysql,external_docker,exte
         order_qt_ex_tb17  """ select * from ${ex_tb17} order by id; """
         order_qt_ex_tb18  """ select * from ${ex_tb18} order by num_tinyint; """
         order_qt_ex_tb19  """ select * from ${ex_tb19} order by date_value; """
+        // The fixture was inserted in UTC: changing the display zone must not shift its instant.
+        assertEquals(1669532991L, (sql "select unix_timestamp(timestamp_value) from ${ex_tb19}")[0][0] as long)
         order_qt_ex_tb20  """ select * from ${ex_tb20} order by decimal_normal; """
         order_qt_information_schema """ show tables from information_schema like "processlist"; """
 

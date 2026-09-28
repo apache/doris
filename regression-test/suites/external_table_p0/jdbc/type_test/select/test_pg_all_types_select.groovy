@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_pg_all_types_select", "p0,external,pg,external_docker,external_docker_pg") {
+    // Zoned JDBC types preserve instants; pin their display zone independently of the runner.
+    sql "SET time_zone = '+08:00'"
+
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
@@ -37,6 +40,10 @@ suite("test_pg_all_types_select", "p0,external,pg,external_docker,external_docke
         sql """use pg_all_type_test.catalog_pg_test"""
 
         qt_desc_all_types_null """desc catalog_pg_test.extreme_test;"""
+
+        // PostgreSQL infinities and BC/out-of-range years cannot be packed into Doris timestamps.
+        assertEquals([[true], [true], [true], [true]],
+                sql("select timestamptz_val is null from catalog_pg_test.extreme_test order by id"))
 
         qt_select_all_types_null """SELECT 
                                     id,
@@ -86,6 +93,9 @@ suite("test_pg_all_types_select", "p0,external,pg,external_docker,external_docke
 
         sql """SET time_zone = '+08:00';"""
         sql """use pg_timestamp_tz_type_test.test_timestamp_tz_db"""
+        // Keep the write round trip repeatable without changing the preinstalled seed rows.
+        sql """CALL EXECUTE_STMT('pg_timestamp_tz_type_test',
+                'DELETE FROM test_timestamp_tz_db.ts_test WHERE id IN (3, 4)')"""
         qt_desc_timestamp_tz """desc ts_test;"""
         qt_select_timestamp_tz """select * from ts_test order by id;"""
         qt_select_timestamp_tz2 """insert into ts_test values(3,"1999-10-10 12:00:00+08:00","1999-10-10 12:00:00");"""

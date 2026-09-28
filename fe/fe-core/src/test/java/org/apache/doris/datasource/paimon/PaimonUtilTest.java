@@ -99,8 +99,8 @@ public class PaimonUtilTest {
                 Assert.assertEquals(utc.toInstant(ZoneOffset.UTC),
                         OffsetDateTime.parse(value.replace(' ', 'T')).toInstant());
                 String legacy = PaimonUtil.getPartitionInfoMap(table, row, zone, false).get("part");
-                Assert.assertEquals(utc.atOffset(ZoneOffset.UTC).atZoneSameInstant(java.time.ZoneId.of(zone))
-                        .toLocalDateTime(), LocalDateTime.parse(legacy.replace(' ', 'T')));
+                Assert.assertEquals(utc.toInstant(ZoneOffset.UTC),
+                        OffsetDateTime.parse(legacy.replace(' ', 'T')).toInstant());
             }
         }
     }
@@ -128,7 +128,7 @@ public class PaimonUtilTest {
                     .getNestedField().getStructField().getFields().get(0).getFieldPtr();
             Assert.assertTrue(nested.isSetTimestampIsAdjustedToUtc());
             Assert.assertTrue(nested.isTimestampIsAdjustedToUtc());
-            Assert.assertEquals(mapping ? TPrimitiveType.TIMESTAMPTZ : TPrimitiveType.DATETIMEV2,
+            Assert.assertEquals(TPrimitiveType.TIMESTAMPTZ,
                     nested.getType().getType());
         }
     }
@@ -188,6 +188,17 @@ public class PaimonUtilTest {
     }
 
     @Test
+    public void testPaimonBinaryAlwaysMapsToVarbinary() {
+        Type binary = PaimonUtil.paimonTypeToDorisType(DataTypes.BINARY(16), false, false);
+        Assert.assertTrue(binary.isVarbinaryType());
+        Assert.assertEquals(16, binary.getLength());
+
+        Type varbinary = PaimonUtil.paimonTypeToDorisType(DataTypes.VARBINARY(32), false, false);
+        Assert.assertTrue(varbinary.isVarbinaryType());
+        Assert.assertEquals(32, varbinary.getLength());
+    }
+
+    @Test
     public void testVariantMapsToComputeV2() {
         Type type = PaimonUtil.paimonTypeToDorisType(
                 new org.apache.paimon.types.VariantType(), true, true);
@@ -197,7 +208,18 @@ public class PaimonUtilTest {
     }
 
     @Test
-    public void testTimestampWriteTypeMappingUsesDateTimeV2() {
+    public void testPaimonTimestampSchemaHistoryPreservesLogicalSemantics() {
+        TField timestamp = PaimonUtil.getSchemaInfo(new TimestampType(3), false, false);
+        Assert.assertTrue(timestamp.isSetTimestampIsAdjustedToUtc());
+        Assert.assertFalse(timestamp.isTimestampIsAdjustedToUtc());
+
+        TField timestampLtz = PaimonUtil.getSchemaInfo(new LocalZonedTimestampType(6), false, false);
+        Assert.assertTrue(timestampLtz.isSetTimestampIsAdjustedToUtc());
+        Assert.assertTrue(timestampLtz.isTimestampIsAdjustedToUtc());
+    }
+
+    @Test
+    public void testTimestampMappingPreservesLogicalSemanticsWithoutFlag() {
         RowType rowType = DataTypes.ROW(
                 DataTypes.FIELD(0, "ntz", DataTypes.TIMESTAMP(6)),
                 DataTypes.FIELD(1, "ltz", DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6)),
@@ -208,10 +230,10 @@ public class PaimonUtilTest {
 
         Assert.assertEquals(PrimitiveType.DATETIMEV2,
                 writeType.getFields().get(0).getType().getPrimitiveType());
-        Assert.assertEquals(PrimitiveType.DATETIMEV2,
+        Assert.assertEquals(PrimitiveType.TIMESTAMPTZ,
                 writeType.getFields().get(1).getType().getPrimitiveType());
         ArrayType nestedLtz = (ArrayType) writeType.getFields().get(2).getType();
-        Assert.assertEquals(PrimitiveType.DATETIMEV2,
+        Assert.assertEquals(PrimitiveType.TIMESTAMPTZ,
                 nestedLtz.getItemType().getPrimitiveType());
     }
 

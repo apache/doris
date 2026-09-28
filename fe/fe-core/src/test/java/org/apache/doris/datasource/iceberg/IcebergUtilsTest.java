@@ -325,6 +325,32 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testIcebergFixedAlwaysMapsToLengthPreservingVarbinary() {
+        for (boolean enableMappingVarbinary : Arrays.asList(false, true)) {
+            Type shortFixed = IcebergUtils.icebergTypeToDorisType(
+                    Types.FixedType.ofLength(4), enableMappingVarbinary, false);
+            Assert.assertTrue(shortFixed.isVarbinaryType());
+            Assert.assertEquals(4, ((ScalarType) shortFixed).getLength());
+
+            Type longFixed = IcebergUtils.icebergTypeToDorisType(
+                    Types.FixedType.ofLength(256), enableMappingVarbinary, false);
+            Assert.assertTrue(longFixed.isVarbinaryType());
+            Assert.assertEquals(256, ((ScalarType) longFixed).getLength());
+        }
+    }
+
+    @Test
+    public void testIcebergBinaryAlwaysMapsToVarbinary() {
+        Type binary = IcebergUtils.icebergTypeToDorisType(Types.BinaryType.get(), false, false);
+        Assert.assertTrue(binary.isVarbinaryType());
+        Assert.assertEquals(ScalarType.MAX_VARBINARY_LENGTH, ((ScalarType) binary).getLength());
+
+        Type uuid = IcebergUtils.icebergTypeToDorisType(Types.UUIDType.get(), false, false);
+        Assert.assertTrue(uuid.isVarbinaryType());
+        Assert.assertEquals(16, ((ScalarType) uuid).getLength());
+    }
+
+    @Test
     public void testSnapshotCacheFreezesSharedTableOperations() {
         Schema originalSchema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()));
@@ -905,7 +931,7 @@ public class IcebergUtilsTest {
     }
 
     @Test
-    public void testLegacyTimestamptzMissingColumnExpressionUsesSessionTimeZone() {
+    public void testTimestamptzMissingColumnExpressionPreservesOffsetWithoutFlag() {
         Types.NestedField field = Types.NestedField.optional("event_time")
                 .withId(1)
                 .ofType(Types.TimestampType.withZone())
@@ -915,7 +941,7 @@ public class IcebergUtilsTest {
         context.getSessionVariable().setTimeZone("Asia/Shanghai");
         context.setThreadLocalInfo();
         try {
-            Assert.assertEquals("2025-01-18 09:02:03.654321",
+            Assert.assertEquals("2025-01-18 01:02:03.654321+00:00",
                     IcebergUtils.getSerializedInitialDefaultForDorisExpression(field, false));
             Assert.assertEquals("2025-01-18 01:02:03.654321+00:00",
                     IcebergUtils.getSerializedInitialDefaultForDorisExpression(field, true));

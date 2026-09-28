@@ -755,21 +755,24 @@ public class IcebergUtils {
             case STRING:
                 return Type.STRING;
             case UUID:
-                return enableMappingVarbinary ? ScalarType.createVarbinaryType(16) : Type.STRING;
+                return ScalarType.createVarbinaryType(16);
             case BINARY:
-                return enableMappingVarbinary ? ScalarType.createVarbinaryType(VarBinaryType.MAX_VARBINARY_LENGTH)
-                        : Type.STRING;
+                // Arbitrary binary payloads are not valid UTF-8 in general, so exposing them as
+                // STRING makes Arrow clients reject otherwise valid Iceberg values.
+                return ScalarType.createVarbinaryType(VarBinaryType.MAX_VARBINARY_LENGTH);
             case FIXED:
                 Types.FixedType fixed = (Types.FixedType) primitive;
-                return enableMappingVarbinary ? ScalarType.createVarbinaryType(fixed.length())
-                        : ScalarType.createCharType(fixed.length());
+                // Iceberg fixed(N) is an arbitrary N-byte value, not text, so retain both its
+                // binary semantics and declared width.
+                return ScalarType.createVarbinaryType(fixed.length());
             case DECIMAL:
                 Types.DecimalType decimal = (Types.DecimalType) primitive;
                 return ScalarType.createDecimalV3Type(decimal.precision(), decimal.scale());
             case DATE:
                 return ScalarType.createDateV2Type();
             case TIMESTAMP:
-                if (enableMappingTimestampTz && ((TimestampType) primitive).shouldAdjustToUTC()) {
+                // Preserve the logical distinction between instants and wall-clock timestamps.
+                if (((TimestampType) primitive).shouldAdjustToUTC()) {
                     return ScalarType.createTimeStampTzType(ICEBERG_DATETIME_SCALE_MS);
                 }
                 return ScalarType.createDatetimeV2Type(ICEBERG_DATETIME_SCALE_MS);
@@ -968,7 +971,7 @@ public class IcebergUtils {
 
             Object value = partitionData.get(i);
             try {
-                String partitionString = serializePartitionValue(field.type(), value, timeZone, false);
+                String partitionString = serializePartitionValue(field.type(), value, timeZone);
                 partitionInfoMap.put(field.name(), partitionString);
             } catch (UnsupportedOperationException e) {
                 LOG.warn("Failed to serialize Iceberg table partition value for field {}: {}", field.name(),
@@ -1069,7 +1072,7 @@ public class IcebergUtils {
             }
             Object value = partitionData.get(i);
             try {
-                partitionInfoMap.put(columnName, serializePartitionValue(field.type(), value, timeZone, false));
+                partitionInfoMap.put(columnName, serializePartitionValue(field.type(), value, timeZone));
             } catch (UnsupportedOperationException e) {
                 LOG.warn("Failed to serialize Iceberg table partition value for field {}: {}", field.name(),
                         e.getMessage());
@@ -1084,10 +1087,10 @@ public class IcebergUtils {
         if (typeId == TypeID.BINARY || typeId == TypeID.FIXED) {
             return false;
         }
-        if (enableMappingVarbinary && typeId == TypeID.UUID) {
+        if (typeId == TypeID.UUID) {
             return false;
         }
-        return !enableMappingTimestampTz || typeId != TypeID.TIMESTAMP
+        return typeId != TypeID.TIMESTAMP
                 || !((TimestampType) type).shouldAdjustToUTC();
     }
 
@@ -1132,11 +1135,6 @@ public class IcebergUtils {
     }
 
     public static String serializePartitionValue(org.apache.iceberg.types.Type type, Object value, String timeZone) {
-        return serializePartitionValue(type, value, timeZone, true);
-    }
-
-    private static String serializePartitionValue(org.apache.iceberg.types.Type type, Object value, String timeZone,
-            boolean preserveTimestampInstant) {
         switch (type.typeId()) {
             case BOOLEAN:
             case INTEGER:
@@ -1191,12 +1189,7 @@ public class IcebergUtils {
                 // type is timestamptz if timestampType.shouldAdjustToUTC() is true
                 if (timestampType.shouldAdjustToUTC()) {
                     // Delete/overwrite commits must distinguish both instants in a DST overlap.
-                    if (preserveTimestampInstant) {
-                        return timestamp.atOffset(ZoneOffset.UTC).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
-                    }
-                    // Legacy DATETIMEV2 path columns still require session-local civil fields.
-                    timestamp = timestamp.atZone(ZoneOffset.UTC).withZoneSameInstant(ZoneId.of(timeZone))
-                            .toLocalDateTime();
+                    return timestamp.atOffset(ZoneOffset.UTC).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
                 }
                 return timestamp.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
             default:
@@ -1618,12 +1611,6 @@ public class IcebergUtils {
             // Iceberg formats timestamps as ISO-8601 (for example 2024-01-01T00:00:00), while
             // Doris' DATETIMEV2 default parser requires a space between the date and time.
             String dorisValue = humanValue.replace('T', ' ');
-            Types.TimestampType timestampType = (Types.TimestampType) type;
-            if (timestampType.shouldAdjustToUTC() && !enableMappingTimestampTz) {
-                // Preserve the instant and its offset through FE-to-BE transport. The BE converts
-                // it to the session-local DATETIMEV2 wall time immediately before materialization.
-                return dorisValue;
-            }
             return dorisValue;
         }
         if (isBinaryLike(type)) {
@@ -1647,16 +1634,7 @@ public class IcebergUtils {
             Types.NestedField field, boolean enableMappingTimestampTz) {
         Preconditions.checkArgument(field.initialDefault() != null,
                 "Iceberg field %s has no initial default", field.fieldId());
-        if (field.type().typeId() == TypeID.TIMESTAMP
-                && ((Types.TimestampType) field.type()).shouldAdjustToUTC()
-                && !enableMappingTimestampTz) {
-            long micros = (Long) field.initialDefault();
-            long seconds = Math.floorDiv(micros, 1_000_000L);
-            int nanos = Math.toIntExact(Math.floorMod(micros, 1_000_000L) * 1_000L);
-            LocalDateTime localDateTime = LocalDateTime.ofInstant(
-                    Instant.ofEpochSecond(seconds, nanos), TimeUtils.getDorisZoneId());
-            return localDateTime.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME).replace('T', ' ');
-        }
+        // TIMESTAMPTZ defaults must retain their offset, not become session-local wall times.
         return getSerializedInitialDefault(field, enableMappingTimestampTz);
     }
 

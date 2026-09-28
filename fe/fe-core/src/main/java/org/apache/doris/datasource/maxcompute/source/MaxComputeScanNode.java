@@ -523,6 +523,10 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                     DateLiteral dateLiteral = (DateLiteral) literalExpr;
                     ScalarType dstType = ScalarType.createDatetimeV2Type(6);
 
+                    // TIMESTAMPTZ literals already contain UTC components.
+                    if (dateLiteral.getType().isTimeStampTz()) {
+                        return " \"" + dateLiteral.getStringValue(dstType) + "\" ";
+                    }
                     return  " \"" + convertDateTimezone(dateLiteral.getStringValue(dstType), dateTime6Formatter,
                             ZoneId.of("UTC")) + "\" ";
                 }
