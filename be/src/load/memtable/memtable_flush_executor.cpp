@@ -133,7 +133,6 @@ SharedMemtable::~SharedMemtable() {
 Status FlushToken::_submit_sub_tasks(ThreadPool* pool,
                                      std::vector<std::shared_ptr<Runnable>> sub_tasks) {
     for (int i = 0; i < sub_tasks.size(); ++i) {
-        RETURN_IF_ERROR(_get_load_cancel_status());
         {
             std::shared_lock rdlk(_flush_status_lock);
             DBUG_EXECUTE_IF("FlushToken.submit_sub_task_error", {
@@ -168,7 +167,6 @@ Status FlushToken::_get_load_cancel_status() const {
 }
 
 Status FlushToken::submit(std::shared_ptr<MemTable> mem_table) {
-    RETURN_IF_ERROR(_get_load_cancel_status());
     {
         std::shared_lock rdlk(_flush_status_lock);
         DBUG_EXECUTE_IF("FlushToken.submit_flush_error", {

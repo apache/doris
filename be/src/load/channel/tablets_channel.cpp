@@ -98,7 +98,6 @@ Status BaseTabletsChannel::_check_cancelled() {
 Status BaseTabletsChannel::_get_current_seq(int64_t& cur_seq,
                                             const PTabletWriterAddBlockRequest& request) {
     std::lock_guard<std::mutex> l(_lock);
-    RETURN_IF_ERROR(_check_cancelled());
     if (_state != kOpened) {
         return _state == kFinished ? _close_status
                                    : Status::InternalError("TabletsChannel {} state: {}",
@@ -357,7 +356,6 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
     const auto& partition_ids = req.partition_ids();
     auto* tablet_errors = res->mutable_tablet_errors();
     std::lock_guard<std::mutex> l(_lock);
-    RETURN_IF_ERROR(_check_cancelled());
     if (_state == kFinished) {
         return _close_status;
     }
@@ -468,7 +466,7 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
         _commit_txn(writer, res);
     }
 
-    return _check_cancelled();
+    return Status::OK();
 }
 
 void TabletsChannel::_commit_txn(DeltaWriter* writer, PTabletWriterAddBlockResult* res) {

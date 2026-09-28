@@ -107,7 +107,6 @@ void LoadChannel::_init_profile() {
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
-    RETURN_IF_ERROR(cancel_status());
     if (config::is_cloud_mode() && params.txn_expiration() <= 0) {
         return Status::InternalError(
                 "The txn expiration of PTabletWriterOpenRequest is invalid, value={}",

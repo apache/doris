@@ -781,7 +781,8 @@ TEST_P(MemTableFlushCancellationTest, SharedCancellationSkipsQueuedFlushes) {
     ASSERT_TRUE(token->submit(ctx.memtable).ok());
     EXPECT_EQ(token->get_stats().flush_submit_count.load(), group_flush ? 2 : 1);
     status->update(Status::Cancelled("cancel queued flush"));
-    EXPECT_TRUE(token->submit(ctx.memtable).is<ErrorCode::CANCELLED>());
+    // Both pre-cancel and post-cancel submissions must skip flushing when dispatched.
+    ASSERT_TRUE(token->submit(ctx.memtable).ok());
     release.count_down();
     EXPECT_TRUE(token->wait().is<ErrorCode::CANCELLED>());
     pool->wait();

@@ -149,10 +149,10 @@ Status BaseDeltaWriter::_get_load_cancel_status() const {
 }
 
 Status BaseDeltaWriter::init() {
-    RETURN_IF_ERROR(_get_load_cancel_status());
     if (_is_init) {
         return Status::OK();
     }
+    RETURN_IF_ERROR(_get_load_cancel_status());
     std::shared_ptr<WorkloadGroup> wg_sptr = nullptr;
     if (doris::thread_context()->is_attach_task()) {
         wg_sptr = doris::thread_context()->resource_ctx()->workload_group();
@@ -186,7 +186,6 @@ Status DeltaWriter::write(const Block* block, const TabletAddRowsPayload& rows,
     _lock_watch.start();
     std::lock_guard<std::mutex> l(_lock);
     _lock_watch.stop();
-    RETURN_IF_ERROR(_get_load_cancel_status());
     if (!_is_init && !_is_cancelled) {
         RETURN_IF_ERROR(init());
     }
@@ -222,7 +221,6 @@ Status DeltaWriter::close() {
     _lock_watch.start();
     std::lock_guard<std::mutex> l(_lock);
     _lock_watch.stop();
-    RETURN_IF_ERROR(_get_load_cancel_status());
     if (!_is_init && !_is_cancelled) {
         // if this delta writer is not initialized, but close() is called.
         // which means this tablet has no data loaded, but at least one tablet

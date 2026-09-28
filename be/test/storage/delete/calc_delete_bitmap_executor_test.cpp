@@ -62,7 +62,11 @@ TEST(CalcDeleteBitmapTokenTest, SharedCancellationSkipsQueuedTasks) {
     ASSERT_TRUE(token.submit(nullptr, nullptr, RowsetId(), {}, nullptr).ok());
     const auto reason = Status::Cancelled("load cancelled while bitmap tasks were queued");
     status->update(reason);
-    EXPECT_EQ(token.submit_func([] { return Status::OK(); }).to_string(), reason.to_string());
+    // Submission stays lightweight; the execution gate also skips tasks queued after cancel.
+    ASSERT_TRUE(token.submit_func([&] {
+                         ++executed;
+                         return Status::OK();
+                     }).ok());
     release.count_down();
     EXPECT_EQ(token.wait().to_string(), reason.to_string());
     EXPECT_EQ(executed.load(), 0);

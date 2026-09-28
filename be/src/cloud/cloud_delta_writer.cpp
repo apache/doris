@@ -98,7 +98,6 @@ Status CloudDeltaWriter::write(const Block* block, const TabletAddRowsPayload& r
                 table_id());
     }
     std::lock_guard lock(_mtx);
-    RETURN_IF_ERROR(_get_load_cancel_status());
     CHECK(_is_init || _is_cancelled);
     {
         SCOPED_TIMER(_wait_flush_limit_timer);
@@ -125,7 +124,6 @@ Status CloudDeltaWriter::write(const Block* block, const TabletAddRowsPayload& r
 
 Status CloudDeltaWriter::close() {
     std::lock_guard lock(_mtx);
-    RETURN_IF_ERROR(_get_load_cancel_status());
     CHECK(_is_init);
     return _memtable_writer->close();
 }
@@ -176,7 +174,6 @@ Status CloudDeltaWriter::_commit_empty_rowset() {
     }
 
     RETURN_IF_ERROR(_rowset_builder->init());
-    RETURN_IF_ERROR(_get_load_cancel_status());
     RETURN_IF_ERROR(_rowset_builder->build_rowset());
     RETURN_IF_ERROR(_get_load_cancel_status());
 

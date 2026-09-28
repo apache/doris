@@ -72,7 +72,10 @@ public:
     // submit a generic function to the thread pool
     template <typename Func>
     Status submit_func(Func&& func) {
-        RETURN_IF_ERROR(_get_status());
+        {
+            std::shared_lock rlock(_lock);
+            RETURN_IF_ERROR(_status);
+        }
         auto resource_ctx = thread_context()->resource_ctx();
         return _thread_token->submit_func([this, resource_ctx, func = std::forward<Func>(func)]() {
             SCOPED_ATTACH_TASK(resource_ctx);

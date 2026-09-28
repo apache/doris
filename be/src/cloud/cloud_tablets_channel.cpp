@@ -167,7 +167,6 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
                                   PTabletWriterAddBlockResult* res, bool* finished) {
     // FIXME(plat1ko): Too many duplicate code with `TabletsChannel`
     std::lock_guard l(_lock);
-    RETURN_IF_ERROR(_check_cancelled());
     if (_state == kFinished) {
         return _close_status;
     }
@@ -345,7 +344,7 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
     }
     res->set_build_rowset_latency_ms(build_latency);
     res->set_commit_rowset_latency_ms(commit_latency);
-    return _check_cancelled();
+    return Status::OK();
 }
 
 } // namespace doris
