@@ -98,7 +98,7 @@ struct Exists {
     FieldRef field;
 };
 
-// No document matches; documents whose field is NULL stay UNKNOWN.
+// No document matches and none is UNKNOWN: both formats answer it with an empty bit set.
 struct Empty {
     FieldRef field;
 };

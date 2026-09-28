@@ -225,10 +225,6 @@ std::shared_ptr<roaring::Roaring> docids_to_bitmap(const std::vector<uint32_t>& 
     return result;
 }
 
-// Runs `compute` under single-flight keyed by `key`: concurrent identical queries collapse to a
-// single execution and the followers reuse the leader's bitmap. `compute(out)` fills *out and
-// returns its Status; on overall success *result receives the bitmap. See SingleFlight for why
-// this matters under a cold cache with parallel scanners hitting the same segment.
 // Keep every query type's dispatch to the SNII executors in one switch.
 // NOLINTNEXTLINE(readability-function-size)
 Status execute_snii_query(const ::doris::snii::reader::LogicalIndexReader& logical_reader,

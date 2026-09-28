@@ -22,7 +22,6 @@
 #include <numeric>
 #include <span>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include "storage/index/snii/common/slice.h"
@@ -117,50 +116,6 @@ Status decode_slim(const LogicalIndexReader& idx, const DictEntry& entry, uint64
     tfs->reserve(positions.size());
     for (const auto& doc_positions : positions) {
         tfs->push_back(term_frequency(doc_positions));
-    }
-    return Status::OK();
-}
-
-// Decodes a windowed term completely (docids + per-doc term frequencies).
-Status decode_windowed(const LogicalIndexReader& idx, const DictEntry& entry, uint64_t frq_base,
-                       uint64_t prx_base, std::vector<uint32_t>* docids,
-                       std::vector<uint32_t>* tfs) {
-    reader::DecodedPosting posting;
-    RETURN_IF_ERROR(reader::read_windowed_posting(idx, entry, frq_base, prx_base,
-                                                  /*want_positions=*/true, &posting));
-    if (posting.positions.size() != posting.docids.size()) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                "scoring_query: windowed prx/frq doc-count mismatch");
-    }
-    *docids = std::move(posting.docids);
-    tfs->clear();
-    tfs->reserve(posting.positions.size());
-    for (const auto& doc_positions : posting.positions) {
-        tfs->push_back(term_frequency(doc_positions));
-    }
-    return Status::OK();
-}
-
-Status decode_term(const LogicalIndexReader& idx, const DictEntry& entry, uint64_t frq_base,
-                   uint64_t prx_base, std::vector<uint32_t>* docids, std::vector<uint32_t>* tfs) {
-    const bool windowed =
-            entry.kind == DictEntryKind::kPodRef && entry.enc == DictEntryEnc::kWindowed;
-    if (windowed) {
-        return decode_windowed(idx, entry, frq_base, prx_base, docids, tfs);
-    }
-    return decode_slim(idx, entry, frq_base, prx_base, docids, tfs);
-}
-
-// Computes exact per-doc BM25 scores from decoded (docid, tf) vectors.
-Status score_decoded(const stats::SniiStatsProvider& stats, const ScorerContext& ctx, double avgdl,
-                     const Bm25Params& params, const std::vector<uint32_t>& docids,
-                     const std::vector<uint32_t>& tfs, std::vector<TermPosting>* out) {
-    DCHECK_EQ(docids.size(), tfs.size());
-    out->reserve(docids.size());
-    for (size_t i = 0; i < docids.size(); ++i) {
-        uint8_t norm = 0;
-        RETURN_IF_ERROR(stats.encoded_norm(docids[i], &norm));
-        out->push_back({docids[i], ctx.score(tfs[i], norm, avgdl, params)});
     }
     return Status::OK();
 }
@@ -365,58 +320,6 @@ Status scoring_query_candidates(const LogicalIndexReader& idx,
         scored_candidates.push_back({.docid = candidate_docids[i], .score = candidate_scores[i]});
     }
     *out = std::move(scored_candidates);
-    return Status::OK();
-}
-
-Status scoring_query_exhaustive(const LogicalIndexReader& idx,
-                                const stats::SniiStatsProvider& stats,
-                                const std::vector<std::string>& terms, uint32_t k,
-                                const Bm25Params& params, std::vector<ScoredDoc>* out) {
-    if (out == nullptr) {
-        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("scoring_query: null out");
-    }
-    out->clear();
-    if (k == 0) {
-        return Status::OK();
-    }
-    RETURN_IF_ERROR(require_positions(idx));
-
-    std::unordered_map<uint32_t, double> scores;
-    for (const auto& term : terms) {
-        bool found = false;
-        DictEntry entry;
-        uint64_t frq_base = 0;
-        uint64_t prx_base = 0;
-        RETURN_IF_ERROR(idx.lookup(term, &found, &entry, &frq_base, &prx_base));
-        if (!found) {
-            continue;
-        }
-        const ScorerContext ctx = ScorerContext::make(stats.indexed_doc_count(), entry.df);
-        std::vector<uint32_t> docids;
-        std::vector<uint32_t> tfs;
-        RETURN_IF_ERROR(decode_term(idx, entry, frq_base, prx_base, &docids, &tfs));
-        std::vector<TermPosting> postings;
-        RETURN_IF_ERROR(score_decoded(stats, ctx, stats.avgdl(), params, docids, tfs, &postings));
-        for (const auto& p : postings) {
-            scores[p.docid] += p.score;
-        }
-    }
-
-    std::vector<ScoredDoc> all;
-    all.reserve(scores.size());
-    for (const auto& [docid, score] : scores) {
-        all.push_back({docid, score});
-    }
-    std::sort(all.begin(), all.end(), [](const ScoredDoc& a, const ScoredDoc& b) {
-        if (a.score != b.score) {
-            return a.score > b.score;
-        }
-        return a.docid < b.docid;
-    });
-    if (all.size() > k) {
-        all.resize(k);
-    }
-    *out = std::move(all);
     return Status::OK();
 }
 

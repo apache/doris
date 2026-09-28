@@ -50,21 +50,16 @@ double decode_norm(uint8_t encoded);
 // so writers and test oracles share one quantization.
 uint8_t encode_norm(uint64_t doc_length);
 
-// Per-term scoring context: the precomputed idf and the term's df. Built once per
-// query term, then reused for every candidate document of that term.
+// Per-term scoring context: the precomputed idf. Built once per query term, then
+// reused for every candidate document of that term.
 class ScorerContext {
 public:
-    // Builds the context from collection size n (indexed doc count) and the term's
-    // document frequency df. avgdl and params are supplied per score call.
-    static ScorerContext make(uint64_t n, uint64_t df);
-
     // Builds a context from a collection-scoped IDF that was computed outside
     // the segment reader. This keeps segment-local TF/norm decoding separate
     // from scanner-collection N/DF aggregation.
     static ScorerContext from_idf(double idf);
 
     double idf() const { return idf_; }
-    uint64_t df() const { return df_; }
 
     // Scores one document occurrence: tf is the in-doc term frequency, encoded_norm
     // the doc's 1-byte length norm, avgdl the collection average length.
@@ -72,7 +67,6 @@ public:
 
 private:
     double idf_ = 0.0;
-    uint64_t df_ = 0;
 };
 
 } // namespace doris::snii::query

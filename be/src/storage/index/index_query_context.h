@@ -66,7 +66,7 @@ struct IndexQueryContext {
     // A caller that hands a reader a COPY of this context rather than the context itself must
     // fold the copy back with merge_reader_outputs(), or the reader's reply is dropped in
     // silence: nothing fails to compile, no test goes red, the query simply takes the wrong plan.
-    // FunctionSearch's SNII leaf builder is such a caller -- it copies the context so the reader
+    // NativeLeafCompiler is such a caller -- it copies the context so the reader
     // publishes its BM25 into a throwaway CollectionSimilarity instead of the query's own.
     //
     // Every field added below this line must also be merged in merge_reader_outputs().

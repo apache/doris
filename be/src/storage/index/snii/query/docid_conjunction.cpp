@@ -54,21 +54,6 @@ struct CandidateRange {
     size_t end = 0;
 };
 
-Status add_u64(uint64_t lhs, uint64_t rhs, const char* message, uint64_t* out) {
-    if (rhs > std::numeric_limits<uint64_t>::max() - lhs) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(message);
-    }
-    *out = lhs + rhs;
-    return Status::OK();
-}
-
-Status posting_abs_offset(const LogicalIndexReader& idx, uint64_t base, uint64_t delta,
-                          const char* message, uint64_t* out) {
-    uint64_t with_base = 0;
-    RETURN_IF_ERROR(add_u64(idx.section_refs().posting_region.offset, base, message, &with_base));
-    return add_u64(with_base, delta, message, out);
-}
-
 Status configure_term_plan(const LogicalIndexReader& idx, bool need_positions,
                            io::BatchRangeFetcher* fetcher, TermPlan* p) {
     p->df = p->entry.df;
@@ -76,9 +61,7 @@ Status configure_term_plan(const LogicalIndexReader& idx, bool need_positions,
     p->windowed = p->pod_ref && p->entry.enc == DictEntryEnc::kWindowed;
     if (p->windowed) {
         uint64_t prelude_abs = 0;
-        RETURN_IF_ERROR(posting_abs_offset(idx, p->frq_base, p->entry.frq_off_delta,
-                                           "docid_conjunction: prelude offset overflow",
-                                           &prelude_abs));
+        RETURN_IF_ERROR(reader::prelude_abs_offset(idx, p->entry, p->frq_base, &prelude_abs));
         p->prelude_handle = fetcher->add(prelude_abs, p->entry.prelude_len);
     } else if (p->pod_ref) {
         uint64_t foff = 0;
@@ -99,31 +82,6 @@ std::vector<uint32_t> all_windows(const FrqPreludeReader& prelude) {
     std::vector<uint32_t> ws(prelude.n_windows());
     for (uint32_t i = 0; i < prelude.n_windows(); ++i) ws[i] = i;
     return ws;
-}
-
-Status first_docid_in_window(const WindowMeta& meta, uint32_t window_ordinal, uint32_t* first) {
-    if (window_ordinal == 0) {
-        *first = 0;
-        return Status::OK();
-    }
-    if (meta.win_base >= std::numeric_limits<uint32_t>::max()) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                "docid_conjunction: window base exceeds docid range");
-    }
-    *first = static_cast<uint32_t>(meta.win_base + 1);
-    if (*first > meta.last_docid) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                "docid_conjunction: invalid window docid range");
-    }
-    return Status::OK();
-}
-
-Status is_dense_full_window(const WindowMeta& meta, uint32_t window_ordinal, bool* full) {
-    uint32_t first = 0;
-    RETURN_IF_ERROR(first_docid_in_window(meta, window_ordinal, &first));
-    const uint64_t width = static_cast<uint64_t>(meta.last_docid) - first + 1;
-    *full = meta.doc_count == width;
-    return Status::OK();
 }
 
 Status append_docid_range(uint32_t first, uint32_t last, std::vector<uint32_t>* out) {
@@ -578,7 +536,7 @@ struct WindowWork {
 Status emit_dense_full_window_docids(const WindowWork& f, const std::vector<uint32_t>* candidates,
                                      std::vector<uint32_t>& out, DocidSource* source) {
     uint32_t first = 0;
-    RETURN_IF_ERROR(first_docid_in_window(f.meta, f.ordinal, &first));
+    RETURN_IF_ERROR(reader::first_docid_in_window(f.meta, f.ordinal, &first));
     if (source != nullptr) {
         DocidChunk chunk;
         chunk.windowed = true;
@@ -642,7 +600,7 @@ Status emit_decoded_window_docids(const WindowWork& f, Slice window_bytes,
         return Status::OK();
     }
     uint32_t first = 0;
-    RETURN_IF_ERROR(first_docid_in_window(f.meta, f.ordinal, &first));
+    RETURN_IF_ERROR(reader::first_docid_in_window(f.meta, f.ordinal, &first));
     intersect_window_candidate_range(candidates->begin() + f.candidates.begin,
                                      candidates->begin() + f.candidates.end, docs, first,
                                      f.meta.last_docid, &out);
@@ -718,7 +676,7 @@ private:
         WindowMeta meta;
         RETURN_IF_ERROR(_plan.prelude.window(window, &meta));
         uint32_t first = 0;
-        RETURN_IF_ERROR(first_docid_in_window(meta, window, &first));
+        RETURN_IF_ERROR(reader::first_docid_in_window(meta, window, &first));
         CandidateRange candidate_range;
         size_t search_begin = _candidate_search_begin;
         if (_candidates != nullptr) {
@@ -731,7 +689,7 @@ private:
             }
         }
         WindowWork work {.ordinal = window, .meta = meta, .candidates = candidate_range};
-        RETURN_IF_ERROR(is_dense_full_window(meta, window, &work.dense_full));
+        RETURN_IF_ERROR(reader::is_dense_full_window(meta, window, &work.dense_full));
         if (!work.dense_full) {
             reader::WindowAbsRange range;
             RETURN_IF_ERROR(reader::windowed_window_range(_idx, _plan.entry, _plan.frq_base,
@@ -890,23 +848,6 @@ Status plan_terms(const LogicalIndexReader& idx, const std::vector<std::string>&
         p.entry = std::move(resolved[i].entry);
         p.frq_base = resolved[i].frq_base;
         p.prx_base = resolved[i].prx_base;
-        RETURN_IF_ERROR(configure_term_plan(idx, need_positions, fetcher, &p));
-    }
-    return Status::OK();
-}
-
-Status plan_resolved_terms(const LogicalIndexReader& idx,
-                           const std::vector<ResolvedQueryTerm>& terms,
-                           io::BatchRangeFetcher* fetcher, std::vector<TermPlan>* plans,
-                           bool need_positions) {
-    plans->resize(terms.size());
-    for (size_t i = 0; i < terms.size(); ++i) {
-        TermPlan& p = (*plans)[i];
-        p.order = i;
-        p.entry = terms[i].entry;
-        SNII_QUERY_COUNT(resolved_term_entry_copies);
-        p.frq_base = terms[i].frq_base;
-        p.prx_base = terms[i].prx_base;
         RETURN_IF_ERROR(configure_term_plan(idx, need_positions, fetcher, &p));
     }
     return Status::OK();

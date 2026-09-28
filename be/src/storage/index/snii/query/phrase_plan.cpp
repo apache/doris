@@ -99,11 +99,6 @@ bool should_use_monotonic_position_scan(std::pair<const uint32_t*, const uint32_
     return anchor_span.second[-1] <= std::numeric_limits<uint32_t>::max() - offset_delta;
 }
 
-bool entry_has_positions(const format::DictEntry& entry) {
-    return entry.kind == format::DictEntryKind::kInline ? !entry.prx_bytes.empty()
-                                                        : entry.prx_len != 0;
-}
-
 void append_resolved_phrase_clause(ResolvedQueryTerm term, uint32_t position_offset,
                                    internal::ResolvedPhrasePlan* plan) {
     const auto unique = std::ranges::find(plan->unique_terms, term.entry.term,

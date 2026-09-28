@@ -38,6 +38,7 @@
 #include "storage/index/snii/query/phrase_query.h"
 #include "storage/index/snii/query/scoring_query.h"
 #include "storage/index/snii/query/term_query.h"
+#include "storage/index/snii/query/top_k_scores.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
 #include "storage/index/snii/reader/windowed_posting.h"
@@ -405,7 +406,8 @@ TEST(SniiByteSkip, DocidPathReadsWholeFrqSpanAndScoringReadsMore) {
     const uint32_t kTopK = 10;
 
     std::vector<ScoredDoc> exhaustive;
-    ASSERT_TRUE(query::scoring_query_exhaustive(idx, stats, score_terms, kTopK, params, &exhaustive)
+    ASSERT_TRUE(doris::snii::snii_test::top_k_scores(idx, stats, score_terms, kTopK, params,
+                                                     &exhaustive)
                         .ok());
 
     const std::vector<ScoredDoc> ref = ReferenceRanking(c, score_terms, kTopK, params);
@@ -420,8 +422,8 @@ TEST(SniiByteSkip, DocidPathReadsWholeFrqSpanAndScoringReadsMore) {
     // same lookup + frq span, plus the prx windows (and norms).
     metered.reset_metrics();
     std::vector<ScoredDoc> hi_only;
-    ASSERT_TRUE(
-            query::scoring_query_exhaustive(idx, stats, {"aa_hi"}, kTopK, params, &hi_only).ok());
+    ASSERT_TRUE(doris::snii::snii_test::top_k_scores(idx, stats, {"aa_hi"}, kTopK, params, &hi_only)
+                        .ok());
     const io::IoMetrics score_io = metered.metrics();
     const uint64_t score_frq_request = score_io.total_request_bytes;
     const uint64_t term_frq_request = a.total_request_bytes;

@@ -53,24 +53,6 @@ Status decode_inline_docs(const DictEntry& entry, std::vector<uint32_t>* docids)
             docids);
 }
 
-Status posting_reader_add_u64(uint64_t lhs, uint64_t rhs, const char* message, uint64_t* out) {
-    if (rhs > std::numeric_limits<uint64_t>::max() - lhs) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(message);
-    }
-    *out = lhs + rhs;
-    return Status::OK();
-}
-
-Status prelude_abs(const LogicalIndexReader& idx, const DictEntry& entry, uint64_t frq_base,
-                   uint64_t* out) {
-    uint64_t with_base = 0;
-    RETURN_IF_ERROR(posting_reader_add_u64(idx.section_refs().posting_region.offset, frq_base,
-                                           "docid_posting_reader: prelude offset overflow",
-                                           &with_base));
-    return posting_reader_add_u64(with_base, entry.frq_off_delta,
-                                  "docid_posting_reader: prelude offset overflow", out);
-}
-
 Status validate_windowed_docs_prefix(const DictEntry& entry) {
     if (entry.prelude_len == 0) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
@@ -109,7 +91,7 @@ Status plan_window_prefix(const LogicalIndexReader& idx, WindowPlan* plan,
     const ResolvedDocidPosting& posting = *plan->posting;
     RETURN_IF_ERROR(validate_windowed_docs_prefix(posting.entry));
     uint64_t abs = 0;
-    RETURN_IF_ERROR(prelude_abs(idx, posting.entry, posting.frq_base, &abs));
+    RETURN_IF_ERROR(reader::prelude_abs_offset(idx, posting.entry, posting.frq_base, &abs));
     // Production layout: the entire .frq payload is [prelude][dd-block], read in one range request.
     plan->prefix_handle = fetcher->add(abs, posting.entry.frq_len);
     return Status::OK();
@@ -146,33 +128,6 @@ Status window_dd_slice(Slice dd_block, const WindowMeta& meta, Slice* out) {
     }
     *out = dd_block.subslice(static_cast<size_t>(meta.dd_off),
                              static_cast<size_t>(meta.dd_disk_len));
-    return Status::OK();
-}
-
-Status posting_reader_first_docid_in_window(const WindowMeta& meta, uint32_t window_ordinal,
-                                            uint32_t* first) {
-    if (window_ordinal == 0) {
-        *first = 0;
-        return Status::OK();
-    }
-    if (meta.win_base >= std::numeric_limits<uint32_t>::max()) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                "docid_posting_reader: window base exceeds docid range");
-    }
-    *first = static_cast<uint32_t>(meta.win_base + 1);
-    if (*first > meta.last_docid) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                "docid_posting_reader: invalid window docid range");
-    }
-    return Status::OK();
-}
-
-Status posting_reader_is_dense_full_window(const WindowMeta& meta, uint32_t window_ordinal,
-                                           bool* full) {
-    uint32_t first = 0;
-    RETURN_IF_ERROR(posting_reader_first_docid_in_window(meta, window_ordinal, &first));
-    const uint64_t width = static_cast<uint64_t>(meta.last_docid) - first + 1;
-    *full = meta.doc_count == width;
     return Status::OK();
 }
 
@@ -220,10 +175,10 @@ Status decode_window_prefix_plan(const io::BatchRangeFetcher& fetcher, const Win
         RETURN_IF_ERROR(prelude.window(w, &meta));
         RETURN_IF_ERROR(window_dd_slice(dd_block, meta, &dd_region));
         bool dense_full = false;
-        RETURN_IF_ERROR(posting_reader_is_dense_full_window(meta, w, &dense_full));
+        RETURN_IF_ERROR(reader::is_dense_full_window(meta, w, &dense_full));
         if (dense_full) {
             uint32_t first = 0;
-            RETURN_IF_ERROR(posting_reader_first_docid_in_window(meta, w, &first));
+            RETURN_IF_ERROR(reader::first_docid_in_window(meta, w, &first));
             RETURN_IF_ERROR(sink->append_range(first, static_cast<uint64_t>(meta.last_docid) + 1));
             continue;
         }

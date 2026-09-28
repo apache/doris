@@ -34,7 +34,6 @@ class TestBlockCursor final : public PostingsCursor {
 public:
     explicit TestBlockCursor(std::vector<PostingsBlock> blocks) : _blocks(std::move(blocks)) {}
     uint32_t doc_freq() const override { return frequency_hint; }
-    bool cheap_seek() const override { return true; }
     Status next_block(PostingsBlock* block, bool* eof) override {
         ++reads;
         if (fail_after_first_read && reads > 1) {

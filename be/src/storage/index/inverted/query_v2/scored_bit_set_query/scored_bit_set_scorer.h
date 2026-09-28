@@ -32,8 +32,8 @@ using ScoredBitSetMapPtr = std::shared_ptr<const ScoredBitSetMap>;
 
 // A doc set whose relevance scores were computed before the query tree was assembled.
 //
-// The SNII native reader answers a whole clause inside its own query() call and produces the
-// per-document BM25 values as a side effect there, long before this scorer exists. It therefore
+// An SNII reader answers a whole leaf inside query_leaf and produces the per-document BM25
+// values there, long before this scorer exists. It therefore
 // cannot participate in the incremental term/norm scoring the CLucene-backed scorers do; the
 // values are simply looked up per document as the collector walks the doc set.
 //

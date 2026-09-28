@@ -27,8 +27,8 @@
 // "how many docs match" from a dict entry alone, without reading .frq bytes.
 // Multi-term queries, prefix/regexp/wildcard expansion, and phrases execute the
 // normal query path. Deletes and extra predicates are a caller responsibility;
-// see SniiIndexReader::_try_count_only_fastpath and the SegmentIterator guards
-// in count_on_index_fastpath.h.
+// see TextIndexReader::_count_from_df and the SegmentIterator guards in
+// count_on_index_fastpath.h.
 namespace doris::snii::query {
 
 // df of `term` in this segment without decoding postings. An absent term is a

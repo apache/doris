@@ -46,7 +46,6 @@ public:
     }
 
     uint32_t doc_freq() const override { return _raw_iter->docFreq(); }
-    bool cheap_seek() const override { return true; }
 
     Status next_block(index_query::PostingsBlock* out, bool* eof) override {
         ErrorContext error_context;

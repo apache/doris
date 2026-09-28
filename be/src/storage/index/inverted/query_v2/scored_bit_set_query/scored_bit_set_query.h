@@ -30,12 +30,12 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 // A pre-resolved doc set that also carries a relevance score per document.
 //
 // This is BitSetQuery plus scores, and exists separately rather than as an option on BitSetQuery
-// because BitSetQuery's constant 1.0 is depended on by the CLucene/V3 leaves and by non-scoring
+// because BitSetQuery's constant 1.0 is depended on by the CLucene leaves and by non-scoring
 // uses; widening its contract would change their behaviour silently.
 //
-// Built by the SEARCH leaf builder for clauses the SNII native reader answers with BM25: that
-// reader scores inside its own query() call, so by the time the query tree is assembled the
-// scores already exist and only need carrying to the scorer.
+// Built by NativeLeafCompiler for leaves an SNII reader answers with BM25: the reader scores
+// inside query_leaf, so by the time the query tree is assembled the scores already exist and
+// only need carrying to the scorer.
 class ScoredBitSetQuery : public Query {
 public:
     ScoredBitSetQuery(std::shared_ptr<roaring::Roaring> bitmap,

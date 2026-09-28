@@ -39,6 +39,7 @@
 #include "storage/index/snii/query/phrase_query.h"
 #include "storage/index/snii/query/scoring_query.h"
 #include "storage/index/snii/query/term_query.h"
+#include "storage/index/snii/query/top_k_scores.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
 #include "storage/index/snii/reader/windowed_posting.h"
@@ -400,7 +401,8 @@ TEST(SniiPostingGrouping, ContiguousDdBlockSavesAllThreeMetrics) {
     const std::vector<std::string> score_terms = {"aa_hi", "aa_mid", "aa_rare"};
     for (uint32_t k : {1U, 10U, 100U}) {
         std::vector<ScoredDoc> ex;
-        ASSERT_TRUE(query::scoring_query_exhaustive(idx, stats, score_terms, k, params, &ex).ok());
+        ASSERT_TRUE(
+                doris::snii::snii_test::top_k_scores(idx, stats, score_terms, k, params, &ex).ok());
         const std::vector<ScoredDoc> ref = ReferenceRanking(c, score_terms, k, params);
         ExpectRankingEqual(ex, ref, "exhaustive");
     }

@@ -31,13 +31,8 @@
 // terms. The on-disk format stores no term frequencies: tf is the number of
 // positions the term has in the document (the Lucene-family definition), so scoring
 // needs a positional index with norms.
-//   - scoring_query_candidates(): scores an externally computed candidate set
-//     with collection-scoped idf / avgdl (the production path).
-//   - scoring_query_exhaustive(): scores every document containing any query
-//     term with segment-local statistics and returns the top-K (test oracle).
-//
-// Results of the top-K path are sorted by score descending; ties are broken by
-// ascending docid so the ordering is deterministic.
+// scoring_query_candidates() scores an externally computed candidate set with
+// collection-scoped idf / avgdl.
 namespace doris::snii::query {
 
 // One scored hit.
@@ -62,13 +57,6 @@ Status scoring_query_candidates(const reader::LogicalIndexReader& idx,
                                 const stats::SniiStatsProvider& segment_stats,
                                 const std::vector<CollectionScoringTerm>& terms,
                                 const roaring::Roaring& final_candidates, double collection_avgdl,
-                                const Bm25Params& params, std::vector<ScoredDoc>* out);
-
-// Exhaustive baseline: score every doc that contains any query term, return the
-// top-k by score. params controls k1/b. Unknown terms are skipped.
-Status scoring_query_exhaustive(const reader::LogicalIndexReader& idx,
-                                const stats::SniiStatsProvider& stats,
-                                const std::vector<std::string>& terms, uint32_t k,
                                 const Bm25Params& params, std::vector<ScoredDoc>* out);
 
 } // namespace doris::snii::query

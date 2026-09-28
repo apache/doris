@@ -455,12 +455,6 @@ ANGLE_BANS = [
         "the -fno-access-control UT build on libc++",
     ),
     (
-        "storage/index/inverted/query_v2/composite_reader.h",
-        "ranges",
-        "rides the inverted-index query stack; <ranges> is heavy and breaks "
-        "the -fno-access-control UT build on libc++",
-    ),
-    (
         "storage/index/inverted/query_v2/wand/block_wand.h",
         "ranges",
         "rides the inverted-index query stack; <ranges> is heavy and breaks "

@@ -86,6 +86,13 @@ struct WindowAbsRange {
 Status fetch_windowed_prelude(const LogicalIndexReader& idx, const format::DictEntry& entry,
                               uint64_t frq_base, format::FrqPreludeReader* prelude);
 
+// The absolute file offset of a windowed entry's prelude, checked for overflow.
+Status prelude_abs_offset(const LogicalIndexReader& idx, const format::DictEntry& entry,
+                          uint64_t frq_base, uint64_t* out);
+// The first docid window w can hold: window 0 starts at 0, later windows after their base.
+Status first_docid_in_window(const format::WindowMeta& meta, uint32_t w, uint32_t* first);
+// Whether window w holds every docid of its range, so its docids need no read.
+Status is_dense_full_window(const format::WindowMeta& meta, uint32_t w, bool* full);
 // Computes the absolute file ranges of window w's dd region (and .prx window
 // when want_positions), fully validated against the POD sections (anti-DoS:
 // rejects out-of-range offsets and overflowing locators).

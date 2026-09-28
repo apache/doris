@@ -42,6 +42,7 @@
 #include "storage/index/snii/io/local_file.h"
 #include "storage/index/snii/io/metered_file_reader.h"
 #include "storage/index/snii/query/bm25_scorer.h"
+#include "storage/index/snii/query/top_k_scores.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
 #include "storage/index/snii/stats/snii_stats_provider.h"
@@ -247,7 +248,7 @@ std::vector<uint8_t> EncodeNorms(const Corpus& c) {
 
 // Fixture-free test: build, open, and compare.
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-TEST(SniiScoringQuery, ReferenceOracleEqualsExhaustive) {
+TEST(SniiScoringQuery, ReferenceOracleEqualsTheCandidateScorer) {
     const Corpus corpus = MakeCorpus();
     const std::vector<uint8_t> norms = EncodeNorms(corpus);
     const std::string path = TempPath();
@@ -300,8 +301,7 @@ TEST(SniiScoringQuery, ReferenceOracleEqualsExhaustive) {
     auto run_and_check = [&](const std::vector<std::string>& terms) {
         std::vector<ScoredDoc> reference = ReferenceRanking(corpus, norms, terms, k, params);
         std::vector<ScoredDoc> exhaustive;
-        ASSERT_TRUE(doris::snii::query::scoring_query_exhaustive(idx, stats, terms, k, params,
-                                                                 &exhaustive)
+        ASSERT_TRUE(doris::snii::snii_test::top_k_scores(idx, stats, terms, k, params, &exhaustive)
                             .ok());
 
         ASSERT_EQ(exhaustive.size(), reference.size());
@@ -681,7 +681,7 @@ Corpus MakeWindowedTieCorpus() {
 // Differential: exhaustive top-k MUST equal the in-memory reference EVEN with
 // boundary ties and windowed terms, across many k (ties break by ascending docid).
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-TEST(SniiScoringQuery, ExhaustiveMatchesReferenceWithTiesAndWindowedTerms) {
+TEST(SniiScoringQuery, CandidateScorerMatchesReferenceWithTiesAndWindowedTerms) {
     const Corpus corpus = MakeWindowedTieCorpus();
     const std::string path = TempPath();
     {
@@ -705,7 +705,7 @@ TEST(SniiScoringQuery, ExhaustiveMatchesReferenceWithTiesAndWindowedTerms) {
     const std::vector<uint8_t> norms = EncodeNorms(corpus);
     auto check = [&](const std::vector<std::string>& terms, uint32_t k) {
         std::vector<ScoredDoc> ex;
-        ASSERT_TRUE(scoring_query_exhaustive(idx, stats, terms, k, params, &ex).ok());
+        ASSERT_TRUE(doris::snii::snii_test::top_k_scores(idx, stats, terms, k, params, &ex).ok());
         const std::vector<ScoredDoc> ref = ReferenceRanking(corpus, norms, terms, k, params);
         ASSERT_EQ(ex.size(), ref.size());
         for (size_t i = 0; i < ex.size(); ++i) {

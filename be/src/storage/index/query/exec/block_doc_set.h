@@ -88,7 +88,6 @@ public:
     uint32_t doc() const { return _doc; }
     bool exhausted() const { return _eof; }
     uint32_t size_hint() const { return _cursor.doc_freq(); }
-    bool cheap_seek() const { return _cursor.cheap_seek(); }
     uint64_t ordinal() const { return _next - 1; }
     uint64_t generation() const { return _generation; }
     uint32_t freq() const { return _block.freq_at(ordinal()); }

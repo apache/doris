@@ -38,6 +38,7 @@
 #include "storage/index/snii/query/phrase_query.h"
 #include "storage/index/snii/query/scoring_query.h"
 #include "storage/index/snii/query/term_query.h"
+#include "storage/index/snii/query/top_k_scores.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
 #include "storage/index/snii/stats/snii_stats_provider.h"
@@ -253,9 +254,9 @@ TEST(SniiPhaseAReadBack, DdBlockTilesAndQueriesAgree) {
     const Bm25Params params;
     for (uint32_t k : {1U, 5U, 50U}) {
         std::vector<ScoredDoc> ex;
-        ASSERT_TRUE(doris::snii::query::scoring_query_exhaustive(idx, stats, {"hot", "rare"}, k,
-                                                                 params, &ex)
-                            .ok());
+        ASSERT_TRUE(
+                doris::snii::snii_test::top_k_scores(idx, stats, {"hot", "rare"}, k, params, &ex)
+                        .ok());
         ASSERT_EQ(ex.size(), k) << "k=" << k;
         for (size_t i = 1; i < ex.size(); ++i) {
             EXPECT_TRUE(ex[i - 1].score > ex[i].score ||

@@ -69,7 +69,6 @@ class PostingsCursor {
 public:
     virtual ~PostingsCursor() = default;
     virtual uint32_t doc_freq() const = 0;
-    virtual bool cheap_seek() const = 0;
     // Successful reads return a nonempty block, or eof with an empty block.
     virtual Status next_block(PostingsBlock* block, bool* eof) = 0;
     // May return a block beginning before target; blocks remain forward-only.

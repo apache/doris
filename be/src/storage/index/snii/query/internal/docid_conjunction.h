@@ -81,11 +81,6 @@ Status plan_terms(const reader::LogicalIndexReader& idx, const std::vector<std::
                   bool need_positions);
 
 Status plan_resolved_terms(const reader::LogicalIndexReader& idx,
-                           const std::vector<ResolvedQueryTerm>& terms,
-                           io::BatchRangeFetcher* fetcher, std::vector<TermPlan>* plans,
-                           bool need_positions);
-
-Status plan_resolved_terms(const reader::LogicalIndexReader& idx,
                            std::vector<ResolvedQueryTerm>&& terms, io::BatchRangeFetcher* fetcher,
                            std::vector<TermPlan>* plans, bool need_positions);
 
