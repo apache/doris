@@ -663,6 +663,12 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
         const auto* base_ptr = reinterpret_cast<const uint8_t*>(concrete_array->raw_values());
         const size_t element_size = sizeof(int64_t);
         for (auto value_i = start; value_i < end; ++value_i) {
+            // Nullable SerDe has already copied the validity bitmap. The payload of a null Arrow
+            // slot is unspecified, so keep only a default value in the nested column.
+            if (concrete_array->IsNull(value_i)) {
+                col_data.emplace_back();
+                continue;
+            }
             const uint8_t* raw_byte_ptr = base_ptr + value_i * element_size;
             auto date_value = unaligned_load<int64_t>(raw_byte_ptr);
 
@@ -683,7 +689,13 @@ Status DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
             // "2022-01-01 11:11:11.111", timestamp = 1641035471111, divisor = 1000,
             // set_microsecond(111000)
             v.set_microsecond(remainder * DIVISOR_FOR_MICRO / divisor);
-            col_data.emplace_back(v);
+            DateV2Value<DateTimeV2ValueType> scaled_v;
+            if (!transform_date_scale(_scale, 6, scaled_v, v)) {
+                return Status::DataQualityError(
+                        "Arrow timestamp exceeds DATETIMEV2 range after rounding to scale {}",
+                        _scale);
+            }
+            col_data.emplace_back(scaled_v);
         }
     } else {
         LOG(WARNING) << "not support convert to datetimev2 from arrow type:"
