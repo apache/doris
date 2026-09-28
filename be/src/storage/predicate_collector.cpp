@@ -21,21 +21,141 @@
 
 #include <vector>
 
+#include "common/exception.h"
 #include "exec/common/variant_util.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
+#include "exprs/vmatch_predicate.h"
 #include "exprs/vsearch.h"
 #include "exprs/vslot_ref.h"
 #include "gen_cpp/Exprs_types.h"
 #include "storage/index/index_reader_helper.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
+#include "storage/index/inverted/inverted_index_selector.h"
 #include "storage/index/inverted/util/string_helper.h"
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris {
 
 using namespace segment_v2;
+
+namespace {
+
+InvertedIndexAnalyzerCtx build_analyzer_context(
+        const std::map<std::string, std::string>& properties) {
+    InvertedIndexAnalyzerConfig config;
+    config.analyzer_name = get_analyzer_name_from_properties(properties);
+    config.parser_type = get_inverted_index_parser_type_from_string(
+            get_parser_string_from_properties(properties));
+    config.parser_mode = get_parser_mode_string_from_properties(properties);
+    config.lower_case = get_parser_lowercase_from_properties(properties);
+    config.stop_words = get_parser_stopwords_from_properties(properties);
+    config.char_filter_map = get_parser_char_filter_map_from_properties(properties);
+
+    InvertedIndexAnalyzerCtx analyzer_ctx;
+    analyzer_ctx.analyzer_name = config.analyzer_name;
+    analyzer_ctx.parser_type = config.parser_type;
+    analyzer_ctx.char_filter_map = config.char_filter_map;
+    analyzer_ctx.analyzer_provider =
+            inverted_index::InvertedIndexAnalyzer::create_analyzer_provider(&config);
+    return analyzer_ctx;
+}
+
+InvertedIndexQueryType match_query_type(TExprOpcode::type opcode) {
+    switch (opcode) {
+    case TExprOpcode::MATCH_ANY:
+        return InvertedIndexQueryType::MATCH_ANY_QUERY;
+    case TExprOpcode::MATCH_ALL:
+        return InvertedIndexQueryType::MATCH_ALL_QUERY;
+    case TExprOpcode::MATCH_PHRASE:
+        return InvertedIndexQueryType::MATCH_PHRASE_QUERY;
+    case TExprOpcode::MATCH_PHRASE_PREFIX:
+        return InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY;
+    case TExprOpcode::MATCH_REGEXP:
+        return InvertedIndexQueryType::MATCH_REGEXP_QUERY;
+    case TExprOpcode::MATCH_PHRASE_EDGE:
+        return InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY;
+    default:
+        return InvertedIndexQueryType::UNKNOWN_QUERY;
+    }
+}
+
+Result<const TabletIndex*> select_index_meta(const std::vector<const TabletIndex*>& index_metas,
+                                             FieldType field_type,
+                                             InvertedIndexQueryType query_type,
+                                             std::string_view analyzer_key,
+                                             std::string_view legacy_analyzer_key) {
+    std::vector<InvertedIndexSelectionCandidate> candidates;
+    candidates.reserve(index_metas.size());
+    InvertedIndexSelectionKeyIndex key_index;
+    for (const auto* index_meta : index_metas) {
+        auto status = add_inverted_index_selection_candidate(
+                InvertedIndexSelectionCandidate {.index_id = index_meta->index_id(),
+                                                 .reader_type = infer_inverted_index_reader_type(
+                                                         field_type, index_meta->properties()),
+                                                 .analyzer_key = build_analyzer_key_from_properties(
+                                                         index_meta->properties())},
+                &candidates, &key_index);
+        if (!status.ok()) {
+            return ResultError(std::move(status));
+        }
+    }
+    auto selection = select_best_inverted_index_candidate(
+            candidates, key_index, field_type, query_type, normalize_analyzer_key(analyzer_key),
+            legacy_analyzer_key);
+    if (!selection.has_value()) {
+        return ResultError(std::move(selection.error()));
+    }
+    DORIS_CHECK(*selection < index_metas.size());
+    return index_metas[*selection];
+}
+
+} // namespace
+
+Result<InvertedIndexAnalyzerCtx> analyzer_context_from_properties(
+        const std::map<std::string, std::string>& properties) {
+    try {
+        return build_analyzer_context(properties);
+    } catch (const CLuceneError& error) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Build scoring analyzer failed: {}", error.what()));
+    } catch (const Exception& error) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Build scoring analyzer failed: {}", error.what()));
+    }
+}
+
+namespace {
+
+Result<std::vector<TermInfo>> analyze_plain_query(const std::string& value,
+                                                  const InvertedIndexAnalyzerCtx& analyzer_ctx) {
+    DORIS_CHECK(analyzer_ctx.analyzer_provider != nullptr);
+    try {
+        auto analyzer = analyzer_ctx.analyzer_provider->get_analyzer();
+        auto reader =
+                inverted_index::InvertedIndexAnalyzer::create_reader(analyzer_ctx.char_filter_map);
+        reader->init(value.data(), static_cast<int32_t>(value.size()), true);
+        return inverted_index::InvertedIndexAnalyzer::get_analyse_result(reader, analyzer.get());
+    } catch (const CLuceneError& error) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Analyze scoring query failed: {}", error.what()));
+    } catch (const Exception& error) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Analyze scoring query failed: {}", error.what()));
+    }
+}
+
+Result<std::vector<TermInfo>> analyze_plain_query(
+        const std::string& value, const std::map<std::string, std::string>& properties) {
+    auto context = analyzer_context_from_properties(properties);
+    if (!context.has_value()) {
+        return ResultError(std::move(context.error()));
+    }
+    return analyze_plain_query(value, context.value());
+}
+
+} // namespace
 
 VSlotRef* PredicateCollector::find_slot_ref(const VExprSPtr& expr) const {
     if (!expr) {
@@ -147,6 +267,15 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
     }
 #endif
 
+    const InvertedIndexAnalyzerCtx* match_analyzer_ctx = nullptr;
+    if (const auto* match = dynamic_cast<const VMatchPredicate*>(expr.get())) {
+        match_analyzer_ctx = match->query_analyzer_ctx();
+        DORIS_CHECK(match_analyzer_ctx != nullptr);
+        const auto* selected = DORIS_TRY(select_index_meta(
+                index_metas, column.type(), match_query_type(expr->op()),
+                match_analyzer_ctx->analyzer_key, match_analyzer_ctx->legacy_analyzer_key));
+        index_metas = {selected};
+    }
     for (const auto* index_meta : index_metas) {
         if (!InvertedIndexAnalyzer::should_analyzer(index_meta->properties())) {
             continue;
@@ -158,8 +287,13 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
 
         auto options = DataTypeSerDe::get_default_format_options();
         options.timezone = &state->timezone_obj();
-        auto term_infos = InvertedIndexAnalyzer::get_analyse_result(right_literal->value(options),
-                                                                    index_meta->properties());
+        const std::string value = right_literal->value(options);
+        std::vector<TermInfo> term_infos;
+        if (match_analyzer_ctx != nullptr) {
+            term_infos = DORIS_TRY(analyze_plain_query(value, *match_analyzer_ctx));
+        } else {
+            term_infos = DORIS_TRY(analyze_plain_query(value, index_meta->properties()));
+        }
 
         std::string field_name =
                 build_field_name(index_meta->col_unique_ids()[0], index_suffix_path);
@@ -255,7 +389,7 @@ Status SearchPredicateCollector::collect_from_leaf(const TSearchClause& clause, 
         if (category == ClauseTypeCategory::TOKENIZED) {
             if (InvertedIndexAnalyzer::should_analyzer(index_meta->properties())) {
                 auto analyzed_terms =
-                        InvertedIndexAnalyzer::get_analyse_result(value, index_meta->properties());
+                        DORIS_TRY(analyze_plain_query(value, index_meta->properties()));
                 term_infos.insert(analyzed_terms.begin(), analyzed_terms.end());
             } else {
                 term_infos.insert(TermInfo(value));
@@ -264,7 +398,7 @@ Status SearchPredicateCollector::collect_from_leaf(const TSearchClause& clause, 
             if (clause_type == "TERM" &&
                 InvertedIndexAnalyzer::should_analyzer(index_meta->properties())) {
                 auto analyzed_terms =
-                        InvertedIndexAnalyzer::get_analyse_result(value, index_meta->properties());
+                        DORIS_TRY(analyze_plain_query(value, index_meta->properties()));
                 term_infos.insert(analyzed_terms.begin(), analyzed_terms.end());
             } else {
                 term_infos.insert(TermInfo(value));

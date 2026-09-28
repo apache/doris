@@ -27,15 +27,15 @@ CustomAnalyzerConfig::CustomAnalyzerConfig(Builder* builder) {
     _token_filters = builder->_token_filters;
 }
 
-ComponentConfigPtr CustomAnalyzerConfig::get_tokenizer_config() {
+ComponentConfigPtr CustomAnalyzerConfig::get_tokenizer_config() const {
     return _tokenizer_config;
 }
 
-std::vector<ComponentConfigPtr> CustomAnalyzerConfig::get_char_filter_configs() {
+std::vector<ComponentConfigPtr> CustomAnalyzerConfig::get_char_filter_configs() const {
     return _char_filters;
 }
 
-std::vector<ComponentConfigPtr> CustomAnalyzerConfig::get_token_filter_configs() {
+std::vector<ComponentConfigPtr> CustomAnalyzerConfig::get_token_filter_configs() const {
     return _token_filters;
 }
 

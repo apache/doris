@@ -404,7 +404,7 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
                                      query_info);
         } else {
             SCOPED_RAW_TIMER(&context->stats->inverted_index_analyzer_timer);
-            if (analyzer_ctx != nullptr && !analyzer_ctx->should_tokenize()) {
+            if (analyzer_ctx != nullptr && !analyzer_ctx->requires_analysis()) {
                 // Keyword index: all strings (including empty) are valid tokens for exact match.
                 // Empty string is a valid value in keyword index and should be matchable.
                 query_info.term_infos.emplace_back(search_str);
@@ -480,7 +480,10 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
         return Status::OK();
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                "CLuceneError occured, error msg: {}", e.what());
+                "CLuceneError occurred, error msg: {}", e.what());
+    } catch (const Exception& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Analyzer error occurred, error msg: {}", e.what());
     }
 }
 
