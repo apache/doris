@@ -50,4 +50,23 @@ TEST(ConfigValidatorTest, Validator) {
     EXPECT_EQ(cfg_validator_2, 8);
 }
 
+TEST(ConfigValidatorTest, LookupConnectionCacheBlockPoolSize) {
+    const auto old_value = config::get_lookup_connection_cache_block_pool_size();
+
+    EXPECT_TRUE(config::set_config("lookup_connection_cache_block_pool_size", "1").ok());
+    EXPECT_EQ(config::get_lookup_connection_cache_block_pool_size(), 1);
+    EXPECT_FALSE(config::set_config("lookup_connection_cache_block_pool_size", "0").ok());
+    EXPECT_FALSE(config::set_config("lookup_connection_cache_block_pool_size", "-1").ok());
+    EXPECT_EQ(config::get_lookup_connection_cache_block_pool_size(), 1);
+
+    EXPECT_TRUE(config::set_config("lookup_connection_cache_block_pool_size", "32").ok());
+    EXPECT_EQ(config::get_lookup_connection_cache_block_pool_size(), 32);
+    EXPECT_FALSE(config::set_config("lookup_connection_cache_block_pool_size", "33").ok());
+    EXPECT_EQ(config::get_lookup_connection_cache_block_pool_size(), 32);
+
+    EXPECT_TRUE(
+            config::set_config("lookup_connection_cache_block_pool_size", std::to_string(old_value))
+                    .ok());
+}
+
 } // namespace doris
