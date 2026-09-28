@@ -818,6 +818,17 @@ public:
         return kDefault;
     }
 
+    int64_t spill_analytic_sink_mem_limit_bytes() const {
+        constexpr int64_t kMin = 1LL * 1024 * 1024;
+        constexpr int64_t kMax = 4LL * 1024 * 1024 * 1024;
+        constexpr int64_t kDefault = 64LL * 1024 * 1024;
+        if (_query_options.__isset.spill_analytic_sink_mem_limit_bytes) {
+            int64_t v = _query_options.spill_analytic_sink_mem_limit_bytes;
+            return std::min(std::max(v, kMin), kMax);
+        }
+        return kDefault;
+    }
+
     int64_t spill_sort_merge_mem_limit_bytes() const {
         constexpr int64_t kMin = 1LL * 1024 * 1024;
         constexpr int64_t kMax = 4LL * 1024 * 1024 * 1024;

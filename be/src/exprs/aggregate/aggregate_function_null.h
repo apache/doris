@@ -135,6 +135,14 @@ public:
 
     bool is_blockable() const override { return nested_function->is_blockable(); }
 
+    WindowSpillStrategy window_spill_strategy() const override {
+        return nested_function->window_spill_strategy();
+    }
+
+    WindowSpillPeerFunction window_spill_peer_function() const override {
+        return nested_function->window_spill_peer_function();
+    }
+
     void set_version(const int version_) override {
         IAggregateFunctionHelper<Derived>::set_version(version_);
         nested_function->set_version(version_);
