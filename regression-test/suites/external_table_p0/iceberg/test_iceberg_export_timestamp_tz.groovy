@@ -92,6 +92,8 @@ suite("test_iceberg_export_timestamp_tz", "p0,external") {
             def format = "parquet"
             def export_table_name = "test_ice_timestamp_tz_parquet"
 
+            // INT96 has no instant annotation: raw TVF reads expose the UTC carrier as DATETIME.
+            // The explicit INT64 branches below must read their own annotated output files.
             def outfile_url0 = outfile_to_HDFS(format, export_table_name, "true")
             order_qt_select_tvf0 """ select * from HDFS(
                         "uri" = "${outfile_url0}.${format}",
@@ -110,14 +112,14 @@ suite("test_iceberg_export_timestamp_tz", "p0,external") {
 
             def outfile_url0_false = outfile_to_HDFS(format, export_table_name, "false")
             order_qt_select_tvf0_false """ select * from HDFS(
-                        "uri" = "${outfile_url0}.${format}",
+                        "uri" = "${outfile_url0_false}.${format}",
                         "hadoop.username" = "${hdfsUserName}",
                         "enable_mapping_timestamp_tz"="true",
                         "enable_mapping_varbinary"="true",
                         "format" = "${format}");
                         """
             order_qt_select_tvf0_desc_false """ desc function HDFS(
-                        "uri" = "${outfile_url0}.${format}",
+                        "uri" = "${outfile_url0_false}.${format}",
                         "hadoop.username" = "${hdfsUserName}",
                         "enable_mapping_timestamp_tz"="true",
                         "enable_mapping_varbinary"="true",
@@ -144,14 +146,14 @@ suite("test_iceberg_export_timestamp_tz", "p0,external") {
 
             def outfile_url1_false = outfile_to_HDFS(format, export_table_name, "false")
             order_qt_select_tvf1_false """ select * from HDFS(
-                        "uri" = "${outfile_url1}.${format}",
+                        "uri" = "${outfile_url1_false}.${format}",
                         "hadoop.username" = "${hdfsUserName}",
                         "enable_mapping_timestamp_tz"="true",
                         "enable_mapping_varbinary"="true",
                         "format" = "${format}");
                         """
             order_qt_select_tvf1_desc_false """ desc function HDFS(
-                        "uri" = "${outfile_url1}.${format}",
+                        "uri" = "${outfile_url1_false}.${format}",
                         "hadoop.username" = "${hdfsUserName}",
                         "enable_mapping_timestamp_tz"="true",
                         "enable_mapping_varbinary"="true",

@@ -64,6 +64,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "core/types.h"
 #include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
@@ -500,16 +501,20 @@ std::optional<DateV2Value<DateTimeV2ValueType>> datetime_v2_from_orc_millis(
         --seconds;
         millis_remainder += 1000;
     }
-    const auto extra_nanos = std::max<int32_t>(nanos_tail, 0);
-    constexpr int64_t NANOS_PER_MICROSECOND = 1000;
-    // Stripe statistics split the timestamp into milliseconds and the remaining nanoseconds. Use
-    // the same truncation as row decoding so zone-map pruning observes identical values.
-    const auto microseconds =
-            cast_set<uint64_t>(millis_remainder * 1000 + extra_nanos / NANOS_PER_MICROSECOND);
+    // The tail is a sub-millisecond remainder. Malformed statistics must not prune valid rows.
+    if (nanos_tail < 0 || nanos_tail >= 1000000) {
+        return std::nullopt;
+    }
+    orc_serde_utils::RoundedOrcTimestamp rounded;
+    if (!orc_serde_utils::round_orc_timestamp_to_microseconds(
+                 seconds, millis_remainder * 1000000 + nanos_tail, &rounded)
+                 .ok()) {
+        return std::nullopt;
+    }
     DateV2Value<DateTimeV2ValueType> value;
-    value.from_unixtime(seconds, timezone);
-    value.set_microsecond(microseconds);
-    if (!value.is_valid_date()) {
+    if (!orc_serde_utils::orc_timestamp_to_datetime(rounded.seconds, rounded.microseconds, timezone,
+                                                    false, &value)
+                 .ok()) {
         return std::nullopt;
     }
     return value;
