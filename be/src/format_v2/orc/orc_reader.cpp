@@ -64,6 +64,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/data_type_serde/orc_serde_utils.h"
 #include "core/types.h"
 #include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
@@ -492,25 +493,40 @@ bool set_date_zone_map(const ::orc::ColumnStatistics& statistics, segment_v2::Zo
             Field::create_field<TYPE_DATEV2>(date_dict[date_statistics->getMaximum()]), zone_map);
 }
 
-DateV2Value<DateTimeV2ValueType> datetime_v2_from_orc_millis(int64_t millis, int32_t nanos_tail,
-                                                             const cctz::time_zone& timezone) {
+std::optional<DateV2Value<DateTimeV2ValueType>> datetime_v2_from_orc_millis(
+        int64_t millis, int32_t nanos_tail, const cctz::time_zone& timezone) {
     int64_t seconds = millis / 1000;
     int64_t millis_remainder = millis % 1000;
     if (millis_remainder < 0) {
         --seconds;
         millis_remainder += 1000;
     }
-    const auto extra_nanos = std::max<int32_t>(nanos_tail, 0);
-    const auto microseconds = cast_set<uint64_t>(millis_remainder * 1000 + extra_nanos / 1000);
+    // The tail is a sub-millisecond remainder. Malformed statistics must not prune valid rows.
+    if (nanos_tail < 0 || nanos_tail >= 1000000) {
+        return std::nullopt;
+    }
+    orc_serde_utils::RoundedOrcTimestamp rounded;
+    if (!orc_serde_utils::round_orc_timestamp_to_microseconds(
+                 seconds, millis_remainder * 1000000 + nanos_tail, &rounded)
+                 .ok()) {
+        return std::nullopt;
+    }
     DateV2Value<DateTimeV2ValueType> value;
-    value.from_unixtime(seconds, timezone);
-    value.set_microsecond(microseconds);
+    if (!orc_serde_utils::orc_timestamp_to_datetime(rounded.seconds, rounded.microseconds, timezone,
+                                                    false, &value)
+                 .ok()) {
+        return std::nullopt;
+    }
     return value;
 }
 
-TimestampTzValue timestamp_tz_from_orc_millis(int64_t millis, int32_t nanos_tail) {
+std::optional<TimestampTzValue> timestamp_tz_from_orc_millis(int64_t millis, int32_t nanos_tail) {
     static const auto utc_time_zone = cctz::utc_time_zone();
-    return TimestampTzValue(datetime_v2_from_orc_millis(millis, nanos_tail, utc_time_zone));
+    auto value = datetime_v2_from_orc_millis(millis, nanos_tail, utc_time_zone);
+    if (!value.has_value()) {
+        return std::nullopt;
+    }
+    return TimestampTzValue(*value);
 }
 
 bool set_timestamp_zone_map(const ::orc::ColumnStatistics& statistics,
@@ -530,27 +546,30 @@ bool set_timestamp_zone_map(const ::orc::ColumnStatistics& statistics,
         return false;
     }
     if (use_timestamp_tz) {
-        return set_validated_zone_map(
-                Field::create_field<TYPE_TIMESTAMPTZ>(
-                        timestamp_tz_from_orc_millis(timestamp_statistics->getMinimum(),
-                                                     timestamp_statistics->getMinimumNanos())),
-                Field::create_field<TYPE_TIMESTAMPTZ>(
-                        timestamp_tz_from_orc_millis(timestamp_statistics->getMaximum(),
-                                                     timestamp_statistics->getMaximumNanos())),
-                zone_map);
+        auto min_value = timestamp_tz_from_orc_millis(timestamp_statistics->getMinimum(),
+                                                      timestamp_statistics->getMinimumNanos());
+        auto max_value = timestamp_tz_from_orc_millis(timestamp_statistics->getMaximum(),
+                                                      timestamp_statistics->getMaximumNanos());
+        if (!min_value.has_value() || !max_value.has_value()) {
+            return false;
+        }
+        return set_validated_zone_map(Field::create_field<TYPE_TIMESTAMPTZ>(*min_value),
+                                      Field::create_field<TYPE_TIMESTAMPTZ>(*max_value), zone_map);
     }
     if (!format::utc_timestamp_range_is_monotonic(
                 format::floor_epoch_seconds(timestamp_statistics->getMinimum(), 1000),
                 format::floor_epoch_seconds(timestamp_statistics->getMaximum(), 1000), timezone)) {
         return false;
     }
-    return set_validated_zone_map(Field::create_field<TYPE_DATETIMEV2>(datetime_v2_from_orc_millis(
-                                          timestamp_statistics->getMinimum(),
-                                          timestamp_statistics->getMinimumNanos(), timezone)),
-                                  Field::create_field<TYPE_DATETIMEV2>(datetime_v2_from_orc_millis(
-                                          timestamp_statistics->getMaximum(),
-                                          timestamp_statistics->getMaximumNanos(), timezone)),
-                                  zone_map);
+    auto min_value = datetime_v2_from_orc_millis(timestamp_statistics->getMinimum(),
+                                                 timestamp_statistics->getMinimumNanos(), timezone);
+    auto max_value = datetime_v2_from_orc_millis(timestamp_statistics->getMaximum(),
+                                                 timestamp_statistics->getMaximumNanos(), timezone);
+    if (!min_value.has_value() || !max_value.has_value()) {
+        return false;
+    }
+    return set_validated_zone_map(Field::create_field<TYPE_DATETIMEV2>(*min_value),
+                                  Field::create_field<TYPE_DATETIMEV2>(*max_value), zone_map);
 }
 
 int32_t decimal_scale_for_orc_type(const ::orc::Type& type) {
@@ -2303,6 +2322,16 @@ Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& reque
             _state->reader->getWriterVersion() < ::orc::WriterVersion_ORC_135) {
             return Status::NotSupported(
                     "ORC TIMESTAMP min/max statistics are unsafe before writer version ORC-135");
+        }
+        if (leaf_type->getKind() == ::orc::TypeKind::TIMESTAMP_INSTANT &&
+            !_enable_mapping_timestamp_tz) {
+            // Raw timestamp order does not preserve local DATETIMEV2 order across a DST fold.
+            int32_t fixed_offset_seconds = 0;
+            if (!TimezoneUtils::try_get_fixed_offset_seconds(_state->timezone_obj,
+                                                             &fixed_offset_seconds)) {
+                return Status::NotSupported(
+                        "ORC timestamp min/max pushdown requires a fixed-offset timezone");
+            }
         }
 
         auto& aggregate_column = result->columns[column_idx];

@@ -33,6 +33,8 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TFileScanRangeParams;
+import org.apache.doris.thrift.schema.external.TSchema;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.hudi.common.model.HoodieBaseFile;
@@ -358,6 +360,68 @@ public class HudiScanNodeTest {
         }
         Mockito.verify(schemaValue).getCommitInstantInternalSchema(Mockito.any(), Mockito.anyLong());
         Assertions.assertFalse(rangeDesc.isSetTableFormatParams());
+    }
+
+    @Test
+    public void testDeferredMorParquetAdvertisesContractBeforeListingRanges() throws Exception {
+        for (boolean forceJni : new boolean[] {false, true}) {
+            for (String format : Arrays.asList("Parquet", "Orc", "HFile")) {
+                HudiScanNode node = Mockito.mock(HudiScanNode.class, Answers.CALLS_REAL_METHODS);
+                HMSExternalTable table = Mockito.mock(HMSExternalTable.class, Answers.RETURNS_DEEP_STUBS);
+                SessionVariable session = new SessionVariable();
+                session.setForceJniScanner(forceJni);
+                Mockito.when(table.getRemoteTable().getSd().getInputFormat())
+                        .thenReturn("org.apache.hudi.hadoop.realtime.Hoodie" + format + "RealtimeInputFormat");
+                TFileScanRangeParams params = new TFileScanRangeParams();
+                setField(node, FileQueryScanNode.class, "params", params);
+                setField(node, FileQueryScanNode.class, "sessionVariable", session);
+                setField(node, HiveScanNode.class, "hmsTable", table);
+                setField(node, HudiScanNode.class, "isCowTable", false);
+                Assertions.assertEquals(TFileFormatType.FORMAT_JNI, node.getFileFormatType());
+                Assertions.assertEquals(!forceJni && format.equals("Parquet"),
+                        params.isContainsNativeParquet());
+            }
+        }
+    }
+
+    @Test
+    public void testHybridNativeParquetSignalSurvivesLaterOrcAndJniRanges() throws Exception {
+        HudiScanNode node = partitionScanNode(new StatementContext.ExternalScanTaskCache(),
+                Mockito.mock(HoodieTableFileSystemView.class), "20260831120000", true, false);
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        params.setFormatType(TFileFormatType.FORMAT_JNI);
+        setField(node, FileQueryScanNode.class, "params", params);
+        setField(node, HudiScanNode.class, "currentQuerySchema", new java.util.concurrent.ConcurrentHashMap<>());
+        HMSExternalTable table = (HMSExternalTable) getField(node, HiveScanNode.class, "hmsTable");
+        HudiSchemaCacheValue schemaValue = Mockito.mock(HudiSchemaCacheValue.class);
+        InternalSchema schema = Mockito.mock(InternalSchema.class);
+        Mockito.when(schemaValue.isEnableSchemaEvolution()).thenReturn(true);
+        Mockito.when(schemaValue.getCommitInstantInternalSchema(Mockito.any(), Mockito.anyLong())).thenReturn(schema);
+        try (MockedStatic<HudiUtils> utils = Mockito.mockStatic(HudiUtils.class)) {
+            utils.when(() -> HudiUtils.getSchemaCacheValue(table, "20260831120000")).thenReturn(schemaValue);
+            utils.when(() -> HudiUtils.getSchemaInfo(schema)).thenReturn(new TSchema());
+            for (String suffix : Arrays.asList("orc", "parquet", "orc", "parquet")) {
+                HudiSplit split = new HudiSplit(
+                        LocationPath.of("file:///table/fileid_1-0-1_20260831120000." + suffix),
+                        0, 10, 10, new String[0], Collections.emptyList());
+                split.setTableFormatType(TableFormatType.HUDI);
+                split.setDataFilePath(split.getPathString());
+                split.setHudiDeltaLogs(Collections.emptyList());
+                TFileRangeDesc range = new TFileRangeDesc();
+                range.setFormatType(TFileFormatType.FORMAT_JNI);
+                boolean alreadyMarked = params.isContainsNativeParquet();
+                node.setScanParams(range, split);
+                Assertions.assertEquals(suffix.equals("parquet")
+                        ? TFileFormatType.FORMAT_PARQUET : TFileFormatType.FORMAT_ORC, range.getFormatType());
+                Assertions.assertEquals(alreadyMarked || suffix.equals("parquet"), params.isContainsNativeParquet());
+                // A real JNI range must neither claim native Parquet nor erase an earlier claim.
+                split.setHudiDeltaLogs(Collections.singletonList("delta.log"));
+                range.setFormatType(TFileFormatType.FORMAT_JNI);
+                node.setScanParams(range, split);
+                Assertions.assertEquals(TFileFormatType.FORMAT_JNI, range.getFormatType());
+                Assertions.assertEquals(alreadyMarked || suffix.equals("parquet"), params.isContainsNativeParquet());
+            }
+        }
     }
 
     private static HudiScanNode partitionScanNode(

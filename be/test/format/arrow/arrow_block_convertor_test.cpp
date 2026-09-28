@@ -51,9 +51,10 @@ TEST_F(ArrowBlockConvertorTest, ParquetOwnsSchemaAndTimezoneParameters) {
     ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("Asia/Shanghai", shanghai));
     DataTypes types {DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6),
                      DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMPTZ, false, 0, 6)};
-    ParquetArrowBlockConvertor parquet(types, {"local_time", "instant"}, "Asia/Shanghai", shanghai);
+    ParquetArrowBlockConvertor parquet(types, {"local_time", "instant"}, "Asia/Shanghai", shanghai,
+                                       true);
     hive::HiveArrowBlockConvertor hive(types, {"local_time", "instant"}, "UTC",
-                                       cctz::utc_time_zone());
+                                       cctz::utc_time_zone(), true);
     ASSERT_TRUE(parquet.init().ok());
     ASSERT_TRUE(hive.init().ok());
     const auto timestamp = [](const ArrowBlockConvertor& converter,
@@ -72,7 +73,7 @@ TEST_F(ArrowBlockConvertorTest, ParquetOwnsSchemaAndTimezoneParameters) {
 
 TEST_F(ArrowBlockConvertorTest, ParquetRejectsMismatchedColumnNames) {
     ParquetArrowBlockConvertor converter({std::make_shared<DataTypeInt32>()}, {}, "UTC",
-                                         cctz::utc_time_zone());
+                                         cctz::utc_time_zone(), true);
     EXPECT_FALSE(converter.init().ok());
     EXPECT_EQ(nullptr, converter.arrow_schema());
 }
@@ -247,8 +248,8 @@ TEST_F(ArrowBlockConvertorTest, TableWritersPreserveFixedOffsetSchemaNames) {
         SCOPED_TRACE(zone);
         cctz::time_zone timezone;
         ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(zone, timezone));
-        ParquetArrowBlockConvertor parquet({type}, {"ts"}, zone, timezone);
-        hive::HiveArrowBlockConvertor hive({type}, {"ts"}, zone, timezone);
+        ParquetArrowBlockConvertor parquet({type}, {"ts"}, zone, timezone, false);
+        hive::HiveArrowBlockConvertor hive({type}, {"ts"}, zone, timezone, false);
         iceberg::IcebergArrowBlockConvertor iceberg(*schema, &json, zone, timezone);
         for (ArrowBlockConvertor* converter :
              {static_cast<ArrowBlockConvertor*>(&parquet), static_cast<ArrowBlockConvertor*>(&hive),

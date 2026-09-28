@@ -90,6 +90,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -186,7 +187,13 @@ public class HudiScanNode extends HiveScanNode {
         if (canUseNativeReader()) {
             return super.getFileFormatType();
         } else {
-            // Use jni to read hudi table in BE
+            // MOR ranges can be listed after scanner construction. Advertise possible native
+            // Parquet before dispatch so a later log-free range cannot enter scanner V1.
+            if (!sessionVariable.isForceJniScanner()
+                    && hmsTable.getRemoteTable().getSd().getInputFormat()
+                            .toLowerCase(Locale.ROOT).contains("parquet")) {
+                params.setContainsNativeParquet(true);
+            }
             return TFileFormatType.FORMAT_JNI;
         }
     }
@@ -310,6 +317,8 @@ public class HudiScanNode extends HiveScanNode {
                         .orElse("Unknown");
                 if (fileFormat.equals("parquet")) {
                     rangeDesc.setFormatType(TFileFormatType.FORMAT_PARQUET);
+                    // Preserve the scan contract across mixed eager ranges as well.
+                    params.setContainsNativeParquet(true);
                 } else if (fileFormat.equals("orc")) {
                     rangeDesc.setFormatType(TFileFormatType.FORMAT_ORC);
                 } else {

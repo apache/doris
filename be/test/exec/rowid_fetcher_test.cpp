@@ -84,6 +84,22 @@ TEST_F(RowIdStorageReaderTest, ExternalScannerSelectionRespectsRolloutOption) {
     }
 }
 
+TEST_F(RowIdStorageReaderTest, IcebergOrcDefaultWithParquetRangeKeepsTimestampContract) {
+    TQueryOptions options;
+    options.__set_enable_file_scanner_v2(false);
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_ORC);
+    params.__set_iceberg_scan_semantics_version(2);
+    params.__set_parquet_timestamp_semantics_version(1);
+    TFileRangeDesc range;
+    range.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    TTableFormatFileDesc table;
+    table.__set_table_format_type("iceberg");
+    range.__set_table_format_params(table);
+    // Phase two must decode the retained Parquet range with phase one's wall-clock contract.
+    EXPECT_TRUE(RowIdStorageReader::should_use_file_scanner_v2(options, params, range));
+}
+
 TEST_F(RowIdStorageReaderTest, ExternalScannerSelectionKeepsUnsupportedFormatsOnV1) {
     TQueryOptions options;
     options.__set_enable_file_scanner_v2(true);

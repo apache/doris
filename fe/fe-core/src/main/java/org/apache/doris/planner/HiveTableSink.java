@@ -23,6 +23,7 @@ package org.apache.doris.planner;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -162,6 +163,13 @@ public class HiveTableSink extends BaseExternalTableDataSink {
         }
 
         tSink.setHadoopConfig(targetTable.getBackendStorageProperties());
+        try {
+            // Preserve an explicit empty value on the wire: it selects wall-clock INT96,
+            // whereas an absent field identifies an old FE using the insert session timezone.
+            tSink.setHiveParquetTimeZone(targetTable.getHiveParquetTimeZone());
+        } catch (UserException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
 
         tDataSink = new TDataSink(getDataSinkType());
         tDataSink.setHiveTableSink(tSink);

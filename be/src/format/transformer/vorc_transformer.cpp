@@ -64,6 +64,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
+#include "util/timezone_utils.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -154,7 +155,13 @@ VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* fil
           _write_options(new orc::WriterOptions()),
           _schema_str(std::move(schema)),
           _iceberg_schema(iceberg_schema) {
-    _write_options->setTimezoneName(_state->timezone());
+    // ORC recognizes GMT as its UTC fast path. Other UTC aliases can lack a zoneinfo file
+    // or resolve through a locally overridden UTC file, shifting timestamp statistics.
+    int32_t fixed_offset = 0;
+    const bool is_utc =
+            TimezoneUtils::try_get_fixed_offset_seconds(_state->timezone_obj(), &fixed_offset) &&
+            fixed_offset == 0;
+    _write_options->setTimezoneName(is_utc ? "GMT" : _state->timezone());
     _write_options->setUseTightNumericVector(true);
     set_compression_type(compress_type);
     if (_iceberg_schema != nullptr) {
@@ -569,9 +576,21 @@ bool VOrcTransformer::_collect_column_bounds(const orc::ColumnStatistics* col_st
     } else if (const auto* ts_stats =
                        dynamic_cast<const orc::TimestampColumnStatistics*>(col_stats)) {
         if (ts_stats->hasMinimum() && ts_stats->hasMaximum()) {
+            // ORC stores milliseconds plus a sub-millisecond nanos tail. Dropping that tail
+            // makes Iceberg's upper bound smaller than real rows and causes false-negative pruning.
+            const int32_t min_nanos = ts_stats->getMinimumNanos();
+            const int32_t max_nanos = ts_stats->getMaximumNanos();
+            int64_t min_val;
+            int64_t max_val;
+            if (min_nanos < 0 || min_nanos > 999999 || max_nanos < 0 || max_nanos > 999999 ||
+                __builtin_mul_overflow(ts_stats->getMinimum(), int64_t(1000), &min_val) ||
+                __builtin_mul_overflow(ts_stats->getMaximum(), int64_t(1000), &max_val) ||
+                __builtin_add_overflow(min_val, int64_t(min_nanos / 1000), &min_val) ||
+                __builtin_add_overflow(max_val, int64_t((max_nanos + 999) / 1000), &max_val) ||
+                min_val > max_val) {
+                return false;
+            }
             has_bounds = true;
-            int64_t min_val = ts_stats->getMinimum() * 1000;
-            int64_t max_val = ts_stats->getMaximum() * 1000;
             (*lower_bounds)[field_id] =
                     std::string(reinterpret_cast<const char*>(&min_val), sizeof(int64_t));
             (*upper_bounds)[field_id] =

@@ -29,9 +29,10 @@ public:
 protected:
     std::unique_ptr<ArrowBlockConvertor> _create_arrow_block_convertor(
             DataTypes types, std::vector<std::string> names, const std::string& timezone_name,
-            const cctz::time_zone& timezone) const override {
+            const cctz::time_zone& timezone, bool enable_int96_timestamps) const override {
         return std::make_unique<hive::HiveArrowBlockConvertor>(std::move(types), std::move(names),
-                                                               timezone_name, timezone);
+                                                               timezone_name, timezone,
+                                                               enable_int96_timestamps);
     }
 };
 
