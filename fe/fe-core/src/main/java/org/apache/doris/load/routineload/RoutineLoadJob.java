@@ -2048,23 +2048,26 @@ public abstract class RoutineLoadJob
                 ctx.cleanup();
             }
         } catch (Exception e) {
-            // Terminalize this unusable job as CANCELLED. Set endTimestamp only if unset (avoid
-            // refreshing on every image load) and keep the existing cancel reason if present.
-            state = JobState.CANCELLED;
-            routineLoadTaskInfoList.clear();
-            long failureTimestamp = System.currentTimeMillis();
-            if (endTimestamp == -1) {
-                endTimestamp = failureTimestamp;
-            }
-            if (cancelReason == null) {
-                cancelReason = new ErrorReason(InternalErrorCode.INTERNAL_ERR,
-                        "FE restart deserialize failed at " + TimeUtils.longToTimeString(failureTimestamp)
-                                + ": " + e.getMessage());
-            }
+            cancelUnrecoverableJob("FE restart deserialize failed", e);
             LOG.warn("error happens when parsing create routine load stmt: " + origStmt.originStmt, e);
         }
         if (userIdentity != null) {
             userIdentity.setIsAnalyzed();
+        }
+    }
+
+    // Terminalize a job whose persisted definition can not be restored as CANCELLED. Set endTimestamp
+    // only if unset (avoid refreshing on every image load) and keep the existing cancel reason if present.
+    private void cancelUnrecoverableJob(String reason, Exception e) {
+        state = JobState.CANCELLED;
+        routineLoadTaskInfoList.clear();
+        long failureTimestamp = System.currentTimeMillis();
+        if (endTimestamp == -1) {
+            endTimestamp = failureTimestamp;
+        }
+        if (cancelReason == null) {
+            cancelReason = new ErrorReason(InternalErrorCode.INTERNAL_ERR,
+                    reason + " at " + TimeUtils.longToTimeString(failureTimestamp) + ": " + e.getMessage());
         }
     }
 
@@ -2073,23 +2076,32 @@ public abstract class RoutineLoadJob
         if (alterStatement == null) {
             return;
         }
-        Database database = Env.getCurrentEnv().getInternalCatalog().getDb(dbId).get();
-        ConnectContext ctx = createLoadDefinitionContext(database, sqlMode);
-        // Old journals have no snapshot and retain the existing recovery context.
-        ctx.getSessionVariable().setAffectQueryResultInPlanSessionVariables(alterSessionVariables);
         try {
-            ctx.setThreadLocalInfo();
-            AlterRoutineLoadCommand command = (AlterRoutineLoadCommand) parsePersistedStatement(alterStatement);
-            if (command.hasLoadProperty()) {
-                setRoutineLoadDesc(command.analyzeLoadProperties(ctx, this));
-                updateLoadDefinitionSessionVariables(ctx.getSessionVariable().getAffectQueryResultInPlanVariables(),
-                        ctx.getSessionVariable().getSqlMode());
-                mergeLoadDescToOriginStatement();
+            Database database = Env.getCurrentEnv().getInternalCatalog().getDbOrMetaException(dbId);
+            ConnectContext ctx = createLoadDefinitionContext(database, sqlMode);
+            // Old journals have no snapshot and retain the existing recovery context.
+            ctx.getSessionVariable().setAffectQueryResultInPlanSessionVariables(alterSessionVariables);
+            try {
+                ctx.setThreadLocalInfo();
+                AlterRoutineLoadCommand command =
+                        (AlterRoutineLoadCommand) parsePersistedStatement(alterStatement);
+                if (command.hasLoadProperty()) {
+                    RoutineLoadDesc loadDesc = mergeLoadDesc(command.analyzeLoadProperties(ctx, this));
+                    OriginStatement loadDefinitionStmt = buildLoadDefinitionStatement(loadDesc);
+                    applyLoadDefinition(loadDesc, loadDefinitionStmt,
+                            ctx.getSessionVariable().getAffectQueryResultInPlanVariables(),
+                            ctx.getSessionVariable().getSqlMode());
+                }
+            } finally {
+                ctx.cleanup();
             }
-        } catch (UserException e) {
-            throw new IllegalStateException("failed to replay routine load definition for job " + id, e);
-        } finally {
-            ctx.cleanup();
+        } catch (Exception e) {
+            // Like gsonPostProcess(), an ALTER that this FE can not analyze any more (for example, after an
+            // upgrade changed the analysis rules) must not stop journal replay. The job keeps its previous
+            // definition and is cancelled, so it never loads data with a definition other than the ALTERed one.
+            cancelUnrecoverableJob("FE replay alter routine load failed", e);
+            Env.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(id);
+            LOG.warn("error happens when replaying alter routine load stmt of job {}, cancel it", id, e);
         }
     }
 
@@ -2119,34 +2131,64 @@ public abstract class RoutineLoadJob
         return ctx;
     }
 
-    protected void mergeLoadDescToOriginStatement() throws UserException {
-        List<ImportColumnDesc> columns =
-                columnDescs == null ? null : Lists.newArrayList(columnDescs.descs);
-        RoutineLoadDesc loadDesc = new RoutineLoadDesc(columnSeparator, lineDelimiter, columns,
-                precedingFilter, whereExpr, partitionNamesInfo, deleteCondition, mergeType, sequenceCol);
+    /**
+     * Overlay the load clauses of an ALTER on the current load definition without modifying this job.
+     * A clause replaces the current one only when the ALTER specifies it, the same as setRoutineLoadDesc().
+     */
+    protected RoutineLoadDesc mergeLoadDesc(RoutineLoadDesc alterLoadDesc) {
+        List<ImportColumnDesc> columns = alterLoadDesc.getColumnsInfo();
+        if (columns == null && columnDescs != null) {
+            columns = Lists.newArrayList(columnDescs.descs);
+        }
+        return new RoutineLoadDesc(
+                alterLoadDesc.getColumnSeparator() != null ? alterLoadDesc.getColumnSeparator() : columnSeparator,
+                alterLoadDesc.getLineDelimiter() != null ? alterLoadDesc.getLineDelimiter() : lineDelimiter,
+                columns,
+                alterLoadDesc.getPrecedingFilter() != null ? alterLoadDesc.getPrecedingFilter() : precedingFilter,
+                alterLoadDesc.getFilter() != null ? alterLoadDesc.getFilter() : whereExpr,
+                alterLoadDesc.getPartitionNamesInfo() != null
+                        ? alterLoadDesc.getPartitionNamesInfo() : partitionNamesInfo,
+                alterLoadDesc.getDeleteCondition() != null ? alterLoadDesc.getDeleteCondition() : deleteCondition,
+                alterLoadDesc.getMergeType(),
+                alterLoadDesc.hasSequenceCol() ? alterLoadDesc.getSequenceColName() : sequenceCol);
+    }
+
+    /**
+     * Build the CREATE statement persisted as origStmt for the given effective load definition, and check
+     * that it can be parsed back. This does not modify the job, so callers must finish every step that may
+     * fail before applying the result with applyLoadDefinition().
+     */
+    protected OriginStatement buildLoadDefinitionStatement(RoutineLoadDesc loadDesc) throws UserException {
         StringBuilder sql = new StringBuilder("CREATE ROUTINE LOAD ")
                 .append(SqlUtils.getIdentSql(name));
         if (!isMultiTable) {
             sql.append(" ON ").append(SqlUtils.getIdentSql(getTableName()));
         }
-        sql.append(" WITH ").append(mergeType.name());
+        sql.append(" WITH ").append(loadDesc.getMergeType().name());
         String loadClauseSql = loadDesc.toSql();
         if (!loadClauseSql.isEmpty()) {
             sql.append(" ").append(loadClauseSql);
         }
         sql.append(" PROPERTIES (\"desired_concurrent_number\" = \"1\")");
         sql.append(buildPersistedDataSourceSql());
-        OriginStatement effectiveStatement = new OriginStatement(sql.toString(), 0);
-        Preconditions.checkState(parsePersistedStatement(effectiveStatement) instanceof CreateRoutineLoadCommand,
-                effectiveStatement.originStmt);
-        origStmt = effectiveStatement;
+        OriginStatement loadDefinitionStmt = new OriginStatement(sql.toString(), 0);
+        Preconditions.checkState(parsePersistedStatement(loadDefinitionStmt) instanceof CreateRoutineLoadCommand,
+                loadDefinitionStmt.originStmt);
+        return loadDefinitionStmt;
     }
 
-    protected void updateLoadDefinitionSessionVariables(Map<String, String> alterSessionVariables, long sqlMode) {
+    /**
+     * Install a load definition built by buildLoadDefinitionStatement(), together with the session
+     * variables that the persisted statement must be analyzed with.
+     */
+    protected void applyLoadDefinition(RoutineLoadDesc loadDesc, OriginStatement loadDefinitionStmt,
+            Map<String, String> alterSessionVariables, long sqlMode) {
+        setRoutineLoadDesc(loadDesc);
         if (alterSessionVariables != null) {
             sessionVariables.putAll(alterSessionVariables);
         }
         sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(sqlMode));
+        origStmt = loadDefinitionStmt;
     }
 
     private String buildPersistedDataSourceSql() {

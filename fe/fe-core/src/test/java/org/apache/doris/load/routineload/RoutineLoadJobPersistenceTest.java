@@ -26,6 +26,7 @@ import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -39,6 +40,10 @@ import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kinesis.KinesisProgress;
 import org.apache.doris.load.routineload.kinesis.KinesisRoutineLoadJob;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
+import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -48,6 +53,7 @@ import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TxnStateCallbackFactory;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.junit.jupiter.api.AfterEach;
@@ -55,7 +61,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -67,6 +75,7 @@ import java.io.IOException;
 import java.util.EnumSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 public class RoutineLoadJobPersistenceTest {
     private MockedStatic<Env> envMock;
@@ -316,6 +325,88 @@ public class RoutineLoadJobPersistenceTest {
         Assertions.assertEquals(expectedWhere, getWhereSql(job));
     }
 
+    @ParameterizedTest
+    @MethodSource("replayFailures")
+    public void testUnreplayableAlterCancelsJobWithoutStoppingReplay(LoadDataSourceType dataSourceType,
+            ReplayFailure failure) throws Exception {
+        RoutineLoadJob job = newPausedJob(dataSourceType, 6001L, "unreplayable_job");
+        job.origStmt = createOriginStatement(dataSourceType, "unreplayable_job", "COLUMNS TERMINATED BY ','");
+        job.setRoutineLoadDesc(new RoutineLoadDesc(new Separator(",", ","), null, null,
+                null, null, null, null, LoadTask.MergeType.APPEND, null));
+        String previousOrigin = job.origStmt.originStmt;
+        manager.replayCreateRoutineLoadJob(job);
+        Assertions.assertSame(job, callbackFactory.getCallback(job.getId()));
+
+        Database database = mockCatalog("current_table");
+        InternalCatalog catalog = env.getInternalCatalog();
+        if (failure == ReplayFailure.MISSING_DATABASE) {
+            Mockito.when(catalog.getDb(8001L)).thenReturn(Optional.empty());
+            Mockito.when(catalog.getDbOrMetaException(8001L))
+                    .thenThrow(new MetaNotFoundException("unknown database 8001"));
+        } else if (failure == ReplayFailure.MISSING_TABLE) {
+            Mockito.when(database.getTableOrMetaException(9001L))
+                    .thenThrow(new MetaNotFoundException("unknown table 9001"));
+        }
+        AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(job.getId(),
+                Maps.newHashMap(), null, new OriginStatement(failure.alterSql, 0), SqlModeHelper.MODE_DEFAULT,
+                null);
+
+        manager.replayAlterRoutineLoadJob(log);
+
+        Assertions.assertEquals(JobState.CANCELLED, job.getState());
+        Assertions.assertTrue(job.cancelReason.getMsg().contains("FE replay alter routine load failed"),
+                job.cancelReason.getMsg());
+        Assertions.assertNull(callbackFactory.getCallback(job.getId()));
+        Assertions.assertEquals(previousOrigin, job.origStmt.originStmt);
+        Assertions.assertEquals(",", job.getColumnSeparator().getSeparator());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = LoadDataSourceType.class, names = {"KAFKA", "KINESIS"})
+    public void testFailedAlterLeavesJobAndJournalUnchanged(LoadDataSourceType dataSourceType) throws Exception {
+        RoutineLoadJob job = newPausedJob(dataSourceType, 7001L, "atomic_alter_job");
+        job.origStmt = createOriginStatement(dataSourceType, "atomic_alter_job", "COLUMNS TERMINATED BY ','");
+        job.setRoutineLoadDesc(new RoutineLoadDesc(new Separator(",", ","), null, null,
+                null, null, null, null, LoadTask.MergeType.APPEND, null));
+        long previousMaxErrorNum = job.maxErrorNum;
+        Map<String, String> previousJobProperties = Maps.newHashMap(job.jobProperties);
+        Map<String, String> previousSessionVariables = Maps.newHashMap(job.sessionVariables);
+        String previousOrigin = job.origStmt.originStmt;
+
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(CreateRoutineLoadInfo.MAX_ERROR_NUMBER_PROPERTY, "10");
+        AlterRoutineLoadCommand command = Mockito.mock(AlterRoutineLoadCommand.class);
+        Mockito.when(command.getAnalyzedJobProperties()).thenReturn(jobProperties);
+        Mockito.when(command.getDataSourceProperties()).thenReturn(null);
+        Mockito.when(command.hasLoadProperty()).thenReturn(true);
+        Mockito.when(command.getRoutineLoadDesc()).thenReturn(new RoutineLoadDesc(new Separator("|", "|"), null,
+                null, null, null, null, null, LoadTask.MergeType.APPEND, null));
+        Mockito.when(command.getOriginStatement()).thenReturn(new OriginStatement(
+                "ALTER ROUTINE LOAD FOR atomic_alter_job COLUMNS TERMINATED BY '|', "
+                        + "PROPERTIES (\"max_error_number\" = \"10\")", 0));
+        Mockito.when(command.getSqlMode()).thenReturn(SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES);
+        Mockito.when(command.getSessionVariables()).thenReturn(Maps.newHashMap());
+        // The table is dropped after the ALTER was analyzed, so the persisted CREATE statement can not be built.
+        Database database = mockCatalog("current_table");
+        Mockito.when(database.getTableOrMetaException(9001L))
+                .thenThrow(new MetaNotFoundException("unknown table 9001"));
+
+        Assertions.assertThrows(MetaNotFoundException.class, () -> job.modifyProperties(command));
+
+        Assertions.assertEquals(previousMaxErrorNum, job.maxErrorNum);
+        Assertions.assertEquals(previousJobProperties, job.jobProperties);
+        Assertions.assertEquals(previousSessionVariables, job.sessionVariables);
+        Assertions.assertEquals(",", job.getColumnSeparator().getSeparator());
+        Assertions.assertEquals(previousOrigin, job.origStmt.originStmt);
+        Mockito.verify(editLog, Mockito.never()).logAlterRoutineLoadJob(Mockito.any());
+    }
+
+    private static Stream<Arguments> replayFailures() {
+        return Stream.of(LoadDataSourceType.KAFKA, LoadDataSourceType.KINESIS)
+                .flatMap(dataSourceType -> Stream.of(ReplayFailure.values())
+                        .map(failure -> Arguments.of(dataSourceType, failure)));
+    }
+
     private RoutineLoadJob createJob(LoadDataSourceType dataSourceType) {
         if (dataSourceType == LoadDataSourceType.KINESIS) {
             return new KinesisRoutineLoadJob(1L, "job", 1L, 1L, "us-east-1", "stream", UserIdentity.ADMIN);
@@ -348,16 +439,31 @@ public class RoutineLoadJobPersistenceTest {
     }
 
     private static KafkaRoutineLoadJob newPausedJob(long jobId, String jobName) {
-        KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(jobId, jobName, 8001L,
-                9001L, "127.0.0.1:9092", "persistence_topic", UserIdentity.ADMIN);
+        return (KafkaRoutineLoadJob) newPausedJob(LoadDataSourceType.KAFKA, jobId, jobName);
+    }
+
+    private static RoutineLoadJob newPausedJob(LoadDataSourceType dataSourceType, long jobId, String jobName) {
+        RoutineLoadJob job = dataSourceType == LoadDataSourceType.KINESIS
+                ? new KinesisRoutineLoadJob(jobId, jobName, 8001L, 9001L, "us-east-1", "persistence_stream",
+                        UserIdentity.ADMIN)
+                : new KafkaRoutineLoadJob(jobId, jobName, 8001L, 9001L, "127.0.0.1:9092", "persistence_topic",
+                        UserIdentity.ADMIN);
         job.state = RoutineLoadJob.JobState.PAUSED;
         return job;
     }
 
     private static OriginStatement createOriginStatement(String jobName, String loadClause) {
+        return createOriginStatement(LoadDataSourceType.KAFKA, jobName, loadClause);
+    }
+
+    private static OriginStatement createOriginStatement(LoadDataSourceType dataSourceType, String jobName,
+            String loadClause) {
+        String dataSource = dataSourceType == LoadDataSourceType.KINESIS
+                ? " FROM KINESIS (\"aws.region\" = \"us-east-1\", \"kinesis_stream\" = \"persistence_stream\")"
+                : " FROM KAFKA (\"kafka_broker_list\" = \"127.0.0.1:9092\", "
+                        + "\"kafka_topic\" = \"persistence_topic\")";
         return new OriginStatement("CREATE ROUTINE LOAD legacy_db." + jobName + " ON current_table "
-                + loadClause + " FROM KAFKA (\"kafka_broker_list\" = \"127.0.0.1:9092\", "
-                + "\"kafka_topic\" = \"persistence_topic\")", 0);
+                + loadClause + dataSource, 0);
     }
 
     private static String getWhereSql(RoutineLoadJob job) {
@@ -365,8 +471,8 @@ public class RoutineLoadJobPersistenceTest {
                 .get("whereExpr").getAsString();
     }
 
-    // Stub db 8001 and table 9001 on the shared Env mock.
-    private void mockCatalog(String tableName) throws Exception {
+    // Stub db 8001 and table 9001 on the shared Env mock, and return the database so tests can break it.
+    private Database mockCatalog(String tableName) throws Exception {
         CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
         InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
         Database database = Mockito.mock(Database.class);
@@ -375,6 +481,8 @@ public class RoutineLoadJobPersistenceTest {
         Mockito.when(env.getFunctionRegistry()).thenReturn(new FunctionRegistry());
         // MATCH ... USING ANALYZER resolves the analyzer name through the index policy manager.
         Mockito.when(env.getIndexPolicyMgr()).thenReturn(new IndexPolicyMgr());
+        // Function binding checks the database privilege before it looks up UDFs.
+        Mockito.when(env.getAccessManager()).thenReturn(Mockito.mock(AccessControllerManager.class));
         Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
         Mockito.when(catalogMgr.getCatalog(Mockito.anyString())).thenReturn(catalog);
         Mockito.when(catalog.getDb(8001L)).thenReturn(Optional.of(database));
@@ -391,6 +499,7 @@ public class RoutineLoadJobPersistenceTest {
         Mockito.when(table.hasDeleteSign()).thenReturn(true);
         Mockito.when(table.getFullSchema()).thenReturn(Lists.newArrayList());
         envMock.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+        return database;
     }
 
     private static RoutineLoadJob imageRoundTrip(RoutineLoadJob job) throws IOException {
@@ -400,6 +509,22 @@ public class RoutineLoadJobPersistenceTest {
         }
         try (DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
             return RoutineLoadJob.read(in);
+        }
+    }
+
+    private enum ReplayFailure {
+        // The persisted ALTER statement can not be parsed any more.
+        UNPARSEABLE_STATEMENT("ALTER ROUTINE LOAD FOR unreplayable_job COLUMNS TERMINATED BY"),
+        // The ALTER parses but its expression no longer analyzes, as after an upgrade changed the analysis rules.
+        UNANALYZABLE_EXPRESSION("ALTER ROUTINE LOAD FOR unreplayable_job WHERE no_such_function(c1) > 1"),
+        // The database or table was dropped by the time the ALTER is replayed.
+        MISSING_DATABASE("ALTER ROUTINE LOAD FOR unreplayable_job COLUMNS TERMINATED BY '|'"),
+        MISSING_TABLE("ALTER ROUTINE LOAD FOR unreplayable_job COLUMNS TERMINATED BY '|'");
+
+        private final String alterSql;
+
+        ReplayFailure(String alterSql) {
+            this.alterSql = alterSql;
         }
     }
 }

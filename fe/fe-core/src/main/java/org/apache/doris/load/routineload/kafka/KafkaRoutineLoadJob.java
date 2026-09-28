@@ -42,6 +42,7 @@ import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.kafka.KafkaUtil;
+import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.routineload.ErrorReason;
 import org.apache.doris.load.routineload.LoadDataSourceType;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
@@ -57,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterRoutineLoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TFileCompressType;
@@ -790,11 +792,19 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                 throw new DdlException("Only supports modification of PAUSED jobs");
             }
 
+            // Build the new load definition before modifying the job, so a failure leaves the job and the
+            // journal unchanged.
+            RoutineLoadDesc loadDesc = null;
+            OriginStatement loadDefinitionStmt = null;
+            if (command.hasLoadProperty()) {
+                loadDesc = mergeLoadDesc(command.getRoutineLoadDesc());
+                loadDefinitionStmt = buildLoadDefinitionStatement(loadDesc);
+            }
+
             modifyPropertiesInternal(jobProperties, dataSourceProperties);
             if (command.hasLoadProperty()) {
-                setRoutineLoadDesc(command.getRoutineLoadDesc());
-                updateLoadDefinitionSessionVariables(command.getSessionVariables(), command.getSqlMode());
-                mergeLoadDescToOriginStatement();
+                applyLoadDefinition(loadDesc, loadDefinitionStmt, command.getSessionVariables(),
+                        command.getSqlMode());
             }
 
             AlterRoutineLoadJobOperationLog log = new AlterRoutineLoadJobOperationLog(this.id,
