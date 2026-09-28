@@ -1860,6 +1860,16 @@ public class SessionVariable implements Serializable, Writable {
             varType = VariableAnnotation.EXPERIMENTAL)
     public int topNLazyMaterializationThreshold = 1024;
 
+    @VariableMgr.VarAttr(name = "topn_lazy_materialization_batch_size",
+            checker = "checkTopNLazyMaterializationBatchSize", needForward = true,
+            fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+            description = {
+                    "TopN 延迟物化回表请求的目标行数，范围为 1 到 65535，默认 20000；达到阈值时包含整个输入 block，因此实际行数可能超过该值",
+                    "Target rows per TopN lazy-materialization fetch, from 1 to 65535, default 20000; "
+                            + "the whole input block crossing the threshold is included, so the "
+                            + "actual row count may exceed it"})
+    public int topNLazyMaterializationBatchSize = 20000;
+
     @VariableMgr.VarAttr(name = "topn_lazy_materialization_using_index", needForward = true,
             fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL)
@@ -5743,6 +5753,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableShareHashTableForBroadcastJoin(enableShareHashTableForBroadcastJoin);
 
         tResult.setBatchSize(batchSize);
+        tResult.setTopnLazyMaterializationBatchSize(topNLazyMaterializationBatchSize);
         tResult.setPreferredBlockSizeBytes(preferredBlockSizeBytes);
         tResult.setEmbedMaxBatchSize(embedMaxBatchSize);
         tResult.setAiContextWindowSize(aiContextWindowSize);
@@ -6442,6 +6453,14 @@ public class SessionVariable implements Serializable, Writable {
         Long batchSizeValue = Long.valueOf(batchSize);
         if (batchSizeValue < 1 || batchSizeValue > 65535) {
             throw new InvalidParameterException("batch_size should be between 1 and 65535)");
+        }
+    }
+
+    public void checkTopNLazyMaterializationBatchSize(String batchSize) {
+        long batchSizeValue = Long.parseLong(batchSize);
+        if (batchSizeValue < 1 || batchSizeValue > 65535) {
+            throw new InvalidParameterException(
+                    "topn_lazy_materialization_batch_size should be between 1 and 65535");
         }
     }
 

@@ -511,6 +511,10 @@ struct TQueryOptions {
   // Fall back to RE2 when Hyperscan cannot compile a regular expression.
   228: optional bool enable_hyperscan_fallback = true;
 
+  // Target row count for TopN lazy-materialization fetches. The whole input block that crosses
+  // this threshold is included, so a fetch may contain more rows than this value.
+  229: optional i32 topn_lazy_materialization_batch_size = 20000;
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

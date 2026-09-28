@@ -189,22 +189,38 @@ std::string format_counter_array(size_t size, TUnit::type unit, GetValue get_val
 } // namespace
 
 void MaterializationSharedState::get_block(Block* block) {
-    for (int i = 0, j = 0, rowid_to_block_loc = rowid_locs[j]; i < origin_block.columns(); i++) {
-        if (i != rowid_to_block_loc) {
+    DCHECK(output_ready);
+    size_t j = 0;
+    for (size_t i = 0; i < origin_block.columns(); i++) {
+        if (j >= rowid_locs.size() || i != static_cast<size_t>(rowid_locs[j])) {
             block->insert(origin_block.get_by_position(i));
         } else {
-            auto response_block = response_blocks[j].to_block();
-            for (int k = 0; k < response_block.columns(); k++) {
-                auto& data = response_block.get_by_position(k);
+            auto source_block = response_blocks[j].to_block();
+            for (int k = 0; k < source_block.columns(); k++) {
+                auto& data = source_block.get_by_position(k);
                 response_blocks[j].mutable_columns()[k] = data.column->clone_empty();
                 block->insert(data);
             }
-            if (++j < rowid_locs.size()) {
-                rowid_to_block_loc = rowid_locs[j];
-            }
+            ++j;
         }
     }
     origin_block.clear();
+}
+
+void MaterializationSharedState::clear_current_batch() {
+    origin_block.clear();
+    for (auto& response_block : response_blocks) {
+        for (auto& column : response_block.mutable_columns()) {
+            column->clear();
+        }
+    }
+    for (auto& block_order : block_order_results) {
+        block_order.clear();
+    }
+    _backend_rows_count.clear();
+    _max_rows_per_backend = 0;
+    need_merge_block = false;
+    output_ready = false;
 }
 
 void MaterializationSharedState::_update_topn_lazy_materialization_profile(
@@ -486,7 +502,11 @@ void MaterializationSharedState::_update_profile_info(int64_t backend_id,
 Status MaterializationSharedState::create_muiltget_result(const Columns& columns, bool child_eos,
                                                           bool gc_id_map) {
     const auto rows = columns.empty() ? 0 : columns[0]->size();
-    block_order_results.resize(columns.size());
+    if (block_order_results.empty()) {
+        block_order_results.resize(columns.size());
+    } else {
+        DCHECK_EQ(block_order_results.size(), columns.size());
+    }
 
     for (int i = 0; i < columns.size(); ++i) {
         const uint8_t* null_map = nullptr;
@@ -502,7 +522,8 @@ Status MaterializationSharedState::create_muiltget_result(const Columns& columns
         }
 
         auto& block_order = block_order_results[i];
-        block_order.resize(rows);
+        const auto block_order_offset = block_order.size();
+        block_order.resize(block_order_offset + rows);
 
         for (int j = 0; j < rows; ++j) {
             if (!null_map || !null_map[j]) {
@@ -528,12 +549,12 @@ Status MaterializationSharedState::create_muiltget_result(const Columns& columns
                 }
                 request_block_desc->add_row_id(row_location.row_id);
                 request_block_desc->add_file_id(row_location.file_id);
-                block_order[j] = row_location.backend_id;
+                block_order[block_order_offset + j] = row_location.backend_id;
 
                 // Count rows per backend
                 _backend_rows_count[row_location.backend_id]++;
             } else {
-                block_order[j] = 0;
+                block_order[block_order_offset + j] = 0;
             }
         }
     }
@@ -545,13 +566,13 @@ Status MaterializationSharedState::create_muiltget_result(const Columns& columns
         }
     }
 
-    eos = child_eos;
+    input_eos = input_eos || child_eos;
     if (eos && gc_id_map) {
         for (auto& [_, rpc_struct] : rpc_struct_map) {
             rpc_struct.request.set_gc_id_map(true);
         }
     }
-    need_merge_block = rows > 0;
+    need_merge_block = origin_block.rows() > 0;
 
     return Status::OK();
 }
@@ -645,17 +666,23 @@ Status MaterializationOperator::prepare(RuntimeState* state) {
 
 bool MaterializationOperator::need_more_input_data(RuntimeState* state) const {
     auto& local_state = get_local_state(state);
-    return !local_state._materialization_state.origin_block.rows() &&
-           !local_state._materialization_state.eos;
+    return !local_state._materialization_state.output_ready &&
+           !local_state._materialization_state.input_eos;
 }
 
 Status MaterializationOperator::pull(RuntimeState* state, Block* output_block, bool* eos) const {
     auto& local_state = get_local_state(state);
     output_block->clear();
-    if (local_state._materialization_state.need_merge_block) {
-        local_state._materialization_state.get_block(output_block);
+    auto& materialization_state = local_state._materialization_state;
+    if (materialization_state.output_ready) {
+        // Keep the aggregated fetch batch intact. It may exceed RuntimeState::batch_size().
+        materialization_state.get_block(output_block);
+        materialization_state.clear_current_batch();
+        materialization_state.eos = materialization_state.input_eos;
+    } else {
+        materialization_state.eos = materialization_state.input_eos;
     }
-    *eos = local_state._materialization_state.eos;
+    *eos = materialization_state.eos;
 
     if (*eos) {
         for (const auto& [backend_id, child_info] :
@@ -693,11 +720,39 @@ Status MaterializationOperator::push(RuntimeState* state, Block* in_block, bool 
                         in_block->get_by_position(local_state._materialization_state.rowid_locs[i])
                                 .column);
             }
-            local_state._materialization_state.origin_block.swap(*in_block);
+            auto& origin_block = local_state._materialization_state.origin_block;
+            if (origin_block.columns() == 0) {
+                origin_block.swap(*in_block);
+            } else {
+                DCHECK_EQ(origin_block.columns(), in_block->columns());
+                DCHECK_EQ(origin_block.get_names(), in_block->get_names());
+                for (size_t i = 0; i < origin_block.columns(); ++i) {
+                    origin_block.replace_by_position_if_const(i);
+                }
+                auto destination_columns = origin_block.mutate_columns_scoped();
+                for (size_t i = 0; i < origin_block.columns(); ++i) {
+                    const auto& source_column =
+                            in_block->get_by_position(i).column->convert_to_full_column_if_const();
+                    destination_columns.mutable_columns()[i]->insert_range_from(*source_column, 0,
+                                                                                in_block->rows());
+                }
+                in_block->clear();
+            }
         }
         RETURN_IF_ERROR(local_state._materialization_state.create_muiltget_result(columns, eos,
                                                                                   _gc_id_map));
 
+        const auto should_fetch =
+                local_state._materialization_state.input_eos ||
+                local_state._materialization_state.origin_block.rows() >=
+                        static_cast<size_t>(state->topn_lazy_materialization_batch_size());
+        if (!should_fetch) {
+            return Status::OK();
+        }
+        COUNTER_UPDATE(local_state._fetch_batch_count, 1);
+        COUNTER_UPDATE(
+                local_state._fetch_batch_rows,
+                static_cast<int64_t>(local_state._materialization_state.origin_block.rows()));
         auto size = local_state._materialization_state.rpc_struct_map.size();
         bthread::CountdownEvent counter(static_cast<int>(size));
         MonotonicStopWatch rpc_timer(true);
@@ -724,6 +779,11 @@ Status MaterializationOperator::push(RuntimeState* state, Block* in_block, bool 
                     local_state.operator_profile()));
             local_state._max_rows_per_backend_counter->set(
                     (int64_t)local_state._materialization_state._max_rows_per_backend);
+        }
+        local_state._materialization_state.output_ready =
+                local_state._materialization_state.origin_block.rows() > 0;
+        if (!local_state._materialization_state.output_ready) {
+            local_state._materialization_state.eos = local_state._materialization_state.input_eos;
         }
     }
 

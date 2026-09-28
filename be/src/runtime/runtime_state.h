@@ -152,6 +152,15 @@ public:
         return std::min(std::max(1, v), kMax);
     }
 
+    int topn_lazy_materialization_batch_size() const {
+        static constexpr int kDefault = 20000;
+        static constexpr int kMax = 65535;
+        const auto v = _query_options.__isset.topn_lazy_materialization_batch_size
+                               ? _query_options.topn_lazy_materialization_batch_size
+                               : kDefault;
+        return std::min(std::max(1, v), kMax);
+    }
+
     // Target byte budget per output block (default 8MB when adaptive is enabled).
     // The public FE/session contract is [1MB, 512MB]; this accessor still clamps any direct
     // thrift or mixed-version out-of-range value into that range. Returns `kMax` when adaptive
