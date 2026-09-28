@@ -203,11 +203,19 @@ public class ColumnStatisticBuilder {
         return colStats;
     }
 
+    /**
+     * Fills the average size of one value with the width of the data type when no measured value
+     * size is available.
+     *
+     * <p>Unknown statistics carry no measured value size: {@link ColumnStatistic#UNKNOWN} has
+     * {@code avgSizeByte == 1}, which is a placeholder and not a one byte wide column. The row
+     * width computed from it ({@code Statistics#computeTupleSize}) feeds the cost model, i.e. join
+     * build memory, exchange data size and broadcast decisions, so keeping it at one byte
+     * underestimates the row of every column whose statistics are not available, whether the column
+     * was never analyzed or is simply not an operative slot of the scan.
+     */
     public void normalizeAvgSizeByte(DataType dataType) {
-        if (isUnknown) {
-            return;
-        }
-        if (avgSizeByte > 0) {
+        if (!isUnknown && avgSizeByte > 0) {
             return;
         }
         avgSizeByte = dataType.toCatalogDataType().getSlotSize();

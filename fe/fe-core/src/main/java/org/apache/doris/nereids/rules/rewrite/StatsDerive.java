@@ -385,7 +385,8 @@ public class StatsDerive extends PlanVisitor<Statistics, StatsDerive.DeriveConte
     public Statistics visitLogicalRelation(LogicalRelation relation, DeriveContext context) {
         StatisticsBuilder builder = new StatisticsBuilder();
         builder.setRowCount(1);
-        relation.getOutput().forEach(slot -> builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN));
+        relation.getOutput().forEach(
+                slot -> builder.putColumnStatistics(slot, ColumnStatistic.createUnknownByDataType(slot.getDataType())));
         Statistics stats = builder.build();
         relation.setStatistics(stats);
         return stats;

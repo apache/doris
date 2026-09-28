@@ -400,6 +400,14 @@ public class ColumnStatistic {
         return new ColumnStatisticBuilder(this).setAvgSizeByte(avgSizeByte).build();
     }
 
+    /**
+     * Same as {@link #createUnknownByDataType(DataType)}, with the row count of the statistics the
+     * value belongs to, for the callers that build the statistics of a slot of a relation.
+     */
+    public static ColumnStatistic createUnknownByDataType(DataType dataType, double rowCount) {
+        return new ColumnStatisticBuilder(createUnknownByDataType(dataType), rowCount).build();
+    }
+
     public static ColumnStatistic createUnknownByDataType(DataType dataType) {
         if (dataType instanceof CharacterType) {
             return new ColumnStatisticBuilder(1)

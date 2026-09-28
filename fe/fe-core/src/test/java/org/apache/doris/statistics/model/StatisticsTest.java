@@ -18,14 +18,71 @@
 package org.apache.doris.statistics.model;
 
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.util.MoreFieldsThread;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class StatisticsTest {
+
+    /** Remove any ConnectContext installed by a test so it does not leak into the next one. */
+    @AfterEach
+    public void tearDown() {
+        ConnectContext.remove();
+    }
+
+    @Test
+    public void testUnknownStatisticsCarryTheTypeWidth() {
+        // the shared instance stays the one byte placeholder the statistics cache compares against
+        Assertions.assertEquals(1, ColumnStatistic.UNKNOWN.avgSizeByte);
+
+        // unknown statistics built for an expression carry the width of its data type, so that the
+        // row width they contribute to the cost model is not one byte per column
+        ColumnStatistic intStats = ColumnStatistic.createUnknownByDataType(IntegerType.INSTANCE, 100);
+        Assertions.assertTrue(intStats.isUnKnown());
+        Assertions.assertEquals(100, intStats.count);
+        Assertions.assertEquals(IntegerType.INSTANCE.width(), intStats.avgSizeByte);
+
+        // character types are capped at the default width, whatever their declared length
+        Assertions.assertEquals(CharacterType.DEFAULT_WIDTH,
+                ColumnStatistic.createUnknownByDataType(CharType.createCharType(1000)).avgSizeByte);
+        Assertions.assertEquals(CharacterType.DEFAULT_WIDTH,
+                ColumnStatistic.createUnknownByDataType(StringType.INSTANCE).avgSizeByte);
+    }
+
+    @Test
+    public void testFindColumnStatisticsOfNotDerivedExpression() {
+        SlotReference derivedSlot = SlotReference.of("derived", IntegerType.INSTANCE);
+        SlotReference notDerivedSlot = SlotReference.of("not_derived", IntegerType.INSTANCE);
+        Statistics stats = new Statistics(100, 1,
+                ImmutableMap.of(derivedSlot, new ColumnStatisticBuilder().setNdv(10).build()));
+
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setSessionVariable(new SessionVariable());
+        MoreFieldsThread.setConnectContext(connectContext);
+
+        // Production: statistics that are not derived degrade to unknown statistics, so that a bug of
+        // the statistics derivation cannot break a query.
+        Assertions.assertTrue(stats.findColumnStatistics(notDerivedSlot).isUnKnown());
+        Assertions.assertNull(stats.findColumnStatisticsOrNull(notDerivedSlot));
+        Assertions.assertEquals(10.0, stats.findColumnStatistics(derivedSlot).ndv);
+
+        // The pipeline test environment (fe_debug = true) fails instead of silently degrading.
+        connectContext.getSessionVariable().feDebug = true;
+        Assertions.assertThrows(NullPointerException.class, () -> stats.findColumnStatistics(notDerivedSlot));
+        Assertions.assertNull(stats.findColumnStatisticsOrNull(notDerivedSlot));
+        Assertions.assertEquals(10.0, stats.findColumnStatistics(derivedSlot).ndv);
+    }
+
     @Test
     public void testAvgSizeAbnormal() {
         SlotReference slot = SlotReference.of("a", IntegerType.INSTANCE);

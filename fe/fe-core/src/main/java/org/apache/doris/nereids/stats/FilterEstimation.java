@@ -96,7 +96,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             deltaStats.setDeltaRowCount(0);
             deltaStats.setRowCount(inputStats.getDeltaRowCount());
             for (Expression expr : inputStats.columnStatistics().keySet()) {
-                deltaStats.putColumnStatistics(expr, ColumnStatistic.UNKNOWN);
+                deltaStats.putColumnStatistics(expr, ColumnStatistic.createUnknownByDataType(expr.getDataType()));
             }
             Statistics deltaOutputStats = expression.accept(this, new EstimationContext(deltaStats.build()));
             StatisticsBuilder builder = new StatisticsBuilder(inputStats).setDeltaRowCount(0)
@@ -108,7 +108,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                         Statistics partial = conjunct.accept(this, new EstimationContext(inputStats));
                         if (partial.getRowCount() == 0) {
                             for (Slot slot : conjunct.getInputSlots()) {
-                                builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN);
+                                builder.putColumnStatistics(slot,
+                                        ColumnStatistic.createUnknownByDataType(slot.getDataType()));
                             }
                         }
                     }
@@ -471,7 +472,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         // A > cast (1 as xxx), min/max of cast is +infinity/-infinity
         // regard the stats for cast as UNKNOWN
         if (statsForRight.minValue != statsForRight.maxValue || statsForRight.isMinMaxInvalid()) {
-            statsForRight = ColumnStatistic.UNKNOWN;
+            statsForRight = ColumnStatistic.createUnknownByDataType(cp.right().getDataType());
         }
         if (cp instanceof EqualPredicate) {
             return estimateColumnEqualToConstant(cp, statsForLeft, statsForRight, context);
@@ -956,7 +957,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     }
 
     private boolean isOnBase(Expression child, EstimationContext context) {
-        ColumnStatistic colStats = context.statistics.findColumnStatistics(child);
+        ColumnStatistic colStats = context.statistics.findColumnStatisticsOrNull(child);
         if (colStats != null && !colStats.isUnKnown() && colStats.getOriginal() != null) {
             ColumnStatistic original = colStats.getOriginal();
             return doubleNearlyEqual(original.count, colStats.count)
@@ -1171,9 +1172,6 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         statsBuilder.setRowCount(rowCount);
         if (like.left() instanceof Slot) {
             ColumnStatistic origin = context.statistics.findColumnStatistics(like.left());
-            Preconditions.checkArgument(origin != null,
-                    "col stats not found. slot=%s in %s",
-                    like.left().toSql(), like.toSql());
             ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder(origin);
             colBuilder.setNdv(origin.ndv * DEFAULT_LIKE_COMPARISON_SELECTIVITY).setNumNulls(0);
             colBuilder.setHotValues(null);

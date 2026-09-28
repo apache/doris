@@ -77,7 +77,7 @@ public abstract class TableValuedFunction extends BoundFunction
     public Statistics computeStats(List<Slot> slots) {
         Map<Expression, ColumnStatistic> columnToStatistics = Maps.newHashMap();
         for (Slot slot : slots) {
-            columnToStatistics.put(slot, ColumnStatistic.UNKNOWN);
+            columnToStatistics.put(slot, ColumnStatistic.createUnknownByDataType(slot.getDataType()));
         }
         return new Statistics(0, columnToStatistics);
     }
