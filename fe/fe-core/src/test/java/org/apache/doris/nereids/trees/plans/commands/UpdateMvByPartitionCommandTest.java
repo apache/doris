@@ -46,6 +46,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.utframe.TestWithFeService;
@@ -241,6 +242,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
     void testRunRefreshCommandExecutesIncrementalMtmv() throws Exception {
         MTMV mtmv = getMtmv("ivm_mv");
         StatementContext statementContext = createStatementCtx("refresh materialized view test.ivm_mv");
+        OriginStatement originStatement = statementContext.getOriginStatement();
         statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
         UpdateMvByPartitionCommand command = newRefreshCommand(mtmv);
         AtomicReference<StmtExecutor> executorRef = new AtomicReference<>();
@@ -260,12 +262,15 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
                 executor.getContext().getStatementContext().getIvmRewriteContext().orElseThrow().getMode());
         Assertions.assertSame(executor.getContext(), statementContext.getConnectContext());
         Assertions.assertSame(statementContext, executor.getContext().getStatementContext());
+        Assertions.assertSame(originStatement, statementContext.getOriginStatement());
+        Assertions.assertSame(originStatement, executor.getParsedStmt().getOrigStmt());
     }
 
     @Test
     void testExecuteCommandRebindsTaskStatementContextToExecutionContext() throws Exception {
         MTMV mtmv = getMtmv("ivm_mv");
-        StatementContext statementContext = new StatementContext();
+        StatementContext statementContext = createStatementCtx("refresh materialized view test.ivm_mv");
+        OriginStatement originStatement = statementContext.getOriginStatement();
         statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
         UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand.from(
                 mtmv, Sets.newHashSet(), ImmutableMap.of(), statementContext);
@@ -281,6 +286,8 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
 
         Assertions.assertSame(executor.getContext(), statementContext.getConnectContext());
         Assertions.assertSame(statementContext, executor.getContext().getStatementContext());
+        Assertions.assertSame(originStatement, statementContext.getOriginStatement());
+        Assertions.assertSame(originStatement, executor.getParsedStmt().getOrigStmt());
     }
 
     @Test

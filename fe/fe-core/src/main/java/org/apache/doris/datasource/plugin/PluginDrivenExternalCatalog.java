@@ -800,6 +800,18 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             }
             throw new DdlException("Failed to get table: '" + tableName + "' in database: " + dbName);
         }
+        // External catalogs have no temporary-table namespace: CREATE TEMPORARY TABLE is rejected for
+        // every non-internal catalog, so DROP TEMPORARY TABLE can never name a live temporary table
+        // here. getTableNullable above falls back to the permanent table of the same name, which must
+        // NOT be dropped. Mirror InternalCatalog: IF EXISTS turns the missing temporary table into a
+        // no-op, otherwise report the unknown table instead of silently destroying the permanent one.
+        if (mustTemporary) {
+            if (ifExists) {
+                LOG.info("drop temporary table[{}.{}.{}] which does not exist", getName(), dbName, tableName);
+                return;
+            }
+            ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
+        }
         ConnectorSession session = buildConnectorSession();
         ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
         // Route a DROP on a VIEW to dropView, mirroring legacy IcebergMetadataOps.dropTableImpl's

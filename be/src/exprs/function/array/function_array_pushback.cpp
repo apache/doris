@@ -93,14 +93,15 @@ public:
 
         size_t off = 0;
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if (array_null_map && array_null_map[i]) {
+            const size_t src_index = index_check_const(i, src_const);
+            if (array_null_map && array_null_map[src_index]) {
                 result_null_map[i] = 1;
                 result_offset_col[i] = off;
                 continue;
             }
 
-            size_t src_off = src_offset_col[index_check_const(i, src_const) - 1];
-            size_t src_len = src_offset_col[index_check_const(i, src_const)] - src_off;
+            size_t src_off = src_offset_col[src_index - 1];
+            size_t src_len = src_offset_col[src_index] - src_off;
             result_nested_data_col.insert_range_from(src_nested_data_col, src_off, src_len);
 
             result_nested_data_col.insert((*right_column)[index_check_const(i, right_const)]);

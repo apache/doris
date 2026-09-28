@@ -4226,10 +4226,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             return original;
         }
         List<Index> matched = new ArrayList<>();
+        List<Index> named = new ArrayList<>();
         for (Index index : original) {
             if (InvertedIndexUtil.isAnalyzerMatched(index.getProperties(), analyzer)) {
                 matched.add(index);
+            } else if (InvertedIndexUtil.isAnalyzerNameMatched(index.getProperties(), analyzer)) {
+                named.add(index);
             }
+        }
+        // A built-in IK index is matched by its effective configuration, but an index created
+        // before that rule existed may be configured differently. When it is the only index that
+        // carries the requested name, keep serving the request from it as before; the predicate
+        // sends that index's own mode and lowercase settings to BE.
+        if (matched.isEmpty() && named.size() == 1) {
+            return named;
         }
         return matched;
     }

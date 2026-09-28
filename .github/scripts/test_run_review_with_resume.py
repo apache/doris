@@ -71,6 +71,7 @@ class ResumeReviewTest(unittest.TestCase):
             head_sha="a" * 40,
             base_sha="b" * 40,
             model="gpt-5.6-sol",
+            fallback_model=None,
             effort="xhigh",
             budget_seconds=1000,
         )
@@ -153,6 +154,140 @@ class ResumeReviewTest(unittest.TestCase):
         self.help.assert_not_called()
         self.target_check.assert_not_called()
         self.assertEqual([], self.sleeps)
+
+    def test_unsupported_model_falls_back_before_review_work(self):
+        self.args.model = "gpt-6-sol"
+        self.args.fallback_model = "gpt-5.6-sol"
+        rejection = (
+            "The 'gpt-6-sol' model is not supported when using Codex "
+            "with a ChatGPT account."
+        )
+        server_error = json.dumps(
+            {
+                "type": "error",
+                "status": 400,
+                "error": {"type": "invalid_request_error", "message": rejection},
+            }
+        )
+        self.assertEqual(
+            0,
+            self.execute(
+                [
+                    {
+                        "events": [
+                            thread_event(),
+                            {"type": "turn.started"},
+                            failed(server_error),
+                        ]
+                    },
+                    {"events": [thread_event(OTHER), completed()], "status": 0},
+                ]
+            ),
+        )
+        self.assertEqual(
+            ["gpt-6-sol", "gpt-5.6-sol"],
+            [command[command.index("--model") + 1] for command in self.commands],
+        )
+        self.assertNotIn("resume", self.commands[1])
+        self.assertEqual(
+            "gpt-5.6-sol\n", (self.context / "codex-review-model.txt").read_text()
+        )
+        self.assertEqual([], self.sleeps)
+        self.target_check.assert_called_once()
+
+    def test_unsupported_model_does_not_restart_after_item(self):
+        self.args.model = "gpt-6-sol"
+        self.args.fallback_model = "gpt-5.6-sol"
+        rejection = (
+            "The 'gpt-6-sol' model is not supported when using Codex "
+            "with a ChatGPT account."
+        )
+        self.assertEqual(
+            1,
+            self.execute(
+                [
+                    {
+                        "events": [
+                            thread_event(),
+                            {"type": "item.started"},
+                            failed(rejection),
+                        ]
+                    }
+                ]
+            ),
+        )
+        self.assertEqual(1, len(self.commands))
+        self.target_check.assert_not_called()
+
+    def test_both_models_rejected_stops_after_one_fallback(self):
+        self.args.model = "gpt-6-sol"
+        self.args.fallback_model = "gpt-5.6-sol"
+
+        def rejection(model):
+            return (
+                f"The '{model}' model is not supported when using Codex "
+                "with a ChatGPT account."
+            )
+
+        self.assertEqual(
+            1,
+            self.execute(
+                [
+                    {"events": [thread_event(), failed(rejection("gpt-6-sol"))]},
+                    {"events": [thread_event(OTHER), failed(rejection("gpt-5.6-sol"))]},
+                ]
+            ),
+        )
+        self.assertEqual(2, len(self.commands))
+        self.assertEqual(rejection("gpt-5.6-sol"), self.last_error())
+
+    def test_capacity_resume_uses_the_fallback_model(self):
+        self.args.model = "gpt-6-sol"
+        self.args.fallback_model = "gpt-5.6-sol"
+        self.write_rollout(thread_id=OTHER)
+        rejection = (
+            "The 'gpt-6-sol' model is not supported when using Codex "
+            "with a ChatGPT account."
+        )
+        self.assertEqual(
+            0,
+            self.execute(
+                [
+                    {"events": [thread_event(), failed(rejection)]},
+                    {"events": [thread_event(OTHER), failed()]},
+                    {"events": [thread_event(OTHER), completed()], "status": 0},
+                ]
+            ),
+        )
+        self.assertEqual([30], self.sleeps)
+        self.assertEqual(
+            ["gpt-6-sol", "gpt-5.6-sol", "gpt-5.6-sol"],
+            [command[command.index("--model") + 1] for command in self.commands],
+        )
+        self.assertEqual(["resume", OTHER], self.commands[2][-3:-1])
+        self.assertEqual(
+            "gpt-5.6-sol\n", (self.context / "codex-review-model.txt").read_text()
+        )
+
+    def test_unsupported_model_during_resume_never_starts_another_review(self):
+        self.args.model = "gpt-6-sol"
+        self.args.fallback_model = "gpt-5.6-sol"
+        rejection = (
+            "The 'gpt-6-sol' model is not supported when using Codex "
+            "with a ChatGPT account."
+        )
+        self.assertEqual(
+            1,
+            self.execute(
+                [
+                    {"events": [thread_event(), failed()]},
+                    {"events": [thread_event(), failed(rejection)]},
+                ]
+            ),
+        )
+        self.assertEqual(2, len(self.commands))
+        self.assertEqual([30], self.sleeps)
+        self.assertEqual(rejection, self.last_error())
 
     def test_capacity_resumes_exact_session_with_same_settings_and_ledger(self):
         before = self.ledger.read_text()

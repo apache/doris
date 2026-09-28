@@ -45,6 +45,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
 #include "testutil/mock/mock_runtime_state.h"
+#include "testutil/scoped_temp_dir.h"
 
 namespace doris::format::json {
 namespace {
@@ -136,9 +137,8 @@ std::unique_ptr<io::FileDescription> file_description(const std::string& path) {
 }
 
 std::filesystem::path write_json_file(const std::string& name, const std::string& content) {
-    const auto test_dir = std::filesystem::temp_directory_path() / "doris_format_v2_json_reader";
-    std::filesystem::create_directories(test_dir);
-    const auto file_path = test_dir / name;
+    static const doris::test::ScopedTempDirectory test_dir("doris_format_v2_json_reader");
+    const auto file_path = test_dir.path() / name;
     std::ofstream out(file_path);
     out << content;
     return file_path;

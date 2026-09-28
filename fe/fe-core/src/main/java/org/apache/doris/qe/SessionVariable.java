@@ -164,6 +164,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SQL_SAFE_UPDATES = "sql_safe_updates";
     public static final String NET_BUFFER_LENGTH = "net_buffer_length";
     public static final String HAVE_QUERY_CACHE =  "have_query_cache";
+    public static final String SERVER_IDENTITY = "server_identity";
+    public static final String APACHE_DORIS_SERVER_IDENTITY = "apache_doris";
     // mem limit can't smaller than bufferpool's default page size
     public static final int MIN_EXEC_MEM_LIMIT = 2097152;
     public static final String BATCH_SIZE = "batch_size";
@@ -1384,6 +1386,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = HAVE_QUERY_CACHE, flag = VarAttrDef.READ_ONLY)
     public boolean haveQueryCache = false;
+
+    @VarAttrDef.VarAttr(name = SERVER_IDENTITY, flag = VarAttrDef.READ_ONLY)
+    public String serverIdentity = APACHE_DORIS_SERVER_IDENTITY;
 
     // 8192 minus 16 + 16 bytes padding that in padding pod array.
     // This remains the row cap for output blocks even when adaptive byte budgeting is enabled.
