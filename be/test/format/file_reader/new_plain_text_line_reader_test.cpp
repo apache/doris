@@ -62,6 +62,44 @@ private:
 };
 } // namespace
 
+TEST(PlainTextSplitPrefixTest, DelimiterOverlapControlsBackwardProbes) {
+    const std::vector<std::pair<std::string, bool>> delimiters = {
+            {"\n", false},
+            {"abc", false},
+            {"aaaaab", false},
+            {"||", true},
+            {"aba", true},
+            {"abcab", true},
+            {"ababcabab", true},
+            {std::string(100 * 1024 - 1, 'a') + "b", false},
+            {std::string(100 * 1024, 'a'), true}};
+    for (const auto& [delimiter, overlaps] : delimiters) {
+        SCOPED_TRACE(::testing::Message() << "delimiter length=" << delimiter.size()
+                                          << ", prefix=" << delimiter.substr(0, 16));
+        const std::string first = "xxx";
+        const std::string content = first + delimiter + "second" + delimiter + "third";
+        const size_t split = first.size() + delimiter.size();
+        auto file = std::make_shared<RecordingSplitFileReader>(content);
+        RuntimeProfile profile("split_prefix");
+        NewPlainTextLineReader reader(
+                &profile, file, nullptr,
+                std::make_shared<PlainTextLineReaderCtx>(delimiter, delimiter.size(), false),
+                content.size() - first.size(), first.size());
+        bool eof = false;
+        size_t skipped_lines = 0;
+        ASSERT_TRUE(reader.skip_split_prefix(split, delimiter, &eof, nullptr, &skipped_lines).ok());
+        ASSERT_FALSE(eof);
+        EXPECT_EQ(skipped_lines, 1);
+        ASSERT_FALSE(file->requests.empty());
+        // Only a self-overlapping delimiter requires a probe before the initial read offset.
+        EXPECT_EQ(file->requests.front().first < first.size(), overlaps);
+        const uint8_t* line = nullptr;
+        size_t size = 0;
+        ASSERT_TRUE(reader.read_line(&line, &size, &eof, nullptr).ok());
+        EXPECT_EQ(std::string(reinterpret_cast<const char*>(line), size), "second");
+    }
+}
+
 TEST(PlainTextSplitPrefixTest, NearbySynchronizationUsesSmallProbe) {
     const std::string content = std::string(8192, 'x') + "a|||b||c";
     const size_t split = 8192 + 4;

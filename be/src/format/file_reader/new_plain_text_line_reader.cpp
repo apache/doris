@@ -294,12 +294,20 @@ Status NewPlainTextLineReader::skip_split_prefix(size_t split_start, const std::
     DCHECK_EQ(_total_read_bytes, 0);
     DCHECK_EQ(_output_buf_limit, 0);
     bool overlaps = false;
-    for (size_t shift = 1; shift < delimiter.size(); ++shift) {
-        if (delimiter.compare(shift, delimiter.size() - shift, delimiter, 0,
-                              delimiter.size() - shift) == 0) {
-            overlaps = true;
-            break;
+    if (delimiter.size() > 1) {
+        // Compute the KMP prefix function once for this split in linear time. A nonempty
+        // proper prefix that is also a suffix of the whole delimiter permits overlapping matches.
+        std::vector<size_t> prefix_lengths(delimiter.size());
+        for (size_t i = 1, matched = 0; i < delimiter.size(); ++i) {
+            while (matched > 0 && delimiter[i] != delimiter[matched]) {
+                matched = prefix_lengths[matched - 1];
+            }
+            if (delimiter[i] == delimiter[matched]) {
+                ++matched;
+            }
+            prefix_lengths[i] = matched;
         }
+        overlaps = prefix_lengths.back() > 0;
     }
 
     if (overlaps && _decompressor == nullptr) {
