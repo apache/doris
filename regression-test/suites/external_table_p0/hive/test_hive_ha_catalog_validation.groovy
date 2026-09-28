@@ -34,7 +34,7 @@ suite("test_hive_ha_catalog_validation", "p0,external") {
             'test_connection' = 'false',
             'dfs.nameservices' = ','
         )"""
-        exception "dfs.nameservices must contain a nameservice"
+        exception "dfs.nameservices must not contain empty nameservice"
     }
 
     test {
