@@ -264,7 +264,7 @@ protected:
             if (dynamic_pattern_with_escape) {
                 arg_types.push_back(string_type->to_thrift());
             }
-            function.__set_arg_types(std::move(arg_types));
+            function.__set_arg_types(arg_types);
             function.__set_ret_type(DataTypeUInt8().to_thrift());
             function.__set_has_var_args(false);
             TExprNode node;

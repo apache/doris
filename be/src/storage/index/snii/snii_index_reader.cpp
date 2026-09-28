@@ -382,7 +382,7 @@ Status execute_snii_query(const ::doris::snii::reader::LogicalIndexReader& logic
                           const InvertedIndexQueryInfo& query_info, std::string_view search_str,
                           const std::vector<std::string>& terms, int32_t max_expansions,
                           bool collect_phrase_frequency, SniiQueryExecutionResult* result,
-    ::doris::snii::query::QueryProfile* profile,
+                          ::doris::snii::query::QueryProfile* profile,
                           const roaring::Roaring* candidates, uint64_t rows_of_segment) {
     result->bitmap = std::make_shared<roaring::Roaring>();
     result->phrase_matches.clear();
@@ -966,10 +966,10 @@ Status SniiIndexReader::_compute_query_bitmap(
                                   query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY);
     if (needs_prx_profile) {
         ::doris::snii::SniiPrxExecutionProfileScope execution_profile(*context->stats);
-        const Status execution_status =
-                execute_snii_query(*logical_reader, query_type, query_info, search_str, *terms,
-                                   max_expansions, phrase_matches != nullptr, &query_result,
-                                   execution_profile.profile(), request.candidates, _rows_of_segment);
+        const Status execution_status = execute_snii_query(
+                *logical_reader, query_type, query_info, search_str, *terms, max_expansions,
+                phrase_matches != nullptr, &query_result, execution_profile.profile(),
+                request.candidates, _rows_of_segment);
         RETURN_IF_ERROR(execution_status);
     } else {
         RETURN_IF_ERROR(execute_snii_query(*logical_reader, query_type, query_info, search_str,
