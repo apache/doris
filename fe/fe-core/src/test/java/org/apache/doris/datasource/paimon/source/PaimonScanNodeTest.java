@@ -3277,6 +3277,66 @@ public class PaimonScanNodeTest {
     }
 
     @Test
+    public void testRustFloatingHistoryToDecimalFallback() throws Exception {
+        for (org.apache.paimon.types.DataType oldType : Arrays.asList(
+                DataTypes.FLOAT(), DataTypes.DOUBLE(), DataTypes.INT(), DataTypes.DECIMAL(3, 2))) {
+            org.apache.paimon.types.DataType decimal = DataTypes.DECIMAL(10, 2);
+            org.apache.paimon.types.DataType[][] shapes = {
+                    {oldType, decimal},
+                    {DataTypes.ROW(new DataField(2, "old_name", oldType)),
+                            DataTypes.ROW(new DataField(2, "renamed", decimal))},
+                    {DataTypes.ARRAY(oldType), DataTypes.ARRAY(decimal)},
+                    {DataTypes.MAP(oldType, DataTypes.INT()), DataTypes.MAP(decimal, DataTypes.INT())},
+                    {DataTypes.MAP(DataTypes.INT(), oldType), DataTypes.MAP(DataTypes.INT(), decimal)}};
+            for (org.apache.paimon.types.DataType[] shape : shapes) {
+                RustRoutingFixture f = new RustRoutingFixture();
+                Mockito.when(f.schemas.schema(1)).thenReturn(new TableSchema(1, Arrays.asList(
+                        new DataField(0, "id", new IntType(false)), new DataField(1, "v", shape[0])),
+                        10, Collections.emptyList(), Collections.emptyList(), Collections.emptyMap(), null));
+                f.schema(2, shape[1], Collections.emptyMap(), false);
+                boolean floating = oldType.equals(DataTypes.FLOAT()) || oldType.equals(DataTypes.DOUBLE());
+                Assert.assertEquals(Arrays.toString(shape), floating
+                        ? TPaimonReaderType.PAIMON_JNI : TPaimonReaderType.PAIMON_RUST, f.reader(f.split));
+            }
+        }
+    }
+
+    @Test
+    public void testRustUnusedAggregateNamesFallback() throws Exception {
+        for (String engine : Arrays.asList("aggregation", "partial-update")) {
+            List<String> optionKeys = new ArrayList<>(Arrays.asList(
+                    "fields.default-aggregate-function", "fields.id.aggregate-function"));
+            if ("partial-update".equals(engine)) {
+                optionKeys.add("fields.seq.aggregate-function");
+            }
+            for (String key : optionKeys) {
+                for (String function : Arrays.asList("collect", "sum")) {
+                    RustRoutingFixture f = new RustRoutingFixture();
+                    Map<String, String> options = new HashMap<>();
+                    options.put("merge-engine", engine);
+                    options.put("fields.v.aggregate-function", "max");
+                    options.put(key, function);
+                    f.schema(1, new IntType(), options, true);
+                    if ("partial-update".equals(engine)) {
+                        options.put("fields.seq.sequence-group", "v");
+                        Mockito.when(f.table.schema()).thenReturn(new TableSchema(1, Arrays.asList(
+                                new DataField(0, "id", new IntType(false)), new DataField(1, "v", new IntType()),
+                                new DataField(2, "seq", new IntType())), 2, Collections.emptyList(),
+                                Collections.singletonList("id"), options, null));
+                    }
+                    DataFileMeta file = Mockito.spy(f.split.dataFiles().get(0));
+                    Mockito.doReturn(Optional.of(0L)).when(file).deleteRowCount();
+                    DataSplit split = DataSplit.builder().withPartition(BinaryRow.EMPTY_ROW)
+                            .withBucket(0).withBucketPath("file:///warehouse/db/t/bucket-0")
+                            .withDataFiles(Collections.singletonList(file)).build();
+                    Assert.assertEquals(engine + " " + key + "=" + function, "collect".equals(function)
+                            ? TPaimonReaderType.PAIMON_JNI : TPaimonReaderType.PAIMON_RUST, f.reader(split));
+                }
+            }
+        }
+    }
+
+    @Test
     public void testRustNonIntegerHistoryToIntegerFallback() throws Exception {
         for (org.apache.paimon.types.DataType sourceType : Arrays.asList(
                 DataTypes.FLOAT(), DataTypes.DOUBLE(), DataTypes.DECIMAL(10, 2), DataTypes.STRING())) {

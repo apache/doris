@@ -145,7 +145,7 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
         CREATE TABLE paimon.${dbName}.t_nested_evo (
             id INT, s STRUCT<a: INT, b: STRING>
         ) USING paimon TBLPROPERTIES (
-            'primary-key' = 'id',
+            'bucket' = '-1',
             'file.format' = 'parquet'
         );
         INSERT INTO paimon.${dbName}.t_nested_evo VALUES (1, struct(10, 'x')), (2, struct(20, 'y'));
@@ -375,9 +375,8 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
         def rustPuRemoveRecordProfile = profileTextOf(testQueries[10])
         assertFalse(rustPuRemoveRecordProfile.contains("PaimonRustReader"),
                 "partial-update.remove-record-on-delete table must fall back to JNI")
-        // The nested-evolution leg is the opposite direction: the rust reader
-        // must genuinely scan it (baac87c's nested reconciliation) — if this
-        // ever rides the JNI fallback, the capability regressed.
+        // Append-only inputs keep nested reconciliation independent of the multi-file
+        // primary-key merge fallback; this leg must still exercise the Rust reader.
         def rustNestedEvoProfile = profileTextOf(testQueries[11])
         assertTrue(rustNestedEvoProfile.contains("PaimonRustReader"),
                 "nested-evolution leg must use the rust reader (profile timer missing)")

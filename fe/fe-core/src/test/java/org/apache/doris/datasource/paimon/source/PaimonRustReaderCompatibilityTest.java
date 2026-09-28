@@ -74,6 +74,43 @@ public class PaimonRustReaderCompatibilityTest {
     }
 
     @Test
+    public void testPersistedFloatingToDecimalRounding() throws Exception {
+        FileStoreTable table = table(Schema.newBuilder().column("id", DataTypes.INT())
+                .column("v", DataTypes.DOUBLE()), ImmutableMap.of("bucket", "-1"));
+        commit(table, GenericRow.of(1, 1.005), GenericRow.of(2, -1.005), GenericRow.of(3, 1.25),
+                GenericRow.of(4, null));
+        assertRead(table, true, row -> row.getInt(0), Arrays.asList(1, 2, 3, 4));
+        table.schemaManager().commitChanges(Collections.singletonList(
+                SchemaChange.updateColumnType("v", DataTypes.DECIMAL(3, 2), true)));
+        table = FileStoreTableFactory.create(table.fileIO(), table.location());
+        assertRead(table, false, row -> row.isNullAt(1) ? null
+                : row.getDecimal(1, 3, 2).toBigDecimal().toPlainString(), Arrays.asList("1.01", "-1.01", "1.25", null));
+    }
+
+    @Test
+    public void testPersistedUnusedAggregateDefault() throws Exception {
+        for (String engine : Arrays.asList("aggregation", "partial-update")) {
+            for (String function : Arrays.asList("collect", "sum")) {
+                Map<String, String> options = new HashMap<>();
+                options.put("merge-engine", engine);
+                options.put("fields.default-aggregate-function", function);
+                options.put("fields.v.aggregate-function", "max");
+                Schema.Builder schema = Schema.newBuilder().column("id", DataTypes.INT().notNull())
+                        .column("v", DataTypes.INT()).primaryKey("id");
+                boolean partial = "partial-update".equals(engine);
+                if (partial) {
+                    schema.column("seq", DataTypes.INT());
+                    options.put("fields.seq.sequence-group", "v");
+                }
+                FileStoreTable table = table(schema, options);
+                commit(table, partial ? GenericRow.of(1, 7, 1) : GenericRow.of(1, 7));
+                // Java never instantiates the unused default; Rust validates its name at open.
+                assertRead(table, !"collect".equals(function), row -> row.getInt(1), Collections.singletonList(7));
+            }
+        }
+    }
+
+    @Test
     public void testPersistedNonIntegerNarrowing() throws Exception {
         for (DataType type : Arrays.asList(DataTypes.DOUBLE(), DataTypes.DECIMAL(10, 2))) {
             boolean floating = type.equals(DataTypes.DOUBLE());

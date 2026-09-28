@@ -20,6 +20,7 @@ package org.apache.doris.datasource.paimon.source;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 
+import com.google.common.collect.ImmutableSet;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.schema.TableSchema;
@@ -44,6 +45,9 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /** Compatibility checks for the pinned paimon-rust reader, beyond storage capabilities. */
 final class PaimonRustReaderCapabilities {
+    private static final Set<String> SUPPORTED_AGGREGATE_NAMES = ImmutableSet.of(
+            "sum", "product", "min", "max", "last_value", "first_value", "last_non_null_value",
+            "first_non_null_value", "first_not_null_value", "bool_and", "bool_or", "listagg");
     private final FileStoreTable table;
     private final TableSchema schema;
     private final boolean tableCompatible;
@@ -95,30 +99,35 @@ final class PaimonRustReaderCapabilities {
     private boolean hasCompatibleFileSchema(long id) {
         try {
             TableSchema fileSchema = table.schemaManager().schema(id);
-            // Java numeric-to-integer casts can wrap; Arrow may return NULL for the same value.
-            // Compare IDs recursively: renames and newly added fields are not narrowing.
-            return fileSchema != null && !hasIntegerNarrowing(fileSchema.fields(), schema.fields());
+            // Match historical types by ID: renames and added fields do not require value casts.
+            return fileSchema != null && !hasIncompatibleEvolution(fileSchema.fields(), schema.fields());
         } catch (RuntimeException e) {
             // Failure to establish compatibility must not opt a historical file into Rust.
             return false;
         }
     }
 
-    private static boolean hasIntegerNarrowing(List<DataField> oldFields, List<DataField> newFields) {
+    private static boolean hasIncompatibleEvolution(List<DataField> oldFields, List<DataField> newFields) {
         Map<Integer, DataType> oldTypes = new HashMap<>();
         for (DataField field : oldFields) {
             oldTypes.put(field.id(), field.type());
         }
         for (DataField field : newFields) {
             DataType oldType = oldTypes.get(field.id());
-            if (oldType != null && hasIntegerNarrowing(oldType, field.type())) {
+            if (oldType != null && hasIncompatibleEvolution(oldType, field.type())) {
                 return true;
             }
         }
         return false;
     }
 
-    private static boolean hasIntegerNarrowing(DataType oldType, DataType newType) {
+    private static boolean hasIncompatibleEvolution(DataType oldType, DataType newType) {
+        // Java rounds the decimal string of a floating value; Arrow scales the binary value.
+        // Even an in-range value such as DOUBLE 1.005 can therefore round differently.
+        if (newType instanceof DecimalType && (oldType.getTypeRoot() == DataTypeRoot.FLOAT
+                || oldType.getTypeRoot() == DataTypeRoot.DOUBLE)) {
+            return true;
+        }
         int oldWidth = integerWidth(oldType.getTypeRoot());
         int newWidth = integerWidth(newType.getTypeRoot());
         if (newWidth > 0) {
@@ -127,17 +136,17 @@ final class PaimonRustReaderCapabilities {
             return oldWidth == 0 || oldWidth > newWidth;
         }
         if (oldType instanceof RowType && newType instanceof RowType) {
-            return hasIntegerNarrowing(((RowType) oldType).getFields(), ((RowType) newType).getFields());
+            return hasIncompatibleEvolution(((RowType) oldType).getFields(), ((RowType) newType).getFields());
         }
         if (oldType instanceof ArrayType && newType instanceof ArrayType) {
-            return hasIntegerNarrowing(((ArrayType) oldType).getElementType(),
+            return hasIncompatibleEvolution(((ArrayType) oldType).getElementType(),
                     ((ArrayType) newType).getElementType());
         }
         if (oldType instanceof MapType && newType instanceof MapType) {
             MapType oldMap = (MapType) oldType;
             MapType newMap = (MapType) newType;
-            return hasIntegerNarrowing(oldMap.getKeyType(), newMap.getKeyType())
-                    || hasIntegerNarrowing(oldMap.getValueType(), newMap.getValueType());
+            return hasIncompatibleEvolution(oldMap.getKeyType(), newMap.getKeyType())
+                    || hasIncompatibleEvolution(oldMap.getValueType(), newMap.getValueType());
         }
         return false;
     }
@@ -162,6 +171,16 @@ final class PaimonRustReaderCapabilities {
         CoreOptions.MergeEngine engine = new CoreOptions(options).mergeEngine();
         if (engine != CoreOptions.MergeEngine.AGGREGATE && engine != CoreOptions.MergeEngine.PARTIAL_UPDATE) {
             return true;
+        }
+        // Rust validates every configured name before resolving overrides or excluding keys
+        // and sequence fields. Java may accept an unused SPI function that Rust cannot open.
+        for (Map.Entry<String, String> option : options.entrySet()) {
+            String key = option.getKey();
+            if (("fields.default-aggregate-function".equals(key)
+                    || (key.startsWith("fields.") && key.endsWith(".aggregate-function")))
+                    && !SUPPORTED_AGGREGATE_NAMES.contains(option.getValue())) {
+                return false;
+            }
         }
         Set<String> sequenceFields = new HashSet<>();
         if (engine == CoreOptions.MergeEngine.PARTIAL_UPDATE) {

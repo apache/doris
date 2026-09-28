@@ -139,6 +139,20 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
             }
         }
 
+        ["aggregation", "partial-update"].eachWithIndex { engine, index ->
+            def name = "unused_default_${index}"
+            def extra = ", 'merge-engine'='${engine}', 'fields.default-aggregate-function'='collect', "
+                    + "'fields.v.aggregate-function'='max'"
+            boolean partial = engine == "partial-update"
+            if (partial) {
+                extra += ", 'fields.seq.sequence-group'='v'"
+            }
+            createPk(name, partial ? "v INT, seq INT" : "v INT", extra)
+            sql "INSERT INTO ${name} VALUES (1,7${partial ? ',1' : ''})"
+            // An unused Java SPI default still fails Rust's global function-name validation.
+            check("select v from ${name}", [[7]], false)
+        }
+
         createPk("insert_only_runs", "v STRING", ", 'read.batch-size'='1'")
         3.times { run ->
             sql """INSERT INTO insert_only_runs
