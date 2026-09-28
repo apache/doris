@@ -102,9 +102,8 @@ struct TPaloScanRange {
   10: optional i64 start_tso
   11: optional i64 end_tso
   12: optional TBinlogScanType binlog_scan_type
-  // Bucket metadata for BE-side runtime-filter bucket pruning. These fields
-  // are populated only when the scan has an eligible single-column HASH
-  // distribution runtime-filter target.
+  // Full distribution bucket ordinal/count for runtime-filter bucket pruning
+  // and exact scan-key bucket pruning. The count is not the selected tablet count.
   13: optional i32 bucket_seq
   14: optional i32 bucket_num
 }
@@ -1078,6 +1077,10 @@ struct TOlapScanNode {
   27: optional list<TPartitionBoundary> partition_boundaries
   // Slot ids of extra storage key columns used only to align the scan tuple with storage schema.
   28: optional set<i32> extra_key_column_slot_ids
+  // FE attests: unpartitioned base index, sole non-null VARCHAR storage key
+  // equals the sole HASH distribution key, and all scan ranges carry bucket metadata.
+  // BE may prune only final inclusive point ranges; absent means disabled.
+  29: optional bool enable_scan_key_bucket_prune
 }
 
 struct TEqJoinCondition {
