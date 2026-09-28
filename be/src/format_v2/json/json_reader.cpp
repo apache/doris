@@ -314,10 +314,8 @@ Status JsonReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     while (file_block->rows() < batch_size && !_reader_eof &&
            file_block->bytes() < max_block_bytes) {
         if (_read_json_by_line && _skip_first_line) {
-            size_t skipped_size = 0;
-            const uint8_t* skipped_line = nullptr;
-            RETURN_IF_ERROR(_line_reader->read_line(&skipped_line, &skipped_size, &_reader_eof,
-                                                    _io_ctx.get()));
+            RETURN_IF_ERROR(_line_reader->skip_split_prefix(
+                    _reader_range.start_offset, _line_delimiter, &_reader_eof, _io_ctx.get()));
             _skip_first_line = false;
             continue;
         }

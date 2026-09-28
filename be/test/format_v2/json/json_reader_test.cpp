@@ -399,6 +399,58 @@ TEST_P(JsonReaderSplitTest, EveryByteBoundaryPreservesRecords) {
     }
 }
 
+TEST_P(JsonReaderSplitTest, OverlappingDelimitersPreserveRecords) {
+    for (const std::string delimiter : {"\n\n", "\r\n\r\n", " \t "}) {
+        for (bool trailing_delimiter : {false, true}) {
+            SCOPED_TRACE(testing::Message()
+                         << "delimiter=" << delimiter << ", trailing=" << trailing_delimiter);
+            // The delimiter followed by its prefix has overlapping matches. For "\n\n", a split
+            // at byte 11 previously returned {1, 2, 2, 3}: the two splits matched different pairs
+            // of newlines in the three-newline run before id=2.
+            std::string content = R"({"id":1})" + delimiter +
+                                  delimiter.substr(0, delimiter.size() / 2) + R"({"id":2})" +
+                                  delimiter + R"({"id":3})";
+            if (trailing_delimiter) {
+                content += delimiter;
+            }
+            const auto path = write_json_file("overlapping_delimiters.json", content);
+            const auto file_size = static_cast<int64_t>(content.size());
+            const std::vector<int32_t> expected {1, 2, 3};
+            std::vector<int32_t> unsplit;
+            ASSERT_NO_FATAL_FAILURE(read_range(path, delimiter, 0, file_size, &unsplit));
+            ASSERT_EQ(unsplit, expected);
+            for (int64_t split = 1; split < file_size; ++split) {
+                SCOPED_TRACE(testing::Message() << "split=" << split);
+                std::vector<int32_t> ids;
+                ASSERT_NO_FATAL_FAILURE(read_range(path, delimiter, 0, split, &ids));
+                ASSERT_NO_FATAL_FAILURE(
+                        read_range(path, delimiter, split, file_size - split, &ids));
+                ASSERT_EQ(ids, expected);
+            }
+            std::vector<int32_t> ids;
+            for (int64_t start = 0; start < file_size; ++start) {
+                ASSERT_NO_FATAL_FAILURE(read_range(path, delimiter, start, 1, &ids));
+            }
+            EXPECT_EQ(ids, expected);
+        }
+    }
+}
+
+TEST_P(JsonReaderSplitTest, OverlappingDelimiterRunCrossesLookbehindBuffers) {
+    const std::string delimiter = "\n\n";
+    // An odd run longer than the alignment scratch buffer must be replayed from its true start.
+    const std::string prefix = R"({"id":1})" + std::string(64 * 1024 + 3, '\n');
+    const std::string content = prefix + R"({"id":2})" + delimiter + R"({"id":3})";
+    const auto path = write_json_file("long_overlapping_delimiters.json", content);
+    const auto file_size = static_cast<int64_t>(content.size());
+    const auto split = static_cast<int64_t>(prefix.size());
+    const std::vector<int32_t> expected {1, 2, 3};
+    std::vector<int32_t> ids;
+    ASSERT_NO_FATAL_FAILURE(read_range(path, delimiter, 0, split, &ids));
+    ASSERT_NO_FATAL_FAILURE(read_range(path, delimiter, split, file_size - split, &ids));
+    EXPECT_EQ(ids, expected);
+}
+
 TEST_P(JsonReaderSplitTest, FourRangesPreserveEveryRecord) {
     const std::string delimiter = "ABCDE";
     std::string content;

@@ -25,6 +25,7 @@
 #include <immintrin.h>
 #endif
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstring>
 #include <ostream>
@@ -285,6 +286,63 @@ inline bool NewPlainTextLineReader::update_eof() {
         _eof = true;
     }
     return _eof;
+}
+
+Status NewPlainTextLineReader::skip_split_prefix(size_t split_start, const std::string& delimiter,
+                                                 bool* eof, const io::IOContext* io_ctx) {
+    DCHECK_EQ(_total_read_bytes, 0);
+    DCHECK_EQ(_output_buf_limit, 0);
+    bool overlaps = false;
+    for (size_t shift = 1; shift < delimiter.size(); ++shift) {
+        if (delimiter.compare(shift, delimiter.size() - shift, delimiter, 0,
+                              delimiter.size() - shift) == 0) {
+            overlaps = true;
+            break;
+        }
+    }
+
+    if (overlaps && _decompressor == nullptr) {
+        // A fixed lookbehind can start in an overlapping delimiter chain (e.g. three newlines
+        // with a two-newline delimiter). Find a byte that cannot belong to any delimiter, then
+        // replay greedy matches from immediately after it. Keep scratch bounded even for long
+        // delimiter runs; ordinary delimiters do not need this extra I/O.
+        std::array<bool, 256> delimiter_bytes {};
+        for (unsigned char byte : delimiter) {
+            delimiter_bytes[byte] = true;
+        }
+        std::vector<char> buffer(64 * 1024);
+        size_t sync_offset = _current_offset;
+        bool synchronized = false;
+        while (sync_offset > 0 && !synchronized) {
+            const size_t length = std::min(sync_offset, buffer.size());
+            const size_t offset = sync_offset - length;
+            size_t bytes_read = 0;
+            RETURN_IF_ERROR(_file_reader->read_at(offset, Slice(buffer.data(), length), &bytes_read,
+                                                  io_ctx));
+            if (bytes_read != length) {
+                return Status::IOError("Short read while aligning JSON split at offset {}",
+                                       split_start);
+            }
+            sync_offset = offset;
+            for (size_t i = length; i > 0; --i) {
+                if (!delimiter_bytes[static_cast<unsigned char>(buffer[i - 1])]) {
+                    sync_offset = offset + i;
+                    synchronized = true;
+                    break;
+                }
+            }
+        }
+        _min_length += _current_offset - sync_offset;
+        _current_offset = sync_offset;
+    }
+
+    const size_t prefix_length = split_start - _current_offset;
+    const uint8_t* line = nullptr;
+    size_t size = 0;
+    do {
+        RETURN_IF_ERROR(read_line(&line, &size, eof, io_ctx));
+    } while (!*eof && _total_read_bytes < prefix_length);
+    return Status::OK();
 }
 
 // extend input buf if necessary only when _more_input_bytes > 0

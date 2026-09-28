@@ -151,6 +151,8 @@ NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams
     _init_file_description();
 }
 
+NewJsonReader::~NewJsonReader() = default;
+
 void NewJsonReader::_init_system_properties() {
     if (_range.__isset.file_type) {
         // for compatibility
@@ -265,9 +267,8 @@ Status NewJsonReader::_do_get_next_block(Block* block, size_t* read_rows, bool* 
 
     while (block->rows() < batch_size && !_reader_eof && (block->bytes() < max_block_bytes)) {
         if (UNLIKELY(_read_json_by_line && _skip_first_line)) {
-            size_t size = 0;
-            const uint8_t* line_ptr = nullptr;
-            RETURN_IF_ERROR(_line_reader->read_line(&line_ptr, &size, &_reader_eof, _io_ctx));
+            RETURN_IF_ERROR(_line_reader->skip_split_prefix(_range.start_offset, _line_delimiter,
+                                                            &_reader_eof, _io_ctx));
             _skip_first_line = false;
             continue;
         }
