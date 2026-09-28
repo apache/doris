@@ -22,6 +22,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.DeferredFileFormatProperties;
+import org.apache.doris.filesystem.auth.GcpCredential;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.load.NereidsDataDescription;
@@ -82,6 +83,46 @@ public class LoadCommandTest extends TestWithFeService {
                 + "        DISTRIBUTED BY HASH(`dt_h`) BUCKETS 4\n"
                 + "        PROPERTIES (\"replication_num\" = \"1\");";
         createTable(createTableBitmapSql);
+    }
+
+    @Test
+    public void testGcpNativeCredentialForS3Load() {
+        String loadSql = "LOAD LABEL gcp_native_load("
+                + " DATA INFILE(\"gs://load-bucket/customer\")"
+                + " INTO TABLE customer"
+                + ") WITH S3("
+                + " \"provider\" = \"GCP\","
+                + " \"gs.endpoint\" = \"https://storage.googleapis.com\","
+                + " \"gs.credential_provider_type\" = \"COMPUTE_ENGINE\","
+                + " \"gs.impersonation_service_account\" = "
+                + "\"target@my-project.iam.gserviceaccount.com\""
+                + ");";
+
+        LoadCommand command = (LoadCommand) new NereidsParser().parseSingle(loadSql);
+        BrokerDesc brokerDesc = command.getBrokerDesc();
+        Assertions.assertEquals("us-east1", brokerDesc.getBackendConfigProperties().get("AWS_REGION"));
+        Assertions.assertEquals("GCP", brokerDesc.getBackendConfigProperties().get("provider"));
+        Assertions.assertEquals("COMPUTE_ENGINE", brokerDesc.getBackendConfigProperties()
+                .get(GcpCredential.CREDENTIAL_PROVIDER_TYPE));
+        Assertions.assertEquals("target@my-project.iam.gserviceaccount.com",
+                brokerDesc.getBackendConfigProperties().get(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT));
+    }
+
+    @Test
+    public void testGcpNativeCredentialValidationHappensBeforeLoadSubmission() {
+        String loadSql = "LOAD LABEL invalid_gcp_native_load("
+                + " DATA INFILE(\"gs://load-bucket/customer\")"
+                + " INTO TABLE customer"
+                + ") WITH S3("
+                + " \"provider\" = \"GCP\","
+                + " \"gs.credential_provider_type\" = \"\""
+                + ");";
+
+        IllegalArgumentException exception = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new NereidsParser().parseSingle(loadSql));
+        Assertions.assertTrue(exception.getMessage().contains(GcpCredential.CREDENTIAL_PROVIDER_TYPE));
+        Assertions.assertTrue(exception.getMessage().contains("DEFAULT"));
+        Assertions.assertTrue(exception.getMessage().contains("COMPUTE_ENGINE"));
     }
 
     @Test

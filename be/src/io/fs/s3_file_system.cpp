@@ -98,6 +98,7 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
         reset_conf.role_arn = conf.role_arn;
         reset_conf.external_id = conf.external_id;
         reset_conf.cred_provider_type = conf.cred_provider_type;
+        reset_conf.credential = conf.credential;
 
         // Compare full-field equality of the merged conf, not get_hash(): the hash is
         // an XOR of crc32s and distinct configurations can collide, which would skip a

@@ -41,6 +41,18 @@ under the License.
     </description>
 
     <dependencies>
+        <!-- Reuse the GCS OAuth client implementation in this isolated connector plugin. -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-filesystem-gcs</artifactId>
+            <version>${revision}</version>
+        </dependency>
+        <!-- HadoopCatalog namespace operations bypass FileIO and load the native GCS filesystem. -->
+        <dependency>
+            <groupId>com.google.cloud.bigdataoss</groupId>
+            <artifactId>gcs-connector</artifactId>
+            <classifier>shaded</classifier>
+        </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-connector-spi</artifactId>

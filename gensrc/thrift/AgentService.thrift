@@ -110,6 +110,23 @@ enum TCredProviderType {
     ANONYMOUS = 7  // AnonymousAWSCredentialsProvider
 }
 
+enum TGcpCredentialProviderType {
+    DEFAULT = 0,
+    COMPUTE_ENGINE = 1
+}
+
+struct TGcpCredential {
+    1: optional TGcpCredentialProviderType credential_provider_type
+    2: optional string impersonation_service_account
+}
+
+// Keep this struct aligned with ObjectStoreCredentialPB. Append new fields with
+// new IDs; validation rejects multiple provider credentials and ensures the
+// selected credential matches TS3StorageParam.provider.
+struct TCredential {
+    1: optional TGcpCredential gcp_credential
+}
+
 struct TS3StorageParam {
     1: optional string endpoint
     2: optional string region
@@ -127,6 +144,7 @@ struct TS3StorageParam {
     13: optional TCredProviderType cred_provider_type
     14: optional string role_arn  // aws assumed role's arn
     15: optional string external_id  // aws assumed role's external_id if configure
+    16: optional TCredential credential
 }
 
 struct TStoragePolicy {

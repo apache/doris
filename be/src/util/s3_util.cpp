@@ -51,12 +51,16 @@
 #endif
 #include "cloud/config.h"
 #include "cpp/aws_logger.h"
+#include "cpp/obj-client/auth/gcp/gcp_token_provider.h"
+#include "cpp/obj-client/auth/obj_credential.h"
+#include "cpp/obj-client/auth/obj_s3_client_factory.h"
 #include "cpp/obj-client/rate_limited_obj_storage_client.h"
 #include "cpp/obj-client/s3_obj_storage_client.h"
 #include "cpp/obj_retry_strategy.h"
 #include "cpp/sync_point.h"
 #include "cpp/util.h"
 #include "exec/scan/scanner_scheduler.h"
+#include "io/fs/gcs_signed_url_provider.h"
 #include "runtime/exec_env.h"
 #include "util/s3_rate_limiter_manager.h"
 #include "util/s3_uri.h"
@@ -64,12 +68,52 @@
 namespace doris {
 namespace {
 
+// Adapter between the IO storage-domain enum and the credential layer. Keep it
+// local: neither layer should own or depend on the other's enum definition.
+ObjCredentialProvider to_obj_credential_provider(io::ObjStorageProvider provider) {
+    switch (provider) {
+    case io::ObjStorageProvider::AWS:
+        return ObjCredentialProvider::Aws;
+    case io::ObjStorageProvider::AZURE:
+        return ObjCredentialProvider::Azure;
+    case io::ObjStorageProvider::BOS:
+        return ObjCredentialProvider::Bos;
+    case io::ObjStorageProvider::COS:
+        return ObjCredentialProvider::Cos;
+    case io::ObjStorageProvider::GCP:
+        return ObjCredentialProvider::Gcp;
+    case io::ObjStorageProvider::OBS:
+        return ObjCredentialProvider::Obs;
+    case io::ObjStorageProvider::OSS:
+        return ObjCredentialProvider::Oss;
+    case io::ObjStorageProvider::TOS:
+        return ObjCredentialProvider::Tos;
+    case io::ObjStorageProvider::UNKNOWN:
+        return ObjCredentialProvider::Unknown;
+    }
+    return ObjCredentialProvider::Unknown;
+}
+
 doris::Status is_s3_conf_valid(const S3ClientConf& conf) {
     if (conf.endpoint.empty()) {
         return Status::InvalidArgument<false>("Invalid s3 conf, empty endpoint");
     }
     if (conf.region.empty()) {
         return Status::InvalidArgument<false>("Invalid s3 conf, empty region");
+    }
+
+    ObjCredentialValidationContext credential_context {
+            .provider = to_obj_credential_provider(conf.provider),
+            .ak = conf.ak,
+            .sk = conf.sk,
+            .token = conf.token,
+            .has_aws_role_arn = !conf.role_arn.empty(),
+            .has_aws_external_id = !conf.external_id.empty(),
+            .has_aws_credential_provider = conf.cred_provider_type != CredProviderType::Default,
+    };
+    if (auto error = validate_obj_credential_config(conf.credential, credential_context);
+        error.has_value()) {
+        return Status::InvalidArgument<false>(*error);
     }
 
     if (conf.role_arn.empty()) {
@@ -151,6 +195,7 @@ std::string build_azure_tls_debug_context(const std::string& selected_ca_file) {
 constexpr char USE_PATH_STYLE[] = "use_path_style";
 
 constexpr char AZURE_PROVIDER_STRING[] = "AZURE";
+constexpr char GCP_PROVIDER_STRING[] = "GCP";
 constexpr char S3_PROVIDER[] = "provider";
 constexpr char S3_AK[] = "AWS_ACCESS_KEY";
 constexpr char S3_SK[] = "AWS_SECRET_KEY";
@@ -389,17 +434,53 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_s3_client
         return ResultError(Status::InvalidArgument("failed to create AWS credential provider: {}",
                                                    credentials.error));
     }
-    std::shared_ptr<Aws::S3::S3Client> new_client = std::make_shared<Aws::S3::S3Client>(
-            std::move(credentials.provider), std::move(aws_config),
-            Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
-            s3_conf.use_virtual_addressing);
+    auto new_client = make_s3_client(
+            s3_conf.credential,
+            S3ClientBuildContext {
+                    .fallback_provider = std::move(credentials.provider),
+                    .config = std::move(aws_config),
+                    .payload_signing_policy =
+                            Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never,
+                    .use_virtual_addressing = s3_conf.use_virtual_addressing,
+                    .ca_cert_path = _ca_cert_file_path,
+            });
 
+    std::shared_ptr<GcpTokenProvider> gcs_signing_token_provider;
+    if (const auto* gcp_credential = std::get_if<GcpCredentialConfig>(&s3_conf.credential)) {
+        // signBlob is authorized by the source identity, not by the optional
+        // impersonated target identity. Keep one refreshable cloud-platform
+        // token provider for the lifetime of the S3 client.
+        auto signing_caller_credential = *gcp_credential;
+        signing_caller_credential.impersonation_service_account.clear();
+        gcs_signing_token_provider = std::make_shared<GcpTokenProvider>(
+                signing_caller_credential, _ca_cert_file_path, GcpTokenScope::CloudPlatform);
+    }
+
+    S3ObjStorageClient::SignedUrlGenerator signed_url_generator;
+    if (const auto* credential = std::get_if<GcpCredentialConfig>(&s3_conf.credential)) {
+        signed_url_generator = [conf = s3_conf, credential = *credential,
+                                token_provider = std::move(gcs_signing_token_provider)](
+                                       const ObjStoragePath& path, int64_t expiration_secs) {
+            std::string signed_url;
+            auto status =
+                    io::generate_gcs_v4_signed_url({.endpoint = conf.endpoint,
+                                                    .bucket = path.bucket,
+                                                    .key = path.key,
+                                                    .expiration_secs = expiration_secs,
+                                                    .request_timeout_ms = conf.request_timeout_ms},
+                                                   credential, token_provider, &signed_url);
+            if (!status.ok()) {
+                LOG(WARNING) << "failed to generate GCS V4 signed URL: " << status;
+                return std::string {};
+            }
+            return signed_url;
+        };
+    }
     auto provider_client = std::make_shared<io::S3ObjStorageClient>(
-            std::move(new_client), ObjStorageEndpointInfo {
-                                           .endpoint = s3_conf.endpoint,
-                                           .ak = s3_conf.ak,
-                                           .sk = s3_conf.sk,
-                                   });
+            std::move(new_client),
+            ObjStorageEndpointInfo {
+                    .endpoint = s3_conf.endpoint, .ak = s3_conf.ak, .sk = s3_conf.sk},
+            std::move(signed_url_generator));
     LOG_INFO("create one s3 client with {}", s3_conf.to_string());
     return provider_client;
 }
@@ -446,6 +527,8 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
         // S3 Provider properties should be case insensitive.
         if (0 == strcasecmp(it->second.c_str(), AZURE_PROVIDER_STRING)) {
             s3_conf->client_conf.provider = io::ObjStorageProvider::AZURE;
+        } else if (0 == strcasecmp(it->second.c_str(), GCP_PROVIDER_STRING)) {
+            s3_conf->client_conf.provider = io::ObjStorageProvider::GCP;
         }
     }
 
@@ -476,6 +559,11 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
 
     if (auto it = properties.find(S3_CREDENTIALS_PROVIDER_TYPE); it != properties.end()) {
         s3_conf->client_conf.cred_provider_type = cred_provider_type_from_string(it->second);
+    }
+
+    if (auto error = parse_obj_credential_properties(properties, &s3_conf->client_conf.credential);
+        error.has_value()) {
+        return Status::InvalidArgument(*error);
     }
 
     if (auto st = is_s3_conf_valid(s3_conf->client_conf); !st.ok()) {
@@ -537,6 +625,7 @@ S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
     if (info.has_cred_provider_type()) {
         ret.client_conf.cred_provider_type = cred_provider_type_from_pb(info.cred_provider_type());
     }
+    convert_obj_credential(info, &ret.client_conf.credential);
 
     io::ObjStorageProvider type = io::ObjStorageProvider::AWS;
     switch (info.provider()) {
@@ -597,6 +686,9 @@ S3Conf S3Conf::get_s3_conf(const TS3StorageParam& param) {
     if (param.__isset.cred_provider_type) {
         ret.client_conf.cred_provider_type =
                 cred_provider_type_from_thrift(param.cred_provider_type);
+    }
+    if (param.__isset.credential) {
+        convert_obj_credential(param.credential, &ret.client_conf.credential);
     }
 
     io::ObjStorageProvider type = io::ObjStorageProvider::AWS;

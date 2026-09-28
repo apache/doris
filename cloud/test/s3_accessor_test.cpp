@@ -27,6 +27,7 @@
 #include <chrono>
 #include <unordered_set>
 
+#include "common/auth/obj_credential.h"
 #include "common/config.h"
 #include "common/configbase.h"
 #include "common/logging.h"
@@ -394,6 +395,44 @@ TEST_F(S3AccessorTest, path_style_test) {
         accessor->delete_file("abc"); // try to delete a nonexisted file, ignore the result
         // EXPECT_EQ(ret, exp) << "<<<<<<<<<<<<<<<<<<<<< " << case_idx << " domain " << std::get<0>(i);
     }
+}
+
+TEST(S3AccessorConfigTest, GcpCredentialFromObjectStoreInfo) {
+    ObjectStoreInfoPB obj_info;
+    obj_info.set_provider(ObjectStoreInfoPB::GCP);
+    obj_info.set_endpoint("storage.googleapis.com");
+    obj_info.set_region("us-east1");
+    obj_info.set_bucket("test-bucket");
+    auto* gcp_credential = obj_info.mutable_credential()->mutable_gcp_credential();
+    gcp_credential->set_credential_provider_type(GcpCredentialPB::COMPUTE_ENGINE);
+    gcp_credential->set_impersonation_service_account("target@my-project.iam.gserviceaccount.com");
+
+    auto s3_conf = S3Conf::from_obj_store_info(obj_info);
+    ASSERT_TRUE(s3_conf.has_value());
+    EXPECT_EQ(s3_conf->provider, S3Conf::GCS);
+    ASSERT_TRUE(std::holds_alternative<doris::GcpCredentialConfig>(s3_conf->credential));
+    const auto& credential = std::get<doris::GcpCredentialConfig>(s3_conf->credential);
+    EXPECT_EQ(credential.provider_type, doris::GcpCredentialProviderType::ComputeEngine);
+    EXPECT_EQ(credential.impersonation_service_account,
+              "target@my-project.iam.gserviceaccount.com");
+}
+
+TEST(S3AccessorConfigTest, ValidateGcpStorageVaultCredential) {
+    ObjectStoreInfoPB obj_info;
+    obj_info.set_provider(ObjectStoreInfoPB::GCP);
+    obj_info.set_endpoint("storage.googleapis.com");
+    obj_info.set_region("us-east1");
+    obj_info.set_bucket("test-bucket");
+    obj_info.mutable_credential()->mutable_gcp_credential()->set_credential_provider_type(
+            GcpCredentialPB::DEFAULT);
+
+    EXPECT_FALSE(validate_obj_credential(obj_info).has_value());
+
+    obj_info.set_ak("ak");
+    obj_info.set_sk("sk");
+    auto error = validate_obj_credential(obj_info);
+    ASSERT_TRUE(error.has_value());
+    EXPECT_NE(error->find("cannot be combined"), std::string::npos);
 }
 
 class S3AccessorRoleTest : public testing::Test {

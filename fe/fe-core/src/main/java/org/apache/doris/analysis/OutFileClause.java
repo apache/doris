@@ -582,6 +582,11 @@ public class OutFileClause {
         }
         String brokerName = copiedProps.get(PROP_BROKER_NAME);
         brokerDesc = new BrokerDesc(brokerName, copiedProps);
+        try {
+            filePath = brokerDesc.getFileLocationForExport(filePath);
+        } catch (RuntimeException e) {
+            throw new AnalysisException("Invalid outfile path: " + filePath + ", " + e.getMessage(), e);
+        }
         /*
          * Note on HDFS export behavior and URI handling:
          *

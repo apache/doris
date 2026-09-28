@@ -17,6 +17,11 @@
 
 package org.apache.doris.filesystem.gcs;
 
+import org.apache.doris.filesystem.auth.GcpCredential;
+import org.apache.doris.filesystem.auth.GcpCredentialProviderType;
+import org.apache.doris.filesystem.auth.GcsAuth;
+import org.apache.doris.filesystem.auth.GcsAuthResolver;
+import org.apache.doris.filesystem.properties.FsCacheKeys;
 import org.apache.doris.filesystem.s3.AbstractDelegatingS3Properties;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
@@ -26,12 +31,11 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Provider-owned GCS properties (S3 interoperability / XML API, HMAC credentials only).
+ * Provider-owned GCS properties supporting HMAC, native OAuth2 and anonymous access.
  *
  * <p>The public aliases, ordering, defaults, and static-credential validation follow fe-core
- * GCSProperties. The Google native SDK (JSON API) is intentionally NOT used: it only accepts
- * OAuth2 credentials, while Doris GCS configurations carry HMAC keys. AWS-only credential
- * mechanisms (role ARN, instance profile) are rejected at binding time.
+ * GCSProperties. Object access uses the S3-compatible XML API; native IAM Hadoop operations
+ * use the GCS connector. AWS-only role and instance-profile options are rejected at binding time.
  */
 public final class GcsFileSystemProperties extends AbstractDelegatingS3Properties {
 
@@ -105,12 +109,24 @@ public final class GcsFileSystemProperties extends AbstractDelegatingS3Propertie
             description = "Whether to force standard URI parsing.")
     private String forceParsingByStandardUrl = "false";
 
+    private GcsAuth auth;
+
+    @ConnectorProperty(names = {GcpCredential.CREDENTIAL_PROVIDER_TYPE}, required = false,
+            description = "GCP credential source: DEFAULT, COMPUTE_ENGINE or ANONYMOUS; defaults to ADC without HMAC.")
+    private String credentialProviderType = "";
+
+    @ConnectorProperty(names = {GcpCredential.IMPERSONATION_SERVICE_ACCOUNT}, required = false,
+            description = "Target service account email used for GCP impersonation.")
+    private String impersonationServiceAccount = "";
+
     private GcsFileSystemProperties(Map<String, String> rawProperties) {
         super(rawProperties);
     }
 
     public static GcsFileSystemProperties of(Map<String, String> properties) {
         GcsFileSystemProperties props = new GcsFileSystemProperties(properties);
+        props.auth = GcsAuthResolver.resolve(properties)
+                .orElseGet(() -> GcsAuthResolver.resolve(withGcpProvider(properties)).orElseThrow());
         props.bindAndCollect();
         props.validate();
         return props;
@@ -134,10 +150,58 @@ public final class GcsFileSystemProperties extends AbstractDelegatingS3Propertie
         return Collections.unmodifiableMap(kv);
     }
 
+    private static Map<String, String> withGcpProvider(Map<String, String> properties) {
+        Map<String, String> selected = new HashMap<>(properties);
+        selected.put("provider", "GCP");
+        return selected;
+    }
+
+    public GcsAuth getAuth() {
+        return auth;
+    }
+
+    @Override
+    public Map<String, String> matchedProperties() {
+        Map<String, String> matched = new HashMap<>(super.matchedProperties());
+        if (auth.getMode() != GcsAuth.Mode.HMAC) {
+            matched.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE, auth.isAnonymous() ? "ANONYMOUS"
+                    : auth.getNativeCredential().orElseThrow().getCredentialProviderType().name());
+            matched.put(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT,
+                    auth.getNativeCredential().map(GcpCredential::getImpersonationServiceAccount).orElse(""));
+        }
+        return Collections.unmodifiableMap(matched);
+    }
+
+    @Override
+    protected void customizeS3CompatibleKv(Map<String, String> kv) {
+        if (auth.getNativeCredential().isPresent()) {
+            GcpCredential credential = auth.getNativeCredential().get();
+            kv.remove("AWS_CREDENTIALS_PROVIDER_TYPE");
+            kv.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE, credential.getCredentialProviderType().name());
+            putIfNotBlank(kv, GcpCredential.IMPERSONATION_SERVICE_ACCOUNT,
+                    credential.getImpersonationServiceAccount());
+        }
+    }
+
+    @Override
+    public Map<String, String> toHadoopConfigurationMap() {
+        if (auth.getNativeCredential().isEmpty()) {
+            return super.toHadoopConfigurationMap();
+        }
+        GcpCredential credential = auth.getNativeCredential().get();
+        Map<String, String> cfg = new HashMap<>();
+        cfg.put("fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem");
+        cfg.put("fs.gs.auth.type", credential.getCredentialProviderType() == GcpCredentialProviderType.DEFAULT
+                ? "APPLICATION_DEFAULT" : "COMPUTE_ENGINE");
+        cfg.put("fs.gs.auth.impersonation.service.account", credential.getImpersonationServiceAccount());
+        FsCacheKeys.putFsCacheKeys(cfg, this);
+        return Collections.unmodifiableMap(cfg);
+    }
+
     @Override
     protected void customizeHadoopConfiguration(Map<String, String> cfg) {
         cfg.put("fs.gs.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
-        if (!hasStaticCredentials()) {
+        if (auth.isAnonymous()) {
             cfg.put("fs.s3a.aws.credentials.provider",
                     "org.apache.hadoop.fs.s3a.AnonymousAWSCredentialsProvider");
         }

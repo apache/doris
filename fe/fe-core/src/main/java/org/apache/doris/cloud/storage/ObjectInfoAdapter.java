@@ -74,8 +74,17 @@ public class ObjectInfoAdapter {
             case OSS:
                 return StorageAdapter.ofProvider("OSS", buildS3CompatibleProps(obj));
             case S3:
-            case GCP:
                 return StorageAdapter.ofProvider("S3", buildS3CompatibleProps(obj));
+            case GCP:
+                Map<String, String> gcpProperties = buildS3CompatibleProps(obj);
+                gcpProperties.put("provider", "GCP");
+                if (obj.getGcpCredential() != null) {
+                    gcpProperties.put("gs.credential_provider_type",
+                            obj.getGcpCredential().getCredentialProviderType().name());
+                    putIfNotBlank(gcpProperties, "gs.impersonation_service_account",
+                            obj.getGcpCredential().getImpersonationServiceAccount());
+                }
+                return StorageAdapter.ofProvider("GCS", gcpProperties);
             case COS:
                 return StorageAdapter.ofProvider("COS", buildS3CompatibleProps(obj));
             case OBS:

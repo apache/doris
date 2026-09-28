@@ -18,14 +18,15 @@
 package org.apache.doris.filesystem.gcs;
 
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.auth.GcpCredential;
 import org.apache.doris.filesystem.s3.S3CompatSignals;
 import org.apache.doris.filesystem.s3.S3FileSystem;
 import org.apache.doris.filesystem.s3.S3FileSystemProperties;
-import org.apache.doris.filesystem.s3.S3ObjStorage;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -63,9 +64,16 @@ public class GcsFileSystemProvider implements FileSystemProvider<GcsFileSystemPr
 
     @Override
     public FileSystem create(GcsFileSystemProperties properties) throws IOException {
-        S3FileSystemProperties delegate = S3FileSystemProperties.of(properties.toS3CompatibleKv());
+        Map<String, String> delegateProperties = new HashMap<>(properties.toS3CompatibleKv());
+        if (properties.getAuth().getNativeCredential().isPresent()) {
+            // The delegate only supplies URI/connection settings. GcsObjStorage supplies OAuth.
+            delegateProperties.remove(GcpCredential.CREDENTIAL_PROVIDER_TYPE);
+            delegateProperties.remove(GcpCredential.IMPERSONATION_SERVICE_ACCOUNT);
+            delegateProperties.put("AWS_CREDENTIALS_PROVIDER_TYPE", "ANONYMOUS");
+        }
+        S3FileSystemProperties delegate = S3FileSystemProperties.of(delegateProperties);
         return new S3FileSystem(delegate,
-                new S3ObjStorage(delegate, properties.getSupportedSchemes()));
+                new GcsObjStorage(delegate, properties));
     }
 
     @Override

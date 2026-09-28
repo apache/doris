@@ -188,4 +188,15 @@ class GcsFileSystemProviderTest {
     void name_isGcs() {
         Assertions.assertEquals("GCS", provider.name());
     }
+
+    @Test
+    void nativeOAuthRejectsAwsPresigningBeforeCredentialLoading() {
+        GcsFileSystemProperties props = GcsFileSystemProperties.of(Map.of(
+                "provider", "GCP", "s3.bucket", "bucket"));
+        GcsObjStorage storage = new GcsObjStorage(
+                org.apache.doris.filesystem.s3.S3FileSystemProperties.of(Map.of(
+                        "s3.endpoint", "storage.googleapis.com", "s3.region", "us-east1",
+                        "AWS_CREDENTIALS_PROVIDER_TYPE", "ANONYMOUS")), props);
+        Assertions.assertThrows(UnsupportedOperationException.class, () -> storage.getPresignedUrl("key"));
+    }
 }
