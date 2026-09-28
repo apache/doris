@@ -64,6 +64,17 @@ class HdfsPropertiesTest {
     }
 
     @Test
+    void emptyNameserviceListIsRejected() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("dfs.nameservices", ",");
+
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class, () -> resolve(raw));
+
+        Assertions.assertTrue(exception.getMessage().contains("dfs.nameservices"), exception.getMessage());
+    }
+
+    @Test
     void userOverriddenHadoopKeysArePreserved() {
         Map<String, String> raw = new HashMap<>();
         raw.put("fs.defaultFS", "hdfs://ns");

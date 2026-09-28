@@ -218,10 +218,11 @@ public class HdfsPropertiesUtils {
             // No nameservice configured => HA is not enabled, nothing to validate
             return;
         }
-        for (String dfsservice : splitAndTrim(dfsNameservices)) {
-            if (dfsservice.isEmpty()) {
-                continue;
-            }
+        List<String> services = splitAndTrim(dfsNameservices);
+        if (services.isEmpty()) {
+            throw new IllegalArgumentException("Property dfs.nameservices must contain a nameservice");
+        }
+        for (String dfsservice : services) {
             // 2. Check dfs.ha.namenodes.<nameservice>
             String haNnKey = HdfsClientConfigKeys.DFS_HA_NAMENODES_KEY_PREFIX + "." + dfsservice;
             String namenodes = hdfsProperties.getOrDefault(haNnKey, "");

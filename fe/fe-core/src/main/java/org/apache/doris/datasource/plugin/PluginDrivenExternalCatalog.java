@@ -227,6 +227,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (IllegalArgumentException e) {
             throw new DdlException(e.getMessage());
         }
+        validateStorageProperties(catalogProperty);
         // Validate function_rules JSON if present (shared across all connector types).
         String functionRules = catalogProperty.getOrDefault("function_rules", null);
         ExternalFunctionRules.check(functionRules);
@@ -250,8 +251,24 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (IllegalArgumentException e) {
             throw new DdlException(e.getMessage(), e);
         }
+        validateStorageProperties(candidateProperty);
         ExternalFunctionRules.check(candidateProperty.getOrDefault("function_rules", null));
         return true;
+    }
+
+    /**
+     * Bind Hive catalog storage properties during DDL validation so HDFS configuration errors are
+     * reported by CREATE/ALTER instead of being deferred until the first table access.
+     */
+    private void validateStorageProperties(CatalogProperty property) throws DdlException {
+        if (!"hms".equalsIgnoreCase(getType())) {
+            return;
+        }
+        try {
+            property.getStorageAdaptersMap();
+        } catch (RuntimeException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
     }
 
     private void checkHiveParquetTimeZone(CatalogProperty property) throws DdlException {
