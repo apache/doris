@@ -32,8 +32,6 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
-#include "core/column/column_const.h"
-#include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
@@ -87,12 +85,11 @@ public:
         uint64_t seed = 0;
         if (arguments.size() == 2) {
             // open() makes sure the seed is a constant, so read it from the first row.
-            // unpack_if_const gives the one-value column inside a ColumnConst.
-            const ColumnPtr& seed_column =
-                    unpack_if_const(block.get_by_position(arguments[1]).column).first;
+            ColumnPtr seed_column =
+                    block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
             // Use all 64 bits, so any BIGINT works, a negative one too.
             seed = static_cast<uint64_t>(
-                    assert_cast<const ColumnInt64&>(*seed_column).get_element(0));
+                    assert_cast<const ColumnInt64*>(seed_column.get())->get_element(0));
         } else {
             // Give each block its own random seed, so blocks do not repeat the same orders.
             std::random_device random_device;
