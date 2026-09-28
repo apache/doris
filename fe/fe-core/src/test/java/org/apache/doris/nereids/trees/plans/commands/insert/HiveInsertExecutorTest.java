@@ -244,6 +244,11 @@ class HiveInsertExecutorTest {
 
         // One fence before the selective refresh, one after it closes the admission window.
         Mockito.verify(cacheMgr, Mockito.times(2)).invalidateRowCountCache(table);
+        InOrder order = Mockito.inOrder(hiveCache, table, cacheMgr);
+        order.verify(hiveCache).refreshAffectedPartitions(Mockito.eq(table), Mockito.anyList(),
+                Mockito.anyList(), Mockito.anyList());
+        order.verify(table).unsetObjectCreated();
+        order.verify(cacheMgr).invalidateRowCountCache(table);
     }
 
     @Test

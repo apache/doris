@@ -258,6 +258,8 @@ public class RefreshManager {
                                 .hive(catalog.getId());
                         cache.refreshAffectedPartitionsCache((HMSExternalTable) table.get(), modifiedPartNames,
                                 newPartNames);
+                        // The held HMS table also caches the pre-insert table parameters.
+                        table.get().unsetObjectCreated();
                         // Close the admission window the opening fence left open: a load admitted after
                         // it can publish the pre-insert value from the still-resident file list.
                         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(table.get());

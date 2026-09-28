@@ -95,6 +95,40 @@ public class RefreshManagerTest {
     }
 
     @Test
+    void testPartitionReplayReloadsHeldHiveTableBeforeClosingRowCountFence() {
+        long catalogId = 80L;
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        ExternalDatabase<?> db = Mockito.mock(ExternalDatabase.class);
+        HMSExternalTable table = Mockito.mock(HMSExternalTable.class);
+        Mockito.when(catalog.getId()).thenReturn(catalogId);
+        Mockito.when(catalog.getDbForReplay("db1")).thenReturn(Optional.of(db));
+        Mockito.doReturn(Optional.of(table)).when(db).getTableForReplay("tbl1");
+
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Mockito.doReturn(catalog).when(catalogMgr).getCatalog(catalogId);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        HiveExternalMetaCache hiveCache = Mockito.mock(HiveExternalMetaCache.class);
+        Mockito.when(cacheMgr.hive(catalogId)).thenReturn(hiveCache);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+
+        ExternalObjectLog log = ExternalObjectLog.createForRefreshPartitions(
+                catalogId, "db1", "tbl1",
+                java.util.Collections.singletonList("p=1"), java.util.Collections.emptyList(), 1L);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            new RefreshManager().replayRefreshTable(log);
+        }
+
+        InOrder order = Mockito.inOrder(hiveCache, table, cacheMgr);
+        order.verify(hiveCache).refreshAffectedPartitionsCache(Mockito.eq(table), Mockito.anyList(),
+                Mockito.anyList());
+        order.verify(table).unsetObjectCreated();
+        order.verify(cacheMgr).invalidateRowCountCache(table);
+    }
+
+    @Test
     void testAlterPartitionInvalidatesRowCountBeforeCacheFailure() throws Exception {
         long catalogId = 53L;
         HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);

@@ -97,6 +97,9 @@ public class HiveInsertExecutor extends BaseExternalTableInsertExecutor {
                 HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                         .hive(hmsTable.getCatalog().getId());
                 cache.refreshAffectedPartitions(hmsTable, partitionUpdates, modifiedPartNames, newPartNames);
+                // The held HMS table also caches table parameters (including numRows/totalSize).
+                // Reload those after the selective partition refresh, before closing the count fence.
+                hmsTable.unsetObjectCreated();
                 // Close the admission window opened by the fence above: a load admitted after it can
                 // compute the pre-insert value from the still-resident file list and publish it.
                 Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(hmsTable);

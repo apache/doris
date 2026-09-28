@@ -72,6 +72,7 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.transaction.TransactionManager;
 
+import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -433,7 +434,7 @@ public abstract class ExternalCatalog
                     localDbName -> Optional.ofNullable(
                             buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType,
                                     true)),
-                    (key, value, cause) -> handleDatabaseMetaCacheRemoval(value),
+                    (key, value, cause) -> handleDatabaseMetaCacheRemoval(value, cause),
                     this::acquireMetadataLoadEpoch,
                     this::isMetadataLoadEpochCurrent);
         }
@@ -714,17 +715,23 @@ public abstract class ExternalCatalog
      */
     public void onRefreshCache(boolean invalidCache) {
         setLastUpdateTime(System.currentTimeMillis());
-        refreshMetaCacheOnly(invalidCache);
-        if (invalidCache) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(id);
+        try {
+            refreshMetaCacheOnly(invalidCache);
+        } finally {
+            if (invalidCache) {
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(id);
+            }
         }
     }
 
     /**
      * Refresh meta cache only (database level cache), without invalidating catalog level cache.
      */
-    private void refreshMetaCacheOnly(boolean invalidCache) {
+    private synchronized void refreshMetaCacheOnly(boolean invalidCache) {
         if (metaCache != null) {
+            // A concurrent row-count load can finish while invalidateAll retires database objects.
+            // Fence before the generation swap, then close the window after engine invalidation.
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(id);
             // A catalog-wide engine invalidation below supersedes every database invalidation.
             // The legacy cache uses a synchronous removal listener, so this thread-local scope
             // prevents one full SDK-cache scan per cached database without affecting concurrent
@@ -736,10 +743,10 @@ public abstract class ExternalCatalog
             } finally {
                 invalidatingAllMetaCache = false;
                 invalidateEngineCacheOnDatabaseRemoval.remove();
-            }
-            if (!invalidCache) {
-                // No catalog-wide engine invalidation follows, so fence the row counts once here.
-                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(id);
+                if (!invalidCache) {
+                    // No catalog-wide engine invalidation follows, so close the row-count fence here.
+                    Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(id);
+                }
             }
         }
     }
@@ -1279,10 +1286,11 @@ public abstract class ExternalCatalog
         return invalidateEngineCacheOnDatabaseRemoval.get();
     }
 
-    void handleDatabaseMetaCacheRemoval(Optional<ExternalDatabase<? extends ExternalTable>> value) {
+    void handleDatabaseMetaCacheRemoval(Optional<ExternalDatabase<? extends ExternalTable>> value,
+            RemovalCause cause) {
         value.ifPresent(v -> v.resetMetaToUninitialized(
                 shouldInvalidateRoutedCacheOnDatabaseRemoval(),
-                shouldInvalidateRowCountOnDatabaseRemoval()));
+                !cause.wasEvicted() && shouldInvalidateRowCountOnDatabaseRemoval()));
     }
 
     /**

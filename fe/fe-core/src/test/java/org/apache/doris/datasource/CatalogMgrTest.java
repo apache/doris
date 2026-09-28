@@ -33,6 +33,7 @@ import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.statistics.query.QueryStats;
 
+import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -55,6 +56,19 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 public class CatalogMgrTest {
+
+    @Test
+    void testDatabaseCapacityEvictionDoesNotFenceAllRowCounts() {
+        TestingUnregisterCatalog catalog = new TestingUnregisterCatalog(49L);
+        @SuppressWarnings("unchecked")
+        ExternalDatabase<? extends ExternalTable> db = Mockito.mock(ExternalDatabase.class);
+
+        catalog.handleDatabaseMetaCacheRemoval(Optional.of(db), RemovalCause.SIZE);
+        Mockito.verify(db).resetMetaToUninitialized(true, false);
+
+        catalog.handleDatabaseMetaCacheRemoval(Optional.of(db), RemovalCause.EXPLICIT);
+        Mockito.verify(db).resetMetaToUninitialized(true, true);
+    }
 
     private static void addCatalog(CatalogMgr catalogMgr, ExternalCatalog catalog) throws Exception {
         Field idToCatalogField = CatalogMgr.class.getDeclaredField("idToCatalog");
@@ -385,8 +399,10 @@ public class CatalogMgrTest {
             catalog.onRefreshCache(true);
         }
 
-        Mockito.verify(metaCache).invalidateAll();
-        Mockito.verify(cacheMgr).invalidateCatalog(catalogId);
+        InOrder order = Mockito.inOrder(cacheMgr, metaCache);
+        order.verify(cacheMgr).invalidateRowCountCache(catalogId);
+        order.verify(metaCache).invalidateAll();
+        order.verify(cacheMgr).invalidateCatalog(catalogId);
         Mockito.verify(cacheMgr, Mockito.never()).getRowCountCache();
     }
 
@@ -412,7 +428,7 @@ public class CatalogMgrTest {
                 10,
                 key -> Collections.emptyList(),
                 key -> Optional.empty(),
-                (key, value, cause) -> catalog.handleDatabaseMetaCacheRemoval(value));
+                (key, value, cause) -> catalog.handleDatabaseMetaCacheRemoval(value, cause));
         metaCache.updateCache("db1", "db1", db, dbId);
         catalog.installMetaCache(metaCache);
 
@@ -429,7 +445,7 @@ public class CatalogMgrTest {
         }
 
         Mockito.verify(cacheMgr).invalidateDb(db);
-        Mockito.verify(cacheMgr).invalidateRowCountCache(catalogId);
+        Mockito.verify(cacheMgr, Mockito.times(2)).invalidateRowCountCache(catalogId);
         Mockito.verify(cacheMgr, Mockito.never()).invalidateCatalog(Mockito.anyLong());
     }
 
