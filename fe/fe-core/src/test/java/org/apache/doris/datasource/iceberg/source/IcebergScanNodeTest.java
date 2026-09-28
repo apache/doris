@@ -85,6 +85,7 @@ import org.apache.iceberg.BatchScan;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.DorisDataTableScan;
 import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
@@ -3124,17 +3125,25 @@ public class IcebergScanNodeTest {
         assertHistoricalPredicatePlansAfterSchemaEvolution(true, false);
     }
 
+    @Test
+    public void testHistoricalPredicatePlansAfterMetadataOnlyPartitionEvolution() throws Exception {
+        for (boolean partitioned : new boolean[] {false, true}) {
+            assertHistoricalPredicatePlansAfterSchemaEvolution(false, false, partitioned, false, true);
+        }
+    }
+
     private void assertHistoricalPredicatePlansAfterSchemaEvolution(boolean dropColumn, boolean append)
             throws Exception {
         for (boolean partitioned : new boolean[] {false, true}) {
             for (boolean reuseName : new boolean[] {false, true}) {
-                assertHistoricalPredicatePlansAfterSchemaEvolution(dropColumn, append, partitioned, reuseName);
+                assertHistoricalPredicatePlansAfterSchemaEvolution(dropColumn, append, partitioned, reuseName, false);
             }
         }
     }
 
     private void assertHistoricalPredicatePlansAfterSchemaEvolution(
-            boolean dropColumn, boolean append, boolean partitioned, boolean reuseName) throws Exception {
+            boolean dropColumn, boolean append, boolean partitioned, boolean reuseName, boolean evolveSpec)
+            throws Exception {
         Schema historicalSchema = new Schema(
                 Types.NestedField.optional(1, "x", Types.IntegerType.get()),
                 Types.NestedField.optional(2, "y", Types.IntegerType.get()),
@@ -3156,6 +3165,17 @@ public class IcebergScanNodeTest {
                 .withRecordCount(2)
                 .build();
         table.newFastAppend().appendFile(historicalDataFile).commit();
+        if (partitioned) {
+            // A separate manifest in the same snapshot must be rejected by partition pruning.
+            DataFile nonmatchingDataFile = DataFiles.builder(table.spec())
+                    .withPath(tableLocation + "/data/nonmatching.parquet")
+                    .withPartitionPath("part=3")
+                    .withFormat(FileFormat.PARQUET)
+                    .withFileSizeInBytes(10)
+                    .withRecordCount(1)
+                    .build();
+            table.newFastAppend().appendFile(nonmatchingDataFile).commit();
+        }
         long historicalSnapshotId = table.currentSnapshot().snapshotId();
         int historicalSchemaId = table.currentSnapshot().schemaId();
 
@@ -3163,6 +3183,10 @@ public class IcebergScanNodeTest {
             table.updateSchema().deleteColumn("x").commit();
         } else {
             table.updateSchema().renameColumn("x", "renamed_x").commit();
+        }
+        if (evolveSpec) {
+            // This later spec is unused by the snapshot and conflicts with its old column name.
+            table.updateSpec().addField("x", Expressions.ref("y")).commit();
         }
         if (reuseName) {
             table.updateSchema().addColumn("x", Types.IntegerType.get()).commit();
@@ -3209,6 +3233,16 @@ public class IcebergScanNodeTest {
             Assert.assertEquals(1, tasks.size());
             Assert.assertEquals(historicalDataFile.path().toString(), tasks.get(0).file().path().toString());
             Assert.assertTrue(node.isRealBatchMode());
+            if (partitioned) {
+                Assert.assertEquals(2, scan.snapshot().dataManifests(table.io()).size());
+                // Counting the nonmatching manifest would incorrectly enable batch mode at two files.
+                sessionVariable.numFilesInBatchMode = 2;
+                setPrivateField(node, "isBatchMode", null);
+                Assert.assertFalse(node.isRealBatchMode());
+            }
+            if (evolveSpec) {
+                Assert.assertFalse(DorisDataTableScan.specsForScan(scan).containsKey(table.spec().specId()));
+            }
         } finally {
             ConnectContext.remove();
             executor.shutdownNow();

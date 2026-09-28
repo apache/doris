@@ -34,7 +34,7 @@ public class DorisDataTableScan extends DataTableScan {
         return new DorisDataTableScan(dataScan.table(), dataScan.tableSchema(), dataScan.context());
     }
 
-    /** Rebinds each spec by field ID to the full schema selected for the scan. */
+    /** Rebinds snapshot specs by field ID to the full schema selected for the scan. */
     public static Map<Integer, PartitionSpec> specsForScan(TableScan scan) {
         Map<Integer, PartitionSpec> tableSpecs = scan.table().specs();
         Schema schema = scan.schema();
@@ -44,8 +44,18 @@ public class DorisDataTableScan extends DataTableScan {
         Map<Integer, PartitionSpec> specs = new HashMap<>();
         // A schema-only update keeps the snapshot ID unchanged. Snapshot IDs therefore cannot
         // determine whether table specs still use the schema selected by a historical query.
-        tableSpecs.forEach((id, spec) ->
-                specs.put(id, spec.schema() == schema ? spec : spec.toUnbound().bind(schema, true)));
+        Snapshot snapshot = scan.snapshot();
+        if (snapshot != null) {
+            // Later, unused specs can have partition names that conflict with historical columns.
+            // Bind only specs referenced by this snapshot, including those needed for delete files.
+            for (ManifestFile manifest : snapshot.allManifests(scan.table().io())) {
+                int specId = manifest.partitionSpecId();
+                specs.computeIfAbsent(specId, id -> {
+                    PartitionSpec spec = tableSpecs.get(id);
+                    return spec.schema() == schema ? spec : spec.toUnbound().bind(schema, true);
+                });
+            }
+        }
         return specs;
     }
 

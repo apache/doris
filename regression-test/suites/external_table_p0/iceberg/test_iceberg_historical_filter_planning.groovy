@@ -75,8 +75,16 @@ suite("test_iceberg_historical_filter_planning", "p0,external,doris,external_doc
                                         sql("select id, x, part from ${historical} order by id"))
                                 assertEquals([[1, 1, 1], [2, 1, 2]],
                                         sql("select id, x, part from ${historical} where x = 1 order by id"))
-                                assertEquals([[2, 1, 2]],
-                                        sql("select id, x, part from ${historical} where x = 1 and part = 2 order by id"))
+                                String filteredQuery = "select id, x, part from ${historical} where x = 1 and part = 2 order by id"
+                                assertEquals([[2, 1, 2]], sql(filteredQuery))
+                                if (catalog == cacheCatalog && !batchMode) {
+                                    // Row results alone also pass if cache planning silently falls back to the SDK.
+                                    String plan = sql("explain verbose ${filteredQuery}").collect { it[0] }.join("\n")
+                                    def cacheStats = plan =~ /manifest cache: hits=(\d+), misses=(\d+), failures=(\d+)/
+                                    assertTrue(cacheStats.find(), plan)
+                                    assertTrue(cacheStats.group(1).toLong() + cacheStats.group(2).toLong() > 0, plan)
+                                    assertEquals(0L, cacheStats.group(3).toLong())
+                                }
                             }
                         }
                     }
