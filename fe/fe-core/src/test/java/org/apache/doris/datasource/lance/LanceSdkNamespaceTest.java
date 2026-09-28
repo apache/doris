@@ -26,8 +26,12 @@ import org.lance.namespace.model.DescribeTableRequest;
 import org.lance.namespace.model.DescribeTableResponse;
 import org.lance.namespace.model.DescribeTableVersionRequest;
 import org.lance.namespace.model.DescribeTableVersionResponse;
+import org.lance.namespace.model.ListTableVersionsRequest;
+import org.lance.namespace.model.ListTableVersionsResponse;
+import org.lance.namespace.model.TableVersion;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -45,6 +49,8 @@ public class LanceSdkNamespaceTest {
         private final String location;
         private volatile Map<String, String> vended;
         private volatile RuntimeException versionFailure;
+        /** The manifest path it records for every version. */
+        private volatile String manifestPath;
 
         StubNamespace(String location, Map<String, String> vended) {
             this.location = location;
@@ -68,7 +74,18 @@ public class LanceSdkNamespaceTest {
 
         @Override
         public DescribeTableVersionResponse describeTableVersion(DescribeTableVersionRequest request) {
-            throw versionFailure;
+            if (versionFailure != null) {
+                throw versionFailure;
+            }
+            return new DescribeTableVersionResponse().version(
+                    new TableVersion().version(request.getVersion()).manifestPath(manifestPath));
+        }
+
+        @Override
+        public ListTableVersionsResponse listTableVersions(ListTableVersionsRequest request) {
+            return new ListTableVersionsResponse().versions(Arrays.asList(
+                    new TableVersion().version(2L).manifestPath(null),
+                    new TableVersion().version(3L).manifestPath(manifestPath)));
         }
     }
 
@@ -87,7 +104,11 @@ public class LanceSdkNamespaceTest {
 
     /** The id the SDK keys the store cache by after opening with {@code handed} and a describe vending {@code vended}. */
     private static String openedId(Map<String, String> handed, Map<String, String> vended) {
-        LanceSdkNamespace sdkNamespace = new LanceSdkNamespace(new StubNamespace(S3_URI, vended), handed);
+        return openedId(S3_URI, handed, vended);
+    }
+
+    private static String openedId(String location, Map<String, String> handed, Map<String, String> vended) {
+        LanceSdkNamespace sdkNamespace = new LanceSdkNamespace(new StubNamespace(location, vended), handed);
         sdkNamespace.describeTable(new DescribeTableRequest());
         return sdkNamespace.namespaceId();
     }
@@ -151,6 +172,136 @@ public class LanceSdkNamespaceTest {
                 openedId(handed(), options("access_key_id", "ak-2", "secret_access_key", "sk-3")));
         Assertions.assertNotEquals(fixed, openedId(handed(), Collections.emptyMap()));
         Assertions.assertFalse(fixed.contains("ak-2"), fixed);
+    }
+
+    /**
+     * A namespace may vend credentials that only cover the table's own prefix, so another location
+     * gets another store even with the same options. The location's query, which may carry
+     * credentials, and a trailing slash do not count.
+     */
+    @Test
+    public void testStoreIdentityCountsTheLocation() {
+        Map<String, String> expiring = options("access_key_id", "ak-2", "expires_at_millis", "1");
+        String base = openedId(S3_URI, handed(), expiring);
+        Assertions.assertNotEquals(base, openedId("s3://bucket/other.lance", handed(), expiring));
+        Assertions.assertEquals(base, openedId(S3_URI + "/", handed(), expiring));
+        Assertions.assertEquals(openedId(S3_URI + "?sig=a", handed(), expiring),
+                openedId(S3_URI + "?sig=b", handed(), expiring));
+    }
+
+    /** lance-io only refreshes by an expiry that parses as an unsigned 64-bit integer. */
+    @Test
+    public void testStoreIdentityCountsCredentialsWithAnExpiryLanceCannotRead() {
+        for (String expiry : Arrays.asList("-1", "", "1790000000000.0")) {
+            Assertions.assertNotEquals(
+                    openedId(handed(), options("access_key_id", "ak-2", "expires_at_millis", expiry)),
+                    openedId(handed(), options("access_key_id", "ak-3", "expires_at_millis", expiry)), expiry);
+        }
+    }
+
+    /**
+     * The path lance-io addresses a location by: after the bucket, percent-decoded for a URL, as
+     * is without a scheme.
+     */
+    @Test
+    public void testObjectStorePathFollowsLance() {
+        Assertions.assertEquals("sales data/t.lance",
+                LanceSdkNamespace.objectStorePath("s3://bucket/sales data/t.lance"));
+        Assertions.assertEquals("sales data/t.lance",
+                LanceSdkNamespace.objectStorePath("s3://bucket/sales%20data/t.lance"));
+        Assertions.assertEquals("a|b/t.lance", LanceSdkNamespace.objectStorePath("s3://bucket/a|b/t.lance/"));
+        Assertions.assertEquals("", LanceSdkNamespace.objectStorePath("s3://bucket"));
+        Assertions.assertEquals("", LanceSdkNamespace.objectStorePath("s3://bucket/"));
+        Assertions.assertEquals("t.lance",
+                LanceSdkNamespace.objectStorePath("s3+ddb://bucket/t.lance?ddbTableName=x"));
+        Assertions.assertEquals("p/t.lance",
+                LanceSdkNamespace.objectStorePath("abfss://container@account.dfs.core.windows.net/p/t.lance"));
+        Assertions.assertEquals("tmp/a b/t.lance", LanceSdkNamespace.objectStorePath("file:///tmp/a%20b/t.lance"));
+        Assertions.assertEquals("tmp/t.lance", LanceSdkNamespace.objectStorePath("file:/tmp/t.lance"));
+        Assertions.assertEquals("tmp/a%20b/t.lance", LanceSdkNamespace.objectStorePath("/tmp/a%20b/t.lance"));
+        Assertions.assertEquals("t%zz.lance", LanceSdkNamespace.objectStorePath("s3://bucket/t%zz.lance"));
+    }
+
+    /**
+     * lance-io builds an OpenDAL store ({@code use_opendal}) from the options once, without the
+     * credential provider, so its credentials count even when they carry an expiry.
+     */
+    @Test
+    public void testStoreIdentityCountsCredentialsOfAnOpenDalStore() {
+        Assertions.assertNotEquals(
+                openedId(handed(), options("access_key_id", "ak-2", "expires_at_millis", "1", "use_opendal", "Yes")),
+                openedId(handed(), options("access_key_id", "ak-3", "expires_at_millis", "1", "use_opendal", "Yes")));
+        Assertions.assertEquals(
+                openedId(handed(), options("access_key_id", "ak-2", "expires_at_millis", "1", "use_opendal", "false")),
+                openedId(handed(), options("access_key_id", "ak-3", "expires_at_millis", "1", "use_opendal", "false")));
+    }
+
+    /**
+     * The BE opens a version at its canonical path under the chain's {@code _versions/}. Lance
+     * opens a finalized manifest where the namespace records it, and copies a staged one there
+     * first, so a finalized manifest anywhere else fails the read before Lance opens it.
+     */
+    @Test
+    public void testFinalizedManifestsMustBeAtTheirCanonicalPath() {
+        // Version 3 in V2 naming is u64::MAX - 3.
+        String canonical = "table.lance/_versions/18446744073709551612.manifest";
+        Assertions.assertEquals(canonical, describedManifest(canonical, null));
+        Assertions.assertEquals("/" + canonical, describedManifest("/" + canonical, null));
+        // The V1 naming scheme.
+        String v1 = "table.lance/_versions/3.manifest";
+        Assertions.assertEquals(v1, describedManifest(v1, null));
+        Assertions.assertEquals("table.lance/tree/dev/_versions/18446744073709551612.manifest",
+                describedManifest("table.lance/tree/dev/_versions/18446744073709551612.manifest", "dev"));
+        // Staged: Lance finalizes it to the canonical path before reading.
+        Assertions.assertEquals(canonical + "-2f6a1c0e", describedManifest(canonical + "-2f6a1c0e", null));
+
+        for (String elsewhere : Arrays.asList("table.lance/_versions/custom.manifest",
+                "other.lance/_versions/18446744073709551612.manifest",
+                "table.lance/_versions/18446744073709551613.manifest")) {
+            IllegalStateException rejected = Assertions.assertThrows(IllegalStateException.class,
+                    () -> describedManifest(elsewhere, null), elsewhere);
+            Assertions.assertTrue(rejected.getMessage().contains("'" + canonical + "'"), rejected.getMessage());
+        }
+        // Lance parses the recorded path first, which drops a trailing slash.
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> describedManifest("table.lance/_versions/custom.manifest/", null));
+        // A table at the root of its bucket, and one whose location Java's URI cannot parse.
+        Assertions.assertEquals("_versions/18446744073709551612.manifest",
+                describedManifest("s3://bucket", "_versions/18446744073709551612.manifest", null));
+        Assertions.assertEquals("sales data/t.lance/_versions/3.manifest",
+                describedManifest("s3://bucket/sales data/t.lance", "sales data/t.lance/_versions/3.manifest", null));
+
+        // A branch version at main's path, and a main version at a branch's.
+        Assertions.assertThrows(IllegalStateException.class, () -> describedManifest(canonical, "dev"));
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> describedManifest("table.lance/tree/dev/_versions/18446744073709551612.manifest", null));
+
+        // Lance takes a chain's head from the list, so its entries are checked too.
+        StubNamespace catalog = new StubNamespace(S3_URI, Collections.emptyMap());
+        LanceSdkNamespace sdkNamespace = new LanceSdkNamespace(catalog, handed());
+        sdkNamespace.describeTable(new DescribeTableRequest());
+        catalog.manifestPath = canonical;
+        Assertions.assertEquals(2, sdkNamespace.listTableVersions(new ListTableVersionsRequest()).getVersions().size());
+        catalog.manifestPath = "table.lance/_versions/custom.manifest";
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> sdkNamespace.listTableVersions(new ListTableVersionsRequest()));
+    }
+
+    /**
+     * The manifest path the SDK gets for version 3 of {@code branch} when the namespace records
+     * {@code recorded}.
+     */
+    private static String describedManifest(String recorded, String branch) {
+        return describedManifest(S3_URI, recorded, branch);
+    }
+
+    private static String describedManifest(String location, String recorded, String branch) {
+        StubNamespace catalog = new StubNamespace(location, Collections.emptyMap());
+        catalog.manifestPath = recorded;
+        LanceSdkNamespace sdkNamespace = new LanceSdkNamespace(catalog, handed());
+        sdkNamespace.describeTable(new DescribeTableRequest());
+        return sdkNamespace.describeTableVersion(new DescribeTableVersionRequest().version(3L).branch(branch))
+                .getVersion().getManifestPath();
     }
 
     /**

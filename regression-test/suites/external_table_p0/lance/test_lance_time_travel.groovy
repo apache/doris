@@ -20,9 +20,9 @@ suite("test_lance_time_travel", "p0,external") {
      * FOR VERSION AS OF / FOR TIME AS OF on a Lance filesystem catalog.
      *
      * time_travel.lance keeps three versions (see lance_build_time_travel.py):
-     *   version 1  row_id 1..3  committed 2026-09-19 13:06:07.597 UTC
-     *   version 2  row_id 4..6  committed 2026-09-19 13:06:09.113 UTC
-     *   version 3  row_id 7..9  committed 2026-09-19 13:06:10.621 UTC
+     *   version 1  row_id 1..3  committed 2026-09-19 13:06:07.597965 UTC
+     *   version 2  row_id 4..6  committed 2026-09-19 13:06:09.113997 UTC
+     *   version 3  row_id 7..9  committed 2026-09-19 13:06:10.621196 UTC
      * The timestamps below are those commit times; regenerating the fixture changes them.
      * Every version carries a Lance tag of the same name, and a branch "dev" forks from
      * version 2 with one extra append (row_id 100).
@@ -116,13 +116,13 @@ suite("test_lance_time_travel", "p0,external") {
         qt_time_millisecond_precision """
             SELECT count(*), max(row_id) FROM ${table} FOR TIME AS OF '2026-09-19 13:06:09.500'
         """
-        // Commit times are compared at millisecond precision (version 2 is 09.113997): the
-        // millisecond a commit lands in selects it, the one before does not.
-        qt_time_exactly_at_commit_2 """
-            SELECT count(*), max(row_id) FROM ${table} FOR TIME AS OF '2026-09-19 13:06:09.113'
+        // Commit times are compared in full (version 2 is 09.113997): the millisecond version 2
+        // lands in is still before it, the next one is not.
+        qt_time_just_after_commit_2 """
+            SELECT count(*), max(row_id) FROM ${table} FOR TIME AS OF '2026-09-19 13:06:09.114'
         """
-        qt_time_just_before_commit_2 """
-            SELECT count(*), max(row_id) FROM ${table} FOR TIME AS OF '2026-09-19 13:06:09.112'
+        qt_time_within_commit_2_millisecond """
+            SELECT count(*), max(row_id) FROM ${table} FOR TIME AS OF '2026-09-19 13:06:09.113'
         """
         sql """SET time_zone = '+08:00'"""
         qt_time_session_time_zone """

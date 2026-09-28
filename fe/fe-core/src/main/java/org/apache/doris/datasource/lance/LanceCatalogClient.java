@@ -300,14 +300,14 @@ final class LanceCatalogClient implements AutoCloseable {
                 OptionalLong direct = directMainVersion(state, metrics);
                 if (direct.isPresent() || isLatestMain(selector)) {
                     state.version = direct;
-                    try (Dataset dataset = openDataset(allocator, state, direct, metrics)) {
+                    try (Dataset dataset = openDataset(allocator, state, direct, isLatestMain(selector), metrics)) {
                         result = reader.read(dataset, state.access, metrics);
                     }
                 } else {
                     OptionalLong mainVersion = state.access.isManagedVersioning()
                             ? OptionalLong.of(recordedLatestVersion(state, Optional.empty(), metrics))
                             : OptionalLong.empty();
-                    try (Dataset main = openDataset(allocator, state, mainVersion, metrics)) {
+                    try (Dataset main = openDataset(allocator, state, mainVersion, true, metrics)) {
                         result = readFromLatest(main, state, reader, metrics);
                     }
                 }
@@ -456,14 +456,22 @@ final class LanceCatalogClient implements AutoCloseable {
     }
 
     /**
+     * A dataset URI without its query and trailing slash. The query may carry credentials, which a
+     * namespace can vend anew on every describe.
+     */
+    private static String location(String uri) {
+        return StringUtils.removeEnd(StringUtils.substringBefore(uri, "?"), "/");
+    }
+
+    /**
      * The branch a dataset checked out from the table root is on, from its root directory: the
      * table root for main, {@code <root>/tree/<branch>} otherwise. Lance inserts the branch path
      * before a URI's query string, so the query is compared apart. A URI that is neither is an
      * error rather than main, which would hand the BE the wrong chain.
      */
     static Optional<String> branchOf(String checkedOutUri, String tableUri) {
-        String root = StringUtils.removeEnd(StringUtils.substringBefore(tableUri, "?"), "/");
-        String uri = StringUtils.removeEnd(StringUtils.substringBefore(checkedOutUri, "?"), "/");
+        String root = location(tableUri);
+        String uri = location(checkedOutUri);
         if (uri.equals(root)) {
             return Optional.empty();
         }
@@ -503,6 +511,16 @@ final class LanceCatalogClient implements AutoCloseable {
                         .mapToLong(Long::longValue).max()
                 : metrics.measure(Stage.VERSION_RESOLVE,
                         () -> namespaceClient.latestManagedVersion(state.access, branch));
+        return requireRecorded(latest, state, branch);
+    }
+
+    /** The newest version the namespace records now for the main chain, without the lists this read made. */
+    private long recordedLatestVersion(ReadState state, LanceTableAccess access, LanceMetadataMetrics metrics) {
+        return requireRecorded(metrics.measure(Stage.VERSION_RESOLVE,
+                () -> namespaceClient.latestManagedVersion(access, Optional.empty())), state, Optional.empty());
+    }
+
+    private static long requireRecorded(OptionalLong latest, ReadState state, Optional<String> branch) {
         if (!latest.isPresent()) {
             throw new LanceUserFacingException("Lance namespace lists no versions for " + state.tableName
                     + branch.map(name -> "@" + name).orElse(""));
@@ -676,8 +694,8 @@ final class LanceCatalogClient implements AutoCloseable {
 
     /**
      * Parses a {@code FOR TIME AS OF} value in the session time zone. Second and millisecond
-     * precision are accepted; commit times are compared at millisecond precision, the precision a
-     * namespace reports them in, so a timestamp in the millisecond a commit lands in selects it.
+     * precision are accepted. Commit times are compared in full, so a commit later within the
+     * requested millisecond is not selected.
      */
     private static long parseTimeTravelTimestamp(String value) {
         long timestamp = TimeUtils.timeStringToLong(value, TimeUtils.getTimeZone());
@@ -717,29 +735,51 @@ final class LanceCatalogClient implements AutoCloseable {
      * access this read ends up with, and must open what the FE planned. If the SDK did not open
      * with exactly that access's options, the dataset is opened once more with them. A namespace
      * that returns a relative location cannot be read in this mode.
+     *
+     * @param latest whether {@code version} is the newest version the namespace listed before the
+     *     SDK's describe. If the SDK opened another store or location, or could not open that
+     *     version, the namespace may have moved the table in between, and the number may name
+     *     another version there or none. The newest version is then listed again, and the dataset
+     *     opened once more if it changed.
      */
-    private Dataset openDataset(BufferAllocator allocator, ReadState state, OptionalLong version,
+    private Dataset openDataset(BufferAllocator allocator, ReadState state, OptionalLong version, boolean latest,
             LanceMetadataMetrics metrics) {
         if (state.access.isManagedVersioning()) {
             LanceTableAccess access = state.access;
+            OptionalLong pinned = version;
             for (int attempt = 0; ; attempt++) {
-                ReadOptions readOptions = LanceReadOptions.forSharedSession(access.getStorageOptions(), version,
+                ReadOptions readOptions = LanceReadOptions.forSharedSession(access.getStorageOptions(), pinned,
                         session);
                 LanceTableAccess requested = access;
                 LanceSdkNamespace sdkNamespace = namespaceClient.sdkNamespace(requested);
                 state.sdkNamespace = sdkNamespace;
-                Dataset dataset = metrics.measure(Stage.DATASET_OPEN, () -> namespaceClient.openManagedDataset(
-                        allocator, requested, readOptions, session, sdkNamespace));
+                Dataset dataset;
+                try {
+                    dataset = metrics.measure(Stage.DATASET_OPEN, () -> namespaceClient.openManagedDataset(
+                            allocator, requested, readOptions, session, sdkNamespace));
+                } catch (Exception e) {
+                    OptionalLong head = latest && attempt == 0
+                            ? headAfterFailedOpen(state, requested, pinned, e, metrics) : pinned;
+                    if (head.equals(pinned)) {
+                        throw e;
+                    }
+                    pinned = repin(state, head);
+                    continue;
+                }
                 boolean opensAsBuilt;
+                OptionalLong head = pinned;
                 try {
                     Map<String, String> openedOptions = dataset.getInitialStorageOptions();
                     access = namespaceClient.accessOpenedBySdk(requested, dataset.uri(), openedOptions);
                     opensAsBuilt = LanceNamespaceClient.opensAs(access, dataset.uri(), openedOptions);
+                    if (latest && !sameStore(requested, access)) {
+                        head = OptionalLong.of(recordedLatestVersion(state, access, metrics));
+                    }
                 } catch (RuntimeException e) {
                     dataset.close();
                     throw e;
                 }
-                if (opensAsBuilt) {
+                if (opensAsBuilt && head.equals(pinned)) {
                     state.access = access;
                     return dataset;
                 }
@@ -748,12 +788,45 @@ final class LanceCatalogClient implements AutoCloseable {
                     throw new LanceUserFacingException("Lance namespace changed the location or storage options of "
                             + state.tableName + " while it was being opened; retry the query");
                 }
+                pinned = repin(state, head);
             }
         }
         LanceTableAccess access = state.access;
         ReadOptions readOptions = LanceReadOptions.forSharedSession(access.getStorageOptions(), version, session);
         return metrics.measure(Stage.DATASET_OPEN, () -> Dataset.open().allocator(allocator).uri(access.getDatasetUri())
                 .readOptions(readOptions).build());
+    }
+
+    /**
+     * The newest version the namespace records now, after an open of the newest version it listed
+     * before failed, or {@code pinned} if that cannot be told.
+     */
+    private OptionalLong headAfterFailedOpen(ReadState state, LanceTableAccess access, OptionalLong pinned,
+            Exception failure, LanceMetadataMetrics metrics) {
+        try {
+            return OptionalLong.of(recordedLatestVersion(state, access, metrics));
+        } catch (RuntimeException e) {
+            failure.addSuppressed(e);
+            return pinned;
+        }
+    }
+
+    /** Pins a read to {@code head}; a plain latest read also reports it as the version it reads. */
+    private static OptionalLong repin(ReadState state, OptionalLong head) {
+        if (state.version.isPresent()) {
+            state.version = head;
+        }
+        return head;
+    }
+
+    /**
+     * Whether two accesses reach the same store at the same location. Credentials are left out: a
+     * namespace may vend new ones on every describe.
+     */
+    static boolean sameStore(LanceTableAccess access, LanceTableAccess other) {
+        return location(access.getDatasetUri()).equals(location(other.getDatasetUri()))
+                && LanceSdkNamespace.withoutCredentials(access.getStorageOptions())
+                        .equals(LanceSdkNamespace.withoutCredentials(other.getStorageOptions()));
     }
 
     @FunctionalInterface

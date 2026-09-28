@@ -127,6 +127,13 @@ public class LanceManagedVersioningTest {
     /** Managed; every DescribeTable vends a new value for {@link #GENERATION_OPTION}, as rotating credentials do. */
     private static final String ROTATING_TABLE = "managed_rotating";
     private static final String GENERATION_OPTION = "doris_test_describe_generation";
+    /** Managed; records version 3 at a finalized manifest outside its canonical path. */
+    private static final String CUSTOM_MANIFEST_TABLE = "managed_custom_manifest";
+    /**
+     * Managed, untimed; right after answering a version list with {@link #moveOnList} set, the
+     * namespace moves it to {@link #moveTo}.
+     */
+    private static final String MOVING_TABLE = "managed_moving";
     /** A branch of time_travel.lance forked from version 2 with one extra append (row 100). */
     private static final String BRANCH = "dev";
     /** A tag pointing at version 3 of the branch. */
@@ -149,6 +156,14 @@ public class LanceManagedVersioningTest {
     private String relocatedDatasetUri;
     private String relocatedStorePath;
     private volatile boolean relocated;
+    private String customManifestStorePath;
+    private String movingDatasetUri;
+    private String movingStorePath;
+    private String shortDatasetUri;
+    private String shortStorePath;
+    private volatile MoveTarget moveTo;
+    private volatile boolean moveOnList;
+    private volatile boolean moved;
     private final AtomicInteger rotatingDescribes = new AtomicInteger();
     private String stagedUntimedDatasetUri;
     private String stagedUntimedStorePath;
@@ -219,6 +234,34 @@ public class LanceManagedVersioningTest {
         relocatedStorePath = relocatedDir.toAbsolutePath().toString().replaceFirst("^/", "");
         writeThreeVersions(relocatedDatasetUri);
 
+        // A finalized copy of version 3's manifest outside its canonical path.
+        Path customManifest = Files.createDirectories(tempDir.resolve("manifests")).resolve("custom.manifest");
+        Files.copy(datasetDir.resolve("_versions").resolve(U64_MAX.subtract(BigInteger.valueOf(3)) + ".manifest"),
+                customManifest);
+        customManifestStorePath = customManifest.toAbsolutePath().toString().replaceFirst("^/", "");
+
+        // The dataset the moving table moves to: time_travel.lance's history plus a fourth version.
+        Path movingDir = tempDir.resolve("moving.lance");
+        movingDatasetUri = movingDir.toUri().toString();
+        movingStorePath = movingDir.toAbsolutePath().toString().replaceFirst("^/", "");
+        writeThreeVersions(movingDatasetUri);
+        try (BufferAllocator allocator = new RootAllocator()) {
+            Assertions.assertEquals(4, appendRows(movingDatasetUri, allocator, 3, 20, 22));
+        }
+        // And one with a shorter history: an empty create and one append of row_id 30..31.
+        Path shortDir = tempDir.resolve("short.lance");
+        shortDatasetUri = shortDir.toUri().toString();
+        shortStorePath = shortDir.toAbsolutePath().toString().replaceFirst("^/", "");
+        try (BufferAllocator allocator = new RootAllocator()) {
+            Schema schema = new Schema(Collections.singletonList(
+                    new Field("row_id", FieldType.notNullable(new ArrowType.Int(32, true)), null)));
+            try (Dataset created = Dataset.create(allocator, shortDatasetUri, schema,
+                    new WriteParams.Builder().withDataStorageVersion("2.0").build())) {
+                Assertions.assertEquals(1, created.version());
+            }
+            Assertions.assertEquals(2, appendRows(shortDatasetUri, allocator, 1, 30, 31));
+        }
+
         // A dataset whose oldest version is still staged: storage listings do not show it.
         Path stagedUntimedDir = tempDir.resolve("staged_untimed.lance");
         stagedUntimedDatasetUri = stagedUntimedDir.toUri().toString();
@@ -263,6 +306,8 @@ public class LanceManagedVersioningTest {
         namespaceVersions.put(MISTIMED_TABLE, Arrays.asList(1L, 2L, 3L));
         namespaceVersions.put(MISSING_HEAD_TABLE, Arrays.asList(1L, 2L, 3L));
         namespaceVersions.put(ROTATING_TABLE, Arrays.asList(1L, 2L, 3L));
+        namespaceVersions.put(CUSTOM_MANIFEST_TABLE, Arrays.asList(1L, 2L, 3L));
+        namespaceVersions.put(MOVING_TABLE, Arrays.asList(1L, 2L, 3L));
 
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", this::handleRequest);
@@ -338,8 +383,9 @@ public class LanceManagedVersioningTest {
                     "Lance version 2 of default." + PARTIAL_TABLE + " was not found in the namespace",
                     exception.getMessage());
 
-            // FOR TIME AS OF uses the commit times the namespace reports, so an instant after the
-            // second commit selects version 1, the latest version the namespace records by then.
+            // FOR TIME AS OF selects among the versions the namespace records, by their manifest
+            // commit times, so an instant after the second commit selects version 1: the namespace
+            // does not record version 2.
             requestPaths.clear();
             String betweenSecondAndThird = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
                     .withZone(TimeUtils.getTimeZone().toZoneId())
@@ -692,6 +738,72 @@ public class LanceManagedVersioningTest {
         }
     }
 
+    /**
+     * The namespace moves the table to a dataset one version ahead after the FE listed the newest
+     * version and before the SDK describes the table. Version 3 there is not the newest; the read
+     * goes on at the new location's newest version.
+     */
+    @Test
+    public void testTableMovedWhileOpeningIsReadAtItsNewestVersion() {
+        LanceExternalCatalog catalog = newCatalog(323, "lance_managed_moving");
+        try {
+            moveTo = new MoveTarget(movingDatasetUri, movingStorePath, Arrays.asList(1L, 2L, 3L, 4L));
+            moveOnList = true;
+            LanceTableMetadata metadata = catalog.loadTableMetadata("default", MOVING_TABLE);
+            Assertions.assertTrue(moved, "the namespace must have moved the table during the read");
+            Assertions.assertEquals(movingDatasetUri, metadata.getDatasetUri());
+            Assertions.assertEquals(4, metadata.getVersion());
+            Assertions.assertEquals(9, metadata.getRowCount());
+        } finally {
+            moveOnList = false;
+            moved = false;
+            namespaceVersions.put(MOVING_TABLE, Arrays.asList(1L, 2L, 3L));
+            catalog.onClose();
+        }
+    }
+
+    /**
+     * The same move to a dataset whose history ends before the version the FE listed, so the SDK
+     * cannot open that version there. The read goes on at the new location's newest version.
+     */
+    @Test
+    public void testTableMovedToAShorterHistoryIsReadAtItsNewestVersion() {
+        LanceExternalCatalog catalog = newCatalog(325, "lance_managed_moving_short");
+        try {
+            moveTo = new MoveTarget(shortDatasetUri, shortStorePath, Arrays.asList(1L, 2L));
+            moveOnList = true;
+            LanceTableMetadata metadata = catalog.loadTableMetadata("default", MOVING_TABLE);
+            Assertions.assertTrue(moved, "the namespace must have moved the table during the read");
+            Assertions.assertEquals(shortDatasetUri, metadata.getDatasetUri());
+            Assertions.assertEquals(2, metadata.getVersion());
+            Assertions.assertEquals(2, metadata.getRowCount());
+        } finally {
+            moveOnList = false;
+            moved = false;
+            namespaceVersions.put(MOVING_TABLE, Arrays.asList(1L, 2L, 3L));
+            catalog.onClose();
+        }
+    }
+
+    /**
+     * Lance opens a finalized manifest where the namespace records it, while the BE opens the
+     * version at its canonical path, so a version recorded elsewhere fails the read.
+     */
+    @Test
+    public void testFinalizedManifestOutsideItsCanonicalPathFailsTheRead() {
+        LanceExternalCatalog catalog = newCatalog(324, "lance_managed_custom_manifest");
+        try {
+            RuntimeException error = Assertions.assertThrows(RuntimeException.class,
+                    () -> catalog.loadTableMetadata("default", CUSTOM_MANIFEST_TABLE));
+            Assertions.assertTrue(error.getMessage().contains("Lance namespace records version 3 at manifest '"
+                    + customManifestStorePath + "'"), error.getMessage());
+            Assertions.assertEquals(2, catalog.loadTableMetadata("default", CUSTOM_MANIFEST_TABLE,
+                    Optional.of(new TableSnapshot("2", TableSnapshot.VersionType.VERSION))).getVersion());
+        } finally {
+            catalog.onClose();
+        }
+    }
+
     @Test
     public void testBeReadsWithTheOptionsTheSdkOpenedWith() {
         LanceExternalCatalog catalog = newCatalog(320, "lance_managed_rotating");
@@ -875,6 +987,19 @@ public class LanceManagedVersioningTest {
         }
     }
 
+    /** The dataset the moving table moves to, and the versions the namespace records for it there. */
+    private static final class MoveTarget {
+        private final String uri;
+        private final String storePath;
+        private final List<Long> versions;
+
+        private MoveTarget(String uri, String storePath, List<Long> versions) {
+            this.uri = uri;
+            this.storePath = storePath;
+            this.versions = versions;
+        }
+    }
+
     private LanceExternalCatalog newCatalog(long id, String name) {
         Map<String, String> properties = new HashMap<>();
         properties.put("type", "lance");
@@ -933,6 +1058,9 @@ public class LanceManagedVersioningTest {
         if (STAGED_TABLE.equals(table) && version == 3) {
             return stagedManifestStorePath;
         }
+        if (CUSTOM_MANIFEST_TABLE.equals(table) && version == 3) {
+            return customManifestStorePath;
+        }
         if (STAGED_UNTIMED_TABLE.equals(table) && version == 1 && Files.notExists(stagedUntimedV1Canonical)) {
             return stagedUntimedV1StorePath;
         }
@@ -953,6 +1081,8 @@ public class LanceManagedVersioningTest {
                     .replaceFirst("^/", "");
         } else if (RELOCATED_TABLE.equals(table) && relocated) {
             root = relocatedStorePath;
+        } else if (MOVING_TABLE.equals(table) && moved) {
+            root = moveTo.storePath;
         }
         if (branch != null) {
             root = root + "/tree/" + branch;
@@ -994,6 +1124,9 @@ public class LanceManagedVersioningTest {
         }
         if (RELOCATED_TABLE.equals(table) && relocated) {
             return relocatedDatasetUri;
+        }
+        if (MOVING_TABLE.equals(table) && moved) {
+            return moveTo.uri;
         }
         if (NO_LOCATION_TABLE.equals(table)) {
             return "";
@@ -1048,6 +1181,10 @@ public class LanceManagedVersioningTest {
                     entries.append(tableVersionJson(table, version, branch));
                 }
                 response = "{\"versions\":[" + entries + "]}";
+                if (MOVING_TABLE.equals(table) && moveOnList && !moved) {
+                    namespaceVersions.put(MOVING_TABLE, moveTo.versions);
+                    moved = true;
+                }
             }
         } else if (path.matches("/v1/table/[^/]+/version/describe")) {
             String table = path.split("/")[3];
@@ -1114,7 +1251,8 @@ public class LanceManagedVersioningTest {
         }
         // Branch versions are reported without commit times, exercising the storage fallback.
         String commitTime = UNTIMED_TABLE.equals(table) || STAGED_UNTIMED_TABLE.equals(table)
-                || UNTIMED_EXPIRED_TABLE.equals(table) || branch != null ? "" : ",\"timestamp_millis\":"
+                || UNTIMED_EXPIRED_TABLE.equals(table) || MOVING_TABLE.equals(table) || branch != null
+                ? "" : ",\"timestamp_millis\":"
                 + datasetVersions.get(MISTIMED_TABLE.equals(table) ? 0 : (int) version - 1).getDataTime().toInstant()
                         .toEpochMilli();
         return "{\"version\":" + version + ",\"manifest_path\":\"" + manifestPath

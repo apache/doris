@@ -25,7 +25,8 @@
 #                                           registers runtime tables into the same __manifest
 #   lance-java 12.0.0                       Doris FE Directory Namespace client - fe/pom.xml
 #
-# The writer is pinned to the Lance generation the BE actually reads. It used to be pinned
+# The writer stays on Lance 7, the generation the BE read when this pin was set; the BE's
+# lance-rs 11 reads what it writes, which the regression run verifies. It used to be pinned
 # to the oldest reader instead, on the theory that an older writer is readable by every
 # reader above; that stopped being possible once the fixture had to carry non-Float32
 # indexes. Measured on pylance 4.0.1 (Lance 4): IVF_HNSW_FLAT + float64 and

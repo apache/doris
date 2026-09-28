@@ -19,6 +19,7 @@ package org.apache.doris.datasource.lance.metadata;
 
 import org.lance.Version;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -86,9 +87,9 @@ public final class LanceSnapshotResolver {
         }
     }
 
-    /** The commit time a manifest records, at millisecond precision. */
-    public static long commitMillis(Version version) {
-        return version.getDataTime().toInstant().toEpochMilli();
+    /** The commit time a manifest records, at the precision it records it in (below a millisecond). */
+    private static Instant commitTime(Version version) {
+        return version.getDataTime().toInstant();
     }
 
     static long versionAtOrBefore(List<Version> versions, long timestampMillis) {
@@ -97,17 +98,19 @@ public final class LanceSnapshotResolver {
 
     /**
      * Selects the version committed last at or before the requested timestamp, from the commit
-     * times the manifests record at millisecond precision; of versions committed in the same
-     * millisecond, the newest (Iceberg keeps the first of equal times instead). As in Iceberg,
-     * commit times are compared as recorded, without assuming they grow with version numbers.
+     * times the manifests record, compared in full: a commit later within the requested
+     * millisecond is after it. Of versions committed at the same instant, the newest (Iceberg
+     * keeps the first of equal times instead). As in Iceberg, commit times are compared as
+     * recorded, without assuming they grow with version numbers.
      *
      * @param requestedText the user's {@code FOR TIME AS OF} text, echoed in the error message
      * @throws NoVersionAtOrBeforeException if every version was committed after the timestamp
      */
     public static long versionAtOrBefore(Collection<Version> versions, long timestampMillis, String requestedText) {
+        Instant requested = Instant.ofEpochMilli(timestampMillis);
         return versions.stream()
-                .filter(version -> commitMillis(version) <= timestampMillis)
-                .max(Comparator.comparingLong(LanceSnapshotResolver::commitMillis).thenComparingLong(Version::getId))
+                .filter(version -> !commitTime(version).isAfter(requested))
+                .max(Comparator.comparing(LanceSnapshotResolver::commitTime).thenComparingLong(Version::getId))
                 .orElseThrow(() -> new NoVersionAtOrBeforeException(requestedText))
                 .getId();
     }

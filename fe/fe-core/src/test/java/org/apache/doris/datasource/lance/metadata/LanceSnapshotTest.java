@@ -68,6 +68,26 @@ public class LanceSnapshotTest {
                         Arrays.asList(version1, version2, version3), first.minusNanos(1).toInstant().toEpochMilli()));
     }
 
+    /**
+     * Lance records commit times below a millisecond. A commit later within the requested
+     * millisecond is after it, and two commits within one millisecond keep their order.
+     */
+    @Test
+    public void testTimeSelectorComparesCommitTimesInFull() {
+        Instant commit2 = Instant.parse("2026-09-19T13:06:09.113997Z");
+        Version version1 = versionAt(1, Instant.parse("2026-09-19T13:06:07.597965Z"));
+        Version version2 = versionAt(2, commit2);
+        long requested = Instant.parse("2026-09-19T13:06:09.113Z").toEpochMilli();
+        Assertions.assertEquals(1, LanceSnapshotResolver.versionAtOrBefore(Arrays.asList(version1, version2),
+                requested));
+        Assertions.assertEquals(2, LanceSnapshotResolver.versionAtOrBefore(Arrays.asList(version1, version2),
+                requested + 1));
+        // Version 3 was committed half a millisecond before version 2, in the same millisecond.
+        Version version3 = versionAt(3, commit2.minusNanos(500_000));
+        Assertions.assertEquals(2, LanceSnapshotResolver.versionAtOrBefore(
+                Arrays.asList(version1, version2, version3), requested + 1));
+    }
+
     @Test
     public void testTimeSelectorComparesCommitTimesAcrossTheHistory() {
         // Commit times that go back: version 2 reports an earlier time than version 1.
@@ -99,7 +119,9 @@ public class LanceSnapshotTest {
 
     /**
      * Checks the selection against a direct reading of its rule on random histories: times that
-     * repeat and go back, staged, removed, and unrecorded versions, on storage and managed chains.
+     * repeat, go back, and fall inside a requested millisecond, staged, removed, and unrecorded
+     * versions, on storage and managed chains. Commit times are in microseconds, requested times
+     * in milliseconds.
      */
     @Test
     public void testTimeSelectorMatchesItsRuleOnRandomHistories() {
@@ -110,7 +132,7 @@ public class LanceSnapshotTest {
             long[] times = new long[count + 1];
             State[] states = new State[count + 1];
             for (int id = 1; id <= count; id++) {
-                times[id] = random.nextInt(10);
+                times[id] = random.nextInt(10) * 1000L + random.nextInt(3) * 500L;
                 State[] choices = managed ? State.values() : new State[] {State.LISTED, State.REMOVED};
                 // The newest version is the open dataset, so it is always there.
                 states[id] = id == count ? State.LISTED : choices[random.nextInt(choices.length)];
@@ -121,7 +143,7 @@ public class LanceSnapshotTest {
             NavigableSet<Long> recorded = managed ? new TreeSet<>() : null;
             for (int id = 1; id <= count; id++) {
                 if (states[id] == State.LISTED || states[id] == State.UNRECORDED) {
-                    listed.add(version(id, times[id]));
+                    listed.add(versionAtMicros(id, times[id]));
                 }
                 if (managed && states[id] != State.UNRECORDED) {
                     recorded.add((long) id);
@@ -150,7 +172,7 @@ public class LanceSnapshotTest {
                 }
                 boolean candidate = managed ? states[id] == State.LISTED || states[id] == State.STAGED
                         : states[id] == State.LISTED;
-                if (candidate && times[id] <= timestamp
+                if (candidate && times[id] <= timestamp * 1000
                         && (expected == null || times[id] > times[expected.intValue()])) {
                     expected = (long) id;
                 }
@@ -163,7 +185,7 @@ public class LanceSnapshotTest {
                 long actual = LanceSnapshotResolver.versionAtOrBefore(listed, recorded, id -> {
                     Assertions.assertTrue(managed && states[(int) id] != State.LISTED
                             && states[(int) id] != State.UNRECORDED && (cut == null || id >= cut), context);
-                    return states[(int) id] == State.STAGED ? version(id, times[(int) id]) : null;
+                    return states[(int) id] == State.STAGED ? versionAtMicros(id, times[(int) id]) : null;
                 }, timestamp, String.valueOf(timestamp));
                 Assertions.assertEquals(expected, Long.valueOf(actual), context);
             } catch (LanceSnapshotResolver.HistoryRemovedException e) {
@@ -177,8 +199,15 @@ public class LanceSnapshotTest {
     }
 
     private static Version version(long id, long commitMillis) {
-        return new Version(id, ZonedDateTime.ofInstant(Instant.ofEpochMilli(commitMillis), ZoneOffset.UTC),
-                new TreeMap<>());
+        return versionAt(id, Instant.ofEpochMilli(commitMillis));
+    }
+
+    private static Version versionAtMicros(long id, long commitMicros) {
+        return versionAt(id, Instant.EPOCH.plusNanos(commitMicros * 1000));
+    }
+
+    private static Version versionAt(long id, Instant commitTime) {
+        return new Version(id, ZonedDateTime.ofInstant(commitTime, ZoneOffset.UTC), new TreeMap<>());
     }
 
     private static NavigableSet<Long> recorded(long... ids) {

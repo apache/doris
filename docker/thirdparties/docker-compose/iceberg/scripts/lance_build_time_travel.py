@@ -18,8 +18,8 @@
 """Generate the Lance time-travel regression fixture.
 
 time_travel.lance is a root table of the preinstalled Directory catalog next to
-all_types.lance. Every other fixture is compacted to a single version, so this is the one
-dataset whose history survives: three commits, none of them cleaned up.
+all_types.lance. Unlike the other fixtures, most of which are compacted to a single version,
+it keeps a history for FOR TIME AS OF, tags and branches: three commits, none of them cleaned up.
 
     version 1  create  row_id 1..3   tag column "v1"   Lance tag v1
     version 2  append  row_id 4..6   tag column "v2"   Lance tag v2
@@ -45,7 +45,8 @@ the tags locally, and --create-branch <uri> creates the branch at the uploaded l
       --storage-option endpoint=http://127.0.0.1:19000 --storage-option access_key_id=admin \
       --storage-option secret_access_key=password --storage-option region=us-east-1 \
       --storage-option allow_http=true
-  # then sync tree/ and _refs/branches/ from that location into preinstalled_data/lance/time_travel.lance/
+  # then sync tree/, _refs/branches/ and _refs/tags/rel.json from that location into
+  # preinstalled_data/lance/time_travel.lance/
 
 check() verifies the branch files and that they point at that URI without opening the branch,
 which is not possible offline.

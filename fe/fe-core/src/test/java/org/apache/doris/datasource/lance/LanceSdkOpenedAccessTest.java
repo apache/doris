@@ -124,6 +124,33 @@ public class LanceSdkOpenedAccessTest {
     }
 
     /**
+     * A managed read pinned to the namespace's newest version lists it again when the SDK opened
+     * another store: a new endpoint, or another location, even under the same URI. New credentials
+     * alone, which a namespace may vend on every describe, or a new query on the location do not
+     * count, so they cost ordinary reads no extra list.
+     */
+    @Test
+    public void testOnlyAnotherStoreOrLocationCountsAsAMove() {
+        LanceNamespaceClient client = client(minioCatalog());
+        LanceTableAccess access = client.managedAccess(S3_URI, options("aws_endpoint", "https://storage-a",
+                "aws_access_key_id", "vak-1", "aws_session_token", "t1", "expires_at_millis", "1"), TABLE_ID);
+        LanceTableAccess rotated = client.accessOpenedBySdk(access, S3_URI, sdkOpen(access, options(
+                "aws_endpoint", "https://storage-a", "aws_access_key_id", "vak-2", "aws_session_token", "t2",
+                "expires_at_millis", "2")));
+        Assertions.assertTrue(LanceCatalogClient.sameStore(access, rotated));
+        Assertions.assertTrue(LanceCatalogClient.sameStore(access,
+                client.managedAccess(S3_URI + "?sig=x", access.getStorageOptions(), TABLE_ID)));
+
+        LanceTableAccess otherEndpoint = client.accessOpenedBySdk(access, S3_URI, sdkOpen(access,
+                options("aws_endpoint", "https://storage-b", "aws_session_token", "t2")));
+        Assertions.assertFalse(LanceCatalogClient.sameStore(access, otherEndpoint));
+        String elsewhere = "s3://bucket/moved.lance";
+        LanceTableAccess otherLocation = client.accessOpenedBySdk(access, elsewhere,
+                sdkOpen(access, elsewhere, Collections.emptyMap()));
+        Assertions.assertFalse(LanceCatalogClient.sameStore(access, otherLocation));
+    }
+
+    /**
      * A describe that vends an option under an alias reaches the SDK in the canonical spelling,
      * replacing the catalog's value: with both spellings, object_store would keep whichever its map
      * yields last, and Lance would fill the canonical key from the FE environment were it missing.

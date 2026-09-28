@@ -54,10 +54,10 @@
 -- !time_millisecond_precision --
 6	6
 
--- !time_exactly_at_commit_2 --
+-- !time_just_after_commit_2 --
 6	6
 
--- !time_just_before_commit_2 --
+-- !time_within_commit_2_millisecond --
 3	3
 
 -- !time_session_time_zone --

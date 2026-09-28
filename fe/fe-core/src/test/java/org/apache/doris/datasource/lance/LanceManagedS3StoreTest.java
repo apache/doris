@@ -55,6 +55,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -90,6 +91,8 @@ public class LanceManagedS3StoreTest {
     /** Rows at version 3 behind each endpoint. */
     private static final long ROWS_A = 6;
     private static final long ROWS_B = 10;
+    /** Rows at version 4, which only endpoint B holds. */
+    private static final long ROWS_B_4 = 15;
 
     private Path tempDir;
     private S3Stub storeA;
@@ -97,6 +100,10 @@ public class LanceManagedS3StoreTest {
     private HttpServer namespace;
     private String restUri;
     private volatile Map<String, String> vendedOptions = Collections.emptyMap();
+    /** The newest version the namespace lists. */
+    private volatile long head = 3;
+    /** Moves the table to endpoint B, at version 4, right after the namespace answers a version list. */
+    private volatile boolean moveToBOnList;
     private final AtomicInteger describes = new AtomicInteger();
 
     /** libc, to set the environment Lance reads natively; Java cannot change its own. */
@@ -112,8 +119,8 @@ public class LanceManagedS3StoreTest {
         tempDir = Files.createTempDirectory("lance_managed_s3");
         Path rootA = tempDir.resolve("a");
         Path rootB = tempDir.resolve("b");
-        writeThreeVersions(rootA.resolve(DATASET_KEY), 3);
-        writeThreeVersions(rootB.resolve(DATASET_KEY), 5);
+        writeVersions(rootA.resolve(DATASET_KEY), 3, 3);
+        writeVersions(rootB.resolve(DATASET_KEY), 5, 4);
         storeA = new S3Stub(rootA);
         storeB = new S3Stub(rootB);
         namespace = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -186,15 +193,29 @@ public class LanceManagedS3StoreTest {
      */
     @Test
     public void testOverlappingReadsKeepTheirOwnCredentialsWithoutAnExpiry() throws Exception {
-        LanceExternalCatalog catalog = newCatalog(404, "lance_managed_s3_rotation");
+        assertOverlappingReadsKeepTheirOwnKey(404, "lance_managed_s3_rotation");
+    }
+
+    /**
+     * The same rotation on an OpenDAL store ({@code use_opendal}): its credentials carry an expiry,
+     * but lance-io builds the store from the options once and never refreshes them.
+     */
+    @Test
+    public void testOverlappingOpenDalReadsKeepTheirOwnCredentials() throws Exception {
+        assertOverlappingReadsKeepTheirOwnKey(405, "lance_managed_s3_opendal", "use_opendal", "true",
+                "expires_at_millis", String.valueOf(System.currentTimeMillis() + 3_600_000));
+    }
+
+    private void assertOverlappingReadsKeepTheirOwnKey(long id, String name, String... extra) throws Exception {
+        LanceExternalCatalog catalog = newCatalog(id, name);
         try {
-            vendEndpoint(storeA.endpoint(), "access_key_id", "ak-1");
+            vendEndpoint(storeA.endpoint(), withKey("ak-1", extra));
             storeA.holdNextRequest();
             CompletableFuture<LanceTableMetadata> q1 = CompletableFuture.supplyAsync(
                     () -> catalog.loadTableMetadata("default", TABLE));
             Assertions.assertTrue(storeA.awaitHeld(), "Q1 never reached endpoint A");
 
-            vendEndpoint(storeA.endpoint(), "access_key_id", "ak-2");
+            vendEndpoint(storeA.endpoint(), withKey("ak-2", extra));
             storeA.revokedKey = "ak-1";
             LanceTableMetadata q2 = catalog.loadTableMetadata("default", TABLE);
             Assertions.assertEquals("ak-2", q2.getLanceStorageOptions().get("aws_access_key_id"));
@@ -206,6 +227,29 @@ public class LanceManagedS3StoreTest {
         } finally {
             storeA.revokedKey = null;
             storeA.release();
+            catalog.onClose();
+        }
+    }
+
+    /**
+     * The namespace moves the table to endpoint B, where it is one version ahead, right after
+     * answering the FE's version list and before the SDK's describe. The URI stays the same, so
+     * only the options tell the move; the read goes on at B's newest version.
+     */
+    @Test
+    public void testTableMovedToAnotherEndpointWhileOpeningIsReadAtItsNewestVersion() {
+        LanceExternalCatalog catalog = newCatalog(406, "lance_managed_s3_moving");
+        try {
+            vendEndpoint(storeA.endpoint());
+            moveToBOnList = true;
+            LanceTableMetadata metadata = catalog.loadTableMetadata("default", TABLE);
+            Assertions.assertFalse(moveToBOnList, "the namespace must have moved the table during the read");
+            Assertions.assertEquals(storeB.endpoint(), metadata.getLanceStorageOptions().get("aws_endpoint"));
+            Assertions.assertEquals(4, metadata.getVersion());
+            Assertions.assertEquals(ROWS_B_4, metadata.getRowCount());
+        } finally {
+            moveToBOnList = false;
+            head = 3;
             catalog.onClose();
         }
     }
@@ -277,6 +321,12 @@ public class LanceManagedS3StoreTest {
         }
     }
 
+    private static String[] withKey(String accessKey, String... extra) {
+        String[] options = Arrays.copyOf(new String[] {"access_key_id", accessKey}, 2 + extra.length);
+        System.arraycopy(extra, 0, options, 2, extra.length);
+        return options;
+    }
+
     private LanceExternalCatalog newCatalog(long id, String name) {
         Map<String, String> properties = new HashMap<>();
         properties.put("type", "lance");
@@ -287,8 +337,8 @@ public class LanceManagedS3StoreTest {
         return new LanceExternalCatalog(id, name, null, properties, "");
     }
 
-    /** An empty create, then two one-fragment appends of {@code rowsPerAppend} rows each. */
-    private static void writeThreeVersions(Path dir, int rowsPerAppend) throws Exception {
+    /** An empty create, then one-fragment appends of {@code rowsPerAppend} rows each up to {@code versions}. */
+    private static void writeVersions(Path dir, int rowsPerAppend, int versions) throws Exception {
         String uri = dir.toUri().toString();
         Schema schema = new Schema(Collections.singletonList(
                 new Field("row_id", FieldType.notNullable(new ArrowType.Int(32, true)), null)));
@@ -297,7 +347,7 @@ public class LanceManagedS3StoreTest {
             try (Dataset created = Dataset.create(allocator, uri, schema, params)) {
                 Assertions.assertEquals(1, created.version());
             }
-            for (long readVersion = 1; readVersion < 3; readVersion++) {
+            for (long readVersion = 1; readVersion < versions; readVersion++) {
                 try (VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator)) {
                     IntVector rowId = (IntVector) root.getVector("row_id");
                     rowId.allocateNew(rowsPerAppend);
@@ -316,7 +366,7 @@ public class LanceManagedS3StoreTest {
         }
     }
 
-    /** Versions 1 to 3, recorded at the V2 manifest path under the bucket. */
+    /** A version recorded at its V2 manifest path under the bucket. */
     private static String tableVersionJson(long version) {
         return "{\"version\":" + version + ",\"manifest_path\":\"" + DATASET_KEY + "/_versions/"
                 + U64_MAX.subtract(BigInteger.valueOf(version)) + ".manifest\"}";
@@ -334,12 +384,19 @@ public class LanceManagedS3StoreTest {
         } else if (path.equals("/v1/table/" + TABLE + "/version/list")) {
             boolean descending = query.contains("descending=true");
             Matcher limitMatcher = Pattern.compile("(?:^|&)limit=(\\d+)").matcher(query);
-            int limit = limitMatcher.find() ? Integer.parseInt(limitMatcher.group(1)) : 3;
+            long newest = head;
+            int limit = limitMatcher.find() ? Integer.parseInt(limitMatcher.group(1)) : (int) newest;
             StringBuilder entries = new StringBuilder();
-            for (int i = 0; i < Math.min(limit, 3); i++) {
-                entries.append(entries.length() > 0 ? "," : "").append(tableVersionJson(descending ? 3 - i : i + 1));
+            for (int i = 0; i < Math.min(limit, newest); i++) {
+                entries.append(entries.length() > 0 ? "," : "")
+                        .append(tableVersionJson(descending ? newest - i : i + 1));
             }
             response = "{\"versions\":[" + entries + "]}";
+            if (moveToBOnList) {
+                moveToBOnList = false;
+                vendEndpoint(storeB.endpoint());
+                head = 4;
+            }
         } else if (path.equals("/v1/table/" + TABLE + "/version/describe")) {
             long version = JsonUtil.readTree(new String(body, StandardCharsets.UTF_8)).get("version").asLong();
             response = "{\"version\":" + tableVersionJson(version) + "}";
