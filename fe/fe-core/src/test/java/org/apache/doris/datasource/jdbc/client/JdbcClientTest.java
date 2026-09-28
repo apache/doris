@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
+import org.apache.doris.catalog.ArrayType;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
 
@@ -88,6 +90,37 @@ public class JdbcClientTest {
             Assert.assertEquals(typeName, withZone ? ScalarType.createTimeStampTzType(6)
                     : ScalarType.createDatetimeV2Type(6), client.jdbcTypeToDoris(field));
         }
+    }
+
+    @Test
+    public void testPostgresTimestampMappingAllowsDecoderCreatedNulls() throws Exception {
+        JdbcPostgreSQLClient client = Mockito.mock(JdbcPostgreSQLClient.class, Mockito.CALLS_REAL_METHODS);
+        JdbcFieldSchema instant = new JdbcFieldSchema(Mockito.mock(ResultSet.class));
+        instant.setColumnName("event_time");
+        instant.setDataTypeName(Optional.of("timestamptz"));
+        instant.setDecimalDigits(Optional.of(6));
+        instant.setAllowNull(false);
+        JdbcFieldSchema local = new JdbcFieldSchema(instant);
+        local.setColumnName("local_time");
+        local.setDataTypeName(Optional.of("timestamp"));
+        JdbcFieldSchema array = new JdbcFieldSchema(instant);
+        array.setColumnName("events");
+        array.setDataTypeName(Optional.of("_timestamptz"));
+        array.setDataType(Types.ARRAY);
+        array.setArrayDimensions(Optional.of(2));
+        Mockito.doReturn(java.util.Arrays.asList(instant, local, array)).when(client)
+                .getJdbcColumnsInfo("sample_schema", "sample_table");
+
+        List<Column> columns = client.getColumnsFromJdbc("sample_schema", "sample_table");
+
+        // Source NOT NULL cannot prevent the timestamp range conversion from creating NULL.
+        Assert.assertTrue(columns.get(0).isAllowNull());
+        Assert.assertTrue(columns.get(0).getType().isTimeStampTz());
+        Assert.assertFalse(columns.get(1).isAllowNull());
+        Assert.assertFalse(columns.get(2).isAllowNull());
+        ArrayType arrayType = (ArrayType) columns.get(2).getType();
+        Assert.assertTrue(arrayType.getContainsNull());
+        Assert.assertTrue(((ArrayType) arrayType.getItemType()).getContainsNull());
     }
 
     @Test

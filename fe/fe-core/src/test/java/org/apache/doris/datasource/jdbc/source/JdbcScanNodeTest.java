@@ -82,6 +82,31 @@ public class JdbcScanNodeTest {
     }
 
     @Test
+    public void testPostgresTimestampPredicatesObserveDecodedNulls() throws Exception {
+        Method method = JdbcScanNode.class.getDeclaredMethod("shouldPushDownConjunct",
+                TOdbcTableType.class, Expr.class);
+        method.setAccessible(true);
+        SlotRef slot = new SlotRef(null, "event_time");
+        slot.setType(ScalarType.createTimeStampTzType(6));
+        SlotRef other = new SlotRef(null, "other_time");
+        other.setType(slot.getType());
+        // Non-null source values outside the Doris range become NULL only after JDBC decoding.
+        for (Expr predicate : Arrays.asList(new IsNullPredicate(slot, false), new IsNullPredicate(slot, true),
+                new BinaryPredicate(Operator.EQ, slot, other),
+                new BinaryPredicate(Operator.EQ_FOR_NULL, slot, other),
+                new CompoundPredicate(CompoundPredicate.Operator.OR, new IsNullPredicate(slot, false),
+                        new BinaryPredicate(Operator.EQ, new SlotRef(null, "id"), new IntLiteral(1))))) {
+            Assert.assertEquals(false, method.invoke(null, TOdbcTableType.POSTGRESQL, predicate));
+        }
+        Assert.assertEquals(true, method.invoke(null, TOdbcTableType.MYSQL, new IsNullPredicate(slot, false)));
+        SlotRef localTime = new SlotRef(null, "local_time");
+        localTime.setType(ScalarType.createDatetimeV2Type(6));
+        Assert.assertEquals(true, method.invoke(null, TOdbcTableType.POSTGRESQL, new IsNullPredicate(localTime, false)));
+        Assert.assertEquals(true, method.invoke(null, TOdbcTableType.POSTGRESQL,
+                new BinaryPredicate(Operator.EQ, new SlotRef(null, "id"), new IntLiteral(1))));
+    }
+
+    @Test
     public void testBinaryInPredicatesStayLocal() throws Exception {
         Method method = JdbcScanNode.class.getDeclaredMethod("shouldPushDownConjunct",
                 TOdbcTableType.class, Expr.class);

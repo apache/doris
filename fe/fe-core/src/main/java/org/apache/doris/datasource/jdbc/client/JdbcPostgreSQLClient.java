@@ -147,6 +147,9 @@ public class JdbcPostgreSQLClient extends JdbcClient {
                 return ScalarType.createDatetimeV2Type(scale);
             }
             case "timestamptz": {
+                // Range conversion can create NULL even when PostgreSQL declares the source NOT NULL.
+                // Propagate that possibility to planner slots and the JNI column's null map.
+                fieldSchema.setAllowNull(true);
                 int scale = fieldSchema.getDecimalDigits().orElse(0);
                 if (scale > 6) {
                     scale = 6;

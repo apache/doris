@@ -170,8 +170,9 @@ public class JdbcScanNode extends ExternalScanNode {
                 // Send epoch microseconds for both scalar and nested instants before JDBC decoding.
                 columns.add(clickHouseTimestampProjection(remoteName, col.getType(), 0) + " AS " + remoteName);
                 projectsTimestamps = true;
-            } else if (jdbcType == TOdbcTableType.TRINO && leaf.isTimeStampTz()) {
-                // Trino JDBC loses the offset when decoding a named-zone timestamp in a DST fold.
+            } else if ((jdbcType == TOdbcTableType.TRINO || jdbcType == TOdbcTableType.PRESTO)
+                    && leaf.isTimeStampTz()) {
+                // Trino and Presto JDBC lose the offset when decoding a named-zone timestamp in a DST fold.
                 // Convert instants to UTC on the server before scalar or array values reach the driver.
                 columns.add(trinoTimestampProjection(remoteName, col.getType(), 0) + " AS " + remoteName);
                 projectsTimestamps = true;
@@ -336,6 +337,12 @@ public class JdbcScanNode extends ExternalScanNode {
     }
 
     private static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
+        // PostgreSQL instants outside the Doris range become NULL during decoding. Remote null
+        // checks and even column comparisons can therefore disagree with the values Doris sees.
+        if (tableType == TOdbcTableType.POSTGRESQL
+                && expr.contains((Expr child) -> child.getType().isTimeStampTz())) {
+            return false;
+        }
         // JDBC dialects do not share Doris' zoned literal syntax or session timezone.
         // Keep instant comparisons local until each dialect has a lossless literal serializer.
         List<DateLiteral> dates = Lists.newArrayList();

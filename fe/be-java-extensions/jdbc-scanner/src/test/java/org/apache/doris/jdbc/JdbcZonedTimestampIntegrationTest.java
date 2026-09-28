@@ -42,7 +42,18 @@ class JdbcZonedTimestampIntegrationTest {
     @Test
     @EnabledIfSystemProperty(named = "trino.integration.url", matches = ".+")
     void testTrinoUtcProjectionPreservesNamedZoneOverlap() throws Exception {
-        withDriver("trino", "io.trino.jdbc.TrinoDriver", connection -> {
+        verifyUtcProjectionPreservesNamedZoneOverlap("trino", "io.trino.jdbc.TrinoDriver");
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = "presto.integration.url", matches = ".+")
+    void testPrestoUtcProjectionPreservesNamedZoneOverlap() throws Exception {
+        verifyUtcProjectionPreservesNamedZoneOverlap("presto", "io.prestosql.jdbc.PrestoDriver");
+    }
+
+    private void verifyUtcProjectionPreservesNamedZoneOverlap(String dialect, String driver) throws Exception {
+        // Both dialects must disambiguate the fold before the driver reconstructs the instant.
+        withDriver(dialect, driver, connection -> {
             TrinoJdbcExecutor executor = Mockito.mock(TrinoJdbcExecutor.class, Mockito.CALLS_REAL_METHODS);
             String values = "ARRAY[first_value, second_value, old_value, NULL]";
             String query = "WITH sample AS (SELECT "
