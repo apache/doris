@@ -35,8 +35,8 @@ suite("test_array_shuffle_seed") {
             (5, [42], 1)
     """
 
-    // Rows share one random sequence that starts from the seed, so a row cannot use its own
-    // seed. A non-constant seed is rejected instead of being silently ignored.
+    // The rows of a block draw from one random sequence that starts from the seed, so a per-row
+    // seed would be ignored. A non-constant seed is rejected instead.
     test {
         sql "SELECT k, array_shuffle(a, s) FROM test_array_shuffle_seed"
         exception "must be a constant"
@@ -62,13 +62,13 @@ suite("test_array_shuffle_seed") {
         SELECT array_shuffle([1, 2, 3, 4, 5], 1), array_shuffle([1, 2, 3, 4, 5], 2),
                shuffle([1, 2, 3, 4, 5], 1), array_shuffle([1, 2, 3, 4, 5], 1 + 1)
     """
-    // Any BIGINT is a valid seed, a negative one too. Only its low 32 bits are used, so -1 and
-    // 4294967295 give the same result, and so do -9223372036854775808 and 0.
+    // Any BIGINT is a valid seed, a negative one too. All 64 bits are used, so -1 and 4294967295
+    // (same low 32 bits) give different results, and so do -9223372036854775808 and 0.
     order_qt_bigint_seed """
-        SELECT array_shuffle([1, 2, 3, 4, 5], -1), array_shuffle([1, 2, 3, 4, 5], 4294967295),
-               array_shuffle([1, 2, 3, 4, 5], -9223372036854775808),
-               array_shuffle([1, 2, 3, 4, 5], 0),
-               array_shuffle([1, 2, 3, 4, 5], 9223372036854775807)
+        SELECT array_shuffle(array_range(10), -1), array_shuffle(array_range(10), 4294967295),
+               array_shuffle(array_range(10), -9223372036854775808),
+               array_shuffle(array_range(10), 0),
+               array_shuffle(array_range(10), 9223372036854775807)
     """
     // A NULL seed gives NULL.
     order_qt_null_seed "SELECT array_shuffle([1, 2, 3, 4, 5], NULL)"

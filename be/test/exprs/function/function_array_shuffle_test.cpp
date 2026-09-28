@@ -33,6 +33,16 @@ namespace doris {
 
 static const TestArray kArray = {Int32(1), Int32(2), Int32(3), Int32(4), Int32(5)};
 
+// Two random orders of 20 elements are the same only by a tiny chance, so tests that expect
+// different orders use this array.
+static const TestArray kLongArray = [] {
+    TestArray array;
+    for (int32_t i = 0; i < 20; ++i) {
+        array.emplace_back(Int32(i));
+    }
+    return array;
+}();
+
 // Runs array_shuffle on one block with one row per element of arrays, and puts each result row
 // as a string in results. With const_array, the arrays must all be the same and the array column
 // is a ColumnConst. An empty seeds runs array_shuffle(array), one seed is a constant seed, and
@@ -125,8 +135,8 @@ static std::vector<std::string> shuffle_const_array_without_seed(const TestArray
     return results;
 }
 
-// Rows share one random sequence that starts from the seed, so a row cannot use its own seed.
-// A non-constant seed is rejected instead of being silently ignored.
+// The rows of a block draw from one random sequence that starts from the seed, so a per-row
+// seed would be ignored. A non-constant seed is rejected instead.
 TEST(function_array_shuffle_test, non_constant_seed) {
     std::vector<std::string> results;
     auto st = run_array_shuffle({kArray, kArray}, false, {1, 2}, &results);
@@ -141,17 +151,20 @@ TEST(function_array_shuffle_test, const_seed) {
     auto results = shuffle_with_const_seed({kArray, kArray, kArray}, 1);
     EXPECT_EQ(results[0], seed1[0]);
     EXPECT_EQ(shuffle_with_const_seed({kArray, kArray, kArray}, 1), results);
-    EXPECT_NE(shuffle_with_const_seed({kArray}, 2)[0], seed1[0]);
+    EXPECT_NE(shuffle_with_const_seed({kLongArray}, 2), shuffle_with_const_seed({kLongArray}, 1));
 }
 
-// Any BIGINT is a valid seed, a negative one too. Only its low 32 bits are used.
+// Any BIGINT is a valid seed, a negative one too. All 64 bits are used, so seeds with the same
+// low 32 bits still give different results.
 TEST(function_array_shuffle_test, any_bigint_seed) {
-    EXPECT_EQ(shuffle_with_const_seed({kArray}, -1), shuffle_with_const_seed({kArray}, 4294967295));
-    EXPECT_EQ(shuffle_with_const_seed({kArray}, 4294967301), shuffle_with_const_seed({kArray}, 5));
-    EXPECT_EQ(shuffle_with_const_seed({kArray}, std::numeric_limits<int64_t>::min()),
-              shuffle_with_const_seed({kArray}, 0));
-    EXPECT_EQ(shuffle_with_const_seed({kArray}, std::numeric_limits<int64_t>::max()),
-              shuffle_with_const_seed({kArray}, -1));
+    EXPECT_NE(shuffle_with_const_seed({kLongArray}, -1),
+              shuffle_with_const_seed({kLongArray}, 4294967295));
+    EXPECT_NE(shuffle_with_const_seed({kLongArray}, 4294967301),
+              shuffle_with_const_seed({kLongArray}, 5));
+    EXPECT_NE(shuffle_with_const_seed({kLongArray}, std::numeric_limits<int64_t>::min()),
+              shuffle_with_const_seed({kLongArray}, 0));
+    EXPECT_NE(shuffle_with_const_seed({kLongArray}, std::numeric_limits<int64_t>::max()),
+              shuffle_with_const_seed({kLongArray}, -1));
 }
 
 // Arrays with 0 or 1 element stay the same.
@@ -166,21 +179,16 @@ TEST(function_array_shuffle_test, short_arrays) {
 // A constant array is still shuffled on each row, so it gives the same rows as the same arrays
 // in a column, and the rows do not all get the same order.
 TEST(function_array_shuffle_test, const_array) {
-    const std::vector<TestArray> arrays(3, kArray);
+    const std::vector<TestArray> arrays(3, kLongArray);
     auto from_column = shuffle_with_const_seed(arrays, 1);
     EXPECT_EQ(shuffle_with_const_seed(arrays, 1, true), from_column);
     EXPECT_NE(from_column[0], from_column[1]);
 }
 
-// Without a seed, each row and each call gets a new random order. Two random orders of 20
-// elements are the same only by a tiny chance.
+// Without a seed, each row and each call gets a new random order.
 TEST(function_array_shuffle_test, no_seed) {
-    TestArray long_array;
-    for (int32_t i = 0; i < 20; ++i) {
-        long_array.emplace_back(Int32(i));
-    }
-    auto first = shuffle_const_array_without_seed(long_array, 2);
-    auto second = shuffle_const_array_without_seed(long_array, 2);
+    auto first = shuffle_const_array_without_seed(kLongArray, 2);
+    auto second = shuffle_const_array_without_seed(kLongArray, 2);
     EXPECT_NE(first[0], first[1]);
     EXPECT_NE(first[0], second[0]);
 }
