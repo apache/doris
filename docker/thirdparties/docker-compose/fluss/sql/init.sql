@@ -663,6 +663,31 @@ INSERT INTO lake_pk VALUES
     (2, 'lp2-lake');
 
 -- ---------------------------------------------------------------------------
+-- lake_pk_comma: one column of the composite primary key has a comma in its
+-- name. The other two key columns are equal on both rows, so treating those
+-- two as the whole suppression key would also remove the untouched row.
+-- Fluss's Paimon lake path splits bucket-key property values on commas, so
+-- explicitly bucket by the two ordinary key columns to make this a valid
+-- tiered table while retaining the ambiguous primary-key name.
+-- ---------------------------------------------------------------------------
+CREATE TABLE lake_pk_comma (
+    `region,code` STRING NOT NULL,
+    region STRING NOT NULL,
+    code STRING NOT NULL,
+    name STRING,
+    PRIMARY KEY (`region,code`, region, code) NOT ENFORCED
+) WITH (
+    'bucket.num' = '1',
+    'bucket.key' = 'region,code',
+    'table.datalake.enabled' = 'true',
+    'table.datalake.freshness' = '30s'
+);
+
+INSERT INTO lake_pk_comma VALUES
+    ('key-a', 'same', 'same', 'lake-a'),
+    ('key-b', 'same', 'same', 'lake-b');
+
+-- ---------------------------------------------------------------------------
 -- lake_pk_multi: the same table over three buckets. A primary-key table is
 -- merged with its log tail per BUCKET, and a single-bucket fixture cannot tell
 -- that apart from merging per table: with one bucket the two are the same

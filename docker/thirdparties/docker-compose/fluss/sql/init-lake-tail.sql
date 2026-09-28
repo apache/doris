@@ -78,6 +78,11 @@ INSERT INTO lake_pk VALUES
     (3, 'lp3-hot'),
     (4, 'lp4-hot');
 
+-- The tail replaces only key-a. Suppression by the ordinary region/code pair
+-- would remove key-b from the lake as well, while the tail would not replay it.
+INSERT INTO lake_pk_comma VALUES
+    ('key-a', 'same', 'same', 'tail-a');
+
 -- Three keys out of nine, so the tail reaches some buckets and not others --
 -- which is the whole point of this table. Key 10 is new here, so it also lands
 -- in a bucket the lake already holds rows for and must be added to that bucket

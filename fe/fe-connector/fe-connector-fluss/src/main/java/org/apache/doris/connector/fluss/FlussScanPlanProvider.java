@@ -40,7 +40,9 @@ import org.apache.fluss.metadata.TableBucket;
 import org.apache.fluss.metadata.TablePath;
 import org.apache.fluss.types.DataType;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -49,6 +51,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.StringJoiner;
 import java.util.function.Function;
 
 /**
@@ -122,7 +125,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
      * ordinary way, as the slot descriptors of columns that {@link #getMustReadColumns} kept in the
      * scan's tuple.
      */
-    static final String PROP_UNION_PK_NAMES = "fluss.union.pk_names";
+    static final String PROP_UNION_PK_NAMES = "fluss.union.pk_names_base64";
 
     /** Node property carrying {@link FlussCatalogProperties#UNION_READ_MAX_TAIL_ROWS} to both readers. */
     static final String PROP_UNION_MAX_TAIL_ROWS = "fluss.union.max_tail_rows";
@@ -1285,7 +1288,7 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                 // What BE needs to suppress lake rows by key: which columns the key is made of, and how
                 // large a tail it may hold in memory while doing so. Both are node-level because both are
                 // the same for every range of the scan.
-                props.put(PROP_UNION_PK_NAMES, String.join(",", flussHandle.getPhysicalPrimaryKeys()));
+                props.put(PROP_UNION_PK_NAMES, encodeUnionPrimaryKeys(flussHandle.getPhysicalPrimaryKeys()));
                 props.put(PROP_UNION_MAX_TAIL_ROWS,
                         String.valueOf(catalogProperties.getMaxTailRows()));
             }
@@ -1295,6 +1298,18 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                             session, union.pinnedLakeHandle, lakeColumns, filter)));
         }
         return props;
+    }
+
+    /**
+     * Each name is a marked Base64 token, so commas inside quoted Fluss identifiers cannot change
+     * the number of keys BE reads. The marker also makes an empty column name distinct from no keys.
+     */
+    private static String encodeUnionPrimaryKeys(List<String> names) {
+        StringJoiner encoded = new StringJoiner(",");
+        for (String name : names) {
+            encoded.add("$" + Base64.getEncoder().encodeToString(name.getBytes(StandardCharsets.UTF_8)));
+        }
+        return encoded.toString();
     }
 
     /**

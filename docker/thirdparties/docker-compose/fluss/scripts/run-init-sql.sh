@@ -55,7 +55,7 @@ INIT_DEADLINE_EPOCH=$(($(date +%s) + INIT_TIMEOUT_SECONDS))
 #
 # pk_empty is deliberately absent: nothing was ever written to it, so no bucket
 # will ever be snapshotted and waiting would hang on the state it exists to have.
-SNAPSHOT_TABLES=(pk_basic pk_types pk_part pk_nested lake_pk lake_pk_multi lake_pk_part
+SNAPSHOT_TABLES=(pk_basic pk_types pk_part pk_nested lake_pk lake_pk_comma lake_pk_multi lake_pk_part
     lake_pk_cold lake_pk_part_int big_pk)
 SNAPSHOT_WAIT_SECONDS=180
 MINIO_CONTROL_DIR=/tmp/fluss-minio-control
@@ -74,6 +74,7 @@ LAKE_EXPECTED_ROWS=(
     "lake_types=1"
     "lake_part=3"
     "lake_pk=3"
+    "lake_pk_comma=2"
     "lake_pk_multi=9"
     "lake_pk_part=4"
     "lake_pk_cold=3"

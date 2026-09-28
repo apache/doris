@@ -39,13 +39,15 @@
 #include "runtime/file_scan_profile.h"
 #include "runtime/runtime_state.h"
 #include "util/defer_op.h"
+#include "util/url_coding.h"
 
 namespace doris::format::fluss {
 namespace {
 
 // The scan-node properties this reader reads. The fluss connector states that `fluss.union.*` is the
 // whole of what BE's C++ side knows about fluss; anything added here has to be added there too.
-constexpr const char* PROP_PK_NAMES = "fluss.union.pk_names";
+constexpr const char* PROP_PK_NAMES = "fluss.union.pk_names_base64";
+constexpr const char* PROP_PK_NAMES_LEGACY = "fluss.union.pk_names";
 constexpr const char* PROP_MAX_TAIL_ROWS = "fluss.union.max_tail_rows";
 
 // The per-range payload of a wrapped lake split: its kind (PROP_RANGE_TYPE, one of the two lake
@@ -194,15 +196,34 @@ Status FlussUnionLakeReader::_resolve_union_properties() {
                 "mismatch");
     }
     const auto& properties = _scan_params->fluss_properties;
-    const auto names_it = properties.find(PROP_PK_NAMES);
-    if (names_it == properties.end() || names_it->second.empty()) {
+    const auto encoded_names_it = properties.find(PROP_PK_NAMES);
+    const auto legacy_names_it = properties.find(PROP_PK_NAMES_LEGACY);
+    if ((encoded_names_it == properties.end() || encoded_names_it->second.empty()) &&
+        (legacy_names_it == properties.end() || legacy_names_it->second.empty())) {
         // FE states the union properties only when it plans a primary-key union, and this reader
         // also serves the plain LAKE splits of a log-table union, which have no keys and nothing to
         // suppress. Their absence is therefore not an error here; a LAKE_SUPPRESS split arriving
         // anyway fails loud in _prepare_suppression.
         return Status::OK();
     }
-    for (const auto name : split_on(names_it->second, ',')) {
+    const bool encoded = encoded_names_it != properties.end() && !encoded_names_it->second.empty();
+    const auto& names = encoded ? encoded_names_it->second : legacy_names_it->second;
+    for (const auto token : split_on(names, ',')) {
+        std::string name;
+        if (encoded) {
+            if (token.empty() || token.front() != '$') {
+                return Status::InternalError(
+                        "fluss union read: '{}' contains an unencoded key name", PROP_PK_NAMES);
+            }
+            const std::string base64_name(token.substr(1));
+            if (!base64_name.empty() && !base64_decode(base64_name, &name)) {
+                return Status::InternalError("fluss union read: '{}' contains invalid Base64",
+                                             PROP_PK_NAMES);
+            }
+        } else {
+            // During a BE-first upgrade, the old FE still sends comma-separated plain names.
+            name = token;
+        }
         const auto column = std::ranges::find_if(
                 _projected_columns,
                 [&](const format::ColumnDefinition& candidate) { return candidate.name == name; });

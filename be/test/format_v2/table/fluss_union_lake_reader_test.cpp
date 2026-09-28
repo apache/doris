@@ -111,11 +111,11 @@ TFileScanRangeParams make_scan_params(std::map<std::string, std::string> fluss_p
     return scan_params;
 }
 
-TFileScanRangeParams union_scan_params(const std::string& pk_names = "id,name",
+TFileScanRangeParams union_scan_params(const std::string& pk_names = "$aWQ=,$bmFtZQ==",
                                        const std::string& max_tail_rows = "2000000") {
     return make_scan_params({{"fluss.db_name", "db"},
                              {"fluss.table_name", "lake_pk"},
-                             {"fluss.union.pk_names", pk_names},
+                             {"fluss.union.pk_names_base64", pk_names},
                              {"fluss.union.max_tail_rows", max_tail_rows}});
 }
 
@@ -296,7 +296,7 @@ TEST(FlussUnionLakeReaderTest, LeavesOutThePartitionIdOfAnUnpartitionedTable) {
 // The key columns are the projected ones, reused. FE keeps them in the scan's tuple for this read,
 // which is what lets the two halves be compared at all: same tuple, same types, already mapped.
 TEST(FlussUnionLakeReaderTest, TakesItsKeyColumnsFromTheProjectionInTheOrderFeListedThem) {
-    auto scan_params = union_scan_params("name,id");
+    auto scan_params = union_scan_params("$bmFtZQ==,$aWQ=");
     FlussUnionLakeReader reader;
     ASSERT_TRUE(init_reader(&reader, &scan_params).ok());
 
@@ -310,11 +310,88 @@ TEST(FlussUnionLakeReaderTest, TakesItsKeyColumnsFromTheProjectionInTheOrderFeLi
     EXPECT_EQ(reader._key_columns[1].name, "id");
 }
 
+TEST(FlussUnionLakeReaderTest, AcceptsPlainKeyNamesFromAnOlderFe) {
+    auto scan_params = make_scan_params({{"fluss.db_name", "db"},
+                                         {"fluss.table_name", "lake_pk"},
+                                         {"fluss.union.pk_names", "name,id"},
+                                         {"fluss.union.max_tail_rows", "2000000"}});
+    FlussUnionLakeReader reader;
+    ASSERT_TRUE(init_reader(&reader, &scan_params).ok());
+    ASSERT_EQ(reader._key_columns.size(), 2);
+    EXPECT_EQ(reader._key_columns[0].name, "name");
+    EXPECT_EQ(reader._key_columns[1].name, "id");
+}
+
+// A quoted component of a composite key may contain the separator between encoded tokens. The
+// ordinary key columns named by its two halves are equal on both lake rows: binding only them as
+// the key would initialize successfully but suppress the untouched row as well.
+TEST(FlussUnionLakeReaderTest, SuppressesByTheCommaBearingKeyInsteadOfItsNamesakes) {
+    auto scan_params = union_scan_params("$cmVnaW9uLGNvZGU=,$cmVnaW9u,$Y29kZQ==");
+    FlussUnionLakeReader reader;
+    ASSERT_TRUE(init_reader(&reader, &scan_params,
+                            {make_column("region,code", string_type()),
+                             make_column("region", string_type()),
+                             make_column("code", string_type()), make_column("v", int_type())})
+                        .ok());
+    ASSERT_EQ(reader._key_columns.size(), 3);
+    EXPECT_EQ(reader._key_columns[0].name, "region,code");
+    EXPECT_EQ(reader._key_columns[1].name, "region");
+    EXPECT_EQ(reader._key_columns[2].name, "code");
+
+    auto* lake = install_lake_reader(&reader);
+    auto tail_key = ColumnString::create();
+    tail_key->insert_data("key-a", 5);
+    auto tail_region = ColumnString::create();
+    tail_region->insert_data("same", 4);
+    auto tail_code = ColumnString::create();
+    tail_code->insert_data("same", 4);
+    Block tail_keys;
+    tail_keys.insert({std::move(tail_key), string_type(), "region,code"});
+    tail_keys.insert({std::move(tail_region), string_type(), "region"});
+    tail_keys.insert({std::move(tail_code), string_type(), "code"});
+    reader._test_tail_reader = [tail_keys](const Tail&, Block* out) mutable {
+        *out = tail_keys;
+        return Status::OK();
+    };
+
+    ShardedKVCache cache {2};
+    format::SplitReadOptions options;
+    options.cache = &cache;
+    options.current_range = wrapped_lake_split(":0:10:20");
+    ASSERT_TRUE(reader.prepare_split(options).ok());
+
+    auto keys = ColumnString::create();
+    keys->insert_data("key-a", 5);
+    keys->insert_data("key-b", 5);
+    auto regions = ColumnString::create();
+    regions->insert_data("same", 4);
+    regions->insert_data("same", 4);
+    auto codes = ColumnString::create();
+    codes->insert_data("same", 4);
+    codes->insert_data("same", 4);
+    auto values = ColumnInt32::create();
+    values->insert_value(10);
+    values->insert_value(20);
+    Block lake_block;
+    lake_block.insert({std::move(keys), string_type(), "region,code"});
+    lake_block.insert({std::move(regions), string_type(), "region"});
+    lake_block.insert({std::move(codes), string_type(), "code"});
+    lake_block.insert({std::move(values), int_type(), "v"});
+    lake->blocks.push_back(std::move(lake_block));
+
+    Block result;
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&result, &eos).ok());
+    ASSERT_EQ(result.rows(), 1);
+    const auto& kept = assert_cast<const ColumnString&>(*result.get_by_position(0).column);
+    EXPECT_EQ(kept.get_data_at(0).to_string(), "key-b");
+}
+
 // The one thing this reader cannot work around. FE promises the key columns are projected whenever
 // it plans a union read; if that promise is broken, suppressing nothing returns every superseded
 // lake row a second time, and no count or assertion downstream would show it.
 TEST(FlussUnionLakeReaderTest, RefusesAScanThatDoesNotProjectAKeyColumn) {
-    auto scan_params = union_scan_params("id,name");
+    auto scan_params = union_scan_params("$aWQ=,$bmFtZQ==");
     FlussUnionLakeReader reader;
     const auto status =
             init_reader(&reader, &scan_params,
@@ -328,15 +405,15 @@ TEST(FlussUnionLakeReaderTest, RefusesAScanWithoutTheUnionProperties) {
     FlussUnionLakeReader without_properties;
     EXPECT_FALSE(init_reader(&without_properties, &no_properties).ok());
 
-    auto no_limit = make_scan_params({{"fluss.union.pk_names", "id"}});
+    auto no_limit = make_scan_params({{"fluss.union.pk_names_base64", "$aWQ="}});
     FlussUnionLakeReader without_limit;
     EXPECT_FALSE(init_reader(&without_limit, &no_limit).ok());
 
-    auto zero_limit = union_scan_params("id", "0");
+    auto zero_limit = union_scan_params("$aWQ=", "0");
     FlussUnionLakeReader with_zero_limit;
     EXPECT_FALSE(init_reader(&with_zero_limit, &zero_limit).ok());
 
-    auto negative_limit = union_scan_params("id", "-1");
+    auto negative_limit = union_scan_params("$aWQ=", "-1");
     FlussUnionLakeReader with_negative_limit;
     EXPECT_FALSE(init_reader(&with_negative_limit, &negative_limit).ok());
 }
@@ -622,14 +699,14 @@ TEST(FlussUnionLakeReaderTest, TimesTheSuppressionAsAPartOfBlockFinalization) {
 // over the limit is over it on both sides rather than in whichever half ran first.
 TEST(FlussUnionLakeReaderTest, RefusesATailLargerThanTheConfiguredLimit) {
     SuppressionFixture over_limit;
-    over_limit.scan_params = union_scan_params("id,name", "2");
+    over_limit.scan_params = union_scan_params("$aWQ=,$bmFtZQ==", "2");
     ASSERT_TRUE(over_limit.open(make_key_block({1, 2, 3}, {"a", "b", "c"})).ok());
     const auto status = over_limit.reader.prepare_split(over_limit.split(":0:10:20"));
     ASSERT_FALSE(status.ok());
     EXPECT_NE(status.to_string().find("max_tail_rows"), std::string::npos);
 
     SuppressionFixture at_limit;
-    at_limit.scan_params = union_scan_params("id,name", "3");
+    at_limit.scan_params = union_scan_params("$aWQ=,$bmFtZQ==", "3");
     ASSERT_TRUE(at_limit.open(make_key_block({1, 2, 3}, {"a", "b", "c"})).ok());
     EXPECT_TRUE(at_limit.reader.prepare_split(at_limit.split(":0:10:20")).ok());
 }

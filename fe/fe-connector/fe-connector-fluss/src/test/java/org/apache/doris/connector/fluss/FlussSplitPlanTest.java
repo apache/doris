@@ -2030,8 +2030,29 @@ public class FlussSplitPlanTest {
 
         Map<String, String> props = nodeProperties(PK_TABLE, catalog());
 
-        Assertions.assertEquals("id", props.get("fluss.union.pk_names"));
+        Assertions.assertEquals("$aWQ=", props.get("fluss.union.pk_names_base64"));
         Assertions.assertEquals("2000000", props.get("fluss.union.max_tail_rows"));
+    }
+
+    @Test
+    public void unionKeyNamesKeepACommaInsideOneQuotedIdentifier() {
+        adminOps.tableInfos.put(PK_TABLE, FlussTestTables.builder(PK_TABLE)
+                .column("region,code", DataTypes.STRING().copy(false))
+                .column("region", DataTypes.STRING().copy(false))
+                .column("code", DataTypes.STRING().copy(false))
+                .primaryKey("region,code", "region", "code")
+                .buckets(1, "region", "code")
+                .property("table.datalake.enabled", "true")
+                .property("table.datalake.format", "paimon")
+                .property("table.datalake.paimon.metastore", "filesystem")
+                .property("table.datalake.paimon.warehouse", "/lake/warehouse")
+                .build());
+        siblingExpected = true;
+        lakeSnapshotAt(9L, offsets(100L));
+
+        Assertions.assertEquals(Set.of("region,code", "region", "code"), mustReadColumns(PK_TABLE, catalog()));
+        Assertions.assertEquals("$cmVnaW9uLGNvZGU=,$cmVnaW9u,$Y29kZQ==",
+                nodeProperties(PK_TABLE, catalog()).get("fluss.union.pk_names_base64"));
     }
 
     @Test
@@ -2053,7 +2074,7 @@ public class FlussSplitPlanTest {
 
         Map<String, String> props = nodeProperties(LOG_TABLE, catalog());
 
-        Assertions.assertFalse(props.containsKey("fluss.union.pk_names"), props.toString());
+        Assertions.assertFalse(props.containsKey("fluss.union.pk_names_base64"), props.toString());
         Assertions.assertFalse(props.containsKey("fluss.union.max_tail_rows"), props.toString());
     }
 
