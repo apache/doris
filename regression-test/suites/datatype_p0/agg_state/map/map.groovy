@@ -21,9 +21,6 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
 
-// TODO: Restore this suite with assertions that allow any duplicate-key winner.
-// Partial-state merge order is not guaranteed, so a fixed MAP value is not a stable expectation.
-/*
 suite("test_agg_state_map") {
     sql "set enable_agg_state=true"
     sql "DROP TABLE IF EXISTS a_table"
@@ -36,16 +33,26 @@ suite("test_agg_state_map") {
     distributed BY hash(k1) buckets 3
     properties("replication_num" = "1");
     """
+    // Unique map keys within each group make the values independent of state merge order.
     sql "insert into a_table values(1,map_agg_state(1,1));"
     sql "insert into a_table values(1,map_agg_state(2,2));"
-    sql "insert into a_table values(1,map_agg_state(1,11));"
-    sql "insert into a_table values(1,map_agg_state(2,22));"
+    sql "insert into a_table values(1,map_agg_state(5,11));"
+    sql "insert into a_table values(1,map_agg_state(6,22));"
     sql "insert into a_table values(1,map_agg_state(null, 100));"
     sql "insert into a_table values(2,map_agg_state(3,3));"
     sql "insert into a_table values(2,map_agg_state(4,null));"
     sql "insert into a_table values(2,map_agg_state(null,null));"
-    sql "insert into a_table values(2,map_agg_state(null,400));"
+    sql "insert into a_table values(2,map_agg_state(7,400));"
 
-    qt_test "select k1,map_agg_merge(k2) from a_table group by k1 order by k1;"
+    def query = """
+        select k1,
+               array_sort(map_keys(map_agg_merge(k2))),
+               array_sortby(map_values(map_agg_merge(k2)), map_keys(map_agg_merge(k2)))
+        from a_table group by k1 order by k1;
+    """
+    explain {
+        sql query
+        contains "(a_table), PREAGGREGATION: ON"
+    }
+    qt_test query
 }
-*/
