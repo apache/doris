@@ -93,6 +93,16 @@ public:
             const std::unordered_map<std::string, int>& field_name_to_column_id,
             const std::shared_ptr<IndexQueryContext>& index_query_context = nullptr) const;
 
+    // The body of the overload above; it may throw, so only that overload calls it.
+    Status evaluate_inverted_index_with_search_param_unguarded(
+            const TSearchParam& search_param,
+            const std::unordered_map<std::string, IndexFieldNameAndTypePair>& data_type_with_names,
+            std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
+            InvertedIndexResultBitmap& bitmap_result, bool enable_cache,
+            const IndexExecContext* index_exec_ctx,
+            const std::unordered_map<std::string, int>& field_name_to_column_id,
+            const std::shared_ptr<IndexQueryContext>& index_query_context) const;
+
     // Public methods for testing
     enum class ClauseTypeCategory {
         NON_TOKENIZED, // TERM, PREFIX, WILDCARD, REGEXP, RANGE, LIST - no tokenization, use EQUAL_QUERY

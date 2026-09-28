@@ -62,14 +62,7 @@ Status FunctionMatchBase::evaluate_inverted_index(
     }
     const std::string& function_name = get_name();
 
-    if (function_name == MATCH_PHRASE_FUNCTION || function_name == MATCH_PHRASE_PREFIX_FUNCTION ||
-        function_name == MATCH_PHRASE_EDGE_FUNCTION) {
-        auto reader = iter->get_reader(InvertedIndexReaderType::FULLTEXT);
-        if (reader && !segment_v2::IndexReaderHelper::is_support_phrase(reader)) {
-            return Status::Error<ErrorCode::INDEX_INVALID_PARAMETERS>(
-                    "phrase queries require setting support_phrase = true");
-        }
-    }
+    // support_phrase is checked once the analyzer has selected the reader that runs the query.
     Field param_value;
     arguments[0].column->get(0, param_value);
     if (param_value.is_null()) {

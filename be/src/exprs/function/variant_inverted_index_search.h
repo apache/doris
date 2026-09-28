@@ -102,6 +102,11 @@ struct FieldReaderBinding {
     }
 };
 
+// Build the analyzer context a SEARCH binding executes with, converting a failure to build the
+// analyzer provider into a Status instead of letting the exception escape a Status-returning caller.
+Result<InvertedIndexAnalyzerCtxSPtr> build_search_analyzer_context(
+        const std::map<std::string, std::string>& properties, const std::string& analyzer_key);
+
 class FieldReaderResolver {
 public:
     FieldReaderResolver(

@@ -17,8 +17,13 @@
 
 package org.apache.doris.indexpolicy;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.persist.EditLog;
 
 import org.junit.jupiter.api.Assertions;
@@ -32,7 +37,10 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.lang.reflect.Method;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 public class PolicyValidatorTests {
@@ -68,6 +76,12 @@ public class PolicyValidatorTests {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         policy.write(new DataOutputStream(bytes));
         return IndexPolicy.read(new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
+    }
+
+    private static IndexPolicyMgr roundTrip(IndexPolicyMgr manager) throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        manager.write(new DataOutputStream(bytes));
+        return IndexPolicyMgr.read(new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
     }
 
     // @ParameterizedTest
@@ -260,6 +274,401 @@ public class PolicyValidatorTests {
 
         Assertions.assertEquals("1",
                 policyMgr.getPolicyByName("new_ngram").getProperties().get("max_ngram_diff"));
+    }
+
+    @Test
+    public void testIkTokenizersAreBuiltIn() {
+        Assertions.assertTrue(IndexPolicy.BUILTIN_TOKENIZERS.contains("ik_smart"));
+        Assertions.assertTrue(IndexPolicy.BUILTIN_TOKENIZERS.contains("ik_max_word"));
+    }
+
+    @Test
+    public void testExactLegacyPolicyPrecedesBuiltinValidation() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                41, "IK", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                43, "LOWERCASE", IndexPolicyTypeEnum.TOKEN_FILTER, Map.of("type", "lowercase")));
+
+        DdlException analyzerException = Assertions.assertThrows(
+                DdlException.class, () -> manager.validateAnalyzerExists("IK"));
+        Assertions.assertTrue(analyzerException.getMessage().contains("is not an analyzer"));
+        Assertions.assertDoesNotThrow(() -> manager.validateAnalyzerExists("ik"));
+
+        DdlException normalizerException = Assertions.assertThrows(
+                DdlException.class, () -> manager.validateNormalizerExists("LOWERCASE"));
+        Assertions.assertTrue(normalizerException.getMessage().contains("is not a normalizer"));
+        Assertions.assertDoesNotThrow(() -> manager.validateNormalizerExists("lowercase"));
+    }
+
+    @Test
+    public void testNormalizerNamedAfterBuiltinAnalyzerIsUnreachable() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                45, "ik", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "asciifolding")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                46, "none", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "lowercase")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                47, "norm_ascii", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "asciifolding")));
+
+        for (String name : List.of("ik", "IK", "none", " NONE ")) {
+            DdlException error = Assertions.assertThrows(
+                    DdlException.class, () -> manager.validateNormalizerExists(name));
+            Assertions.assertTrue(error.getMessage().contains("built-in analyzer"), error.getMessage());
+        }
+        Assertions.assertDoesNotThrow(() -> manager.validateNormalizerExists("norm_ascii"));
+        Assertions.assertDoesNotThrow(() -> manager.validateNormalizerExists("lowercase"));
+    }
+
+    @Test
+    public void testExactCaseDistinctNormalizerPolicyRemainsReachable() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                48, "IK", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "asciifolding")));
+
+        Assertions.assertDoesNotThrow(() -> manager.validateNormalizerExists("IK"));
+        Assertions.assertDoesNotThrow(() -> manager.validateNormalizerExists("ik"));
+    }
+
+    @Test
+    public void testCreateNormalizerPolicyRejectsBuiltinAnalyzerName() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        for (String name : List.of("ik", "IK", "none", "standard")) {
+            DdlException error = Assertions.assertThrows(DdlException.class,
+                    () -> manager.createIndexPolicy(false, name, IndexPolicyTypeEnum.NORMALIZER,
+                            new HashMap<>(Map.of("token_filter", "asciifolding"))));
+            Assertions.assertTrue(error.getMessage().contains("conflicts with built-in"), error.getMessage());
+        }
+    }
+
+    @Test
+    public void testReplayedAnalyzerUsesExactTokenizerBinding() throws Exception {
+        Map<String, String> invalidNgram = Map.of(
+                "type", "ngram", "min_gram", "1", "max_gram", "3", "max_ngram_diff", "1");
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                50, "Foo", IndexPolicyTypeEnum.TOKENIZER, invalidNgram));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                51, "foo", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                52, "invalid_exact_tokenizer_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "Foo")));
+
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                60, "Bar", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                61, "bar", IndexPolicyTypeEnum.TOKENIZER, invalidNgram));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                62, "valid_exact_tokenizer_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "Bar")));
+
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                70, "Baz", IndexPolicyTypeEnum.TOKEN_FILTER, Map.of("type", "lowercase")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                71, "baz", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                72, "wrong_type_exact_tokenizer_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "Baz")));
+
+        IndexPolicyMgr restored = roundTrip(manager);
+        DdlException invalidException = Assertions.assertThrows(DdlException.class,
+                () -> restored.validateAnalyzerExists("invalid_exact_tokenizer_analyzer"));
+        Assertions.assertTrue(invalidException.getMessage().contains("invalid tokenizer 'Foo'"));
+        Assertions.assertDoesNotThrow(
+                () -> restored.validateAnalyzerExists("valid_exact_tokenizer_analyzer"));
+        DdlException typeException = Assertions.assertThrows(DdlException.class,
+                () -> restored.validateAnalyzerExists("wrong_type_exact_tokenizer_analyzer"));
+        Assertions.assertTrue(typeException.getMessage().contains("expected TOKENIZER"));
+    }
+
+    @Test
+    public void testReplayedPoliciesRejectWrongExactNestedFilterTypes() throws Exception {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                80, "AnalyzerToken", IndexPolicyTypeEnum.CHAR_FILTER, Map.of("type", "char_replace")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                81, "analyzertoken", IndexPolicyTypeEnum.TOKEN_FILTER, Map.of("type", "lowercase")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                82, "wrong_analyzer_token_filter", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "AnalyzerToken")));
+
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                90, "AnalyzerChar", IndexPolicyTypeEnum.TOKEN_FILTER, Map.of("type", "lowercase")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                91, "analyzerchar", IndexPolicyTypeEnum.CHAR_FILTER, Map.of("type", "char_replace")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                92, "wrong_analyzer_char_filter", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "char_filter", "AnalyzerChar")));
+
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                100, "NormalizerToken", IndexPolicyTypeEnum.CHAR_FILTER, Map.of("type", "char_replace")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                101, "normalizertoken", IndexPolicyTypeEnum.TOKEN_FILTER, Map.of("type", "lowercase")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                102, "wrong_normalizer_token_filter", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("token_filter", "NormalizerToken")));
+
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                110, "NormalizerChar", IndexPolicyTypeEnum.TOKEN_FILTER, Map.of("type", "lowercase")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                111, "normalizerchar", IndexPolicyTypeEnum.CHAR_FILTER, Map.of("type", "char_replace")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                112, "wrong_normalizer_char_filter", IndexPolicyTypeEnum.NORMALIZER,
+                Map.of("char_filter", "NormalizerChar")));
+
+        IndexPolicyMgr restored = roundTrip(manager);
+        DdlException analyzerTokenException = Assertions.assertThrows(DdlException.class,
+                () -> restored.validateAnalyzerExists("wrong_analyzer_token_filter"));
+        Assertions.assertTrue(analyzerTokenException.getMessage().contains("expected TOKEN_FILTER"));
+        DdlException analyzerCharException = Assertions.assertThrows(DdlException.class,
+                () -> restored.validateAnalyzerExists("wrong_analyzer_char_filter"));
+        Assertions.assertTrue(analyzerCharException.getMessage().contains("expected CHAR_FILTER"));
+        DdlException normalizerTokenException = Assertions.assertThrows(DdlException.class,
+                () -> restored.validateNormalizerExists("wrong_normalizer_token_filter"));
+        Assertions.assertTrue(normalizerTokenException.getMessage().contains("expected TOKEN_FILTER"));
+        DdlException normalizerCharException = Assertions.assertThrows(DdlException.class,
+                () -> restored.validateNormalizerExists("wrong_normalizer_char_filter"));
+        Assertions.assertTrue(normalizerCharException.getMessage().contains("expected CHAR_FILTER"));
+    }
+
+    @Test
+    public void testIfNotExistsKeepsReplayedBuiltinTokenizerNameIdempotent() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        IndexPolicy replayed = new IndexPolicy(
+                42, "ik_smart", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard"));
+        manager.replayCreateIndexPolicy(replayed);
+
+        Assertions.assertDoesNotThrow(() -> manager.createIndexPolicy(
+                true, "ik_smart", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard")));
+        Assertions.assertSame(replayed, manager.getPolicyByName("ik_smart"));
+
+        DdlException exception = Assertions.assertThrows(DdlException.class,
+                () -> new IndexPolicyMgr().createIndexPolicy(
+                        true, "ik_max_word", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard")));
+        Assertions.assertTrue(exception.getMessage().contains("conflicts with built-in tokenizer name"));
+    }
+
+    @Test
+    public void testNamedIkTokenizerPolicyValidation() throws Exception {
+        Method validate = IndexPolicyMgr.class.getDeclaredMethod(
+                "validateTokenizerProperties", Map.class);
+        validate.setAccessible(true);
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        Assertions.assertDoesNotThrow(() -> validate.invoke(manager, Map.of("type", "ik_smart")));
+        Assertions.assertDoesNotThrow(() -> validate.invoke(manager, Map.of("type", "ik_max_word")));
+    }
+
+    @Test
+    public void testExistingPolicyPrecedesBuiltinAfterReplay() throws Exception {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                42, "ik_smart", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard")));
+        Method validate = IndexPolicyMgr.class.getDeclaredMethod(
+                "validatePolicyReference", String.class, IndexPolicyTypeEnum.class);
+        validate.setAccessible(true);
+        Assertions.assertDoesNotThrow(
+                () -> validate.invoke(manager, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER));
+    }
+
+    @Test
+    public void testBuiltinIkValidationIsLocaleIndependent() throws Exception {
+        Locale originalLocale = Locale.getDefault();
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr-TR"));
+            IndexPolicyMgr manager = new IndexPolicyMgr();
+            Method validate = IndexPolicyMgr.class.getDeclaredMethod(
+                    "validatePolicyReference", String.class, IndexPolicyTypeEnum.class);
+            validate.setAccessible(true);
+            Assertions.assertDoesNotThrow(
+                    () -> validate.invoke(manager, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER));
+        } finally {
+            Locale.setDefault(originalLocale);
+        }
+    }
+
+    @Test
+    public void testReplayDropPreservesSurvivingLocaleCollision() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        IndexPolicy older = new IndexPolicy(
+                1, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard"));
+        IndexPolicy newer = new IndexPolicy(
+                2, "ik_smart", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "keyword"));
+
+        manager.replayCreateIndexPolicy(older);
+        manager.replayCreateIndexPolicy(newer);
+        Assertions.assertEquals(2, manager.getCopiedIndexPolicies().size());
+        Assertions.assertTrue(manager.getCopiedIndexPolicies().containsAll(List.of(older, newer)));
+        Assertions.assertEquals(older.getId(), manager.getPolicyByName("IK_SMART").getId());
+        manager.replayDropIndexPolicy(new DropIndexPolicyLog(older.getId()));
+
+        Assertions.assertEquals(newer.getId(), manager.getPolicyByName("IK_SMART").getId());
+        Assertions.assertEquals(List.of(newer), manager.getCopiedIndexPolicies());
+    }
+
+    @Test
+    public void testReplayDropRestoresOlderLocaleCollision() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        IndexPolicy older = new IndexPolicy(
+                1, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard"));
+        IndexPolicy newer = new IndexPolicy(
+                2, "ik_smart", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "keyword"));
+
+        manager.replayCreateIndexPolicy(older);
+        manager.replayCreateIndexPolicy(newer);
+        manager.replayDropIndexPolicy(new DropIndexPolicyLog(newer.getId()));
+
+        Assertions.assertEquals(older.getId(), manager.getPolicyByName("ik_smart").getId());
+        Assertions.assertEquals(List.of(older), manager.getCopiedIndexPolicies());
+    }
+
+    @Test
+    public void testImageRebuildPreservesLegacyExactNameBindings() throws Exception {
+        long newerId = 1L << 32;
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        IndexPolicy newer = new IndexPolicy(
+                newerId, "ik_smart", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "keyword"));
+        IndexPolicy older = new IndexPolicy(
+                1, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard"));
+
+        manager.replayCreateIndexPolicy(newer);
+        manager.replayCreateIndexPolicy(older);
+        IndexPolicyMgr restored = roundTrip(manager);
+
+        Assertions.assertEquals(older.getId(), restored.getPolicyByName("IK_SMART").getId());
+        Assertions.assertEquals(newerId, restored.getPolicyByName("ik_smart").getId());
+        Assertions.assertEquals(newerId, restored.getPolicyByName("Ik_Smart").getId());
+    }
+
+    @Test
+    public void testJournalAndImageKeepLegacyExactNameBindings() throws Exception {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        IndexPolicy historical = new IndexPolicy(
+                1, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard"));
+        IndexPolicy newer = new IndexPolicy(
+                2, "ik_smart", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "keyword"));
+        IndexPolicy dependent = new IndexPolicy(
+                3, "legacy_exact_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "IK_SMART"));
+
+        manager.replayCreateIndexPolicy(historical);
+        manager.replayCreateIndexPolicy(newer);
+        manager.replayCreateIndexPolicy(dependent);
+        Assertions.assertEquals(historical.getId(), manager.getPolicyByName("IK_SMART").getId());
+        Assertions.assertEquals(newer.getId(), manager.getPolicyByName("ik_smart").getId());
+        Assertions.assertEquals(3, manager.getCopiedIndexPolicies().size());
+
+        IndexPolicyMgr restored = roundTrip(manager);
+        Assertions.assertEquals(historical.getId(), restored.getPolicyByName("IK_SMART").getId());
+        Assertions.assertEquals(newer.getId(), restored.getPolicyByName("ik_smart").getId());
+        Assertions.assertEquals("IK_SMART",
+                restored.getPolicyByName(dependent.getName()).getProperties().get("tokenizer"));
+        Assertions.assertEquals(3, restored.getCopiedIndexPolicies().size());
+    }
+
+    @Test
+    public void testExactLegacyNameControlsValidationAndDropDependencies() throws Exception {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        IndexPolicy exactAnalyzer = new IndexPolicy(
+                10, "LEGACY_ANALYZER", IndexPolicyTypeEnum.ANALYZER, Map.of("tokenizer", "keyword"));
+        IndexPolicy normalizedNormalizer = new IndexPolicy(
+                11, "legacy_analyzer", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "lowercase"));
+        IndexPolicy historicalTokenizer = new IndexPolicy(
+                20, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "standard"));
+        IndexPolicy normalizedTokenizer = new IndexPolicy(
+                21, "ik_smart", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "keyword"));
+        IndexPolicy dependentAnalyzer = new IndexPolicy(
+                22, "legacy_exact_analyzer", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "IK_SMART"));
+
+        manager.replayCreateIndexPolicy(exactAnalyzer);
+        manager.replayCreateIndexPolicy(normalizedNormalizer);
+        manager.replayCreateIndexPolicy(historicalTokenizer);
+        manager.replayCreateIndexPolicy(normalizedTokenizer);
+        manager.replayCreateIndexPolicy(dependentAnalyzer);
+
+        Assertions.assertDoesNotThrow(() -> manager.validateAnalyzerExists("LEGACY_ANALYZER"));
+        Assertions.assertDoesNotThrow(() -> manager.validateNormalizerExists("legacy_analyzer"));
+
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getEditLog()).thenReturn(Mockito.mock(EditLog.class));
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertDoesNotThrow(() -> manager.dropIndexPolicy(
+                    false, "ik_smart", IndexPolicyTypeEnum.TOKENIZER));
+            Assertions.assertEquals(historicalTokenizer.getId(), manager.getPolicyByName("ik_smart").getId());
+            Assertions.assertThrows(DdlException.class, () -> manager.dropIndexPolicy(
+                    false, "IK_SMART", IndexPolicyTypeEnum.TOKENIZER));
+        }
+    }
+
+    @Test
+    public void testCanonicalBuiltinAnalyzerWinsValidationOverExactLegacyPolicy() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                30, "ik", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "keyword")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                31, "legacy_grams", IndexPolicyTypeEnum.TOKEN_FILTER, Map.of("type", "common_grams")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                32, "standard", IndexPolicyTypeEnum.ANALYZER,
+                Map.of("tokenizer", "keyword", "token_filter", "legacy_grams")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                33, "English", IndexPolicyTypeEnum.TOKENIZER, Map.of("type", "keyword")));
+        manager.replayCreateIndexPolicy(new IndexPolicy(
+                34, "lowercase", IndexPolicyTypeEnum.ANALYZER, Map.of("tokenizer", "keyword")));
+
+        Assertions.assertAll(
+                () -> Assertions.assertDoesNotThrow(() -> manager.validateAnalyzerExists("ik")),
+                () -> Assertions.assertDoesNotThrow(() -> manager.validateAnalyzerExists("standard")),
+                () -> Assertions.assertTrue(Assertions.assertThrows(DdlException.class,
+                        () -> manager.validateAnalyzerExists("English")).getMessage()
+                        .contains("is not an analyzer")),
+                () -> Assertions.assertTrue(Assertions.assertThrows(DdlException.class,
+                        () -> manager.validateNormalizerExists("lowercase")).getMessage()
+                        .contains("is not a normalizer")));
+    }
+
+    @Test
+    public void testDropDependencyFollowsTopLevelBuiltinPrecedence() {
+        IndexPolicyMgr manager = new IndexPolicyMgr();
+        IndexPolicy upperIk = new IndexPolicy(
+                40, "IK", IndexPolicyTypeEnum.ANALYZER, Map.of("tokenizer", "keyword"));
+        IndexPolicy upperLowercase = new IndexPolicy(
+                41, "LOWERCASE", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "asciifolding"));
+        IndexPolicy exactLowercase = new IndexPolicy(
+                42, "lowercase", IndexPolicyTypeEnum.NORMALIZER, Map.of("token_filter", "asciifolding"));
+        OlapTable table = new OlapTable();
+        Database db = Mockito.mock(Database.class);
+        Mockito.when(db.getTables()).thenReturn(List.of(table));
+        InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+        Mockito.when(catalog.getDbs()).thenReturn(List.of(db));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getEditLog()).thenReturn(Mockito.mock(EditLog.class));
+        Mockito.when(env.getInternalCatalog()).thenReturn(catalog);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            manager.replayCreateIndexPolicy(upperIk);
+            manager.replayCreateIndexPolicy(upperLowercase);
+            table.setIndexes(List.of(invertedIndex(1, "analyzer", "ik"), invertedIndex(2, "normalizer", "lowercase")));
+            Assertions.assertDoesNotThrow(() -> manager.dropIndexPolicy(false, "IK", IndexPolicyTypeEnum.ANALYZER));
+            Assertions.assertDoesNotThrow(
+                    () -> manager.dropIndexPolicy(false, "LOWERCASE", IndexPolicyTypeEnum.NORMALIZER));
+
+            manager.replayCreateIndexPolicy(upperIk);
+            manager.replayCreateIndexPolicy(exactLowercase);
+            table.setIndexes(List.of(invertedIndex(3, "analyzer", "IK"), invertedIndex(4, "normalizer", "lowercase")));
+            Assertions.assertAll(
+                    () -> Assertions.assertTrue(Assertions.assertThrows(DdlException.class,
+                            () -> manager.dropIndexPolicy(false, "IK", IndexPolicyTypeEnum.ANALYZER))
+                            .getMessage().contains("is used by index")),
+                    () -> Assertions.assertTrue(Assertions.assertThrows(DdlException.class,
+                            () -> manager.dropIndexPolicy(false, "lowercase", IndexPolicyTypeEnum.NORMALIZER))
+                            .getMessage().contains("is used by index")));
+        }
+    }
+
+    private static Index invertedIndex(long id, String key, String name) {
+        return new Index(id, "idx_" + id, List.of("content"), IndexType.INVERTED, Map.of(key, name), "");
     }
 
     // StandardTokenizerValidator Tests

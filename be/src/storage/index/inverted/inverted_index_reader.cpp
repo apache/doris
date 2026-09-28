@@ -484,6 +484,9 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "CLuceneError occurred, error msg: {}", e.what());
+    } catch (const Exception& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Analyzer error occurred, error msg: {}", e.what());
     }
 }
 
