@@ -93,8 +93,7 @@ public class OrthogonalBitmapExprCalculate extends NotNullableAggregateFunction
     @Override
     public OrthogonalBitmapExprCalculate withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3
-                && children.get(2).getDataType() instanceof CharacterType
-                && children.get(2).getDataType() instanceof VarcharType);
+                && children.get(2).getDataType() instanceof CharacterType);
         return new OrthogonalBitmapExprCalculate(getFunctionParams(distinct, children));
     }
 
