@@ -43,12 +43,21 @@ session timezones, and four Connector/J timezone configurations.
 Set `mysql.integration.tableType=OCEANBASE` to exercise the OceanBase MySQL-mode executor
 branch against the same wire protocol. This does not replace testing an OceanBase server.
 
-For ClickHouse, SQL Server, or PostgreSQL, set the corresponding `clickhouse.integration.*`,
-`sqlserver.integration.*`, or `postgresql.integration.*` properties (`url`, `driverJar`,
-`user`, `password`). Omitted URLs disable the corresponding tests. ClickHouse and PostgreSQL
-execute constant `SELECT` queries; PostgreSQL also varies the session timezone and reads
-nested timestamp arrays. SQL Server creates a connection-local temporary table for writes.
-For ClickHouse, test both the v1 and v2 implementations where the driver offers them
+For ClickHouse, SQL Server, PostgreSQL, Oracle, Trino, or PrestoSQL, set the corresponding
+`clickhouse.integration.*`, `sqlserver.integration.*`, `postgresql.integration.*`,
+`oracle.integration.*`, `trino.integration.*`, or `presto.integration.*` properties (`url`,
+`driverJar`, `user`, `password`). Omitted URLs disable the corresponding tests. PostgreSQL
+also varies the session timezone and reads nested timestamp arrays. SQL Server creates a
+connection-local temporary table for writes.
+
+The other write round trips require CREATE/INSERT/SELECT/DROP privileges in a test schema.
+They create a unique table and drop it in `finally`, exercising microseconds, negative epochs,
+midnight, NULL, and both DST-fold instants across three JVM zones. Oracle covers both TZ and
+LOCAL TIME ZONE columns; ClickHouse uses explicit Tokyo and Los Angeles column zones. Use
+ClickHouse JDBC V2 for these instant write round trips. Trino/PrestoSQL URLs must name a
+writable catalog/schema supporting TIMESTAMP(6) WITH TIME ZONE, such as a memory catalog.
+The PrestoSQL test loads `io.prestosql.jdbc.PrestoDriver`.
+The ClickHouse read tests can also exercise v1 where the driver offers it
 (`clickhouse.jdbc.v1=true` selects v1 in the 0.9 driver). For SQL Server, include 6.2, 6.4,
 7.0 and a current driver: unsupported typed getters throw different exception classes
 across legacy releases. Reads resolve the stored offset with `getTimestamp`; writes bind

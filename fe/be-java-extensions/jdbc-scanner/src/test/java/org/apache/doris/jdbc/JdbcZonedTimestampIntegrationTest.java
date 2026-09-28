@@ -236,6 +236,119 @@ class JdbcZonedTimestampIntegrationTest {
         });
     }
 
+    @Test
+    @EnabledIfSystemProperty(named = "postgresql.integration.url", matches = ".+")
+    void testPostgresTimestampWriteRoundTrip() throws Exception {
+        verifyTimestampWriteRoundTrip("postgresql", "org.postgresql.Driver", PostgreSQLJdbcExecutor.class,
+                "SET TIME ZONE 'America/New_York'", new String[] {"TIMESTAMPTZ(6)"}, "");
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = "oracle.integration.url", matches = ".+")
+    void testOracleTimestampWriteRoundTrip() throws Exception {
+        verifyTimestampWriteRoundTrip("oracle", "oracle.jdbc.OracleDriver", OracleJdbcExecutor.class,
+                "ALTER SESSION SET TIME_ZONE = '-07:00'",
+                new String[] {"TIMESTAMP(6) WITH TIME ZONE", "TIMESTAMP(6) WITH LOCAL TIME ZONE"}, "");
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = "clickhouse.integration.url", matches = ".+")
+    void testClickHouseTimestampWriteRoundTrip() throws Exception {
+        verifyTimestampWriteRoundTrip("clickhouse", "com.clickhouse.jdbc.ClickHouseDriver", ClickHouseJdbcExecutor.class,
+                null, new String[] {"Nullable(DateTime64(6, 'Asia/Tokyo'))",
+                    "Nullable(DateTime64(6, 'America/Los_Angeles'))"}, " ENGINE = Memory");
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = "trino.integration.url", matches = ".+")
+    void testTrinoTimestampWriteRoundTrip() throws Exception {
+        verifyTimestampWriteRoundTrip("trino", "io.trino.jdbc.TrinoDriver", TrinoJdbcExecutor.class,
+                null, new String[] {"TIMESTAMP(6) WITH TIME ZONE"}, "");
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = "presto.integration.url", matches = ".+")
+    void testPrestoTimestampWriteRoundTrip() throws Exception {
+        verifyTimestampWriteRoundTrip("presto", "io.prestosql.jdbc.PrestoDriver", TrinoJdbcExecutor.class,
+                null, new String[] {"TIMESTAMP(6) WITH TIME ZONE"}, "");
+    }
+
+    private void verifyTimestampWriteRoundTrip(String prefix, String driver,
+            Class<? extends BaseJdbcExecutor> dialect, String sessionSql, String[] types, String suffix) throws Exception {
+        withDriver(prefix, driver, connection -> {
+            String table = "doris_tz_" + java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+            java.util.List<String> definitions = new java.util.ArrayList<>();
+            java.util.List<String> projections = new java.util.ArrayList<>();
+            for (int i = 0; i < types.length; ++i) {
+                String column = "event_time" + i;
+                definitions.add(column + " " + types[i]);
+                projections.add(dialect == ClickHouseJdbcExecutor.class ? "toUnixTimestamp64Micro(" + column + ")"
+                        : dialect == TrinoJdbcExecutor.class ? "at_timezone(" + column + ", 'UTC')" : column);
+            }
+            if (dialect == TrinoJdbcExecutor.class) {
+                // The driver API sets the remote session zone independently of the JVM default.
+                connection.getClass().getMethod("setTimeZoneId", String.class).invoke(connection, "America/New_York");
+            }
+            try (Statement ddl = connection.createStatement()) {
+                if (sessionSql != null) {
+                    ddl.execute(sessionSql);
+                }
+                ddl.execute("CREATE TABLE " + table + " (id INT, " + String.join(", ", definitions) + ")" + suffix);
+                try {
+                    BaseJdbcExecutor executor = Mockito.mock(dialect, Mockito.CALLS_REAL_METHODS);
+                    String[] values = {"2020-01-02T04:01:00.111333Z", "1969-12-31T23:59:59.999999Z",
+                        "2023-11-05T08:30:00.123456Z", "2023-11-05T09:30:00.123456Z", "2020-01-02T00:00:00Z", null};
+                    String parameters = String.join(", ", java.util.Collections.nCopies(types.length + 1, "?"));
+                    try (java.sql.PreparedStatement insert = connection.prepareStatement(
+                            "INSERT INTO " + table + " VALUES (" + parameters + ")")) {
+                        executor.preparedStatement = insert;
+                        java.lang.reflect.Method insertNull = BaseJdbcExecutor.class.getDeclaredMethod(
+                                "insertNullColumn", int.class, ColumnType.Type.class);
+                        insertNull.setAccessible(true);
+                        for (int row = 0; row < values.length; ++row) {
+                            insert.setInt(1, row);
+                            for (int col = 0; col < types.length; ++col) {
+                                if (values[row] == null) {
+                                    insertNull.invoke(executor, col + 2, ColumnType.Type.TIMESTAMPTZ);
+                                } else {
+                                    executor.setTimestampTz(col + 2,
+                                            LocalDateTime.ofInstant(Instant.parse(values[row]), ZoneOffset.UTC));
+                                }
+                            }
+                            insert.addBatch();
+                        }
+                        insert.executeBatch();
+                    }
+                    // Check the stored instant independently of the JVM, remote session, and declared column zone.
+                    try (ResultSet rows = ddl.executeQuery("SELECT " + String.join(", ", projections)
+                            + " FROM " + table + " ORDER BY id")) {
+                        for (String text : values) {
+                            Assertions.assertTrue(rows.next());
+                            for (int col = 1; col <= types.length; ++col) {
+                                Instant actual;
+                                if (dialect == ClickHouseJdbcExecutor.class) {
+                                    long micros = rows.getLong(col);
+                                    actual = rows.wasNull() ? null : Instant.ofEpochSecond(Math.floorDiv(micros, 1_000_000),
+                                            Math.floorMod(micros, 1_000_000) * 1000);
+                                } else if (dialect == TrinoJdbcExecutor.class) {
+                                    java.time.ZonedDateTime value = rows.getObject(col, java.time.ZonedDateTime.class);
+                                    actual = value == null ? null : value.toInstant();
+                                } else {
+                                    java.time.OffsetDateTime value = rows.getObject(col, java.time.OffsetDateTime.class);
+                                    actual = value == null ? null : value.toInstant();
+                                }
+                                Assertions.assertEquals(text == null ? null : Instant.parse(text), actual);
+                            }
+                        }
+                        Assertions.assertFalse(rows.next());
+                    }
+                } finally {
+                    ddl.execute("DROP TABLE " + table);
+                }
+            }
+        });
+    }
+
     private void withDriver(String prefix, String driverClass, Check check) throws Exception {
         TimeZone original = TimeZone.getDefault();
         URL jar = new File(System.getProperty(prefix + ".integration.driverJar")).toURI().toURL();

@@ -42,6 +42,12 @@ public class ClickHouseJdbcExecutor extends BaseJdbcExecutor {
     }
 
     @Override
+    protected void setTimestampTz(int parameterIndex, LocalDateTime value) throws SQLException {
+        // ClickHouse JDBC v2 encodes Timestamp as local fields, but OffsetDateTime as an epoch-based instant.
+        preparedStatement.setObject(parameterIndex, value.atOffset(ZoneOffset.UTC));
+    }
+
+    @Override
     protected void initializeBlock(int columnCount, String[] replaceStringList, int batchSizeNum,
             VectorTable outputTable) {
         for (int i = 0; i < columnCount; ++i) {

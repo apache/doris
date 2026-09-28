@@ -29,17 +29,35 @@ import java.sql.Array;
 import java.sql.Date;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.sql.Types;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
 public class TrinoJdbcExecutor extends BaseJdbcExecutor {
+    private static final DateTimeFormatter TIMESTAMP_TZ_WRITE_FORMATTER =
+            DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss.SSSSSS");
+
     public TrinoJdbcExecutor(byte[] thriftParams) throws Exception {
         super(thriftParams);
+    }
+
+    @Override
+    protected void setTimestampTz(int parameterIndex, LocalDateTime value) throws SQLException {
+        // Trino/Presto require a string for typed zoned binds; Timestamp drops the zone and sub-millisecond digits.
+        preparedStatement.setObject(parameterIndex, value.format(TIMESTAMP_TZ_WRITE_FORMATTER) + " UTC",
+                Types.TIMESTAMP_WITH_TIMEZONE);
+    }
+
+    @Override
+    protected void setTimestampTzNull(int parameterIndex) throws SQLException {
+        // These drivers reject TIMESTAMP_WITH_TIMEZONE in setNull; SQL NULL is coerced by the target column.
+        preparedStatement.setNull(parameterIndex, Types.NULL);
     }
 
     @Override

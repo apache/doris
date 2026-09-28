@@ -34,7 +34,9 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Clob;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.sql.Types;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 
 public class OracleJdbcExecutor extends BaseJdbcExecutor {
     private static final Logger LOG = Logger.getLogger(OracleJdbcExecutor.class);
@@ -44,6 +46,12 @@ public class OracleJdbcExecutor extends BaseJdbcExecutor {
     public OracleJdbcExecutor(byte[] thriftParams) throws Exception {
         super(thriftParams);
         isNewJdbcVersion = isJdbcVersionGreaterThanOrEqualTo("12.2.0");
+    }
+
+    @Override
+    protected void setTimestampTz(int parameterIndex, LocalDateTime value) throws SQLException {
+        // An unzoned TIMESTAMP bind is session-local for both Oracle TZ and LOCAL TIME ZONE columns.
+        preparedStatement.setObject(parameterIndex, value.atOffset(ZoneOffset.UTC), Types.TIMESTAMP_WITH_TIMEZONE);
     }
 
     @Override

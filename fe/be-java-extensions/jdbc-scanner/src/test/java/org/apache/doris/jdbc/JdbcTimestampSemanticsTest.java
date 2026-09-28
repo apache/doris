@@ -215,7 +215,8 @@ class JdbcTimestampSemanticsTest {
         try {
             java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("Asia/Shanghai"));
             insert.invoke(executor, 0, 0, column);
-            Mockito.verify(executor.preparedStatement).setObject(1, Timestamp.from(INSTANT));
+            Mockito.verify(executor.preparedStatement).setObject(1, INSTANT.atOffset(ZoneOffset.UTC),
+                    java.sql.Types.TIMESTAMP_WITH_TIMEZONE);
         } finally {
             java.util.TimeZone.setDefault(previous);
         }

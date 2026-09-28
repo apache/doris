@@ -29,6 +29,7 @@ import java.math.BigDecimal;
 import java.sql.Date;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.sql.Types;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -53,6 +54,12 @@ public class PostgreSQLJdbcExecutor extends BaseJdbcExecutor {
 
     public PostgreSQLJdbcExecutor(byte[] thriftParams) throws Exception {
         super(thriftParams);
+    }
+
+    @Override
+    protected void setTimestampTz(int parameterIndex, LocalDateTime value) throws SQLException {
+        // Declare the parameter as an instant so PostgreSQL never interprets UTC fields in its session zone.
+        preparedStatement.setObject(parameterIndex, value.atOffset(ZoneOffset.UTC), Types.TIMESTAMP_WITH_TIMEZONE);
     }
 
     @Override

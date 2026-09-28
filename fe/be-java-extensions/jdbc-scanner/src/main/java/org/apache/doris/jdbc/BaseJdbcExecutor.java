@@ -682,6 +682,10 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         preparedStatement.setObject(parameterIndex, Timestamp.from(value.toInstant(java.time.ZoneOffset.UTC)));
     }
 
+    protected void setTimestampTzNull(int parameterIndex) throws SQLException {
+        preparedStatement.setNull(parameterIndex, Types.TIMESTAMP_WITH_TIMEZONE);
+    }
+
     private void insertColumn(int rowIdx, int colIdx, VectorColumn column) throws SQLException {
         int parameterIndex = colIdx + 1;
         ColumnType.Type dorisType = column.getColumnPrimitiveType();
@@ -784,7 +788,7 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 preparedStatement.setNull(parameterIndex, Types.TIMESTAMP);
                 break;
             case TIMESTAMPTZ:
-                preparedStatement.setNull(parameterIndex, Types.TIMESTAMP_WITH_TIMEZONE);
+                setTimestampTzNull(parameterIndex);
                 break;
             case CHAR:
             case VARCHAR:

@@ -77,7 +77,8 @@ suite("test_pg_all_types_select", "p0,external,pg,external_docker,external_docke
                     sql("select id from ${rangeTable} where event_time <=> other_time order by id"))
             assertEquals([[2]], sql("select id from ${rangeTable} where event_time = other_time"))
             assertEquals([[1]], sql("select id from ${rangeTable} where event_time is null order by id limit 1"))
-            assertEquals([[1]], sql("select count(event_time) from ${rangeTable}"))
+            // COUNT returns JDBC BIGINT (Long); nested JUnit list equality also compares numeric types.
+            assertEquals([[1L]], sql("select count(event_time) from ${rangeTable}"))
         } finally {
             executeRangeDdl("DROP TABLE IF EXISTS ${rangeTable}")
         }
