@@ -307,7 +307,7 @@ under the License.
         <thrift.version>0.24.0</thrift.version>
         <tomcat-embed.version>9.0.104</tomcat-embed.version>
         <log4j2.version>2.25.5</log4j2.version>
-        <log4j-1.2.version>2.25.4</log4j-1.2.version>
+        <log4j-1.2.version>2.25.5</log4j-1.2.version>
         <slf4j.version>2.0.17</slf4j.version>
         <metrics-core.version>4.0.2</metrics-core.version>
         <resilience4j.version>2.4.0</resilience4j.version>
@@ -2034,8 +2034,9 @@ under the License.
                     <!-- Same reasoning as be-java-extensions/trino-connector-scanner: TrinoBootstrap
                          only wires FeaturesConfig/TypeRegistry/ConnectorServicesProvider for query
                          planning, never io.airlift.bootstrap.Bootstrap or io.airlift.http.server -
-                         FE never starts Trino's own HTTP server. Excludes jetty-servlet and the
-                         http2-client/http2-server it brings along with it. -->
+                         FE never starts Trino's own HTTP server. Drops the Jetty server side it brings
+                         (jetty-server, jetty-servlet, jetty-security, jetty-jmx, http2-server);
+                         http2-client stays, it comes from io.airlift:http-client. -->
                     <exclusion>
                         <artifactId>http-server</artifactId>
                         <groupId>io.airlift</groupId>
