@@ -18,6 +18,7 @@
 #include "aws_common.h"
 
 #include <aws/core/auth/GeneralHTTPCredentialsProvider.h>
+#include <aws/core/client/ClientConfiguration.h>
 #include <aws/core/platform/Environment.h>
 #include <aws/core/utils/memory/AWSMemory.h>
 #include <glog/logging.h>
@@ -142,4 +143,13 @@ std::string get_valid_ca_cert_path(const std::vector<std::string>& ca_cert_file_
     }
     return "";
 }
+
+void set_s3_client_default_http_scheme(Aws::Client::ClientConfiguration& client_config,
+                                       const std::string& scheme) {
+    if (client_config.endpointOverride.starts_with("http://") ||
+        client_config.endpointOverride.starts_with("https://")) {
+        return;
+    }
+    client_config.scheme = scheme == "http" ? Aws::Http::Scheme::HTTP : Aws::Http::Scheme::HTTPS;
 }
+} // namespace doris
