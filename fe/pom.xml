@@ -311,8 +311,12 @@ under the License.
         <slf4j.version>2.0.17</slf4j.version>
         <metrics-core.version>4.0.2</metrics-core.version>
         <resilience4j.version>2.4.0</resilience4j.version>
-        <!-- Keep Netty compatible with Arrow Flight SQL 19 and other transitive Netty users. -->
-        <netty-all.version>4.2.15.Final</netty-all.version>
+        <!-- Keep Netty compatible with Arrow Flight SQL 19 and other transitive Netty users.
+             4.2.17.Final fixes the default-SNI handling of fragmented TLS ClientHello records:
+             CVE-2026-75595 (routing bypass, falls back to the default SslContext) and
+             CVE-2026-75596 (quadratic pre-handshake reassembly). Both are reachable pre-auth on
+             the FE's TLS-terminating ports, so keep this at or above 4.2.17.Final. -->
+        <netty-all.version>4.2.17.Final</netty-all.version>
         <!-- OpenTelemetry versions before 1.62.0 allow unbounded allocation while parsing W3C
              baggage (CVE-2026-45292); align the complete OpenTelemetry graph on the fixed BOM. -->
         <opentelemetry.version>1.62.0</opentelemetry.version>
@@ -412,9 +416,11 @@ under the License.
         <!-- Matches the jersey-core the FE already carries; only the Ranger plugins ask for it. -->
         <jersey.version>1.19.4</jersey.version>
         <!-- Huawei IAM pulls bcprov-jdk15on 1.69, whose final 1.70 release is vulnerable to
-             CVE-2023-33202. Use the compatible jdk18on line at 1.84, which also fixes
-             CVE-2025-14813, CVE-2026-0636, CVE-2026-3505, CVE-2026-5588, and CVE-2026-5598. -->
-        <bcprov-jdk18on.version>1.84</bcprov-jdk18on.version>
+             CVE-2023-33202. Use the compatible jdk18on line at 1.85, which also fixes
+             CVE-2025-14813, CVE-2026-0636, CVE-2026-3505, CVE-2026-5588, CVE-2026-5598,
+             CVE-2026-8763 (Name Constraints bypass via a trailing dot in rfc822Name/URI) and
+             CVE-2026-13506 (lazy ASN.1 sequence forcing resets the nesting-depth guard). -->
+        <bcprov-jdk18on.version>1.85</bcprov-jdk18on.version>
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
