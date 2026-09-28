@@ -82,6 +82,22 @@ public class FoldLiteralArgumentsTest {
                 DateTrunc.class);
         Assertions.assertFalse(stringValue.child(0) instanceof Literal, stringValue.toSql());
         Assertions.assertEquals(DateTimeV2Type.of(6), stringValue.getDataType());
+        // the time unit next to a typed date literal is folded
+        assertLiteral(analyze("select date_trunc(DATE '2024-03-15', concat('mon', 'th'))", DateTrunc.class).child(1));
+        assertLiteral(analyze("select date_trunc(concat('ye', 'ar'), TIMESTAMP '2024-03-15 10:00:00')",
+                DateTrunc.class).child(0));
+        // when both arguments are foldable strings, only the time unit is folded, so the return type is the same
+        // as with a literal time unit
+        DateTrunc bothFoldable = analyze("select date_trunc(concat('2024-01-01 01:02:03+08:00', ''),"
+                + " concat('mon', 'th'))", DateTrunc.class);
+        Assertions.assertFalse(bothFoldable.child(0) instanceof Literal, bothFoldable.toSql());
+        assertLiteral(bothFoldable.child(1));
+        Assertions.assertEquals(analyze("select date_trunc(concat('2024-01-01 01:02:03+08:00', ''), 'month')",
+                DateTrunc.class).getDataType(), bothFoldable.getDataType());
+        DateTrunc bothFoldableUnitFirst = analyze("select date_trunc(concat('mon', 'th'),"
+                + " concat('2024-01-01 01:02:03+08:00', ''))", DateTrunc.class);
+        assertLiteral(bothFoldableUnitFirst.child(0));
+        Assertions.assertFalse(bothFoldableUnitFirst.child(1) instanceof Literal, bothFoldableUnitFirst.toSql());
 
         Random rand = analyze("select rand(1 + 1)", Random.class);
         assertLiteral(rand.child(0));
@@ -110,6 +126,13 @@ public class FoldLiteralArgumentsTest {
                 + " concat('1', '&2'))" + table, OrthogonalBitmapExprCalculate.class).child(2));
         assertLiteral(analyze("select orthogonal_bitmap_expr_calculate_count(to_bitmap(k), cast(k as varchar),"
                 + " concat('1', '&2'))" + table, OrthogonalBitmapExprCalculateCount.class).child(2));
+        // a STRING formula is accepted before the type coercion casts it to VARCHAR
+        assertLiteral(analyze("select orthogonal_bitmap_expr_calculate(to_bitmap(k), cast(k as varchar),"
+                + " concat(cast('1' as string), cast('&2' as string)))" + table,
+                OrthogonalBitmapExprCalculate.class).child(2));
+        assertLiteral(analyze("select orthogonal_bitmap_expr_calculate_count(to_bitmap(k), cast(k as varchar),"
+                + " concat(cast('1' as string), cast('&2' as string)))" + table,
+                OrthogonalBitmapExprCalculateCount.class).child(2));
         assertLiteral(analyze("select topn(s, 1 + 1)" + table, TopN.class).child(1));
         assertLiteral(analyze("select topn_array(s, 1 + 1)" + table, TopNArray.class).child(1));
         assertLiteral(analyze("select topn_weighted(s, k, 1 + 1)" + table, TopNWeighted.class).child(2));
@@ -130,6 +153,8 @@ public class FoldLiteralArgumentsTest {
         assertAnalysisError("select split_by_regexp('a,b,c', ',', 0 - 1)", "must be a positive constant");
         assertAnalysisError("select array_apply([1, 2, 3], concat('>', '>'), 2)", "op support =, >=, <=, >, <, !=");
         assertAnalysisError("select date_trunc(cast('2024-03-15 10:00:00' as datetime), concat('mon', 'x'))",
+                "date_trunc function time unit param only support argument is");
+        assertAnalysisError("select date_trunc(DATE '2024-03-15', concat('mon', 'x'))",
                 "date_trunc function time unit param only support argument is");
         assertAnalysisError("select now(3 + 7)", "Precision of NOW must be between 0 and");
         assertAnalysisError("select embed(concat('no_such_', 'resource'), 'x')",

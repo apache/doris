@@ -45,6 +45,15 @@ k	tinyint	Yes	true	\N
 c1	datetime(6)	Yes	true	\N	
 c2	datetime(6)	Yes	true	\N	
 
+-- !date_trunc_typed_date --
+2024-03-01	2024-01-01T00:00
+
+-- !date_trunc_both_foldable_type --
+k	tinyint	Yes	true	\N	
+c1	datetime(6)	Yes	true	\N	
+c2	datetime(6)	Yes	true	\N	
+c3	datetime(6)	Yes	false	\N	NONE
+
 -- !sequence_match --
 true
 
@@ -55,6 +64,12 @@ true
 1,2
 
 -- !orthogonal_bitmap_expr_calculate_count --
+2
+
+-- !orthogonal_bitmap_expr_calculate_string --
+1,2
+
+-- !orthogonal_bitmap_expr_calculate_count_string --
 2
 
 -- !topn --

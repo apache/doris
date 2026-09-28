@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+
 /**
  * Functions whose legality checks require some constant arguments to be literals.
  * The analyzer folds these arguments on FE before checkLegalityBeforeTypeCoercion,
@@ -25,4 +27,9 @@ package org.apache.doris.nereids.trees.expressions.functions;
 public interface FoldLiteralArguments {
     /** whether the argument at the given index must be folded to a literal before the legality checks */
     boolean needFoldToLiteral(int index);
+
+    /** whether the literal the argument at the given index folds to replaces the argument */
+    default boolean acceptFoldedLiteral(int index, Literal folded) {
+        return true;
+    }
 }
