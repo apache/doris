@@ -1207,8 +1207,25 @@ public class MTMVTask extends AbstractTask {
                 throw new JobException(e.getMessage(), e);
             }
             recordRefreshCompleted(execPartitionNames);
-            partitionSnapshots.putAll(execPartitionSnapshots);
-            commitCapturedEpochs(batchCapturedEpochs);
+            // What this batch may record: everything it replaced, unless the read behind it answered with a
+            // base table the MV does not partition by as of an older state than that table is in now -- which
+            // a partial read does for the partitions holding data the stream offset has not consumed, and it
+            // is the delta that follows that brings the table up to date. For the partitions this batch
+            // replaced, that delta does not apply: they are kept out of its scope, so a delta computed against
+            // the rows a rebuild replaced cannot be applied twice. Recording them would say they hold the
+            // table's current state when they hold that image, and nothing would plan them again. Left
+            // unrecorded, the requirement stays, the MV keeps the snapshot it has rather than one claiming the
+            // current state, and a later refresh rebuilds them -- by then the offset has been consumed, so a
+            // rebuild reads the table as it is. What the read answered with is recorded where the read is
+            // planned; see IvmFullRefreshMTMV#readsAnOlderImage.
+            if (rewriteContext.map(IvmRewriteContext::isReadFromAStreamOffset).orElse(false)) {
+                LOG.info("Not recording the {} partitions of mv={} as caught up: their read answered with a "
+                        + "base table as of an older state than it is in now, taskId={}",
+                        execPartitionNames.size(), mtmv.getName(), getTaskId());
+            } else {
+                partitionSnapshots.putAll(execPartitionSnapshots);
+                commitCapturedEpochs(batchCapturedEpochs);
+            }
         }
         if (capturePlanSignature) {
             refreshedIvmPlanSignature = refreshedPlanSignature.getSha256();
