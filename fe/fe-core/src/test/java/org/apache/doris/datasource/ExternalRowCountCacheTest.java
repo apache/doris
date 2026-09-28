@@ -132,12 +132,32 @@ public class ExternalRowCountCacheTest {
         };
         @SuppressWarnings("unchecked")
         MetaCache<ExternalTable> tableCache = Mockito.mock(MetaCache.class);
-        Mockito.when(tableCache.retireObjects()).thenReturn(() -> { });
+        CountDownLatch generationSwap = new CountDownLatch(1);
+        CountDownLatch completeSwap = new CountDownLatch(1);
+        Mockito.when(tableCache.retireObjects()).thenReturn(() -> {
+            generationSwap.countDown();
+            Uninterruptibles.awaitUninterruptibly(completeSwap);
+        });
         Field metaCacheField = ExternalDatabase.class.getDeclaredField("metaCache");
         metaCacheField.setAccessible(true);
         metaCacheField.set(db, tableCache);
 
-        db.resetMetaToUninitialized();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> reset = executor.submit(() -> {
+                db.resetMetaToUninitialized();
+            });
+            Assertions.assertTrue(generationSwap.await(10, TimeUnit.SECONDS));
+            // The replacement cache has been published while routed invalidation and the final
+            // fence have not run yet. The opening fence must already be visible.
+            Mockito.verify(cacheMgr).invalidateRowCountCache(1L, 2L);
+            Mockito.verify(cacheMgr, Mockito.never()).invalidateDb(db);
+            completeSwap.countDown();
+            reset.get(10, TimeUnit.SECONDS);
+        } finally {
+            completeSwap.countDown();
+            executor.shutdownNow();
+        }
 
         org.mockito.InOrder order = Mockito.inOrder(cacheMgr, tableCache);
         order.verify(cacheMgr).invalidateRowCountCache(1L, 2L);
