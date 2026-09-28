@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.FoldLiteralArguments;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DoubleType;
@@ -38,7 +39,7 @@ import java.util.List;
  * - If min/max are both integers, returns integer; otherwise returns double
  */
 public class Uniform extends ScalarFunction
-        implements ExplicitlyCastableSignature {
+        implements ExplicitlyCastableSignature, FoldLiteralArguments {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE, BigIntType.INSTANCE,
@@ -56,6 +57,11 @@ public class Uniform extends ScalarFunction
     /** constructor for withChildren and reuse signature */
     private Uniform(ScalarFunctionParams functionParams) {
         super(functionParams);
+    }
+
+    @Override
+    public boolean needFoldToLiteral(int index) {
+        return index == 0 || index == 1;
     }
 
     @Override

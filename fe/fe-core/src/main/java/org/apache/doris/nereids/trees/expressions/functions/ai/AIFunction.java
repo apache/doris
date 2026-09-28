@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.FoldLiteralArguments;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -34,7 +35,7 @@ import com.google.common.base.Strings;
  * Base class for AI related functions.
  */
 public abstract class AIFunction extends ScalarFunction
-        implements PropagateNullable, ExplicitlyCastableSignature {
+        implements PropagateNullable, ExplicitlyCastableSignature, FoldLiteralArguments {
     /**
      * constructor with at least 1 argument.
      */
@@ -46,6 +47,12 @@ public abstract class AIFunction extends ScalarFunction
     }
 
     public abstract int getMaxArgsNum();
+
+    @Override
+    public boolean needFoldToLiteral(int index) {
+        // the resource name
+        return index == 0 && arity() == getMaxArgsNum();
+    }
 
     @Override
     public void checkLegalityAfterRewrite() {
