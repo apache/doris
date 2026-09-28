@@ -97,7 +97,7 @@ TEST_F(KeyProbeTest, NotFoundReportsNewRow) {
     RowKeyEncoder encoder {*schema, /*mow=*/true};
 
     std::vector<RowsetSharedPtr> rowsets {rowset};
-    std::vector<std::unique_ptr<SegmentCacheHandle>> caches(rowsets.size());
+    std::vector<std::unique_ptr<RowsetSegmentCache>> caches(rowsets.size());
     PartialUpdateStats stats;
     auto probe = make_fill_probe(schema, tablet, mow);
 
@@ -124,7 +124,7 @@ TEST_F(KeyProbeTest, FoundMarksOldRowAndReturnsItsRowset) {
     RowKeyEncoder encoder {*schema, /*mow=*/true};
 
     std::vector<RowsetSharedPtr> rowsets {rowset};
-    std::vector<std::unique_ptr<SegmentCacheHandle>> caches(rowsets.size());
+    std::vector<std::unique_ptr<RowsetSegmentCache>> caches(rowsets.size());
     PartialUpdateStats stats;
     auto probe = make_fill_probe(schema, tablet, mow);
 
@@ -158,7 +158,7 @@ TEST_F(KeyProbeTest, HigherSequenceWins) {
     RowKeyEncoder encoder {*schema, /*mow=*/true};
 
     std::vector<RowsetSharedPtr> rowsets {rowset};
-    std::vector<std::unique_ptr<SegmentCacheHandle>> caches(rowsets.size());
+    std::vector<std::unique_ptr<RowsetSegmentCache>> caches(rowsets.size());
     PartialUpdateStats stats;
     auto probe = make_fill_probe(schema, tablet, mow);
 
@@ -184,7 +184,7 @@ TEST_F(KeyProbeTest, EqualSequenceIsFoundNotFoundNewer) {
     RowKeyEncoder encoder {*schema, /*mow=*/true};
 
     std::vector<RowsetSharedPtr> rowsets {rowset};
-    std::vector<std::unique_ptr<SegmentCacheHandle>> caches(rowsets.size());
+    std::vector<std::unique_ptr<RowsetSegmentCache>> caches(rowsets.size());
     PartialUpdateStats stats;
     auto probe = make_fill_probe(schema, tablet, mow);
 
@@ -209,7 +209,7 @@ TEST_F(KeyProbeTest, DeleteSignOnMissingKeyIsStillANewRow) {
     RowKeyEncoder encoder {*schema, /*mow=*/true};
 
     std::vector<RowsetSharedPtr> rowsets {rowset};
-    std::vector<std::unique_ptr<SegmentCacheHandle>> caches(rowsets.size());
+    std::vector<std::unique_ptr<RowsetSegmentCache>> caches(rowsets.size());
     PartialUpdateStats stats;
     auto probe = make_fill_probe(schema, tablet, mow);
 
@@ -236,7 +236,7 @@ TEST_F(KeyProbeTest, FoundNewerMarksTheIncomingRow) {
     RowKeyEncoder encoder {*schema, /*mow=*/true};
 
     std::vector<RowsetSharedPtr> rowsets {rowset};
-    std::vector<std::unique_ptr<SegmentCacheHandle>> caches(rowsets.size());
+    std::vector<std::unique_ptr<RowsetSegmentCache>> caches(rowsets.size());
     PartialUpdateStats stats;
     // a segment id other than 0, so the mark has to come from the probe's writing_segment_id
     auto probe = make_fill_probe(schema, tablet, mow, /*flexible=*/false, /*writing_segment_id=*/3);
@@ -267,7 +267,7 @@ TEST_F(KeyProbeTest, FoundNewerReadsOldRowWhenDefaultsForSeqLoserIsOff) {
     RowKeyEncoder encoder {*schema, /*mow=*/true};
 
     std::vector<RowsetSharedPtr> rowsets {rowset};
-    std::vector<std::unique_ptr<SegmentCacheHandle>> caches(rowsets.size());
+    std::vector<std::unique_ptr<RowsetSegmentCache>> caches(rowsets.size());
     PartialUpdateStats stats;
     auto policy = fill_policy();
     policy.use_defaults_for_seq_loser = false;
@@ -294,7 +294,7 @@ TEST_F(KeyProbeTest, DeleteSignTakesDefaultsOnlyWithoutSequenceColumn) {
         RowKeyEncoder encoder {*schema, /*mow=*/true};
 
         std::vector<RowsetSharedPtr> rowsets {rowset};
-        std::vector<std::unique_ptr<SegmentCacheHandle>> caches(rowsets.size());
+        std::vector<std::unique_ptr<RowsetSegmentCache>> caches(rowsets.size());
         PartialUpdateStats stats;
         auto probe = make_fill_probe(schema, tablet, mow);
 
@@ -320,7 +320,7 @@ TEST_F(KeyProbeTest, DeleteSignReadsHistoryWhenDefaultsForDeleteSignedIsOff) {
     RowKeyEncoder encoder {*schema, /*mow=*/true};
 
     std::vector<RowsetSharedPtr> rowsets {rowset};
-    std::vector<std::unique_ptr<SegmentCacheHandle>> caches(rowsets.size());
+    std::vector<std::unique_ptr<RowsetSegmentCache>> caches(rowsets.size());
     PartialUpdateStats stats;
     auto policy = fill_policy();
     policy.use_defaults_for_delete_signed = false;
@@ -344,7 +344,7 @@ TEST_F(KeyProbeTest, MarkNoneLeavesTheDeleteBitmapAlone) {
     RowKeyEncoder encoder {*schema, /*mow=*/true};
 
     std::vector<RowsetSharedPtr> rowsets {rowset};
-    std::vector<std::unique_ptr<SegmentCacheHandle>> caches(rowsets.size());
+    std::vector<std::unique_ptr<RowsetSegmentCache>> caches(rowsets.size());
     PartialUpdateStats stats;
     // through the factory the row binlog retriever calls, so its MarkDeleted::NONE is pinned here
     auto probe = MowKeyProbe::for_row_binlog(tablet.get(), schema.get(), schema->has_sequence_col(),
@@ -378,7 +378,7 @@ TEST_F(KeyProbeTest, OldRowModeNeverMarksTheIncomingRow) {
     RowKeyEncoder encoder {*schema, /*mow=*/true};
 
     std::vector<RowsetSharedPtr> rowsets {rowset};
-    std::vector<std::unique_ptr<SegmentCacheHandle>> caches(rowsets.size());
+    std::vector<std::unique_ptr<RowsetSegmentCache>> caches(rowsets.size());
     PartialUpdateStats stats;
     MowKeyProbe::Policy policy {
             .mark_deleted = MowKeyProbe::MarkDeleted::OLD_ROW,
@@ -420,7 +420,7 @@ TEST_F(KeyProbeTest, InLoadDeletedTreatsReinsertAsNewRow) {
         mow->delete_bitmap->add({rowset->rowset_id(), 0, DeleteBitmap::TEMP_VERSION_COMMON}, 0);
 
         std::vector<RowsetSharedPtr> rowsets {rowset};
-        std::vector<std::unique_ptr<SegmentCacheHandle>> caches(rowsets.size());
+        std::vector<std::unique_ptr<RowsetSegmentCache>> caches(rowsets.size());
         PartialUpdateStats stats;
         auto probe =
                 make_fill_probe(schema, tablet, mow, /*flexible=*/use_defaults_for_in_load_deleted);
@@ -445,7 +445,7 @@ TEST_F(KeyProbeTest, ProbePreviousSeqValueReturnsTheOldRowSequence) {
     RowKeyEncoder encoder {*schema, /*mow=*/true};
 
     std::vector<RowsetSharedPtr> rowsets {rowset};
-    std::vector<std::unique_ptr<SegmentCacheHandle>> caches(rowsets.size());
+    std::vector<std::unique_ptr<RowsetSegmentCache>> caches(rowsets.size());
     auto probe = make_fill_probe(schema, tablet, mow);
 
     auto hit = probe.probe_previous_seq_value(encode_key(schema, encoder, 1), rowsets, caches);

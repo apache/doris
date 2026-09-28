@@ -55,7 +55,7 @@ namespace segment_v2 {
 class MowKeyProbe;
 }
 
-class SegmentCacheHandle;
+class RowsetSegmentCache;
 
 struct PartialUpdateInfo {
     Status init(int64_t tablet_id, int64_t txn_id, const TabletSchema& tablet_schema,
@@ -230,7 +230,7 @@ public:
     // DELETE-then-INSERT pair.
     Status aggregate_for_flexible_partial_update(
             Block* block, size_t num_rows, const std::vector<RowsetSharedPtr>& specified_rowsets,
-            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+            std::vector<std::unique_ptr<RowsetSegmentCache>>& segment_caches,
             std::vector<int64_t>* row_lsns = nullptr,
             std::vector<uint8_t>* insert_after_delete_flags = nullptr);
 
@@ -239,12 +239,12 @@ private:
             Block* block, int num_rows, const std::vector<IOlapColumnDataAccessor*>& key_columns,
             IOlapColumnDataAccessor* seq_column,
             const std::vector<RowsetSharedPtr>& specified_rowsets,
-            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+            std::vector<std::unique_ptr<RowsetSegmentCache>>& segment_caches,
             std::vector<int64_t>* row_lsns);
     Status aggregate_for_insert_after_delete(
             Block* block, size_t num_rows, const std::vector<IOlapColumnDataAccessor*>& key_columns,
             const std::vector<RowsetSharedPtr>& specified_rowsets,
-            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+            std::vector<std::unique_ptr<RowsetSegmentCache>>& segment_caches,
             std::vector<int64_t>* row_lsns, std::vector<uint8_t>* insert_after_delete_flags);
     Status filter_block(Block* block, size_t num_rows, MutableColumnPtr filter_column,
                         int duplicate_rows, std::string col_name);
@@ -268,7 +268,7 @@ private:
                           std::string key, std::vector<BitmapValue>* skip_bitmaps,
                           const signed char* delete_signs, IOlapColumnDataAccessor* seq_column,
                           const std::vector<RowsetSharedPtr>& specified_rowsets,
-                          std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
+                          std::vector<std::unique_ptr<RowsetSegmentCache>>& segment_caches);
 
     Status _generate_encoded_default_seq_value(std::string* encoded_value);
 

@@ -980,7 +980,7 @@ Status BlockAggregator::aggregate_rows(
         MutableBlock& output_block, Block* block, int start, int end, std::string key,
         std::vector<BitmapValue>* skip_bitmaps, const signed char* delete_signs,
         IOlapColumnDataAccessor* seq_column, const std::vector<RowsetSharedPtr>& specified_rowsets,
-        std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches) {
+        std::vector<std::unique_ptr<RowsetSegmentCache>>& segment_caches) {
     VLOG_DEBUG << fmt::format("merge rows in range=[{}-{})", start, end);
     if (end - start == 1) {
         output_block.add_row(block, start);
@@ -1091,7 +1091,7 @@ Status BlockAggregator::_generate_encoded_default_seq_value(std::string* encoded
 Status BlockAggregator::aggregate_for_sequence_column(
         Block* block, int num_rows, const std::vector<IOlapColumnDataAccessor*>& key_columns,
         IOlapColumnDataAccessor* seq_column, const std::vector<RowsetSharedPtr>& specified_rowsets,
-        std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+        std::vector<std::unique_ptr<RowsetSegmentCache>>& segment_caches,
         std::vector<int64_t>* row_lsns) {
     DCHECK_EQ(block->columns(), _tablet_schema.num_columns());
     DCHECK(row_lsns == nullptr || row_lsns->size() == num_rows);
@@ -1178,7 +1178,7 @@ Status BlockAggregator::fill_sequence_column(Block* block, size_t num_rows,
 Status BlockAggregator::aggregate_for_insert_after_delete(
         Block* block, size_t num_rows, const std::vector<IOlapColumnDataAccessor*>& key_columns,
         const std::vector<RowsetSharedPtr>& specified_rowsets,
-        std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+        std::vector<std::unique_ptr<RowsetSegmentCache>>& segment_caches,
         std::vector<int64_t>* row_lsns, std::vector<uint8_t>* insert_after_delete_flags) {
     DCHECK_EQ(block->columns(), _tablet_schema.num_columns());
     DCHECK(row_lsns == nullptr || row_lsns->size() == num_rows);
@@ -1345,7 +1345,7 @@ Status BlockAggregator::convert_seq_column(Block* block, size_t row_pos, size_t 
 
 Status BlockAggregator::aggregate_for_flexible_partial_update(
         Block* block, size_t num_rows, const std::vector<RowsetSharedPtr>& specified_rowsets,
-        std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+        std::vector<std::unique_ptr<RowsetSegmentCache>>& segment_caches,
         std::vector<int64_t>* row_lsns, std::vector<uint8_t>* insert_after_delete_flags) {
     if (row_lsns != nullptr && row_lsns->size() != num_rows) {
         return Status::InvalidArgument("row binlog LSN count {} does not match row count {}",

@@ -492,7 +492,7 @@ Status PointQueryExecutor::_lookup_row_key() {
     io_ctx.reader_type = ReaderType::READER_QUERY;
     io_ctx.file_cache_stats = &_profile_metrics.read_stats.file_cache_stats;
     io_ctx.remote_scan_cache_write_limiter = _remote_scan_cache_write_limiter.get();
-    std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
+    std::vector<std::unique_ptr<RowsetSegmentCache>> segment_caches(specified_rowsets.size());
     for (size_t i = 0; i < _row_read_ctxs.size(); ++i) {
         RowLocation location;
         if (!config::disable_storage_row_cache) {
@@ -580,8 +580,8 @@ Status PointQueryExecutor::_lookup_row_data() {
                 }
                 // fill missing columns by column store
                 RowLocation row_loc = _row_read_ctxs[i]._row_location.value();
-                BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(
-                        _tablet->get_rowset(row_loc.rowset_id));
+                BetaRowsetSharedPtr rowset =
+                        std::static_pointer_cast<BetaRowset>(*_row_read_ctxs[i]._rowset_ptr);
                 SegmentCacheHandle segment_cache;
                 io::IOContext io_ctx;
                 io_ctx.reader_type = ReaderType::READER_QUERY;
@@ -589,16 +589,13 @@ Status PointQueryExecutor::_lookup_row_data() {
                 io_ctx.remote_scan_cache_write_limiter = _remote_scan_cache_write_limiter.get();
                 {
                     SCOPED_TIMER(&_profile_metrics.load_segment_data_stage_ns);
-                    RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
-                            rowset, &segment_cache, true, false, &_read_stats, &io_ctx));
+                    const auto segment_pos =
+                            DORIS_TRY(rowset->rowset_meta()->position_of(row_loc.segment_id));
+                    RETURN_IF_ERROR(SegmentLoader::instance()->load_segment(
+                            rowset, rowset->segment(segment_pos).ref(), &segment_cache, true, false,
+                            &_read_stats, &io_ctx));
                 }
-                // find segment
-                auto it = std::find_if(segment_cache.get_segments().cbegin(),
-                                       segment_cache.get_segments().cend(),
-                                       [&](const segment_v2::SegmentSharedPtr& seg) {
-                                           return seg->id() == row_loc.segment_id;
-                                       });
-                const auto& segment = *it;
+                const auto& segment = segment_cache.get_segments().back();
                 const auto tablet_schema = _tablet->tablet_schema();
                 for (int cid : _reusable->missing_col_uids()) {
                     int pos = _reusable->get_col_uid_to_idx().at(cid);

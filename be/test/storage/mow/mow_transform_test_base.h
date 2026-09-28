@@ -556,11 +556,11 @@ protected:
         *out_tablet = tablet;
     }
 
-    // Builds and commits a MoW rowset containing `rows` (must be sorted unique by key, like a real
-    // flushed segment). Returns the committed rowset.
+    // Builds and commits a MoW rowset containing `rows`. Keys must be sorted and unique within
+    // each flushed segment. A nonzero rows_per_segment splits the input into multiple segments.
     RowsetSharedPtr write_rowset(const TabletSchemaSPtr& schema, int64_t rowset_numeric_id,
                                  int64_t version, const std::vector<MowRow>& rows,
-                                 TabletSharedPtr* out_tablet) {
+                                 TabletSharedPtr* out_tablet, size_t rows_per_segment = 0) {
         RowsetWriterContext ctx;
         make_rowset_ctx(schema, rowset_numeric_id, version, &ctx, out_tablet);
 
@@ -588,8 +588,25 @@ protected:
         for (size_t cid = (has_seq ? 4 : 3); cid < mcols.size(); ++cid) {
             mcols[cid]->insert_many_defaults(rows.size());
         }
-        EXPECT_TRUE(writer->add_block(&block).ok());
-        EXPECT_TRUE(writer->flush().ok());
+        if (rows_per_segment == 0) {
+            EXPECT_TRUE(writer->add_block(&block).ok());
+            EXPECT_TRUE(writer->flush().ok());
+        } else {
+            for (size_t offset = 0; offset < rows.size(); offset += rows_per_segment) {
+                auto part = block.clone_empty();
+                {
+                    auto guard = part.mutate_columns_scoped();
+                    auto& columns = guard.mutable_columns();
+                    for (size_t cid = 0; cid < columns.size(); ++cid) {
+                        columns[cid]->insert_range_from(
+                                *block.get_by_position(cid).column, offset,
+                                std::min(rows_per_segment, rows.size() - offset));
+                    }
+                }
+                EXPECT_TRUE(writer->add_block(&part).ok());
+                EXPECT_TRUE(writer->flush().ok());
+            }
+        }
         RowsetSharedPtr rowset;
         EXPECT_TRUE(writer->build(rowset).ok());
         EXPECT_TRUE(rowset != nullptr);
