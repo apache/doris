@@ -39,7 +39,6 @@ import com.google.common.collect.Maps;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -370,29 +369,21 @@ public class OlapTableStreamWrapper extends OlapTable {
      * Whether a snapshot read of these partitions answers with the table as of the stream offset rather than
      * with the table as it is now.
      *
-     * <p>It does for the partitions holding data the offset has not consumed: those are rebuilt from the
-     * binlog into the image at that offset, while the rest are read directly. Which partitions those are
-     * depends on the table's key type, because the read is built differently for each -- a merge-on-write
-     * table splits its partitions into the two kinds, and a duplicate-key one reads all of them bounded by
-     * the offset. This is the split {@code NormalizeOlapTableStreamScan} makes when it binds the read, asked
-     * by the refresh that may not record what such a read wrote as the table's current state.
+     * <p>It does for the partitions holding data the offset has not consumed, and only for them: the read
+     * starts by dropping the partitions with no consumption baseline -- there is no offset for them to be
+     * behind, so they are not read through the stream at all -- and reads the rest directly where the offset
+     * has reached the end of the partition, and as the image at that offset where it has not. This is the
+     * same question {@code NormalizeOlapTableStreamScan} answers when it binds the read, asked by the refresh
+     * that may not record such a partition as holding the table's current state.
      *
-     * <p>A partition with no consumption baseline is not counted: there is no offset for the read to be
-     * behind, so it reads the table as it is.
+     * <p>Asked in one expression for both key types: a duplicate-key read is bounded by the offset for every
+     * partition rather than split into the two kinds, and a partition whose offset has reached the end is
+     * read as the table is by either of them.
      */
     public boolean readsSnapshotOfAnOlderImage(List<Long> partitionIds) {
-        if (baseTable.getKeysType().equals(KeysType.DUP_KEYS)) {
-            // Every selected partition is read bounded by its offset, so the question is whether that bound is
-            // behind the end of the partition. The pair here is <consumption or historical tso, table tso> --
-            // not the one getHistoryPartitionOffsets returns, which keeps only the bound. A partition with no
-            // consumption baseline is not behind one it does not have, and the read takes the table as it is.
-            return partitionIds.stream()
-                    .map(outputUpdateMap::get)
-                    .filter(Objects::nonNull)
-                    .anyMatch(offset -> offset.first != null && !offset.first.equals(offset.second));
-        }
-        Set<Long> normal = ImmutableSet.copyOf(filterNormalSnapshotPartitionIds(partitionIds));
-        return partitionIds.stream().anyMatch(partitionId -> !normal.contains(partitionId));
+        List<Long> consumed = filterConsumedPartitionIds(partitionIds);
+        Set<Long> normal = ImmutableSet.copyOf(filterNormalSnapshotPartitionIds(consumed));
+        return consumed.stream().anyMatch(partitionId -> !normal.contains(partitionId));
     }
 
     public List<Long> filterNormalSnapshotPartitionIds(List<Long> partitionIds) {

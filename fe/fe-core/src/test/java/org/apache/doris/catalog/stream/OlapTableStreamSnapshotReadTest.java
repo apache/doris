@@ -50,6 +50,14 @@ public class OlapTableStreamSnapshotReadTest {
 
         Assertions.assertTrue(fixture.wrapper.readsSnapshotOfAnOlderImage(Lists.newArrayList(1L, 2L)));
         Assertions.assertFalse(fixture.wrapper.readsSnapshotOfAnOlderImage(Lists.newArrayList(2L)));
+
+        // A partition with no consumption baseline is not behind an offset it does not have. The read drops
+        // those before it reads anything through the stream, so counting one as an older image withholds
+        // snapshots for a partition that was read as the table is -- and, if it was just populated, leaves it
+        // needing a rebuild it does not owe.
+        Fixture baselineLess = fixture(KeysType.UNIQUE_KEYS, Map.of(2L, 200L),
+                partition(1L, 200L, true), partition(2L, 200L, true));
+        Assertions.assertFalse(baselineLess.wrapper.readsSnapshotOfAnOlderImage(Lists.newArrayList(1L, 2L)));
     }
 
     @Test

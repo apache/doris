@@ -27,6 +27,7 @@ import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.common.Pair;
+import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -262,6 +263,15 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
         OlapTable baseTable = streamWrapper.getBaseTable();
         List<Slot> originSlots = scan.getOutput();
         selectedPartitionIds = streamWrapper.filterConsumedPartitionIds(selectedPartitionIds);
+        // What this read is about to answer with is recorded here, where the plan is final and the read states
+        // are in place, and before the read is built: the refresh that reads it back may not record a
+        // partition it replaced through an image of the table as of the offset as caught up -- what it wrote
+        // is that image, and the delta that would bring the table up to date does not apply to it. See
+        // MTMVTask#executePartitionBasedRefresh.
+        if (streamWrapper.readsSnapshotOfAnOlderImage(selectedPartitionIds)) {
+            cascadesContext.getStatementContext().getIvmRewriteContext()
+                    .ifPresent(IvmRewriteContext::markReadFromAStreamOffset);
+        }
         if (baseTable.getKeysType().equals(KeysType.DUP_KEYS)) {
             // dup key table can just rebuild from base table
             Map<Long, Pair<Long, Long>> partitionOffsetMap =
