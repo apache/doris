@@ -19,7 +19,10 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <sstream>
 #include <string>
+#include <vector>
 
 #include "common/config.h"
 #include "common/metrics/metrics.h"
@@ -58,6 +61,41 @@ protected:
         return body;
     }
 
+    // Prometheus output comes from unordered maps, so neither the order of the metric groups nor
+    // the order of the labels in a sample is fixed. Sort the labels of each line, and sort the
+    // groups, each a "# TYPE" line with its samples.
+    static std::vector<std::string> normalize_prometheus(const std::string& text) {
+        std::vector<std::string> groups;
+        std::istringstream in(text);
+        std::string line;
+        while (std::getline(in, line)) {
+            auto open = line.find('{');
+            auto close = line.rfind('}');
+            if (open != std::string::npos && close != std::string::npos && open < close) {
+                std::vector<std::string> labels;
+                std::string rest = line.substr(open + 1, close - open - 1);
+                size_t start = 0;
+                for (size_t sep; (sep = rest.find("\",", start)) != std::string::npos;
+                     start = sep + 2) {
+                    labels.push_back(rest.substr(start, sep + 1 - start));
+                }
+                labels.push_back(rest.substr(start));
+                std::sort(labels.begin(), labels.end());
+                std::string sorted;
+                for (const auto& label : labels) {
+                    sorted += (sorted.empty() ? "" : ",") + label;
+                }
+                line = line.substr(0, open + 1) + sorted + line.substr(close);
+            }
+            if (line.starts_with("# TYPE ") || groups.empty()) {
+                groups.emplace_back();
+            }
+            groups.back() += line + "\n";
+        }
+        std::sort(groups.begin(), groups.end());
+        return groups;
+    }
+
 private:
     bool _old_enable_all_http_auth = false;
 };
@@ -79,12 +117,11 @@ TEST_F(MetricsActionTest, prometheus_output) {
     cpu_idle->set_value(50);
     put_requests_total->increment(2345);
 
-    EXPECT_EQ(
-            "# TYPE test_cpu_idle gauge\n"
-            "test_cpu_idle 50\n"
-            "# TYPE test_requests_total counter\n"
-            "test_requests_total{path=\"/sports\",type=\"put\"} 2345\n",
-            fetch_metrics(&metric_registry));
+    EXPECT_EQ(normalize_prometheus("# TYPE test_cpu_idle gauge\n"
+                                   "test_cpu_idle 50\n"
+                                   "# TYPE test_requests_total counter\n"
+                                   "test_requests_total{path=\"/sports\",type=\"put\"} 2345\n"),
+              normalize_prometheus(fetch_metrics(&metric_registry)));
 }
 
 } // namespace doris
