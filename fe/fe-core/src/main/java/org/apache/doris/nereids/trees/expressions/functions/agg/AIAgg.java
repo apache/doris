@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.FoldLiteralArguments;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.StringType;
@@ -40,7 +41,8 @@ import java.util.List;
  * AggregateFunction 'AI_AGG'.
  */
 public class AIAgg extends NullableAggregateFunction
-        implements ExplicitlyCastableSignature, NotSupportAggState, NullIgnoringAggregateFunction {
+        implements ExplicitlyCastableSignature, NotSupportAggState, NullIgnoringAggregateFunction,
+        FoldLiteralArguments {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE, StringType.INSTANCE),
@@ -70,6 +72,12 @@ public class AIAgg extends NullableAggregateFunction
      */
     private AIAgg(NullableAggregateFunctionParams functionParams) {
         super(functionParams);
+    }
+
+    @Override
+    public boolean needFoldToLiteral(int index) {
+        // the task, and the resource name when it is given
+        return index == arity() - 1 || (arity() == 3 && index == 0);
     }
 
     @Override

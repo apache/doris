@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.FoldLiteralArguments;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -39,7 +40,7 @@ import java.util.List;
  * GenerateFunction.
  */
 public class SplitByRegexp extends ScalarFunction
-        implements ExplicitlyCastableSignature, PropagateNullable {
+        implements ExplicitlyCastableSignature, PropagateNullable, FoldLiteralArguments {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(ArrayType.of(VarcharType.SYSTEM_DEFAULT))
@@ -73,6 +74,11 @@ public class SplitByRegexp extends ScalarFunction
     public SplitByRegexp withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2 || children.size() == 3);
         return new SplitByRegexp(getFunctionParams(children));
+    }
+
+    @Override
+    public boolean needFoldToLiteral(int index) {
+        return index == 2;
     }
 
     @Override

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.FoldLiteralArguments;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
@@ -38,7 +39,8 @@ import java.util.List;
 /**
  * WidthBucket.
  */
-public class WidthBucket extends ScalarFunction implements ExplicitlyCastableSignature, PropagateNullable {
+public class WidthBucket extends ScalarFunction
+        implements ExplicitlyCastableSignature, PropagateNullable, FoldLiteralArguments {
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BigIntType.INSTANCE).args(DoubleType.INSTANCE,
                     DoubleType.INSTANCE, DoubleType.INSTANCE, TinyIntType.INSTANCE),
@@ -73,6 +75,11 @@ public class WidthBucket extends ScalarFunction implements ExplicitlyCastableSig
     public WidthBucket withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 4);
         return new WidthBucket(getFunctionParams(children));
+    }
+
+    @Override
+    public boolean needFoldToLiteral(int index) {
+        return index == 3;
     }
 
     @Override

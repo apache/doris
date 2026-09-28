@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.FoldLiteralArguments;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 
@@ -27,8 +28,14 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /** SequenceFunction */
-public interface SequenceFunction extends FunctionTrait {
+public interface SequenceFunction extends FunctionTrait, FoldLiteralArguments {
     Pattern EVENT_PATTERN = Pattern.compile("\\(\\?(\\d+)\\)");
+
+    @Override
+    default boolean needFoldToLiteral(int index) {
+        // the pattern
+        return index == 0;
+    }
 
     @Override
     default void checkLegalityBeforeTypeCoercion() {

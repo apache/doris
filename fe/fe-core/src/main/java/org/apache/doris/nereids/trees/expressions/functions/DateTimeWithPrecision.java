@@ -33,7 +33,7 @@ import java.util.Locale;
  *
  * e.g. now(1) return datetime v2(1)
  */
-public abstract class DateTimeWithPrecision extends ScalarFunction {
+public abstract class DateTimeWithPrecision extends ScalarFunction implements FoldLiteralArguments {
 
     public DateTimeWithPrecision(String name, Expression... arguments) {
         super(name, arguments);
@@ -41,6 +41,11 @@ public abstract class DateTimeWithPrecision extends ScalarFunction {
 
     public DateTimeWithPrecision(ScalarFunctionParams functionParams) {
         super(functionParams);
+    }
+
+    @Override
+    public boolean needFoldToLiteral(int index) {
+        return true;
     }
 
     @Override

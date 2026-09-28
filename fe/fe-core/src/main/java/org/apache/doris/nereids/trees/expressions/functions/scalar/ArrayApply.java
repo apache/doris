@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.FoldLiteralArguments;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
@@ -40,7 +41,7 @@ import java.util.List;
  * scalar function array_apply
  */
 public class ArrayApply extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable {
+        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable, FoldLiteralArguments {
     public static final List<FunctionSignature> FOLLOW_DATATYPE_SIGNATURE = ImmutableList.of(
             FunctionSignature.retArgType(0)
                     .args(ArrayType.of(new AnyDataType(0)), VarcharType.SYSTEM_DEFAULT,
@@ -56,18 +57,22 @@ public class ArrayApply extends ScalarFunction
      */
     public ArrayApply(Expression arg0, Expression arg1, Expression arg2) {
         super("array_apply", arg0, arg1, arg2);
-        checkArguments(arg0, arg1, arg2);
     }
 
     /** constructor for withChildren and reuse signature */
     private ArrayApply(ScalarFunctionParams functionParams) {
         super(functionParams);
-        checkArguments(
-                functionParams.arguments.get(0), functionParams.arguments.get(1), functionParams.arguments.get(2)
-        );
     }
 
-    private void checkArguments(Expression arg0, Expression arg1, Expression arg2) {
+    @Override
+    public boolean needFoldToLiteral(int index) {
+        return index == 1;
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        Expression arg1 = getArgument(1);
+        Expression arg2 = getArgument(2);
         if (!(arg1 instanceof StringLikeLiteral)) {
             throw new AnalysisException(
                     "array_apply(arr, op, val): op support const value only.");
@@ -83,10 +88,6 @@ public class ArrayApply extends ScalarFunction
             throw new AnalysisException(
                     "array_apply(arr, op, val): val support const value only.");
         }
-    }
-
-    @Override
-    public void checkLegalityBeforeTypeCoercion() {
         Expression argument = getArgument(0);
         if (!argument.getDataType().isArrayType()) {
             throw new AnalysisException("array_apply does not support type "

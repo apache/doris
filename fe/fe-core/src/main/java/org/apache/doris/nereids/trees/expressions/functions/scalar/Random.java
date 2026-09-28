@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.VolatileIdentity;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.FoldLiteralArguments;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DoubleType;
@@ -38,7 +39,7 @@ import java.util.List;
  * 3. random(a, b): random a big int value between a and b.
  */
 public class Random extends UniqueFunction
-        implements ExplicitlyCastableSignature {
+        implements ExplicitlyCastableSignature, FoldLiteralArguments {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(),
@@ -74,6 +75,11 @@ public class Random extends UniqueFunction
     /** constructor for withChildren and reuse signature */
     private Random(UniqueFunctionParams functionParams) {
         super(functionParams);
+    }
+
+    @Override
+    public boolean needFoldToLiteral(int index) {
+        return true;
     }
 
     @Override
