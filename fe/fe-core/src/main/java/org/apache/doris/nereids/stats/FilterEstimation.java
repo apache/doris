@@ -956,7 +956,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     }
 
     private boolean isOnBase(Expression child, EstimationContext context) {
-        ColumnStatistic colStats = context.statistics.findColumnStatistics(child);
+        ColumnStatistic colStats = context.statistics.findColumnStatisticsOrNull(child);
         if (colStats != null && !colStats.isUnKnown() && colStats.getOriginal() != null) {
             ColumnStatistic original = colStats.getOriginal();
             return doubleNearlyEqual(original.count, colStats.count)
@@ -1171,9 +1171,6 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         statsBuilder.setRowCount(rowCount);
         if (like.left() instanceof Slot) {
             ColumnStatistic origin = context.statistics.findColumnStatistics(like.left());
-            Preconditions.checkArgument(origin != null,
-                    "col stats not found. slot=%s in %s",
-                    like.left().toSql(), like.toSql());
             ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder(origin);
             colBuilder.setNdv(origin.ndv * DEFAULT_LIKE_COMPARISON_SELECTIVITY).setNumNulls(0);
             colBuilder.setHotValues(null);

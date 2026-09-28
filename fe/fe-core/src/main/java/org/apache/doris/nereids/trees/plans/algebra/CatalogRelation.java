@@ -43,4 +43,16 @@ public interface CatalogRelation extends Relation {
     default List<Slot> getOperativeSlots() {
         return ImmutableList.of();
     }
+
+    /**
+     * Whether {@link #getOperativeSlots()} has been derived for this relation.
+     *
+     * <p>An empty operative slot list is a legitimate derivation result: a relation that the query
+     * does not need any column of, e.g. the scan of {@code select count(*) from wide_table}. The
+     * derivation state therefore must not be read from the slot list being empty, since a relation
+     * whose slots have not been derived yet carries an empty list as well.
+     */
+    default boolean isOperativeSlotsDerived() {
+        return false;
+    }
 }

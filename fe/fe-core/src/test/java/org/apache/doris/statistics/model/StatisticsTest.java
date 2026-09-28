@@ -19,13 +19,48 @@ package org.apache.doris.statistics.model;
 
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.util.MoreFieldsThread;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 public class StatisticsTest {
+
+    /** Remove any ConnectContext installed by a test so it does not leak into the next one. */
+    @AfterEach
+    public void tearDown() {
+        ConnectContext.remove();
+    }
+
+    @Test
+    public void testFindColumnStatisticsOfNotDerivedExpression() {
+        SlotReference derivedSlot = SlotReference.of("derived", IntegerType.INSTANCE);
+        SlotReference notDerivedSlot = SlotReference.of("not_derived", IntegerType.INSTANCE);
+        Statistics stats = new Statistics(100, 1,
+                ImmutableMap.of(derivedSlot, new ColumnStatisticBuilder().setNdv(10).build()));
+
+        ConnectContext connectContext = new ConnectContext();
+        connectContext.setSessionVariable(new SessionVariable());
+        MoreFieldsThread.setConnectContext(connectContext);
+
+        // Production: statistics that are not derived degrade to unknown statistics, so that a bug of
+        // the statistics derivation cannot break a query.
+        Assertions.assertTrue(stats.findColumnStatistics(notDerivedSlot).isUnKnown());
+        Assertions.assertNull(stats.findColumnStatisticsOrNull(notDerivedSlot));
+        Assertions.assertEquals(10.0, stats.findColumnStatistics(derivedSlot).ndv);
+
+        // The pipeline test environment (fe_debug = true) fails instead of silently degrading.
+        connectContext.getSessionVariable().feDebug = true;
+        Assertions.assertThrows(NullPointerException.class, () -> stats.findColumnStatistics(notDerivedSlot));
+        Assertions.assertNull(stats.findColumnStatisticsOrNull(notDerivedSlot));
+        Assertions.assertEquals(10.0, stats.findColumnStatistics(derivedSlot).ndv);
+    }
+
     @Test
     public void testAvgSizeAbnormal() {
         SlotReference slot = SlotReference.of("a", IntegerType.INSTANCE);

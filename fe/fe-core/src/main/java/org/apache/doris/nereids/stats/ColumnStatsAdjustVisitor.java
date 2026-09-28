@@ -63,7 +63,7 @@ public class ColumnStatsAdjustVisitor extends DefaultExpressionVisitor<ColumnSta
 
     @Override
     public ColumnStatistic visitCast(Cast cast, Statistics context) {
-        ColumnStatistic colStats = context.findColumnStatistics(cast);
+        ColumnStatistic colStats = context.findColumnStatisticsOrNull(cast);
 
         if (colStats != null && colStats.minExpr != null && colStats.maxExpr != null) {
             try {

@@ -550,7 +550,7 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
             return Optional.empty();
         }
         for (Expression candidate : candidates) {
-            ColumnStatistic columnStatistic = inputStats.findColumnStatistics(candidate);
+            ColumnStatistic columnStatistic = inputStats.findColumnStatisticsOrNull(candidate);
             if (columnStatistic == null || columnStatistic.isUnKnown()) {
                 continue;
             }
