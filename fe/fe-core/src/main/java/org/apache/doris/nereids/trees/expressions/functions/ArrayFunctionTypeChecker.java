@@ -52,7 +52,8 @@ public final class ArrayFunctionTypeChecker {
     public static boolean isSupportedByArraySortLambdaFunction(DataType dataType) {
         return dataType.isNumericType() || dataType.isBooleanType() || dataType.isStringLikeType()
                 || dataType.isVarBinaryType() || dataType.isArrayType() || dataType.isIPType()
-                || dataType.isDateLikeType() || dataType.isTimeType() || dataType.isNullType();
+                || (dataType.isDateLikeType() && !dataType.isTimeStampTzType())
+                || dataType.isTimeType() || dataType.isNullType();
     }
 
     /** Whether the element type supports the serialized-key path used by variadic array functions. */
@@ -63,6 +64,10 @@ public final class ArrayFunctionTypeChecker {
 
     /** Whether the element type is supported by array_min and array_max. */
     public static boolean isSupportedByArrayMinMaxFunctions(DataType dataType) {
-        return isSupportedByArraySetFunctions(dataType);
+        return (dataType.isNumericType() && !dataType.isDecimalV2Type())
+                || dataType.isBooleanType() || dataType.isStringLikeType()
+                || dataType.isDateV2Type() || dataType.isDateTimeV2Type()
+                || dataType.isTimeStampNsType() || dataType.isTimeStampTzType()
+                || dataType.isIPType() || dataType.isNullType();
     }
 }

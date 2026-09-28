@@ -141,6 +141,26 @@ suite("array_function_invalid_argument") {
     }
 
     test {
+        sql "select array_contains([NULL, NULL], to_bitmap(1))"
+        exception "array_contains does not support element type BITMAP"
+    }
+
+    test {
+        sql "select array_position([NULL, NULL], to_bitmap(1))"
+        exception "array_position does not support element type BITMAP"
+    }
+
+    test {
+        sql "select array_remove([NULL, NULL], to_bitmap(1))"
+        exception "array_remove does not support element type BITMAP"
+    }
+
+    test {
+        sql "select countequal([NULL, NULL], to_bitmap(1))"
+        exception "countequal does not support element type BITMAP"
+    }
+
+    test {
         sql "select array_position(array(to_bitmap(1)), to_bitmap(1))"
         exception "array_position does not support element type BITMAP"
     }
@@ -196,6 +216,15 @@ suite("array_function_invalid_argument") {
     }
 
     test {
+        sql """
+            select array_sort((x, y) -> 0,
+                array(cast('2020-01-01 00:00:00 +00:00' as TIMESTAMPTZ),
+                      cast('2020-01-02 00:00:00 +00:00' as TIMESTAMPTZ)))
+        """
+        exception "array_sort does not support types: ARRAY<TIMESTAMPTZ"
+    }
+
+    test {
         sql "select array_reverse_sort(array(to_bitmap(1), to_bitmap(2)))"
         exception "array_reverse_sort does not support types"
     }
@@ -211,10 +240,42 @@ suite("array_function_invalid_argument") {
     }
 
     test {
+        sql "select array_min(cast(array(cast('2020-01-01' as datev1), cast('2020-01-02' as datev1)) as array<datev1>))"
+        exception "array_min does not support element type DATE"
+    }
+
+    test {
+        sql "select array_max(cast(array(cast('2020-01-01' as datev1), cast('2020-01-02' as datev1)) as array<datev1>))"
+        exception "array_max does not support element type DATE"
+    }
+
+    test {
+        sql "select array_min(cast(array(cast('2020-01-01 00:00:00' as datetimev1), cast('2020-01-02 00:00:00' as datetimev1)) as array<datetimev1>))"
+        exception "array_min does not support element type DATETIME"
+    }
+
+    test {
+        sql "select array_max(cast(array(cast('2020-01-01 00:00:00' as datetimev1), cast('2020-01-02 00:00:00' as datetimev1)) as array<datetimev1>))"
+        exception "array_max does not support element type DATETIME"
+    }
+
+    test {
+        sql "select array_min(cast(array(cast(1.25 as decimalv2(10, 2)), cast(2.50 as decimalv2(10, 2))) as array<decimalv2(10, 2)>))"
+        exception "array_min does not support element type DECIMAL("
+    }
+
+    test {
+        sql "select array_max(cast(array(cast(1.25 as decimalv2(10, 2)), cast(2.50 as decimalv2(10, 2))) as array<decimalv2(10, 2)>))"
+        exception "array_max does not support element type DECIMAL("
+    }
+
+    test {
         sql "select array_sortby([1, 2], array(to_bitmap(1), to_bitmap(2)))"
         exception "array_sortby does not support types"
     }
 
+    qt_array_min_datev2 "select array_min(array(cast('2020-01-02' as datev2), cast('2020-01-01' as datev2)))"
+    qt_array_max_decimalv3 "select array_max(array(cast(1.25 as decimalv3(10, 2)), cast(2.50 as decimalv3(10, 2))))"
     qt_array_sort_lambda_empty "select array_sort((x, y) -> 0, [])"
     qt_array_sort_lambda_nulls "select array_sort((x, y) -> 0, [NULL, NULL])"
     qt_array_flatten "select array_flatten([[1, 2], [], [3]])"

@@ -19,12 +19,30 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.ArrayFunctionTypeChecker;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
 
 /** Argument validation shared by array functions. */
 final class ArrayFunctionUtils {
     private ArrayFunctionUtils() {
+    }
+
+    /** Check the physical element type used by array/scalar equality functions. */
+    static void checkArrayScalarEqualityArguments(ScalarFunction function) {
+        checkNoVarBinaryArguments(function);
+        DataType arrayType = function.getArgument(0).getDataType();
+        if (arrayType.isArrayType()) {
+            DataType itemType = ((ArrayType) arrayType).getItemType();
+            if (itemType.isNullType()) {
+                // Indexed ANY resolves an all-NULL array using the scalar argument.
+                itemType = function.getArgument(1).getDataType();
+            }
+            if (!ArrayFunctionTypeChecker.isSupportedByArrayEqualityFunctions(itemType)) {
+                throw new AnalysisException(function.getName() + " does not support element type "
+                        + itemType.toSql());
+            }
+        }
     }
 
     static void checkNoVarBinaryArguments(ScalarFunction function) {
