@@ -311,6 +311,13 @@ Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
                                      _fn.name.function_name, get_child_type_names(),
                                      _data_type->get_name());
     }
+    for (auto arg_num : _function->get_arguments_that_are_always_constant()) {
+        if (arg_num < _children.size() && !_children[arg_num]->is_constant()) {
+            return Status::InvalidArgument(
+                    "Argument at index {} for function {} must be a constant expression", arg_num,
+                    _function->get_name());
+        }
+    }
     VExpr::register_function_context(state, context);
     _function_name = _fn.name.function_name;
     _prepare_finished = true;

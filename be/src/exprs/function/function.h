@@ -183,6 +183,9 @@ public:
     virtual const DataTypes& get_argument_types() const = 0;
     virtual const DataTypePtr& get_return_type() const = 0;
 
+    /// VectorizedFnCall checks these argument positions for expression-level constancy during prepare.
+    virtual ColumnNumbers get_arguments_that_are_always_constant() const { return {}; }
+
     virtual double execute_cost() const { return 1.0; }
 
     /// Do preparations and return executable.
@@ -489,6 +492,9 @@ public:
 
     const DataTypes& get_argument_types() const override { return arguments; }
     const DataTypePtr& get_return_type() const override { return return_type; }
+    ColumnNumbers get_arguments_that_are_always_constant() const override {
+        return function->get_arguments_that_are_always_constant();
+    }
 
     // return a default wrapper for IFunction.
     PreparedFunctionPtr prepare(FunctionContext* context, const Block& /*sample_block*/,
