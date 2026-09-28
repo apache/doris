@@ -278,6 +278,8 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, Block* block, b
     }
 
     std::shared_ptr<ScanTask> scan_task = nullptr;
+    // Whether all cached blocks of scan_task were consumed, so the scanner needs scheduling again.
+    bool scan_task_drained = false;
 
     if (!_tasks_queue.empty() && !done()) {
         // https://en.cppreference.com/w/cpp/container/list/front
@@ -323,19 +325,21 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, Block* block, b
                 _scan_starving = _tasks_queue.empty() &&
                                  _num_finished_scanners < cast_set<int32_t>(_all_scanners.size()) &&
                                  (_num_scheduled_scanners > 0 || !_pending_scanners.empty());
-                RETURN_IF_ERROR(
-                        _scanner_scheduler->schedule_scan_task(shared_from_this(), nullptr, l));
             } else {
                 _scan_starving = _tasks_queue.empty();
-                RETURN_IF_ERROR(
-                        _scanner_scheduler->schedule_scan_task(shared_from_this(), scan_task, l));
             }
+            scan_task_drained = true;
         }
     }
 
     if (_num_finished_scanners == _all_scanners.size() && _tasks_queue.empty()) {
         _set_scanner_done();
         _is_finished = true;
+    } else if (scan_task_drained) {
+        // Check the terminal state before scheduling more work, so a completed Context never
+        // submits another runnable that could only fail on a full scanner pool.
+        RETURN_IF_ERROR(_scanner_scheduler->schedule_scan_task(
+                shared_from_this(), scan_task->is_eos() ? nullptr : scan_task, l));
     }
 
     *eos = done();
@@ -448,15 +452,117 @@ std::string ScannerContext::debug_string() {
     return fmt::format(
             "id: {}, total scanners: {}, pending tasks: {},"
             " _should_stop: {}, _is_finished: {}, free blocks: {},"
-            " limit: {}, _num_running_scanners: {}, _max_thread_num: {},"
+            " limit: {}, _num_running_scanners: {}, _is_context_queued: {},"
+            " _num_finished_scanners: {}, _max_thread_num: {},"
             " _max_bytes_in_queue: {}, query_id: {}",
             ctx_id, _all_scanners.size(), _tasks_queue.size(), _should_stop, _is_finished,
-            _free_blocks.size_approx(), limit, _num_scheduled_scanners, _max_scan_concurrency,
-            _max_bytes_in_queue, print_id(_query_id));
+            _free_blocks.size_approx(), limit, _num_scheduled_scanners, _is_context_queued,
+            _num_finished_scanners, _max_scan_concurrency, _max_bytes_in_queue,
+            print_id(_query_id));
 }
 
 void ScannerContext::_set_scanner_done() {
     _dependency->set_always_ready();
+}
+
+bool ScannerContext::is_context_queued(const std::unique_lock<std::mutex>& transfer_lock) const {
+    DORIS_CHECK(transfer_lock.owns_lock());
+    return _is_context_queued;
+}
+
+void ScannerContext::set_context_queued(bool queued,
+                                        const std::unique_lock<std::mutex>& transfer_lock) {
+    DORIS_CHECK(transfer_lock.owns_lock());
+    DORIS_CHECK(_is_context_queued != queued);
+    _is_context_queued = queued;
+}
+
+void ScannerContext::set_context_failure(const Status& failure,
+                                         const std::unique_lock<std::mutex>& transfer_lock) {
+    DORIS_CHECK(transfer_lock.owns_lock());
+    DORIS_CHECK(!failure.ok());
+    _process_status = failure;
+    _is_finished = true;
+    _set_scanner_done();
+}
+
+void ScannerContext::push_pending_scan_task(std::shared_ptr<ScanTask> scan_task,
+                                            const std::unique_lock<std::mutex>& transfer_lock) {
+    DORIS_CHECK(transfer_lock.owns_lock());
+    DORIS_CHECK(scan_task != nullptr);
+    DORIS_CHECK(scan_task->cached_blocks.empty());
+    DORIS_CHECK(!scan_task->is_eos());
+    _pending_scanners.push(std::move(scan_task));
+}
+
+bool ScannerContext::can_admit_scan_task(const std::unique_lock<std::mutex>& transfer_lock,
+                                         bool admitting_on_worker) const {
+    DORIS_CHECK(transfer_lock.owns_lock());
+    if (done() || _pending_scanners.empty()) {
+        return false;
+    }
+
+    // Blocks waiting in _tasks_queue still occupy a concurrency slot until the operator consumes
+    // them. Counting both prevents a fast producer from exceeding the per-Context scanner limit.
+    const int32_t current_concurrency =
+            cast_set<int32_t>(_tasks_queue.size()) + _num_scheduled_scanners;
+    // Keep one task progressing whatever the limits are. Otherwise no worker can publish a result
+    // and wake the operator to make another scheduling decision.
+    if (current_concurrency == 0) {
+        return true;
+    }
+    // The per-Context ceiling applied by _pull_next_scan_task().
+    if (current_concurrency >= _max_scan_concurrency) {
+        return false;
+    }
+    // In low memory mode _get_margin() limits the number of running scanners.
+    if (low_memory_mode() && _num_scheduled_scanners >= low_memory_mode_scanners()) {
+        return false;
+    }
+    // Mirror the scheduler-wide budget of _get_margin(): while the pool has slack a Context may
+    // ramp to its maximum. Once it has none, a Context is held at its target concurrency, which is
+    // its minimum unless the operator is starving. Both counters are read here under
+    // _transfer_lock exactly as the TaskExecutor path reads them. A worker admitting the task it
+    // runs itself is already counted as active; like the task _get_margin() is about to submit, it
+    // must not count against the budget, otherwise the pool would stop one slot short of it.
+    const int32_t busy_scan_slots = _scanner_scheduler->get_active_threads() +
+                                    _scanner_scheduler->get_queue_size() -
+                                    (admitting_on_worker ? 1 : 0);
+    if (busy_scan_slots < _min_scan_concurrency_of_scan_scheduler) {
+        return true;
+    }
+    const int32_t target_scan_concurrency =
+            _scan_starving && _tasks_queue.empty() ? _max_scan_concurrency : _min_scan_concurrency;
+    return current_concurrency < target_scan_concurrency;
+}
+
+std::shared_ptr<ScanTask> ScannerContext::try_get_next_scan_task(
+        const std::unique_lock<std::mutex>& transfer_lock, int64_t context_queue_wait_ns) {
+    if (!can_admit_scan_task(transfer_lock, true)) {
+        VLOG_DEBUG << fmt::format(
+                "[{}|{}] refuse admission, pending: {}, task queue: {}, scheduled: {}, done: {}",
+                print_id(_query_id), ctx_id, _pending_scanners.size(), _tasks_queue.size(),
+                _num_scheduled_scanners, done());
+        return nullptr;
+    }
+
+    // Pop and count as scheduled while holding the same lock used by completion and consumption.
+    // Thus concurrent Context workers cannot admit the same task or both pass the limit check.
+    auto scan_task = _pending_scanners.top();
+    _pending_scanners.pop();
+    // ThreadPool admission bypasses ScannerScheduler::submit(); restart the per-scanner wait
+    // timer here so it measures admission-to-execution instead of everything since the previous
+    // attempt paused, which would include time the cached blocks waited for the operator. The
+    // Context runnable waited for a worker on behalf of this scanner, so credit that wait too.
+    if (auto scanner_delegate = scan_task->scanner.lock()) {
+        scanner_delegate->_scanner->start_wait_worker_timer();
+        scanner_delegate->_scanner->add_wait_worker_time(context_queue_wait_ns);
+    }
+    ++_num_scheduled_scanners;
+    VLOG_DEBUG << fmt::format("[{}|{}] admit scanner, pending: {}, task queue: {}, scheduled: {}",
+                              print_id(_query_id), ctx_id, _pending_scanners.size(),
+                              _tasks_queue.size(), _num_scheduled_scanners);
+    return scan_task;
 }
 
 void ScannerContext::update_peak_running_scanner(int num) {

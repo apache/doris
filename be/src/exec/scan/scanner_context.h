@@ -193,6 +193,43 @@ public:
                               std::unique_lock<std::mutex>& transfer_lock,
                               std::unique_lock<std::shared_mutex>& scheduler_lock);
 
+    // Context scheduling and operator consumption share this lock so queue-state changes and task
+    // admission form one atomic decision. For example, two worker callbacks cannot both admit the
+    // last available concurrency slot.
+    std::mutex& transfer_lock() { return _transfer_lock; }
+
+    // One Context submission represents many pending scanners in the ThreadPool scheduler.
+    // Keeping this separate from scanner execution prevents duplicate runnables from accumulating.
+    bool is_context_queued(const std::unique_lock<std::mutex>& transfer_lock) const;
+    // Transition the Context runnable's queue state. The caller must hold _transfer_lock.
+    void set_context_queued(bool queued, const std::unique_lock<std::mutex>& transfer_lock);
+
+    // Publish a scheduler failure and make the Context terminal. The caller must hold
+    // _transfer_lock so a retained ThreadPool callback cannot admit another scanner concurrently.
+    void set_context_failure(const Status& failure,
+                             const std::unique_lock<std::mutex>& transfer_lock);
+
+    // Return a scanner to the admission queue after its blocks are consumed. It may not own cached
+    // blocks and may not be EOS: EOS scanners are terminal and must not run again.
+    void push_pending_scan_task(std::shared_ptr<ScanTask> scan_task,
+                                const std::unique_lock<std::mutex>& transfer_lock);
+
+    // Return whether a Context worker can currently admit one pending scanner. This check has no
+    // side effects, so the scheduler can avoid submitting a runnable that would immediately exit.
+    // It always admits one scanner when nothing is progressing so the operator can be woken, and
+    // otherwise applies the same limits as _get_margin() and _pull_next_scan_task() on the
+    // TaskExecutor path. `admitting_on_worker` is true when the caller is the pool worker that will
+    // run the admitted task itself. The caller must hold _transfer_lock.
+    bool can_admit_scan_task(const std::unique_lock<std::mutex>& transfer_lock,
+                             bool admitting_on_worker) const;
+
+    // Atomically check whether this context can start another scan task, move one task from
+    // pending to scheduled, and return it. It is called by the pool worker that will run the task;
+    // `context_queue_wait_ns` is how long that worker's Context runnable waited in the pool queue.
+    // The caller must hold _transfer_lock.
+    std::shared_ptr<ScanTask> try_get_next_scan_task(
+            const std::unique_lock<std::mutex>& transfer_lock, int64_t context_queue_wait_ns);
+
 protected:
     /// Four criteria to determine whether to increase the parallelism of the scanners
     /// 1. It ran for at least `SCALE_UP_DURATION` ms after last scale up
@@ -225,7 +262,14 @@ protected:
     int64_t _max_bytes_in_queue = 0;
     // Using stack so that we can resubmit scanner in a LIFO order, maybe more cache friendly
     std::stack<std::shared_ptr<ScanTask>> _pending_scanners;
-    // Scanner that is submitted to the scheduler.
+    // True from the start of one Context submission until its runnable starts. The marker may
+    // remain true when no runnable was retained: a failed submission makes the Context terminal,
+    // and a submission that threw inside _run_context() publishes the error through the task that
+    // was already admitted. In both cases the operator observes _process_status, so no further
+    // submission is attempted. It does not describe scanners executing on workers. Only used by
+    // the ThreadPool scheduler. Protected by _transfer_lock.
+    bool _is_context_queued = false;
+    // Scanner that is submitted to the scheduler, or directly admitted for thread-pool execution.
     std::atomic_int _num_scheduled_scanners = 0;
     // Scanner that is eos or error.
     int32_t _num_finished_scanners = 0;
