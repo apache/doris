@@ -18,8 +18,9 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.AggregateInfo;
-import org.apache.doris.analysis.ExprToThriftVisitor;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TBucketedAggregationNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
@@ -43,7 +44,7 @@ public class BucketedAggregationNode extends PlanNode {
 
     public BucketedAggregationNode(PlanNodeId id, PlanNode input, AggregateInfo aggInfo,
             boolean needsFinalize) {
-        super(id, aggInfo.getOutputTupleId().asList(), "BUCKETED AGGREGATE");
+        super(id, aggInfo.getOutputTupleId().asList(), "BUCKETED AGGREGATE", StatisticalType.AGG_NODE);
         this.aggInfo = aggInfo;
         this.needsFinalize = needsFinalize;
         this.children.add(input);
@@ -55,12 +56,12 @@ public class BucketedAggregationNode extends PlanNode {
 
         List<TExpr> aggregateFunctions = Lists.newArrayList();
         for (FunctionCallExpr e : aggInfo.getMaterializedAggregateExprs()) {
-            aggregateFunctions.add(ExprToThriftVisitor.treeToThrift(e));
+            aggregateFunctions.add(e.treeToThrift());
         }
 
         List<TExpr> groupingExprs = Lists.newArrayList();
         if (aggInfo.getGroupingExprs() != null) {
-            groupingExprs = ExprToThriftVisitor.treesToThrift(aggInfo.getGroupingExprs());
+            groupingExprs = Expr.treesToThrift(aggInfo.getGroupingExprs());
         }
 
         TBucketedAggregationNode bucketedAggNode = new TBucketedAggregationNode();
