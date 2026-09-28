@@ -69,8 +69,28 @@ INCLUDE_ROOT = "be/src"
 # through the listed headers. An exception is only appropriate for a header that
 # carries declarations or plain data types and pulls in nothing of its own -- adding
 # one should be a deliberate decision, which is exactly why they are listed here
-# instead of being inferred.
+# instead of being inferred. A hub ending in "/" names every header under it.
 RULES = [
+    (
+        "storage/index/query/",
+        "storage/index/snii/",
+        set(),
+        "the shared query layer (logical IR, executors, phrase and boolean kernels, "
+        "SPI) serves both index formats and names neither; a format header here "
+        "would make the other format depend on it",
+    ),
+    (
+        "storage/index/query/",
+        "storage/index/inverted/",
+        {
+            # Shared vocabulary that still lives under inverted/: the query type enum
+            # and the term-info carrier, which pull no CLucene header in.
+            "storage/index/inverted/inverted_index_query_type.h",
+            "storage/index/inverted/query/query_info.h",
+        },
+        "the shared query layer names neither index format; only the query type "
+        "and term-info vocabulary is allowed until it moves",
+    ),
     (
         "runtime/exec_env.h",
         "storage/index/",
@@ -397,7 +417,21 @@ RULES = [
 # is exact; angle and quoted forms are both caught). These are headers whose
 # formatting/queueing bodies were deliberately moved out of line -- the ban keeps
 # the heavy third-party template machinery from re-entering every includer.
+# (header, banned include spelling or prefix, why). A header ending in "/" names
+# every header under it; a banned spelling ending in "/" bans the whole subtree.
 ANGLE_BANS = [
+    (
+        "storage/index/inverted/query_v2/",
+        "storage/index/snii/",
+        "query_v2 is the DAAT engine both formats share; it reaches a format only "
+        "through the shared SPI under storage/index/query/",
+    ),
+    (
+        "storage/index/snii/",
+        "storage/index/inverted/query_v2/",
+        "the SNII format answers leaves through the shared executor and SPI, not "
+        "through the CLucene engine",
+    ),
     (
         "core/uint24.h",
         "fmt/",
@@ -565,6 +599,18 @@ def load_includes():
     return includes
 
 
+def hub_headers(hub, includes):
+    """The headers a hub names: itself, or every header under it for a directory."""
+    if not hub.endswith("/"):
+        return [hub]
+    prefix = os.path.join(INCLUDE_ROOT, hub)
+    return sorted(
+        path[len(INCLUDE_ROOT) + 1 :]
+        for path in includes
+        if path.startswith(prefix) and path.endswith((".h", ".hpp"))
+    )
+
+
 def resolve(header, includes):
     """Maps an include spelling to a repo path, or None when it is external."""
     path = os.path.join(INCLUDE_ROOT, header)
@@ -611,11 +657,19 @@ def translation_units_affected(includes):
 
 def enforce(includes):
     failures = 0
-    for hub, forbidden, allowed, why in RULES:
-        if resolve(hub, includes) is None:
-            print(f"error: rule names a missing header: {hub}", file=sys.stderr)
+    for rule_hub, forbidden, allowed, why in RULES:
+        hubs = hub_headers(rule_hub, includes)
+        if not hubs or any(resolve(hub, includes) is None for hub in hubs):
+            print(f"error: rule names a missing header: {rule_hub}", file=sys.stderr)
             failures += 1
             continue
+        failures += enforce_rule(hubs, forbidden, allowed, why, includes)
+    return failures
+
+
+def enforce_rule(hubs, forbidden, allowed, why, includes):
+    failures = 0
+    for hub in hubs:
         chains = reachable(hub, includes)
         for header, chain in sorted(chains.items()):
             if not header.startswith(forbidden) or header.endswith(FWD_SUFFIX):
@@ -646,14 +700,24 @@ def forward_closure(hub, includes):
 ANY_INCLUDE = re.compile(r'^\s*#\s*include\s+[<"]([^>"]+)[>"]')
 
 
-def enforce_angle_bans():
+def enforce_angle_bans(includes):
     failures = 0
-    for header, banned, why in ANGLE_BANS:
-        path = os.path.join(INCLUDE_ROOT, header)
-        if not os.path.exists(path):
-            print(f"error: angle ban names a missing header: {header}", file=sys.stderr)
+    for ban_header, banned, why in ANGLE_BANS:
+        headers = hub_headers(ban_header, includes)
+        if not headers or any(
+            not os.path.exists(os.path.join(INCLUDE_ROOT, h)) for h in headers
+        ):
+            print(f"error: angle ban names a missing header: {ban_header}", file=sys.stderr)
             failures += 1
             continue
+        failures += enforce_angle_ban(headers, banned, why)
+    return failures
+
+
+def enforce_angle_ban(headers, banned, why):
+    failures = 0
+    for header in headers:
+        path = os.path.join(INCLUDE_ROOT, header)
         with open(path, encoding="utf-8", errors="ignore") as handle:
             spellings = [m.group(1) for m in map(ANY_INCLUDE.match, handle) if m]
         hits = [
@@ -891,7 +955,7 @@ def main():
     else:
         failures = (
             enforce(includes)
-            + enforce_angle_bans()
+            + enforce_angle_bans(includes)
             + enforce_budgets(includes)
             + enforce_pch(includes)
         )
