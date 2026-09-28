@@ -218,7 +218,6 @@ void MaterializationSharedState::clear_current_batch() {
         block_order.clear();
     }
     _backend_rows_count.clear();
-    _max_rows_per_backend = 0;
     need_merge_block = false;
     output_ready = false;
 }
@@ -567,7 +566,7 @@ Status MaterializationSharedState::create_muiltget_result(const Columns& columns
     }
 
     input_eos = input_eos || child_eos;
-    if (eos && gc_id_map) {
+    if (input_eos && gc_id_map) {
         for (auto& [_, rpc_struct] : rpc_struct_map) {
             rpc_struct.request.set_gc_id_map(true);
         }
@@ -725,7 +724,7 @@ Status MaterializationOperator::push(RuntimeState* state, Block* in_block, bool 
                 origin_block.swap(*in_block);
             } else {
                 DCHECK_EQ(origin_block.columns(), in_block->columns());
-                DCHECK_EQ(origin_block.get_names(), in_block->get_names());
+                DCHECK(origin_block.get_names() == in_block->get_names());
                 for (size_t i = 0; i < origin_block.columns(); ++i) {
                     origin_block.replace_by_position_if_const(i);
                 }

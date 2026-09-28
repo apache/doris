@@ -142,7 +142,8 @@ TEST_F(MaterializationSharedStateTest, TestCreateMultiGetResult) {
 
     // Verify block_order_results
     EXPECT_EQ(_shared_state->block_order_results.size(), columns.size());
-    EXPECT_EQ(_shared_state->eos, true);
+    EXPECT_TRUE(_shared_state->input_eos);
+    EXPECT_FALSE(_shared_state->eos);
     const auto& backend1_request =
             _shared_state->rpc_struct_map[_backend_id1].request.request_block_descs(0);
     ASSERT_EQ(backend1_request.row_id_size(), 1);
@@ -151,6 +152,41 @@ TEST_F(MaterializationSharedStateTest, TestCreateMultiGetResult) {
             _shared_state->rpc_struct_map[_backend_id2].request.request_block_descs(0);
     ASSERT_EQ(backend2_request.row_id_size(), 1);
     EXPECT_EQ(backend2_request.row_id(0), 2);
+    EXPECT_TRUE(_shared_state->rpc_struct_map[_backend_id1].request.gc_id_map());
+    EXPECT_TRUE(_shared_state->rpc_struct_map[_backend_id2].request.gc_id_map());
+}
+
+TEST_F(MaterializationSharedStateTest, TestCreateMultiGetResultAcrossInputBlocks) {
+    auto make_rowid_column = [&](uint64_t row_id, int64_t backend_id, uint32_t file_id) {
+        auto rowid_col = _string_type->create_column();
+        GlobalRowLoacationV2 location(0, backend_id, file_id, row_id);
+        reinterpret_cast<ColumnString*>(rowid_col.get())
+                ->insert_data(reinterpret_cast<const char*>(&location), sizeof(location));
+        Columns columns;
+        columns.push_back(std::move(rowid_col));
+        return columns;
+    };
+
+    auto first_block = make_rowid_column(10, _backend_id1, 1);
+    ASSERT_TRUE(_shared_state->create_muiltget_result(first_block, false, true).ok());
+    EXPECT_FALSE(_shared_state->input_eos);
+    EXPECT_FALSE(_shared_state->rpc_struct_map[_backend_id1].request.gc_id_map());
+
+    auto final_block = make_rowid_column(20, _backend_id2, 2);
+    ASSERT_TRUE(_shared_state->create_muiltget_result(final_block, true, true).ok());
+
+    EXPECT_TRUE(_shared_state->input_eos);
+    EXPECT_FALSE(_shared_state->eos);
+    ASSERT_EQ(_shared_state->block_order_results.size(), 1);
+    ASSERT_EQ(_shared_state->block_order_results[0].size(), 2);
+    EXPECT_EQ(_shared_state->block_order_results[0][0], _backend_id1);
+    EXPECT_EQ(_shared_state->block_order_results[0][1], _backend_id2);
+    EXPECT_EQ(_shared_state->rpc_struct_map[_backend_id1].request.request_block_descs(0).row_id(0),
+              10);
+    EXPECT_EQ(_shared_state->rpc_struct_map[_backend_id2].request.request_block_descs(0).row_id(0),
+              20);
+    EXPECT_TRUE(_shared_state->rpc_struct_map[_backend_id1].request.gc_id_map());
+    EXPECT_TRUE(_shared_state->rpc_struct_map[_backend_id2].request.gc_id_map());
 }
 
 TEST_F(MaterializationSharedStateTest, TestCreateMultiGetResultWithUint64RowId) {
@@ -298,8 +334,9 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
     Block result_block;
     RuntimeProfile profile("MaterializationSharedStateTest");
     Status st = _shared_state->merge_multi_response(&profile);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    _shared_state->output_ready = true;
     _shared_state->get_block(&result_block);
-    EXPECT_TRUE(st.ok());
 
     // 5. Verify merged result
     EXPECT_EQ(result_block.columns(), 2); // Should have original rowid column and value column
@@ -464,6 +501,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
     RuntimeProfile profile("MaterializationSharedStateTest");
     Status st = _shared_state->merge_multi_response(&profile);
     EXPECT_TRUE(st.ok());
+    _shared_state->output_ready = true;
     _shared_state->get_block(&result_block);
 
     // 5. Verify merged result
@@ -658,6 +696,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseStaleBlockMaps) {
 
     // Verify results
     Block result_block;
+    _shared_state->output_ready = true;
     _shared_state->get_block(&result_block);
     EXPECT_EQ(result_block.rows(), 1);
     // Column order: response_blocks[0] cols, response_blocks[1] cols, sort_key

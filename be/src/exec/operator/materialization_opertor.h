@@ -90,7 +90,7 @@ public:
     // backend id => <rpc profile info string key, rpc profile info string value>.
     std::map<int64_t, std::map<std::string, fmt::memory_buffer>> backend_profile_info_string;
 
-    // Store the maximum number of rows processed by a single backend in the current batch
+    // Store the maximum number of rows processed by a single backend across fetch batches
     uint32_t _max_rows_per_backend = 0;
     // Store the number of rows processed by each backend
     std::unordered_map<int64_t, uint32_t> _backend_rows_count; // backend_id => rows_count
