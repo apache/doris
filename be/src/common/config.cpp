@@ -24,7 +24,9 @@
 // IWYU pragma: no_include <bthread/errno.h>
 #include <lz4/lz4hc.h>
 
+#include <atomic>
 #include <cerrno> // IWYU pragma: keep
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <fstream> // IWYU pragma: keep
@@ -655,6 +657,15 @@ DEFINE_Int64(load_data_reserve_hours, "4");
 DEFINE_mInt64(load_error_log_reserve_hours, "48");
 // error log size limit, default 200MB
 DEFINE_mInt64(load_error_log_limit_bytes, "209715200");
+
+// Dedicated load cancellation workers. Requires a restart.
+DEFINE_Int32(brpc_load_light_work_pool_threads, "32");
+DEFINE_Validator(brpc_load_light_work_pool_threads,
+                 [](const int config) -> bool { return config > 0; });
+// Queue capacity: -1 selects a CPU-scaled default. Requires a restart.
+DEFINE_Int32(brpc_load_light_work_pool_max_queue_size, "-1");
+DEFINE_Validator(brpc_load_light_work_pool_max_queue_size,
+                 [](const int config) -> bool { return config == -1 || config > 0; });
 
 DEFINE_Int32(brpc_heavy_work_pool_threads, "-1");
 DEFINE_Int32(brpc_peer_fetch_pool_threads, "-1");
@@ -1320,6 +1331,17 @@ DEFINE_Bool(enable_inverted_index_cache_check_timestamp, "true");
 DEFINE_mBool(enable_inverted_index_correct_term_write, "true");
 DEFINE_Int32(inverted_index_fd_number_limit_percent, "20"); // 20%
 DEFINE_Int32(inverted_index_query_cache_shards, "256");
+DEFINE_mDouble(inverted_index_candidate_pushdown_ratio, "0.3");
+DEFINE_Validator(inverted_index_candidate_pushdown_ratio,
+                 [](const double v) -> bool { return std::isfinite(v) && v <= 1.0; });
+static std::atomic<double> published_inverted_index_candidate_pushdown_ratio {0.0};
+DEFINE_ON_UPDATE(inverted_index_candidate_pushdown_ratio, [](double, double value) {
+    published_inverted_index_candidate_pushdown_ratio.store(value);
+});
+
+double get_inverted_index_candidate_pushdown_ratio() {
+    return published_inverted_index_candidate_pushdown_ratio.load();
+}
 
 // inverted index match bitmap cache size
 DEFINE_String(inverted_index_query_cache_limit, "10%");
@@ -2321,6 +2343,8 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         SET_FIELD(it.second, std::vector<double>, fill_conf_map, set_to_default);
         SET_FIELD(it.second, std::vector<std::string>, fill_conf_map, set_to_default);
     }
+    published_inverted_index_candidate_pushdown_ratio.store(
+            inverted_index_candidate_pushdown_ratio);
 
     // Emit a warning for every key present in the conf file that does not correspond to a
     // registered BE config field. Such keys (typos or configs removed in a newer version)
@@ -2369,13 +2393,17 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
                                                                          (FIELD).name, new_value); \
             }                                                                                      \
         }                                                                                          \
+        if (PERSIST) {                                                                             \
+            Status persist_status = persist_config(std::string((FIELD).name), VALUE);              \
+            if (!persist_status.ok()) {                                                            \
+                ref_conf_value = old_value;                                                        \
+                return persist_status;                                                             \
+            }                                                                                      \
+        }                                                                                          \
         if (full_conf_map != nullptr) {                                                            \
             std::ostringstream oss;                                                                \
             oss << new_value;                                                                      \
             (*full_conf_map)[(FIELD).name] = oss.str();                                            \
-        }                                                                                          \
-        if (PERSIST) {                                                                             \
-            RETURN_IF_ERROR(persist_config(std::string((FIELD).name), VALUE));                     \
         }                                                                                          \
         if (RegisterConfUpdateCallback::_s_field_update_callback != nullptr) {                     \
             auto callback_it =                                                                     \
@@ -2394,7 +2422,7 @@ Status persist_config(const std::string& field, const std::string& value) {
     // lock to make sure only one thread can modify the be_custom.conf
     std::lock_guard<std::mutex> l(custom_conf_lock);
 
-    static const std::string conffile = config::custom_config_dir + "/be_custom.conf";
+    const std::string conffile = config::custom_config_dir + "/be_custom.conf";
 
     Properties tmp_props;
     if (!tmp_props.load(conffile.c_str(), false)) {
@@ -2418,16 +2446,14 @@ Status set_config(const std::string& field, const std::string& value, bool need_
                 "'{}' is not support to modify", field);
     }
 
+    // Keep the value, config map, and callback in the same update order.
+    std::lock_guard<std::mutex> lock(mutable_string_config_lock);
     UPDATE_FIELD(it->second, value, bool, need_persist);
     UPDATE_FIELD(it->second, value, int16_t, need_persist);
     UPDATE_FIELD(it->second, value, int32_t, need_persist);
     UPDATE_FIELD(it->second, value, int64_t, need_persist);
     UPDATE_FIELD(it->second, value, double, need_persist);
-    {
-        // add lock to ensure thread safe
-        std::lock_guard<std::mutex> lock(mutable_string_config_lock);
-        UPDATE_FIELD(it->second, value, std::string, need_persist);
-    }
+    UPDATE_FIELD(it->second, value, std::string, need_persist);
 
     // The other types are not thread safe to change dynamically.
     return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR, false>(

@@ -789,15 +789,10 @@ std::pair<DataTypePtr, bool> NativeFieldDescriptor::get_doris_type(
             ans.first = DataTypeFactory::instance().create_data_type(TYPE_BIGINT, nullable);
             break;
         case tparquet::Type::INT96:
-            if (_enable_mapping_timestamp_tz) {
-                // treat INT96 as TIMESTAMPTZ
-                ans.first = DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMPTZ, nullable,
-                                                                         0, 6);
-            } else {
-                // in most cases, it's a nano timestamp
-                ans.first = DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, nullable,
-                                                                         0, 6);
-            }
+            // INT96 has no timezone annotation. A table's logical schema may override this
+            // for known instant columns, but a catalog option cannot supply missing semantics.
+            ans.first =
+                    DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, nullable, 0, 6);
             break;
         case tparquet::Type::FLOAT:
             ans.first = DataTypeFactory::instance().create_data_type(TYPE_FLOAT, nullable);

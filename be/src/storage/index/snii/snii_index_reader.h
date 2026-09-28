@@ -44,6 +44,8 @@ struct SniiQueryBitmapRequest {
     std::string_view search_str;
     int32_t max_expansions = 0;
     const ::doris::snii::reader::LogicalIndexReader* logical_reader = nullptr;
+    // Scan candidates a multi-term phrase is restricted to; null for a full-segment query.
+    const roaring::Roaring* candidates = nullptr;
 };
 
 class SniiIndexReader final : public InvertedIndexReader {

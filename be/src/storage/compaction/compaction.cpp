@@ -1042,7 +1042,11 @@ Status Compaction::do_inverted_index_compaction() {
 
         auto* rowset = find_it->second;
         auto seg_pos = rowset->rowset_meta()->position_of(seg_id);
-        auto seg = rowset->segment(seg_pos);
+        if (!seg_pos.has_value()) {
+            mark_skip_index_compaction(ctx, error_handler);
+            return seg_pos.error();
+        }
+        auto seg = rowset->segment(seg_pos.value());
         auto fs = rowset->rowset_meta()->fs();
         DBUG_EXECUTE_IF("Compaction::do_inverted_index_compaction_get_fs_error", { fs = nullptr; })
         if (!fs) {

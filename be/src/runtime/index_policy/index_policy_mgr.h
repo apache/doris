@@ -50,7 +50,8 @@ public:
     AnalyzerPtr get_analyzer_by_name(const std::string& name);
     AnalyzerProviderPtr get_analyzer_provider_by_name(
             const std::string& name,
-            const std::map<std::string, std::string>& outer_char_filter_map = {});
+            const std::map<std::string, std::string>& outer_char_filter_map = {},
+            std::string* resolved_name = nullptr, std::string* legacy_name = nullptr);
 
 private:
     segment_v2::inverted_index::CustomAnalyzerConfigPtr build_analyzer_config_from_policy(
@@ -63,13 +64,20 @@ private:
 
     void process_filter_configs(
             const TIndexPolicy& index_policy_analyzer, const std::string& prop_name,
-            const std::string& error_prefix,
+            TIndexPolicyType::type expected_type, const std::string& error_prefix,
             std::function<void(const std::string&, const segment_v2::inverted_index::Settings&)>
                     add_config_func);
 
     bool is_builtin_normalizer(const std::string& name);
     AnalyzerPtr build_builtin_normalizer(const std::string& name);
 
+    const TIndexPolicy* find_policy_by_name_locked(const std::string& name) const;
+    const TIndexPolicy* find_top_level_policy_locked(const std::string& name,
+                                                     bool* builtin_normalizer) const;
+    void register_policy_name_locked(const TIndexPolicy& policy);
+    void unregister_policy_name_locked(const TIndexPolicy& policy);
+
+    static std::string trim_name(const std::string& name);
     // Normalize policy name to lowercase for case-insensitive lookup
     static std::string normalize_name(const std::string& name);
 
@@ -84,6 +92,7 @@ private:
 
     Policys _policys;
     std::unordered_map<std::string, int64_t> _name_to_id;
+    std::unordered_map<std::string, int64_t> _exact_name_to_id;
 };
 
 } // namespace doris
