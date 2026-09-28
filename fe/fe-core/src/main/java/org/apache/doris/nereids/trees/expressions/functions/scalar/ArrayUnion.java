@@ -48,7 +48,7 @@ public class ArrayUnion extends ScalarFunction implements ExplicitlyCastableSign
     /**
      * constructor with more than 2 arguments.
      */
-    public ArrayUnion(Expression arg0, Expression arg1, Expression ...varArgs) {
+    public ArrayUnion(Expression arg0, Expression arg1, Expression... varArgs) {
         super("array_union", ExpressionUtils.mergeArguments(arg0, arg1, varArgs));
     }
 
@@ -69,12 +69,25 @@ public class ArrayUnion extends ScalarFunction implements ExplicitlyCastableSign
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         ArrayFunctionUtils.checkNoVarBinaryArguments(this);
-        DataType argType = getArgument(0).getDataType();
-        if (argType.isArrayType() && (((ArrayType) argType).getItemType().isComplexType()
-                    || ((ArrayType) argType).getItemType().isVariantType()
-                    || ((ArrayType) argType).getItemType().isJsonType())) {
-            throw new AnalysisException("array_union does not support types: " + argType.toSql());
+        for (Expression argument : getArguments()) {
+            DataType argumentType = argument.getDataType();
+            if (!argumentType.isArrayType()) {
+                continue;
+            }
+
+            DataType itemType = ((ArrayType) argumentType).getItemType();
+            if (isUnsupportedNestedArrayItemType(itemType)) {
+                throw new AnalysisException(
+                        "array_union does not support types: " + argumentType.toSql());
+            }
         }
+    }
+
+    private boolean isUnsupportedNestedArrayItemType(DataType type) {
+        if (type.isArrayType()) {
+            return isUnsupportedNestedArrayItemType(((ArrayType) type).getItemType());
+        }
+        return type.isComplexType() || type.isVariantType() || type.isJsonType();
     }
 
     @Override
