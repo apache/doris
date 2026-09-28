@@ -27,7 +27,6 @@
 #include <vector>
 
 #include "common/compiler_util.h"
-#include "storage/index/query/spi/io_batch.h"
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/encoding/crc32c.h"
 #include "storage/index/snii/encoding/section_framer.h"
@@ -39,7 +38,6 @@
 #include "storage/index/snii/format/norms_pod.h"
 #include "storage/index/snii/format/null_bitmap.h"
 #include "storage/index/snii/io/batch_range_fetcher.h"
-#include "storage/index/snii/reader/batch_lookup_results.h"
 #include "storage/index/snii/reader/dict_block_cache.h"
 
 namespace doris::snii::reader {
@@ -276,49 +274,6 @@ Status slice_dict_block_in_region(const BlockRef& ref, const RegionRef& dict_reg
 }
 } // namespace
 
-Status LogicalIndexReader::batch_lookup_group_allocation_bound(
-        const std::vector<std::string>& terms, const std::vector<BatchLookupCandidate>& candidates,
-        const BatchLookupGroup& group, uint64_t plain_bytes, uint64_t* out) {
-    const uint64_t string_slack = std::string().capacity() + 1;
-    uint64_t scan_bytes = 0;
-    RETURN_IF_ERROR(checked_memory_add(plain_bytes, string_slack,
-                                       "logical_index: lookup key memory overflows", &scan_bytes));
-    // A scan keeps its previous and current keys; allow capacity growth for both.
-    RETURN_IF_ERROR(checked_memory_mul(scan_bytes, 4, "logical_index: lookup scan memory overflows",
-                                       &scan_bytes));
-    uint64_t body_bytes = 0;
-    RETURN_IF_ERROR(checked_memory_mul(plain_bytes, 2,
-                                       "logical_index: lookup body memory overflows", &body_bytes));
-    RETURN_IF_ERROR(checked_memory_add(scan_bytes, body_bytes,
-                                       "logical_index: lookup workspace overflows", out));
-    for (size_t i = group.begin; i < group.end; ++i) {
-        uint64_t key_bytes = 0;
-        RETURN_IF_ERROR(checked_memory_add(terms[candidates[i].term_index].size(), string_slack,
-                                           "logical_index: result key memory overflows",
-                                           &key_bytes));
-        RETURN_IF_ERROR(checked_memory_mul(
-                key_bytes, 2, "logical_index: result key capacity overflows", &key_bytes));
-        RETURN_IF_ERROR(checked_memory_add(*out, key_bytes,
-                                           "logical_index: result group memory overflows", out));
-    }
-    return Status::OK();
-}
-
-uint64_t LogicalIndexReader::batch_lookup_group_heap_bytes(
-        const std::vector<BatchLookupCandidate>& candidates, const BatchLookupGroup& group,
-        const std::vector<LogicalIndexReader::BatchLookupResult>& results) {
-    const size_t sso_capacity = std::string().capacity();
-    uint64_t bytes = 0;
-    for (size_t i = group.begin; i < group.end; ++i) {
-        const DictEntry& entry = results[candidates[i].term_index].entry;
-        if (entry.term.capacity() > sso_capacity) {
-            bytes += entry.term.capacity() + 1;
-        }
-        bytes += entry.frq_bytes.capacity() + entry.prx_bytes.capacity();
-    }
-    return bytes;
-}
-
 Status LogicalIndexReader::resolve_batch_lookup_entries(
         const std::vector<std::string>& terms, const std::vector<BatchLookupCandidate>& candidates,
         const BatchLookupGroup& group, const DictBlockReader& block_reader,
@@ -411,18 +366,7 @@ Status LogicalIndexReader::dict_block_reader_for_ordinal(
     DictBlockCache::Loader loader = [&](std::shared_ptr<const DecodedDictBlock>* slot) -> Status {
         BlockRef ref {};
         RETURN_IF_ERROR(dbd_.get(ordinal, &ref));
-        index_query::MemoryBudget::Reservation reservation;
-        if (cache != nullptr && cache->memory_budget() != nullptr) {
-            DictBlockScanMemory memory;
-            RETURN_IF_ERROR(dict_block_scan_memory(ordinal, &memory));
-            uint64_t bytes = 0;
-            RETURN_IF_ERROR(checked_memory_add(memory.decode_bytes, sizeof(DecodedDictBlock),
-                                               "logical_index: dict cache memory overflows",
-                                               &bytes));
-            RETURN_IF_ERROR(cache->reserve_memory(bytes, &reservation));
-        }
         auto block = std::make_shared<DecodedDictBlock>();
-        block->memory = std::move(reservation);
         RETURN_IF_ERROR(open_dict_block(reader_, ref, tier_, has_positions_, &block->bytes,
                                         &block->reader));
         *slot = std::move(block);
@@ -831,74 +775,22 @@ Status LogicalIndexReader::collect_batch_lookup_groups(
     return Status::OK();
 }
 
-ALWAYS_INLINE Status LogicalIndexReader::resolve_batch_lookup_group(
-        const std::vector<std::string>& terms, const std::vector<BatchLookupCandidate>& candidates,
-        const BatchLookupGroup& group, const DictBlockReader& block_reader,
-        std::vector<BatchLookupResult>* results, BatchLookupResults* result_owner) const {
-    if (result_owner == nullptr) {
-        return resolve_batch_lookup_entries(terms, candidates, group, block_reader, results);
-    }
-    DORIS_CHECK(results == &result_owner->results_);
-    BlockRef ref {};
-    RETURN_IF_ERROR(dbd_.get(group.ordinal, &ref));
-    uint64_t plain_bytes = 0;
-    RETURN_IF_ERROR(dict_block_memory_bytes(ref, &plain_bytes));
-    uint64_t additional_bytes = 0;
-    RETURN_IF_ERROR(batch_lookup_group_allocation_bound(terms, candidates, group, plain_bytes,
-                                                        &additional_bytes));
-    const uint64_t before = result_owner->memory_.bytes();
-    const uint64_t old_group_bytes = batch_lookup_group_heap_bytes(candidates, group, *results);
-    DORIS_CHECK_GE(before, old_group_bytes);
-    if (additional_bytes > result_owner->budget_.limit_bytes() - before) {
-        return Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED, false>(
-                "index query result group exceeds memory budget");
-    }
-    RETURN_IF_ERROR(result_owner->memory_.resize(before + additional_bytes));
-    Status status = resolve_batch_lookup_entries(terms, candidates, group, block_reader, results);
-    const uint64_t retained =
-            before - old_group_bytes + batch_lookup_group_heap_bytes(candidates, group, *results);
-    Status accounting = result_owner->memory_.resize(retained);
-    RETURN_IF_ERROR(status);
-    return accounting;
-}
-
 Status LogicalIndexReader::prepare_lookup_batch(const std::vector<std::string>& terms,
-                                                BatchLookupResults* results,
+                                                std::vector<BatchLookupResult>* results,
                                                 BatchLookupState* state) const {
-    DORIS_CHECK(results != nullptr);
-    DORIS_CHECK(state != nullptr);
-    *state = BatchLookupState {};
-    RETURN_IF_ERROR(results->reserve_slots(terms.size()));
-    return prepare_lookup_batch_impl(terms, &results->results_, state, results);
-}
-
-ALWAYS_INLINE Status LogicalIndexReader::prepare_lookup_batch(
-        const std::vector<std::string>& terms, std::vector<BatchLookupResult>* results,
-        BatchLookupState* state) const {
-    return prepare_lookup_batch_impl(terms, results, state, nullptr);
-}
-
-ALWAYS_INLINE Status LogicalIndexReader::prepare_lookup_batch_impl(
-        const std::vector<std::string>& terms, std::vector<BatchLookupResult>* results,
-        BatchLookupState* state, BatchLookupResults* result_owner) const {
     DORIS_CHECK(results != nullptr);
     DORIS_CHECK(state != nullptr);
     DCHECK(std::ranges::is_sorted(terms));
     DCHECK(std::adjacent_find(terms.begin(), terms.end()) == terms.end());
     *state = BatchLookupState {};
     results->assign(terms.size(), BatchLookupResult {});
-    if (result_owner != nullptr) {
-        RETURN_IF_ERROR(
-                result_owner->memory_.resize(results->capacity() * sizeof(BatchLookupResult)));
-    }
     if (reader_ == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("logical_index: not opened");
     }
     state->owner_ = this;
     state->terms_ = &terms;
     state->results_ = results;
-    state->result_owner_ = result_owner;
-    if (result_owner == nullptr && terms.size() == 1 && !resident_dict_blocks_.empty()) {
+    if (terms.size() == 1 && !resident_dict_blocks_.empty()) {
         BatchLookupResult& result = results->front();
         return lookup(terms.front(), &result.found, &result.entry, &result.frq_base,
                       &result.prx_base);
@@ -910,8 +802,8 @@ ALWAYS_INLINE Status LogicalIndexReader::prepare_lookup_batch_impl(
             std::shared_ptr<const DecodedDictBlock> pin;
             RETURN_IF_ERROR(dict_block_reader_for_ordinal(group.ordinal, /*cache=*/nullptr, &pin,
                                                           &block_reader));
-            RETURN_IF_ERROR(resolve_batch_lookup_group(terms, state->candidates_, group,
-                                                       *block_reader, results, result_owner));
+            RETURN_IF_ERROR(resolve_batch_lookup_entries(terms, state->candidates_, group,
+                                                         *block_reader, results));
         }
         state->next_group_ = state->groups_.size();
     }
@@ -920,73 +812,40 @@ ALWAYS_INLINE Status LogicalIndexReader::prepare_lookup_batch_impl(
 
 namespace {
 
-ALWAYS_INLINE Status register_dictionary_blocks(io::FileReader* reader, auto& pending,
-                                                io::BatchRangeFetcher* fetcher,
-                                                index_query::IoBatch* shared_wave) {
-    if (shared_wave == nullptr && fetcher->pending() == 0) {
+// A fetcher that already holds another state's blocks takes this state's blocks
+// only while the shared read stays within the dictionary wave limits.
+ALWAYS_INLINE Status register_dictionary_blocks(auto& pending, io::BatchRangeFetcher* fetcher) {
+    if (fetcher->pending() == 0) {
         for (auto& block : pending) {
             block.handle = fetcher->add(block.ref.offset, block.ref.length);
         }
-    } else {
-        size_t accepted_blocks = 0;
-        for (auto& block : pending) {
-            bool accepted = false;
-            if (shared_wave != nullptr) {
-                RETURN_IF_ERROR(shared_wave->try_add(*reader, block.ref.offset, block.ref.length,
-                                                     &accepted, &block.handle, true));
-            } else {
-                RETURN_IF_ERROR(fetcher->try_add(block.ref.offset, block.ref.length,
-                                                 kMaxDictLookupBatchBytes, kMaxDictLookupBatchRuns,
-                                                 &accepted, &block.handle));
-            }
-            if (!accepted) {
-                break;
-            }
-            ++accepted_blocks;
-        }
-        pending.resize(accepted_blocks);
-    }
-    if (shared_wave != nullptr && shared_wave->pending() == 0) {
-        return Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED, false>(
-                "dictionary wave cannot admit its first block");
-    }
-    return Status::OK();
-}
-
-ALWAYS_INLINE Status reserve_dictionary_decode_memory(
-        const LogicalIndexReader& index, uint32_t ordinal, const BlockRef& ref,
-        index_query::MemoryBudget* budget, index_query::MemoryBudget::Reservation* reservation) {
-    if (budget == nullptr) {
         return Status::OK();
     }
-    DictBlockScanMemory memory;
-    RETURN_IF_ERROR(index.dict_block_scan_memory(ordinal, &memory));
-    // The wave owns the disk bytes; raw blocks also borrow their decoded payload.
-    uint64_t bytes = memory.decode_bytes - ref.length;
-    if ((ref.flags & format::block_ref_flags::kZstd) == 0) {
-        bytes -= ref.length;
+    size_t accepted_blocks = 0;
+    for (auto& block : pending) {
+        bool accepted = false;
+        RETURN_IF_ERROR(fetcher->try_add(block.ref.offset, block.ref.length,
+                                         kMaxDictLookupBatchBytes, kMaxDictLookupBatchRuns,
+                                         &accepted, &block.handle));
+        if (!accepted) {
+            break;
+        }
+        ++accepted_blocks;
     }
-    return budget->reserve(bytes, reservation);
+    pending.resize(accepted_blocks);
+    return Status::OK();
 }
 
 } // namespace
 
-ALWAYS_INLINE Status LogicalIndexReader::prepare_lookup_wave_impl(
-        BatchLookupState* state, io::BatchRangeFetcher* fetcher,
-        index_query::IoBatch* shared_wave) const {
+Status LogicalIndexReader::prepare_lookup_wave(BatchLookupState* state,
+                                               io::BatchRangeFetcher* fetcher) const {
     DORIS_CHECK(state != nullptr);
     DORIS_CHECK(state->owner_ == this);
-    DORIS_CHECK(state->wave_ == nullptr && state->shared_wave_ == nullptr);
+    DORIS_CHECK(state->wave_ == nullptr);
     DORIS_CHECK(!state->done());
-    DORIS_CHECK((fetcher != nullptr) != (shared_wave != nullptr));
-    if (fetcher != nullptr) {
-        DORIS_CHECK(fetcher->reader() == reader_);
-    }
-    if (state->result_owner_ != nullptr) {
-        auto* budget =
-                shared_wave != nullptr ? &shared_wave->memory_budget() : fetcher->memory_budget();
-        DORIS_CHECK(budget == &state->result_owner_->budget_);
-    }
+    DORIS_CHECK(fetcher != nullptr);
+    DORIS_CHECK(fetcher->reader() == reader_);
     auto& pending = state->pending_;
     pending.clear();
     pending.reserve(kMaxDictLookupBatchRuns);
@@ -1013,41 +872,18 @@ ALWAYS_INLINE Status LogicalIndexReader::prepare_lookup_wave_impl(
         ++wave_end;
     }
     DORIS_CHECK(!pending.empty());
-    RETURN_IF_ERROR(register_dictionary_blocks(reader_, pending, fetcher, shared_wave));
+    RETURN_IF_ERROR(register_dictionary_blocks(pending, fetcher));
     state->wave_ = fetcher;
-    state->shared_wave_ = shared_wave;
     return Status::OK();
 }
 
-ALWAYS_INLINE Status LogicalIndexReader::prepare_lookup_wave(BatchLookupState* state,
-                                                             io::BatchRangeFetcher* fetcher) const {
-    return prepare_lookup_wave_impl(state, fetcher, nullptr);
-}
-
-Status LogicalIndexReader::prepare_lookup_wave(BatchLookupState* state,
-                                               index_query::IoBatch* wave) const {
-    return prepare_lookup_wave_impl(state, nullptr, wave);
-}
-
-ALWAYS_INLINE Status LogicalIndexReader::consume_lookup_wave_impl(
-        BatchLookupState* state, const io::BatchRangeFetcher* fetcher,
-        const index_query::IoBatch* shared_wave) const {
+Status LogicalIndexReader::consume_lookup_wave(BatchLookupState* state,
+                                               const io::BatchRangeFetcher& fetcher) const {
     DORIS_CHECK(state != nullptr);
     DORIS_CHECK(state->owner_ == this);
-    DORIS_CHECK((fetcher != nullptr) != (shared_wave != nullptr));
-    DORIS_CHECK(state->wave_ == fetcher && state->shared_wave_ == shared_wave);
-    auto* budget =
-            shared_wave != nullptr ? &shared_wave->memory_budget() : fetcher->memory_budget();
+    DORIS_CHECK(state->wave_ == &fetcher);
     for (const PendingBatchLookupBlock& block : state->pending_) {
-        index_query::MemoryBudget::Reservation decode_memory;
-        RETURN_IF_ERROR(reserve_dictionary_decode_memory(*this,
-                                                         state->groups_[block.group_index].ordinal,
-                                                         block.ref, budget, &decode_memory));
-        const auto shared_bytes = shared_wave != nullptr ? shared_wave->get(block.handle)
-                                                         : std::span<const uint8_t>();
-        const Slice on_disk = shared_wave != nullptr
-                                      ? Slice(shared_bytes.data(), shared_bytes.size())
-                                      : fetcher->get(block.handle);
+        const Slice on_disk = fetcher.get(block.handle);
         std::vector<uint8_t> decoded;
         Slice payload = on_disk;
         if ((block.ref.flags & format::block_ref_flags::kZstd) != 0) {
@@ -1056,27 +892,16 @@ ALWAYS_INLINE Status LogicalIndexReader::consume_lookup_wave_impl(
         }
         DictBlockReader block_reader;
         RETURN_IF_ERROR(DictBlockReader::open(payload, tier_, has_positions_, &block_reader));
-        RETURN_IF_ERROR(resolve_batch_lookup_group(*state->terms_, state->candidates_,
-                                                   state->groups_[block.group_index], block_reader,
-                                                   state->results_, state->result_owner_));
+        RETURN_IF_ERROR(resolve_batch_lookup_entries(*state->terms_, state->candidates_,
+                                                     state->groups_[block.group_index],
+                                                     block_reader, state->results_));
     }
     if (!state->pending_.empty()) {
         state->next_group_ = state->pending_.back().group_index + 1;
     }
     state->pending_.clear();
     state->wave_ = nullptr;
-    state->shared_wave_ = nullptr;
     return Status::OK();
-}
-
-ALWAYS_INLINE Status LogicalIndexReader::consume_lookup_wave(
-        BatchLookupState* state, const io::BatchRangeFetcher& fetcher) const {
-    return consume_lookup_wave_impl(state, &fetcher, nullptr);
-}
-
-Status LogicalIndexReader::consume_lookup_wave(BatchLookupState* state,
-                                               const index_query::IoBatch& wave) const {
-    return consume_lookup_wave_impl(state, nullptr, &wave);
 }
 
 Status LogicalIndexReader::lookup_batch(const std::vector<std::string>& terms,
@@ -1093,7 +918,8 @@ Status LogicalIndexReader::lookup_batch(const std::vector<std::string>& terms,
         std::shared_ptr<const DecodedDictBlock> pin;
         RETURN_IF_ERROR(dict_block_reader_for_ordinal(group.ordinal, /*cache=*/nullptr, &pin,
                                                       &block_reader));
-        return resolve_batch_lookup_group(terms, state.candidates_, group, *block_reader, results);
+        return resolve_batch_lookup_entries(terms, state.candidates_, group, *block_reader,
+                                            results);
     }
     while (!state.done()) {
         io::BatchRangeFetcher fetcher(reader_, /*coalesce_gap=*/0);

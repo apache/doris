@@ -26,9 +26,9 @@
 #include "common/check.h"
 #include "storage/index/query/docid_set_ops.h"
 #include "storage/index/query/exec/chained_conjunction.h"
-#include "storage/index/query/spi/io_batch.h"
-#include "storage/index/query/spi/memory_budget.h"
+#include "storage/index/query/spi/io_read_batch.h"
 #include "storage/index/snii/format/frq_pod.h"
+#include "storage/index/snii/io/batch_range_fetcher.h"
 #include "storage/index/snii/query/internal/query_test_counters.h"
 #include "storage/index/snii/reader/windowed_posting.h"
 
@@ -681,20 +681,15 @@ public:
         return Status::OK();
     }
 
-    Status prepare_wave(index_query::IoBatch& batch, bool* done) override {
+    Status register_reads(index_query::IoReadBatch& batch) override {
         _work.clear();
         while (_plan.windowed && _next_window < _windows.size()) {
-            bool accepted = false;
-            RETURN_IF_ERROR(_prepare_window(batch, &accepted));
-            if (!accepted) {
-                break;
-            }
+            RETURN_IF_ERROR(_prepare_window(batch));
         }
-        *done = !_plan.windowed || _next_window == _windows.size();
         return Status::OK();
     }
 
-    Status collect_wave(const index_query::IoBatch& batch, std::vector<uint32_t>* out) override {
+    Status collect(const index_query::IoReadBatch& batch, std::vector<uint32_t>* out) override {
         if (!_plan.windowed) {
             return _collect_flat(out);
         }
@@ -717,8 +712,8 @@ public:
     }
 
 private:
-    // Adds the next selected window to the wave unless the wave cannot take its read.
-    Status _prepare_window(index_query::IoBatch& batch, bool* accepted) {
+    // Adds the next selected window; one without candidates or a full one needs no read.
+    Status _prepare_window(index_query::IoReadBatch& batch) {
         const uint32_t window = _windows[_next_window];
         WindowMeta meta;
         RETURN_IF_ERROR(_plan.prelude.window(window, &meta));
@@ -732,23 +727,17 @@ private:
             if (candidate_range.begin == candidate_range.end) {
                 _candidate_search_begin = search_begin;
                 ++_next_window;
-                *accepted = true;
                 return Status::OK();
             }
         }
         WindowWork work {.ordinal = window, .meta = meta, .candidates = candidate_range};
         RETURN_IF_ERROR(is_dense_full_window(meta, window, &work.dense_full));
-        *accepted = true;
         if (!work.dense_full) {
             reader::WindowAbsRange range;
             RETURN_IF_ERROR(reader::windowed_window_range(_idx, _plan.entry, _plan.frq_base,
                                                           _plan.prx_base, _plan.prelude, window,
                                                           /*want_positions=*/false, &range));
-            RETURN_IF_ERROR(batch.try_add(*_idx.reader(), range.dd_off, range.dd_len, accepted,
-                                          &work.handle, batch.pending() == 0));
-            if (!*accepted) {
-                return Status::OK();
-            }
+            work.handle = batch.add(range.dd_off, range.dd_len);
         }
         _candidate_search_begin = search_begin;
         _work.push_back(work);
@@ -833,11 +822,8 @@ Status run_chained_conjunction(const LogicalIndexReader& idx, const io::BatchRan
     for (ChainedTermPostings& term : terms) {
         chain.push_back(&term);
     }
-    // One unbounded wave per term keeps today's reads; the budget only accounts them.
-    index_query::MemoryBudget budget(std::numeric_limits<uint64_t>::max());
-    index_query::IoBatch batch(budget, {.bytes = std::numeric_limits<uint64_t>::max(),
-                                        .ranges = std::numeric_limits<size_t>::max(),
-                                        .coalesce_gap = reader::kSameTermCoalesceGap});
+    // One batch per term, its reads merged within the same-term gap.
+    io::BatchRangeFetcher batch(idx.reader(), reader::kSameTermCoalesceGap);
     std::vector<size_t> visited;
     RETURN_IF_ERROR(index_query::chained_conjunction(chain, initial_candidates, batch, candidates,
                                                      sources == nullptr ? nullptr : &visited));

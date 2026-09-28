@@ -21,6 +21,7 @@
 #include <limits>
 
 namespace doris::index_query {
+
 namespace {
 
 Status checked_end(uint64_t offset, uint64_t len, uint64_t* out) {
@@ -43,8 +44,8 @@ Status checked_size(uint64_t len, size_t* out) {
 
 } // namespace
 
-IoReadBatch::IoReadBatch(IoReader* reader, uint64_t coalesce_gap, MemoryBudget* budget)
-        : reader_(reader), coalesce_gap_(coalesce_gap), budget_(budget) {}
+IoReadBatch::IoReadBatch(IoReader* reader, uint64_t coalesce_gap)
+        : reader_(reader), coalesce_gap_(coalesce_gap) {}
 
 size_t IoReadBatch::add(uint64_t offset, uint64_t len) {
     reqs_.push_back(Req {.offset = offset, .len = len});
@@ -131,14 +132,9 @@ Status IoReadBatch::try_add(uint64_t offset, uint64_t len, uint64_t max_bytes, s
     return Status::OK();
 }
 
-void IoReadBatch::release_buffers() {
-    phys_.clear();
-    read_memory_.reset();
-}
-
 void IoReadBatch::clear() {
     reqs_.clear();
-    release_buffers();
+    phys_.clear();
     bounded_ranges_.clear();
     bounded_requests_ = 0;
     bounded_bytes_ = 0;
@@ -149,11 +145,10 @@ Status IoReadBatch::fetch() {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "batch_range_fetcher: null reader");
     }
-    release_buffers();
+    phys_.clear();
     if (reqs_.empty()) {
         return Status::OK();
     }
-
     std::vector<size_t> order(reqs_.size());
     for (size_t i = 0; i < order.size(); ++i) {
         order[i] = i;
@@ -182,16 +177,9 @@ Status IoReadBatch::fetch() {
         RETURN_IF_ERROR(checked_size(cur_end - cur_start, &segs.back().len));
     }
 
-    if (budget_ != nullptr) {
-        uint64_t bytes = 0;
-        for (const IoRange& range : segs) {
-            bytes += range.len;
-        }
-        RETURN_IF_ERROR(budget_->reserve(bytes, &read_memory_));
-    }
     Status status = reader_->read_batch(segs, &phys_);
     if (!status.ok()) {
-        release_buffers();
+        phys_.clear();
     }
     return status;
 }

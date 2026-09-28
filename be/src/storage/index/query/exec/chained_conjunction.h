@@ -26,11 +26,11 @@
 
 namespace doris::index_query {
 
-class IoBatch;
+class IoReadBatch;
 
-// One term of a chained conjunction. A term lists its documents among the
-// surviving candidates in one or more waves: a wave registers its reads into the
-// shared batch, the chain fetches the batch, and the term decodes the wave.
+// One term of a chained conjunction. A term registers the reads that listing its
+// documents among the surviving candidates needs, the chain fetches them, and the
+// term decodes what it registered.
 class ChainedPostings {
 public:
     virtual ~ChainedPostings() = default;
@@ -43,12 +43,12 @@ public:
     // listing ends.
     virtual Status start(const std::vector<uint32_t>* candidates) = 0;
 
-    // Registers the reads of the next wave without reading. Sets `*done` when this
-    // wave is the last one. Only a last wave may register nothing.
-    virtual Status prepare_wave(IoBatch& batch, bool* done) = 0;
+    // Registers the listing's reads into `batch` without reading. A term whose
+    // documents need no read registers nothing.
+    virtual Status register_reads(IoReadBatch& batch) = 0;
 
-    // Appends the wave's documents that are in the candidates, ascending, to `out`.
-    virtual Status collect_wave(const IoBatch& batch, std::vector<uint32_t>* out) = 0;
+    // Appends the term's documents that are in the candidates, ascending, to `out`.
+    virtual Status collect(const IoReadBatch& batch, std::vector<uint32_t>* out) = 0;
 };
 
 // Intersects `terms` over all documents, or over `initial_candidates` when given,
@@ -57,7 +57,7 @@ public:
 // before a later term reads anything. `batch` must be empty; it is left empty.
 // `visited` receives the indexes of the listed terms in listing order.
 Status chained_conjunction(std::span<ChainedPostings* const> terms,
-                           const std::vector<uint32_t>* initial_candidates, IoBatch& batch,
+                           const std::vector<uint32_t>* initial_candidates, IoReadBatch& batch,
                            std::vector<uint32_t>* result, std::vector<size_t>* visited = nullptr);
 
 } // namespace doris::index_query

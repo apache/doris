@@ -27,7 +27,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "storage/index/query/spi/memory_budget.h"
 #include "storage/index/snii/format/dict_block.h"
 
 // DictBlockCache -- a REQUEST-SCOPED (per-query) MRU cache of decoded DICT
@@ -46,6 +45,7 @@
 // LogicalIndexReader therefore stays const and lock-free -- no lock is ever held
 // across a decode/IO. (The cross-query, lock-striped variant that would let
 // queries share decoded blocks is deferred to the T26 concurrency work.)
+
 namespace doris::snii::reader {
 
 // A decoded DICT block with stable backing storage. Heap-allocated and owned by
@@ -57,7 +57,6 @@ struct DecodedDictBlock {
     DecodedDictBlock(const DecodedDictBlock&) = delete;
     DecodedDictBlock& operator=(const DecodedDictBlock&) = delete;
 
-    index_query::MemoryBudget::Reservation memory;
     std::vector<uint8_t> bytes;     // decompressed (or raw) block bytes
     format::DictBlockReader reader; // its Slice points into `bytes`
 };
@@ -74,23 +73,8 @@ public:
     static constexpr size_t kDefaultMaxEntries = 8;
 
     DictBlockCache() = default;
-    // The optional budget must outlive this cache; pins own their reservations.
-    explicit DictBlockCache(size_t max_entries, index_query::MemoryBudget* budget = nullptr)
-            : max_entries_(max_entries == 0 ? 1 : max_entries), budget_(budget) {}
-
-    index_query::MemoryBudget* memory_budget() const { return budget_; }
-
-    // Discard cached references before rejecting admission. External pins keep
-    // their charge until the physical block is destroyed.
-    Status reserve_memory(uint64_t bytes, index_query::MemoryBudget::Reservation* out) {
-        DORIS_CHECK(budget_ != nullptr);
-        Status status = budget_->reserve(bytes, out);
-        while (!status.ok() && bytes <= budget_->limit_bytes() && !order_.empty()) {
-            evict_lru();
-            status = budget_->reserve(bytes, out);
-        }
-        return status;
-    }
+    explicit DictBlockCache(size_t max_entries)
+            : max_entries_(max_entries == 0 ? 1 : max_entries) {}
 
     // Returns the decoded block for `ordinal`, invoking `loader` only on a miss.
     // The returned pin keeps the block alive for the caller's use regardless of
@@ -102,7 +86,6 @@ public:
             *out = it->second->block;
             return Status::OK();
         }
-
         std::shared_ptr<const DecodedDictBlock> loaded;
         // decode happens here, never under a lock (explicit Status, header-safe:
         // RETURN_IF_ERROR would need a bare `Status` in scope).
@@ -131,18 +114,13 @@ private:
     // block (and its reader's Slice) alive.
     void evict_overflow() {
         while (index_.size() > max_entries_) {
-            evict_lru();
+            const Entry& victim = order_.back();
+            index_.erase(victim.ordinal);
+            order_.pop_back();
         }
     }
 
-    void evict_lru() {
-        const Entry& victim = order_.back();
-        index_.erase(victim.ordinal);
-        order_.pop_back();
-    }
-
     size_t max_entries_ = kDefaultMaxEntries;
-    index_query::MemoryBudget* budget_ = nullptr;
     std::list<Entry> order_; // front = most recently used
     std::unordered_map<uint32_t, std::list<Entry>::iterator> index_;
 };
