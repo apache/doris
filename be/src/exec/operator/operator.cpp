@@ -42,6 +42,8 @@
 #include "exec/operator/file_scan_operator.h"
 #include "exec/operator/group_commit_block_sink_operator.h"
 #include "exec/operator/group_commit_scan_operator.h"
+#include "exec/operator/groupjoin_build_sink.h"
+#include "exec/operator/groupjoin_probe_operator.h"
 #include "exec/operator/hashjoin_build_sink.h"
 #include "exec/operator/hashjoin_probe_operator.h"
 #include "exec/operator/hive_table_sink_operator.h"
@@ -858,6 +860,7 @@ DECLARE_OPERATOR(LocalExchangeSinkLocalState)
 DECLARE_OPERATOR(AggSinkLocalState)
 DECLARE_OPERATOR(BucketedAggSinkLocalState)
 DECLARE_OPERATOR(PartitionedAggSinkLocalState)
+DECLARE_OPERATOR(GroupJoinBuildSinkLocalState)
 DECLARE_OPERATOR(ExchangeSinkLocalState)
 DECLARE_OPERATOR(NestedLoopJoinBuildSinkLocalState)
 DECLARE_OPERATOR(UnionSinkLocalState)
@@ -908,6 +911,7 @@ DECLARE_OPERATOR(PartitionedHashJoinProbeLocalState)
 DECLARE_OPERATOR(CacheSourceLocalState)
 DECLARE_OPERATOR(RecCTESourceLocalState)
 DECLARE_OPERATOR(RecCTEScanLocalState)
+DECLARE_OPERATOR(GroupJoinProbeLocalState)
 
 #ifdef BE_TEST
 DECLARE_OPERATOR(MockLocalState)
@@ -926,6 +930,7 @@ template class StatefulOperatorX<StreamingAggLocalState>;
 template class StatefulOperatorX<DistinctStreamingAggLocalState>;
 template class StatefulOperatorX<NestedLoopJoinProbeLocalState>;
 template class StatefulOperatorX<TableFunctionLocalState>;
+template class StatefulOperatorX<GroupJoinProbeLocalState>;
 
 template class PipelineXSinkLocalState<HashJoinSharedState>;
 template class PipelineXSinkLocalState<PartitionedHashJoinSharedState>;
@@ -935,6 +940,7 @@ template class PipelineXSinkLocalState<NestedLoopJoinSharedState>;
 template class PipelineXSinkLocalState<AnalyticSharedState>;
 template class PipelineXSinkLocalState<AggSharedState>;
 template class PipelineXSinkLocalState<BucketedAggSharedState>;
+template class PipelineXSinkLocalState<GroupJoinSharedState>;
 template class PipelineXSinkLocalState<PartitionedAggSharedState>;
 template class PipelineXSinkLocalState<FakeSharedState>;
 template class PipelineXSinkLocalState<UnionSharedState>;
@@ -954,6 +960,7 @@ template class PipelineXLocalState<NestedLoopJoinSharedState>;
 template class PipelineXLocalState<AnalyticSharedState>;
 template class PipelineXLocalState<AggSharedState>;
 template class PipelineXLocalState<BucketedAggSharedState>;
+template class PipelineXLocalState<GroupJoinSharedState>;
 template class PipelineXLocalState<PartitionedAggSharedState>;
 template class PipelineXLocalState<FakeSharedState>;
 template class PipelineXLocalState<UnionSharedState>;
