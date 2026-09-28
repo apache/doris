@@ -185,6 +185,7 @@ def start_palo(init_state=False):
         add_password()
     start_other_fe()
     start_be()
+    time.sleep(5)
 
 
 if __name__ == '__main__':
