@@ -170,6 +170,23 @@ public:
         return w;
     }
 
+    TDigest(const TDigest& other)
+            : _compression(other._compression),
+              _min(other._min),
+              _max(other._max),
+              _max_processed(other._max_processed),
+              _max_unprocessed(other._max_unprocessed),
+              _processed_weight(other._processed_weight),
+              _unprocessed_weight(other._unprocessed_weight) {
+        // A detached accumulator should retain its reserved write capacity.
+        _processed.reserve(std::max(other._processed.capacity(), _max_processed));
+        _unprocessed.reserve(std::max(other._unprocessed.capacity(), _max_unprocessed + 1));
+        _cumulative.reserve(other._cumulative.capacity());
+        _processed = other._processed;
+        _unprocessed = other._unprocessed;
+        _cumulative = other._cumulative;
+    }
+
     TDigest& operator=(TDigest&& o) {
         _compression = o._compression;
         _max_processed = o._max_processed;

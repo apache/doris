@@ -77,6 +77,24 @@ static double quantile(const double q, const std::vector<double>& values) {
     return q1;
 }
 
+TEST_F(TDigestTest, CopyPreservesValuesAndWriteCapacity) {
+    TDigest source(100);
+    for (int i = 0; i < 300; ++i) {
+        source.add(i);
+    }
+    source.compress();
+    source.add(1000);
+    TDigest copy(source);
+    EXPECT_EQ(301, copy.total_weight());
+    EXPECT_GE(copy._processed.capacity(), source._processed.capacity());
+    EXPECT_GE(copy._unprocessed.capacity(), source._unprocessed.capacity());
+    EXPECT_GE(copy._cumulative.capacity(), source._cumulative.capacity());
+    copy.add(2000);
+    EXPECT_EQ(0, copy.quantile(0));
+    EXPECT_EQ(2000, copy.quantile(1));
+    EXPECT_EQ(1000, source.quantile(1));
+}
+
 TEST_F(TDigestTest, CrashAfterMerge) {
     TDigest digest(1000);
     std::uniform_real_distribution<> reals(0.0, 1.0);
