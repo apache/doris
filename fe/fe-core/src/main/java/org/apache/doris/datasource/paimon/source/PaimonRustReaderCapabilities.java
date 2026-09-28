@@ -34,9 +34,12 @@ import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.VarCharType;
 
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /** Compatibility checks for the pinned paimon-rust reader, beyond storage capabilities. */
@@ -55,6 +58,11 @@ final class PaimonRustReaderCapabilities {
 
     boolean canRead(DataSplit split) {
         if (!tableCompatible) {
+            return false;
+        }
+        // The pinned merge reader retains losing input batches until an output batch fills.
+        // Neither zero deletes nor a small read.batch-size bounds this across multiple files.
+        if (!schema.primaryKeys().isEmpty() && split.dataFiles().size() > 1) {
             return false;
         }
         for (DataFileMeta file : split.dataFiles()) {
@@ -87,7 +95,7 @@ final class PaimonRustReaderCapabilities {
     private boolean hasCompatibleFileSchema(long id) {
         try {
             TableSchema fileSchema = table.schemaManager().schema(id);
-            // Java wraps narrowed integers; Arrow casts turn out-of-range values into NULL.
+            // Java numeric-to-integer casts can wrap; Arrow may return NULL for the same value.
             // Compare IDs recursively: renames and newly added fields are not narrowing.
             return fileSchema != null && !hasIntegerNarrowing(fileSchema.fields(), schema.fields());
         } catch (RuntimeException e) {
@@ -113,8 +121,10 @@ final class PaimonRustReaderCapabilities {
     private static boolean hasIntegerNarrowing(DataType oldType, DataType newType) {
         int oldWidth = integerWidth(oldType.getTypeRoot());
         int newWidth = integerWidth(newType.getTypeRoot());
-        if (oldWidth > 0 && newWidth > 0) {
-            return oldWidth > newWidth;
+        if (newWidth > 0) {
+            // Floating-point and decimal sources also differ under narrowing; only integer
+            // identity/widening casts have the same range and value semantics in both readers.
+            return oldWidth == 0 || oldWidth > newWidth;
         }
         if (oldType instanceof RowType && newType instanceof RowType) {
             return hasIntegerNarrowing(((RowType) oldType).getFields(), ((RowType) newType).getFields());
@@ -153,14 +163,25 @@ final class PaimonRustReaderCapabilities {
         if (engine != CoreOptions.MergeEngine.AGGREGATE && engine != CoreOptions.MergeEngine.PARTIAL_UPDATE) {
             return true;
         }
+        Set<String> sequenceFields = new HashSet<>();
+        if (engine == CoreOptions.MergeEngine.PARTIAL_UPDATE) {
+            for (String key : options.keySet()) {
+                if (key.startsWith("fields.") && key.endsWith(".sequence-group")) {
+                    sequenceFields.addAll(Arrays.asList(key.substring("fields.".length(),
+                            key.length() - ".sequence-group".length()).split(",")));
+                }
+            }
+        }
         // Validate values and types, not just option keys. Java's SPI includes functions
         // such as collect which the pinned Rust aggregator factory does not implement.
         for (DataField field : schema.fields()) {
-            if (schema.primaryKeys().contains(field.name())) {
+            if (schema.primaryKeys().contains(field.name()) || sequenceFields.contains(field.name())) {
                 continue;
             }
             String function = options.get("fields." + field.name() + ".aggregate-function");
-            if (function == null && engine == CoreOptions.MergeEngine.AGGREGATE) {
+            // Partial-update applies the default too, except to keys and sequence fields.
+            // A field override must win before checking the effective function's type support.
+            if (function == null) {
                 function = options.get("fields.default-aggregate-function");
             }
             if (function != null && !supportsAggregate(function, field.type())) {

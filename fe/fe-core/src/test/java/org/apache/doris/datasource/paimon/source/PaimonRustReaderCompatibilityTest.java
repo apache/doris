@@ -21,6 +21,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 
 import com.google.common.collect.ImmutableMap;
+import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.Decimal;
 import org.apache.paimon.data.GenericArray;
 import org.apache.paimon.data.GenericRow;
@@ -50,6 +51,7 @@ import org.junit.rules.TemporaryFolder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -69,6 +71,92 @@ public class PaimonRustReaderCompatibilityTest {
         table = FileStoreTableFactory.create(table.fileIO(), table.location());
         assertRead(table, false, row -> row.isNullAt(1) ? null : row.getByte(1),
                 Arrays.asList((byte) 127, (byte) 127, null));
+    }
+
+    @Test
+    public void testPersistedNonIntegerNarrowing() throws Exception {
+        for (DataType type : Arrays.asList(DataTypes.DOUBLE(), DataTypes.DECIMAL(10, 2))) {
+            boolean floating = type.equals(DataTypes.DOUBLE());
+            FileStoreTable table = table(type, Collections.emptyMap());
+            commit(table, GenericRow.of(1, floating ? 383.0 : Decimal.fromUnscaledLong(38300, 10, 2)),
+                    GenericRow.of(2, floating ? -129.0 : Decimal.fromUnscaledLong(-12900, 10, 2)),
+                    GenericRow.of(3, floating ? 12.0 : Decimal.fromUnscaledLong(1200, 10, 2)),
+                    GenericRow.of(4, null));
+            assertRead(table, true, row -> row.getInt(0), Arrays.asList(1, 2, 3, 4));
+            table.schemaManager().commitChanges(Collections.singletonList(
+                    SchemaChange.updateColumnType("v", DataTypes.TINYINT(), true)));
+            table = FileStoreTableFactory.create(table.fileIO(), table.location());
+            assertRead(table, false, row -> row.isNullAt(1) ? null : row.getByte(1),
+                    Arrays.asList((byte) 127, (byte) 127, (byte) 12, null));
+        }
+    }
+
+    @Test
+    public void testPersistedPartialUpdateDefaultAggregate() throws Exception {
+        for (boolean decimal : new boolean[] {false, true}) {
+            DataType type = decimal ? DataTypes.DECIMAL(2, 0) : DataTypes.TINYINT();
+            for (boolean override : new boolean[] {false, true}) {
+                Map<String, String> options = new HashMap<>();
+                options.put("merge-engine", "partial-update");
+                options.put("fields.seq.sequence-group", "v");
+                options.put("fields.default-aggregate-function", "sum");
+                if (override) {
+                    options.put("fields.v.aggregate-function", "max");
+                }
+                FileStoreTable table = table(Schema.newBuilder().column("id", DataTypes.INT().notNull())
+                        .column("v", type).column("seq", DataTypes.INT()).primaryKey("id"), options);
+                commit(table, GenericRow.of(1, decimal ? Decimal.fromUnscaledLong(99, 2, 0) : (byte) 127, 1));
+                // One persisted file must exercise the aggregate gate independently of merge fallback.
+                assertRead(table, override, row -> decimal
+                        ? row.getDecimal(1, 2, 0).toBigDecimal().toPlainString()
+                        : Byte.toString(row.getByte(1)), Collections.singletonList(decimal ? "99" : "127"));
+                commit(table, GenericRow.of(1, decimal ? Decimal.fromUnscaledLong(1, 2, 0) : (byte) 1, 2));
+                if (decimal) {
+                    commit(table, GenericRow.of(1, Decimal.fromUnscaledLong(-1, 2, 0), 3));
+                }
+                assertRead(table, false, row -> decimal
+                        ? row.getDecimal(1, 2, 0).toBigDecimal().toPlainString()
+                        : Byte.toString(row.getByte(1)), Collections.singletonList(
+                                decimal ? "99" : override ? "127" : "-128"));
+            }
+        }
+    }
+
+    @Test
+    public void testPersistedInsertOnlyOverlappingRunsFallback() throws Exception {
+        FileStoreTable table = table(DataTypes.STRING(), ImmutableMap.of("read.batch-size", "1"));
+        for (int run = 0; run < 3; run++) {
+            List<GenericRow> rows = new ArrayList<>();
+            String payload = run + String.join("", Collections.nCopies(4096, "x"));
+            for (int key = 0; key < 1025; key++) {
+                rows.add(GenericRow.of(key, BinaryString.fromString(payload)));
+            }
+            commit(table, rows.toArray(new GenericRow[0]));
+        }
+        List<Split> splits = table.newReadBuilder().newScan().plan().splits();
+        Assert.assertEquals("Overlapping runs must be read in one logical split", 1, splits.size());
+        DataSplit split = (DataSplit) splits.get(0);
+        Assert.assertEquals(3, split.dataFiles().size());
+        split.dataFiles().forEach(file -> {
+            Assert.assertEquals(1025L, file.rowCount());
+            Assert.assertEquals(Long.valueOf(0), file.deleteRowCount().get());
+        });
+        assertRead(table, false, row -> {
+            String payload = row.getString(1).toString();
+            Assert.assertEquals(4097, payload.length());
+            return payload.substring(0, 1);
+        }, Collections.nCopies(1025, "2"));
+    }
+
+    @Test
+    public void testPersistedAppendOnlyMultiFileControl() throws Exception {
+        FileStoreTable table = table(Schema.newBuilder().column("id", DataTypes.INT()).column("v", DataTypes.INT()),
+                ImmutableMap.of("bucket", "-1"));
+        commit(table, GenericRow.of(1, 11));
+        commit(table, GenericRow.of(2, 22));
+        Assert.assertTrue(table.newReadBuilder().newScan().plan().splits().stream()
+                .anyMatch(split -> ((DataSplit) split).dataFiles().size() > 1));
+        assertRead(table, true, row -> row.getInt(1), Arrays.asList(11, 22));
     }
 
     @Test
@@ -120,8 +208,9 @@ public class PaimonRustReaderCompatibilityTest {
         for (RowKind kind : Arrays.asList(RowKind.DELETE, RowKind.UPDATE_BEFORE)) {
             FileStoreTable table = table(DataTypes.DOUBLE(), aggregate("sum"));
             commit(table, GenericRow.of(1, 10.0));
+            assertRead(table, true, row -> row.getDouble(1), Collections.singletonList(10.0));
             commit(table, GenericRow.of(1, 3.0));
-            assertRead(table, true, row -> row.getDouble(1), Collections.singletonList(13.0));
+            assertRead(table, false, row -> row.getDouble(1), Collections.singletonList(13.0));
             commit(table, GenericRow.ofKind(kind, 1, 3.0));
             assertRead(table, false, row -> row.getDouble(1), Collections.singletonList(10.0));
         }
@@ -152,10 +241,14 @@ public class PaimonRustReaderCompatibilityTest {
     }
 
     private FileStoreTable table(DataType type, Map<String, String> options) throws Exception {
+        return table(Schema.newBuilder().column("id", DataTypes.INT().notNull()).column("v", type)
+                .primaryKey("id"), options);
+    }
+
+    private FileStoreTable table(Schema.Builder schema, Map<String, String> options) throws Exception {
         Path path = new Path(temporaryFolder.newFolder().toURI());
         LocalFileIO fileIO = LocalFileIO.create();
-        Schema.Builder schema = Schema.newBuilder().column("id", DataTypes.INT().notNull()).column("v", type)
-                .primaryKey("id").option("bucket", "1").option("write-only", "true")
+        schema.option("bucket", "1").option("write-only", "true")
                 .option("file.format", "parquet").option("deletion-vectors.enabled", "false")
                 .option("read.batch-size", "16").option("scan.manifest.parallelism", "1");
         options.forEach(schema::option);

@@ -3277,6 +3277,89 @@ public class PaimonScanNodeTest {
     }
 
     @Test
+    public void testRustNonIntegerHistoryToIntegerFallback() throws Exception {
+        for (org.apache.paimon.types.DataType sourceType : Arrays.asList(
+                DataTypes.FLOAT(), DataTypes.DOUBLE(), DataTypes.DECIMAL(10, 2), DataTypes.STRING())) {
+            for (org.apache.paimon.types.DataType targetType : Arrays.asList(
+                    DataTypes.TINYINT(), DataTypes.SMALLINT(), DataTypes.INT(), DataTypes.BIGINT())) {
+                org.apache.paimon.types.DataType[][] shapes = {
+                        {sourceType, targetType},
+                        {DataTypes.ROW(new DataField(2, "old_name", sourceType)),
+                                DataTypes.ROW(new DataField(2, "renamed", targetType))},
+                        {DataTypes.ARRAY(sourceType), DataTypes.ARRAY(targetType)},
+                        {DataTypes.MAP(sourceType, DataTypes.INT()), DataTypes.MAP(targetType, DataTypes.INT())},
+                        {DataTypes.MAP(DataTypes.INT(), sourceType), DataTypes.MAP(DataTypes.INT(), targetType)}};
+                for (org.apache.paimon.types.DataType[] shape : shapes) {
+                    RustRoutingFixture f = new RustRoutingFixture();
+                    Mockito.when(f.schemas.schema(1)).thenReturn(new TableSchema(1, Arrays.asList(
+                            new DataField(0, "id", new IntType(false)), new DataField(1, "v", shape[0])),
+                            10, Collections.emptyList(), Collections.emptyList(), Collections.emptyMap(), null));
+                    f.schema(2, shape[1], Collections.emptyMap(), false);
+                    Assert.assertEquals(Arrays.toString(shape), TPaimonReaderType.PAIMON_JNI, f.reader(f.split));
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testRustPartialUpdateDefaultAggregateAndSequenceFields() throws Exception {
+        for (org.apache.paimon.types.DataType valueType : Arrays.asList(
+                DataTypes.TINYINT(), DataTypes.DECIMAL(2, 0), DataTypes.DOUBLE())) {
+            for (boolean override : Arrays.asList(false, true)) {
+                RustRoutingFixture f = new RustRoutingFixture();
+                Map<String, String> options = new HashMap<>();
+                options.put("merge-engine", "partial-update");
+                options.put("fields.seq,seq2.sequence-group", "v");
+                options.put("fields.default-aggregate-function", "sum");
+                if (override) {
+                    options.put("fields.v.aggregate-function", "max");
+                }
+                f.schema(1, valueType, options, true);
+                Mockito.when(f.table.schema()).thenReturn(new TableSchema(1, Arrays.asList(
+                        new DataField(0, "id", new IntType(false)), new DataField(1, "v", valueType),
+                        new DataField(2, "seq", new IntType()), new DataField(3, "seq2", new IntType())),
+                        3, Collections.emptyList(), Collections.singletonList("id"), options, null));
+                DataFileMeta file = Mockito.spy(f.split.dataFiles().get(0));
+                Mockito.doReturn(Optional.of(0L)).when(file).deleteRowCount();
+                // A single file isolates aggregate eligibility from the multi-file merge guard.
+                DataSplit split = DataSplit.builder().withPartition(BinaryRow.EMPTY_ROW)
+                        .withBucket(0).withBucketPath("file:///warehouse/db/t/bucket-0")
+                        .withDataFiles(Collections.singletonList(file)).build();
+                boolean compatible = override || valueType.equals(DataTypes.DOUBLE());
+                Assert.assertEquals(valueType + " override=" + override,
+                        compatible ? TPaimonReaderType.PAIMON_RUST : TPaimonReaderType.PAIMON_JNI,
+                        f.reader(split));
+            }
+        }
+    }
+
+    @Test
+    public void testRustMultiFilePrimaryKeyMergeFallback() throws Exception {
+        for (String engine : Arrays.asList("deduplicate", "aggregation", "partial-update")) {
+            for (boolean primaryKey : Arrays.asList(false, true)) {
+                for (int fileCount : new int[] {1, 2, 8}) {
+                    RustRoutingFixture f = new RustRoutingFixture();
+                    f.schema(1, new IntType(), ImmutableMap.of("merge-engine", engine,
+                            "read.batch-size", "1"), primaryKey);
+                    List<DataFileMeta> files = new ArrayList<>();
+                    for (int i = 0; i < fileCount; i++) {
+                        DataFileMeta file = Mockito.spy(createDataSplit("run-" + i + ".parquet")
+                                .dataFiles().get(0));
+                        Mockito.doReturn(Optional.of(0L)).when(file).deleteRowCount();
+                        files.add(file);
+                    }
+                    DataSplit split = DataSplit.builder().withPartition(BinaryRow.EMPTY_ROW)
+                            .withBucket(0).withBucketPath("file:///warehouse/db/t/bucket-0")
+                            .withDataFiles(files).build();
+                    Assert.assertEquals(engine + " pk=" + primaryKey + " files=" + fileCount,
+                            primaryKey && fileCount > 1 ? TPaimonReaderType.PAIMON_JNI
+                                    : TPaimonReaderType.PAIMON_RUST, f.reader(split));
+                }
+            }
+        }
+    }
+
+    @Test
     public void testRustNestedEvolutionAndCompatibleHistory() throws Exception {
         org.apache.paimon.types.DataType small = new org.apache.paimon.types.TinyIntType();
         org.apache.paimon.types.DataType large = new org.apache.paimon.types.BigIntType();

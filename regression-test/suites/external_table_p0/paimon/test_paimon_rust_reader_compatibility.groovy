@@ -112,8 +112,41 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
         createPk("supported_sum", "v DOUBLE", ", 'merge-engine'='aggregation', "
                 + "'fields.v.aggregate-function'='sum'")
         sql "INSERT INTO supported_sum VALUES (1,10.0)"
+        check("select v from supported_sum", [[10.0]], true)
         sql "INSERT INTO supported_sum VALUES (1,3.0)"
-        check("select v from supported_sum", [[13.0]], true)
+        check("select v from supported_sum", [[13.0]], false)
+
+        [false, true].each { decimal ->
+            [false, true].each { override ->
+                def name = "partial_default_${decimal}_${override}"
+                def type = decimal ? "DECIMAL(2,0)" : "TINYINT"
+                def first = decimal ? 99 : 127
+                def extra = ", 'merge-engine'='partial-update', 'fields.seq.sequence-group'='v', "
+                        + "'fields.default-aggregate-function'='sum'"
+                if (override) {
+                    extra += ", 'fields.v.aggregate-function'='max'"
+                }
+                createPk(name, "v ${type}, seq INT", extra)
+                sql "INSERT INTO ${name} VALUES (1,${first},1)"
+                // The single-file control distinguishes aggregate fallback from merge fallback.
+                check("select cast(v as string) from ${name}", [[first.toString()]], override)
+                sql "INSERT INTO ${name} VALUES (1,1,2)"
+                if (decimal) {
+                    sql "INSERT INTO ${name} VALUES (1,-1,3)"
+                }
+                def expected = decimal ? "99" : override ? "127" : "-128"
+                check("select cast(v as string) from ${name}", [[expected]], false)
+            }
+        }
+
+        createPk("insert_only_runs", "v STRING", ", 'read.batch-size'='1'")
+        3.times { run ->
+            sql """INSERT INTO insert_only_runs
+                SELECT number, concat('${run}', repeat('x',4096)) FROM numbers('number'='1025')"""
+        }
+        // Overlapping INSERT-only files have no tombstones, but Rust retains losing batches.
+        check("select count(*), min(length(v)), max(length(v)) from insert_only_runs "
+                + "where substring(v,1,1)='2'", [[1025,4097,4097]], false)
 
         createPk("retract_sum", "v DOUBLE, kind STRING", ", 'merge-engine'='aggregation', "
                 + "'fields.v.aggregate-function'='sum', 'rowkind.field'='kind'")
