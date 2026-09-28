@@ -25,7 +25,7 @@
 #include "storage/index/index_reader_helper.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/query_v2/scored_bit_set_query/scored_bit_set_query.h"
-#include "storage/index/snii/snii_index_reader.h"
+#include "storage/index/query/logical/search_lowering.h"
 
 namespace doris {
 namespace {
@@ -50,22 +50,24 @@ Status NativeLeafCompiler::compile(const logical::Node& leaf, const SearchLeafCo
     if (leaf.as<logical::Exists>() != nullptr) {
         rows->addRange(0, ctx.num_rows);
     } else {
-        segment_v2::NativeQuery query;
-        RETURN_IF_ERROR(segment_v2::plan_native_query(logical::Node(leaf), &query));
         // The reader publishes BM25 values into the similarity the context carries and the
         // collector also collects the scorer's score, so give the reader a private sink and let
         // the scores reach the collector through the scored query built below. An unscored leaf
         // hides the similarity instead. Both happen only when the reader would score, which
         // spares the other clauses a context copy.
-        const bool reader_would_score = ctx.context->collection_similarity != nullptr &&
-                                        segment_v2::IndexReaderHelper::is_need_similarity_score(
-                                                query.query_type, &_reader->get_index_meta());
+        const bool reader_would_score =
+                ctx.context->collection_similarity != nullptr &&
+                segment_v2::IndexReaderHelper::is_need_similarity_score(
+                        logical::leaf_query_type(leaf), &_reader->get_index_meta());
         std::shared_ptr<segment_v2::IndexQueryContext> reader_context = ctx.context;
         if (reader_would_score || ctx.domain != nullptr) {
             reader_context = std::make_shared<segment_v2::IndexQueryContext>(*ctx.context);
         }
         if (reader_would_score) {
-            score_sink = query.scored ? std::make_shared<CollectionSimilarity>() : nullptr;
+            // Expanded terms keep a constant score, as on the CLucene path.
+            score_sink = leaf.as<logical::Expand>() == nullptr
+                                 ? std::make_shared<CollectionSimilarity>()
+                                 : nullptr;
             reader_context->collection_similarity = score_sink;
         }
         if (ctx.domain != nullptr) {
@@ -73,8 +75,7 @@ Status NativeLeafCompiler::compile(const logical::Node& leaf, const SearchLeafCo
             DORIS_CHECK(ctx.context->candidate_rows == nullptr);
             reader_context->candidate_rows = ctx.domain;
         }
-        RETURN_IF_ERROR(_reader->query_analyzed(reader_context, _stored_field_name,
-                                                query.query_type, query.query_info, rows));
+        RETURN_IF_ERROR(_reader->query_leaf(reader_context, _stored_field_name, leaf, rows));
         // Reply-direction fields land on the copy the reader was given. The domain is internal
         // to SEARCH, so the scan never hears that it was consumed.
         if (reader_context != ctx.context) {

@@ -56,6 +56,7 @@
 #include "storage/index/inverted/query_v2/phrase_query/multi_phrase_weight.h"
 #include "storage/index/inverted/query_v2/phrase_query/phrase_query.h"
 #include "storage/index/query/logical/search_lowering.h"
+#include "storage/index/snii/snii_index_reader.h"
 #include "storage/segment/variant/nested_group_provider.h"
 #include "util/defer_op.h"
 #include "util/thrift_util.h"
@@ -250,14 +251,17 @@ public:
     }
 
     // Results and scores are keyed by the terms joined with spaces (alternatives of one slot
-    // with '|'), so a test states what the reader would answer for a given term list.
-    Status query_analyzed(const segment_v2::IndexQueryContextPtr& context,
-                          const std::string& column_name,
-                          segment_v2::InvertedIndexQueryType query_type,
-                          const segment_v2::InvertedIndexQueryInfo& query_info,
-                          std::shared_ptr<roaring::Roaring>& bit_map,
-                          segment_v2::InvertedIndexQueryCacheHandle* /*null_bitmap_cache_handle*/ =
-                                  nullptr) override {
+    // with '|'), so a test states what the reader would answer for a given term list. The
+    // query recorded is the one an SNII reader plans for the leaf.
+    Status query_leaf(const segment_v2::IndexQueryContextPtr& context,
+                      const std::string& column_name, const index_query::logical::Node& leaf,
+                      std::shared_ptr<roaring::Roaring>& bit_map,
+                      segment_v2::InvertedIndexQueryCacheHandle* /*null_bitmap_cache_handle*/ =
+                              nullptr) override {
+        segment_v2::NativeQuery native;
+        RETURN_IF_ERROR(segment_v2::plan_native_query(index_query::logical::Node(leaf), &native));
+        const segment_v2::InvertedIndexQueryType query_type = native.query_type;
+        const segment_v2::InvertedIndexQueryInfo& query_info = native.query_info;
         ++query_calls;
         last_column_name = column_name;
         last_query_type = query_type;

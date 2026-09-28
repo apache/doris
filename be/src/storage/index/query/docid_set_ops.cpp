@@ -19,7 +19,9 @@
 
 #include <algorithm>
 #include <iterator>
+#include <limits>
 #include <queue>
+#include <roaring/roaring.hh>
 #include <utility>
 
 namespace doris::index_query {
@@ -145,6 +147,35 @@ std::vector<uint32_t> union_sorted_many(const std::vector<std::vector<uint32_t>>
         }
     }
     return out;
+}
+
+Status fabricate_null_disjoint_count_bitmap(uint64_t count, const roaring::Roaring& nulls,
+                                            roaring::Roaring* out) {
+    roaring::Roaring result;
+    if (count > 0) {
+        // [0, count + |nulls|) holds at least `count` non-null ids, since at most |nulls| of its
+        // members are null.
+        const uint64_t window_end = count + nulls.cardinality();
+        if (window_end > uint64_t(std::numeric_limits<uint32_t>::max()) + 1) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                    "fabricate_null_disjoint_count_bitmap: count {} + null count {} exceeds the "
+                    "uint32 docid domain (corrupt df or null bitmap)",
+                    count, nulls.cardinality());
+        }
+        result.addRange(0, window_end);
+        result -= nulls;
+        uint32_t last_kept = 0;
+        // Keep exactly the first `count` survivors (select ranks are 0-based).
+        if (!result.select(static_cast<uint32_t>(count - 1), &last_kept)) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                    "fabricate_null_disjoint_count_bitmap: window [0, {}) holds fewer than {} "
+                    "non-null ids (corrupt df or null bitmap)",
+                    window_end, count);
+        }
+        result.removeRange(uint64_t(last_kept) + 1, window_end);
+    }
+    *out = std::move(result);
+    return Status::OK();
 }
 
 } // namespace doris::index_query

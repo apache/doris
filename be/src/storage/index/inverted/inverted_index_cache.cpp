@@ -27,6 +27,7 @@
 
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
+#include "storage/index/query/logical/node.h"
 #include "util/coding.h"
 #include "util/defer_op.h"
 
@@ -52,18 +53,57 @@ std::string InvertedIndexRawQuerySemantic::encode() const {
     return output;
 }
 
-std::string InvertedIndexAnalyzedQuerySemantic::encode() const {
-    DCHECK(term_infos != nullptr);
+namespace {
+
+void append_terms(const std::vector<std::string>& terms, std::string* output) {
+    put_fixed32_le(output, static_cast<uint32_t>(terms.size()));
+    for (const auto& term : terms) {
+        append_length_prefixed(term, output);
+    }
+}
+
+// The fields of a leaf that decide its result, after its kind.
+void append_leaf(const index_query::logical::Node& leaf, std::string* output) {
+    namespace logical = index_query::logical;
+    if (const auto* term = leaf.as<logical::Term>()) {
+        append_length_prefixed(term->term, output);
+    } else if (const auto* set = leaf.as<logical::TermSet>()) {
+        output->push_back(static_cast<char>(set->require_all));
+        put_fixed32_le(output, set->min_should_match);
+        append_terms(set->terms, output);
+    } else if (const auto* phrase = leaf.as<logical::Phrase>()) {
+        put_fixed32_le(output, static_cast<uint32_t>(phrase->slop));
+        output->push_back(static_cast<char>(phrase->ordered));
+        output->push_back(static_cast<char>(phrase->prefix));
+        output->push_back(static_cast<char>(phrase->suffix));
+        put_fixed32_le(output, static_cast<uint32_t>(phrase->slots.size()));
+        for (const auto& slot : phrase->slots) {
+            put_fixed32_le(output, static_cast<uint32_t>(slot.position));
+            if (slot.is_single_term()) {
+                append_terms({slot.get_single_term()}, output);
+            } else {
+                append_terms(slot.get_multi_terms(), output);
+            }
+        }
+    } else if (const auto* expand = leaf.as<logical::Expand>()) {
+        output->push_back(static_cast<char>(expand->kind));
+        append_length_prefixed(expand->pattern, output);
+    } else if (const auto* compare = leaf.as<logical::Compare>()) {
+        output->push_back(static_cast<char>(compare->op));
+        append_length_prefixed(compare->value, output);
+    } else {
+        DCHECK(leaf.as<logical::Bool>() == nullptr);
+    }
+}
+
+} // namespace
+
+std::string InvertedIndexLeafSemantic::encode() const {
+    DCHECK(leaf != nullptr);
     std::string output;
     put_fixed32_le(&output, cache_semantics_version);
-    put_fixed32_le(&output, static_cast<uint32_t>(term_infos->size()));
-    for (const auto& term_info : *term_infos) {
-        put_fixed32_le(&output, static_cast<uint32_t>(term_info.position));
-        append_length_prefixed(term_info.get_single_term(), &output);
-    }
-    put_fixed32_le(&output, static_cast<uint32_t>(query_type));
-    put_fixed32_le(&output, static_cast<uint32_t>(slop));
-    output.push_back(static_cast<char>(ordered));
+    put_fixed32_le(&output, static_cast<uint32_t>(leaf->value.index()));
+    append_leaf(*leaf, &output);
     put_fixed32_le(&output, static_cast<uint32_t>(max_expansions));
     return output;
 }

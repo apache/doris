@@ -38,7 +38,6 @@
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_reader_helper.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
-#include "storage/index/inverted/common/single_flight.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/query/docid_sink.h"
@@ -59,7 +58,6 @@
 #include "storage/index/snii/snii_doris_adapter.h"
 #include "storage/index/snii/snii_prx_profile.h"
 #include "storage/index/snii/stats/snii_stats_provider.h"
-#include "util/defer_op.h"
 #include "util/time.h"
 
 #ifdef BE_TEST
@@ -112,22 +110,6 @@ std::vector<std::string> to_terms(const InvertedIndexQueryInfo& query_info) {
         terms.push_back(term_info.get_single_term());
     }
     return terms;
-}
-
-InvertedIndexQueryType expand_query_type(index_query::logical::ExpandKind kind) {
-    switch (kind) {
-    case index_query::logical::ExpandKind::kPrefix:
-        // A one-term phrase prefix runs as a prefix of that term.
-        return InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY;
-    case index_query::logical::ExpandKind::kRegexp:
-        return InvertedIndexQueryType::MATCH_REGEXP_QUERY;
-    case index_query::logical::ExpandKind::kContains:
-        // A one-term edge phrase runs as the terms that contain it.
-        return InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY;
-    case index_query::logical::ExpandKind::kWildcard:
-    default:
-        return InvertedIndexQueryType::WILDCARD_QUERY;
-    }
 }
 
 bool uses_plain_term_frequency_scoring(InvertedIndexQueryType query_type,
@@ -247,51 +229,6 @@ std::shared_ptr<roaring::Roaring> docids_to_bitmap(const std::vector<uint32_t>& 
 // single execution and the followers reuse the leader's bitmap. `compute(out)` fills *out and
 // returns its Status; on overall success *result receives the bitmap. See SingleFlight for why
 // this matters under a cold cache with parallel scanners hitting the same segment.
-template <typename Compute>
-Status run_query_single_flight(
-        ::doris::segment_v2::inverted_index::SingleFlight<
-                std::pair<Status, std::shared_ptr<roaring::Roaring>>>& flight,
-        const std::string& key, std::shared_ptr<roaring::Roaring>* result,
-#ifdef BE_TEST
-        SniiIndexReader::SingleFlightFollowerJoinedObserver follower_joined_observer,
-        void* follower_joined_opaque,
-        SniiIndexReader::SingleFlightLeaderBeforeComputeObserver leader_before_compute_observer,
-        void* leader_before_compute_opaque,
-#endif
-        Compute&& compute) {
-    auto follower = flight.join_or_lead(key);
-    if (follower.has_value()) {
-#ifdef BE_TEST
-        if (follower_joined_observer != nullptr) {
-            follower_joined_observer(follower_joined_opaque);
-        }
-#endif
-        auto [leader_status, leader_bitmap] = follower->get();
-        if (leader_status.ok() && leader_bitmap != nullptr) {
-            *result = std::move(leader_bitmap);
-            return Status::OK();
-        }
-        // Leader failed; fall through and compute independently (rare error path).
-    }
-    const bool is_leader = !follower.has_value();
-#ifdef BE_TEST
-    if (is_leader && leader_before_compute_observer != nullptr) {
-        leader_before_compute_observer(leader_before_compute_opaque);
-    }
-#endif
-
-    Status status = Status::OK();
-    std::shared_ptr<roaring::Roaring> bitmap;
-    {
-        // Publish to any waiting followers on every exit path (including errors).
-        DEFER(if (is_leader) { flight.publish(key, std::make_pair(status, bitmap)); });
-        status = compute(&bitmap);
-    }
-    RETURN_IF_ERROR(status);
-    *result = std::move(bitmap);
-    return Status::OK();
-}
-
 // Keep every query type's dispatch to the SNII executors in one switch.
 // NOLINTNEXTLINE(readability-function-size)
 Status execute_snii_query(const ::doris::snii::reader::LogicalIndexReader& logical_reader,
@@ -398,46 +335,26 @@ Status plan_native_query(index_query::logical::Node&& leaf, NativeQuery* out) {
     namespace logical = index_query::logical;
     DCHECK(out->query_info.term_infos.empty());
     std::vector<TermInfo>& term_infos = out->query_info.term_infos;
+    out->query_type = logical::leaf_query_type(leaf);
     if (auto* term = std::get_if<logical::Term>(&leaf.value)) {
-        out->query_type = InvertedIndexQueryType::EQUAL_QUERY;
         term_infos.emplace_back(std::move(term->term));
     } else if (auto* set = std::get_if<logical::TermSet>(&leaf.value)) {
         // The executors know all-of and any-of; the SEARCH compile step counts a
         // threshold above them.
         DORIS_CHECK(set->min_should_match == 0);
-        out->query_type = set->require_all ? InvertedIndexQueryType::MATCH_ALL_QUERY
-                                           : InvertedIndexQueryType::MATCH_ANY_QUERY;
         term_infos.reserve(set->terms.size());
         for (auto& value : set->terms) {
             term_infos.emplace_back(std::move(value));
         }
     } else if (auto* phrase = std::get_if<logical::Phrase>(&leaf.value)) {
-        out->query_type = InvertedIndexQueryType::MATCH_PHRASE_QUERY;
-        if (phrase->suffix) {
-            out->query_type = InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY;
-        } else if (phrase->prefix) {
-            out->query_type = InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY;
-        }
         term_infos = std::move(phrase->slots);
         out->query_info.slop = phrase->slop;
         out->query_info.ordered = phrase->ordered;
     } else if (auto* expand = std::get_if<logical::Expand>(&leaf.value)) {
-        out->query_type = expand_query_type(expand->kind);
         term_infos.emplace_back(std::move(expand->pattern));
-        out->scored = false;
     } else {
         return Status::InternalError("leaf kind {} cannot run on SNII", leaf.value.index());
     }
-    return Status::OK();
-}
-
-Status SniiIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterator) {
-    if (*iterator == nullptr) {
-        *iterator = InvertedIndexIterator::create_unique();
-    }
-    dynamic_cast<InvertedIndexIterator*>(iterator->get())
-            ->add_reader(_reader_type,
-                         dynamic_pointer_cast<InvertedIndexReader>(shared_from_this()));
     return Status::OK();
 }
 
@@ -501,301 +418,92 @@ Status SniiIndexReader::_get_logical_reader(
     return Status::OK();
 }
 
-Status SniiIndexReader::query(const IndexQueryContextPtr& context, const std::string& column_name,
-                              const Field& query_value, InvertedIndexQueryType query_type,
-                              std::shared_ptr<roaring::Roaring>& bit_map,
-                              const InvertedIndexAnalyzerCtx* analyzer_ctx) {
-    return _query(context, column_name, query_value, query_type, bit_map, nullptr, analyzer_ctx);
-}
+namespace {
 
-Status SniiIndexReader::query_with_null_bitmap(
-        const IndexQueryContextPtr& context, const std::string& column_name,
-        const Field& query_value, InvertedIndexQueryType query_type,
-        std::shared_ptr<roaring::Roaring>& bit_map,
-        InvertedIndexQueryCacheHandle* null_bitmap_cache_handle,
-        const InvertedIndexAnalyzerCtx* analyzer_ctx) {
-    DORIS_CHECK(null_bitmap_cache_handle != nullptr);
-    return _query(context, column_name, query_value, query_type, bit_map, null_bitmap_cache_handle,
-                  analyzer_ctx);
-}
+struct SniiOpenedIndex : OpenedIndex {
+    explicit SniiOpenedIndex(const io::IOContext* io_ctx) : io_scope(io_ctx) {}
 
-Status SniiIndexReader::query_analyzed(const IndexQueryContextPtr& context,
-                                       const std::string& column_name,
-                                       InvertedIndexQueryType query_type,
-                                       const InvertedIndexQueryInfo& query_info,
-                                       std::shared_ptr<roaring::Roaring>& bit_map,
-                                       InvertedIndexQueryCacheHandle* null_bitmap_cache_handle) {
-    if (query_info.term_infos.empty()) {
-        return Status::InvalidArgument("analyzed SNII query has no terms");
-    }
-    size_t longest_value_bytes = 0;
-    for (const auto& term_info : query_info.term_infos) {
-        if (!term_info.is_single_term()) {
-            return Status::NotSupported("SNII does not run a multi-term slot in an analyzed query");
-        }
-        longest_value_bytes = std::max(longest_value_bytes, term_info.get_single_term().size());
-    }
-    const int32_t max_expansions = index_query::max_expansions(*context);
-    const InvertedIndexAnalyzedQuerySemantic semantic {.term_infos = &query_info.term_infos,
-                                                       .query_type = query_type,
-                                                       .slop = query_info.slop,
-                                                       .ordered = query_info.ordered,
-                                                       .max_expansions = max_expansions};
-    SniiQueryRequest request {
-            .query_type = query_type,
-            .cache_key = {.index_path = _index_file_reader->get_index_file_cache_key(&_index_meta),
-                          .column_name = column_name,
-                          .query_type = query_type,
-                          .value = semantic.encode()},
-            .max_expansions = max_expansions,
-            .longest_value_bytes = longest_value_bytes,
-            // A WILDCARD or REGEXP query carries its pattern as the one term.
-            .search_str = query_info.term_infos.front().get_single_term(),
-            .plan = [&query_info](InvertedIndexQueryType, std::string_view, NativeQuery* out) {
-                out->query_info = query_info;
-                return Status::OK();
-            }};
-    return _execute(context, column_name, request, bit_map, null_bitmap_cache_handle);
-}
-
-Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::string& column_name,
-                               const Field& query_value, InvertedIndexQueryType query_type,
-                               std::shared_ptr<roaring::Roaring>& bit_map,
-                               InvertedIndexQueryCacheHandle* null_bitmap_cache_handle,
-                               const InvertedIndexAnalyzerCtx* analyzer_ctx) {
-    if (query_type == InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY &&
-        _reader_type != InvertedIndexReaderType::FULLTEXT) {
-        // A keyword index drops values longer than ignore_above, which a contains match may
-        // still need, so rows answer MATCH_PHRASE_EDGE there.
-        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
-                "SNII keyword index does not run MATCH_PHRASE_EDGE; evaluating by function");
-    }
-    const std::string search_str = query_value.get<PrimitiveType::TYPE_STRING>();
-    const int32_t max_expansions = index_query::max_expansions(*context);
-    // Result cache keys contain only (index file, column, query type, raw query bytes). Analysis
-    // is determined by index properties and policies, which are immutable once referenced, so
-    // sharing can be decided before opening the segment.
-    const InvertedIndexRawQuerySemantic raw_semantic {.raw_query_bytes = search_str,
-                                                      .query_type = query_type,
-                                                      .max_expansions = max_expansions};
-    const std::map<std::string, std::string>& properties = _index_meta.properties();
-    // Two captures keep the callback inside std::function's inline storage.
-    const index_query::logical::AnalyzeValue analyze =
-            [analyzer_ctx, &properties](std::string_view value, std::vector<TermInfo>* tokens) {
-                return inverted_index::InvertedIndexAnalyzer::analyze(value, analyzer_ctx,
-                                                                      properties, tokens);
-            };
-    SniiQueryRequest request {
-            .query_type = query_type,
-            .cache_key = {.index_path = _index_file_reader->get_index_file_cache_key(&_index_meta),
-                          .column_name = column_name,
-                          .query_type = query_type,
-                          .value = raw_semantic.encode()},
-            .max_expansions = max_expansions,
-            .longest_value_bytes = search_str.size(),
-            .search_str = search_str,
-            // Analysis runs only for a query the cache does not answer. Two captures keep the
-            // plan inside std::function's inline storage too.
-            .plan = [&context, &analyze](InvertedIndexQueryType type, std::string_view value,
-                                         NativeQuery* out) {
-                SCOPED_RAW_TIMER(&context->stats->inverted_index_analyzer_timer);
-                index_query::logical::Node node;
-                RETURN_IF_ERROR(index_query::logical::lower_match(type, value, analyze, &node));
-                // A value without tokens runs with no terms.
-                return node.as<index_query::logical::Empty>() != nullptr
-                               ? Status::OK()
-                               : plan_native_query(std::move(node), out);
-            }};
-    return _execute(context, column_name, request, bit_map, null_bitmap_cache_handle);
-}
-
-// Keep the cache, count-only, candidate and single-flight decisions in one linear path.
-// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
-Status SniiIndexReader::_execute(const IndexQueryContextPtr& context,
-                                 const std::string& column_name, const SniiQueryRequest& request,
-                                 std::shared_ptr<roaring::Roaring>& bit_map,
-                                 InvertedIndexQueryCacheHandle* null_bitmap_cache_handle) {
-    const InvertedIndexQueryType query_type = request.query_type;
-    const std::string_view search_str = request.search_str;
-    const int32_t max_expansions = request.max_expansions;
-    const bool track_requested_null_time = null_bitmap_cache_handle != nullptr;
-    const int64_t query_ns_before =
-            track_requested_null_time ? context->stats->inverted_index_query_timer : 0;
-    int64_t requested_null_ns = 0;
-    DEFER({
-        if (!track_requested_null_time) {
-            return;
-        }
-        const int64_t inclusive_query_ns =
-                context->stats->inverted_index_query_timer - query_ns_before;
-        DORIS_CHECK_GE(inclusive_query_ns, 0);
-        const int64_t exclusive_query_ns =
-                inclusive_query_ns > requested_null_ns ? inclusive_query_ns - requested_null_ns : 0;
-        context->stats->inverted_index_query_timer = query_ns_before + exclusive_query_ns;
-    });
-    SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
-    // Fresh per-search reply: only the query about to run decides whether its result is
-    // candidate-restricted.
-    context->candidate_rows_consumed = false;
-    const auto finish_query =
-            [&](const ::doris::snii::reader::LogicalIndexReader* reader) -> Status {
-        if (null_bitmap_cache_handle == nullptr) {
-            return Status::OK();
-        }
-        const int64_t null_ns_before = context->stats->inverted_index_query_null_bitmap_timer;
-        Status status = _read_null_bitmap(context, null_bitmap_cache_handle, reader);
-        const int64_t null_ns_after = context->stats->inverted_index_query_null_bitmap_timer;
-        DORIS_CHECK_GE(null_ns_after, null_ns_before);
-        requested_null_ns += null_ns_after - null_ns_before;
-        return status;
-    };
-
-    if (int ignore_above =
-                std::stoi(get_parser_ignore_above_value_from_properties(_index_meta.properties()));
-        _reader_type == InvertedIndexReaderType::STRING_TYPE &&
-        std::cmp_greater(request.longest_value_bytes, ignore_above)) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
-                "query value is too long, evaluate skipped.");
-    }
-
-    // Scoring queries depend on collection statistics and use neither the result cache nor
-    // single-flight coalescing.
-    const bool actual_similarity =
-            context->collection_similarity &&
-            IndexReaderHelper::is_need_similarity_score(query_type, &_index_meta);
-    const bool allow_result_cache = !actual_similarity;
-    const InvertedIndexQueryCache::CacheKey& cache_key = request.cache_key;
-    std::string single_flight_key = cache_key.encode();
-    auto* cache = InvertedIndexQueryCache::instance();
-    InvertedIndexQueryCacheHandle cache_handler;
-    if (handle_query_cache(context, cache, cache_key, &cache_handler, bit_map,
-                           allow_result_cache)) {
-        return finish_query(nullptr);
-    }
-
-    snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(context->io_ctx);
+    snii_doris::DorisSniiFileReader::ScopedIOContext io_scope;
     InvertedIndexCacheHandle searcher_cache_handle;
     std::unique_ptr<::doris::snii::reader::LogicalIndexReader> uncached_reader;
-    const ::doris::snii::reader::LogicalIndexReader* logical_reader = nullptr;
-    RETURN_IF_ERROR(_get_logical_reader(context, &searcher_cache_handle, &uncached_reader,
-                                        &logical_reader));
+    const ::doris::snii::reader::LogicalIndexReader* reader = nullptr;
+};
 
-    NativeQuery planned {.query_type = query_type, .query_info = {}};
-    RETURN_IF_ERROR(request.plan(query_type, search_str, &planned));
-    // The request's type keys the cache and decides scoring; the planned type runs.
-    const InvertedIndexQueryType execution_type = planned.query_type;
-    const InvertedIndexQueryInfo& execution_query_info = planned.query_info;
-    if (execution_query_info.term_infos.empty()) {
-        auto msg = fmt::format("token parser result is empty for SNII query '{}'", search_str);
-        if (is_match_query(query_type)) {
-            LOG(WARNING) << msg;
-            bit_map = std::make_shared<roaring::Roaring>();
-            insert_query_cache(context, cache, cache_key, bit_map, &cache_handler,
-                               allow_result_cache);
-            return finish_query(logical_reader);
+} // namespace
+
+Status SniiIndexReader::_open_index(const IndexQueryContextPtr& context,
+                                    std::unique_ptr<OpenedIndex>* out) {
+    auto opened = std::make_unique<SniiOpenedIndex>(context->io_ctx);
+    RETURN_IF_ERROR(_get_logical_reader(context, &opened->searcher_cache_handle,
+                                        &opened->uncached_reader, &opened->reader));
+    *out = std::move(opened);
+    return Status::OK();
+}
+
+Status SniiIndexReader::_term_document_frequency(const std::string& /*column_name*/,
+                                                 OpenedIndex& index, const std::string& term,
+                                                 uint64_t* df, uint64_t* document_count) {
+    const auto& reader = *static_cast<SniiOpenedIndex&>(index).reader;
+    RETURN_IF_ERROR(::doris::snii::query::internal::check_term_outside_internal_namespace(term));
+    RETURN_IF_ERROR(::doris::snii::query::count_only_term_df(reader, term, df));
+    // The image's document count and its count of documents holding terms both bound df.
+    const auto& stats = reader.stats();
+    *document_count = std::min(stats.doc_count, stats.indexed_doc_count);
+    return Status::OK();
+}
+
+Status SniiIndexReader::_run_leaf(const IndexQueryContextPtr& context,
+                                  const std::string& column_name, OpenedIndex& index,
+                                  const index_query::logical::Node& leaf,
+                                  const roaring::Roaring* candidates, bool scoring,
+                                  std::shared_ptr<roaring::Roaring>* out) {
+    const auto* logical_reader = static_cast<SniiOpenedIndex&>(index).reader;
+    NativeQuery planned;
+    RETURN_IF_ERROR(plan_native_query(index_query::logical::Node(leaf), &planned));
+    const InvertedIndexQueryType query_type = planned.query_type;
+    const InvertedIndexQueryInfo& query_info = planned.query_info;
+    for (const auto& term_info : query_info.term_infos) {
+        if (!term_info.is_single_term()) {
+            return Status::NotSupported("SNII does not run a multi-term slot");
         }
-        return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(msg);
     }
-    if (actual_similarity && execution_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY &&
-        execution_query_info.term_infos.size() == 1) {
+    if (scoring && query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY &&
+        query_info.term_infos.size() == 1) {
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "SNII scoring does not support a single-token phrase-prefix query");
     }
-    std::vector<std::string> terms = to_terms(execution_query_info);
-
-    // G02 count-only fast path: the SegmentIterator asserted (via the context
-    // flag) that only the match COUNT of this predicate matters, so eligible
-    // shapes are answered from dict-entry df without decoding postings. Placed
-    // AFTER the query-cache lookup (a cached row-accurate bitmap is free and
-    // counts correctly) and BEFORE single-flight; the fabricated [0, df) bitmap
-    // is returned early and NEVER inserted into the query cache or published to
-    // single-flight followers -- both are keyed identically to row-accurate
-    // queries and must only ever serve real row ids.
-    if (context->count_on_index_fastpath) {
-        bool count_handled = false;
-        std::shared_ptr<roaring::Roaring> count_bitmap;
-        RETURN_IF_ERROR(_try_count_only_fastpath(context, execution_type, execution_query_info,
-                                                 terms, &count_handled, &count_bitmap,
-                                                 logical_reader));
-        if (count_handled) {
-            bit_map = std::move(count_bitmap);
-            RETURN_IF_ERROR(finish_query(logical_reader));
-            // G03 reply: tell the SegmentIterator the bitmap is count-shaped
-            // (cardinality exact, row ids fabricated) so it may short-circuit
-            // row emission. Deliberately NOT set on the cache-hit return above
-            // or on the decode path below -- those bitmaps are row-accurate
-            // and keep today's emission.
-            context->count_on_index_fastpath_hit = true;
-            return Status::OK();
-        }
-    }
-
-    // A multi-term phrase restricted to the scan candidates produces a partial bitmap. It stays
-    // out of the result cache and single-flight, which both serve the full-segment query.
-    const bool consume_candidates =
-            context->candidate_rows != nullptr && consumes_candidates(execution_type, terms.size());
-    context->candidate_rows_consumed = consume_candidates;
+    std::vector<std::string> terms = to_terms(query_info);
+    DORIS_CHECK(!terms.empty());
     const SniiQueryBitmapRequest bitmap_request {
-            .query_type = execution_type,
-            .query_info = execution_query_info,
-            .search_str = search_str,
-            .max_expansions = max_expansions,
+            .query_type = query_type,
+            .query_info = query_info,
+            // A WILDCARD or REGEXP query carries its pattern as the one term.
+            .search_str = terms.front(),
+            .max_expansions = index_query::max_expansions(*context),
             .logical_reader = logical_reader,
-            .candidates = consume_candidates ? context->candidate_rows : nullptr};
-
-    // Under a cold cache, parallel scanners _lazy_init the same segment concurrently and each
-    // would otherwise miss the searcher/query caches and redundantly open + decode this segment's
-    // index. Collapse identical concurrent queries into one shared execution (see SingleFlight).
-    static ::doris::segment_v2::inverted_index::SingleFlight<
-            std::pair<Status, std::shared_ptr<roaring::Roaring>>>
-            query_single_flight;
-    std::shared_ptr<roaring::Roaring> result_bitmap;
+            .candidates = candidates};
     std::vector<::doris::snii::query::PhraseMatch> phrase_matches;
-    auto* phrase_matches_out =
-            actual_similarity && uses_phrase_frequency_scoring(execution_type, execution_query_info)
-                    ? &phrase_matches
-                    : nullptr;
-    Status single_flight_status;
-    if (!allow_result_cache || consume_candidates) {
-        single_flight_status = _compute_query_bitmap(context, bitmap_request, &terms,
-                                                     &result_bitmap, phrase_matches_out);
-    } else {
-        DORIS_CHECK(phrase_matches_out == nullptr);
-        single_flight_status = run_query_single_flight(
-                query_single_flight, single_flight_key, &result_bitmap,
-#ifdef BE_TEST
-                _single_flight_follower_joined_observer, _single_flight_follower_joined_opaque,
-                _single_flight_leader_before_compute_observer,
-                _single_flight_leader_before_compute_opaque,
-#endif
-                [&](std::shared_ptr<roaring::Roaring>* out) {
-                    auto status =
-                            _compute_query_bitmap(context, bitmap_request, &terms, out, nullptr);
-                    if (status.ok()) {
-                        insert_query_cache(context, cache, cache_key, *out, &cache_handler,
-                                           allow_result_cache);
-                    }
-                    return status;
-                });
-    }
-    RETURN_IF_ERROR(single_flight_status);
-    DORIS_CHECK(result_bitmap != nullptr);
-    if (actual_similarity && !result_bitmap->isEmpty()) {
+    auto* phrase_matches_out = scoring && uses_phrase_frequency_scoring(query_type, query_info)
+                                       ? &phrase_matches
+                                       : nullptr;
+    std::shared_ptr<roaring::Roaring> result;
+    RETURN_IF_ERROR(
+            _compute_query_bitmap(context, bitmap_request, &terms, &result, phrase_matches_out));
+    if (scoring && !result->isEmpty()) {
         ::doris::snii::stats::SniiStatsProvider segment_stats;
         RETURN_IF_ERROR(
                 ::doris::snii::stats::SniiStatsProvider::open(logical_reader, &segment_stats));
         if (phrase_matches_out != nullptr) {
-            RETURN_IF_ERROR(score_phrase_matches(context, column_name, execution_type,
-                                                 execution_query_info, *logical_reader,
-                                                 segment_stats, *result_bitmap, phrase_matches));
-        } else if (uses_plain_term_frequency_scoring(execution_type, execution_query_info)) {
-            RETURN_IF_ERROR(score_plain_term_candidates(context, column_name, execution_query_info,
-                                                        *logical_reader, segment_stats,
-                                                        *result_bitmap));
+            RETURN_IF_ERROR(score_phrase_matches(context, column_name, query_type, query_info,
+                                                 *logical_reader, segment_stats, *result,
+                                                 phrase_matches));
+        } else if (uses_plain_term_frequency_scoring(query_type, query_info)) {
+            RETURN_IF_ERROR(score_plain_term_candidates(context, column_name, query_info,
+                                                        *logical_reader, segment_stats, *result));
         }
     }
-    bit_map = result_bitmap;
-    return finish_query(logical_reader);
+    *out = std::move(result);
+    return Status::OK();
 }
 
 Status SniiIndexReader::_compute_query_bitmap(
@@ -888,150 +596,43 @@ Status SniiIndexReader::_compute_query_bitmap(const IndexQueryContextPtr& contex
 
 // Keep the complete count-only eligibility and null-safe fabrication contract in one linear path.
 // NOLINTNEXTLINE(readability-function-size)
+#ifdef BE_TEST
 Status SniiIndexReader::_try_count_only_fastpath(
-        const IndexQueryContextPtr& context, InvertedIndexQueryType query_type,
-        const InvertedIndexQueryInfo& query_info, const std::vector<std::string>& terms,
+        const IndexQueryContextPtr& context, InvertedIndexQueryType /*query_type*/,
+        const InvertedIndexQueryInfo& /*query_info*/, const std::vector<std::string>& terms,
         bool* handled, std::shared_ptr<roaring::Roaring>* out,
         const ::doris::snii::reader::LogicalIndexReader* preopened_reader) {
     *handled = false;
-    // Shape guard: only exact-term query types. Prefix/regexp/wildcard/
-    // phrase-prefix expand the term set, so no single dict entry carries the
-    // count; range types never reach SNII anyway.
-    switch (query_type) {
-    case InvertedIndexQueryType::EQUAL_QUERY:
-    case InvertedIndexQueryType::MATCH_ANY_QUERY:
-    case InvertedIndexQueryType::MATCH_ALL_QUERY:
-    case InvertedIndexQueryType::MATCH_PHRASE_QUERY:
-        break;
-    default:
-        return Status::OK();
-    }
     if (terms.size() != 1) {
-        // Multi-term MATCH_ANY (OR) / MATCH_ALL (AND) counts are not derivable
-        // from per-term dfs (overlap unknown), and phrases require positional
-        // verification, so execute the normal query path.
         return Status::OK();
     }
-
-    snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(context->io_ctx);
-    InvertedIndexCacheHandle searcher_cache_handle;
-    std::unique_ptr<::doris::snii::reader::LogicalIndexReader> uncached_reader;
-    const ::doris::snii::reader::LogicalIndexReader* logical_reader = preopened_reader;
-    if (logical_reader == nullptr) {
-        RETURN_IF_ERROR(_get_logical_reader(context, &searcher_cache_handle, &uncached_reader,
-                                            &logical_reader));
+    std::unique_ptr<OpenedIndex> index;
+    if (preopened_reader != nullptr) {
+        auto opened = std::make_unique<SniiOpenedIndex>(context->io_ctx);
+        opened->reader = preopened_reader;
+        index = std::move(opened);
+    } else {
+        RETURN_IF_ERROR(_open_index(context, &index));
     }
-
-    // ARRAY columns: df is NOT null-free, so nothing below may fabricate from it.
-    // ArrayColumnWriter::append_nullable hands add_array_values() every row of the
-    // batch -- the offsets come from the nested ColumnArray, and
-    // OlapColumnDataConvertorArray::convert_to_olap reads them without ever
-    // consulting the outer null map -- and the add_array_nulls() that follows only
-    // RECORDS the null row ids, it never retracts the tokens already emitted for
-    // them. A nullable array whose nested payload survives under the null map does
-    // occur: PreparedFunctionImpl::default_implementation_for_nulls documents that
-    // nested columns keep "arbitrary values in rows corresponding to NULL value",
-    // and need_replace_null_data_to_default() is false by default, so e.g.
-    // array_concat(arr, nullable_arr) writes arr's tokens on a NULL row. That row
-    // then sits in a posting and is counted by df. The decode path stays correct --
-    // mask_out_null subtracts it -- but the fabrication below deliberately places
-    // its ids OFF the null rows, so the same subtraction removes nothing and the
-    // count comes out too high. CLucene writes arrays identically
-    // (InvertedIndexColumnWriter::add_array_nulls only touches _null_bitmap), so
-    // this cannot be repaired from the reader side; decline whenever this segment
-    // has a null bitmap at all. Scalars are unaffected: ScalarColumnWriter::
-    // append_nullable splits the batch into runs and sends null runs to
-    // append_nulls(), which emits no tokens.
-    if (_column_is_array && logical_reader->section_refs().null_bitmap.length > 0) {
-        return Status::OK();
-    }
-
-    DORIS_CHECK(query_info.term_infos.size() == 1);
-    const std::string& term = query_info.term_infos.front().get_single_term();
-    RETURN_IF_ERROR(::doris::snii::query::internal::check_term_outside_internal_namespace(term));
-    uint64_t count = 0;
-    RETURN_IF_ERROR(::doris::snii::query::count_only_term_df(*logical_reader, term, &count));
-    // df bounds the fabricated bitmap, so it has to be inside a document domain
-    // that is itself real. Two steps, because they fail differently.
-    const auto& stats = logical_reader->stats();
-    if (count > stats.doc_count || count > stats.indexed_doc_count) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                "SNII count fast path: term df {} exceeds document domain (doc count {}, "
-                "indexed doc count {})",
-                count, stats.doc_count, stats.indexed_doc_count);
-    }
-    // Both limits above are CRC-valid fields of the SAME image as df, so an image
-    // whose stats were inflated together with df clears them: on a real 10-row
-    // segment, df = doc_count = indexed_doc_count = 100 fabricates 100 ids, and
-    // SegmentIterator -- which seeds _row_bitmap with [0, num_rows) and intersects
-    // -- silently reports 10. The segment's own row count is the one bound the
-    // image cannot move. One-sided on purpose: an index covering FEWER rows than
-    // the segment still fabricates ids inside [0, num_rows), so only an oversized
-    // domain is corruption. This mirrors the equality SniiSegmentReader::
-    // load_inherited_index already demands of a rewrite.
-    if (stats.doc_count > _rows_of_segment) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                "SNII count fast path: index doc count {} exceeds the segment row count {}",
-                stats.doc_count, _rows_of_segment);
-    }
-
-    // Null handling. df is the exact match count REGARDLESS of nulls: the writer
-    // adds no tokens for a null doc (scalar add_nulls; ARRAY columns cannot reach
-    // this point on a segment with nulls, see the guard above), so postings -- and
-    // therefore df -- never include null rows, exactly matching MATCH's "null never
-    // matches" semantics. The
-    // fabricated bitmap however flows through FunctionMatchBase ->
-    // InvertedIndexResultBitmap::mask_out_null, which subtracts the segment's
-    // REAL null bitmap from it; a dense [0, df) range colliding with null row
-    // ids would be shrunk below df. So on a segment WITH a null bitmap, load
-    // it (query-cache backed, the same read the normal MATCH path performs)
-    // and fabricate df ids DISJOINT from it, making that subtraction a
-    // provable no-op. Segments without a null section (the writer omits it
-    // when no row is null) keep the trivial [0, df) range.
-    auto result = std::make_shared<roaring::Roaring>();
-    if (count > 0 && logical_reader->section_refs().null_bitmap.length > 0) {
-        InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-        RETURN_IF_ERROR(_read_null_bitmap(context, &null_bitmap_cache_handle, logical_reader));
-        std::shared_ptr<roaring::Roaring> nulls = null_bitmap_cache_handle.get_bitmap();
-        // Fall through on a missing bitmap behind the cache handle or a
-        // fabrication failure (df + null count breaching the docid domain):
-        // both mean a corrupt index, and the row-accurate decode -- which
-        // intersects real ids -- must own the answer rather than a blind
-        // fabrication. The count_fastpath_hits test seam already counted the
-        // dict lookup above; production correctness is unaffected.
-        if (nulls == nullptr) {
-            return Status::OK();
-        }
-        if (!nulls->isEmpty()) {
-            if (!::doris::snii::query::fabricate_null_disjoint_count_bitmap(count, *nulls,
-                                                                            result.get())
-                         .ok()) {
-                return Status::OK();
-            }
-        } else {
-            result->addRange(0, count);
-        }
-    } else if (count > 0) {
-        result->addRange(0, count);
-    }
-    *out = std::move(result);
-    *handled = true;
-    return Status::OK();
+    return _count_from_df(context, "", *index, terms.front(), handled, out);
 }
+#endif
 
-Status SniiIndexReader::try_query(const IndexQueryContextPtr& /*context*/,
-                                  const std::string& /*column_name*/, const Field& /*query_value*/,
-                                  InvertedIndexQueryType /*query_type*/, size_t* /*count*/) {
-    return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>("SNII does not support try_query");
+Status SniiIndexReader::_read_null_bitmap(const IndexQueryContextPtr& context,
+                                          InvertedIndexQueryCacheHandle* cache_handle,
+                                          OpenedIndex* index) {
+    return _read_snii_null_bitmap(
+            context, cache_handle,
+            index == nullptr ? nullptr : static_cast<SniiOpenedIndex*>(index)->reader);
 }
 
 Status SniiIndexReader::read_null_bitmap(const IndexQueryContextPtr& context,
                                          InvertedIndexQueryCacheHandle* cache_handle,
                                          lucene::store::Directory* /*dir*/) {
-    return _read_null_bitmap(context, cache_handle, nullptr);
+    return _read_snii_null_bitmap(context, cache_handle, nullptr);
 }
 
-Status SniiIndexReader::_read_null_bitmap(
+Status SniiIndexReader::_read_snii_null_bitmap(
         const IndexQueryContextPtr& context, InvertedIndexQueryCacheHandle* cache_handle,
         const ::doris::snii::reader::LogicalIndexReader* preopened_reader) {
     SCOPED_RAW_TIMER(&context->stats->inverted_index_query_null_bitmap_timer);

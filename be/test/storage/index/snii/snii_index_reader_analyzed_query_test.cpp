@@ -190,6 +190,51 @@ InvertedIndexQueryInfo terms(std::vector<std::string> values, int32_t slop = 0,
     return info;
 }
 
+// The leaf SEARCH lowers to the terms of `info` under `query_type`.
+index_query::logical::Node leaf_of(InvertedIndexQueryType query_type,
+                                   const InvertedIndexQueryInfo& info) {
+    namespace logical = index_query::logical;
+    logical::Node leaf;
+    if (info.term_infos.empty()) {
+        leaf.value = logical::Empty {.field = {}};
+        return leaf;
+    }
+    switch (query_type) {
+    case InvertedIndexQueryType::EQUAL_QUERY:
+        leaf.value = logical::Term {.field = {}, .term = info.term_infos.front().get_single_term()};
+        break;
+    case InvertedIndexQueryType::MATCH_ANY_QUERY:
+    case InvertedIndexQueryType::MATCH_ALL_QUERY: {
+        logical::TermSet set {.field = {},
+                              .terms = {},
+                              .require_all = query_type == InvertedIndexQueryType::MATCH_ALL_QUERY};
+        for (const auto& term_info : info.term_infos) {
+            set.terms.push_back(term_info.get_single_term());
+        }
+        leaf.value = std::move(set);
+        break;
+    }
+    case InvertedIndexQueryType::MATCH_PHRASE_QUERY:
+    case InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY:
+        leaf.value = logical::Phrase {
+                .field = {},
+                .slots = info.term_infos,
+                .slop = info.slop,
+                .ordered = info.ordered,
+                .prefix = query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY};
+        break;
+    default:
+        leaf.value =
+                logical::Expand {.field = {},
+                                 .kind = query_type == InvertedIndexQueryType::MATCH_REGEXP_QUERY
+                                                 ? logical::ExpandKind::kRegexp
+                                                 : logical::ExpandKind::kWildcard,
+                                 .pattern = info.term_infos.front().get_single_term()};
+        break;
+    }
+    return leaf;
+}
+
 class FixedCollectionStatistics final : public CollectionStatistics {
 public:
     float get_or_calculate_idf(const std::wstring&, const std::wstring& term) override {
@@ -263,7 +308,8 @@ protected:
                            InvertedIndexQueryType query_type,
                            const InvertedIndexQueryInfo& query_info,
                            std::shared_ptr<roaring::Roaring>* bitmap) {
-        return reader.query_analyzed(execution.context, "content", query_type, query_info, *bitmap);
+        return reader.query_leaf(execution.context, "content", leaf_of(query_type, query_info),
+                                 *bitmap);
     }
 
     std::vector<uint32_t> analyzed(SniiIndexReader& reader, QueryExecution& execution,
@@ -370,9 +416,10 @@ TEST_F(SniiIndexReaderAnalyzedQueryTest, WildcardAndRegexpTakeTheTermAsThePatter
 TEST_F(SniiIndexReaderAnalyzedQueryTest, RejectsNoTermsAndMultiTermSlots) {
     QueryExecution execution;
     std::shared_ptr<roaring::Roaring> bitmap;
+    // A leaf without terms is not a MATCH value that analyzed to nothing, so it is an error.
     EXPECT_TRUE(analyzed_status(*_reader, execution, InvertedIndexQueryType::MATCH_ANY_QUERY,
                                 terms({}), &bitmap)
-                        .is<ErrorCode::INVALID_ARGUMENT>());
+                        .is<ErrorCode::INVERTED_INDEX_NO_TERMS>());
 
     InvertedIndexQueryInfo synonyms = terms({"alpha"});
     TermInfo slot;

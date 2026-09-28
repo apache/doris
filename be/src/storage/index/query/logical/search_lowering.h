@@ -90,4 +90,9 @@ using AnalyzeValue = std::function<Status(std::string_view value, std::vector<To
 Status lower_match(segment_v2::InvertedIndexQueryType query_type, std::string_view value,
                    const AnalyzeValue& analyze, Node* out);
 
+// The MATCH query type a lowered leaf answers as: a term set is MATCH_ANY or MATCH_ALL, a phrase
+// MATCH_PHRASE, MATCH_PHRASE_PREFIX or MATCH_PHRASE_EDGE, and an expansion the type of its kind.
+// A leaf without terms answers as UNKNOWN_QUERY.
+segment_v2::InvertedIndexQueryType leaf_query_type(const Node& leaf);
+
 } // namespace doris::index_query::logical

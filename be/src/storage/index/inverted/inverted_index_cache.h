@@ -45,6 +45,9 @@
 #include "util/time.h"
 
 namespace doris {
+namespace index_query::logical {
+struct Node;
+} // namespace index_query::logical
 namespace segment_v2 {
 class InvertedIndexCacheHandle;
 class IndexFileReader;
@@ -234,19 +237,16 @@ struct InvertedIndexRawQuerySemantic {
     std::string encode() const;
 };
 
-// The analyzed-query layout has its own version word, so its keys never encode
-// like a raw query's.
-inline constexpr uint32_t INVERTED_INDEX_ANALYZED_QUERY_CACHE_SEMANTICS_VERSION = 1002;
+// The lowered-leaf layout has its own version word, so its keys never encode like a raw
+// query's. 1003: the leaf replaces the analyzed terms.
+inline constexpr uint32_t INVERTED_INDEX_LEAF_CACHE_SEMANTICS_VERSION = 1003;
 
-// Identity of a query whose terms the caller analyzed: the terms with their
-// positions replace the raw query bytes.
-struct InvertedIndexAnalyzedQuerySemantic {
-    const std::vector<TermInfo>* term_infos = nullptr;
-    InvertedIndexQueryType query_type;
-    int32_t slop = 0;
-    bool ordered = false;
+// Identity of a leaf the caller lowered: the leaf's kind, terms and options replace the raw
+// query bytes.
+struct InvertedIndexLeafSemantic {
+    const index_query::logical::Node* leaf = nullptr;
     int32_t max_expansions = 0;
-    uint32_t cache_semantics_version = INVERTED_INDEX_ANALYZED_QUERY_CACHE_SEMANTICS_VERSION;
+    uint32_t cache_semantics_version = INVERTED_INDEX_LEAF_CACHE_SEMANTICS_VERSION;
 
     std::string encode() const;
 };

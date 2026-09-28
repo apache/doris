@@ -22,18 +22,24 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
+#include <atomic>
+#include <chrono>
 #include <cstring>
 #include <initializer_list>
 #include <map>
 #include <memory>
 #include <roaring/roaring.hh>
+#include <semaphore>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "common/exception.h"
 #include "core/field.h"
 #include "core/value/vdatetime_value.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "storage/compaction/collection_similarity.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
@@ -41,6 +47,7 @@
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/inverted_index_writer.h"
+#include "storage/index/inverted/similarity/collection_statistics.h"
 #include "storage/index/query/term_pattern.h"
 #include "storage/key_coder.h"
 #include "storage/tablet/tablet_schema.h"
@@ -48,6 +55,31 @@
 #include "util/slice.h"
 
 namespace doris::segment_v2 {
+
+// Holds a single-flight leader before it computes until the test releases it, and counts the
+// followers that join meanwhile.
+struct SingleFlightGate {
+    std::binary_semaphore leader_entered {0};
+    std::binary_semaphore release_leader {0};
+    std::counting_semaphore<8> follower_joined {0};
+};
+
+void hold_leader(void* opaque) noexcept {
+    auto* gate = static_cast<SingleFlightGate*>(opaque);
+    gate->leader_entered.release();
+    gate->release_leader.acquire();
+}
+
+void count_follower(void* opaque) noexcept {
+    static_cast<SingleFlightGate*>(opaque)->follower_joined.release();
+}
+
+// Statistics a scoring query can run against without a collected tablet.
+class FixedCollectionStatistics final : public CollectionStatistics {
+public:
+    float get_or_calculate_idf(const std::wstring&, const std::wstring&) override { return 1.0F; }
+    float get_or_calculate_avg_dl(const std::wstring&) override { return 3.0F; }
+};
 
 class InvertedIndexReaderTest : public testing::Test {
 public:
@@ -2853,6 +2885,256 @@ public:
         EXPECT_TRUE(consumed);
     }
 
+    // Writes an english, lowercasing CLucene (V2) index with phrase support: `leading_nulls` NULL
+    // rows, `values`, then `trailing_nulls` NULL rows. Returns the index path prefix.
+    std::string write_english_index(std::string_view rowset_id, TabletIndex* idx_meta,
+                                    uint32_t leading_nulls, std::vector<Slice> values,
+                                    uint32_t trailing_nulls) {
+        TabletIndexPB index_meta_pb;
+        index_meta_pb.set_index_type(IndexType::INVERTED);
+        index_meta_pb.set_index_id(1);
+        index_meta_pb.set_index_name("test");
+        index_meta_pb.add_col_unique_id(1);
+        index_meta_pb.mutable_properties()->insert({"parser", "english"});
+        index_meta_pb.mutable_properties()->insert({"lower_case", "true"});
+        index_meta_pb.mutable_properties()->insert({"support_phrase", "true"});
+        idx_meta->init_from_pb(index_meta_pb);
+
+        auto tablet_schema = create_schema();
+        const std::string index_path_prefix(InvertedIndexDescriptor::get_index_file_path_prefix(
+                local_segment_path(kTestDir, rowset_id, 0)));
+        io::FileWriterPtr file_writer;
+        io::FileWriterOptions opts;
+        auto fs = io::global_local_filesystem();
+        EXPECT_TRUE(
+                fs->create_file(InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix),
+                                &file_writer, &opts)
+                        .ok());
+        auto index_file_writer = std::make_unique<IndexFileWriter>(
+                fs, index_path_prefix, std::string {rowset_id}, 0, InvertedIndexStorageFormatPB::V2,
+                std::move(file_writer));
+        std::unique_ptr<IndexColumnWriter> column_writer;
+        EXPECT_TRUE(IndexColumnWriter::create(&tablet_schema->column(1), &column_writer,
+                                              index_file_writer.get(), idx_meta)
+                            .ok());
+        if (leading_nulls > 0) {
+            EXPECT_TRUE(column_writer->add_nulls(leading_nulls).ok());
+        }
+        EXPECT_TRUE(column_writer->add_values("c2", values.data(), values.size()).ok());
+        if (trailing_nulls > 0) {
+            EXPECT_TRUE(column_writer->add_nulls(trailing_nulls).ok());
+        }
+        EXPECT_TRUE(column_writer->finish().ok());
+        EXPECT_TRUE(index_file_writer->begin_close().ok());
+        EXPECT_TRUE(index_file_writer->finish_close().ok());
+        return index_path_prefix;
+    }
+
+    std::shared_ptr<IndexFileReader> open_v2_file(const std::string& index_path_prefix) {
+        auto file_reader = std::make_shared<IndexFileReader>(
+                io::global_local_filesystem(), index_path_prefix, InvertedIndexStorageFormatPB::V2);
+        EXPECT_TRUE(file_reader->init().ok());
+        return file_reader;
+    }
+
+    // The rows a query answers with, and whether it was answered from the term's df.
+    struct CountRun {
+        std::vector<uint32_t> rows;
+        bool from_df = false;
+    };
+
+    CountRun run_count(InvertedIndexReader& reader, const std::string& value,
+                       InvertedIndexQueryType query_type, bool count_only,
+                       bool enable_query_cache = false) {
+        OlapReaderStatistics stats;
+        RuntimeState runtime_state;
+        TQueryOptions query_options;
+        query_options.enable_inverted_index_query_cache = enable_query_cache;
+        query_options.inverted_index_max_expansions = 50;
+        runtime_state.set_query_options(query_options);
+        io::IOContext io_ctx;
+        auto context = std::make_shared<IndexQueryContext>();
+        context->io_ctx = &io_ctx;
+        context->stats = &stats;
+        context->runtime_state = &runtime_state;
+        context->count_on_index_fastpath = count_only;
+        auto bitmap = std::make_shared<roaring::Roaring>();
+        const Status status = reader.query(context, "1", Field::create_field<TYPE_STRING>(value),
+                                           query_type, bitmap);
+        EXPECT_TRUE(status.ok()) << value << ": " << status;
+        return {.rows = std::vector<uint32_t>(bitmap->begin(), bitmap->end()),
+                .from_df = context->count_on_index_fastpath_hit};
+    }
+
+    // A COUNT_ON_INDEX scan of one exact term is answered from the term's document frequency
+    // without decoding its posting: the bitmap holds that many ids, not the rows themselves.
+    void test_fulltext_count_only_fastpath() {
+        TabletIndex idx_meta;
+        const std::string prefix = write_english_index(
+                "test_count_fastpath", &idx_meta, 0,
+                {Slice("apple banana"), Slice("cherry"), Slice("apple"), Slice("banana")}, 0);
+        auto reader = FullTextIndexReader::create_shared(&idx_meta, open_v2_file(prefix),
+                                                         /*rows_of_segment=*/4,
+                                                         /*column_is_array=*/false);
+
+        // "apple" is in rows 0 and 2; the count answer is the first two ids.
+        CountRun run = run_count(*reader, "apple", InvertedIndexQueryType::MATCH_ANY_QUERY, true);
+        EXPECT_TRUE(run.from_df);
+        EXPECT_EQ(run.rows, (std::vector<uint32_t> {0, 1}));
+        run = run_count(*reader, "cherry", InvertedIndexQueryType::MATCH_PHRASE_QUERY, true);
+        EXPECT_TRUE(run.from_df);
+        EXPECT_EQ(run.rows, (std::vector<uint32_t> {0}));
+        run = run_count(*reader, "apple", InvertedIndexQueryType::MATCH_ANY_QUERY, false);
+        EXPECT_FALSE(run.from_df);
+        EXPECT_EQ(run.rows, (std::vector<uint32_t> {0, 2}));
+
+        // Several tokens, an expansion and a phrase decode their postings.
+        run = run_count(*reader, "apple banana", InvertedIndexQueryType::MATCH_ANY_QUERY, true);
+        EXPECT_FALSE(run.from_df);
+        EXPECT_EQ(run.rows, (std::vector<uint32_t> {0, 2, 3}));
+        run = run_count(*reader, "app", InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, true);
+        EXPECT_FALSE(run.from_df);
+        EXPECT_EQ(run.rows, (std::vector<uint32_t> {0, 2}));
+        run = run_count(*reader, "apple banana", InvertedIndexQueryType::MATCH_PHRASE_QUERY, true);
+        EXPECT_FALSE(run.from_df);
+        EXPECT_EQ(run.rows, (std::vector<uint32_t> {0}));
+
+        // The count answer never enters the result cache.
+        run = run_count(*reader, "banana", InvertedIndexQueryType::MATCH_ANY_QUERY, true, true);
+        EXPECT_TRUE(run.from_df);
+        run = run_count(*reader, "banana", InvertedIndexQueryType::MATCH_ANY_QUERY, false, true);
+        EXPECT_FALSE(run.from_df);
+        EXPECT_EQ(run.rows, (std::vector<uint32_t> {0, 3}));
+
+        // A reader created without the segment's row count decodes.
+        auto unbounded = FullTextIndexReader::create_shared(&idx_meta, open_v2_file(prefix));
+        run = run_count(*unbounded, "apple", InvertedIndexQueryType::MATCH_ANY_QUERY, true);
+        EXPECT_FALSE(run.from_df);
+        EXPECT_EQ(run.rows, (std::vector<uint32_t> {0, 2}));
+    }
+
+    // On a segment with NULL rows the fabricated ids avoid them, so the null bitmap the scan
+    // subtracts removes none; an ARRAY column, whose NULL rows may still hold tokens, decodes.
+    void test_fulltext_count_only_fastpath_with_nulls() {
+        TabletIndex idx_meta;
+        const std::string prefix = write_english_index("test_count_fastpath_nulls", &idx_meta, 3,
+                                                       {Slice("apple"), Slice("banana")}, 2);
+        auto scalar = FullTextIndexReader::create_shared(&idx_meta, open_v2_file(prefix),
+                                                         /*rows_of_segment=*/7,
+                                                         /*column_is_array=*/false);
+        // "banana" is row 4; the count answer is the first id off the NULL rows 0, 1 and 2.
+        CountRun run = run_count(*scalar, "banana", InvertedIndexQueryType::MATCH_ANY_QUERY, true);
+        EXPECT_TRUE(run.from_df);
+        EXPECT_EQ(run.rows, (std::vector<uint32_t> {3}));
+
+        auto array = FullTextIndexReader::create_shared(&idx_meta, open_v2_file(prefix),
+                                                        /*rows_of_segment=*/7,
+                                                        /*column_is_array=*/true);
+        run = run_count(*array, "banana", InvertedIndexQueryType::MATCH_ANY_QUERY, true);
+        EXPECT_FALSE(run.from_df);
+        EXPECT_EQ(run.rows, (std::vector<uint32_t> {4}));
+    }
+
+    // Concurrent identical queries run once: the followers wait for the leader's bitmap.
+    void test_fulltext_single_flight() {
+        TabletIndex idx_meta;
+        const std::string prefix = write_english_index(
+                "test_single_flight", &idx_meta, 0,
+                {Slice("apple banana"), Slice("cherry"), Slice("apple"), Slice("banana")}, 0);
+        auto reader = FullTextIndexReader::create_shared(&idx_meta, open_v2_file(prefix));
+        SingleFlightGate gate;
+        reader->set_single_flight_leader_before_compute_observer_for_test(hold_leader, &gate);
+        reader->set_single_flight_follower_joined_observer_for_test(count_follower, &gate);
+
+        constexpr size_t kQueries = 3;
+        std::array<std::vector<uint32_t>, kQueries> rows;
+        std::array<uint8_t, kQueries> ok {};
+        const auto run = [&](size_t i) {
+            SCOPED_INIT_THREAD_CONTEXT();
+            OlapReaderStatistics stats;
+            RuntimeState runtime_state;
+            TQueryOptions query_options;
+            query_options.enable_inverted_index_query_cache = true;
+            query_options.inverted_index_max_expansions = 50;
+            runtime_state.set_query_options(query_options);
+            io::IOContext io_ctx;
+            auto context = std::make_shared<IndexQueryContext>();
+            context->io_ctx = &io_ctx;
+            context->stats = &stats;
+            context->runtime_state = &runtime_state;
+            auto bitmap = std::make_shared<roaring::Roaring>();
+            ok[i] = reader->query(context, "1", Field::create_field<TYPE_STRING>("apple"),
+                                  InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap)
+                            .ok();
+            rows[i] = std::vector<uint32_t>(bitmap->begin(), bitmap->end());
+        };
+        std::vector<std::thread> threads;
+        threads.emplace_back(run, 0);
+        // Without single flight no leader is held, and the waits end on their own.
+        const bool leader_held = gate.leader_entered.try_acquire_for(std::chrono::seconds(5));
+        threads.emplace_back(run, 1);
+        threads.emplace_back(run, 2);
+        // Both followers join while the leader is held.
+        const bool joined = leader_held &&
+                            gate.follower_joined.try_acquire_for(std::chrono::seconds(5)) &&
+                            gate.follower_joined.try_acquire_for(std::chrono::seconds(5));
+        if (leader_held) {
+            gate.release_leader.release();
+        }
+        for (auto& thread : threads) {
+            thread.join();
+        }
+        reader->set_single_flight_leader_before_compute_observer_for_test(nullptr, nullptr);
+        reader->set_single_flight_follower_joined_observer_for_test(nullptr, nullptr);
+
+        EXPECT_TRUE(leader_held);
+        EXPECT_TRUE(joined);
+        for (size_t i = 0; i < kQueries; ++i) {
+            EXPECT_TRUE(ok[i]);
+            EXPECT_EQ(rows[i], (std::vector<uint32_t> {0, 2}));
+        }
+    }
+
+    // A scoring query publishes its scores while it runs, so it neither reads nor writes the
+    // result cache.
+    void test_fulltext_scoring_bypasses_the_result_cache() {
+        TabletIndex idx_meta;
+        const std::string prefix = write_english_index(
+                "test_scoring_cache", &idx_meta, 0,
+                {Slice("apple banana"), Slice("cherry"), Slice("apple"), Slice("banana")}, 0);
+        auto reader = FullTextIndexReader::create_shared(&idx_meta, open_v2_file(prefix));
+        const auto run = [&](bool scoring) {
+            OlapReaderStatistics stats;
+            RuntimeState runtime_state;
+            TQueryOptions query_options;
+            query_options.enable_inverted_index_query_cache = true;
+            query_options.inverted_index_max_expansions = 50;
+            runtime_state.set_query_options(query_options);
+            io::IOContext io_ctx;
+            auto context = std::make_shared<IndexQueryContext>();
+            context->io_ctx = &io_ctx;
+            context->stats = &stats;
+            context->runtime_state = &runtime_state;
+            if (scoring) {
+                context->collection_statistics = std::make_shared<FixedCollectionStatistics>();
+                context->collection_similarity = std::make_shared<CollectionSimilarity>();
+            }
+            auto bitmap = std::make_shared<roaring::Roaring>();
+            const Status status =
+                    reader->query(context, "1", Field::create_field<TYPE_STRING>("apple"),
+                                  InvertedIndexQueryType::MATCH_ANY_QUERY, bitmap);
+            EXPECT_TRUE(status.ok()) << status;
+            EXPECT_EQ(bitmap->cardinality(), 2);
+            return stats;
+        };
+        OlapReaderStatistics scored = run(true);
+        EXPECT_EQ(scored.inverted_index_query_cache_lookup, 0);
+        EXPECT_EQ(scored.inverted_index_query_cache_insert, 0);
+        OlapReaderStatistics unscored = run(false);
+        EXPECT_EQ(unscored.inverted_index_query_cache_miss, 1);
+        EXPECT_EQ(unscored.inverted_index_query_cache_insert, 1);
+    }
+
     // Test iterator comprehensive functionality
     void test_iterator_comprehensive() {
         std::string_view rowset_id = "test_iterator_comprehensive";
@@ -4639,6 +4921,22 @@ TEST_F(InvertedIndexReaderTest, CandidateConsumedFlagResetBetweenReaders) {
 
 TEST_F(InvertedIndexReaderTest, FulltextPhraseEdgeQueries) {
     test_fulltext_phrase_edge_queries();
+}
+
+TEST_F(InvertedIndexReaderTest, FulltextCountOnlyFastPath) {
+    test_fulltext_count_only_fastpath();
+}
+
+TEST_F(InvertedIndexReaderTest, FulltextCountOnlyFastPathWithNulls) {
+    test_fulltext_count_only_fastpath_with_nulls();
+}
+
+TEST_F(InvertedIndexReaderTest, FulltextSingleFlight) {
+    test_fulltext_single_flight();
+}
+
+TEST_F(InvertedIndexReaderTest, FulltextScoringBypassesTheResultCache) {
+    test_fulltext_scoring_bypasses_the_result_cache();
 }
 
 // Test InvertedIndexResultBitmap operator|= with NULL handling

@@ -396,3 +396,40 @@ Status lower_search_clause(const TSearchClause& clause, const LoweringOptions& o
 }
 
 } // namespace doris::index_query::logical
+
+namespace doris::index_query::logical {
+
+InvertedIndexQueryType leaf_query_type(const Node& leaf) {
+    if (leaf.as<Term>() != nullptr) {
+        return InvertedIndexQueryType::EQUAL_QUERY;
+    }
+    if (const auto* set = leaf.as<TermSet>()) {
+        return set->require_all ? InvertedIndexQueryType::MATCH_ALL_QUERY
+                                : InvertedIndexQueryType::MATCH_ANY_QUERY;
+    }
+    if (const auto* phrase = leaf.as<Phrase>()) {
+        if (phrase->suffix) {
+            return InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY;
+        }
+        return phrase->prefix ? InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY
+                              : InvertedIndexQueryType::MATCH_PHRASE_QUERY;
+    }
+    if (const auto* expand = leaf.as<Expand>()) {
+        switch (expand->kind) {
+        case ExpandKind::kPrefix:
+            // A one-term phrase prefix runs as a prefix of that term.
+            return InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY;
+        case ExpandKind::kRegexp:
+            return InvertedIndexQueryType::MATCH_REGEXP_QUERY;
+        case ExpandKind::kContains:
+            // A one-term edge phrase runs as the terms that contain it.
+            return InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY;
+        case ExpandKind::kWildcard:
+        default:
+            return InvertedIndexQueryType::WILDCARD_QUERY;
+        }
+    }
+    return InvertedIndexQueryType::UNKNOWN_QUERY;
+}
+
+} // namespace doris::index_query::logical

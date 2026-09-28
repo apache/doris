@@ -26,6 +26,7 @@
 
 #include "common/status.h"
 #include "roaring/roaring.hh"
+#include "storage/index/query/docid_set_ops.h"
 #include "storage/index/snii/format/format_constants.h"
 #include "storage/index/snii/format/null_bitmap.h"
 #include "storage/index/snii/query/internal/query_test_counters.h"
@@ -43,7 +44,7 @@
 using namespace doris::snii;
 using namespace doris::snii::snii_test;
 using doris::snii::query::count_only_term_df;
-using doris::snii::query::fabricate_null_disjoint_count_bitmap;
+using doris::index_query::fabricate_null_disjoint_count_bitmap;
 using doris::snii::query::term_query;
 namespace qinternal = doris::snii::query::internal;
 

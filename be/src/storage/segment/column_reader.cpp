@@ -983,15 +983,18 @@ Status ColumnReader::_load_index(const std::shared_ptr<IndexFileReader>& index_f
     if (is_string_type(type)) {
         if (should_analyzer) {
             try {
-                index_reader = FullTextIndexReader::create_shared(index_meta, index_file_reader);
+                index_reader = FullTextIndexReader::create_shared(
+                        index_meta, index_file_reader, rows_of_segment,
+                        _meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY);
             } catch (const CLuceneError& e) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                         "create FullTextIndexReader error: {}", e.what());
             }
         } else {
             try {
-                index_reader =
-                        StringTypeInvertedIndexReader::create_shared(index_meta, index_file_reader);
+                index_reader = StringTypeInvertedIndexReader::create_shared(
+                        index_meta, index_file_reader, rows_of_segment,
+                        _meta_type == FieldType::OLAP_FIELD_TYPE_ARRAY);
             } catch (const CLuceneError& e) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                         "create StringTypeInvertedIndexReader error: {}", e.what());

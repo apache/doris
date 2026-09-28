@@ -22,6 +22,12 @@
 #include <limits>
 #include <vector>
 
+#include "common/status.h"
+
+namespace roaring {
+class Roaring;
+} // namespace roaring
+
 namespace doris::index_query {
 
 std::vector<uint32_t> intersect_sorted(const std::vector<uint32_t>& a,
@@ -33,5 +39,11 @@ void union_sorted_into(std::vector<uint32_t>* acc, const std::vector<uint32_t>& 
 // when the input lists overlap.
 std::vector<uint32_t> union_sorted_many(const std::vector<std::vector<uint32_t>>& lists,
                                         size_t reserve_cap = std::numeric_limits<size_t>::max());
+
+// The first `count` ids off `nulls`, all below count + |nulls|: a count-only answer the scan's
+// null subtraction leaves whole. Fails when the ids would leave the docid domain or the window
+// holds fewer than `count` of them, which only a corrupt index causes.
+Status fabricate_null_disjoint_count_bitmap(uint64_t count, const roaring::Roaring& nulls,
+                                            roaring::Roaring* out);
 
 } // namespace doris::index_query
