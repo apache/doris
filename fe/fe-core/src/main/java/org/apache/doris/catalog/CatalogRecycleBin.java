@@ -1097,6 +1097,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             }
             if (recoverPartitionInfo.getStoragePolicy() != null) {
                 partitionInfo.setStoragePolicy(partitionId, recoverPartitionInfo.getStoragePolicy());
+                DataProperty dataProperty = partitionInfo.getDataProperty(partitionId);
+                if (dataProperty != null) {
+                    dataProperty.setStoragePolicy(recoverPartitionInfo.getStoragePolicy());
+                }
             }
 
             // remove from recycle bin
@@ -1170,6 +1174,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 }
                 if (recyclePartitionInfo.getStoragePolicy() != null) {
                     partitionInfo.setStoragePolicy(partitionId, recyclePartitionInfo.getStoragePolicy());
+                    DataProperty dataProperty = partitionInfo.getDataProperty(partitionId);
+                    if (dataProperty != null) {
+                        dataProperty.setStoragePolicy(recyclePartitionInfo.getStoragePolicy());
+                    }
                 }
 
                 iterator.remove();
