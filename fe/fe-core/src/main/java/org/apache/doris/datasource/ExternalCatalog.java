@@ -631,10 +631,6 @@ public abstract class ExternalCatalog
         return isDatabaseAllowedByFilter(dbName, getIncludeDatabaseMap(), getExcludeDatabaseMap(), false);
     }
 
-    protected boolean isDatabaseAllowedByFilterIgnoringCase(String dbName) {
-        return isDatabaseAllowedByFilter(dbName, getIncludeDatabaseMap(), getExcludeDatabaseMap(), true);
-    }
-
     private boolean isDatabaseAllowedByFilter(String dbName, Map<String, Boolean> includeDatabaseMap,
             Map<String, Boolean> excludeDatabaseMap, boolean ignoreCase) {
         if (dbName.equals(InfoSchemaDb.DATABASE_NAME) || dbName.equals(MysqlDb.DATABASE_NAME)) {
@@ -1480,7 +1476,6 @@ public abstract class ExternalCatalog
             }
             tbls.add(tbl);
         }
-        LOG.info("debug get include table map: {}", includeTableMap);
         return includeTableMap;
     }
 

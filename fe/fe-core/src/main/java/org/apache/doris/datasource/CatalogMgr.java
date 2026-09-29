@@ -1071,7 +1071,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support drop ExternalCatalog databases");
         }
-        ((HMSExternalCatalog) catalog).unregisterDatabase(dbName);
+        HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
+        if (hmsCatalog.isDatabaseEventTargetExcluded(dbName)) {
+            return;
+        }
+        hmsCatalog.unregisterDatabase(dbName);
     }
 
     public void registerExternalDatabaseFromEvent(String dbName, String catalogName)

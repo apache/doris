@@ -97,12 +97,6 @@ public class HiveInsertExecutor extends BaseExternalTableInsertExecutor {
                 HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                         .hive(hmsTable.getCatalog().getId());
                 cache.refreshAffectedPartitions(hmsTable, partitionUpdates, modifiedPartNames, newPartNames);
-                // The held HMS table also caches table parameters (including numRows/totalSize).
-                // Reload those after the selective partition refresh, before closing the count fence.
-                hmsTable.unsetObjectCreated();
-                // Close the admission window opened by the fence above: a load admitted after it can
-                // compute the pre-insert value from the still-resident file list and publish it.
-                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(hmsTable);
             } else {
                 // Non-partitioned table or no partition updates, do full table refresh
                 Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(hmsTable);
@@ -121,6 +115,12 @@ public class HiveInsertExecutor extends BaseExternalTableInsertExecutor {
                         hmsTable.getNameWithFullQualifiers(), fallbackException);
             }
         }
+
+        // Engine invalidation does not retire the held HMS table parameters. A row-count load
+        // admitted during either refresh path may still read pre-commit numRows/totalSize, so
+        // rebuild that source and close the admission window for both selective and full paths.
+        hmsTable.unsetObjectCreated();
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(hmsTable);
 
         // Write edit log to notify other FEs
         long updateTime = System.currentTimeMillis();

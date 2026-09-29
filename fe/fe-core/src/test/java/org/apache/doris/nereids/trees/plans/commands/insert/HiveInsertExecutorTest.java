@@ -293,7 +293,8 @@ class HiveInsertExecutorTest {
             Assertions.assertDoesNotThrow(executor::runAfterCommit);
         }
 
-        Mockito.verify(cacheMgr).invalidateRowCountCache(table);
+        Mockito.verify(cacheMgr, Mockito.times(2)).invalidateRowCountCache(table);
+        Mockito.verify(table).unsetObjectCreated();
         Mockito.verify(cacheMgr, Mockito.atLeastOnce()).invalidateTableCache(table);
         ArgumentCaptor<ExternalObjectLog> logCaptor = ArgumentCaptor.forClass(ExternalObjectLog.class);
         Mockito.verify(editLog).logRefreshExternalTable(logCaptor.capture());

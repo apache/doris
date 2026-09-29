@@ -229,6 +229,14 @@ public class RefreshManager {
                 // canonical database scope before acknowledging the committed refresh.
                 Env.getCurrentEnv().getExtMetaCacheMgr()
                         .invalidateRowCountCache(catalog.getId(), db.get().getId());
+                if (!Strings.isNullOrEmpty(log.getTableName())) {
+                    Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableByNameOrWider(
+                            catalog.getId(), db.get().getFullName(), log.getTableName());
+                } else {
+                    // Legacy ID-only records cannot recover a cold table's engine key.
+                    Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(
+                            catalog.getId(), db.get().getId(), db.get().getFullName());
+                }
                 invalidatePaimonCatalogForUnresolvedReplay(catalog);
                 return;
             }
@@ -288,6 +296,10 @@ public class RefreshManager {
         }
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support refresh ExternalCatalog Tables");
+        }
+        if (catalog instanceof HMSExternalCatalog
+                && ((HMSExternalCatalog) catalog).isPartitionEventTargetExcluded(dbName, tableName)) {
+            return;
         }
         // Whole-table events are already committed remotely. Fence the row count by cached identity
         // before any database/table reload can fail and make the not-found path return.

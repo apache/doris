@@ -19,6 +19,7 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.RefreshManager;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
@@ -27,6 +28,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
+import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
 import org.apache.doris.datasource.metacache.MetaCache;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
@@ -171,6 +173,41 @@ public class CatalogMgrTest {
         Mockito.verify(catalog).tryModifyCatalogProps(newProperties);
         Mockito.verify(catalog).rollBackCatalogProps(oldProperties);
         Mockito.verify(catalog, Mockito.never()).modifyCatalogProps(newProperties);
+    }
+
+    @Test
+    void testMalformedJdbcMappingAlterDoesNotPublishOrJournal() throws Exception {
+        Map<String, String> properties = new HashMap<>(ImmutableMap.of(
+                "type", "jdbc",
+                JdbcResource.DRIVER_URL, "driver.jar",
+                JdbcResource.JDBC_URL, "jdbc:oracle:thin:@127.0.0.1:1521:XE",
+                JdbcResource.DRIVER_CLASS, "oracle.jdbc.driver.OracleDriver"));
+        JdbcExternalCatalog catalog = new JdbcExternalCatalog(98L, "jdbc", null, properties, "");
+        CatalogMgr catalogMgr = new CatalogMgr();
+        addCatalog(catalogMgr, catalog);
+        Map<String, String> oldProperties = new HashMap<>(catalog.getProperties());
+        CatalogLog log = new CatalogLog();
+        log.setCatalogId(catalog.getId());
+        log.setNewProps(ImmutableMap.of(ExternalCatalog.META_NAMES_MAPPING, "not-json"));
+
+        Env env = Mockito.mock(Env.class);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        Mockito.when(cacheMgr.withCatalogLifecycleLock(Mockito.eq(catalog.getId()), Mockito.any()))
+                .thenAnswer(invocation -> {
+                    java.util.function.Supplier<?> action = invocation.getArgument(1);
+                    return action.get();
+                });
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertThrows(DdlException.class,
+                    () -> catalogMgr.replayAlterCatalogProps(log, oldProperties, false));
+        }
+
+        Assertions.assertEquals(oldProperties, catalog.getProperties());
+        Mockito.verify(editLog, Mockito.never()).logCatalogLog(Mockito.anyShort(), Mockito.any());
     }
 
     @Test
@@ -811,16 +848,31 @@ public class CatalogMgrTest {
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             Assertions.assertFalse(catalog.isPartitionEventTargetExcluded("sales", "hot"));
-            for (String[] target : new String[][] {{"ARCHIVED", "t"}, {"sales", "cold"}}) {
+            for (String[] target : new String[][] {{"archived", "t"}, {"sales", "cold"}}) {
                 catalogMgr.addExternalPartitions("hms", target[0], target[1],
                         Collections.singletonList("p=1"), 1L, true);
                 catalogMgr.dropExternalPartitions("hms", target[0], target[1],
                         Collections.singletonList("p=1"), 1L, true);
                 new RefreshManager().refreshPartitions("hms", target[0], target[1],
                         Collections.singletonList("p=1"), 1L, true);
+                new RefreshManager().refreshExternalTableFromEvent("hms", target[0], target[1], 1L);
             }
+            catalogMgr.unregisterExternalDatabase("archived", "hms");
             Mockito.verifyNoInteractions(cacheMgr);
         }
+    }
+
+    @Test
+    void testHmsEventFilterMatchesListedCaseAndRefreshesSnapshot() throws Exception {
+        HMSExternalCatalog catalog = new HMSExternalCatalog(97L, "hms", null,
+                new HashMap<>(ImmutableMap.of(ExternalCatalog.EXCLUDE_DATABASE_LIST, "SALES",
+                        ExternalCatalog.INCLUDE_TABLE_LIST, "SALES.cold")), "");
+        // Listing compares the remote spelling exactly: neither filter hides sales.hot.
+        Assertions.assertFalse(catalog.isDatabaseEventTargetExcluded("sales"));
+        Assertions.assertFalse(catalog.isPartitionEventTargetExcluded("sales", "hot"));
+        Assertions.assertTrue(catalog.isDatabaseEventTargetExcluded("SALES"));
+        catalog.getCatalogProperty().addProperty(ExternalCatalog.INCLUDE_TABLE_LIST, "sales.cold");
+        Assertions.assertTrue(catalog.isPartitionEventTargetExcluded("sales", "hot"));
     }
 
     @Test

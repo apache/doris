@@ -93,6 +93,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
     private volatile AbstractHiveProperties hmsProperties;
     private AtomicLong runtimeGeneration = new AtomicLong();
 
+    private transient volatile String eventIncludeTableList;
+    private transient volatile Map<String, List<String>> eventIncludeTableMap;
+
     public long getRuntimeGeneration() {
         return runtimeGeneration.get();
     }
@@ -307,8 +310,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
             LOG.debug("create database [{}]", dbName);
         }
 
-        // HMS notification events normalize database names to lowercase before reaching this boundary.
-        if (!isDatabaseAllowedByFilterIgnoringCase(dbName)) {
+        // The event caller passes the original remote spelling used by database-list filters.
+        if (isDatabaseEventTargetExcluded(dbName)) {
             return true;
         }
 
@@ -321,15 +324,34 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     /** HMS notifications are unfiltered; excluded targets must not change this catalog's caches. */
+    public boolean isDatabaseEventTargetExcluded(String dbName) {
+        return !isDatabaseAllowedByFilter(dbName);
+    }
+
     public boolean isPartitionEventTargetExcluded(String dbName, String tableName) {
-        if (!isDatabaseAllowedByFilterIgnoringCase(dbName)) {
+        if (isDatabaseEventTargetExcluded(dbName)) {
             return true;
         }
-        return getIncludeTableMap().entrySet().stream()
-                .filter(entry -> entry.getKey().equalsIgnoreCase(dbName))
-                .findFirst()
-                .map(entry -> entry.getValue().stream().noneMatch(name -> name.equalsIgnoreCase(tableName)))
-                .orElse(false);
+        List<String> includedTables = getEventIncludeTableMap().get(dbName);
+        return includedTables != null && !includedTables.isEmpty()
+                && includedTables.stream().noneMatch(name -> name.equalsIgnoreCase(tableName));
+    }
+
+    private Map<String, List<String>> getEventIncludeTableMap() {
+        String configuredList = catalogProperty.getOrDefault(INCLUDE_TABLE_LIST, "");
+        Map<String, List<String>> snapshot = eventIncludeTableMap;
+        if (snapshot == null || !configuredList.equals(eventIncludeTableList)) {
+            synchronized (this) {
+                configuredList = catalogProperty.getOrDefault(INCLUDE_TABLE_LIST, "");
+                snapshot = eventIncludeTableMap;
+                if (snapshot == null || !configuredList.equals(eventIncludeTableList)) {
+                    snapshot = getIncludeTableMap();
+                    eventIncludeTableMap = snapshot;
+                    eventIncludeTableList = configuredList;
+                }
+            }
+        }
+        return snapshot;
     }
 
     @Override
