@@ -68,6 +68,42 @@
 
 namespace doris {
 
+static Status annotate_orc_uuid(const DataTypePtr& data_type, orc::Type* orc_type) {
+    const auto nested_type = remove_nullable(data_type);
+    DataTypes children;
+    switch (nested_type->get_primitive_type()) {
+    case TYPE_UUID:
+        if (orc_type->getKind() != orc::BINARY) {
+            return Status::InvalidArgument("ORC UUID requires BINARY, got {}",
+                                           orc_type->toString());
+        }
+        orc_type->setAttribute("doris.logical_type", "uuid");
+        return Status::OK();
+    case TYPE_ARRAY:
+        children = {assert_cast<const DataTypeArray&>(*nested_type).get_nested_type()};
+        break;
+    case TYPE_MAP: {
+        const auto& map_type = assert_cast<const DataTypeMap&>(*nested_type);
+        children = {map_type.get_key_type(), map_type.get_value_type()};
+        break;
+    }
+    case TYPE_STRUCT:
+        children = assert_cast<const DataTypeStruct&>(*nested_type).get_elements();
+        break;
+    default:
+        return Status::OK();
+    }
+    if (orc_type->getSubtypeCount() != children.size()) {
+        return Status::InvalidArgument("ORC schema {} does not match {}", orc_type->toString(),
+                                       data_type->get_name());
+    }
+    for (size_t index = 0; index < children.size(); ++index) {
+        RETURN_IF_ERROR(annotate_orc_uuid(children[index],
+                                          const_cast<orc::Type*>(orc_type->getSubtype(index))));
+    }
+    return Status::OK();
+}
+
 static Status normalize_iceberg_binary_column(const ColumnPtr& column, const DataTypePtr& type,
                                               const iceberg::NestedField& nested_field,
                                               ColumnPtr* normalized_column,
@@ -146,14 +182,16 @@ VOrcTransformer::VOrcTransformer(RuntimeState* state, doris::io::FileWriter* fil
                                  std::vector<std::string> column_names, bool output_object_data,
                                  TFileCompressType::type compress_type,
                                  const iceberg::Schema* iceberg_schema,
-                                 std::shared_ptr<io::FileSystem> fs)
+                                 std::shared_ptr<io::FileSystem> fs,
+                                 const std::vector<int32_t>& nan_count_field_ids)
         : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _fs(fs),
           _file_writer(file_writer),
           _column_names(std::move(column_names)),
           _write_options(new orc::WriterOptions()),
           _schema_str(std::move(schema)),
-          _iceberg_schema(iceberg_schema) {
+          _iceberg_schema(iceberg_schema),
+          _nan_count_field_ids(nan_count_field_ids) {
     // ORC recognizes GMT as its UTC fast path. Other UTC aliases can lack a zoneinfo file
     // or resolve through a locally overridden UTC file, shifting timestamp statistics.
     int32_t fixed_offset = 0;
@@ -176,6 +214,12 @@ Status VOrcTransformer::open() {
     if (!_schema_str.empty()) {
         try {
             _schema = orc::Type::buildTypeFromString(_schema_str);
+            DORIS_CHECK_EQ(_schema->getSubtypeCount(), _output_vexpr_ctxs.size());
+            for (size_t index = 0; index < _output_vexpr_ctxs.size(); ++index) {
+                RETURN_IF_ERROR(
+                        annotate_orc_uuid(_output_vexpr_ctxs[index]->root()->data_type(),
+                                          const_cast<orc::Type*>(_schema->getSubtype(index))));
+            }
         } catch (const std::exception& e) {
             return Status::InternalError("Orc build schema from \"{}\" failed: {}", _schema_str,
                                          e.what());
@@ -207,6 +251,9 @@ Status VOrcTransformer::open() {
         return Status::InternalError("failed to create writer: {}", e.what());
     }
     _writer->addUserMetadata("CreatedBy", doris::get_short_version());
+    if (_iceberg_schema != nullptr) {
+        _nan_value_counter.emplace(*_iceberg_schema, _nan_count_field_ids);
+    }
     return Status::OK();
 }
 
@@ -291,6 +338,11 @@ std::unique_ptr<orc::Type> VOrcTransformer::_build_orc_type(
     case TYPE_IPV6:
     case TYPE_BINARY: {
         type = orc::createPrimitiveType(orc::STRING);
+        break;
+    }
+    case TYPE_UUID: {
+        type = orc::createPrimitiveType(orc::BINARY);
+        type->setAttribute("doris.logical_type", "uuid");
         break;
     }
     case TYPE_DATEV2: {
@@ -490,6 +542,12 @@ Status VOrcTransformer::collect_file_statistics_after_close(TIcebergColumnStats*
         }
 
         stats->__set_value_counts(value_counts);
+        // ORC statistics carry no NaN count, so it comes from the counter fed during write() rather than
+        // from the footer read above. Left unset when no column was counted, so FE keeps reporting
+        // "unknown" instead of an empty claim -- the same shape an older BE produces.
+        if (_nan_value_counter.has_value() && !_nan_value_counter->empty()) {
+            stats->__set_nan_value_counts(_nan_value_counter->counts());
+        }
         if (has_any_null_count) {
             stats->__set_null_value_counts(null_value_counts);
         }
@@ -646,6 +704,9 @@ std::string VOrcTransformer::_decimal_to_bytes(const orc::Decimal& decimal) {
 Status VOrcTransformer::write(const Block& block) {
     if (block.rows() == 0) {
         return Status::OK();
+    }
+    if (_nan_value_counter.has_value()) {
+        _nan_value_counter->count(block);
     }
 
     // Buffer used by date/datetime/datev2/datetimev2/largeint type

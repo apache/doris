@@ -42,7 +42,9 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_timestamp_ns.h"
 #include "core/data_type/data_type_timestamptz.h"
+#include "core/data_type/data_type_uuid.h"
 #include "core/value/timestamptz_value.h"
+#include "core/value/uuid_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/variant_v2/cast_variant_v2_internal.h"
@@ -66,7 +68,8 @@ enum GroupIndex : size_t {
     TIMESTAMP_NANOS_GROUP = TIMESTAMP_NTZ_GROUP + 1,
     TIMESTAMP_TZ_GROUP = TIMESTAMP_NANOS_GROUP + 1,
     STRING_GROUP = TIMESTAMP_TZ_GROUP + 1,
-    GROUP_COUNT = STRING_GROUP + 1,
+    UUID_GROUP = STRING_GROUP + 1,
+    GROUP_COUNT = UUID_GROUP + 1,
 };
 
 struct ScalarGroup {
@@ -279,9 +282,16 @@ void classify_value(FunctionContext* context, ScalarGroups& groups, size_t row, 
     case VariantPrimitiveId::NULL_VALUE:
     case VariantPrimitiveId::BINARY:
     case VariantPrimitiveId::TIME_NTZ_MICROS:
-    case VariantPrimitiveId::UUID:
         append_invalid(groups, row);
         return;
+    case VariantPrimitiveId::UUID: {
+        auto& group = initialize_group(groups, UUID_GROUP,
+                                       [] { return std::make_shared<DataTypeUUID>(); });
+        assert_cast<ColumnUUID&>(*group.values)
+                .insert_value(UUIDValue::from_big_endian(value.get_uuid().data()));
+        group.source_rows.push_back(row);
+        return;
+    }
     case VariantPrimitiveId::TRUE_VALUE:
         append_bool(groups, row, true);
         return;
@@ -473,6 +483,7 @@ bool is_supported_scalar_target(const DataTypePtr& type) {
     case TYPE_TIMESTAMPTZ:
     case TYPE_IPV4:
     case TYPE_IPV6:
+    case TYPE_UUID:
         return true;
     default:
         return false;

@@ -62,6 +62,7 @@ public class ColumnType {
         DECIMAL128(16),
         IPV4(4),
         IPV6(16),
+        UUID(16),
         STRING(-1),
         VARBINARY(-1),
         ARRAY(-1),
@@ -176,6 +177,10 @@ public class ColumnType {
 
     public boolean isIp() {
         return isIpv4() || isIpv6();
+    }
+
+    public boolean isUuid() {
+        return type == Type.UUID;
     }
 
     public boolean isMap() {
@@ -324,6 +329,9 @@ public class ColumnType {
                 break;
             case "ipv6":
                 type = Type.IPV6;
+                break;
+            case "uuid":
+                type = Type.UUID;
                 break;
             case "datev1":
                 type = Type.DATE;

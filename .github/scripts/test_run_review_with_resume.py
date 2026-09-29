@@ -99,6 +99,11 @@ class ResumeReviewTest(unittest.TestCase):
             mock.patch.object(runner, "check_resume_target")
         )
         self.help = self.enterContext(mock.patch.object(runner.subprocess, "run"))
+        self.verification = self.enterContext(mock.patch.object(
+            runner, "verify_completion", return_value={
+                "state": "success", "p0": 0, "p1": 0, "review_id": 123,
+            }
+        ))
 
     def write_rollout(self, *, thread_id=THREAD, cwd=None):
         (self.sessions / f"rollout-2026-09-07-{thread_id}.jsonl").write_text(
@@ -154,6 +159,30 @@ class ResumeReviewTest(unittest.TestCase):
         self.help.assert_not_called()
         self.target_check.assert_not_called()
         self.assertEqual([], self.sleeps)
+
+    def test_completed_turn_without_verified_delivery_fails(self):
+        self.verification.side_effect = ValueError("No final review submission was declared")
+        self.assertEqual(1, self.execute([{"events": [thread_event(), completed()], "status": 0}]))
+        self.assertIn("No final review submission", self.last_error())
+        self.assertFalse((self.context / "review-result.json").exists())
+
+    def test_partial_submission_at_capacity_does_not_resume_or_pass(self):
+        (self.context / "review-submission.json").write_text("{}")
+        self.verification.side_effect = ValueError("Final review inline comments were not completely verified")
+        self.assertEqual(1, self.execute([{"events": [thread_event(), failed()]}]))
+        self.assertEqual([], self.sleeps)
+        self.target_check.assert_not_called()
+        self.assertFalse((self.context / "review-result.json").exists())
+
+    def test_only_capacity_can_recover_after_submission(self):
+        (self.context / "review-submission.json").write_text("{}")
+        self.assertEqual(1, self.execute([{"events": [thread_event(), failed("Other failure")]}]))
+        self.verification.assert_not_called()
+
+    def test_cancellation_after_submission_is_still_failure(self):
+        (self.context / "review-submission.json").write_text("{}")
+        self.assertEqual(1, self.execute([{"events": [thread_event(), failed()], "status": 143}]))
+        self.verification.assert_not_called()
 
     def test_unsupported_model_falls_back_before_review_work(self):
         self.args.model = "gpt-6-sol"
@@ -768,9 +797,9 @@ HELPER
 }
 """
         for minutes, setup, expected in (
-            (default_minutes, 12, 7068),
-            ("150", 30, 8850),
-            ("120", 7201, -121),
+            (default_minutes, 12, 7056),
+            ("150", 30, 8820),
+            ("120", 7201, -7322),
         ):
             with (
                 self.subTest(minutes=minutes, setup=setup),
@@ -1097,6 +1126,9 @@ else:
                 ),
                 mock.patch.object(runner, "RETRY_DELAYS", (0, 0, 0)),
                 mock.patch.object(runner, "check_resume_target"),
+                mock.patch.object(runner, "verify_completion", return_value={
+                    "state": "success", "p0": 0, "p1": 0, "review_id": 123,
+                }),
             ):
                 self.assertEqual(0, runner.run_review(args))
             self.assertEqual("2", (root / "request-count").read_text())

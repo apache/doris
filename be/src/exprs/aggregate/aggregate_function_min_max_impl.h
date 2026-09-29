@@ -79,6 +79,10 @@ AggregateFunctionPtr create_aggregate_function_single_value(const String& name,
         return creator_without_type::create_unary_arguments<
                 AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_IPV6>>>>(
                 argument_types, result_is_nullable, attr);
+    case PrimitiveType::TYPE_UUID:
+        return creator_without_type::create_unary_arguments<
+                AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_UUID>>>>(
+                argument_types, result_is_nullable, attr);
     case PrimitiveType::TYPE_BOOLEAN:
         return creator_without_type::create_unary_arguments<
                 AggregateFunctionsSingleValue<Data<SingleValueDataFixed<TYPE_BOOLEAN>>>>(
