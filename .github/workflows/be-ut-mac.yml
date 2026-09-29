@@ -70,7 +70,12 @@ jobs:
             'openjdk@11'
             'maven'
             'node'
+            # llvm@22 builds the BE (env.sh selects it). llvm@20 builds the
+            # third-party libraries: build.sh rebuilds them from source when the
+            # prebuilt archive below is missing one it checks for, and
+            # thirdparty/build-thirdparty.sh refuses to run on macOS without llvm@20.
             'llvm@22'
+            'llvm@20'
             'libomp'
           )
           brew install "${cellars[@]}" || true
