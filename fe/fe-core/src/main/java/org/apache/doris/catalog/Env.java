@@ -863,7 +863,10 @@ public class Env {
         this.eventProcessor = new EventProcessor(mtmvService);
         this.insertOverwriteManager = new InsertOverwriteManager();
         this.lanceIndexJobManager = new LanceIndexJobManager();
-        this.lanceIndexJobDispatcher = new LanceIndexJobDispatcher(lanceIndexJobManager);
+        // The dispatcher must resolve the manager per round through this lambda rather
+        // than capture the instance: loadLanceIndexJobManager replaces the field with a
+        // brand-new manager on every image load.
+        this.lanceIndexJobDispatcher = new LanceIndexJobDispatcher(() -> lanceIndexJobManager);
         this.dnsCache = new DNSCache();
         this.sqlCacheManager = new NereidsSqlCacheManager();
         this.sortedPartitionsCacheManager = new NereidsSortedPartitionsCacheManager();

@@ -39,6 +39,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Supplier;
 
 public class LanceIndexJobWiringTest {
     private static final short LANCE_INDEX_JOB_OPCODE = 500;
@@ -83,9 +84,10 @@ public class LanceIndexJobWiringTest {
     }
 
     /**
-     * The dispatcher is wired as a master-only daemon: an instance field on {@link Env}
-     * (assigned in the Env constructor from the job manager, so both share one durable
-     * image), of a {@link MasterDaemon} subclass constructible from exactly the manager.
+     * The dispatcher is wired as a master-only daemon: an instance field on {@link Env},
+     * of a {@link MasterDaemon} subclass. It takes the job manager through a supplier so
+     * an image load that replaces the Env-owned manager is picked up on the next round;
+     * the manager constructor overload survives as the test seam.
      */
     @Test
     public void lanceIndexJobDispatcherIsAWiredMasterDaemon() throws Exception {
@@ -95,13 +97,19 @@ public class LanceIndexJobWiringTest {
         Assertions.assertTrue(MasterDaemon.class.isAssignableFrom(field.getType()),
                 "the dispatcher must start through the master-only MasterDaemon machinery");
         Assertions.assertNotNull(
+                LanceIndexJobDispatcher.class.getDeclaredConstructor(Supplier.class),
+                "the dispatcher resolves the Env-owned manager per round through a supplier:"
+                        + " loadLanceIndexJobManager replaces it on every image load");
+        Assertions.assertNotNull(
                 LanceIndexJobDispatcher.class.getDeclaredConstructor(LanceIndexJobManager.class),
-                "the dispatcher is constructed from the Env-owned job manager");
+                "the constant-manager constructor remains as the unit-test seam");
     }
 
     /**
      * Source-order wiring of the dispatch lifecycle in Env.java: the constructor creates
-     * the dispatcher on the manager, only {@code startMasterOnlyDaemonThreads} starts it
+     * the dispatcher on a per-round manager supplier (an image load replaces the manager,
+     * so the captured instance would be orphaned), only {@code startMasterOnlyDaemonThreads}
+     * starts it
      * (never the non-master path), and the master-transfer sweep of the job manager runs
      * before that start, so no dispatcher round can ever observe a durable RUNNING left by
      * the old master. Reflection cannot see call sites, so this reads the source; it is
@@ -112,8 +120,9 @@ public class LanceIndexJobWiringTest {
         String source = readEnvSource();
 
         Assertions.assertTrue(source.contains(
-                "this.lanceIndexJobDispatcher = new LanceIndexJobDispatcher(lanceIndexJobManager);"),
-                "the Env constructor must create the dispatcher on the Env-owned job manager");
+                "this.lanceIndexJobDispatcher = new LanceIndexJobDispatcher(() -> lanceIndexJobManager);"),
+                "the Env constructor must wire the dispatcher with a per-round manager supplier,"
+                        + " never the captured instance an image load would orphan");
 
         String masterOnlyBody = methodBody(source, "protected void startMasterOnlyDaemonThreads() {");
         Assertions.assertTrue(masterOnlyBody.contains("lanceIndexJobDispatcher.start();"),
