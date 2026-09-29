@@ -43,7 +43,9 @@
 #include <sys/resource.h>
 #include <unistd.h>
 
+#include "common/logging.h"
 #include "lance/index_worker_contract.h"
+#include "util/debug_points.h"
 
 namespace doris::lance {
 namespace {
@@ -67,6 +69,14 @@ constexpr const char* DIAG_UNTYPED_RECOMPUTE_FAILURE = "lance worker: untyped re
 constexpr const char* DIAG_UNKNOWN_NATIVE_CODE = "lance worker: unmapped native error code\n";
 constexpr const char* DIAG_RESULT_WRITE_FAILED = "lance worker: result write failed\n";
 constexpr const char* DIAG_PARENT_GUARD = "lance worker: parent-death guard tripped\n";
+
+// Controlled-environment variable through which the supervisor hands the worker
+// its active fault-injection debug points (comma-separated names; snapshotted
+// by build_child_env in index_job_supervisor.cpp — keep the two spellings in
+// sync). The exec'd worker starts with a default-off debug-point gate and an
+// empty registry, so without this handoff the worker-side points could never
+// fire outside unit tests.
+constexpr const char* WORKER_DEBUG_POINTS_ENV = "DORIS_LANCE_WORKER_DEBUG_POINTS";
 
 // Bounded best-effort diagnostic write. Never carries dynamic content.
 void diag(int fd, const char* message) {
@@ -516,6 +526,34 @@ struct LanceDatasetDeleter {
 } // namespace
 
 int run_index_worker(const IndexWorkerParams& params) {
+    // Debug-point handoff across the exec boundary: the supervisor snapshots
+    // its active worker-fault points into the controlled environment (see
+    // build_child_env) because this process starts with a default-off gate and
+    // an empty registry (the --lance-worker main branch runs before any BE
+    // global state). Only the two known worker-fault names are honored —
+    // anything else is ignored, and no byte of the value is ever logged.
+    if (const char* handoff = std::getenv(WORKER_DEBUG_POINTS_ENV)) {
+        const std::string list(handoff, std::min(std::strlen(handoff), size_t {256}));
+        bool registered = false;
+        size_t pos = 0;
+        while (pos <= list.size()) {
+            const size_t comma = list.find(',', pos);
+            const std::string token =
+                    list.substr(pos, comma == std::string::npos ? comma : comma - pos);
+            if (token == "LanceIndexWorker.hang" || token == "LanceIndexWorker.skip_report") {
+                DebugPoints::instance()->add(token);
+                registered = true;
+            }
+            if (comma == std::string::npos) {
+                break;
+            }
+            pos = comma + 1;
+        }
+        if (registered) {
+            config::enable_debug_points = true;
+        }
+    }
+
     // Step 1: before anything else, including the dispatch read — credentials
     // entering this process must never reach a core file.
 #ifdef __linux__
@@ -636,6 +674,13 @@ int run_index_worker(const IndexWorkerParams& params) {
                                      TLanceIndexJobResultCode::PRE_INVOCATION_RESOURCE_REJECTED,
                                      false, "resource rejected");
     }
+
+    // Fault-injection point: hang after the dispatch frame is fully read and
+    // validated, before the first lance FFI call (the handshake has already
+    // passed supervisor-side, so the supervisor's wall-clock deadline expires,
+    // TERM->KILL escalates, and the FE converges UNKNOWN). The block releases
+    // when the point is removed (the in-process unit tests rely on that).
+    DBUG_EXECUTE_IF("LanceIndexWorker.hang", DBUG_BLOCK);
 
     // Step 6: the pinned open, never version 0. The storage options live in one
     // owned buffer until process exit; only the pointer view reaches lance-c, and
@@ -809,6 +854,11 @@ int run_index_worker(const IndexWorkerParams& params) {
     bool if_condition_noop = is_drop && dispatch.__isset.if_exists && dispatch.if_exists &&
                              native_code == LANCE_ERR_NOT_FOUND;
     const char* static_category = native_code == LANCE_OK ? nullptr : "lance native error";
+    // Fault-injection point: exit 0 having completed the native invocation but
+    // without ever writing the result frame. The supervisor sees a
+    // complete-exec-but-silent child and converges via the termination-proof
+    // path (FE UNKNOWN).
+    DBUG_EXECUTE_IF("LanceIndexWorker.skip_report", { return 0; });
     if (!write_result_frame(params, dispatch, result_code, if_condition_noop,
                             external_metadata_advanced, static_category)) {
         diag(params.diag_fd, DIAG_RESULT_WRITE_FAILED);
