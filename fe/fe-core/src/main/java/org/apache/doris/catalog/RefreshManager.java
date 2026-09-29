@@ -311,6 +311,8 @@ public class RefreshManager {
     }
 
     public void refreshTableInternal(ExternalDatabase db, ExternalTable table, long updateTime) {
+        // The table's metadata can become visible to a new load as soon as it is reset.
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(table);
         table.unsetObjectCreated();
         // Iceberg partition evolution can change partition specs across FEs.
         // Clear related-table validation cache to avoid stale partitioned/unpartitioned judgment.

@@ -790,6 +790,8 @@ public class ExternalMetaCacheMgr {
 
     public void invalidateTableCache(ExternalTable dorisTable) {
         long catalogId = dorisTable.getCatalog().getId();
+        // Engine eviction can expose a new snapshot before the completion fence below.
+        invalidateRowCountCache(dorisTable);
         // Typed table invalidation bypasses the name-based invalidateTable() entry point, so the
         // Lance access-cache retirement that used to happen there has to be repeated here.
         try {
@@ -812,6 +814,8 @@ public class ExternalMetaCacheMgr {
      * cached object has already been evicted, so caller spelling can never miss a canonical key.
      */
     public void invalidateTableByNameOrWider(long catalogId, String dbName, String tableName) {
+        // A cold object miss may route through engine invalidation before its final fence.
+        invalidateRowCountCache(catalogId, dbName, tableName);
         Optional<ExternalDatabase<? extends ExternalTable>> db = getCachedDb(catalogId, dbName);
         if (!db.isPresent()) {
             Optional<Pair<String, Long>> identity = getDbIdentityForReplay(catalogId, dbName);

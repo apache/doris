@@ -86,8 +86,15 @@ public class CatalogMgrTest {
         Map<String, String> mapping = (Map<String, String>) mappingField.get(catalog);
         mapping.put("mixeddb", "MixedDb");
 
-        Assertions.assertEquals(Pair.of("MixedDb", Util.genIdByName("testing_catalog", "MixedDb")),
+        long historicalId = Util.genIdByName("testing_catalog", "mixeddb");
+        Mockito.when(metaCache.getNameByIdIfPresent(historicalId)).thenReturn(Optional.of("mixeddb"));
+        Assertions.assertEquals(Pair.of("mixeddb", historicalId),
                 catalog.getDbIdentityForReplay("mixeddb", 0L).orElseThrow(AssertionError::new));
+        Mockito.when(metaCache.getNameByIdIfPresent(historicalId)).thenReturn(Optional.empty());
+        Assertions.assertFalse(catalog.getDbIdentityForReplay("mixeddb", 0L).isPresent());
+        mapping.put("mixeddb", "MixedDb");
+        Assertions.assertEquals(Pair.of("MixedDb", Util.genIdByName("testing_catalog", "MixedDb")),
+                catalog.getDbIdentityForReplay("MixedDb", 0L).orElseThrow(AssertionError::new));
         Mockito.verify(metaCache, Mockito.never()).getMetaObj(Mockito.anyString(), Mockito.anyLong());
         Mockito.when(metaCache.getNameByIdIfPresent(84L)).thenReturn(Optional.of("MixedDb"));
         Assertions.assertEquals(Pair.of("MixedDb", 84L),
@@ -613,6 +620,36 @@ public class CatalogMgrTest {
         Mockito.verify(cacheMgr).invalidateCatalog(catalogId);
         Mockito.verify(cacheMgr, Mockito.times(2)).invalidateRowCountCache(catalogId);
         Mockito.verify(cacheMgr, Mockito.never()).invalidateDb(Mockito.anyLong(), Mockito.anyString());
+    }
+
+    @Test
+    void testReboundModeTwoDatabaseDropDoesNotRetireReplacement() throws Exception {
+        long catalogId = 89L;
+        TestingUnregisterCatalog catalog = new TestingUnregisterCatalog(catalogId,
+                ImmutableMap.of(ExternalCatalog.LOWER_CASE_DATABASE_NAMES, "2"));
+        @SuppressWarnings("unchecked")
+        MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache = Mockito.mock(MetaCache.class);
+        catalog.installMetaCache(metaCache);
+        Field mappingField = ExternalCatalog.class.getDeclaredField("lowerCaseToDatabaseName");
+        mappingField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<String, String> mapping = (Map<String, String>) mappingField.get(catalog);
+        mapping.put("foo", "FOO");
+        long oldId = Util.genIdByName("testing_catalog", "Foo");
+        Mockito.when(metaCache.getNameByIdIfPresent(oldId)).thenReturn(Optional.of("Foo"));
+
+        Env env = Mockito.mock(Env.class);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            catalog.unregisterDatabase("Foo");
+        }
+
+        Mockito.verify(metaCache).invalidate("Foo", oldId);
+        Mockito.verify(metaCache, Mockito.never()).invalidate("FOO",
+                Util.genIdByName("testing_catalog", "FOO"));
+        Mockito.verify(cacheMgr).invalidateDb(catalogId, oldId, "Foo");
     }
 
     @Test

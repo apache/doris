@@ -962,6 +962,15 @@ public abstract class ExternalCatalog
         String localDbName = getLocalDatabaseName(dbName, true);
         if (localDbName == null) {
             localDbName = dbName;  // Fallback to original name
+        } else if (getLowerCaseDatabaseNames() == 2 && !localDbName.equals(dbName)) {
+            // The current case-insensitive mapping may have rebound after a DROP. A replay
+            // record names the historical object, not a new same-folded replacement.
+            long historicalId = Util.genIdByName(name, dbName);
+            if (metaCache.getNameByIdIfPresent(historicalId).isPresent()) {
+                localDbName = dbName;
+            } else {
+                return Optional.empty();
+            }
         }
 
         return metaCache.tryGetMetaObj(localDbName);
@@ -974,6 +983,11 @@ public abstract class ExternalCatalog
         }
         if (dbName != null && !dbName.isEmpty()) {
             String localName = getLocalDatabaseName(dbName, true);
+            if (getLowerCaseDatabaseNames() == 2 && localName != null && !localName.equals(dbName)) {
+                long historicalId = Util.genIdByName(name, dbName);
+                return metaCache.getNameByIdIfPresent(historicalId)
+                        .map(historicalName -> Pair.of(historicalName, historicalId));
+            }
             return localName == null ? Optional.empty()
                     : Optional.of(Pair.of(localName, Util.genIdByName(name, localName)));
         }
@@ -1278,6 +1292,11 @@ public abstract class ExternalCatalog
             return;
         }
         String localDbName = getLocalDatabaseName(dbName, true);
+        if (localDbName != null && getLowerCaseDatabaseNames() == 2 && !localDbName.equals(dbName)) {
+            // Prefer the logged spelling when its old name slot survives a names refresh.
+            // Otherwise the current mapping cannot identify the historical DROP target.
+            localDbName = metaCache.getNameByIdIfPresent(Util.genIdByName(name, dbName)).orElse(null);
+        }
         if (localDbName == null) {
             // A mode-2 remote-to-local mapping can disappear (for example after a names refresh)
             // while the resident database object survives. The canonical key is then unknown, so

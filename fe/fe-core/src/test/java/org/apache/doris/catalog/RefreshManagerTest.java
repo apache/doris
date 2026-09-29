@@ -277,12 +277,31 @@ public class RefreshManagerTest {
         }
 
         InOrder order = Mockito.inOrder(cacheMgr, editLog);
-        order.verify(cacheMgr).invalidateRowCountCache(table);
+        order.verify(cacheMgr, Mockito.times(2)).invalidateRowCountCache(table);
         order.verify(cacheMgr).invalidateTableCache(table);
         order.verify(editLog).logRefreshExternalTable(Mockito.argThat(log ->
                 log.getCatalogId() == catalogId
                         && "db1".equals(log.getDbName())
                         && "tbl1".equals(log.getTableName())));
+    }
+
+    @Test
+    void testFullRefreshFencesHeldTableBeforeMetadataReset() {
+        ExternalDatabase<?> db = Mockito.mock(ExternalDatabase.class);
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
+        Mockito.when(db.getCatalog()).thenReturn(catalog);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            new RefreshManager().refreshTableInternal(db, table, 0L);
+        }
+        InOrder order = Mockito.inOrder(cacheMgr, table);
+        order.verify(cacheMgr).invalidateRowCountCache(table);
+        order.verify(table).unsetObjectCreated();
+        order.verify(cacheMgr).invalidateTableCache(table);
     }
 
     @Test
