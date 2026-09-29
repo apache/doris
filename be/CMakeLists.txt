@@ -467,16 +467,19 @@ if (COMPILER_CLANG)
                         # clang's -Wpass-failed turns that missed *hint* into an
                         # -Werror failure. The diagnostic carries no correctness
                         # signal, so drop it.
-                        -Wno-pass-failed
-                        # clang 22 reports __COUNTER__ under -Wpedantic as a C2y
-                        # extension (-Wc2y-extensions). runtime_profile.h expands it to
-                        # give two SCOPED_TIMER / SCOPED_RAW_TIMER uses on the same
-                        # line distinct names -- a long-standing clang/gcc/MSVC
-                        # extension that only reached the standard in C23, and the
-                        # diagnostic carries no correctness signal. clang 20 accepts
-                        # the -Wno- for an unknown warning option silently, so this
-                        # needs no version guard.
-                        -Wno-c2y-extensions)
+                        -Wno-pass-failed)
+    # clang 22 reports __COUNTER__ under -Wpedantic as a C2y extension
+    # (-Wc2y-extensions). runtime_profile.h expands it to give two SCOPED_TIMER /
+    # SCOPED_RAW_TIMER uses on the same line distinct names -- a long-standing
+    # clang/gcc/MSVC extension that only reached the standard in C2y, and the
+    # diagnostic carries no correctness signal. The c2y-extensions group only exists
+    # from clang 19 on, and clang rejects an unknown -Wno- option like any other
+    # unknown warning option (-Wunknown-warning-option, fatal under -Werror), so
+    # clang 16-18 must not see the flag. It must also stay after -Wpedantic above:
+    # a -Wpedantic later on the command line turns the group back on.
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "19")
+        add_compile_options(-Wno-c2y-extensions)
+    endif()
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         add_definitions(-DUSE_LIBCPP)
