@@ -26,15 +26,17 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Coverage for the read-side queries of {@link LanceIndexJobManager}: the admission-slice
  * queries {@link LanceIndexJobManager#getAllJobsSnapshot()} (the data source of SHOW LANCE
  * INDEX JOBS: every job, copies only, ordered by job id) and
  * {@link LanceIndexJobManager#hasUnresolvedJobsForCatalog(long)} (the catalog DDL guard
- * probe), plus the dispatcher-slice queries: {@link LanceIndexJobManager#getJobsNeedingDispatch(int)}
- * (only PENDING records whose dispatch identity is complete, in job id order, at most
- * limit), {@link LanceIndexJobManager#getExpiredRunningJobs(long)} (only RUNNING past the
+ * probe), plus the dispatcher-slice queries: {@link LanceIndexJobManager#getJobsNeedingDispatch()}
+ * (every PENDING record whose target identity is complete, in job id order, untruncated so
+ * the dispatcher's success-counted budget cannot be starved),
+ * {@link LanceIndexJobManager#getExpiredRunningJobs(long)} (only RUNNING past the
  * deadline), {@link LanceIndexJobManager#getJobsHoldingPossibleLiveSlot()} (slot holders
  * with complete identity, regardless of mutation state), and the force-release filter of
  * {@link LanceIndexJobManager#getJobsNeedingRefresh()}.
@@ -148,7 +150,7 @@ public class LanceIndexJobManagerQueryTest {
         manager.replayUpsertJob(GsonUtils.GSON.fromJson(
                 "{\"jid\":3,\"rev\":0,\"ms\":\"PENDING\"}", LanceIndexJob.class));
 
-        List<LanceIndexJob> dispatchable = manager.getJobsNeedingDispatch(10);
+        List<LanceIndexJob> dispatchable = manager.getJobsNeedingDispatch();
         Assertions.assertEquals(2, dispatchable.size());
         Assertions.assertEquals(1L, dispatchable.get(0).getJobId());
         Assertions.assertEquals(2L, dispatchable.get(1).getJobId());
@@ -157,29 +159,22 @@ public class LanceIndexJobManagerQueryTest {
     }
 
     @Test
-    public void dispatchQueryHonorsLimitAndJobIdOrder() {
+    public void dispatchQueryReturnsEveryMatchInJobIdOrder() {
         TestManager manager = new TestManager();
         // Insertion order deliberately scrambled; the sweep returns job id order (FIFO).
         for (long jobId : new long[]{5L, 1L, 4L, 2L, 3L}) {
             manager.replayUpsertJob(dispatchablePending(jobId, "Idx" + jobId));
         }
 
-        List<LanceIndexJob> all = manager.getJobsNeedingDispatch(10);
+        // Untruncated by contract: the dispatcher's per-round budget counts only jobs
+        // it actually made RUNNING, so no subset of undispatchable jobs can crowd out
+        // later ids — the query itself must never decide who is visible.
+        List<LanceIndexJob> all = manager.getJobsNeedingDispatch();
         Assertions.assertEquals(5, all.size());
         for (int i = 0; i < all.size(); i++) {
             Assertions.assertEquals(i + 1L, all.get(i).getJobId());
+            Assertions.assertEquals(LanceIndexJobMutationState.PENDING, all.get(i).getMutationState());
         }
-
-        // The limit keeps the smallest ids: ordering happens before truncation, so a
-        // stable subset of undispatchable jobs can never crowd out later ids.
-        List<LanceIndexJob> capped = manager.getJobsNeedingDispatch(3);
-        Assertions.assertEquals(3, capped.size());
-        for (int i = 0; i < capped.size(); i++) {
-            Assertions.assertEquals(i + 1L, capped.get(i).getJobId());
-            Assertions.assertEquals(LanceIndexJobMutationState.PENDING, capped.get(i).getMutationState());
-        }
-
-        Assertions.assertTrue(manager.getJobsNeedingDispatch(0).isEmpty());
     }
 
     @Test
@@ -249,6 +244,45 @@ public class LanceIndexJobManagerQueryTest {
         Assertions.assertEquals(Arrays.asList(1L, 2L), holderIds);
         Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, manager.getJob(1L).getMutationState());
         Assertions.assertEquals(LanceIndexJobMutationState.UNKNOWN, manager.getJob(2L).getMutationState());
+    }
+
+    @Test
+    public void possibleLiveSlotCountAggregatesOnlySlotHoldersByBackend() {
+        TestManager manager = new TestManager();
+        // BACKEND_ID: a RUNNING holder and an UNKNOWN holder — the outcome is
+        // irrelevant to capacity, only slot ownership counts.
+        manager.replayUpsertJob(runningRecord(1L, "IdxRunning"));
+        LanceIndexJob unknown = runningRecord(2L, "IdxUnknown");
+        unknown.setMutationState(LanceIndexJobMutationState.UNKNOWN);
+        unknown.setResult(new LanceIndexJobResult(LanceIndexJobResultCode.NO_TRUSTED_RESULT,
+                LanceIndexJobCompletionReason.NONE, "deadline expired", false));
+        manager.replayUpsertJob(unknown);
+        // A second backend with one holder.
+        LanceIndexJob otherBackend = runningRecord(3L, "IdxOtherBackend");
+        otherBackend.setBackendId(9999L);
+        manager.replayUpsertJob(otherBackend);
+        // Excluded: slot released by a proof, by the proven no-enqueue channel, by a
+        // force release, never taken (PENDING), and a holder without a backend id.
+        LanceIndexJob reaped = runningRecord(4L, "IdxReaped");
+        reaped.setTerminationProof(LanceIndexTerminationProof.CHILD_REAPED);
+        reaped.setPossibleLiveOwned(false);
+        manager.replayUpsertJob(reaped);
+        LanceIndexJob notEnqueued = runningRecord(5L, "IdxNotEnqueued");
+        notEnqueued.setTerminationProof(LanceIndexTerminationProof.NOT_ENQUEUED);
+        notEnqueued.setPossibleLiveOwned(false);
+        manager.replayUpsertJob(notEnqueued);
+        LanceIndexJob forced = runningRecord(6L, "IdxForced");
+        forced.setForceReleased(true);
+        manager.replayUpsertJob(forced);
+        manager.replayUpsertJob(dispatchablePending(7L, "IdxPending"));
+        LanceIndexJob backendless = runningRecord(8L, "IdxBackendless");
+        backendless.setBackendId(null);
+        manager.replayUpsertJob(backendless);
+
+        Map<Long, Integer> slots = manager.countPossibleLiveSlotsByBackend();
+        Assertions.assertEquals(2, slots.size());
+        Assertions.assertEquals(2, slots.get(BACKEND_ID).intValue());
+        Assertions.assertEquals(1, slots.get(9999L).intValue());
     }
 
     @Test
