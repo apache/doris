@@ -29,6 +29,7 @@ import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.DataTypeChecks;
 import org.apache.paimon.types.DataTypeRoot;
 import org.apache.paimon.types.DecimalType;
 import org.apache.paimon.types.MapType;
@@ -56,7 +57,8 @@ final class PaimonRustReaderCapabilities {
     PaimonRustReaderCapabilities(FileStoreTable table, TupleDescriptor tuple) {
         this.table = table;
         this.schema = table.schema();
-        this.tableCompatible = schema != null && hasFullNestedProjection(tuple)
+        this.tableCompatible = schema != null && hasCompatibleSchemaVersion(schema)
+                && hasFullNestedProjection(tuple) && hasCompatibleMergeEngine(schema)
                 && hasCompatibleAggregates(schema);
     }
 
@@ -100,11 +102,26 @@ final class PaimonRustReaderCapabilities {
         try {
             TableSchema fileSchema = table.schemaManager().schema(id);
             // Match historical types by ID: renames and added fields do not require value casts.
-            return fileSchema != null && !hasIncompatibleEvolution(fileSchema.fields(), schema.fields());
+            return fileSchema != null && hasCompatibleSchemaVersion(fileSchema)
+                    && !hasIncompatibleEvolution(fileSchema.fields(), schema.fields());
         } catch (RuntimeException e) {
             // Failure to establish compatibility must not opt a historical file into Rust.
             return false;
         }
+    }
+
+    private static boolean hasCompatibleSchemaVersion(TableSchema schema) {
+        // Java defaults a missing JSON version to 1; Rust requires that field when opening
+        // both current and historical schemas. Metadata cannot distinguish an explicit 1.
+        return schema.version() > TableSchema.PAIMON_07_VERSION;
+    }
+
+    private static boolean hasCompatibleMergeEngine(TableSchema schema) {
+        CoreOptions.MergeEngine engine = new CoreOptions(schema.options()).mergeEngine();
+        // Older partial-update/aggregate writers retained repeated INSERT keys within one
+        // file. Zero deletes cannot bound Rust's retained losing batches for those producers.
+        return schema.primaryKeys().isEmpty()
+                || (engine != CoreOptions.MergeEngine.PARTIAL_UPDATE && engine != CoreOptions.MergeEngine.AGGREGATE);
     }
 
     private static boolean hasIncompatibleEvolution(List<DataField> oldFields, List<DataField> newFields) {
@@ -122,30 +139,8 @@ final class PaimonRustReaderCapabilities {
     }
 
     private static boolean hasIncompatibleEvolution(DataType oldType, DataType newType) {
-        // Java rounds the decimal string of a floating value; Arrow scales the binary value.
-        // Even an in-range value such as DOUBLE 1.005 can therefore round differently.
-        if (newType instanceof DecimalType && (oldType.getTypeRoot() == DataTypeRoot.FLOAT
-                || oldType.getTypeRoot() == DataTypeRoot.DOUBLE)) {
-            return true;
-        }
-        int oldWidth = integerWidth(oldType.getTypeRoot());
-        DataTypeRoot oldRoot = oldType.getTypeRoot();
-        DataTypeRoot newRoot = newType.getTypeRoot();
-        boolean targetTimestamp = newRoot == DataTypeRoot.TIMESTAMP_WITHOUT_TIME_ZONE
-                || newRoot == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE;
-        // Java accepts epoch-day/millisecond strings and interprets numeric timestamps as seconds.
-        // Arrow instead parses calendar strings or reuses numeric timestamp ticks, including in
-        // nested values. Keep these historical casts on JNI until the pinned reader matches Java.
-        boolean sourceString = oldRoot == DataTypeRoot.CHAR || oldRoot == DataTypeRoot.VARCHAR;
-        if ((sourceString && (newRoot == DataTypeRoot.DATE || targetTimestamp))
-                || (oldWidth > 0 && targetTimestamp)) {
-            return true;
-        }
-        int newWidth = integerWidth(newRoot);
-        if (newWidth > 0) {
-            // Floating-point and decimal sources also differ under narrowing; only integer
-            // identity/widening casts have the same range and value semantics in both readers.
-            return oldWidth == 0 || oldWidth > newWidth;
+        if (oldType.equalsIgnoreNullable(newType)) {
+            return false;
         }
         if (oldType instanceof RowType && newType instanceof RowType) {
             return hasIncompatibleEvolution(((RowType) oldType).getFields(), ((RowType) newType).getFields());
@@ -160,7 +155,33 @@ final class PaimonRustReaderCapabilities {
             return hasIncompatibleEvolution(oldMap.getKeyType(), newMap.getKeyType())
                     || hasIncompatibleEvolution(oldMap.getValueType(), newMap.getValueType());
         }
-        return false;
+        DataTypeRoot oldRoot = oldType.getTypeRoot();
+        DataTypeRoot newRoot = newType.getTypeRoot();
+        int oldWidth = integerWidth(oldRoot);
+        int newWidth = integerWidth(newRoot);
+        if (oldWidth > 0) {
+            return !((newWidth >= oldWidth) || newRoot == DataTypeRoot.FLOAT
+                    || newRoot == DataTypeRoot.DOUBLE || newRoot == DataTypeRoot.DECIMAL);
+        }
+        if (oldRoot == DataTypeRoot.FLOAT && newRoot == DataTypeRoot.DOUBLE) {
+            return false;
+        }
+        if (oldRoot == DataTypeRoot.DECIMAL && newRoot == DataTypeRoot.DECIMAL) {
+            return false;
+        }
+        if ((oldRoot == DataTypeRoot.CHAR || oldRoot == DataTypeRoot.VARCHAR)
+                && newRoot == DataTypeRoot.VARCHAR) {
+            return DataTypeChecks.getLength(oldType) > DataTypeChecks.getLength(newType);
+        }
+        if (oldRoot == newRoot && (newRoot == DataTypeRoot.TIMESTAMP_WITHOUT_TIME_ZONE
+                || newRoot == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE)) {
+            return DataTypeChecks.getPrecision(oldType) > DataTypeChecks.getPrecision(newType);
+        }
+        // Only established cast equivalence may use Rust. Java's temporal casts use the
+        // default zone and truncate negative epochs; its string casts format/pad values.
+        // Arrow differs there, in numeric narrowing/decimal rounding, and in supported
+        // constructed casts. This allowlist applies at every nested leaf and map key.
+        return true;
     }
 
     private static int integerWidth(DataTypeRoot type) {

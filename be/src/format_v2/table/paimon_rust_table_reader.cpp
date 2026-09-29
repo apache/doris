@@ -216,6 +216,8 @@ Status PaimonRustTableReader::prepare_split(const format::SplitReadOptions& opti
     {
         SCOPED_TIMER(_profile.total_timer);
         SCOPED_TIMER(_profile.prepare_split_timer);
+        // Open may dominate the scan or fail before get_block; include it in the parent timer.
+        SCOPED_TIMER(_rust_total_time);
         SCOPED_TIMER(_rust_open_split_time);
         RETURN_IF_ERROR(_open_split_reader(options.current_range));
     }

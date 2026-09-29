@@ -28,6 +28,7 @@ import org.apache.doris.datasource.DorisTypeVisitor;
 
 import org.apache.paimon.types.BigIntType;
 import org.apache.paimon.types.BooleanType;
+import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DateType;
@@ -98,17 +99,21 @@ public class DorisToPaimonTypeVisitor extends DorisTypeVisitor<DataType> {
             return new FloatType();
         } else if (primitiveType.equals(PrimitiveType.DOUBLE)) {
             return new DoubleType();
-        } else if (primitiveType.isCharFamily()) {
+        } else if (primitiveType.equals(PrimitiveType.CHAR)) {
+            // DDL must retain bounds: widening to STRING changes historical narrowing casts.
+            return new CharType(((ScalarType) atomic).getLength());
+        } else if (primitiveType.equals(PrimitiveType.VARCHAR)) {
+            return new VarCharType(((ScalarType) atomic).getLength());
+        } else if (primitiveType.equals(PrimitiveType.STRING)) {
             return new VarCharType(VarCharType.MAX_LENGTH);
         } else if (primitiveType.equals(PrimitiveType.DATE) || primitiveType.equals(PrimitiveType.DATEV2)) {
             return new DateType();
         } else if (primitiveType.equals(PrimitiveType.DECIMALV2) || primitiveType.isDecimalV3Type()) {
             return new DecimalType(((ScalarType) atomic).getScalarPrecision(), ((ScalarType) atomic).getScalarScale());
-        } else if (primitiveType.equals(PrimitiveType.DATETIME)) {
-            return new TimestampType();
-        } else if (primitiveType.equals(PrimitiveType.DATETIMEV2)) {
-            // Preserve wall-clock semantics and fractional precision in the Paimon schema.
-            return new TimestampType(((ScalarType) atomic).getScalarScale());
+        } else if (primitiveType.equals(PrimitiveType.DATETIME) || primitiveType.equals(PrimitiveType.DATETIMEV2)) {
+            // Paimon interprets numeric timestamp strings in units derived from this precision.
+            return new TimestampType(primitiveType.equals(PrimitiveType.DATETIMEV2)
+                    ? ((ScalarType) atomic).getScalarScale() : 0);
         } else if (primitiveType.equals(PrimitiveType.TIMESTAMPTZ)) {
             // TIMESTAMPTZ represents an instant, so map it to Paimon's local-zoned timestamp.
             return new LocalZonedTimestampType(((ScalarType) atomic).getScalarScale());

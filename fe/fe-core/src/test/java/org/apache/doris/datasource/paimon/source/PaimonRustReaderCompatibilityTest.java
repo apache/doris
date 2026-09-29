@@ -26,6 +26,7 @@ import org.apache.paimon.data.Decimal;
 import org.apache.paimon.data.GenericArray;
 import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.InternalRow;
+import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.reader.RecordReader;
@@ -54,6 +55,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TimeZone;
 import java.util.function.Function;
 
 /** Real persisted files verify the Java result contract and the split metadata used by the gate. */
@@ -132,6 +134,91 @@ public class PaimonRustReaderCompatibilityTest {
     }
 
     @Test
+    public void testPersistedTimestampToDateBeforeEpoch() throws Exception {
+        // Java divides toward zero; Arrow takes the preceding calendar date before the epoch.
+        assertPersistedEvolution(DataTypes.TIMESTAMP(3), DataTypes.DATE(), Timestamp.fromEpochMillis(-1),
+                false, row -> row.getInt(1), 0);
+    }
+
+    @Test
+    public void testPersistedTimestampZoneChanges() throws Exception {
+        TimeZone previous = TimeZone.getDefault();
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("Asia/Shanghai"));
+            // Paimon interprets NTZ/LTZ changes in the JVM zone, unlike an Arrow timezone cast.
+            assertPersistedEvolution(DataTypes.TIMESTAMP(3), DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(3),
+                    Timestamp.fromEpochMillis(0), false, row -> row.getTimestamp(1, 3).getMillisecond(),
+                    -8L * 60 * 60 * 1000);
+            assertPersistedEvolution(DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(3), DataTypes.TIMESTAMP(3),
+                    Timestamp.fromEpochMillis(0), false, row -> row.getTimestamp(1, 3).getMillisecond(),
+                    8L * 60 * 60 * 1000);
+        } finally {
+            TimeZone.setDefault(previous);
+        }
+    }
+
+    @Test
+    public void testPersistedTimeToTimestamp() throws Exception {
+        assertPersistedEvolution(DataTypes.TIME(3), DataTypes.TIMESTAMP(3), 1234, false,
+                row -> row.getTimestamp(1, 3).toString(), "1970-01-01T00:00:01.234");
+    }
+
+    @Test
+    public void testPersistedFormattedStrings() throws Exception {
+        assertPersistedEvolution(DataTypes.FLOAT(), DataTypes.STRING(), 0.0001f, false,
+                row -> row.getString(1).toString(), "1.0E-4");
+        assertPersistedEvolution(DataTypes.DOUBLE(), DataTypes.STRING(), 1.0e20, false,
+                row -> row.getString(1).toString(), "1.0E20");
+        assertPersistedEvolution(DataTypes.TIMESTAMP(3), DataTypes.STRING(), Timestamp.fromEpochMillis(1230),
+                false, row -> row.getString(1).toString(), "1970-01-01 00:00:01.230");
+        assertPersistedEvolution(DataTypes.TIME(3), DataTypes.STRING(), 1230, false,
+                row -> row.getString(1).toString(), "00:00:01.23");
+    }
+
+    @Test
+    public void testPersistedStringBounds() throws Exception {
+        assertPersistedEvolution(DataTypes.VARCHAR(10), DataTypes.VARCHAR(3), BinaryString.fromString("abcdef"),
+                false, row -> row.getString(1).toString(), "abc");
+        assertPersistedEvolution(DataTypes.CHAR(3), DataTypes.CHAR(10), BinaryString.fromString("x"),
+                false, row -> row.getString(1).toString(), "x         ");
+        assertPersistedEvolution(DataTypes.VARCHAR(3), DataTypes.VARCHAR(10), BinaryString.fromString("abc"),
+                true, row -> row.getString(1).toString(), "abc");
+    }
+
+    @Test
+    public void testPersistedRowToString() throws Exception {
+        DataType rowType = DataTypes.ROW(DataTypes.FIELD(2, "a", DataTypes.INT()),
+                DataTypes.FIELD(3, "b", DataTypes.STRING()));
+        assertPersistedEvolution(rowType, DataTypes.STRING(), GenericRow.of(11, BinaryString.fromString("x")),
+                false, row -> row.getString(1).toString(), "{11, x}");
+    }
+
+    @Test
+    public void testPersistedSafeEvolutionControls() throws Exception {
+        assertPersistedEvolution(DataTypes.INT(), DataTypes.BIGINT(), 123, true, row -> row.getLong(1), 123L);
+        assertPersistedEvolution(DataTypes.INT(), DataTypes.DECIMAL(12, 2), 123, true,
+                row -> row.getDecimal(1, 12, 2).toBigDecimal().toPlainString(), "123.00");
+        assertPersistedEvolution(DataTypes.DECIMAL(10, 3), DataTypes.DECIMAL(10, 2),
+                Decimal.fromUnscaledLong(1235, 10, 3), true,
+                row -> row.getDecimal(1, 10, 2).toBigDecimal().toPlainString(), "1.24");
+        assertPersistedEvolution(DataTypes.TIMESTAMP(3), DataTypes.TIMESTAMP(6), Timestamp.fromEpochMillis(1234),
+                true, row -> row.getTimestamp(1, 6).toString(), "1970-01-01T00:00:01.234");
+    }
+
+    private <T> void assertPersistedEvolution(DataType sourceType, DataType targetType, Object value,
+            boolean rustExpected, Function<InternalRow, T> extract, T expected) throws Exception {
+        FileStoreTable table = table(Schema.newBuilder().column("id", DataTypes.INT()).column("v", sourceType),
+                ImmutableMap.of("bucket", "-1"));
+        commit(table, GenericRow.of(1, value), GenericRow.of(2, null));
+        assertRead(table, true, row -> row.getInt(0), Arrays.asList(1, 2));
+        table.schemaManager().commitChanges(Collections.singletonList(
+                SchemaChange.updateColumnType("v", targetType, true)));
+        table = FileStoreTableFactory.create(table.fileIO(), table.location());
+        assertRead(table, rustExpected, row -> row.isNullAt(1) ? null : extract.apply(row),
+                Arrays.asList(expected, null));
+    }
+
+    @Test
     public void testPersistedFloatingToDecimalRounding() throws Exception {
         FileStoreTable table = table(Schema.newBuilder().column("id", DataTypes.INT())
                 .column("v", DataTypes.DOUBLE()), ImmutableMap.of("bucket", "-1"));
@@ -162,8 +249,8 @@ public class PaimonRustReaderCompatibilityTest {
                 }
                 FileStoreTable table = table(schema, options);
                 commit(table, partial ? GenericRow.of(1, 7, 1) : GenericRow.of(1, 7));
-                // Java never instantiates the unused default; Rust validates its name at open.
-                assertRead(table, !"collect".equals(function), row -> row.getInt(1), Collections.singletonList(7));
+                // An unused function override cannot establish that historical files contain unique keys.
+                assertRead(table, false, row -> row.getInt(1), Collections.singletonList(7));
             }
         }
     }
@@ -201,8 +288,8 @@ public class PaimonRustReaderCompatibilityTest {
                 FileStoreTable table = table(Schema.newBuilder().column("id", DataTypes.INT().notNull())
                         .column("v", type).column("seq", DataTypes.INT()).primaryKey("id"), options);
                 commit(table, GenericRow.of(1, decimal ? Decimal.fromUnscaledLong(99, 2, 0) : (byte) 127, 1));
-                // One persisted file must exercise the aggregate gate independently of merge fallback.
-                assertRead(table, override, row -> decimal
+                // Single-file partial updates must also fall back: old writers retained repeated keys.
+                assertRead(table, false, row -> decimal
                         ? row.getDecimal(1, 2, 0).toBigDecimal().toPlainString()
                         : Byte.toString(row.getByte(1)), Collections.singletonList(decimal ? "99" : "127"));
                 commit(table, GenericRow.of(1, decimal ? Decimal.fromUnscaledLong(1, 2, 0) : (byte) 1, 2));
@@ -299,11 +386,11 @@ public class PaimonRustReaderCompatibilityTest {
     }
 
     @Test
-    public void testPersistedAggregateRetractsAndSupportedControl() throws Exception {
+    public void testPersistedAggregateInsertsAndRetractsFallback() throws Exception {
         for (RowKind kind : Arrays.asList(RowKind.DELETE, RowKind.UPDATE_BEFORE)) {
             FileStoreTable table = table(DataTypes.DOUBLE(), aggregate("sum"));
             commit(table, GenericRow.of(1, 10.0));
-            assertRead(table, true, row -> row.getDouble(1), Collections.singletonList(10.0));
+            assertRead(table, false, row -> row.getDouble(1), Collections.singletonList(10.0));
             commit(table, GenericRow.of(1, 3.0));
             assertRead(table, false, row -> row.getDouble(1), Collections.singletonList(13.0));
             commit(table, GenericRow.ofKind(kind, 1, 3.0));

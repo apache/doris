@@ -53,6 +53,7 @@ import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -90,7 +91,6 @@ import org.apache.paimon.table.source.snapshot.SnapshotReader;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypeRoot;
-import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.MapType;
 import org.apache.paimon.types.MultisetType;
 import org.apache.paimon.types.RowType;
@@ -529,10 +529,8 @@ public class PaimonScanNode extends FileQueryScanNode {
         return false;
     }
 
-    // Recursively whether this paimon type, or any member of it, is
-    // TIMESTAMP_WITH_LOCAL_TIME_ZONE: an LTZ nested under MAP/ARRAY/ROW
-    // reaches the same shifted ORC decode through the container's field
-    // materialization.
+    // Native and Rust ORC routing must share this recursive check: nested LTZ values
+    // require the same JVM-zone conversion, including elements of a MULTISET.
     @VisibleForTesting
     static boolean containsTimestampLtz(DataType type) {
         if (type == null) {
@@ -548,6 +546,9 @@ public class PaimonScanNode extends FileQueryScanNode {
             MapType mapType = (MapType) type;
             return containsTimestampLtz(mapType.getKeyType())
                     || containsTimestampLtz(mapType.getValueType());
+        }
+        if (type instanceof MultisetType) {
+            return containsTimestampLtz(((MultisetType) type).getElementType());
         }
         if (type instanceof RowType) {
             return ((RowType) type).getFields().stream()
@@ -1021,6 +1022,11 @@ public class PaimonScanNode extends FileQueryScanNode {
                     && !deduplicateIgnoreDelete && !rustUnsupportedMergeOption
                     && schemeCapabilityVerified && hdfsBackendVerified
                     && paimonFileStoreTable != null;
+            if (canUseRust) {
+                // Every candidate can receive this range; older BEs cannot decode reader type 3.
+                canUseRust = !backendPolicy.getBackends().isEmpty()
+                        && backendPolicy.getBackends().stream().allMatch(Backend::isPaimonRustReaderSupported);
+            }
             if (canUseRust) {
                 if (rustReaderCapabilities == null) {
                     rustReaderCapabilities = new PaimonRustReaderCapabilities(paimonFileStoreTable, desc);
@@ -1732,26 +1738,6 @@ public class PaimonScanNode extends FileQueryScanNode {
             }
         }
         return true;
-    }
-
-    private static boolean containsTimestampLtz(DataType type) {
-        if (type instanceof LocalZonedTimestampType) {
-            return true;
-        }
-        if (type instanceof ArrayType) {
-            return containsTimestampLtz(((ArrayType) type).getElementType());
-        }
-        if (type instanceof MapType) {
-            MapType map = (MapType) type;
-            return containsTimestampLtz(map.getKeyType()) || containsTimestampLtz(map.getValueType());
-        }
-        if (type instanceof MultisetType) {
-            return containsTimestampLtz(((MultisetType) type).getElementType());
-        }
-        if (type instanceof RowType) {
-            return ((RowType) type).getFieldTypes().stream().anyMatch(PaimonScanNode::containsTimestampLtz);
-        }
-        return false;
     }
 
     @Override

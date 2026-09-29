@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <limits>
 #include <memory>
 #include <utility>
 
@@ -285,7 +286,10 @@ paimon_predicate* PaimonRustPredicateConverter::_convert_compound(const VExprSPt
 
 paimon_predicate* PaimonRustPredicateConverter::_convert_in(const VExprSPtr& expr) {
     auto* in_pred = dynamic_cast<VInPredicate*>(expr.get());
-    if (!in_pred || expr->get_num_children() < 2) {
+    // Runtime-generated IN sets can exceed VExpr's 16-bit child count. A wrapped
+    // count would push only a prefix and permanently discard valid probe rows.
+    if (!in_pred || expr->children().size() < 2 ||
+        expr->children().size() > std::numeric_limits<uint16_t>::max()) {
         return nullptr;
     }
     auto field_meta = _resolve_field(expr->get_child(0));

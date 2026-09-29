@@ -174,6 +174,8 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
     def originalEnableProfile = sql("select @@enable_profile")[0][0]
     def originalRfWait = sql("select @@runtime_filter_wait_infinitely")[0][0]
     def originalRfType = sql("select @@runtime_filter_type")[0][0]
+    def originalRfPrune = sql("select @@enable_runtime_filter_prune")[0][0]
+    def originalRfMaxIn = sql("select @@runtime_filter_max_in_num")[0][0]
 
     try {
         sql """switch ${catalogName}"""
@@ -187,6 +189,10 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
         // raw native splits; without forcing, getSplits() would hand both legs
         // to the native reader and bypass the JNI / rust converters entirely.
         sql """set force_jni_scanner=true"""
+        sql "set enable_paimon_rust_reader=false"
+        // Verify the DDL really narrows historical values before testing filter pushdown.
+        assertEquals([[1, "abc", "1.23"], [2, "xyz", "2.35"]].toString(),
+                sql("select id,v,cast(amount as string) from t_narrowed order by id").toString())
         // Profile capture for the reader-path verification below.
         sql """set enable_profile=true"""
         // The join leg must receive its IN runtime filter before the split
@@ -389,6 +395,10 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
             assertEquals(expectedResults[i].toString(), rustResults[i].toString())
         }
 
+        // Historical narrowing now falls back to JNI. Check the probe by itself: the
+        // join's Rust-capable dimension would otherwise hide an incorrect probe route.
+        assertFalse(profileTextOf("select id,v,amount from t_narrowed order by id")
+                .contains("PaimonRustReader"))
         // Runtime filters are built from current-domain values. Historical file
         // values/statistics must not reject them before schema reconciliation.
         def lossyJoins = [
@@ -402,20 +412,54 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
                     (select ts9 from flink_paimon.ts_scale_parquet limit 10) d
                     on p.ts9 = d.ts9 order by p.id"""
         ]
-        for (String query : lossyJoins) {
+        lossyJoins.eachWithIndex { String query, int index ->
             def plan = sql("explain verbose " + query).flatten().join("\n")
             assertTrue(plan.contains("runtime filters") && plan.contains("[in]"))
             sql "set enable_paimon_rust_reader=false"
             def expected = sql(query)
-            assertFalse(expected.isEmpty())
+            assertFalse(expected.isEmpty(), query)
+            if (index < 2) {
+                assertEquals([[1]].toString(), expected.toString(), query)
+            }
             sql "set enable_paimon_rust_reader=true"
             assertEquals(expected.toString(), sql(query).toString())
+            if (index == 2) {
+                def profile = profileTextOf(query)
+                assertTrue(profile.contains("PaimonRustReader"))
+                assertTrue(counterValues(profile, "RustRuntimeFiltersInput").any { it > 0 },
+                        "the IN filter must arrive before opening the Rust split")
+                assertTrue(counterValues(profile, "RustRuntimeFiltersApplied").every { it == 0 },
+                        "lossy-domain runtime filters must stay residual")
+            }
+        }
+
+        sql "DROP TABLE IF EXISTS t_large_runtime_filter"
+        sql """CREATE TABLE t_large_runtime_filter (id INT) ENGINE=paimon
+            PROPERTIES ('bucket'='-1', 'file.format'='parquet')"""
+        sql """INSERT INTO t_large_runtime_filter
+            SELECT cast(number as int) FROM numbers('number'='65537')"""
+        sql "set runtime_filter_max_in_num=70000"
+        // Preserve the large filter even when statistics predict low selectivity.
+        sql "set enable_runtime_filter_prune=false"
+        // The probe child plus these distinct literals crosses the 16-bit expression
+        // boundary. Pushing only the wrapped prefix would lose almost all matching rows.
+        [65535, 65536, 65537].each { keyCount ->
+            String query = """select count(*), max(p.id) from t_large_runtime_filter p
+                join [broadcast] (select id from t_large_runtime_filter order by id limit ${keyCount}) d
+                on p.id=d.id"""
+            def plan = sql("explain verbose " + query).flatten().join("\n")
+            assertTrue(plan.contains("runtime filters") && plan.contains("[in]"))
+            def expected = [[keyCount, keyCount - 1]].toString()
+            sql "set enable_paimon_rust_reader=false"
+            assertEquals(expected, sql(query).toString())
+            sql "set enable_paimon_rust_reader=true"
+            assertEquals(expected, sql(query).toString())
             def profile = profileTextOf(query)
             assertTrue(profile.contains("PaimonRustReader"))
             assertTrue(counterValues(profile, "RustRuntimeFiltersInput").any { it > 0 },
-                    "the IN filter must arrive before opening the Rust split")
+                    "the oversized IN filter must arrive at the Rust probe")
             assertTrue(counterValues(profile, "RustRuntimeFiltersApplied").every { it == 0 },
-                    "lossy-domain runtime filters must stay residual")
+                    "oversized IN filters must remain residual")
         }
 
         // ---- TIMESTAMP_LTZ materializes as session-local civil times ----
@@ -507,6 +551,8 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
         sql """set enable_profile=${originalEnableProfile}"""
         sql """set runtime_filter_wait_infinitely=${originalRfWait}"""
         sql """set runtime_filter_type=${rfTypeMask(originalRfType)}"""
+        sql "set runtime_filter_max_in_num=${originalRfMaxIn}"
+        sql "set enable_runtime_filter_prune=${originalRfPrune}"
         sql """unset variable time_zone;"""
         sql """drop catalog if exists ${catalogName}"""
     }

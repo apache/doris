@@ -219,6 +219,30 @@ TEST_F(PaimonRustTableReaderTest, TableLevelCountDisabledByConjuncts) {
             << get_block_status;
 }
 
+TEST_F(PaimonRustTableReaderTest, FailedSplitOpenIsIncludedInRustTotalTime) {
+    RuntimeProfile profile("scanner");
+    PaimonRustTableReader reader;
+    ASSERT_TRUE(reader.init({.projected_columns = {_projected_column},
+                             .conjuncts = {},
+                             .format = FileFormat::JNI,
+                             .scan_params = nullptr,
+                             .io_ctx = nullptr,
+                             .runtime_state = _runtime_state.get(),
+                             .scanner_profile = &profile})
+                        .ok());
+    SplitReadOptions options;
+    options.current_range = make_rust_range();
+    options.current_split_format = FileFormat::JNI;
+    // The invalid split fails during open, before get_block can contribute any time.
+    ASSERT_FALSE(reader.prepare_split(options).ok());
+    auto* total = profile.get_counter("PaimonRustReader");
+    auto* open = profile.get_counter("OpenSplitTime");
+    ASSERT_NE(total, nullptr);
+    ASSERT_NE(open, nullptr);
+    EXPECT_GT(open->value(), 0);
+    EXPECT_GE(total->value(), open->value());
+}
+
 TEST_F(PaimonRustTableReaderTest, FillsPartitionConstantsForMissingArrowColumns) {
     PaimonRustTableReader reader;
     const auto data_type = make_nullable(std::make_shared<DataTypeInt32>());

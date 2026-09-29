@@ -35,6 +35,7 @@ import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogProperty;
+import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -54,10 +55,12 @@ import org.apache.doris.datasource.paimon.PaimonUtils;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.metastore.PaimonJdbcMetaStoreProperties;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -65,6 +68,7 @@ import org.apache.doris.thrift.TPaimonReaderType;
 import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.collect.ImmutableMap;
+import mockit.MockUp;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.data.BinaryRow;
@@ -116,6 +120,7 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -141,6 +146,14 @@ public class PaimonScanNodeTest {
         // Statement-scoped scan task reuse is on by default; the mock's field would otherwise
         // read false and bypass the cache under test.
         sv.enableExternalScanTaskReuse = true;
+        // These routing fixtures bypass scan initialization and use an upgraded eligible BE.
+        Backend backend = GsonUtils.GSON.fromJson("{\"supportsPaimonRustReader\":true}", Backend.class);
+        new MockUp<FederationBackendPolicy>() {
+            @mockit.Mock
+            public Collection<Backend> getBackends() {
+                return Collections.singletonList(backend);
+            }
+        };
     }
 
     @After
@@ -487,7 +500,16 @@ public class PaimonScanNodeTest {
         session.setEnablePaimonRustReader(true);
         session.enableFileScannerV2 = true;
         PaimonScanNode node = Mockito.spy(newTestNode(new PlanNodeId(1), new TupleId(3), session));
-        node.setSource(mockPaimonSourceWithPartitionKeys(Collections.emptyList()));
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        DataTable table = Mockito.mock(DataTable.class, Mockito.RETURNS_DEEP_STUBS);
+        RowType rowType = DataTypes.ROW(DataTypes.INT());
+        Mockito.when(table.partitionKeys()).thenReturn(Collections.emptyList());
+        Mockito.when(table.rowType()).thenReturn(rowType);
+        // Native ORC eligibility now inspects historical types even for file aggregates.
+        Mockito.when(table.schemaManager().schema(1L).logicalRowType()).thenReturn(rowType);
+        Mockito.when(source.getPaimonTable()).thenReturn(table);
+        Mockito.when(source.getExternalTable()).thenReturn(Mockito.mock(PaimonExternalTable.class));
+        node.setSource(source);
         setField(FileQueryScanNode.class, node, "fileSplitter",
                 new FileSplitter(64L * 1024 * 1024, 64L * 1024 * 1024, 0));
         setField(PaimonScanNode.class, node, "storagePropertiesMap", Collections.emptyMap());
@@ -3402,8 +3424,8 @@ public class PaimonScanNodeTest {
                     DataSplit split = DataSplit.builder().withPartition(BinaryRow.EMPTY_ROW)
                             .withBucket(0).withBucketPath("file:///warehouse/db/t/bucket-0")
                             .withDataFiles(Collections.singletonList(file)).build();
-                    Assert.assertEquals(engine + " " + key + "=" + function, "collect".equals(function)
-                            ? TPaimonReaderType.PAIMON_JNI : TPaimonReaderType.PAIMON_RUST, f.reader(split));
+                    Assert.assertEquals(engine + " " + key + "=" + function,
+                            TPaimonReaderType.PAIMON_JNI, f.reader(split));
                 }
             }
         }
@@ -3454,13 +3476,12 @@ public class PaimonScanNodeTest {
                         3, Collections.emptyList(), Collections.singletonList("id"), options, null));
                 DataFileMeta file = Mockito.spy(f.split.dataFiles().get(0));
                 Mockito.doReturn(Optional.of(0L)).when(file).deleteRowCount();
-                // A single file isolates aggregate eligibility from the multi-file merge guard.
+                // Legacy writers can retain an unbounded same-key run even in one file.
                 DataSplit split = DataSplit.builder().withPartition(BinaryRow.EMPTY_ROW)
                         .withBucket(0).withBucketPath("file:///warehouse/db/t/bucket-0")
                         .withDataFiles(Collections.singletonList(file)).build();
-                boolean compatible = override || valueType.equals(DataTypes.DOUBLE());
                 Assert.assertEquals(valueType + " override=" + override,
-                        compatible ? TPaimonReaderType.PAIMON_RUST : TPaimonReaderType.PAIMON_JNI,
+                        TPaimonReaderType.PAIMON_JNI,
                         f.reader(split));
             }
         }
@@ -3485,7 +3506,7 @@ public class PaimonScanNodeTest {
                             .withBucket(0).withBucketPath("file:///warehouse/db/t/bucket-0")
                             .withDataFiles(files).build();
                     Assert.assertEquals(engine + " pk=" + primaryKey + " files=" + fileCount,
-                            primaryKey && fileCount > 1 ? TPaimonReaderType.PAIMON_JNI
+                            primaryKey && (fileCount > 1 || !"deduplicate".equals(engine)) ? TPaimonReaderType.PAIMON_JNI
                                     : TPaimonReaderType.PAIMON_RUST, f.reader(split));
                 }
             }
@@ -3541,9 +3562,7 @@ public class PaimonScanNodeTest {
             DataSplit split = DataSplit.builder().withPartition(BinaryRow.EMPTY_ROW)
                     .withBucket(0).withBucketPath("file:///warehouse/db/t/bucket-0")
                     .withDataFiles(Collections.singletonList(file)).build();
-            boolean compatible = "max".equals(options.get("fields.default-aggregate-function"))
-                    || options.containsKey("fields.v.aggregate-function");
-            Assert.assertEquals(compatible ? TPaimonReaderType.PAIMON_RUST : TPaimonReaderType.PAIMON_JNI,
+            Assert.assertEquals(TPaimonReaderType.PAIMON_JNI,
                     f.reader(split));
         }
     }
@@ -3560,7 +3579,7 @@ public class PaimonScanNodeTest {
                         .withBucket(0).withBucketPath("file:///warehouse/db/t/bucket-0")
                         .withDataFiles(Collections.singletonList(file)).build();
                 Assert.assertEquals(engine + " deletes=" + deletes,
-                        deletes != null && deletes == 0L ? TPaimonReaderType.PAIMON_RUST
+                        "deduplicate".equals(engine) && deletes != null && deletes == 0L ? TPaimonReaderType.PAIMON_RUST
                                 : TPaimonReaderType.PAIMON_JNI, f.reader(split));
             }
         }
@@ -3595,8 +3614,8 @@ public class PaimonScanNodeTest {
                 DataSplit split = DataSplit.builder().withPartition(BinaryRow.EMPTY_ROW)
                         .withBucket(0).withBucketPath("file:///warehouse/db/t/bucket-0")
                         .withDataFiles(Collections.singletonList(file)).build();
-                Assert.assertEquals(engine + " " + Arrays.toString(shape), (boolean) shape[2]
-                        ? TPaimonReaderType.PAIMON_RUST : TPaimonReaderType.PAIMON_JNI, f.reader(split));
+                Assert.assertEquals(engine + " " + Arrays.toString(shape),
+                        TPaimonReaderType.PAIMON_JNI, f.reader(split));
             }
         }
     }

@@ -369,9 +369,12 @@ public class HeartbeatMgr extends MasterDaemon {
                         isShutDown = tBackendInfo.isIsShutdown();
                     }
                     long beMemory = tBackendInfo.isSetBeMem() ? tBackendInfo.getBeMem() : 0;
-                    return new BackendHbResponse(backendId, bePort, httpPort, brpcPort,
+                    BackendHbResponse response = new BackendHbResponse(backendId, bePort, httpPort, brpcPort,
                             System.currentTimeMillis(), beStartTime, version, nodeRole,
                             fragmentNum, lastFragmentUpdateTime, isShutDown, arrowFlightSqlPort, beMemory);
+                    response.setPaimonRustReaderSupported(tBackendInfo.isSetSupportsPaimonRustReader()
+                            && tBackendInfo.isSupportsPaimonRustReader());
+                    return response;
                 } else {
                     return new BackendHbResponse(backendId, backend.getHost(), backend.getLastUpdateMs(),
                             result.getStatus().getErrorMsgs().isEmpty()

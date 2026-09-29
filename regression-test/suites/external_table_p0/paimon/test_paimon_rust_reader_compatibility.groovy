@@ -177,10 +177,19 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
         check("select element_at(array_sort(v),1), element_at(array_sort(v),2) from collected_values",
                 [[11,22]], false)
 
+        // Safe single-file merge engines remain positive controls for the Rust route.
+        ["deduplicate", "first-row"].eachWithIndex { engine, index ->
+            def name = "single_file_merge_${index}"
+            createPk(name, "v INT", ", 'merge-engine'='${engine}'")
+            sql "INSERT INTO ${name} VALUES (1,11)"
+            check("select id,v from ${name} order by id", [[1,11]], true)
+        }
+
         createPk("supported_sum", "v DOUBLE", ", 'merge-engine'='aggregation', "
                 + "'fields.v.aggregate-function'='sum'")
         sql "INSERT INTO supported_sum VALUES (1,10.0)"
-        check("select v from supported_sum", [[10.0]], true)
+        // A single physical file can contain multiple versions from older Rust writers.
+        check("select v from supported_sum", [[10.0]], false)
         sql "INSERT INTO supported_sum VALUES (1,3.0)"
         check("select v from supported_sum", [[13.0]], false)
 
@@ -196,8 +205,8 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
                 }
                 createPk(name, "v ${type}, seq INT", extra)
                 sql "INSERT INTO ${name} VALUES (1,${first},1)"
-                // The single-file control distinguishes aggregate fallback from merge fallback.
-                check("select cast(v as string) from ${name}", [[first.toString()]], override)
+                // The reader must reject these engines even before a second file is written.
+                check("select cast(v as string) from ${name}", [[first.toString()]], false)
                 sql "INSERT INTO ${name} VALUES (1,1,2)"
                 if (decimal) {
                     sql "INSERT INTO ${name} VALUES (1,-1,3)"

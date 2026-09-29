@@ -405,6 +405,20 @@ TEST_F(PaimonRustPredicateConverterTest, InListIsPushed) {
     EXPECT_NE(predicate.get(), nullptr);
 }
 
+TEST_F(PaimonRustPredicateConverterTest, OversizedRuntimeInFilterStaysResidual) {
+    // Arrived runtime filters can exceed the 16-bit expression child count even
+    // though SQL IN lists normally cannot. Never push only a wrapped prefix.
+    for (size_t values : {65534, 65535, 65536, 65537}) {
+        SCOPED_TRACE(values);
+        std::vector<VExprSPtr> children {slot_ref("a")};
+        for (size_t i = 0; i < values; ++i) {
+            children.emplace_back(int_literal(static_cast<int32_t>(i)));
+        }
+        auto predicate = push_expr(runtime_in_filter(in_predicate(false, std::move(children))));
+        EXPECT_EQ(predicate != nullptr, values < 65535);
+    }
+}
+
 TEST_F(PaimonRustPredicateConverterTest, NullAwareRuntimeFilterStaysResidual) {
     // A null-aware runtime filter (arrived from an EQ_FOR_NULL join) restores
     // NULL probe rows to true in its residual execution

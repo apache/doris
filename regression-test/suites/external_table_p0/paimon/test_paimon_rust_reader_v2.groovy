@@ -28,6 +28,8 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
     }
 
     String catalogName = "test_paimon_rust_reader_v2"
+    String fixtureDatabase = "test_paimon_rust_reader_v2_db"
+    boolean fixtureCreated = false
     String hdfsPort = context.config.otherConfigs.get("hive2HdfsPort")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
@@ -57,6 +59,14 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
         );"""
 
         sql """switch ${catalogName}"""
+        sql "DROP DATABASE IF EXISTS ${fixtureDatabase} FORCE"
+        sql "CREATE DATABASE ${fixtureDatabase}"
+        fixtureCreated = true
+        // Old preinstalled schemas omit the format version and deliberately fall back to JNI.
+        // Create a current schema so the positive profile assertion still proves Rust executes.
+        sql """CREATE TABLE ${fixtureDatabase}.rust_scan (id INT, v INT) ENGINE=paimon
+            PROPERTIES ('bucket'='-1', 'file.format'='parquet')"""
+        sql "INSERT INTO ${fixtureDatabase}.rust_scan VALUES (1,11), (2,22), (3,NULL)"
         sql """use db1"""
         // Force the logical (JNI / rust) reader path: the append parquet tables
         // below (all_table, all_table_with_parquet, append_table, ...) convert
@@ -68,9 +78,10 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
         sql """set enable_file_scanner_v2=true"""
 
         def testQueries = [
+                "select id,v from ${fixtureDatabase}.rust_scan order by id",
+                // This current schema exercises actual Rust predicate pushdown under V2.
+                "select id,v from ${fixtureDatabase}.rust_scan where id >= 2 order by id",
                 """select c1 from complex_all order by c1""",
-                // Filter on a data column exercises the v2 predicate pushdown into the
-                // paimon-rust filter (PaimonRustPredicateConverter global-index mode).
                 """select c1 from complex_all where c1 >= 2 order by c1""",
                 """select * from all_table order by c1""",
                 """select * from all_table_with_parquet where c13 like '13%' order by c1""",
@@ -107,7 +118,9 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
         assertTrue(profileTextOf(testQueries[0]).contains("PaimonRustReader"),
                 "enabled leg must reach the FileScannerV2 Rust reader")
 
-        assertTrue(rustResults[0].size() > 0)
+        assertFalse(profileTextOf("select c1 from complex_all order by c1").contains("PaimonRustReader"),
+                "legacy schemas without a format version must use JNI")
+        assertEquals([[1,11], [2,22], [3,null]].toString(), rustResults[0].toString())
         for (int i = 0; i < testQueries.size(); i++) {
             assertEquals(jniResults[i].toString(), rustResults[i].toString())
         }
@@ -125,6 +138,9 @@ suite("test_paimon_rust_reader_v2", "p0,external") {
         sql """set enable_paimon_rust_reader=false"""
         sql """set force_jni_scanner=${originalForceJni}"""
         sql """set enable_file_scanner_v2=${originalV2}"""
+        if (fixtureCreated) {
+            sql "DROP DATABASE IF EXISTS ${catalogName}.${fixtureDatabase} FORCE"
+        }
         sql """drop catalog if exists ${catalogName}"""
     }
 }
