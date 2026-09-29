@@ -105,10 +105,10 @@ public final class FileSystemFactory {
         List<FileSystemProvider> providers = getProviders();
         List<String> tried = new ArrayList<>();
         for (FileSystemProvider provider : providers) {
-            if (provider.supports(properties)) {
+            if (provider.supports(StorageAdapter.withHadoopConfigDir(properties))) {
                 LOG.debug("FileSystemFactory: selected SPI provider '{}' for keys={}",
                         provider.name(), properties.keySet());
-                return provider.create(properties);
+                return provider.create(StorageAdapter.withHadoopConfigDir(properties));
             }
             tried.add(provider.name());
         }
@@ -137,14 +137,14 @@ public final class FileSystemFactory {
         System.setProperty("doris.hadoop.config.dir", Config.hadoop_config_dir);
         FileSystemPluginManager mgr = pluginManager;
         if (mgr != null) {
-            return new ArrayList<>(mgr.bindAll(properties));
+            return new ArrayList<>(mgr.bindAll(StorageAdapter.withHadoopConfigDir(properties)));
         }
         // Fallback: ServiceLoader discovery (unit-test / migration path), mirroring getFileSystem(Map).
         List<org.apache.doris.filesystem.properties.StorageProperties> result = new ArrayList<>();
         for (FileSystemProvider provider : getProviders()) {
-            if (provider.supports(properties)) {
+            if (provider.supports(StorageAdapter.withHadoopConfigDir(properties))) {
                 try {
-                    result.add(provider.bind(properties));
+                    result.add(provider.bind(StorageAdapter.withHadoopConfigDir(properties)));
                 } catch (UnsupportedOperationException e) {
                     LOG.debug("FileSystemProvider {} has no typed binding; skipping in "
                             + "bindAllStorageProperties", provider.name());

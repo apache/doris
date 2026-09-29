@@ -554,7 +554,12 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         writeLock();
         try {
             if (!isReplay && catalog instanceof ExternalCatalog) {
-                ((ExternalCatalog) catalog).checkProperties();
+                try {
+                    ((ExternalCatalog) catalog).checkProperties();
+                } catch (DdlException | RuntimeException e) {
+                    catalog.onCreateFailure();
+                    throw e;
+                }
             }
             Map<String, String> props = catalog.getProperties();
             if (props.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
