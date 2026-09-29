@@ -85,6 +85,7 @@ import org.apache.iceberg.BatchScan;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.DorisDataTableScan;
 import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
@@ -231,6 +232,10 @@ public class IcebergScanNodeTest {
 
         TableScan createRealTableScan() throws UserException {
             return super.createTableScan();
+        }
+
+        boolean isRealBatchMode() {
+            return super.isBatchMode();
         }
 
         @Override
@@ -3108,32 +3113,75 @@ public class IcebergScanNodeTest {
 
     @Test
     public void testHistoricalPredicatePlansAfterColumnRename() throws Exception {
-        assertHistoricalPredicatePlansAfterSchemaEvolution(false);
+        assertHistoricalPredicatePlansAfterSchemaEvolution(false, true);
     }
 
     @Test
     public void testHistoricalPredicatePlansAfterColumnDrop() throws Exception {
-        assertHistoricalPredicatePlansAfterSchemaEvolution(true);
+        assertHistoricalPredicatePlansAfterSchemaEvolution(true, true);
     }
 
-    private void assertHistoricalPredicatePlansAfterSchemaEvolution(boolean dropColumn) throws Exception {
+    @Test
+    public void testHistoricalPredicatePlansAfterSchemaOnlyRename() throws Exception {
+        assertHistoricalPredicatePlansAfterSchemaEvolution(false, false);
+    }
+
+    @Test
+    public void testHistoricalPredicatePlansAfterSchemaOnlyDrop() throws Exception {
+        assertHistoricalPredicatePlansAfterSchemaEvolution(true, false);
+    }
+
+    @Test
+    public void testHistoricalPredicatePlansAfterMetadataOnlyPartitionEvolution() throws Exception {
+        for (boolean partitioned : new boolean[] {false, true}) {
+            assertHistoricalPredicatePlansAfterSchemaEvolution(false, false, partitioned, false, true);
+        }
+    }
+
+    private void assertHistoricalPredicatePlansAfterSchemaEvolution(boolean dropColumn, boolean append)
+            throws Exception {
+        for (boolean partitioned : new boolean[] {false, true}) {
+            for (boolean reuseName : new boolean[] {false, true}) {
+                assertHistoricalPredicatePlansAfterSchemaEvolution(dropColumn, append, partitioned, reuseName, false);
+            }
+        }
+    }
+
+    private void assertHistoricalPredicatePlansAfterSchemaEvolution(
+            boolean dropColumn, boolean append, boolean partitioned, boolean reuseName, boolean evolveSpec)
+            throws Exception {
         Schema historicalSchema = new Schema(
                 Types.NestedField.optional(1, "x", Types.IntegerType.get()),
                 Types.NestedField.optional(2, "y", Types.IntegerType.get()),
                 Types.NestedField.optional(3, "part", Types.IntegerType.get()));
         HadoopTables tables = new HadoopTables(new Configuration());
         String tableLocation = temporaryFolder.getRoot().toPath()
-                .resolve("historical_predicate_after_" + (dropColumn ? "drop" : "rename")).toUri().toString();
+                .resolve("historical_predicate_after_" + (dropColumn ? "drop" : "rename")
+                        + "_" + partitioned + "_" + reuseName).toUri().toString();
+        PartitionSpec spec = partitioned ? PartitionSpec.builderFor(historicalSchema).identity("part").build()
+                : PartitionSpec.unpartitioned();
         Table table = tables.create(
-                historicalSchema, PartitionSpec.unpartitioned(), SortOrder.unsorted(),
+                historicalSchema, spec, SortOrder.unsorted(),
                 ImmutableMap.of(TableProperties.FORMAT_VERSION, "2"), tableLocation);
         DataFile historicalDataFile = DataFiles.builder(table.spec())
                 .withPath(tableLocation + "/data/historical.parquet")
+                .withPartitionPath(partitioned ? "part=2" : "")
                 .withFormat(FileFormat.PARQUET)
                 .withFileSizeInBytes(10)
                 .withRecordCount(2)
                 .build();
         table.newFastAppend().appendFile(historicalDataFile).commit();
+        if (partitioned) {
+            // A separate manifest in the same snapshot must be rejected by partition pruning.
+            DataFile nonmatchingDataFile = DataFiles.builder(table.spec())
+                    .withPath(tableLocation + "/data/nonmatching.parquet")
+                    .withPartitionPath("part=3")
+                    .withFormat(FileFormat.PARQUET)
+                    .withFileSizeInBytes(10)
+                    .withRecordCount(1)
+                    .build();
+            table.newFastAppend().appendFile(nonmatchingDataFile).commit();
+        }
         long historicalSnapshotId = table.currentSnapshot().snapshotId();
         int historicalSchemaId = table.currentSnapshot().schemaId();
 
@@ -3142,25 +3190,69 @@ public class IcebergScanNodeTest {
         } else {
             table.updateSchema().renameColumn("x", "renamed_x").commit();
         }
-        DataFile currentDataFile = DataFiles.builder(table.spec())
-                .withPath(tableLocation + "/data/current.parquet")
-                .withFormat(FileFormat.PARQUET)
-                .withFileSizeInBytes(10)
-                .withRecordCount(1)
-                .build();
-        table.newFastAppend().appendFile(currentDataFile).commit();
+        if (evolveSpec) {
+            // This later spec is unused by the snapshot and conflicts with its old column name.
+            table.updateSpec().addField("x", Expressions.ref("y")).commit();
+        }
+        if (reuseName) {
+            table.updateSchema().addColumn("x", Types.IntegerType.get()).commit();
+        }
+        if (append) {
+            DataFile currentDataFile = DataFiles.builder(table.spec())
+                    .withPath(tableLocation + "/data/current.parquet")
+                    .withPartitionPath(partitioned ? "part=3" : "")
+                    .withFormat(FileFormat.PARQUET)
+                    .withFileSizeInBytes(10)
+                    .withRecordCount(1)
+                    .build();
+            table.newFastAppend().appendFile(currentDataFile).commit();
+        }
+        table = tables.load(tableLocation);
+        Assert.assertEquals(!append, historicalSnapshotId == table.currentSnapshot().snapshotId());
 
-        // Historical filters must be resolved with the snapshot schema after later schema evolution.
-        TableScan scan = table.newScan()
-                .useSnapshot(historicalSnapshotId)
-                .project(table.schemas().get(historicalSchemaId));
-        BinaryPredicate conjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ,
-                new SlotRef(new TableName(), "x"), new IntLiteral(1, Type.INT));
-        org.apache.iceberg.expressions.Expression predicate =
-                IcebergUtils.convertToIcebergExpr(conjunct, scan.schema());
-        Assert.assertNotNull(predicate);
-        scan = scan.filter(predicate);
-        Assert.assertEquals(1, materializeTasks(scan).size());
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.enableExternalTableBatchMode = true;
+        sessionVariable.numFilesInBatchMode = 1;
+        TestIcebergScanNode node = Mockito.spy(new TestIcebergScanNode(sessionVariable));
+        IcebergSource source = Mockito.mock(IcebergSource.class);
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
+        ThreadPoolExecutor executor = (ThreadPoolExecutor) Executors.newFixedThreadPool(1);
+        Mockito.when(source.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getThreadPoolWithPreAuth()).thenReturn(executor);
+        setIcebergSource(node, source);
+        setIcebergTable(node, table);
+        setPreExecutionAuthenticator(node, new ExecutionAuthenticator() {});
+        Mockito.doReturn(new IcebergTableQueryInfo(historicalSnapshotId, null, historicalSchemaId))
+                .when(node).getSpecifiedSnapshot();
+        node.addConjunct(new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                new SlotRef(new TableName(), "x"), new IntLiteral(1, Type.INT)));
+        node.addConjunct(new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                new SlotRef(new TableName(), "part"), new IntLiteral(2, Type.INT)));
+        ConnectContext context = new ConnectContext();
+        context.setStatementContext(new StatementContext());
+        context.setThreadLocalInfo();
+        try {
+            // Exercise both Doris planning paths; an SDK-only scan misses batch-mode manifest filtering.
+            TableScan scan = node.createRealTableScan();
+            node.setTableScan(scan);
+            List<FileScanTask> tasks = materializeTasks(scan);
+            Assert.assertEquals(1, tasks.size());
+            Assert.assertEquals(historicalDataFile.path().toString(), tasks.get(0).file().path().toString());
+            Assert.assertTrue(node.isRealBatchMode());
+            if (partitioned) {
+                Assert.assertEquals(2, scan.snapshot().dataManifests(table.io()).size());
+                // Counting the nonmatching manifest would incorrectly enable batch mode at two files.
+                sessionVariable.numFilesInBatchMode = 2;
+                setPrivateField(node, "isBatchMode", null);
+                Assert.assertFalse(node.isRealBatchMode());
+            }
+            if (evolveSpec) {
+                Assert.assertFalse(DorisDataTableScan.specsForScan(scan).containsKey(table.spec().specId()));
+            }
+        } finally {
+            ConnectContext.remove();
+            executor.shutdownNow();
+        }
     }
 
     @Test
