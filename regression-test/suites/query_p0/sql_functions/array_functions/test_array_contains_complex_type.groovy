@@ -30,6 +30,11 @@ suite("test_array_contains_complex_type") {
         sql "SELECT array_contains(array(array(1, 2)), array(1, 2))"
         exception "array_contains does not support complex types"
     }
+    // An array of NULL gets its element type from the value, so a complex value is rejected too.
+    test {
+        sql "SELECT array_contains([NULL], map('a', 1))"
+        exception "array_contains does not support complex types"
+    }
 
     sql "DROP TABLE IF EXISTS test_array_contains_complex_type"
     sql """
@@ -54,6 +59,10 @@ suite("test_array_contains_complex_type") {
             SELECT id FROM test_array_contains_complex_type
             WHERE array_contains(s, named_struct('a', 1))
         """
+        exception "array_contains does not support complex types"
+    }
+    test {
+        sql "SELECT array_contains([NULL], map('a', id)) FROM test_array_contains_complex_type"
         exception "array_contains does not support complex types"
     }
 }

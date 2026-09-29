@@ -65,7 +65,9 @@ public class ArrayContains extends ScalarFunction
     public void checkLegalityBeforeTypeCoercion() {
         ArrayFunctionUtils.checkNoVarBinaryArguments(this);
         DataType argType = getArgument(0).getDataType();
-        if (argType.isArrayType() && ((ArrayType) argType).getItemType().isComplexType()) {
+        // Also check the value, because an array of NULL gets its element type from the value.
+        if ((argType.isArrayType() && ((ArrayType) argType).getItemType().isComplexType())
+                || getArgument(1).getDataType().isComplexType()) {
             throw new AnalysisException("array_contains does not support complex types: " + toSql());
         }
     }
