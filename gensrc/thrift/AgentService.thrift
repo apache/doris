@@ -697,4 +697,8 @@ struct TLanceIndexJobDispatch {
     // wire purely for generated-code compatibility during a rolling upgrade; the FE
     // always sets it and drops any report that does not echo it.
     17: optional string invocation_secret
+    // Admitted bounds snapshot, recorded by the FE at admission time from the
+    // effective config. A worker must reject a dispatch that lacks them.
+    18: optional i32 max_num_partitions
+    19: optional i32 max_num_sub_vectors
 }

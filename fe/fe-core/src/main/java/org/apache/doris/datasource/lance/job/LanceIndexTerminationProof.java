@@ -37,5 +37,16 @@ public enum LanceIndexTerminationProof {
      * no worker ever existed for it. FE-side only: it never travels on the
      * wire, because a backend cannot prove its own non-enqueue this way.
      */
-    NOT_ENQUEUED
+    NOT_ENQUEUED,
+    /**
+     * The invocation provably never exec'd the worker program. Two producers
+     * keep this distinct from {@code NOT_ENQUEUED}: the backend supervisor,
+     * through the termination-report channel, for a post-enqueue rejection
+     * before fork or a forked child killed before its barrier release (this is
+     * the only proof value that travels on the wire, as value 3); and the FE
+     * itself, for a pre-send failure with determined-never-sent evidence local
+     * to the FE (a dispatch-payload bound violation after the durable dispatch
+     * identity exists), where the backend was never consulted at all.
+     */
+    NEVER_LAUNCHED
 }

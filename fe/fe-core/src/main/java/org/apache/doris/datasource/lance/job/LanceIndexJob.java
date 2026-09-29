@@ -146,6 +146,20 @@ public class LanceIndexJob implements Writable {
     @SerializedName(value = "sc")
     private LanceIndexSchemaContract schemaContract;
 
+    /**
+     * The effective {@code Config.lance_index_max_num_partitions} captured at
+     * admission. The dispatch replays this snapshot to the worker, so a mutable-config
+     * drift between admission and dispatch cannot silently rebind the bound the worker
+     * enforces. Null only in records written before the snapshot existed; the dispatch
+     * then leaves the wire field unset and a new worker safely rejects it.
+     */
+    @SerializedName(value = "mnp")
+    private Integer admittedMaxNumPartitions;
+
+    /** Same snapshot discipline as {@link #admittedMaxNumPartitions}. */
+    @SerializedName(value = "mns")
+    private Integer admittedMaxNumSubVectors;
+
     // ------------------------------------------------------------------
     // Dual state
     // ------------------------------------------------------------------
@@ -305,6 +319,8 @@ public class LanceIndexJob implements Writable {
         this.propertiesJson = other.propertiesJson;
         this.admittedDatasetVersion = other.admittedDatasetVersion;
         this.schemaContract = other.schemaContract;
+        this.admittedMaxNumPartitions = other.admittedMaxNumPartitions;
+        this.admittedMaxNumSubVectors = other.admittedMaxNumSubVectors;
         this.mutationState = other.mutationState;
         this.refreshState = other.refreshState;
         this.refreshFailureTimeMs = other.refreshFailureTimeMs;
@@ -375,8 +391,9 @@ public class LanceIndexJob implements Writable {
 
     /**
      * Whether this job still owns a possible-live worker slot: released by a
-     * matching termination proof, by the dispatcher's proven no-enqueue
-     * completion channel, or by a durable FORCE_RELEASE, never by a deadline.
+     * matching termination proof, by the dispatcher's proven no-enqueue or
+     * never-launched completion channel, or by a durable FORCE_RELEASE, never
+     * by a deadline.
      */
     public boolean holdsPossibleLiveSlot() {
         return possibleLiveOwned
@@ -426,6 +443,8 @@ public class LanceIndexJob implements Writable {
         if (result != null) {
             checkBytes(result.getSanitizedMessage(), LanceIndexJobResult.MAX_MESSAGE_BYTES, "sanitizedMessage");
         }
+        checkPositiveBound(admittedMaxNumPartitions, "admittedMaxNumPartitions");
+        checkPositiveBound(admittedMaxNumSubVectors, "admittedMaxNumSubVectors");
         if (schemaContract != null) {
             schemaContract.validateForAdmission();
         }
@@ -568,6 +587,22 @@ public class LanceIndexJob implements Writable {
         return schemaContract;
     }
 
+    public Integer getAdmittedMaxNumPartitions() {
+        return admittedMaxNumPartitions;
+    }
+
+    public void setAdmittedMaxNumPartitions(Integer admittedMaxNumPartitions) {
+        this.admittedMaxNumPartitions = checkPositiveBound(admittedMaxNumPartitions, "admittedMaxNumPartitions");
+    }
+
+    public Integer getAdmittedMaxNumSubVectors() {
+        return admittedMaxNumSubVectors;
+    }
+
+    public void setAdmittedMaxNumSubVectors(Integer admittedMaxNumSubVectors) {
+        this.admittedMaxNumSubVectors = checkPositiveBound(admittedMaxNumSubVectors, "admittedMaxNumSubVectors");
+    }
+
     public LanceIndexJobMutationState getMutationState() {
         return mutationState;
     }
@@ -707,6 +742,13 @@ public class LanceIndexJob implements Writable {
     private static String checkBytes(String value, int maxBytes, String fieldName) {
         if (value != null && value.getBytes(StandardCharsets.UTF_8).length > maxBytes) {
             throw new IllegalArgumentException(fieldName + " exceeds " + maxBytes + " UTF-8 bytes");
+        }
+        return value;
+    }
+
+    private static Integer checkPositiveBound(Integer value, String fieldName) {
+        if (value != null && value <= 0) {
+            throw new IllegalArgumentException(fieldName + " must be positive when present");
         }
         return value;
     }

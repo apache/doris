@@ -305,8 +305,9 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
      * <p>This channel never touches the possible-live slot: a reported result
      * proves nothing about whether the worker process ended, so the slot waits
      * for an independent termination proof. The dispatcher's own proven
-     * no-enqueue completions go through {@link #completeProvenNoEnqueue}
-     * instead, which releases the slot in the same durable transition.
+     * no-enqueue and never-launched completions go through
+     * {@link #completeProvenNoEnqueue} and {@link #completePreInvocationRejected}
+     * instead, which release the slot in the same durable transition.
      *
      * @return false (with a warning) when the callback is stale or the job is not RUNNING
      */
@@ -314,7 +315,7 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
             Long beProcessEpoch,
             LanceIndexJobResult result) {
         return completeWithResultInternal(jobId, expectedDispatchRevision, invocationId, beProcessEpoch, result,
-                false);
+                null);
     }
 
     /**
@@ -333,11 +334,11 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
     public boolean completeProvenNoEnqueue(long jobId, long expectedDispatchRevision, String invocationId,
             Long beProcessEpoch, LanceIndexJobResult result) {
         return completeWithResultInternal(jobId, expectedDispatchRevision, invocationId, beProcessEpoch, result,
-                true);
+                LanceIndexTerminationProof.NOT_ENQUEUED);
     }
 
     private boolean completeWithResultInternal(long jobId, long expectedDispatchRevision, String invocationId,
-            Long beProcessEpoch, LanceIndexJobResult result, boolean provenNoEnqueue) {
+            Long beProcessEpoch, LanceIndexJobResult result, LanceIndexTerminationProof slotReleaseProof) {
         Objects.requireNonNull(result, "result");
         writeLock();
         try {
@@ -371,10 +372,10 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
             updated.setRefreshState(classification.getRefreshState());
             updated.setResult(new LanceIndexJobResult(result.getResultCode(), classification.getCompletionReason(),
                     result.getSanitizedMessage(), result.isExternalMetadataAdvanced()));
-            if (provenNoEnqueue && updated.isPossibleLiveOwned()) {
+            if (slotReleaseProof != null && updated.isPossibleLiveOwned()) {
                 updated.setPossibleLiveOwned(false);
                 if (updated.getTerminationProof() == LanceIndexTerminationProof.NONE) {
-                    updated.setTerminationProof(LanceIndexTerminationProof.NOT_ENQUEUED);
+                    updated.setTerminationProof(slotReleaseProof);
                 }
             }
             updated.setRevision(current.getRevision() + 1);
@@ -385,6 +386,37 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
+    }
+
+    /**
+     * The FE-local never-launched channel: RUNNING -&gt; NOT_COMMITTED with the
+     * internal NEVER_LAUNCHED termination proof in ONE durable transition. Where
+     * {@link #completeProvenNoEnqueue} carries FE evidence that the dispatch never
+     * reached the backend, this channel carries FE-local determined-never-sent
+     * evidence gathered after the durable dispatch identity exists (a pre-send
+     * dispatch-payload bound violation): the typed result and the proof placement
+     * are written atomically, releasing the possible-live slot in the same record
+     * that classifies the outcome. The same NEVER_LAUNCHED proof also arrives from
+     * the backend supervisor through the termination-report channel, whose release
+     * path is {@link #recordTerminationProof}. The callback identity checks are
+     * exactly those of {@link #completeWithResult}. A record whose slot was already
+     * released by an earlier proof (the epoch sweep races this path) keeps its first
+     * proof; the result still lands.
+     *
+     * @return false (with a warning) when the callback is stale or the job is not RUNNING
+     * @throws IllegalArgumentException when the result code is not a PRE_INVOCATION_* code
+     */
+    public boolean completePreInvocationRejected(long jobId, long expectedDispatchRevision, String invocationId,
+            Long beProcessEpoch, LanceIndexJobResult result) {
+        Objects.requireNonNull(result, "result");
+        if (result.getResultCode() == null || !result.getResultCode().isPreInvocation()) {
+            // NEVER_LAUNCHED is a proof, never a result code: only a PRE_INVOCATION_*
+            // classification may carry the never-launched evidence.
+            throw new IllegalArgumentException("completePreInvocationRejected requires a PRE_INVOCATION_* result"
+                    + " code, got " + result.getResultCode());
+        }
+        return completeWithResultInternal(jobId, expectedDispatchRevision, invocationId, beProcessEpoch, result,
+                LanceIndexTerminationProof.NEVER_LAUNCHED);
     }
 
     /**

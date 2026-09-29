@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.lance.job;
 
 import org.apache.doris.thrift.TLanceIndexJobReport;
+import org.apache.doris.thrift.TLanceIndexJobTerminationReport;
 import org.apache.doris.thrift.TLanceIndexTerminationProof;
 
 import org.apache.logging.log4j.LogManager;
@@ -55,10 +56,16 @@ import java.util.Objects;
  * infer an outcome.
  *
  * <p>A termination proof is validated independently of the result, so a
- * CHILD_REAPED proof is recorded first and still lands when the result of the
- * same envelope is malformed: reaping the exact child process proves that
- * process ended, and dropping that proof together with the result would
- * strand the possible-live slot until the backend process is replaced.
+ * CHILD_REAPED or NEVER_LAUNCHED proof is recorded first and still lands when
+ * the result of the same envelope is malformed: the proof states the
+ * invocation's worker process ended or never existed, and dropping that proof
+ * together with the result would strand the possible-live slot until the
+ * backend process is replaced.
+ *
+ * <p>Invocations that produced no trusted result code at all (kill,
+ * wall-clock timeout, OOM, or a panic) report through the separate
+ * termination-only channel, {@link #handleTermination}, which carries the
+ * invocation identity and one proof value and nothing else.
  *
  * <p>The handler runs on the report RPC thread and performs no I/O beyond the
  * manager's own edit-log write. It starts no refresh: the metadata refresh a
@@ -77,11 +84,12 @@ public class LanceIndexJobReportHandler {
     /**
      * Handles one report: authentication comes first and gates everything else,
      * then a matched report completes the job with its classified result, and a
-     * CHILD_REAPED termination proof additionally releases the possible-live
-     * slot, because reaping the exact child process proves that process ended
-     * (which still says nothing about the outcome). The proof is recorded
-     * before the result is parsed: the two are validated independently, and a
-     * malformed result must not take a valid proof down with it.
+     * CHILD_REAPED or NEVER_LAUNCHED termination proof additionally releases
+     * the possible-live slot, because the proof states the invocation's worker
+     * process ended or never existed (which still says nothing about the
+     * outcome). The proof is recorded before the result is parsed: the two are
+     * validated independently, and a malformed result must not take a valid
+     * proof down with it.
      */
     public void handle(TLanceIndexJobReport report) {
         if (report == null) {
@@ -95,8 +103,10 @@ public class LanceIndexJobReportHandler {
                     report.getJobId());
             return;
         }
-        if (report.getTerminationProof() == TLanceIndexTerminationProof.CHILD_REAPED) {
-            recordChildReaped(report);
+        LanceIndexTerminationProof proof = toProof(report.getTerminationProof());
+        if (proof != null) {
+            recordWireProof(report.getJobId(), report.getDispatchRevision(), report.getInvocationId(),
+                    report.getBeProcessEpoch(), proof);
         }
         LanceIndexJobResult result;
         try {
@@ -137,23 +147,67 @@ public class LanceIndexJobReportHandler {
     }
 
     /**
-     * Releases the possible-live slot on a CHILD_REAPED proof. The report
-     * carries the invocation identity but not the backend id, so the durable
-     * record is its source; the quad match inside recordTerminationProof still
-     * rejects anything stale.
+     * Handles one termination-only report: an invocation without a trusted result
+     * code (kill/timeout/OOM/panic), or the supervisor-side proof of never-launch.
+     * A matched proof releases only the possible-live slot — it never changes an
+     * UNKNOWN outcome and never releases the fence. A malformed report (missing or
+     * unknown proof value) and a stale or identity-mismatched one are dropped with
+     * a warning and change nothing.
      */
-    private void recordChildReaped(TLanceIndexJobReport report) {
-        LanceIndexJob job = jobManager.getJob(report.getJobId());
-        if (job == null || job.getBackendId() == null) {
-            LOG.warn("dropping CHILD_REAPED proof of lance index job {}: no durable dispatch identity",
-                    report.getJobId());
+    public void handleTermination(TLanceIndexJobTerminationReport report) {
+        if (report == null) {
+            LOG.warn("dropping null lance index job termination report");
             return;
         }
-        boolean recorded = jobManager.recordTerminationProof(report.getJobId(), report.getDispatchRevision(),
-                job.getBackendId(), report.getBeProcessEpoch(), report.getInvocationId(),
-                LanceIndexTerminationProof.CHILD_REAPED);
+        LanceIndexTerminationProof proof = toProof(report.getProof());
+        if (proof == null) {
+            LOG.warn("dropping malformed lance index job termination report for job {}: proof {} is not a"
+                    + " termination proof this FE accepts", report.getJobId(), report.getProof());
+            return;
+        }
+        recordWireProof(report.getJobId(), report.getDispatchRevision(), report.getInvocationId(),
+                report.getBeProcessEpoch(), proof);
+    }
+
+    /**
+     * Maps a wire proof to the durable enum, keeping only the proofs a backend may
+     * send. NONE is the absence of a proof rather than a proof, an unknown wire
+     * value deserializes as null, and BE_PROCESS_EPOCH_GONE is FE-derived and never
+     * accepted from the wire (NOT_ENQUEUED likewise never travels, because a
+     * backend cannot prove its own non-enqueue this way); all four yield null here
+     * and the caller drops them.
+     */
+    private static LanceIndexTerminationProof toProof(TLanceIndexTerminationProof wireProof) {
+        if (wireProof == null) {
+            return null;
+        }
+        switch (wireProof) {
+            case CHILD_REAPED:
+                return LanceIndexTerminationProof.CHILD_REAPED;
+            case NEVER_LAUNCHED:
+                return LanceIndexTerminationProof.NEVER_LAUNCHED;
+            default:
+                return null;
+        }
+    }
+
+    /**
+     * Releases the possible-live slot on a wire proof. The report carries the
+     * invocation identity but not the backend id, so the durable record is its
+     * source; the quad match inside recordTerminationProof still rejects anything
+     * stale.
+     */
+    private void recordWireProof(long jobId, long dispatchRevision, String invocationId, long beProcessEpoch,
+            LanceIndexTerminationProof proof) {
+        LanceIndexJob job = jobManager.getJob(jobId);
+        if (job == null || job.getBackendId() == null) {
+            LOG.warn("dropping {} proof of lance index job {}: no durable dispatch identity", proof, jobId);
+            return;
+        }
+        boolean recorded = jobManager.recordTerminationProof(jobId, dispatchRevision,
+                job.getBackendId(), beProcessEpoch, invocationId, proof);
         if (!recorded) {
-            LOG.warn("dropping stale CHILD_REAPED proof of lance index job {}", report.getJobId());
+            LOG.warn("dropping stale {} proof of lance index job {}", proof, jobId);
         }
     }
 
