@@ -19,6 +19,33 @@ import java.util.regex.Pattern
 // under the License.
 
 suite("test_version_metrics") {
+    def requiredVersionLabels = ["version", "major", "minor", "patch", "hotfix", "short_hash"] as Set
+    def parseVersionMetric = { body, metricName ->
+        def parsedMetric = null
+        Pattern pattern = Pattern.compile("^" + Pattern.quote(metricName) + "\\{([^}]*)}\\s+(\\d+)$")
+        for (final def line in body.readLines()) {
+            Matcher matcher = pattern.matcher(line)
+            if (!matcher.matches()) {
+                continue
+            }
+
+            def labels = [:]
+            for (String label : matcher.group(1).split(",")) {
+                String[] keyValue = label.trim().split("=", 2)
+                assertEquals(2, keyValue.length)
+                assertTrue(keyValue[1].startsWith("\"") && keyValue[1].endsWith("\""))
+                labels[keyValue[0]] = keyValue[1].substring(1, keyValue[1].length() - 1)
+            }
+            assertEquals(requiredVersionLabels, labels.keySet())
+            parsedMetric = [labels: labels, value: Long.parseLong(matcher.group(2))]
+            break
+        }
+        assertNotNull(parsedMetric)
+        assertTrue(parsedMetric.value >= 0)
+        return parsedMetric
+    }
+
+    def feVersionMetric = null
     httpTest {
         endpoint context.config.feHttpAddress
         uri "/metrics"
@@ -27,15 +54,7 @@ suite("test_version_metrics") {
             logger.debug("code:${code} body:${body}");
             assertEquals(200, code)
             assertTrue(body.contains("doris_fe_version"))
-            for (final def line in body.split("\n")) {
-                if (line.startsWith("doris_fe_version")) {
-                    Pattern pattern = Pattern.compile(/^doris_fe_version\{.*}\s+(\d+)$/)
-                    Matcher matcher = pattern.matcher(line)
-                    assertTrue(matcher.matches())
-                    assertTrue(Long.parseLong(matcher.group(1)) >= 0)
-                    break
-                }
-            }
+            feVersionMetric = parseVersionMetric(body, "doris_fe_version")
         }
     }
 
@@ -50,11 +69,8 @@ suite("test_version_metrics") {
             logger.debug("code:${code} body:${body}");
             assertEquals(200, code)
             assertTrue(body.contains("doris_be_version"))
-            for (final def line in body.split("\n")) {
-                if (line.contains("doris_be_version") && !line.contains("#")) {
-                    assertTrue(Long.parseLong(line.split(" ")[1]) >= 0)
-                }
-            }
+            def beVersionMetric = parseVersionMetric(body, "doris_be_version")
+            assertEquals(feVersionMetric, beVersionMetric)
         }
     }
 
@@ -71,11 +87,8 @@ suite("test_version_metrics") {
                 logger.debug("code:${code} body:${body}");
                 assertEquals(200, code)
                 assertTrue(body.contains("doris_cloud_version"))
-                for (final def line in body.split("\n")) {
-                    if (line.contains("doris_cloud_version") && !line.contains("#")) {
-                        assertTrue(Long.parseLong(line.split(" ")[1]) >= 0)
-                    }
-                }
+                def cloudVersionMetric = parseVersionMetric(body, "doris_cloud_version")
+                assertEquals(feVersionMetric, cloudVersionMetric)
             }
         }
     }
