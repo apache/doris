@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
@@ -41,7 +42,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Uniform;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WidthBucket;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeV2Type;
@@ -133,6 +136,11 @@ public class FoldLiteralArgumentsTest {
         assertLiteral(analyze("select orthogonal_bitmap_expr_calculate_count(to_bitmap(k), cast(k as varchar),"
                 + " concat(cast('1' as string), cast('&2' as string)))" + table,
                 OrthogonalBitmapExprCalculateCount.class).child(2));
+        // a formula that is not a string is cast to VARCHAR by the type coercion instead of being folded
+        assertNotLiteral(analyze("select orthogonal_bitmap_expr_calculate(to_bitmap(k), cast(k as varchar),"
+                + " 1 + 1)" + table, OrthogonalBitmapExprCalculate.class).child(2));
+        assertNotLiteral(analyze("select orthogonal_bitmap_expr_calculate_count(to_bitmap(k), cast(k as varchar),"
+                + " 1 + 1)" + table, OrthogonalBitmapExprCalculateCount.class).child(2));
         assertLiteral(analyze("select topn(s, 1 + 1)" + table, TopN.class).child(1));
         assertLiteral(analyze("select topn_array(s, 1 + 1)" + table, TopNArray.class).child(1));
         assertLiteral(analyze("select topn_weighted(s, k, 1 + 1)" + table, TopNWeighted.class).child(2));
@@ -166,11 +174,17 @@ public class FoldLiteralArgumentsTest {
     @Test
     public void testNonConstantArgumentIsStillRejected() {
         assertAnalysisError("select sha2('abc', k) from (select 256 k) t",
-                "the second parameter of sha2 must be a literal");
-        assertAnalysisError("select sha2('abc', connection_id())", "the second parameter of sha2 must be a literal");
-        // a constant expression FE cannot fold (crc32 has no FE executor)
-        assertAnalysisError("select sha2('abc', 256 + crc32(''))", "the second parameter of sha2 must be a literal");
-        assertAnalysisError("select rand(k) from (select 1 k) t", "The param of rand function must be literal");
+                "the second parameter of sha2 must be a constant");
+        assertAnalysisError("select rand(k) from (select 1 k) t", "The param of rand function must be constant");
+        // a literal of another type is still rejected, instead of being cast and left to BE
+        assertAnalysisError("select sha2('abc', 'abc')", "the second parameter of sha2 must be an integer");
+        assertAnalysisError("select split_by_regexp('a,b,c', ',', 1.5)", "must be a positive constant");
+        assertAnalysisError("select tokenize('x', 5)", "tokenize second argument must be string literal");
+        assertAnalysisError("select array_apply([1, 2, 3], 1, 2)", "op support const value only");
+        assertAnalysisError("select sequence_match(1, dt, k = 1) from (select 1 k, now() dt) t",
+                "function must be string constant");
+        assertAnalysisError("select sequence_match(s, dt, k = 1) from (select 1 k, now() dt, '(?1)' s) t",
+                "function must be string constant");
         // a BIGINT precision would keep a narrowing cast to INT, so it is not folded
         assertAnalysisError("select utc_time(cast(3 as bigint))", "UTC_TIME scale argument must be a constant literal");
         // the date value is not folded when the time unit is a non-string literal
@@ -178,11 +192,76 @@ public class FoldLiteralArgumentsTest {
         assertAnalysisError("select array_apply([1, 2, 3], s, 2) from (select '>' s) t",
                 "array_apply(arr, op, val): op support const value only.");
         assertAnalysisError("select orthogonal_bitmap_expr_calculate(to_bitmap(k), cast(k as varchar), s)"
-                + " from (select 1 k, '1' s) t", "must be a string literal");
+                + " from (select 1 k, '1' s) t", "must be a string constant");
+    }
+
+    @Test
+    public void testConstantFeCannotFoldIsLeftToBe() {
+        // crc32 has no FE executor, so crc32('') = 0 is a constant only BE can evaluate
+        assertNotLiteral(analyzeAndRewrite("select sha2('abc', 256 + crc32(''))", Sha2.class).child(1));
+        assertNotLiteral(analyzeAndRewrite("select width_bucket(1.5, 0, 10, 2 + crc32(''))",
+                WidthBucket.class).child(3));
+        assertNotLiteral(analyzeAndRewrite("select split_by_regexp('a,b,c', ',', 1 + crc32(''))",
+                SplitByRegexp.class).child(2));
+        assertNotLiteral(analyzeAndRewrite("select tokenize('x', lpad('\"parser\"=\"english\"', 19, ' '))",
+                Tokenize.class).child(1));
+        assertNotLiteral(analyzeAndRewrite("select regexp_replace('abc', 'a', 'b', lpad('', 1, ' '))",
+                RegexpReplace.class).child(3));
+        assertNotLiteral(analyzeAndRewrite("select regexp_replace_one('abc', 'a', 'b', lpad('', 1, ' '))",
+                RegexpReplaceOne.class).child(3));
+        assertNotLiteral(analyzeAndRewrite("select array_apply([1, 2, 3], lpad('=', 2, '>'), 2)",
+                ArrayApply.class).child(1));
+        assertNotLiteral(analyzeAndRewrite("select date_trunc(cast('2024-03-15 10:00:00' as datetime),"
+                + " lpad('ay', 3, 'd'))", DateTrunc.class).child(1));
+        assertNotLiteral(analyzeAndRewrite("select date_trunc(lpad('ay', 3, 'd'), DATE '2024-03-15')",
+                DateTrunc.class).child(0));
+        assertNotLiteral(analyzeAndRewrite("select rand(1 + crc32(''))", Random.class).child(0));
+        Uniform uniform = analyzeAndRewrite("select uniform(1 + crc32(''), 10 + crc32(''), crc32('x'))",
+                Uniform.class);
+        assertNotLiteral(uniform.child(0));
+        assertNotLiteral(uniform.child(1));
+
+        String table = " from (select 1 k, cast('2024-01-01' as datetime) dt, 'a' s) t";
+        assertNotLiteral(analyzeAndRewrite("select sequence_match(lpad('(?2)', 8, '(?1)'), dt, k = 1, k = 2)"
+                + table, SequenceMatch.class).child(0));
+        assertNotLiteral(analyzeAndRewrite("select sequence_count(lpad('(?2)', 8, '(?1)'), dt, k = 1, k = 2)"
+                + table, SequenceCount.class).child(0));
+        assertNotLiteral(analyzeAndRewrite("select orthogonal_bitmap_expr_calculate(to_bitmap(k),"
+                + " cast(k as varchar), lpad('&2', 3, '1'))" + table, OrthogonalBitmapExprCalculate.class).child(2));
+        assertNotLiteral(analyzeAndRewrite("select orthogonal_bitmap_expr_calculate_count(to_bitmap(k),"
+                + " cast(k as varchar), lpad('&2', 3, '1'))" + table,
+                OrthogonalBitmapExprCalculateCount.class).child(2));
+        assertNotLiteral(analyzeAndRewrite("select topn(s, 1 + crc32(''))" + table, TopN.class).child(1));
+        assertNotLiteral(analyzeAndRewrite("select topn_array(s, 1 + crc32(''))" + table, TopNArray.class)
+                .child(1));
+        assertNotLiteral(analyzeAndRewrite("select topn_weighted(s, k, 1 + crc32(''))" + table,
+                TopNWeighted.class).child(2));
+
+        // FE does not fold an illegal time unit, for example one pushed into an IF branch, and leaves it to BE
+        Expression illegalUnit = FoldConstantRuleOnFE.evaluateWithoutContext(
+                new DateTrunc(new DateTimeV2Literal("2024-03-15 10:00:00"), new VarcharLiteral("xx")));
+        Assertions.assertInstanceOf(DateTrunc.class, illegalUnit, illegalUnit.toSql());
+
+        // the precision determines the return type, so FE must know its value
+        assertAnalysisError("select now(1 + crc32(''))", "NOW precision argument must be a constant literal");
+        assertAnalysisError("select utc_time(1 + crc32(''))", "UTC_TIME scale argument must be a constant literal");
+        // which argument is the time unit is unknown when neither argument is a date or a literal
+        assertAnalysisError("select date_trunc(lpad('ay', 3, 'd'), concat('2024-03-15', crc32('')))",
+                "must be a string constant");
     }
 
     private static <T extends BoundFunction> T analyze(String sql, Class<T> functionClass) {
-        Plan plan = PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql).getPlan();
+        return findFunction(sql, PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql).getPlan(),
+                functionClass);
+    }
+
+    private static <T extends BoundFunction> T analyzeAndRewrite(String sql, Class<T> functionClass) {
+        return findFunction(sql,
+                PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql).rewrite().getPlan(),
+                functionClass);
+    }
+
+    private static <T extends BoundFunction> T findFunction(String sql, Plan plan, Class<T> functionClass) {
         List<Expression> functions = new ArrayList<>();
         plan.foreach(node -> {
             for (Expression expression : ((Plan) node).getExpressions()) {
@@ -191,6 +270,10 @@ public class FoldLiteralArgumentsTest {
         });
         Assertions.assertEquals(1, functions.size(), sql);
         return functionClass.cast(functions.get(0));
+    }
+
+    private static void assertNotLiteral(Expression argument) {
+        Assertions.assertFalse(argument instanceof Literal, argument.toSql());
     }
 
     private static void assertLiteral(Expression argument) {

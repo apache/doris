@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.FoldLiteralArguments;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
@@ -69,6 +70,13 @@ public class Tokenize extends ScalarFunction
         Expression rightChild = getArgument(1);
         // tokenize(k7, null) could return NULL
         if (rightChild instanceof NullLiteral) {
+            return;
+        }
+        if (!rightChild.isConstant()) {
+            throw new AnalysisException("tokenize second argument must be a string constant");
+        }
+        // a constant FE cannot fold is parsed by BE when it is evaluated
+        if (!(rightChild instanceof Literal)) {
             return;
         }
         if (!(rightChild instanceof StringLikeLiteral)) {
