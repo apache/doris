@@ -60,7 +60,8 @@ public class IndexPolicy implements Writable, GsonPostProcessable {
     public static final String PROP_CHAR_FILTER = "char_filter";
 
     public static final Set<String> BUILTIN_TOKENIZERS = ImmutableSet.of(
-            "empty", "ngram", "edge_ngram", "keyword", "standard", "char_group", "basic", "icu", "pinyin");
+            "empty", "ngram", "edge_ngram", "keyword", "standard", "char_group", "basic", "icu", "pinyin",
+            "ik_smart", "ik_max_word");
 
     public static final Set<String> BUILTIN_TOKEN_FILTERS = ImmutableSet.of(
             "empty", "asciifolding", "word_delimiter", "lowercase", "pinyin", "icu_normalizer");
@@ -125,6 +126,21 @@ public class IndexPolicy implements Writable, GsonPostProcessable {
     }
 
     public boolean isInvalid() {
+        if (properties == null) {
+            return false;
+        }
+        if (type == IndexPolicyTypeEnum.TOKEN_FILTER
+                && "common_grams".equals(properties.get(PROP_TYPE))) {
+            return true;
+        }
+        if (type == IndexPolicyTypeEnum.TOKENIZER
+                && "ngram".equals(properties.get(PROP_TYPE))) {
+            try {
+                new NGramTokenizerValidator().validate(properties);
+            } catch (DdlException | RuntimeException e) {
+                return true;
+            }
+        }
         return false;
     }
 }
