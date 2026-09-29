@@ -113,13 +113,20 @@ Status PostingByteBuffer::open_spill() {
     return Status::OK();
 }
 
-Status PostingByteBuffer::write_all(std::span<const uint8_t> bytes) {
-    DBUG_EXECUTE_IF("PostingByteBuffer::write_all.enospc", {
-        errno = ENOSPC;
-        return posting_io_error("write", path_);
-    });
-    while (!bytes.empty()) {
-        const ssize_t written = ::write(fd_, bytes.data(), bytes.size());
+Status PostingByteBuffer::flush() {
+    while (fd_ >= 0 && buffered_ != 0) {
+        size_t attempt = buffered_;
+        // Emulates a volume with room for all but the last `keep` pending bytes:
+        // a short write lands first, then the next write fails with ENOSPC.
+        DBUG_EXECUTE_IF("PostingByteBuffer::flush.enospc", {
+            const auto keep = static_cast<size_t>(dp->param<int64_t>("keep", 0));
+            if (keep == 0 || buffered_ <= keep) {
+                errno = ENOSPC;
+                return posting_io_error("write", path_);
+            }
+            attempt = buffered_ - keep;
+        });
+        const ssize_t written = ::write(fd_, buffer_.get(), attempt);
         if (written < 0 && errno == EINTR) {
             continue;
         }
@@ -129,15 +136,10 @@ Status PostingByteBuffer::write_all(std::span<const uint8_t> bytes) {
         if (reporter_ != nullptr) {
             reporter_->record_postings_io(0, static_cast<uint64_t>(written));
         }
-        bytes = bytes.subspan(static_cast<size_t>(written));
-    }
-    return Status::OK();
-}
-
-Status PostingByteBuffer::flush() {
-    if (fd_ >= 0 && buffered_ != 0) {
-        RETURN_IF_ERROR(write_all({buffer_.get(), buffered_}));
-        buffered_ = 0;
+        // The file already holds these bytes, so a retry after a short write
+        // continues with the unwritten tail instead of repeating the prefix.
+        buffered_ -= static_cast<size_t>(written);
+        std::memmove(buffer_.get(), buffer_.get() + written, buffered_);
     }
     return Status::OK();
 }

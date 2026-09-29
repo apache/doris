@@ -71,7 +71,6 @@ public:
 private:
     Status allocate_buffer(size_t required = 1);
     Status open_spill();
-    Status write_all(std::span<const uint8_t> bytes);
     void close_and_remove();
 
     MemoryReporter* reporter_;

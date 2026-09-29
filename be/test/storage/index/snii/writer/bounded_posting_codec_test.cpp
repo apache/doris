@@ -49,12 +49,14 @@ namespace {
 constexpr uint64_t kMiB = 1ULL << 20;
 
 // Every PostingByteBuffer write fails with ENOSPC while this is alive, like a
-// full temporary volume that keeps refusing retries.
+// full temporary volume that keeps refusing retries. With `keep` > 0 the volume
+// first accepts all but the last `keep` pending bytes, so a short write lands
+// before the failure.
 class FullTemporaryVolume {
 public:
-    FullTemporaryVolume() : old_enable_(config::enable_debug_points) {
+    explicit FullTemporaryVolume(size_t keep = 0) : old_enable_(config::enable_debug_points) {
         config::enable_debug_points = true;
-        DebugPoints::instance()->add(kPoint);
+        DebugPoints::instance()->add_with_params(kPoint, {{"keep", std::to_string(keep)}});
     }
     ~FullTemporaryVolume() { release(); }
     void release() {
@@ -63,7 +65,7 @@ public:
     }
 
 private:
-    static constexpr const char* kPoint = "PostingByteBuffer::write_all.enospc";
+    static constexpr const char* kPoint = "PostingByteBuffer::flush.enospc";
     bool old_enable_;
 };
 
@@ -535,6 +537,31 @@ TEST(SniiBoundedPostingCodec, ByteBufferReadsPendingBytesWithoutFlushing) {
     // Once the volume has space again the pending tail is written exactly once.
     full.release();
     ASSERT_TRUE(bytes.spill_and_release_buffer().ok());
+    ASSERT_TRUE(bytes.read_at(0, replay).ok());
+    EXPECT_EQ(replay, pattern);
+}
+
+// A volume that fills up mid-write lands a short prefix before ENOSPC. The
+// retry must continue after that prefix, not append the whole pending buffer
+// again.
+TEST(SniiBoundedPostingCodec, ByteBufferRetriesAfterShortWriteWithoutDuplicating) {
+    PostingByteBuffer bytes(nullptr, /*buffer_bytes=*/8);
+    std::array<uint8_t, 20> pattern {};
+    for (size_t i = 0; i < pattern.size(); ++i) {
+        pattern[i] = static_cast<uint8_t>(i * 29 + 3);
+    }
+    ASSERT_TRUE(bytes.append(pattern).ok());
+    ASSERT_TRUE(bytes.spilled());
+    {
+        FullTemporaryVolume nearly_full(/*keep=*/1);
+        EXPECT_FALSE(bytes.spill_and_release_buffer().ok());
+    }
+    std::array<uint8_t, 20> replay {};
+    ASSERT_TRUE(bytes.read_at(0, replay).ok());
+    EXPECT_EQ(replay, pattern);
+
+    ASSERT_TRUE(bytes.spill_and_release_buffer().ok());
+    EXPECT_EQ(bytes.size(), pattern.size());
     ASSERT_TRUE(bytes.read_at(0, replay).ok());
     EXPECT_EQ(replay, pattern);
 }
