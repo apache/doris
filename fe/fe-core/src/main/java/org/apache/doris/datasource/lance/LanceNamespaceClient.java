@@ -75,10 +75,11 @@ final class LanceNamespaceClient {
     private final List<String> parentNamespace;
     private final List<StorageProperties> storageProperties;
     /**
-     * Serializes the catalog's namespace requests, as it always has. The version requests of a
-     * managed read, made on every such read, do not take it: the REST and Directory namespaces
-     * are safe to call concurrently (lance-jni calls them through a shared reference on its
-     * multi-threaded runtime).
+     * Serializes the namespace and table listings and table existence checks. Table describes and
+     * version requests, which a read makes whenever the table's access is not cached (always for a
+     * managed table), do not take it: the REST and Directory namespaces are safe to call
+     * concurrently (lance-jni calls them through a shared reference on its multi-threaded runtime),
+     * and a stalled describe must not hold up every other table of the catalog.
      */
     private final Object namespaceLock = new Object();
     private final long tableAccessTtlNanos;
@@ -254,12 +255,19 @@ final class LanceNamespaceClient {
         if (managed) {
             // The namespace decides which versions exist; the FE and the BE both read one of them
             // by URI, which is all lance-c supports. The manifest paths the namespace records are
-            // object-store paths under `location`, so `table_uri` must name the same place.
+            // object-store paths under `location`, so `table_uri` must name the same place; it may
+            // add a query, such as presigned credentials, which Doris then opens it with.
             if (StringUtils.isBlank(table.getLocation())) {
                 throw new RuntimeException("Lance namespace returned no location for managed table " + tableId);
             }
-            if (StringUtils.isNotBlank(table.getTableUri()) && !StringUtils.removeEnd(table.getTableUri(), "/")
-                    .equals(StringUtils.removeEnd(table.getLocation(), "/"))) {
+            // An s3+ddb URI commits through DynamoDB, whose handler records and finalizes versions
+            // itself, even on read; the namespace already decides the versions of a managed table.
+            if (StringUtils.startsWithIgnoreCase(datasetUri, "s3+ddb:")) {
+                throw new RuntimeException("Lance namespace returned an s3+ddb URI for managed table " + tableId
+                        + ", whose versions the namespace manages");
+            }
+            if (StringUtils.isNotBlank(table.getTableUri())
+                    && !withoutQuery(table.getTableUri()).equals(withoutQuery(table.getLocation()))) {
                 throw new RuntimeException("Lance namespace returned a table_uri that differs from location for "
                         + "managed table " + tableId);
             }
@@ -272,6 +280,14 @@ final class LanceNamespaceClient {
         // namespace's current one, and must be checked against the location the namespace
         // reports now, not against one it reported before moving the table.
         return new CachedTableAccess(access, managed ? 0 : tableAccessTtlNanos(datasetUri, table.getStorageOptions()));
+    }
+
+    /**
+     * A location without its query and trailing slash. A fragment is kept: Lance ignores it, but
+     * joins a branch directory after it, so it would move the branch onto the table root.
+     */
+    private static String withoutQuery(String uri) {
+        return StringUtils.removeEnd(StringUtils.substringBefore(uri, "?"), "/");
     }
 
     /**
@@ -316,14 +332,30 @@ final class LanceNamespaceClient {
      * records no version.
      */
     Optional<TableVersion> latestManagedVersion(LanceTableAccess access, Optional<String> branch) {
-        ListTableVersionsRequest request = new ListTableVersionsRequest().id(access.getNamespaceTableId())
-                .descending(true).limit(1);
-        branch.ifPresent(request::branch);
-        ListTableVersionsResponse response = namespace.listTableVersions(request);
-        // The maximum rather than the first entry, in case a namespace ignores the limit.
-        return response.getVersions() == null ? Optional.empty()
-                : response.getVersions().stream().filter(version -> version.getVersion() != null)
-                        .max(Comparator.comparingLong(TableVersion::getVersion));
+        String pageToken = null;
+        Set<String> consumedTokens = new HashSet<>();
+        do {
+            ListTableVersionsRequest request = new ListTableVersionsRequest().id(access.getNamespaceTableId())
+                    .descending(true).limit(1);
+            branch.ifPresent(request::branch);
+            if (pageToken != null) {
+                request.pageToken(pageToken);
+            }
+            ListTableVersionsResponse response = namespace.listTableVersions(request);
+            // The maximum rather than the first entry, in case a namespace ignores the limit. A
+            // limit is an upper bound, so a page may be empty and the version on a later one.
+            Optional<TableVersion> newest = response.getVersions() == null ? Optional.empty()
+                    : response.getVersions().stream().filter(version -> version.getVersion() != null)
+                            .max(Comparator.comparingLong(TableVersion::getVersion));
+            if (newest.isPresent()) {
+                return newest;
+            }
+            pageToken = response.getPageToken();
+            if (StringUtils.isNotEmpty(pageToken) && !consumedTokens.add(pageToken)) {
+                throw new IllegalStateException("Lance namespace repeated a pagination token");
+            }
+        } while (StringUtils.isNotEmpty(pageToken));
+        return Optional.empty();
     }
 
     /**
@@ -400,9 +432,7 @@ final class LanceNamespaceClient {
     private DescribeTableResponse describeTable(List<String> tableId) {
         DescribeTableRequest request = new DescribeTableRequest().id(tableId).withTableUri(true)
                 .vendCredentials(LANCE_REST.equals(catalogType));
-        synchronized (namespaceLock) {
-            return namespace.describeTable(request);
-        }
+        return namespace.describeTable(request);
     }
 
     private List<String> buildNamespaceId(String dbName) throws DdlException {

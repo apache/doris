@@ -55,8 +55,8 @@ public final class LanceTableAccess {
 
     /**
      * The same table on one of its branches. A branch is a separate manifest chain with its own
-     * root directory, which the SDK reports as the checked-out dataset's URI; a reader that opens
-     * by URI, such as the BE, addresses the branch by that root. The storage options and namespace
+     * root directory, {@code <table>/tree/<branch>}; a reader that opens by URI, such as the BE,
+     * addresses the branch by that root. The storage options and namespace
      * identity are unchanged.
      */
     public LanceTableAccess onBranch(String branchName, String branchUri) {

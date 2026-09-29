@@ -276,15 +276,17 @@ final class LanceCatalogClient implements AutoCloseable {
      * Pins one resource generation, resolved table access, and the Dataset version for the whole read.
      *
      * <p>Every dataset is read by its URI and a version, as the BE reads it. The latest version of
-     * the main chain in storage is opened once as a handle, and every other selector is a checkout
-     * from it. A tag is resolved first to the chain and version it points at, so a tag created on a
-     * branch selects that branch. An explicit version on the main chain skips the handle.
+     * the main chain in storage is opened once as a handle, and the other selectors are checkouts
+     * from it, except an explicit version on the main chain and a managed table's branch (below).
+     * A tag is resolved first to the chain and version it points at, so a tag created on a branch
+     * selects that branch.
      *
      * <p>For a managed table the namespace decides which versions exist. "Latest" is the newest
      * version it records, never the newest manifest in storage, and every version a read selects
-     * must be one it records, at the manifest path Doris reads ({@link LanceManifestPaths}). The
-     * handle only supplies what storage holds: tag files, branch locations, and the manifest
-     * listing that FOR TIME AS OF takes commit times from.
+     * must be one it records, at the manifest path Doris reads ({@link LanceManifestPaths}). A
+     * branch is read from its own directory, as the BE reads it, so it does not depend on the main
+     * chain; the main handle only supplies tag files and the manifest listing that FOR TIME AS OF
+     * on main takes commit times from.
      */
     private <T> T readTableSnapshot(String dbName, String tableName, LanceRefSelector selector,
             SnapshotReader<T> reader) {
@@ -297,7 +299,9 @@ final class LanceCatalogClient implements AutoCloseable {
                 state.access = metrics.measure(Stage.TABLE_ACCESS,
                         () -> namespaceClient.resolveTableAccess(dbName, tableName));
                 OptionalLong direct = directMainVersion(state, metrics);
-                if (direct.isPresent() || isLatestMain(selector)) {
+                if (state.access.isManagedVersioning() && state.branch.isPresent() && !selector.getTag().isPresent()) {
+                    result = readManagedBranch(allocator, state, reader, metrics);
+                } else if (direct.isPresent() || isLatestMain(selector)) {
                     state.version = direct;
                     try (Dataset dataset = openDataset(allocator, state.access, direct, metrics)) {
                         result = reader.read(dataset, state.access, metrics);
@@ -350,7 +354,7 @@ final class LanceCatalogClient implements AutoCloseable {
     private static final class ReadState {
         private final LanceRefSelector selector;
         private final String tableName;
-        /** The table's access; for a branch, {@link #accessOf} derives the branch's from it. */
+        /** The table's access; a branch's access is derived from it with {@code onBranch}. */
         private LanceTableAccess access;
         private Optional<String> branch;
         /**
@@ -433,36 +437,11 @@ final class LanceCatalogClient implements AutoCloseable {
                 return reader.read(target, accessOf(target, state), metrics);
             }
         }
-        if (state.branch.isPresent() && state.access.isManagedVersioning() && selector.getSnapshot().isPresent()
-                && selector.getSnapshot().get().getType() == TableSnapshot.VersionType.VERSION) {
-            // The namespace tells a missing branch from a missing version, so the version is
-            // checked out directly, whatever state the branch's newest version is in.
-            String branch = state.branch.get();
-            state.version = OptionalLong.of(
-                    LanceSnapshotResolver.parseVersion(selector.getSnapshot().get().getValue()));
-            requireRecorded(state, state.branch, state.version.getAsLong(), metrics);
-            state.branchExists = true;
-            try (Dataset dataset = checkout(main, Ref.ofBranch(branch, state.version.getAsLong()), metrics)) {
-                return reader.read(dataset, accessOf(dataset, state), metrics);
-            }
-        }
         if (state.branch.isPresent()) {
             String branch = state.branch.get();
             // Check out the branch's latest version first even when a version is already known, so
             // a missing branch and a missing version inside an existing branch are told apart.
-            Ref branchHead = Ref.ofBranch(branch);
-            if (state.access.isManagedVersioning()) {
-                if (selector.getSnapshot().isPresent()) {
-                    // FOR TIME AS OF selects among the versions the namespace records and checks
-                    // the one it selects, as on main, so the branch's newest version in storage
-                    // only serves to list the branch's manifests.
-                    namespaceVersions(state, state.branch, metrics);
-                } else {
-                    branchHead = Ref.ofBranch(branch, recordedHead(state, Optional.of(branch), metrics));
-                }
-                state.branchExists = true;
-            }
-            try (Dataset latest = checkout(main, branchHead, metrics)) {
+            try (Dataset latest = checkout(main, Ref.ofBranch(branch), metrics)) {
                 state.branchExists = true;
                 LanceTableAccess branchAccess = accessOf(latest, state);
                 if (!state.version.isPresent() && selector.getSnapshot().isPresent()) {
@@ -482,6 +461,48 @@ final class LanceCatalogClient implements AutoCloseable {
         try (Dataset dataset = checkout(main, Ref.ofMain(state.version.getAsLong()), metrics)) {
             return reader.read(dataset, state.access, metrics);
         }
+    }
+
+    /**
+     * Reads a branch of a managed table from the branch's directory, by URI and version as the BE
+     * reads it. The namespace answers for the branch first, so a branch it lacks is reported as
+     * missing, and the main chain need not be readable. FOR TIME AS OF lists the branch's
+     * manifests from its newest version in storage and, as on main, selects among the versions the
+     * namespace records.
+     */
+    private <T> T readManagedBranch(BufferAllocator allocator, ReadState state, SnapshotReader<T> reader,
+            LanceMetadataMetrics metrics) throws Exception {
+        String branch = state.branch.get();
+        LanceTableAccess branchAccess = state.access.onBranch(branch,
+                branchUri(state.access.getDatasetUri(), branch));
+        Optional<TableSnapshot> snapshot = state.selector.getSnapshot();
+        if (!snapshot.isPresent()) {
+            state.version = OptionalLong.of(recordedHead(state, state.branch, metrics));
+        } else if (snapshot.get().getType() == TableSnapshot.VersionType.VERSION) {
+            state.version = OptionalLong.of(LanceSnapshotResolver.parseVersion(snapshot.get().getValue()));
+            requireRecorded(state, state.branch, state.version.getAsLong(), metrics);
+        } else {
+            namespaceVersions(state, state.branch, metrics);
+            state.branchExists = true;
+            try (Dataset latest = openDataset(allocator, branchAccess, OptionalLong.empty(), metrics)) {
+                state.version = resolveSnapshotVersion(latest, branchAccess, snapshot.get(), state, metrics);
+            }
+        }
+        state.branchExists = true;
+        try (Dataset dataset = openDataset(allocator, branchAccess, state.version, metrics)) {
+            return reader.read(dataset, branchAccess, metrics);
+        }
+    }
+
+    /**
+     * The URI of a branch's directory, joined as Lance's {@code BranchLocation} joins it:
+     * {@code tree/<branch>} under the table root, before the URI's query string.
+     */
+    static String branchUri(String tableUri, String branch) {
+        int query = tableUri.indexOf('?');
+        String path = query < 0 ? tableUri : tableUri.substring(0, query);
+        String joined = path + (path.endsWith("/") ? "" : "/") + "tree/" + StringUtils.stripStart(branch, "/");
+        return query < 0 ? joined : joined + tableUri.substring(query);
     }
 
     private static long tagVersion(Dataset main, String tag, ReadState state) {
@@ -689,6 +710,10 @@ final class LanceCatalogClient implements AutoCloseable {
             records = new HashMap<>();
             for (TableVersion recorded : namespaceVersions(state, access.getBranch(), metrics)) {
                 if (recorded.getVersion() != null) {
+                    // Selection compares the commit times of the manifests Doris reads, so each
+                    // recorded version must be at one of them, not only the selected one.
+                    LanceManifestPaths.check(state.access.getDatasetUri(), access.getBranch(), recorded.getVersion(),
+                            recorded.getManifestPath(), state.tableName);
                     records.put(recorded.getVersion(), recorded);
                 }
             }
