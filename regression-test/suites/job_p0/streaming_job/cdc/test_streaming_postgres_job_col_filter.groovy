@@ -248,6 +248,35 @@ suite("test_streaming_postgres_job_col_filter", "p0,external,pg,external_docker,
 
         qt_select_after_readd_excluded """ SELECT * FROM ${table1} ORDER BY name ASC """
 
+        // Commit a baseline without secret before renaming an included column to that name.
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            sql """ALTER TABLE ${pgSchema}.${table1} DROP COLUMN secret"""
+            sql """INSERT INTO ${pgSchema}.${table1} (name, age) VALUES ('F1', 6)"""
+        }
+        Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).until({
+            (sql "SELECT count(*) FROM ${table1} WHERE name='F1'")[0][0] as int == 1
+        })
+        completed = (sql """select SucceedTaskCount from jobs("type"="insert")
+                              where Name='${jobName}'""")[0][0] as long
+        Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).until({
+            (sql """select SucceedTaskCount from jobs("type"="insert")
+                     where Name='${jobName}'""")[0][0] as long > completed
+        })
+        def rowsBeforeRename = sql "SELECT name, age FROM ${table1} ORDER BY name"
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            sql """ALTER TABLE ${pgSchema}.${table1} RENAME COLUMN age TO secret"""
+            // DML makes pgoutput emit the new Relation schema.
+            sql """UPDATE ${pgSchema}.${table1} SET secret=99 WHERE name='B1'"""
+        }
+        Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).until({
+            def job = sql """select Status, ErrorMsg from jobs("type"="insert")
+                             where Name='${jobName}'"""
+            (job[0][0] == "PAUSED" && job[0][1].contains("[SCHEMA_CHANGE_UNSUPPORTED]")
+                    && job[0][1].contains("rename"))
+        })
+        // The rename must not become DROP age or change any previously synced values.
+        assert (sql "SELECT name, age FROM ${table1} ORDER BY name") == rowsBeforeRename
+
         sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
         def jobCountRsp = sql """select count(1) from jobs("type"="insert") where Name = '${jobName}'"""
         assert jobCountRsp.get(0).get(0) == 0

@@ -293,6 +293,41 @@ class PostgresSchemaChangeDeserializeTest {
     }
 
     @Test
+    void relationRenameAcrossExcludedColumnsRequiresConfirmation() throws Exception {
+        Table baseline = storedTable("id", "name");
+        Table fresh = storedTable("id", "secret");
+        for (String excluded : List.of("name", "secret")) {
+            PostgresDebeziumJsonDeserializer deserializer = newDeserializer(baseline);
+            deserializer.excludeColumnsCache = Map.of(TABLE.table(), Set.of(excluded));
+
+            DeserializeResult result = deserializer.deserialize(CONTEXT, schemaRecord(fresh));
+
+            assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
+            assertNotNull(result.getUnsupportedReason());
+            assertTrue(result.getUnsupportedReason().contains("rename"));
+            assertTrue(result.getDdls().isEmpty(), "rename must not emit a partial ADD or DROP");
+            assertEquals(fresh, result.getUpdatedSchemas().get(TABLE).getTable());
+            assertEquals(baseline, deserializer.getTableSchemas().get(TABLE).getTable());
+        }
+    }
+
+    @Test
+    void relationRenameBetweenExcludedColumnsSkipsDdl() throws Exception {
+        Table baseline = storedTable("id", "name");
+        Table fresh = storedTable("id", "secret");
+        PostgresDebeziumJsonDeserializer deserializer = newDeserializer(baseline);
+        deserializer.excludeColumnsCache = Map.of(TABLE.table(), Set.of("name", "secret"));
+
+        DeserializeResult result = deserializer.deserialize(CONTEXT, schemaRecord(fresh));
+
+        assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
+        assertNull(result.getUnsupportedReason());
+        assertTrue(result.getDdls().isEmpty());
+        assertEquals(fresh, result.getUpdatedSchemas().get(TABLE).getTable());
+        assertEquals(baseline, deserializer.getTableSchemas().get(TABLE).getTable());
+    }
+
+    @Test
     void relationAddColumn_withDefault_omitsDefaultAndNotNull() throws Exception {
         PostgresDebeziumJsonDeserializer deserializer = newDeserializer(storedTable("id"));
         Table fresh =

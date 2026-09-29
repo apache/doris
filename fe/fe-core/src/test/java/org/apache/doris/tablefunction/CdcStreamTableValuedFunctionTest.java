@@ -75,6 +75,33 @@ public class CdcStreamTableValuedFunctionTest {
     }
 
     @Test
+    public void testInvalidSnapshotPropertiesAreRejected() {
+        for (String key : List.of(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE,
+                DataSourceConfigKeys.SNAPSHOT_PARALLELISM)) {
+            for (String value : List.of("oops", "0", "-1", "2147483648")) {
+                Map<String, String> properties = baseProperties();
+                properties.put(key, value);
+                AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                        () -> CdcStreamTableValuedFunction.validateProperties(properties));
+                Assertions.assertTrue(exception.getMessage().contains(key));
+            }
+        }
+    }
+
+    @Test
+    public void testSnapshotParallelismRequiresEnoughServerIds() throws Exception {
+        Map<String, String> properties = baseProperties();
+        properties.put(DataSourceConfigKeys.SERVER_ID, "5400-5401");
+        properties.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "3");
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> CdcStreamTableValuedFunction.validateProperties(properties));
+        Assertions.assertTrue(exception.getMessage().contains("server_id range size 2"));
+
+        properties.put(DataSourceConfigKeys.SNAPSHOT_PARALLELISM, "2");
+        CdcStreamTableValuedFunction.validateProperties(properties);
+    }
+
+    @Test
     public void testMysqlJdbcUrlIsNormalizedInPayload() throws Exception {
         CdcStreamTableValuedFunction function = new CdcStreamTableValuedFunction(baseProperties());
 

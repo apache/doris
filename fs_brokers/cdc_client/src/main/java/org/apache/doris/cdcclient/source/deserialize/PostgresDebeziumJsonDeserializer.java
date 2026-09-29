@@ -152,20 +152,22 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
         List<Column> added = new ArrayList<>();
         List<String> dropped = new ArrayList<>();
         for (Column col : freshTable.columns()) {
-            if (!excludedCols.contains(col.name())
-                    && stored.getTable().columnWithName(col.name()) == null) {
+            if (stored.getTable().columnWithName(col.name()) == null) {
                 added.add(col);
             }
         }
         for (Column col : stored.getTable().columns()) {
-            if (!excludedCols.contains(col.name())
-                    && freshTable.columnWithName(col.name()) == null) {
+            if (freshTable.columnWithName(col.name()) == null) {
                 dropped.add(col.name());
             }
         }
 
         // Relation messages cannot distinguish a rename from simultaneous ADD/DROP.
-        if (!added.isEmpty() && !dropped.isEmpty()) {
+        // Detect it before filtering so renames across excluded columns cannot emit partial DDL.
+        boolean hasAddedAndDropped = !added.isEmpty() && !dropped.isEmpty();
+        added.removeIf(col -> excludedCols.contains(col.name()));
+        dropped.removeIf(excludedCols::contains);
+        if (hasAddedAndDropped && (!added.isEmpty() || !dropped.isEmpty())) {
             return unsupportedSchemaChange(
                     updatedSchemas,
                     "Cannot distinguish a column rename from simultaneous ADD/DROP");

@@ -150,6 +150,39 @@ suite("test_streaming_job_cdc_stream_mysql", "p0,external,mysql,external_docker,
             exception "snapshot_split_key"
         }
 
+        def originalJob = sql """select ExecuteSql, Status from jobs("type"="insert")
+                                 where Name='${jobName}'"""
+        def invalidProperties = [
+            ['"snapshot_parallelism" = "oops"', "snapshot_parallelism"],
+            ['"snapshot_split_size" = "0"', "snapshot_split_size"],
+            ['"snapshot_parallelism" = "3", "server_id" = "5400-5401"', "server_id range size 2"]
+        ]
+        invalidProperties.each { properties, message ->
+            test {
+                sql """
+                    ALTER JOB ${jobName}
+                    INSERT INTO ${currentDb}.${dorisTable} (name, age)
+                    SELECT name, age FROM cdc_stream(
+                        "type" = "mysql",
+                        "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                        "driver_url" = "${driver_url}",
+                        "driver_class" = "com.mysql.cj.jdbc.Driver",
+                        "user" = "root",
+                        "password" = "123456",
+                        "database" = "${mysqlDb}",
+                        "table" = "${mysqlTable}",
+                        "offset" = "initial",
+                        "snapshot_split_key" = "name",
+                        ${properties}
+                    )
+                """
+                exception message
+            }
+            // Rejected ALTER must not replace the SQL or change the paused state.
+            assert (sql """select ExecuteSql, Status from jobs("type"="insert")
+                           where Name='${jobName}'""") == originalJob
+        }
+
         sql """
             ALTER JOB ${jobName}
             INSERT INTO ${currentDb}.${dorisTable} (name, age)

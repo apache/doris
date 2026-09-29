@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.tablefunction.CdcStreamTableValuedFunction;
 
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
@@ -319,6 +320,7 @@ public class AlterJobCommand extends AlterCommand implements ForwardWithSync, Ne
                                     inputTvf.getProperties().getMap().get(unmodifiable)),
                             "The '%s' property cannot be modified in ALTER JOB for cdc_stream", unmodifiable);
                 }
+                CdcStreamTableValuedFunction.validateProperties(inputTvf.getProperties().getMap());
                 break;
             default:
                 throw new IllegalArgumentException("Unsupported tvf type:" + inputTvf.getFunctionName());
