@@ -739,15 +739,14 @@ jobs:
 
           ## Final response format
           - After completing the review, you MUST provide a final summary opinion based on the rules defined in AGENTS.md and the code-review skill. The summary must include conclusions for each applicable critical checkpoint.
-          - If the overall quality of PR is good and there are no critical blocking issues (even if there are some tolerable minor issues), submit an opinion on approval using: gh pr review PLACEHOLDER_PR_NUMBER --comment --body "<summary>"
-              - Note that when submitting review comments in this way, the content will not be escaped, so you need to input multi-line text with line breaks directly, rather than using `\n`.
-          - If issues found, submit a review with inline comments plus a comprehensive summary body. Use GitHub Reviews API to ensure comments are inline:
-              - Inline comment bodies may include GitHub suggested changes blocks when you can propose a precise patch.
-              - Prefer suggested changes for small, self-contained fixes (for example typos, trivial refactors, or narrowly scoped code corrections).
-              - Do not force suggested changes for broad, architectural, or multi-file issues; explain those normally.
-              - Build a JSON array of comments like: [{ "path": "<file>", "position": <diff_position>, "body": "..." }]
-              - Submit via: gh api repos/PLACEHOLDER_REPO/pulls/PLACEHOLDER_PR_NUMBER/reviews --input <json_file>
-              - The JSON file should contain: {"event":"REQUEST_CHANGES","body":"<summary>","comments":[...]}
+          - After the required convergence rounds and final sweep, declare the COMPLETE final review in a JSON file with exactly these fields:
+            {"body":"<comprehensive summary>","comments":[{"path":"<file>","position":<diff_position>,"body":"[P1] <finding title and explanation>"}],"existing_blocking_comment_ids":[]}
+          - Every new finding must be inline and start with [P0], [P1], [P2] or [P3]. Suggested changes are welcome for precise, self-contained fixes.
+          - Include ALL accepted new findings in comments. Use an empty array when there are none. In existing_blocking_comment_ids, list the numeric IDs of every already-reported P0/P1 inline finding you independently confirmed still applies to this head. Do not duplicate those findings. Explain their disposition in the summary; use an empty array only if none still apply.
+          - Submit only after all review completion criteria are satisfied, using the trusted helper: python3 "$RUNNER_TEMP/submit_review.py" --context-dir PLACEHOLDER_CONTEXT_DIR --input-file <json_file>
+          - The helper pins the head, adds this invocation's completion marker, submits the review and verifies the entire summary and inline comment set. P0/P1 results request changes; other completed reviews are comments. This is the ONLY final GitHub submission path. Do not submit reviews or inline comments directly with gh.
+          - If the helper reports an error, inspect it and verify the outcome before proceeding. Do not change or delete its review-run.json or review-submission.json files. A retry with the identical JSON reads back a submitted review instead of posting it again.
+          - Mark the goal complete only after the helper reports the verified review ID. A completed review with P0/P1 is still a completed execution; the workflow applies the separate blocking verdict.
           PROMPT
 
           sed -i "s|PLACEHOLDER_REPO|${REPO}|g" "$REVIEW_CONTEXT_DIR/review_prompt.txt"
@@ -859,16 +858,17 @@ jobs:
           HELPER_REF: ${{ github.workflow_sha || github.sha }}
         run: |
           review_step_started_at=$SECONDS
-          review_started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+          for script in run_review_with_resume.py submit_review.py; do
+            gh api \
+              -H "Accept: application/vnd.github.raw" \
+              "repos/${REPO}/contents/.github/scripts/${script}?ref=${HELPER_REF}" \
+              > "$RUNNER_TEMP/$script"
+          done
           helper="$RUNNER_TEMP/run_review_with_resume.py"
-          gh api \
-            -H "Accept: application/vnd.github.raw" \
-            "repos/${REPO}/contents/.github/scripts/run_review_with_resume.py?ref=${HELPER_REF}" \
-            > "$helper"
 
           # Share the step's budget; reserve two minutes for process cleanup and
-          # the existing GitHub review verification. Helper download counts too.
+          # GitHub review verification. Both helper downloads count too.
           budget_seconds=$((REVIEW_TIMEOUT_MINUTES * 60 - (SECONDS - review_step_started_at) - 120))
           set +e
           # GitHub-hosted runners are ephemeral. Avoid workspace-write here because
@@ -935,32 +935,6 @@ jobs:
             fi
           fi
 
-          if [ -z "$failure_reason" ]; then
-            reviews_file="$REVIEW_CONTEXT_DIR/pr_reviews_after_codex.json"
-            reviews_api_ok=false
-            review_verified=false
-            for attempt in 1 2 3 4 5 6; do
-              if gh api --paginate --slurp "repos/${REPO}/pulls/${PR_NUMBER}/reviews" > "$reviews_file"; then
-                reviews_api_ok=true
-                if jq -e --arg started_at "$review_started_at" --arg head_sha "$HEAD_SHA" '
-                  (add // [])
-                  | map(select((.submitted_at // "") >= $started_at and (.commit_id // "") == $head_sha))
-                  | length > 0
-                ' "$reviews_file" >/dev/null; then
-                  review_verified=true
-                  break
-                fi
-              fi
-              sleep 5
-            done
-
-            if [ "$review_verified" != "true" ] && [ "$reviews_api_ok" != "true" ]; then
-              failure_reason="Codex completed, but the workflow could not verify pull request reviews through GitHub API."
-            elif [ "$review_verified" != "true" ]; then
-              failure_reason="Codex completed, but no new pull request review was submitted for the current head SHA."
-            fi
-          fi
-
           if [ -n "$failure_reason" ]; then
             {
               echo "failure_reason<<EOF"
@@ -969,6 +943,12 @@ jobs:
             } >> "$GITHUB_OUTPUT"
             exit 1
           fi
+
+          # Execution succeeded even when verified findings block the PR check.
+          # This result is written only after the runner's own API readback.
+          jq -er 'select(.state == "success" or .state == "failure") |
+            "review_state=\(.state)\np0=\(.p0)\np1=\(.p1)"' \
+            "$REVIEW_CONTEXT_DIR/review-result.json" >> "$GITHUB_OUTPUT"
 
       - name: Record invalid Codex auth
         id: auth_invalid_record
@@ -1104,6 +1084,9 @@ jobs:
           REPO: ${{ github.repository }}
           REVIEW_CONTEXT_OUTCOME: ${{ steps.review_context.outcome }}
           REVIEW_OUTCOME: ${{ steps.review.outcome }}
+          REVIEW_STATE: ${{ steps.review.outputs.review_state }}
+          REVIEW_P0: ${{ steps.review.outputs.p0 }}
+          REVIEW_P1: ${{ steps.review.outputs.p1 }}
         run: |
           state="pending"
           summary="Automated review did not pass for PR #${PR_NUMBER} at ${BASE_SHA:0:12}."
@@ -1111,8 +1094,13 @@ jobs:
           if [ "$JOB_STATUS" = "success" ] && \
              [ "$REVIEW_CONTEXT_OUTCOME" = "success" ] && \
              [ "$REVIEW_OUTCOME" = "success" ]; then
-            state="success"
-            summary="Automated review passed for PR #${PR_NUMBER} at ${BASE_SHA:0:12}."
+            case "$REVIEW_STATE" in
+              success|failure)
+                state="$REVIEW_STATE"
+                summary="Review completed for PR #${PR_NUMBER}: P0=${REVIEW_P0}, P1=${REVIEW_P1}."
+                ;;
+              *) echo "::error::Missing verified review verdict"; exit 1 ;;
+            esac
           fi
 
           source_context="code-review/source/automated/pr-${PR_NUMBER}/base-${BASE_SHA}"
