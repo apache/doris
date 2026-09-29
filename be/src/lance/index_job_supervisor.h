@@ -129,6 +129,13 @@ public:
     void force_cgroup_migration_failure_for_test() {
         _force_cgroup_migration_failure.store(true);
     }
+    // Overrides the worker exec target and argv (production default:
+    // execve("/proc/self/exe", {"doris_be", "--lance-worker"}, ...)) so unit
+    // tests can point the supervisor at a protocol-speaking fake worker
+    // executable (cdc_client_mgr.cpp:242-245 BE_TEST short-circuit precedent).
+    // Set before the first submit(); like the other force_* hooks it is not
+    // synchronized against in-flight executions.
+    void force_worker_exec_for_test(std::string path, std::vector<std::string> args);
     int inflight_count_for_test() const { return _inflight_count.load(); }
     uint32_t queue_depth_for_test() const;
 #endif
@@ -179,6 +186,13 @@ private:
     std::atomic<int64_t> _force_report_margin_seconds {-1};
     std::atomic<bool> _force_preflight_failure {false};
     std::atomic<bool> _force_cgroup_migration_failure {false};
+#ifdef BE_TEST
+    // Exec target override backing force_worker_exec_for_test; empty = the
+    // production self-exec. BE_TEST-gated (unlike the atomic hooks above) so
+    // production binaries carry no string/vector members for it.
+    std::string _force_exec_path;
+    std::vector<std::string> _force_exec_args;
+#endif
 };
 
 } // namespace lance
