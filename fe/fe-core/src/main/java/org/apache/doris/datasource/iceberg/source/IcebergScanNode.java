@@ -102,6 +102,7 @@ import org.apache.iceberg.ContentScanTask;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.DeleteFileIndex;
+import org.apache.iceberg.DorisDataTableScan;
 import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
@@ -1886,6 +1887,11 @@ public class IcebergScanNode extends FileQueryScanNode {
                         selectedSchema, "Schema %s for Iceberg scan is null", info.getSchemaId()));
             }
         }
+        if (!isSystemTable) {
+            // Iceberg 1.11 skips spec rebinding when only the schema changed, and its snapshot
+            // schema can differ from the current schema deliberately projected for a branch.
+            scan = DorisDataTableScan.wrap(scan);
+        }
         Schema scanSchema = scan.schema();
 
         // set filter
@@ -2387,7 +2393,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                 .reduce(Expressions.alwaysTrue(), Expressions::and);
 
         // Get all partition specs by their IDs for later use
-        Map<Integer, PartitionSpec> specsById = icebergTable.specs();
+        Map<Integer, PartitionSpec> specsById = DorisDataTableScan.specsForScan(scan);
         boolean caseSensitive = true;
 
         // Create residual evaluators for each partition spec
@@ -2987,7 +2993,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                 try (CloseableIterator<ManifestFile> matchingManifest =
                         IcebergUtils.getMatchingManifest(
                                 createTableScan().snapshot().dataManifests(icebergTable.io()),
-                                icebergTable.specs(),
+                                DorisDataTableScan.specsForScan(createTableScan()),
                                 createTableScan().filter()).iterator()) {
                     int cnt = 0;
                     while (matchingManifest.hasNext()) {
