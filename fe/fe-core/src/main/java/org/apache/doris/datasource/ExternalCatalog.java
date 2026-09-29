@@ -188,7 +188,7 @@ public abstract class ExternalCatalog
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
     private ThreadLocal<Boolean> invalidateEngineCacheOnDatabaseRemoval =
             ThreadLocal.withInitial(() -> true);
-    private volatile boolean invalidatingAllMetaCache;
+    private transient ThreadLocal<Boolean> invalidatingAllMetaCache = ThreadLocal.withInitial(() -> false);
     protected ExecutionAuthenticator executionAuthenticator;
     protected ThreadPoolExecutor threadPoolWithPreAuth;
     // Map lowercase database names to actual remote database names for case-insensitive lookup
@@ -723,26 +723,30 @@ public abstract class ExternalCatalog
     /**
      * Refresh meta cache only (database level cache), without invalidating catalog level cache.
      */
-    private synchronized void refreshMetaCacheOnly(boolean invalidCache) {
-        if (metaCache != null) {
-            // A concurrent row-count load can finish while invalidateAll retires database objects.
-            // Fence before the generation swap, then close the window after engine invalidation.
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(id);
-            // A catalog-wide engine invalidation below supersedes every database invalidation.
-            // The legacy cache uses a synchronous removal listener, so this thread-local scope
-            // prevents one full SDK-cache scan per cached database without affecting concurrent
-            // expiry callbacks on other threads.
-            invalidateEngineCacheOnDatabaseRemoval.set(!invalidCache);
-            invalidatingAllMetaCache = true;
-            try {
-                metaCache.invalidateAll();
-            } finally {
-                invalidatingAllMetaCache = false;
-                invalidateEngineCacheOnDatabaseRemoval.remove();
-                if (!invalidCache) {
-                    // No catalog-wide engine invalidation follows, so close the row-count fence here.
-                    Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(id);
-                }
+    private void refreshMetaCacheOnly(boolean invalidCache) {
+        Runnable objectInvalidation;
+        ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        synchronized (this) {
+            if (metaCache == null) {
+                return;
+            }
+            // Publish the names/object generation transition together, before allowing another
+            // catalog initialization. The old cache removal callbacks can be much slower.
+            cacheMgr.invalidateRowCountCache(id);
+            metaCache.invalidateNames();
+            objectInvalidation = metaCache.retireObjects();
+        }
+        // A catalog-wide engine invalidation below supersedes every database invalidation.
+        // Removal listeners are synchronous, but run them after releasing the catalog monitor.
+        invalidateEngineCacheOnDatabaseRemoval.set(!invalidCache);
+        invalidatingAllMetaCache.set(true);
+        try {
+            objectInvalidation.run();
+        } finally {
+            invalidatingAllMetaCache.remove();
+            invalidateEngineCacheOnDatabaseRemoval.remove();
+            if (!invalidCache) {
+                cacheMgr.invalidateRowCountCache(id);
             }
         }
     }
@@ -1103,6 +1107,7 @@ public abstract class ExternalCatalog
         objectCreated = false;
         metadataLoadEpoch = new AtomicLong();
         invalidateEngineCacheOnDatabaseRemoval = ThreadLocal.withInitial(() -> true);
+        invalidatingAllMetaCache = ThreadLocal.withInitial(() -> false);
         // TODO: This code is to compatible with older version of metadata.
         //  Could only remove after all users upgrate to the new version.
         if (logType == null) {
@@ -1360,7 +1365,7 @@ public abstract class ExternalCatalog
     }
 
     boolean shouldInvalidateRowCountOnDatabaseRemoval() {
-        return invalidateEngineCacheOnDatabaseRemoval.get() && !invalidatingAllMetaCache;
+        return invalidateEngineCacheOnDatabaseRemoval.get() && !invalidatingAllMetaCache.get();
     }
 
     boolean shouldInvalidateRoutedCacheOnDatabaseRemoval() {

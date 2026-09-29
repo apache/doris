@@ -270,7 +270,12 @@ public class RefreshManager {
                         // full-table invalidation the leader uses.
                         LOG.warn("failed to refresh affected partitions when replaying refresh table for {}",
                                 table.get().getNameWithFullQualifiers(), e);
-                        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(table.get());
+                        try {
+                            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(table.get());
+                        } finally {
+                            table.get().unsetObjectCreated();
+                            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(table.get());
+                        }
                     }
                     if (table.get() instanceof HMSExternalTable && log.getLastUpdateTime() > 0) {
                         ((HMSExternalTable) table.get()).setUpdateTime(log.getLastUpdateTime());

@@ -484,6 +484,7 @@ public class CatalogMgrTest {
         TestingUnregisterCatalog catalog = new TestingUnregisterCatalog(catalogId);
         @SuppressWarnings("unchecked")
         MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache = Mockito.mock(MetaCache.class);
+        Mockito.when(metaCache.retireObjects()).thenReturn(() -> { });
         catalog.installMetaCache(metaCache);
 
         Env env = Mockito.mock(Env.class);
@@ -496,9 +497,44 @@ public class CatalogMgrTest {
 
         InOrder order = Mockito.inOrder(cacheMgr, metaCache);
         order.verify(cacheMgr).invalidateRowCountCache(catalogId);
-        order.verify(metaCache).invalidateAll();
+        order.verify(metaCache).invalidateNames();
+        order.verify(metaCache).retireObjects();
         order.verify(cacheMgr).invalidateCatalog(catalogId);
         Mockito.verify(cacheMgr, Mockito.never()).getRowCountCache();
+    }
+
+    @Test
+    void testCatalogRefreshRunsRemovalCallbacksOutsideCatalogMonitor() throws Exception {
+        long catalogId = 99L;
+        TestingUnregisterCatalog catalog = new TestingUnregisterCatalog(catalogId);
+        @SuppressWarnings("unchecked")
+        MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache = Mockito.mock(MetaCache.class);
+        catalog.installMetaCache(metaCache);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        CountDownLatch monitorAcquired = new CountDownLatch(1);
+        Mockito.when(metaCache.retireObjects()).thenReturn(() -> {
+            executor.submit(() -> {
+                synchronized (catalog) {
+                    monitorAcquired.countDown();
+                }
+            });
+            try {
+                Assertions.assertTrue(monitorAcquired.await(5, TimeUnit.SECONDS));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(e);
+            }
+        });
+        Env env = Mockito.mock(Env.class);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            catalog.onRefreshCache(false);
+        } finally {
+            executor.shutdownNow();
+        }
+        Mockito.verify(cacheMgr, Mockito.times(2)).invalidateRowCountCache(catalogId);
     }
 
     @Test

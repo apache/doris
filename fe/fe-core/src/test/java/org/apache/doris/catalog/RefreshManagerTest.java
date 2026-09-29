@@ -112,6 +112,8 @@ public class RefreshManagerTest {
         Mockito.doThrow(new IllegalStateException("partition cache failure"))
                 .when(hiveCache).refreshAffectedPartitionsCache(
                         Mockito.eq(table), Mockito.anyList(), Mockito.anyList());
+        Mockito.doThrow(new IllegalStateException("full cache failure"))
+                .when(cacheMgr).invalidateTableCache(table);
         Env env = Mockito.mock(Env.class);
         Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
         Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
@@ -126,7 +128,8 @@ public class RefreshManagerTest {
             Assertions.assertDoesNotThrow(() -> new RefreshManager().replayRefreshTable(log));
         }
 
-        Mockito.verify(cacheMgr).invalidateRowCountCache(table);
+        Mockito.verify(cacheMgr, Mockito.times(2)).invalidateRowCountCache(table);
+        Mockito.verify(table).unsetObjectCreated();
     }
 
     @Test
