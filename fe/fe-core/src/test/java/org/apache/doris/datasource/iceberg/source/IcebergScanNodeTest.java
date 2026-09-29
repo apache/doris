@@ -37,6 +37,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.common.security.authentication.HadoopExecutionAuthenticator;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalScanNode;
@@ -83,6 +84,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.BaseMetadataTable;
 import org.apache.iceberg.BaseTable;
@@ -1925,6 +1927,57 @@ public class IcebergScanNodeTest {
     }
 
     @Test
+    public void testReadSplitsSkipPartitionJson() throws Exception {
+        for (boolean keepPartitioned : Arrays.asList(false, true)) {
+            Schema schema = new Schema(Types.NestedField.required(1, "record_key", Types.IntegerType.get()));
+            Table table = new HadoopTables(new Configuration()).create(schema,
+                    PartitionSpec.builderFor(schema).identity("record_key").build(),
+                    Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"),
+                    temporaryFolder.newFolder().toURI().toString());
+            table.newAppend().appendFile(DataFiles.builder(table.spec()).withPath("file:///warehouse/old.parquet")
+                    .withPartitionPath("record_key=7").withRecordCount(1).withFileSizeInBytes(128).build()).commit();
+            if (!keepPartitioned) {
+                table.updateSpec().removeField("record_key").commit();
+            }
+            DataFiles.Builder newFile = DataFiles.builder(table.spec()).withPath("file:///warehouse/new.parquet")
+                    .withRecordCount(1).withFileSizeInBytes(128);
+            if (keepPartitioned) {
+                newFile.withPartitionPath("record_key=9");
+            }
+            table.newAppend().appendFile(newFile.build()).commit();
+
+            TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+            node.addSlot(0, new Column("record_key", Type.INT));
+            setIcebergTable(node, table);
+            setPrivateField(node, "isPartitionedTable", keepPartitioned);
+            setPrivateField(node, "storagePropertiesMap", Collections.emptyMap());
+            setPrivateField(node, "formatVersion", 2);
+            setPrivateField(node, "partitionMapInfos", new HashMap<>());
+            setPrivateField(node, "orderedPathPartitionKeys", Collections.emptyList());
+            setPrivateField(node, "orderedPartitionMetadataKeys", Collections.emptyList());
+            try (CloseableIterable<FileScanTask> tasks = table.newScan().planFiles()) {
+                int fileCount = 0;
+                for (FileScanTask task : tasks) {
+                    IcebergSplit split = createIcebergSplit(node, task);
+                    TFileRangeDesc range = new TFileRangeDesc();
+                    setIcebergParams(node, range, split);
+                    TIcebergFileDesc file = range.getTableFormatParams().getIcebergParams();
+                    Assert.assertTrue(file.isSetPartitionSpecId());
+                    Assert.assertEquals(task.file().specId(), file.getPartitionSpecId());
+                    Assert.assertFalse(file.isSetPartitionDataJson());
+                    if (keepPartitioned) {
+                        Assert.assertEquals(Collections.singletonMap("record_key",
+                                        task.file().partition().get(0, Integer.class).toString()),
+                                split.getIcebergPartitionValues());
+                    }
+                    fileCount++;
+                }
+                Assert.assertEquals(2, fileCount);
+            }
+        }
+    }
+
+    @Test
     public void testReadSplitAfterDroppingPartitionSourceColumn() throws Exception {
         for (boolean keepPartitioned : Arrays.asList(false, true)) {
             for (Integer value : Arrays.asList(7, null)) {
@@ -1944,6 +1997,18 @@ public class IcebergScanNodeTest {
 
     private void assertSplitAfterDroppingPartitionSourceColumn(
             boolean keepPartitioned, Integer value, boolean requireRowId) throws Exception {
+        assertSplitAfterDroppingPartitionSourceColumn(
+                keepPartitioned, value, requireRowId, new ExecutionAuthenticator() {});
+    }
+
+    @Test
+    public void testRowIdScanPreservesErrorThroughHadoopAuthentication() throws Exception {
+        assertSplitAfterDroppingPartitionSourceColumn(false, 7, true,
+                new HadoopExecutionAuthenticator(() -> UserGroupInformation.createRemoteUser("test_user")));
+    }
+
+    private void assertSplitAfterDroppingPartitionSourceColumn(boolean keepPartitioned, Integer value,
+            boolean requireRowId, ExecutionAuthenticator authenticator) throws Exception {
         Schema schema = new Schema(Types.NestedField.optional(1, "record_key", Types.IntegerType.get()),
                 Types.NestedField.optional(2, "partition_key", Types.IntegerType.get()),
                 Types.NestedField.optional(3, "retained_key", Types.IntegerType.get()));
@@ -1986,11 +2051,13 @@ public class IcebergScanNodeTest {
                 Assert.assertEquals(Types.UnknownType.get(), actualPartition.getPartitionType().fields().get(0).type());
                 Assert.assertEquals(value, actualPartition.get(0));
                 if (requireRowId) {
-                    InvocationTargetException thrown = Assert.assertThrows(InvocationTargetException.class,
-                            () -> createIcebergSplit(node, task));
-                    Assert.assertTrue(thrown.getCause() instanceof UserException);
-                    Assert.assertTrue(thrown.getCause().getMessage().contains(
+                    UserException thrown = Assert.assertThrows(UserException.class,
+                            () -> getSplitsWithTask(node, task, authenticator));
+                    Assert.assertTrue(thrown.getMessage().contains(
                             "Cannot produce Iceberg row IDs with unsupported partition types"));
+                    Assert.assertTrue(thrown.getMessage().contains("spec " + task.file().specId()));
+                    Assert.assertTrue(thrown.getMessage().contains("Rewrite historical data files"));
+                    Assert.assertTrue(thrown.getCause() instanceof UnsupportedOperationException);
                 } else {
                     IcebergSplit split = createIcebergSplit(node, task);
                     TFileRangeDesc range = new TFileRangeDesc();
@@ -2006,6 +2073,25 @@ public class IcebergScanNodeTest {
                 fileCount++;
             }
             Assert.assertEquals(1, fileCount);
+        }
+    }
+
+    private static void getSplitsWithTask(IcebergScanNode node, FileScanTask task,
+            ExecutionAuthenticator authenticator) throws Exception {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setStatementContext(new StatementContext());
+        context.getStatementContext().setIcebergRewriteFileScanTasks(Collections.singletonList(task));
+        context.setThreadLocalInfo();
+        setPreExecutionAuthenticator(node, authenticator);
+        try {
+            // Exercise the public non-batch entry point used by row-level DML, including error wrapping.
+            node.getSplits(1);
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
         }
     }
 
@@ -2084,6 +2170,7 @@ public class IcebergScanNodeTest {
 
     private void assertDeleteSplitPartitionMetadata(Table table, SessionVariable sessionVariable) throws Exception {
         TestIcebergScanNode node = new TestIcebergScanNode(sessionVariable);
+        node.addSlot(0, IcebergRowId.createHiddenColumn());
         setIcebergTable(node, table);
         setPrivateField(node, "isPartitionedTable", table.spec().isPartitioned());
         setPrivateField(node, "storagePropertiesMap", Collections.emptyMap());

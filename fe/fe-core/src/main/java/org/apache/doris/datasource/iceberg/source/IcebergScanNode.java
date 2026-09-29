@@ -200,6 +200,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     private boolean enableMappingVarbinaryForPartitionMetadata;
     private boolean enableMappingTimestampTzForPartitionMetadata;
     private boolean isPartitionedTable;
+    private Boolean requiresRowId;
     private int formatVersion;
     private ExecutionAuthenticator preExecutionAuthenticator;
     private IcebergRuntimeContext runtimeContext;
@@ -1658,6 +1659,12 @@ public class IcebergScanNode extends FileQueryScanNode {
         try {
             return preExecutionAuthenticator.execute(() -> doGetSplits(numBackends));
         } catch (Exception e) {
+            // Authentication can wrap user errors; keep their guidance instead of only the root cause.
+            for (Throwable cause : ExceptionUtils.getThrowableList(e)) {
+                if (cause instanceof UserException) {
+                    throw (UserException) cause;
+                }
+            }
             Optional<NotSupportedException> opt = checkNotSupportedException(e);
             if (opt.isPresent()) {
                 throw opt.get();
@@ -2556,6 +2563,15 @@ public class IcebergScanNode extends FileQueryScanNode {
         return LocationPath.of(path, storagePropertiesMap);
     }
 
+    private boolean requiresRowId() {
+        if (requiresRowId == null) {
+            // Slots are finalized by split planning; inspect them once for all files in this scan.
+            requiresRowId = desc.getSlots().stream().anyMatch(slot -> slot.getColumn() != null
+                    && Column.ICEBERG_ROWID_COL.equalsIgnoreCase(slot.getColumn().getName()));
+        }
+        return requiresRowId;
+    }
+
     private Split createIcebergSplit(FileScanTask fileScanTask) throws UserException {
         DataFile dataFile = fileScanTask.file();
         String originalPath = dataFile.path().toString();
@@ -2594,19 +2610,18 @@ public class IcebergScanNode extends FileQueryScanNode {
         int specId = dataFile.specId();
         split.setPartitionSpecId(specId);
         PartitionData partitionData = (PartitionData) dataFile.partition();
-        if (partitionData != null) {
+        boolean includePartitionData = requiresRowId();
+        if (partitionData != null && (includePartitionData || isPartitionedTable)) {
             PartitionSpec partitionSpec = icebergTable.specs().get(specId);
             Preconditions.checkNotNull(partitionSpec, "Partition spec with specId %s not found for table %s",
                     specId, icebergTable.name());
-            try {
-                split.setPartitionDataJson(IcebergUtils.getPartitionDataJson(
-                        partitionData, partitionSpec, sessionVariable.getTimeZone()));
-            } catch (UnsupportedOperationException e) {
-                // Dropped source columns leave UNKNOWN types in historical specs. Reads do not need
-                // this row-ID payload, but DML must never replace an unrepresentable partition with NULL.
-                boolean requiresRowId = desc.getSlots().stream().anyMatch(slot -> slot.getColumn() != null
-                        && Column.ICEBERG_ROWID_COL.equalsIgnoreCase(slot.getColumn().getName()));
-                if (requiresRowId) {
+            // Only row-ID consumers need this JSON; ordinary reads still retain spec and pruning metadata.
+            if (includePartitionData) {
+                try {
+                    split.setPartitionDataJson(IcebergUtils.getPartitionDataJson(
+                            partitionData, partitionSpec, sessionVariable.getTimeZone()));
+                } catch (UnsupportedOperationException e) {
+                    // A dropped source column can leave UNKNOWN; DML must not substitute a NULL partition.
                     throw new UserException("Cannot produce Iceberg row IDs with unsupported partition types in spec "
                             + specId + ". Rewrite historical data files before DELETE or UPDATE.", e);
                 }
@@ -2624,7 +2639,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                     split.setIcebergPartitionValues(partitionInfoMap);
                 }
             }
-        } else if (isPartitionedTable) {
+        } else if (partitionData == null && isPartitionedTable) {
             partitionMapInfos.put(Pair.of(specId, null), Collections.emptyMap());
         }
         return split;
