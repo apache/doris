@@ -31,6 +31,7 @@ import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -417,7 +418,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         String mvPartitionName = mtmv.getPartitionNames().iterator().next();
         StatementContext statementContext = createStatementCtx("refresh materialized view test.pct_mv");
         UpdateMvByPartitionCommand.from(mtmv, Sets.newHashSet(mvPartitionName), ImmutableMap.of(base, "k1"),
-                statementContext, ImmutableMap.of(base, readableBasePartitions));
+                statementContext, ImmutableMap.of(new BaseTableInfo(base), readableBasePartitions));
         return statementContext.getMvRefreshPredicates().get();
     }
 

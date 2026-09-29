@@ -1292,7 +1292,7 @@ public class MTMVTask extends AbstractTask {
                     .subList(start, Math.min(end, partitions.size())));
             // What this batch reads and what it records are the same set, both decided here from the one
             // mapping the snapshots below are generated from; see mappedBasePartitions.
-            Map<TableIf, Set<String>> readableBasePartitions = mtmv.isIvm()
+            Map<BaseTableInfo, Set<String>> readableBasePartitions = mtmv.isIvm()
                     ? null : mappedBasePartitions(tableWithPartKey, context, execPartitionNames);
             Map<BaseTableInfo, Set<Long>> batchResetPartitionIds = useIvmFallbackStreams
                     ? collectPctResetPartitionIds(context, execPartitionNames) : Maps.newHashMap();
@@ -1511,19 +1511,23 @@ public class MTMVTask extends AbstractTask {
      * <p>An IVM MV is not scoped. A silent base table change invalidates its baseline instead, which reaches
      * every MV partition that reads the changed one, and the partitions its delta may read are scoped by the
      * IVM rewrite.
+     *
+     * <p>The tables are named by {@link BaseTableInfo} rather than by the table object: the mapping is keyed
+     * by the tables the MV's partition info holds and this reads them by the name it is given, so what
+     * identifies a table here is the table it names, not which of the two objects it was read from.
      */
-    private Map<TableIf, Set<String>> mappedBasePartitions(Map<TableIf, String> tableWithPartKey,
+    private Map<BaseTableInfo, Set<String>> mappedBasePartitions(Map<TableIf, String> tableWithPartKey,
             MTMVRefreshContext context, Set<String> execPartitionNames) {
-        Map<TableIf, Set<String>> res = Maps.newHashMap();
+        Map<BaseTableInfo, Set<String>> res = Maps.newHashMap();
         for (TableIf table : tableWithPartKey.keySet()) {
             if (table instanceof OlapTable) {
-                res.put(table, Sets.newHashSet());
+                res.put(new BaseTableInfo(table), Sets.newHashSet());
             }
         }
         for (String mvPartitionName : execPartitionNames) {
             for (Entry<MTMVRelatedTableIf, Set<String>> entry
                     : context.getByPartitionName(mvPartitionName).entrySet()) {
-                Set<String> readable = res.get(entry.getKey());
+                Set<String> readable = res.get(new BaseTableInfo(entry.getKey()));
                 if (readable != null) {
                     readable.addAll(entry.getValue());
                 }
@@ -1553,7 +1557,7 @@ public class MTMVTask extends AbstractTask {
     }
 
     private IvmPlanSignature refreshPartitionsWithRetry(Set<String> execPartitionNames,
-            Map<TableIf, String> tableWithPartKey, Map<TableIf, Set<String>> readableBasePartitions,
+            Map<TableIf, String> tableWithPartKey, Map<BaseTableInfo, Set<String>> readableBasePartitions,
             Optional<IvmRewriteContext> rewriteContext, RefreshMode refreshMode)
             throws Exception {
         return executeWithRetry(() -> refreshPartitions(execPartitionNames, tableWithPartKey,
@@ -1613,7 +1617,7 @@ public class MTMVTask extends AbstractTask {
     }
 
     private IvmPlanSignature refreshPartitions(Set<String> refreshPartitionNames,
-            Map<TableIf, String> tableWithPartKey, Map<TableIf, Set<String>> readableBasePartitions,
+            Map<TableIf, String> tableWithPartKey, Map<BaseTableInfo, Set<String>> readableBasePartitions,
             Optional<IvmRewriteContext> rewriteContext, RefreshMode refreshMode)
             throws Exception {
         // Create the MTMV context before parsing the MV definition SQL so SET_VAR hints
