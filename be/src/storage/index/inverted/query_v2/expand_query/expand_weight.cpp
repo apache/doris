@@ -32,6 +32,42 @@
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
+namespace {
+
+// The rows holding any of the expanded terms. A source batching its reads opens every term at
+// once and reads them in one round; another opens them one at a time, keeping one open.
+Status collect_expanded_rows(index_query::IndexSource& source,
+                             const std::vector<std::string>& terms, roaring::Roaring* rows) {
+    index_query::RoaringDocIdSink sink(*rows);
+    const bool batched = source.batches_reads();
+    std::vector<std::unique_ptr<index_query::PostingsCursor>> cursors;
+    if (batched) {
+        RETURN_IF_ERROR(source.open_terms(terms, /*positions=*/false, /*scoring=*/false, &cursors));
+        for (const auto& cursor : cursors) {
+            // The dictionary just listed the term, so its postings open.
+            DORIS_CHECK(cursor != nullptr);
+            RETURN_IF_ERROR(cursor->prefetch(nullptr, /*positions=*/false));
+        }
+        RETURN_IF_ERROR(source.fetch_pending());
+    }
+    for (size_t i = 0; i < terms.size(); ++i) {
+        std::unique_ptr<index_query::PostingsCursor> cursor;
+        if (batched) {
+            cursor = std::move(cursors[i]);
+        } else {
+            RETURN_IF_ERROR(
+                    source.open_term(terms[i], /*positions=*/false, /*scoring=*/false, &cursor));
+            DORIS_CHECK(cursor != nullptr);
+        }
+        index_query::BlockDocSet postings(*cursor);
+        RETURN_IF_ERROR(index_query::collect_postings<false>(postings, nullptr, sink,
+                                                             [](uint32_t, uint32_t, uint32_t) {}));
+    }
+    return Status::OK();
+}
+
+} // namespace
+
 ExpandWeight::ExpandWeight(IndexQueryContextPtr context, std::wstring field,
                            index_query::TermPatternKind kind, std::string pattern)
         : _context(std::move(context)),
@@ -53,17 +89,7 @@ ScorerPtr ExpandWeight::scorer(const QueryExecutionContext& context,
                 &terms));
         if (!terms.empty()) {
             auto docs = std::make_shared<roaring::Roaring>();
-            index_query::RoaringDocIdSink sink(*docs);
-            for (const auto& term : terms) {
-                std::unique_ptr<index_query::PostingsCursor> cursor;
-                THROW_IF_ERROR(source->open_term(term, /*positions=*/false,
-                                                 /*scoring=*/false, &cursor));
-                // The dictionary just listed the term, so its postings open.
-                DORIS_CHECK(cursor != nullptr);
-                index_query::BlockDocSet postings(*cursor);
-                THROW_IF_ERROR(index_query::collect_postings<false>(
-                        postings, nullptr, sink, [](uint32_t, uint32_t, uint32_t) {}));
-            }
+            THROW_IF_ERROR(collect_expanded_rows(*source, terms, docs.get()));
             scorer = std::make_shared<ConstScoreScorer<BitSetScorerPtr>>(
                     std::make_shared<BitSetScorer>(std::move(docs)));
         }

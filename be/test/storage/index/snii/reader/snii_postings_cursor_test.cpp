@@ -21,12 +21,16 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <iterator>
 #include <memory>
+#include <numeric>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
 
 #include "storage/index/query/exec/block_doc_set.h"
+#include "storage/index/query/exec/cursor_chained_postings.h"
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/format/prx_pod.h"
 #include "storage/index/snii/io/metered_file_reader.h"
@@ -300,7 +304,7 @@ TEST(SniiPostingsCursor, CandidatesReadOnlyTheirCoveringWindows) {
     fixture.metered.reset_metrics();
     SniiPostingsCursor restricted(fixture.index, term.entry, term.frq_base, term.prx_base,
                                   /*positions=*/false, /*scoring=*/false, nullptr);
-    assert_ok(restricted.prefetch(candidates, /*positions=*/false));
+    assert_ok(restricted.prefetch(&candidates, /*positions=*/false));
     // The prelude, then the covering windows in one batch.
     EXPECT_EQ(fixture.rounds(), 2U);
     EXPECT_LT(fixture.bytes(), whole_bytes);
@@ -314,7 +318,7 @@ TEST(SniiPostingsCursor, CandidatesReadOnlyTheirCoveringWindows) {
     // Windows the batch did not cover are read on demand, so the full listing still holds.
     SniiPostingsCursor again(fixture.index, term.entry, term.frq_base, term.prx_base,
                              /*positions=*/false, /*scoring=*/false, nullptr);
-    assert_ok(again.prefetch(candidates, /*positions=*/false));
+    assert_ok(again.prefetch(&candidates, /*positions=*/false));
     fixture.metered.reset_metrics();
     EXPECT_EQ(list_docs(again), fixture.oracle_docids(term));
     EXPECT_GT(fixture.rounds(), 0U);
@@ -415,6 +419,159 @@ TEST(SniiPostingsCursor, AGivenPreludeMakesTheSpanOneRound) {
     assert_ok(cursor.open());
     EXPECT_EQ(fixture.rounds(), 1U);
     EXPECT_EQ(list_docs(cursor), fixture.oracle_docids(term));
+}
+
+TEST(SniiPostingsCursor, PrefetchWithoutCandidatesReadsTheSpanOnce) {
+    Fixture fixture;
+    assert_ok(fixture.open_standard());
+    const Term term = fixture.lookup("sparse_left");
+    fixture.metered.reset_metrics();
+    SniiPostingsCursor cursor(fixture.index, term.entry, term.frq_base, term.prx_base,
+                              /*positions=*/false, /*scoring=*/false, nullptr);
+    assert_ok(cursor.prefetch(nullptr, /*positions=*/false));
+    // The prelude, then the whole dd-block; the listing reads nothing more.
+    EXPECT_EQ(fixture.rounds(), 2U);
+    EXPECT_EQ(list_docs(cursor), fixture.oracle_docids(term));
+    EXPECT_EQ(fixture.rounds(), 2U);
+}
+
+TEST(SniiPostingsCursor, RewindListsAgainWithoutReading) {
+    Fixture fixture;
+    assert_ok(fixture.open_standard());
+    for (const char* name : {"sparse_left", "123", "needle"}) {
+        const Term term = fixture.lookup(name);
+        auto cursor = fixture.cursor(term, /*positions=*/true);
+        const auto expected = fixture.oracle_docids(term);
+        EXPECT_EQ(list_docs(*cursor), expected) << name;
+        assert_ok(cursor->rewind());
+        fixture.metered.reset_metrics();
+        EXPECT_EQ(list_docs(*cursor), expected) << name;
+        EXPECT_EQ(fixture.rounds(), 0U) << name;
+    }
+}
+
+TEST(SniiPostingsCursor, CursorsOnAWaveShareTheirRounds) {
+    Fixture fixture;
+    assert_ok(fixture.open_standard());
+    const Term left = fixture.lookup("sparse_left");
+    const Term right = fixture.lookup("sparse_right");
+    SniiReadWave wave(fixture.index.reader());
+    fixture.metered.reset_metrics();
+    SniiPostingsCursor a(fixture.index, left.entry, left.frq_base, left.prx_base,
+                         /*positions=*/false, /*scoring=*/false, nullptr, &wave);
+    SniiPostingsCursor b(fixture.index, right.entry, right.frq_base, right.prx_base,
+                         /*positions=*/false, /*scoring=*/false, nullptr, &wave);
+    assert_ok(a.open_prelude());
+    assert_ok(b.open_prelude());
+    EXPECT_EQ(fixture.rounds(), 0U);
+    EXPECT_TRUE(wave.pending());
+    assert_ok(wave.fetch());
+    EXPECT_EQ(fixture.rounds(), 1U);
+    EXPECT_EQ(wave.rounds(), 1U);
+    EXPECT_NE(a.prelude(), nullptr);
+    // Both spans register on the wave and arrive in one round.
+    assert_ok(a.prefetch(nullptr, /*positions=*/false));
+    assert_ok(b.prefetch(nullptr, /*positions=*/false));
+    EXPECT_EQ(fixture.rounds(), 1U);
+    assert_ok(wave.fetch());
+    EXPECT_EQ(fixture.rounds(), 2U);
+    EXPECT_EQ(list_docs(a), fixture.oracle_docids(left));
+    EXPECT_EQ(list_docs(b), fixture.oracle_docids(right));
+    EXPECT_EQ(fixture.rounds(), 2U);
+}
+
+TEST(SniiPostingsCursor, AWaveCursorFetchesTheWaveWhenItNeedsTheBytes) {
+    Fixture fixture;
+    assert_ok(fixture.open_standard());
+    const Term term = fixture.lookup("failed");
+    SniiReadWave wave(fixture.index.reader());
+    fixture.metered.reset_metrics();
+    SniiPostingsCursor cursor(fixture.index, term.entry, term.frq_base, term.prx_base,
+                              /*positions=*/false, /*scoring=*/false, nullptr, &wave);
+    assert_ok(cursor.open_prelude());
+    // The prelude, then the span, each fetched by the cursor as it needs them.
+    EXPECT_EQ(list_docs(cursor), fixture.oracle_docids(term));
+    EXPECT_EQ(fixture.rounds(), 2U);
+    EXPECT_EQ(wave.rounds(), 2U);
+}
+
+TEST(SniiPostingsCursor, ChainedCursorsListTheIntersectionLikeTheDecoder) {
+    Fixture fixture;
+    assert_ok(fixture.open_standard());
+    const Term rare = fixture.lookup("needle");
+    const Term wide = fixture.lookup("failed");
+    const auto rare_docs = fixture.oracle_docids(rare);
+    const auto wide_docs = fixture.oracle_docids(wide);
+    std::vector<uint32_t> expected;
+    std::ranges::set_intersection(rare_docs, wide_docs, std::back_inserter(expected));
+    auto rare_cursor = fixture.cursor(rare);
+    fixture.metered.reset_metrics();
+    SniiPostingsCursor wide_cursor(fixture.index, wide.entry, wide.frq_base, wide.prx_base,
+                                   /*positions=*/false, /*scoring=*/false, nullptr);
+    index_query::CursorChainedPostings rare_term(*rare_cursor);
+    index_query::CursorChainedPostings wide_term(wide_cursor);
+    const std::vector<index_query::ChainedPostings*> chain = {&wide_term, &rare_term};
+    std::vector<uint32_t> docs;
+    std::vector<size_t> order;
+    assert_ok(index_query::chained_conjunction(chain, nullptr, &docs, &order));
+    EXPECT_EQ(docs, expected);
+    EXPECT_EQ(order, (std::vector<size_t> {1, 0}));
+    // The wide term read its prelude, then the windows holding the rare term's rows unless
+    // they are full windows, which need no read.
+    EXPECT_GE(fixture.rounds(), 1U);
+    EXPECT_LE(fixture.rounds(), 2U);
+}
+
+// Every third document of a block decodes alone; the other two thirds and the whole block
+// decode the frame, the former copying the chosen documents; all give the decoder's positions.
+TEST(SniiPostingsCursor, BlockPositionsMatchTheDecoderForAnySelection) {
+    Fixture fixture;
+    assert_ok(fixture.open_standard());
+    for (const char* name : {"needle", "failed", "repeat", "order", "almost"}) {
+        const Term term = fixture.lookup(name);
+        const auto expected = fixture.oracle_positions(term);
+        auto cursor = fixture.cursor(term, /*positions=*/true);
+        index_query::PostingsBlock block;
+        bool eof = false;
+        size_t doc_index = 0;
+        index_query::PositionsBuffer buffer;
+        index_query::BlockPositions view;
+        // The positions of the i-th chosen document of the last call.
+        const auto chosen = [&view](size_t i) {
+            return std::vector<uint32_t>(view.flat.begin() + view.offsets[i],
+                                         view.flat.begin() + view.offsets[i + 1]);
+        };
+        while (true) {
+            assert_ok(cursor->next_block(&block, &eof));
+            if (eof) {
+                break;
+            }
+            std::vector<uint32_t> sparse;
+            std::vector<uint32_t> most;
+            for (uint32_t ordinal = 0; ordinal < block.size(); ++ordinal) {
+                (ordinal % 3 == 0 ? sparse : most).push_back(ordinal);
+            }
+            assert_ok(cursor->block_positions(sparse, &buffer, &view));
+            ASSERT_EQ(view.offsets.size(), sparse.size() + 1) << name;
+            for (size_t i = 0; i < sparse.size(); ++i) {
+                EXPECT_EQ(chosen(i), expected[doc_index + sparse[i]]) << name;
+            }
+            assert_ok(cursor->block_positions(most, &buffer, &view));
+            ASSERT_EQ(view.offsets.size(), most.size() + 1) << name;
+            for (size_t i = 0; i < most.size(); ++i) {
+                EXPECT_EQ(chosen(i), expected[doc_index + most[i]]) << name;
+            }
+            std::vector<uint32_t> all(block.size());
+            std::iota(all.begin(), all.end(), 0);
+            assert_ok(cursor->block_positions(all, &buffer, &view));
+            ASSERT_EQ(view.offsets.size(), all.size() + 1) << name;
+            for (size_t i = 0; i < all.size(); ++i) {
+                EXPECT_EQ(chosen(i), expected[doc_index + i]) << name;
+            }
+            doc_index += block.size();
+        }
+        EXPECT_EQ(doc_index, expected.size()) << name;
+    }
 }
 
 } // namespace

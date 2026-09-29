@@ -47,11 +47,12 @@ public:
     bool fail = false;
 };
 
-// A term stored as windows of documents; listing a window needs one read of it.
+// A term stored as windows of documents; listing a window needs one read of it, and a
+// listing reads its windows in one round.
 class WindowedTerm final : public ChainedPostings {
 public:
-    WindowedTerm(uint64_t base, std::vector<std::vector<uint32_t>> windows)
-            : _base(base), _windows(std::move(windows)) {}
+    WindowedTerm(IoReader* reader, uint64_t base, std::vector<std::vector<uint32_t>> windows)
+            : _batch(reader), _base(base), _windows(std::move(windows)) {}
 
     uint64_t doc_freq() const override {
         uint64_t count = 0;
@@ -65,22 +66,19 @@ public:
         ++starts;
         _candidates = candidates;
         _listed.clear();
-        return Status::OK();
-    }
-
-    Status register_reads(IoReadBatch& batch) override {
+        _batch.clear();
         for (size_t window = 0; window < _windows.size(); ++window) {
             if (_holds_candidates(_windows[window])) {
                 _listed.emplace_back(window,
-                                     batch.add(_base + window * kWindowBytes, kWindowBytes));
+                                     _batch.add(_base + window * kWindowBytes, kWindowBytes));
             }
         }
-        return Status::OK();
+        return _batch.pending() > 0 ? _batch.fetch() : Status::OK();
     }
 
-    Status collect(const IoReadBatch& batch, std::vector<uint32_t>* out) override {
+    Status collect(std::vector<uint32_t>* out) override {
         for (const auto& [window, handle] : _listed) {
-            if (batch.get(handle).size() != kWindowBytes) {
+            if (_batch.get(handle).size() != kWindowBytes) {
                 return Status::InternalError("window {} was not fetched", window);
             }
             for (const uint32_t doc : _windows[window]) {
@@ -103,6 +101,7 @@ private:
         return first != _candidates->end() && *first <= window.back();
     }
 
+    IoReadBatch _batch;
     uint64_t _base;
     std::vector<std::vector<uint32_t>> _windows;
     const std::vector<uint32_t>* _candidates = nullptr;
@@ -110,58 +109,52 @@ private:
 };
 
 Status run(std::vector<ChainedPostings*> terms, const std::vector<uint32_t>* initial,
-           IoReadBatch& batch, std::vector<uint32_t>* result, std::vector<size_t>* visited) {
-    return chained_conjunction(terms, initial, batch, result, visited);
+           std::vector<uint32_t>* result, std::vector<size_t>* visited) {
+    return chained_conjunction(terms, initial, result, visited);
 }
 
 TEST(IndexQueryChainedConjunction, ListsTermsInAscendingDocumentFrequency) {
     RecordingReader reader;
-    WindowedTerm common(0, {{1, 2, 3, 4, 5, 6, 7, 8}, {9, 10, 11, 12}});
-    WindowedTerm rare(1024, {{2, 9, 12}});
-    WindowedTerm middle(2048, {{2, 3, 9}, {11, 12}});
-    IoReadBatch batch(&reader);
+    WindowedTerm common(&reader, 0, {{1, 2, 3, 4, 5, 6, 7, 8}, {9, 10, 11, 12}});
+    WindowedTerm rare(&reader, 1024, {{2, 9, 12}});
+    WindowedTerm middle(&reader, 2048, {{2, 3, 9}, {11, 12}});
     std::vector<uint32_t> result;
     std::vector<size_t> visited;
-    ASSERT_TRUE(run({&common, &rare, &middle}, nullptr, batch, &result, &visited).ok());
+    ASSERT_TRUE(run({&common, &rare, &middle}, nullptr, &result, &visited).ok());
     EXPECT_EQ(result, (std::vector<uint32_t> {2, 9, 12}));
     EXPECT_EQ(visited, (std::vector<size_t> {1, 2, 0}));
-    EXPECT_EQ(batch.pending(), 0U);
 }
 
 TEST(IndexQueryChainedConjunction, ReadsOnlyWindowsThatHoldSurvivingCandidates) {
     RecordingReader reader;
-    WindowedTerm rare(0, {{40, 41}});
-    WindowedTerm wide(1024, {{1, 2, 3}, {10, 11, 12}, {40, 41, 42}, {60, 61, 62}});
-    IoReadBatch batch(&reader);
+    WindowedTerm rare(&reader, 0, {{40, 41}});
+    WindowedTerm wide(&reader, 1024, {{1, 2, 3}, {10, 11, 12}, {40, 41, 42}, {60, 61, 62}});
     std::vector<uint32_t> result;
-    ASSERT_TRUE(run({&wide, &rare}, nullptr, batch, &result, nullptr).ok());
+    ASSERT_TRUE(run({&wide, &rare}, nullptr, &result, nullptr).ok());
     EXPECT_EQ(result, (std::vector<uint32_t> {40, 41}));
     ASSERT_EQ(reader.reads.size(), 2U);
     EXPECT_EQ(reader.reads[1].offset, 1024 + 2 * kWindowBytes);
 }
 
-TEST(IndexQueryChainedConjunction, ATermWithoutCandidateWindowsRegistersNoRead) {
+TEST(IndexQueryChainedConjunction, ATermWithoutCandidateWindowsReadsNothing) {
     RecordingReader reader;
-    WindowedTerm rare(0, {{5}});
-    WindowedTerm wide(1024, {{1, 2}, {10, 11}});
-    IoReadBatch batch(&reader);
+    WindowedTerm rare(&reader, 0, {{5}});
+    WindowedTerm wide(&reader, 1024, {{1, 2}, {10, 11}});
     std::vector<uint32_t> result;
-    ASSERT_TRUE(run({&wide, &rare}, nullptr, batch, &result, nullptr).ok());
+    ASSERT_TRUE(run({&wide, &rare}, nullptr, &result, nullptr).ok());
     EXPECT_TRUE(result.empty());
     EXPECT_EQ(wide.starts, 1U);
     EXPECT_EQ(reader.reads.size(), 1U);
-    EXPECT_EQ(batch.pending(), 0U);
 }
 
 TEST(IndexQueryChainedConjunction, EmptyIntermediateResultStopsLaterTerms) {
     RecordingReader reader;
-    WindowedTerm first(0, {{1, 3}});
-    WindowedTerm disjoint(1024, {{2, 4, 6}});
-    WindowedTerm large(2048, {{1, 2, 3, 4, 5, 6, 7, 8, 9}});
-    IoReadBatch batch(&reader);
+    WindowedTerm first(&reader, 0, {{1, 3}});
+    WindowedTerm disjoint(&reader, 1024, {{2, 4, 6}});
+    WindowedTerm large(&reader, 2048, {{1, 2, 3, 4, 5, 6, 7, 8, 9}});
     std::vector<uint32_t> result;
     std::vector<size_t> visited;
-    ASSERT_TRUE(run({&large, &first, &disjoint}, nullptr, batch, &result, &visited).ok());
+    ASSERT_TRUE(run({&large, &first, &disjoint}, nullptr, &result, &visited).ok());
     EXPECT_TRUE(result.empty());
     EXPECT_EQ(visited, (std::vector<size_t> {1, 2}));
     EXPECT_EQ(large.starts, 0U);
@@ -170,23 +163,21 @@ TEST(IndexQueryChainedConjunction, EmptyIntermediateResultStopsLaterTerms) {
 
 TEST(IndexQueryChainedConjunction, InitialCandidatesRestrictTheFirstTerm) {
     RecordingReader reader;
-    WindowedTerm rare(0, {{5, 20}, {70, 90}});
-    WindowedTerm wide(1024, {{5, 6, 7, 20}, {70, 71, 90, 91}});
+    WindowedTerm rare(&reader, 0, {{5, 20}, {70, 90}});
+    WindowedTerm wide(&reader, 1024, {{5, 6, 7, 20}, {70, 71, 90, 91}});
     const std::vector<uint32_t> initial = {20, 70, 91};
-    IoReadBatch batch(&reader);
     std::vector<uint32_t> result;
-    ASSERT_TRUE(run({&wide, &rare}, &initial, batch, &result, nullptr).ok());
+    ASSERT_TRUE(run({&wide, &rare}, &initial, &result, nullptr).ok());
     EXPECT_EQ(result, (std::vector<uint32_t> {20, 70}));
 }
 
 TEST(IndexQueryChainedConjunction, EmptyInitialCandidatesReadNothing) {
     RecordingReader reader;
-    WindowedTerm term(0, {{1, 2}});
+    WindowedTerm term(&reader, 0, {{1, 2}});
     const std::vector<uint32_t> initial;
-    IoReadBatch batch(&reader);
     std::vector<uint32_t> result = {7};
     std::vector<size_t> visited = {3};
-    ASSERT_TRUE(run({&term}, &initial, batch, &result, &visited).ok());
+    ASSERT_TRUE(run({&term}, &initial, &result, &visited).ok());
     EXPECT_TRUE(result.empty());
     EXPECT_TRUE(visited.empty());
     EXPECT_EQ(term.starts, 0U);
@@ -194,27 +185,23 @@ TEST(IndexQueryChainedConjunction, EmptyInitialCandidatesReadNothing) {
 }
 
 TEST(IndexQueryChainedConjunction, NoTermsKeepTheInitialCandidates) {
-    RecordingReader reader;
-    IoReadBatch batch(&reader);
     const std::vector<uint32_t> initial = {3, 8};
     std::vector<uint32_t> result;
-    ASSERT_TRUE(run({}, &initial, batch, &result, nullptr).ok());
+    ASSERT_TRUE(run({}, &initial, &result, nullptr).ok());
     EXPECT_EQ(result, initial);
-    ASSERT_TRUE(run({}, nullptr, batch, &result, nullptr).ok());
+    ASSERT_TRUE(run({}, nullptr, &result, nullptr).ok());
     EXPECT_TRUE(result.empty());
 }
 
-TEST(IndexQueryChainedConjunction, ReadFailureEndsTheChainAndClearsTheBatch) {
+TEST(IndexQueryChainedConjunction, ReadFailureEndsTheChain) {
     RecordingReader reader;
     reader.fail = true;
-    WindowedTerm first(0, {{1, 2}});
-    WindowedTerm second(1024, {{1, 2, 3}});
-    IoReadBatch batch(&reader);
+    WindowedTerm first(&reader, 0, {{1, 2}});
+    WindowedTerm second(&reader, 1024, {{1, 2, 3}});
     std::vector<uint32_t> result;
-    const Status status = run({&first, &second}, nullptr, batch, &result, nullptr);
+    const Status status = run({&first, &second}, nullptr, &result, nullptr);
     EXPECT_TRUE(status.is<ErrorCode::IO_ERROR>()) << status;
     EXPECT_EQ(second.starts, 0U);
-    EXPECT_EQ(batch.pending(), 0U);
 }
 
 } // namespace

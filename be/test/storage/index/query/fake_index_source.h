@@ -35,16 +35,25 @@
 
 namespace doris::index_query::testing {
 
-// The postings a test declared for one term, as one block; positions when the test gave them.
+// A one-block posting held in memory, recording the prefetches it is asked for.
 class FakePostingsCursor final : public PostingsCursor, public PositionCursor {
 public:
     struct Posting {
         uint32_t doc = 0;
         std::vector<uint32_t> positions;
     };
+    struct Prefetch {
+        std::vector<uint32_t> candidates;
+        bool whole = false;
+        bool positions = false;
+    };
 
-    FakePostingsCursor(std::vector<Posting> postings, bool positions, bool scoring)
-            : _postings(std::move(postings)), _positions(positions), _scoring(scoring) {
+    FakePostingsCursor(std::vector<Posting> postings, bool positions, bool scoring,
+                       std::vector<Prefetch>* prefetches = nullptr)
+            : _postings(std::move(postings)),
+              _positions(positions),
+              _scoring(scoring),
+              _prefetches(prefetches) {
         for (const Posting& posting : _postings) {
             _docs.push_back(posting.doc);
             _freqs.push_back(std::max<uint32_t>(1, posting.positions.size()));
@@ -52,6 +61,21 @@ public:
     }
 
     uint32_t doc_freq() const override { return static_cast<uint32_t>(_docs.size()); }
+
+    Status prefetch(const std::vector<uint32_t>* candidates, bool positions) override {
+        if (_prefetches != nullptr) {
+            _prefetches->push_back(
+                    {.candidates = candidates == nullptr ? std::vector<uint32_t> {} : *candidates,
+                     .whole = candidates == nullptr,
+                     .positions = positions});
+        }
+        return Status::OK();
+    }
+
+    Status rewind() override {
+        _read = false;
+        return Status::OK();
+    }
 
     Status next_block(PostingsBlock* block, bool* eof) override {
         *block = {};
@@ -115,16 +139,18 @@ private:
     std::vector<uint32_t> _freqs;
     bool _positions;
     bool _scoring;
+    std::vector<Prefetch>* _prefetches;
     bool _read = false;
     size_t _current = 0;
     size_t _next_position = 0;
 };
 
-// An index a test declares term by term: the documents of each term with their positions, the
-// documents alive, and the calls the engine made.
+// An in-memory source recording how the engine reads it. With `batches` it answers as a
+// source that reads in rounds, so the engine takes its batched strategies.
 class FakeIndexSource final : public IndexSource {
 public:
     using Posting = FakePostingsCursor::Posting;
+    using Prefetch = FakePostingsCursor::Prefetch;
 
     void add(const std::string& term, const std::vector<uint32_t>& docs) {
         std::vector<Posting> postings;
@@ -143,6 +169,7 @@ public:
     void set_doc_count(uint32_t doc_count) { _doc_count = doc_count; }
 
     uint32_t doc_count() const override { return _doc_count; }
+    bool batches_reads() const override { return batches; }
 
     Status prepare_terms(std::span<const std::string> terms) override {
         prepared.emplace_back(terms.begin(), terms.end());
@@ -152,12 +179,22 @@ public:
     Status open_term(std::string_view term, bool positions, bool scoring,
                      std::unique_ptr<PostingsCursor>* out) override {
         opened.emplace_back(term);
-        out->reset();
-        const auto it = _terms.find(std::string(term));
-        if (it == _terms.end()) {
-            return Status::OK();
+        *out = _cursor(term, positions, scoring);
+        return Status::OK();
+    }
+
+    Status open_terms(std::span<const std::string> terms, bool positions, bool scoring,
+                      std::vector<std::unique_ptr<PostingsCursor>>* out) override {
+        opened_together.emplace_back(terms.begin(), terms.end());
+        out->clear();
+        for (const std::string& term : terms) {
+            out->push_back(_cursor(term, positions, scoring));
         }
-        *out = std::make_unique<FakePostingsCursor>(it->second, positions, scoring);
+        return Status::OK();
+    }
+
+    Status fetch_pending() override {
+        ++fetches;
         return Status::OK();
     }
 
@@ -182,12 +219,26 @@ public:
 
     bool is_live(uint32_t doc) const override { return !_deleted.contains(doc); }
 
-    // Every dictionary batch, every term opened and every pattern's enumeration prefix, in order.
+    bool batches = false;
+    // Every dictionary batch, every term opened (alone or together), every pattern's
+    // enumeration prefix, every prefetch by term and the rounds fetched, in order.
     std::vector<std::vector<std::string>> prepared;
     std::vector<std::string> opened;
+    std::vector<std::vector<std::string>> opened_together;
     std::vector<std::string> expanded;
+    std::map<std::string, std::vector<Prefetch>> prefetches;
+    size_t fetches = 0;
 
 private:
+    std::unique_ptr<PostingsCursor> _cursor(std::string_view term, bool positions, bool scoring) {
+        const auto it = _terms.find(std::string(term));
+        if (it == _terms.end()) {
+            return nullptr;
+        }
+        return std::make_unique<FakePostingsCursor>(it->second, positions, scoring,
+                                                    &prefetches[std::string(term)]);
+    }
+
     std::map<std::string, std::vector<Posting>> _terms;
     std::set<uint32_t> _deleted;
     uint32_t _doc_count = 0;

@@ -26,11 +26,8 @@
 
 namespace doris::index_query {
 
-class IoReadBatch;
-
-// One term of a chained conjunction. A term registers the reads that listing its
-// documents among the surviving candidates needs, the chain fetches them, and the
-// term decodes what it registered.
+// One term of a chained conjunction, listed against the documents the cheaper
+// terms kept. A term reads what its listing needs when it starts.
 class ChainedPostings {
 public:
     virtual ~ChainedPostings() = default;
@@ -39,16 +36,12 @@ public:
     virtual uint64_t doc_freq() const = 0;
 
     // Begins listing the term's documents that are in `candidates`, or all of its
-    // documents when `candidates` is null. The candidates stay unchanged until the
-    // listing ends.
+    // documents when `candidates` is null, reading what the listing needs in one
+    // round. The candidates stay unchanged until the listing ends.
     virtual Status start(const std::vector<uint32_t>* candidates) = 0;
 
-    // Registers the listing's reads into `batch` without reading. A term whose
-    // documents need no read registers nothing.
-    virtual Status register_reads(IoReadBatch& batch) = 0;
-
     // Appends the term's documents that are in the candidates, ascending, to `out`.
-    virtual Status collect(const IoReadBatch& batch, std::vector<uint32_t>* out) = 0;
+    virtual Status collect(std::vector<uint32_t>* out) = 0;
 };
 
 // Intersects `terms` over all documents, or over `initial_candidates` when given,
@@ -57,7 +50,7 @@ public:
 // before a later term reads anything. `batch` must be empty; it is left empty.
 // `visited` receives the indexes of the listed terms in listing order.
 Status chained_conjunction(std::span<ChainedPostings* const> terms,
-                           const std::vector<uint32_t>* initial_candidates, IoReadBatch& batch,
+                           const std::vector<uint32_t>* initial_candidates,
                            std::vector<uint32_t>* result, std::vector<size_t>* visited = nullptr);
 
 } // namespace doris::index_query

@@ -19,21 +19,48 @@
 
 #include <array>
 
+#include "common/exception.h"
 #include "storage/index/inverted/query_v2/collect/multi_segment_util.h"
 #include "storage/index/inverted/query_v2/complete_null_bitmap.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
+namespace {
+
+// Adds a segment's UNKNOWN rows, in its own docid space, to the global ones.
+void add_segment_null_rows(const roaring::Roaring& segment_rows, uint32_t doc_base,
+                           roaring::Roaring* null_rows) {
+    if (doc_base == 0) {
+        *null_rows |= segment_rows;
+        return;
+    }
+    auto* shifted = roaring::api::roaring_bitmap_add_offset(&segment_rows.roaring,
+                                                            static_cast<int64_t>(doc_base));
+    if (shifted == nullptr) {
+        throw Exception(ErrorCode::MEM_ALLOC_FAILED, "Failed to rebase segment NULL rows");
+    }
+    *null_rows |= roaring::Roaring(shifted);
+}
+
+} // namespace
+
 void collect_multi_segment_doc_set(const WeightPtr& weight, const QueryExecutionContext& context,
                                    const std::string& binding_key,
                                    const std::shared_ptr<roaring::Roaring>& roaring,
-                                   const CollectionSimilarityPtr& similarity, bool enable_scoring) {
+                                   const CollectionSimilarityPtr& similarity, bool enable_scoring,
+                                   roaring::Roaring* null_rows) {
     const bool publish_scores = enable_scoring && similarity != nullptr;
     for_each_index_segment(
             context, binding_key, [&](const QueryExecutionContext& seg_ctx, uint32_t doc_base) {
                 auto scorer = weight->scorer(seg_ctx, binding_key);
                 if (!scorer) {
                     return;
+                }
+                if (null_rows != nullptr && scorer->has_null_bitmap(seg_ctx.null_resolver)) {
+                    const auto* nulls = scorer->get_null_bitmap(seg_ctx.null_resolver);
+                    if (nulls != nullptr) {
+                        add_segment_null_rows(*nulls, doc_base, null_rows);
+                    }
                 }
                 // Unscored rows of the first segment are read in bulk.
                 if (!publish_scores && doc_base == 0) {

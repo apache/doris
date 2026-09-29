@@ -28,7 +28,9 @@
 //   GTEST_ALSO_RUN_DISABLED_TESTS=1 ./run-be-ut.sh --run --filter='*SearchTreeBench*' -j <N>
 //
 // SEARCH_TREE_BENCH_ITERATIONS sets the samples per case (default 10). A sample is the thread CPU
-// time of one whole SEARCH evaluation.
+// time of one whole SEARCH evaluation. SEARCH_TREE_BENCH_CASES keeps only the listed case
+// labels and SEARCH_TREE_BENCH_FORMATS only the listed formats (V2, SNII), comma-separated, so
+// one case of one format can be profiled on its own.
 
 #include <fmt/format.h>
 #include <gen_cpp/Exprs_types.h>
@@ -338,13 +340,25 @@ TEST_F(SearchTreeBench, DISABLED_BooleanTrees) {
     ASSERT_NE(nullptr, root) << "SEARCH_TREE_BENCH_INDEX_ROOT must name a prepared corpus";
     const uint32_t doc_count = env_or("SEARCH_TREE_BENCH_DOCS", 200000);
     const uint32_t iterations = env_or("SEARCH_TREE_BENCH_ITERATIONS", 10);
-    const std::vector<SearchCase> cases = search_cases();
+    std::vector<SearchCase> cases = search_cases();
+    if (const char* only = std::getenv("SEARCH_TREE_BENCH_CASES"); only != nullptr) {
+        const std::string listed = fmt::format(",{},", only);
+        std::erase_if(cases, [&listed](const SearchCase& search_case) {
+            return listed.find(fmt::format(",{},", search_case.label)) == std::string::npos;
+        });
+    }
     const std::unordered_map<std::string, int> no_column_ids;
     const FunctionSearch search;
+    const char* formats = std::getenv("SEARCH_TREE_BENCH_FORMATS");
+    const std::string listed_formats =
+            fmt::format(",{},", formats == nullptr ? "V2,SNII" : formats);
     for (const auto format :
          {InvertedIndexStorageFormatPB::V2, InvertedIndexStorageFormatPB::SNII}) {
         const bool is_snii = format == InvertedIndexStorageFormatPB::SNII;
         const std::string_view format_name = is_snii ? "SNII" : "V2";
+        if (listed_formats.find(fmt::format(",{},", format_name)) == std::string::npos) {
+            continue;
+        }
         const std::string prefix =
                 fmt::format("{}/{}_{}_0", root, is_snii ? "snii" : "clucene", doc_count);
         bool exists = false;

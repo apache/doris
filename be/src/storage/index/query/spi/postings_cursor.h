@@ -59,6 +59,18 @@ struct PostingsBlock {
     }
 };
 
+// The positions of chosen documents of a block: the i-th holds flat[offsets[i], offsets[i + 1]).
+struct BlockPositions {
+    std::span<const uint32_t> flat;
+    std::span<const uint32_t> offsets;
+};
+
+// The buffers an adapter copying positions fills; a caller keeps them across blocks.
+struct PositionsBuffer {
+    std::vector<uint32_t> flat;
+    std::vector<uint32_t> offsets;
+};
+
 struct BlockBound {
     uint32_t last_doc = 0;
     int32_t max_freq = -1;
@@ -77,13 +89,17 @@ public:
     // Moves only the skip cursor. moved invalidates any previously returned block.
     virtual Status shallow_seek(uint32_t target, bool* moved) = 0;
     virtual BlockBound current_block_bound() const = 0;
-    // A hint that only the ascending `candidates` will be asked for, with their positions when
-    // `positions`: an adapter may read what they need in one round. Ignored by default.
-    virtual Status prefetch(const std::vector<uint32_t>& candidates, bool positions) {
+    // A hint that only the ascending `candidates` (every document when null) will be asked
+    // for, with their positions when `positions`: an adapter may read what they need in one
+    // round. Ignored by default.
+    virtual Status prefetch(const std::vector<uint32_t>* candidates, bool positions) {
         (void)candidates;
         (void)positions;
         return Status::OK();
     }
+    // Starts the listing over from the first block, keeping what was read. Only an adapter
+    // that keeps its bytes supports it.
+    virtual Status rewind() { return Status::NotSupported("this posting type cannot rewind"); }
     // Ordinals advance within the decoded block; each document is opened at most once.
     virtual Status open_positions(uint32_t ordinal, PositionCursor** out) {
         *out = nullptr;
@@ -96,6 +112,20 @@ public:
         PositionCursor* positions = nullptr;
         RETURN_IF_ERROR(open_positions(ordinal, &positions));
         return positions->append_remaining_positions(offset, output);
+    }
+    // The positions of the current block's documents at the strictly ascending `ordinals`,
+    // valid until the next block or call. An adapter may decode only those documents; by
+    // default each is read through append_positions into `buffer`.
+    virtual Status block_positions(std::span<const uint32_t> ordinals, PositionsBuffer* buffer,
+                                   BlockPositions* out) {
+        buffer->flat.clear();
+        buffer->offsets.assign(1, 0);
+        for (const uint32_t ordinal : ordinals) {
+            RETURN_IF_ERROR(append_positions(ordinal, 0, buffer->flat));
+            buffer->offsets.push_back(static_cast<uint32_t>(buffer->flat.size()));
+        }
+        *out = {.flat = buffer->flat, .offsets = buffer->offsets};
+        return Status::OK();
     }
 };
 

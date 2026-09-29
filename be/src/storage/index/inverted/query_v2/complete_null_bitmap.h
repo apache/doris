@@ -37,29 +37,6 @@ void collect_true_rows(const ScorerPtr& scorer, roaring::Roaring* rows);
 
 // Intersects the truth sets `collect(scorer, candidates)` returns, reading each scorer only within
 // the rows the ones before it leave TRUE or UNKNOWN; an empty intersection ends the loop.
-template <typename Collect>
-index_query::TruthSet intersect_truth_sets(std::span<ScorerPtr> scorers, uint32_t row_count,
-                                           Collect collect) {
-    index_query::TruthSet result;
-    result.true_rows.addRange(0, row_count);
-    roaring::Roaring possible;
-    const roaring::Roaring* candidates = nullptr;
-    for (ScorerPtr& scorer : scorers) {
-        result.intersect_with(collect(scorer, candidates));
-        if (result.true_rows.isEmpty() && result.null_rows.isEmpty()) {
-            break;
-        }
-        // Without UNKNOWN rows the TRUE rows are the candidates themselves.
-        if (result.null_rows.isEmpty()) {
-            candidates = &result.true_rows;
-        } else {
-            possible = result.true_rows | result.null_rows;
-            candidates = &possible;
-        }
-    }
-    return result;
-}
-
 ScorerPtr materialize_scorer(ScorerPtr source, bool enable_scoring,
                              const NullBitmapResolver* resolver,
                              const roaring::Roaring* candidates = nullptr);

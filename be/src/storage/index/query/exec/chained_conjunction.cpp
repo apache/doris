@@ -21,32 +21,24 @@
 #include <numeric>
 
 #include "common/check.h"
-#include "storage/index/query/spi/io_read_batch.h"
 
 namespace doris::index_query {
 
 namespace {
 
-// Lists one term; its buffers are released before the next term registers.
-Status list_term(ChainedPostings& term, const std::vector<uint32_t>* candidates, IoReadBatch& batch,
+// Lists one term: it reads what it needs, then its documents among the candidates.
+Status list_term(ChainedPostings& term, const std::vector<uint32_t>* candidates,
                  std::vector<uint32_t>* out) {
     RETURN_IF_ERROR(term.start(candidates));
-    RETURN_IF_ERROR(term.register_reads(batch));
-    Status status = batch.pending() > 0 ? batch.fetch() : Status::OK();
-    if (status.ok()) {
-        status = term.collect(batch, out);
-    }
-    batch.clear();
-    return status;
+    return term.collect(out);
 }
 
 } // namespace
 
 Status chained_conjunction(std::span<ChainedPostings* const> terms,
-                           const std::vector<uint32_t>* initial_candidates, IoReadBatch& batch,
+                           const std::vector<uint32_t>* initial_candidates,
                            std::vector<uint32_t>* result, std::vector<size_t>* visited) {
     DORIS_CHECK(result != nullptr);
-    DORIS_CHECK_EQ(batch.pending(), 0);
     result->clear();
     if (visited != nullptr) {
         visited->clear();
@@ -71,7 +63,7 @@ Status chained_conjunction(std::span<ChainedPostings* const> terms,
         // the previous result.
         const std::vector<uint32_t>* candidates = k == 0 ? initial_candidates : result;
         next.clear();
-        RETURN_IF_ERROR(list_term(*terms[order[k]], candidates, batch, &next));
+        RETURN_IF_ERROR(list_term(*terms[order[k]], candidates, &next));
         if (visited != nullptr) {
             visited->push_back(order[k]);
         }

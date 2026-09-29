@@ -22,6 +22,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
@@ -63,6 +64,29 @@ public:
     // that is positive.
     virtual Status expand_terms(TermPattern& pattern, int32_t max_expansions,
                                 std::vector<std::string>* out) = 0;
+
+    // Whether the source reads in batched rounds: a leaf then opens all its terms at once and
+    // the engine lists them term at a time, materializing what it needs, instead of driving
+    // one document at a time across them.
+    virtual bool batches_reads() const { return false; }
+
+    // Opens several terms at once, so a batching source resolves them and reads their
+    // preludes in one round each; a term the dictionary lacks yields a null cursor at its
+    // index.
+    virtual Status open_terms(std::span<const std::string> terms, bool positions, bool scoring,
+                              std::vector<std::unique_ptr<PostingsCursor>>* out) {
+        out->clear();
+        for (const std::string& term : terms) {
+            std::unique_ptr<PostingsCursor> cursor;
+            RETURN_IF_ERROR(open_term(term, positions, scoring, &cursor));
+            out->push_back(std::move(cursor));
+        }
+        return Status::OK();
+    }
+
+    // Issues the reads the cursors opened together registered since the last call, in one
+    // round; a source that reads on demand has nothing to issue.
+    virtual Status fetch_pending() { return Status::OK(); }
 
     // Whether the segment still holds the document.
     virtual bool is_live(uint32_t doc) const {

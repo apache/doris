@@ -17,11 +17,13 @@
 
 #include "storage/index/snii/reader/snii_postings_cursor.h"
 
+#include <algorithm>
 #include <utility>
 
 #include "common/check.h"
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/format/frq_pod.h"
+#include "storage/index/snii/format/prx_decode_stats.h"
 #include "storage/index/snii/format/prx_pod.h"
 #include "storage/index/snii/reader/windowed_posting.h"
 
@@ -38,18 +40,47 @@ Status posting_corrupted(const char* message) {
     return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(message);
 }
 
-Status range_in_bounds(uint64_t offset, uint64_t length, size_t total, const char* message) {
-    if (offset > total || length > total - offset) {
-        return posting_corrupted(message);
+} // namespace
+
+io::BatchRangeFetcher& SniiReadWave::batch() {
+    if (_open == nullptr) {
+        _open = std::make_unique<io::BatchRangeFetcher>(_reader);
     }
+    return *_open;
+}
+
+void SniiReadWave::after_fetch(const void* owner,
+                               std::function<Status(const io::BatchRangeFetcher&)> completion) {
+    _completions.push_back({.owner = owner, .run = std::move(completion)});
+}
+
+void SniiReadWave::drop(const void* owner) {
+    std::erase_if(_completions,
+                  [owner](const Completion& completion) { return completion.owner == owner; });
+}
+
+Status SniiReadWave::fetch() {
+    if (_open == nullptr) {
+        DORIS_CHECK(_completions.empty());
+        return Status::OK();
+    }
+    std::unique_ptr<io::BatchRangeFetcher> round = std::move(_open);
+    std::vector<Completion> completions;
+    completions.swap(_completions);
+    if (round->pending() > 0) {
+        RETURN_IF_ERROR(round->fetch());
+    }
+    for (const Completion& completion : completions) {
+        RETURN_IF_ERROR(completion.run(*round));
+    }
+    _rounds.push_back(std::move(round));
     return Status::OK();
 }
 
-} // namespace
-
 SniiPostingsCursor::SniiPostingsCursor(const LogicalIndexReader& idx, format::DictEntry entry,
                                        uint64_t frq_base, uint64_t prx_base, bool positions,
-                                       bool scoring, const format::NormsPodReader* norms)
+                                       bool scoring, const format::NormsPodReader* norms,
+                                       SniiReadWave* wave)
         : _idx(idx),
           _entry(std::move(entry)),
           _frq_base(frq_base),
@@ -57,7 +88,14 @@ SniiPostingsCursor::SniiPostingsCursor(const LogicalIndexReader& idx, format::Di
           _positions_wanted(positions),
           _scoring(scoring),
           _norms(norms),
+          _wave(wave),
           _kind(_posting_kind(_entry)) {}
+
+SniiPostingsCursor::~SniiPostingsCursor() {
+    if (_wave != nullptr) {
+        _wave->drop(this);
+    }
+}
 
 SniiPostingsCursor::Kind SniiPostingsCursor::_posting_kind(const format::DictEntry& entry) {
     if (entry.kind == DictEntryKind::kInline) {
@@ -70,9 +108,11 @@ void SniiPostingsCursor::set_prelude(std::shared_ptr<const FrqPreludeReader> pre
     _prelude = std::move(prelude);
 }
 
-io::BatchRangeFetcher& SniiPostingsCursor::_new_round() {
-    _rounds.push_back(std::make_unique<io::BatchRangeFetcher>(_idx.reader(), kSameTermCoalesceGap));
-    return *_rounds.back();
+Status SniiPostingsCursor::open_prelude() {
+    if (_kind != Kind::kWindowed) {
+        return Status::OK();
+    }
+    return _read_prelude();
 }
 
 Status SniiPostingsCursor::open() {
@@ -95,6 +135,10 @@ Status SniiPostingsCursor::open() {
         break;
     case Kind::kWindowed:
         RETURN_IF_ERROR(_read_prelude());
+        if (_prelude_pending) {
+            // The windows are known only once the prelude arrives; the span follows it.
+            RETURN_IF_ERROR(_wave->fetch());
+        }
         RETURN_IF_ERROR(_read_span(_wants_prx()));
         break;
     }
@@ -102,25 +146,50 @@ Status SniiPostingsCursor::open() {
     return Status::OK();
 }
 
-Status SniiPostingsCursor::_ensure_open() {
-    return _opened ? Status::OK() : open();
+// Opens the span unless a prefetch chose the windows, and fetches the wave when this cursor's
+// bytes are still on it.
+Status SniiPostingsCursor::_ensure_ready() {
+    if (!_opened) {
+        RETURN_IF_ERROR(open());
+    }
+    if (_wave != nullptr && _wave->pending()) {
+        RETURN_IF_ERROR(_wave->fetch());
+    }
+    return Status::OK();
 }
 
-Status SniiPostingsCursor::prefetch(const std::vector<uint32_t>& candidates, bool positions) {
+Status SniiPostingsCursor::prefetch(const std::vector<uint32_t>* candidates, bool positions) {
     if (_kind != Kind::kWindowed) {
         // One round holds the whole posting.
-        return _ensure_open();
+        if (!_opened) {
+            RETURN_IF_ERROR(open());
+        }
+        return Status::OK();
     }
     const bool prx = positions && _wants_prx();
     RETURN_IF_ERROR(_read_prelude());
-    if (scan_all_windows(_idx, _entry.df, _window_count, candidates.size())) {
+    if (_prelude_pending) {
+        RETURN_IF_ERROR(_wave->fetch());
+    }
+    if (candidates == nullptr ||
+        scan_all_windows(_idx, _entry.df, _window_count, candidates->size())) {
         RETURN_IF_ERROR(_read_span(prx));
     } else {
         std::vector<uint32_t> windows;
-        _prelude->select_covering_windows(candidates, &windows);
+        _prelude->select_covering_windows(*candidates, &windows);
         RETURN_IF_ERROR(_read_windows(windows, prx));
     }
     _opened = true;
+    return Status::OK();
+}
+
+Status SniiPostingsCursor::rewind() {
+    _next_window = 0;
+    _current_window = kNoWindow;
+    _single_decoded = false;
+    _bound_known = false;
+    _positions_decoded = false;
+    _doc_open = false;
     return Status::OK();
 }
 
@@ -128,42 +197,55 @@ Status SniiPostingsCursor::_open_slim() {
     uint64_t dd_off = 0;
     uint64_t dd_len = 0;
     RETURN_IF_ERROR(_idx.resolve_frq_window(_entry, _frq_base, &dd_off, &dd_len));
-    io::BatchRangeFetcher& batch = _new_round();
-    const size_t dd_handle = batch.add(dd_off, dd_len);
-    size_t prx_handle = 0;
+    _windows.assign(1, WindowBytes {});
+    _window_count = 1;
+    std::vector<Piece> pieces {{.offset = dd_off, .length = dd_len, .window = 0, .prx = false}};
     if (_wants_prx()) {
         uint64_t prx_off = 0;
         uint64_t prx_len = 0;
         RETURN_IF_ERROR(_idx.resolve_prx_window(_entry, _prx_base, &prx_off, &prx_len));
-        prx_handle = batch.add(prx_off, prx_len);
+        pieces.push_back({.offset = prx_off, .length = prx_len, .window = 0, .prx = true});
     }
-    RETURN_IF_ERROR(batch.fetch());
-    _windows.assign(1, WindowBytes {});
-    _windows[0].dd = batch.get(dd_handle);
-    _windows[0].dd_available = true;
-    if (_wants_prx()) {
-        _windows[0].prx = batch.get(prx_handle);
-        _windows[0].prx_available = true;
-    }
-    _window_count = 1;
-    return Status::OK();
+    return _read_pieces(std::move(pieces));
 }
 
 Status SniiPostingsCursor::_read_prelude() {
-    if (!_windows.empty()) {
+    if (!_windows.empty() || _prelude_pending) {
         return Status::OK();
     }
-    if (_prelude == nullptr) {
-        auto prelude = std::make_shared<FrqPreludeReader>();
-        RETURN_IF_ERROR(fetch_windowed_prelude(_idx, _entry, _frq_base, prelude.get()));
+    const auto adopt = [this](std::shared_ptr<const FrqPreludeReader> prelude) -> Status {
+        if (_wants_prx() && !prelude->has_prx()) {
+            return posting_corrupted("snii postings: positions requested but prelude has none");
+        }
         _prelude = std::move(prelude);
+        _window_count = _prelude->n_windows();
+        _windows.assign(_window_count, WindowBytes {});
+        _prelude_pending = false;
+        return Status::OK();
+    };
+    if (_prelude != nullptr) {
+        return adopt(_prelude);
     }
-    if (_wants_prx() && !_prelude->has_prx()) {
-        return posting_corrupted("snii postings: positions requested but prelude has none");
+    uint64_t prelude_abs = 0;
+    RETURN_IF_ERROR(prelude_abs_offset(_idx, _entry, _frq_base, &prelude_abs));
+    const auto parse = [adopt](Slice bytes) -> Status {
+        auto prelude = std::make_shared<FrqPreludeReader>();
+        RETURN_IF_ERROR(FrqPreludeReader::open(bytes, prelude.get()));
+        return adopt(std::move(prelude));
+    };
+    if (_wave != nullptr) {
+        const size_t handle = _wave->batch().add(prelude_abs, _entry.prelude_len);
+        _prelude_pending = true;
+        _wave->after_fetch(this, [parse, handle](const io::BatchRangeFetcher& batch) {
+            return parse(batch.get(handle));
+        });
+        return Status::OK();
     }
-    _window_count = _prelude->n_windows();
-    _windows.assign(_window_count, WindowBytes {});
-    return Status::OK();
+    _rounds.push_back(std::make_unique<io::BatchRangeFetcher>(_idx.reader()));
+    io::BatchRangeFetcher& batch = *_rounds.back();
+    const size_t handle = batch.add(prelude_abs, _entry.prelude_len);
+    RETURN_IF_ERROR(batch.fetch());
+    return parse(batch.get(handle));
 }
 
 // Reads the whole dd-block and, when asked, the PRX region next to it, in one round.
@@ -173,61 +255,27 @@ Status SniiPostingsCursor::_read_span(bool prx) {
     if (!need_dd && !need_prx) {
         return Status::OK();
     }
-    uint64_t prelude_abs = 0;
-    RETURN_IF_ERROR(prelude_abs_offset(_idx, _entry, _frq_base, &prelude_abs));
-    const uint64_t dd_block_len = _entry.frq_len - _entry.prelude_len;
-    if (_prelude->dd_block_len() != dd_block_len) {
-        return posting_corrupted("snii postings: dd block does not fill frq region");
-    }
-    io::BatchRangeFetcher& batch = _new_round();
-    size_t dd_handle = 0;
-    size_t prx_handle = 0;
-    if (need_dd) {
-        dd_handle = batch.add(prelude_abs + _entry.prelude_len, dd_block_len);
-    }
-    if (need_prx) {
-        const uint64_t prx_region =
-                _idx.section_refs().posting_region.offset + _prx_base + _entry.prx_off_delta;
-        prx_handle = batch.add(prx_region, _entry.prx_len);
-    }
-    RETURN_IF_ERROR(batch.fetch());
-    const Slice dd_block = need_dd ? batch.get(dd_handle) : Slice();
-    const Slice prx_region = need_prx ? batch.get(prx_handle) : Slice();
+    std::vector<Piece> pieces;
     for (uint32_t w = 0; w < _window_count; ++w) {
-        WindowMeta meta;
-        RETURN_IF_ERROR(_prelude->window(w, &meta));
-        if (need_dd) {
-            RETURN_IF_ERROR(range_in_bounds(meta.dd_off, meta.dd_disk_len, dd_block.size(),
-                                            "snii postings: window dd range out of block"));
-            _windows[w].dd = dd_block.subslice(static_cast<size_t>(meta.dd_off),
-                                               static_cast<size_t>(meta.dd_disk_len));
-            _windows[w].dd_available = true;
+        WindowAbsRange range;
+        RETURN_IF_ERROR(windowed_window_range(_idx, _entry, _frq_base, _prx_base, *_prelude, w,
+                                              need_prx, &range));
+        if (need_dd && !_windows[w].dd_available) {
+            pieces.push_back({.offset = range.dd_off, .length = range.dd_len, .window = w});
         }
-        if (need_prx) {
-            RETURN_IF_ERROR(range_in_bounds(meta.prx_off, meta.prx_len, prx_region.size(),
-                                            "snii postings: window prx range out of region"));
-            _windows[w].prx = prx_region.subslice(static_cast<size_t>(meta.prx_off),
-                                                  static_cast<size_t>(meta.prx_len));
-            _windows[w].prx_available = true;
+        if (need_prx && !_windows[w].prx_available) {
+            pieces.push_back(
+                    {.offset = range.prx_off, .length = range.prx_len, .window = w, .prx = true});
         }
     }
     _span_dd_read = _span_dd_read || need_dd;
     _span_prx_read = _span_prx_read || need_prx;
-    return Status::OK();
+    return _read_pieces(std::move(pieces));
 }
 
 // Reads the docids of `windows` not yet read, and their PRX frames when `prx`, in one round.
 Status SniiPostingsCursor::_read_windows(const std::vector<uint32_t>& windows, bool prx) {
-    struct Pending {
-        uint32_t window = 0;
-        size_t dd_handle = 0;
-        size_t prx_handle = 0;
-        bool dd = false;
-        bool prx = false;
-    };
-    std::vector<Pending> pending;
-    pending.reserve(windows.size());
-    io::BatchRangeFetcher* batch = nullptr;
+    std::vector<Piece> pieces;
     for (const uint32_t w : windows) {
         WindowMeta meta;
         RETURN_IF_ERROR(_prelude->window(w, &meta));
@@ -238,39 +286,82 @@ Status SniiPostingsCursor::_read_windows(const std::vector<uint32_t>& windows, b
             // A full window lists its range; no read holds its docids.
             bytes.dd_available = true;
         }
-        Pending item {.window = w, .dd = !bytes.dd_available, .prx = prx && !bytes.prx_available};
-        if (!item.dd && !item.prx) {
+        const bool need_dd = !bytes.dd_available;
+        const bool need_prx = prx && !bytes.prx_available;
+        if (!need_dd && !need_prx) {
             continue;
         }
         WindowAbsRange range;
         RETURN_IF_ERROR(windowed_window_range(_idx, _entry, _frq_base, _prx_base, *_prelude, w,
-                                              item.prx, &range));
-        if (batch == nullptr) {
-            batch = &_new_round();
+                                              need_prx, &range));
+        if (need_dd) {
+            pieces.push_back({.offset = range.dd_off, .length = range.dd_len, .window = w});
         }
-        if (item.dd) {
-            item.dd_handle = batch->add(range.dd_off, range.dd_len);
+        if (need_prx) {
+            pieces.push_back(
+                    {.offset = range.prx_off, .length = range.prx_len, .window = w, .prx = true});
         }
-        if (item.prx) {
-            item.prx_handle = batch->add(range.prx_off, range.prx_len);
-        }
-        pending.push_back(item);
     }
-    if (batch == nullptr) {
+    return _read_pieces(std::move(pieces));
+}
+
+Status SniiPostingsCursor::_read_pieces(std::vector<Piece> pieces) {
+    if (pieces.empty()) {
+        return Status::OK();
+    }
+    std::ranges::sort(pieces, {}, &Piece::offset);
+    // Pieces within the same-term gap read as one range; each keeps its run and offset in it.
+    struct Run {
+        uint64_t offset = 0;
+        uint64_t end = 0;
+        size_t handle = 0;
+    };
+    std::vector<Run> runs;
+    std::vector<size_t> run_of(pieces.size());
+    for (size_t i = 0; i < pieces.size(); ++i) {
+        const Piece& piece = pieces[i];
+        if (runs.empty() || piece.offset > runs.back().end + kSameTermCoalesceGap) {
+            runs.push_back({.offset = piece.offset, .end = piece.offset + piece.length});
+        } else {
+            runs.back().end = std::max(runs.back().end, piece.offset + piece.length);
+        }
+        run_of[i] = runs.size() - 1;
+    }
+    io::BatchRangeFetcher* batch = nullptr;
+    if (_wave != nullptr) {
+        batch = &_wave->batch();
+    } else {
+        _rounds.push_back(std::make_unique<io::BatchRangeFetcher>(_idx.reader()));
+        batch = _rounds.back().get();
+    }
+    for (Run& run : runs) {
+        run.handle = batch->add(run.offset, run.end - run.offset);
+    }
+    const auto slice = [this, pieces = std::move(pieces), runs = std::move(runs),
+                        run_of = std::move(run_of)](const io::BatchRangeFetcher& fetched) {
+        for (size_t i = 0; i < pieces.size(); ++i) {
+            const Piece& piece = pieces[i];
+            const Run& run = runs[run_of[i]];
+            const Slice bytes = fetched.get(run.handle)
+                                        .subslice(static_cast<size_t>(piece.offset - run.offset),
+                                                  static_cast<size_t>(piece.length));
+            WindowBytes& window = _windows[piece.window];
+            if (piece.prx) {
+                window.prx = bytes;
+                window.prx_available = true;
+            } else {
+                window.dd = bytes;
+                window.dd_available = true;
+            }
+        }
+        return Status::OK();
+    };
+    if (_wave != nullptr) {
+        _wave->after_fetch(this, slice);
         return Status::OK();
     }
     RETURN_IF_ERROR(batch->fetch());
-    for (const Pending& item : pending) {
-        if (item.dd) {
-            _windows[item.window].dd = batch->get(item.dd_handle);
-            _windows[item.window].dd_available = true;
-        }
-        if (item.prx) {
-            _windows[item.window].prx = batch->get(item.prx_handle);
-            _windows[item.window].prx_available = true;
-        }
-    }
-    return Status::OK();
+    return slice(*batch);
 }
 
 // Reads on demand the docids of a window the opening reads did not cover.
@@ -313,15 +404,14 @@ Status SniiPostingsCursor::_ensure_prx(uint32_t window) {
     return Status::OK();
 }
 
-index_query::PostingsBlock SniiPostingsCursor::_block_view(bool dense, uint32_t first_doc,
-                                                           uint64_t doc_count) const {
+index_query::PostingsBlock SniiPostingsCursor::_block_view() const {
     index_query::PostingsBlock block;
-    if (dense) {
+    if (_dense) {
         block.dense = true;
-        block.range_begin = first_doc;
-        block.range_end = first_doc + doc_count;
+        block.range_begin = _first_doc;
+        block.range_end = _first_doc + _doc_count;
     } else {
-        block.docs = _docs;
+        block.docs = _block_docs;
     }
     if (_scoring) {
         block.freqs = _freqs;
@@ -332,41 +422,72 @@ index_query::PostingsBlock SniiPostingsCursor::_block_view(bool dense, uint32_t 
     return block;
 }
 
-// Decodes the block's PRX frame for its frequencies, and its norms, keeping the positions.
-Status SniiPostingsCursor::_fill_scores(uint32_t window, uint32_t doc_count, uint32_t first_doc,
-                                        bool dense) {
+// Decodes the current block's PRX frame once, for its positions and, when scoring, its
+// frequencies and norms.
+Status SniiPostingsCursor::_fill_positions() {
+    const uint32_t window = _current_window;
+    RETURN_IF_ERROR(_ensure_prx(window));
     ByteSource source(_windows[window].prx);
     RETURN_IF_ERROR(format::read_prx_window_csr(&source, &_pos_flat, &_pos_off));
     if (!source.eof()) {
         return posting_corrupted("snii postings: trailing bytes after prx frame");
     }
-    if (_pos_off.size() != static_cast<size_t>(doc_count) + 1) {
+    if (_pos_off.size() != static_cast<size_t>(_doc_count) + 1) {
         return posting_corrupted("snii postings: prx/frq doc-count mismatch");
     }
-    _freqs.resize(doc_count);
-    for (uint32_t i = 0; i < doc_count; ++i) {
+    _positions_decoded = true;
+    if (!_scoring) {
+        return Status::OK();
+    }
+    _freqs.resize(_doc_count);
+    for (uint32_t i = 0; i < _doc_count; ++i) {
         _freqs[i] = _pos_off[i + 1] - _pos_off[i];
     }
     _norm_values.clear();
     if (_norms != nullptr) {
-        _norm_values.resize(doc_count);
-        for (uint32_t i = 0; i < doc_count; ++i) {
-            const uint32_t doc = dense ? first_doc + i : _docs[i];
+        _norm_values.resize(_doc_count);
+        for (uint32_t i = 0; i < _doc_count; ++i) {
+            const uint32_t doc = _dense ? _first_doc + i : _block_docs[i];
             uint8_t norm = 0;
             RETURN_IF_ERROR(_norms->try_encoded_norm(doc, &norm));
             _norm_values[i] = norm;
         }
     }
-    _csr_positions = true;
-    _positions_window = window;
+    return Status::OK();
+}
+
+Status SniiPostingsCursor::_ensure_positions() {
+    if (_positions_decoded) {
+        return Status::OK();
+    }
+    return _fill_positions();
+}
+
+Status SniiPostingsCursor::_window_docids(uint32_t window, const WindowMeta& meta,
+                                          std::span<const uint32_t>* docs) {
+    std::vector<uint32_t>* target = &_docs;
+    if (_positions_wanted) {
+        if (_kept_docs.empty()) {
+            _kept_docs.resize(_window_count);
+        }
+        target = &_kept_docs[window];
+        if (!target->empty()) {
+            *docs = *target;
+            return Status::OK();
+        }
+    }
+    RETURN_IF_ERROR(_ensure_dd(window));
+    RETURN_IF_ERROR(format::decode_dd_region(_windows[window].dd, dd_region_meta(meta),
+                                             meta.win_base, target));
+    if (target->size() != meta.doc_count) {
+        return posting_corrupted("snii postings: frq doc_count mismatch");
+    }
+    *docs = *target;
     return Status::OK();
 }
 
 Status SniiPostingsCursor::_decode_window(uint32_t window, index_query::PostingsBlock* block) {
-    if (_doc_open) {
-        RETURN_IF_ERROR(finish_doc());
-    }
-    RETURN_IF_ERROR(_ensure_dd(window));
+    _doc_open = false;
     WindowMeta meta;
     RETURN_IF_ERROR(_prelude->window(window, &meta));
     uint32_t first = 0;
@@ -374,53 +495,52 @@ Status SniiPostingsCursor::_decode_window(uint32_t window, index_query::Postings
     bool dense = false;
     RETURN_IF_ERROR(is_dense_full_window(meta, window, &dense));
     if (dense) {
-        _docs.clear();
+        _block_docs = {};
     } else {
-        RETURN_IF_ERROR(format::decode_dd_region(_windows[window].dd, dd_region_meta(meta),
-                                                 meta.win_base, &_docs));
-        if (_docs.size() != meta.doc_count) {
-            return posting_corrupted("snii postings: frq doc_count mismatch");
-        }
+        RETURN_IF_ERROR(_window_docids(window, meta, &_block_docs));
     }
     _dense = dense;
     _first_doc = first;
     _last_doc = meta.last_docid;
     _doc_count = meta.doc_count;
     _bound_known = true;
-    _csr_positions = false;
-    if (_scoring) {
-        RETURN_IF_ERROR(_ensure_prx(window));
-        RETURN_IF_ERROR(_fill_scores(window, meta.doc_count, first, dense));
-    }
+    _positions_decoded = false;
     _current_window = window;
-    *block = _block_view(dense, first, meta.doc_count);
+    if (_scoring) {
+        RETURN_IF_ERROR(_fill_positions());
+    }
+    *block = _block_view();
     return Status::OK();
 }
 
 Status SniiPostingsCursor::_decode_single(index_query::PostingsBlock* block) {
-    RETURN_IF_ERROR(
-            format::decode_dd_region(_windows[0].dd, _entry.dd_meta, /*win_base=*/0, &_docs));
-    if (_docs.size() != _entry.df) {
-        return posting_corrupted("snii postings: posting doc count differs from df");
+    _doc_open = false;
+    if (_docs.empty()) {
+        RETURN_IF_ERROR(
+                format::decode_dd_region(_windows[0].dd, _entry.dd_meta, /*win_base=*/0, &_docs));
+        if (_docs.size() != _entry.df) {
+            return posting_corrupted("snii postings: posting doc count differs from df");
+        }
     }
+    _block_docs = _docs;
     _dense = false;
     _first_doc = _docs.empty() ? 0 : _docs.front();
     _last_doc = _docs.empty() ? 0 : _docs.back();
     _doc_count = _docs.size();
     _bound_known = true;
-    _csr_positions = false;
-    if (_scoring) {
-        RETURN_IF_ERROR(_fill_scores(0, static_cast<uint32_t>(_docs.size()), _first_doc, false));
-    }
+    _positions_decoded = false;
     _current_window = 0;
-    *block = _block_view(false, _first_doc, _docs.size());
+    if (_scoring) {
+        RETURN_IF_ERROR(_fill_positions());
+    }
+    *block = _block_view();
     return Status::OK();
 }
 
 Status SniiPostingsCursor::next_block(index_query::PostingsBlock* block, bool* eof) {
     *block = {};
     *eof = false;
-    RETURN_IF_ERROR(_ensure_open());
+    RETURN_IF_ERROR(_ensure_ready());
     if (_kind != Kind::kWindowed) {
         if (_single_decoded) {
             *eof = true;
@@ -440,9 +560,14 @@ Status SniiPostingsCursor::next_block(index_query::PostingsBlock* block, bool* e
 
 Status SniiPostingsCursor::seek_block(uint32_t target, index_query::PostingsBlock* block,
                                       bool* eof) {
-    RETURN_IF_ERROR(_ensure_open());
+    RETURN_IF_ERROR(_ensure_ready());
     if (_kind != Kind::kWindowed) {
         // The one block holds every document.
+        return next_block(block, eof);
+    }
+    // A target the next window covers, past the window before it, needs no search.
+    if (_next_window < _window_count && target <= _prelude->window_last_docid(_next_window) &&
+        (_next_window == 0 || target > _prelude->window_last_docid(_next_window - 1))) {
         return next_block(block, eof);
     }
     bool found = false;
@@ -454,7 +579,7 @@ Status SniiPostingsCursor::seek_block(uint32_t target, index_query::PostingsBloc
 
 Status SniiPostingsCursor::shallow_seek(uint32_t target, bool* moved) {
     *moved = false;
-    RETURN_IF_ERROR(_ensure_open());
+    RETURN_IF_ERROR(_ensure_ready());
     if (_kind != Kind::kWindowed) {
         return Status::OK();
     }
@@ -489,46 +614,94 @@ index_query::BlockBound SniiPostingsCursor::current_block_bound() const {
     return {.last_doc = _prelude->window_last_docid(window), .last_doc_known = true};
 }
 
+std::span<const uint32_t> SniiPostingsCursor::_positions_of(uint32_t ordinal) const {
+    DCHECK(_positions_decoded);
+    DCHECK_LT(ordinal, _doc_count);
+    return std::span<const uint32_t>(_pos_flat).subspan(_pos_off[ordinal],
+                                                        _pos_off[ordinal + 1] - _pos_off[ordinal]);
+}
+
 Status SniiPostingsCursor::open_positions(uint32_t ordinal, index_query::PositionCursor** out) {
     *out = nullptr;
     if (!_positions_wanted) {
         return Status::NotSupported("This posting type does not support positions");
     }
     DORIS_CHECK(_current_window != kNoWindow);
-    DORIS_CHECK(ordinal < _doc_count);
-    if (_doc_open) {
-        RETURN_IF_ERROR(finish_doc());
-    }
-    if (_csr_positions) {
-        _doc_positions = std::span<const uint32_t>(_pos_flat).subspan(
-                _pos_off[ordinal], _pos_off[ordinal + 1] - _pos_off[ordinal]);
-        _doc_position_next = 0;
-    } else {
-        if (_positions_window != _current_window) {
-            if (_kind == Kind::kWindowed) {
-                RETURN_IF_ERROR(_ensure_prx(_current_window));
-            }
-            RETURN_IF_ERROR(_positions.reset(_windows[_current_window].prx,
-                                             static_cast<uint32_t>(_doc_count), {}, nullptr));
-            _positions_window = _current_window;
-        }
-        RETURN_IF_ERROR(_positions.seek(ordinal));
-    }
+    RETURN_IF_ERROR(_ensure_positions());
+    _doc_positions = _positions_of(ordinal);
+    _doc_position_next = 0;
     _doc_open = true;
     *out = this;
     return Status::OK();
 }
 
+Status SniiPostingsCursor::append_positions(uint32_t ordinal, uint32_t offset,
+                                            std::vector<uint32_t>& output) {
+    if (!_positions_wanted) {
+        return Status::NotSupported("This posting type does not support positions");
+    }
+    DORIS_CHECK(_current_window != kNoWindow);
+    RETURN_IF_ERROR(_ensure_positions());
+    for (const uint32_t position : _positions_of(ordinal)) {
+        output.push_back(position + offset);
+    }
+    return Status::OK();
+}
+
+// The whole block is the decoded frame as it is. Fewer than half of its documents decode
+// alone; more decode the whole frame once and copy the chosen ones.
+Status SniiPostingsCursor::block_positions(std::span<const uint32_t> ordinals,
+                                           index_query::PositionsBuffer* buffer,
+                                           index_query::BlockPositions* out) {
+    if (!_positions_wanted) {
+        return Status::NotSupported("This posting type does not support positions");
+    }
+    DORIS_CHECK(_current_window != kNoWindow);
+    DCHECK(ordinals.empty() || ordinals.back() < _doc_count);
+    if (!_positions_decoded && ordinals.size() * 2 < _doc_count) {
+        return _decode_selected(ordinals, out);
+    }
+    RETURN_IF_ERROR(_ensure_positions());
+    if (ordinals.size() == _doc_count) {
+        *out = {.flat = _pos_flat, .offsets = _pos_off};
+        return Status::OK();
+    }
+    buffer->flat.clear();
+    buffer->offsets.assign(1, 0);
+    for (const uint32_t ordinal : ordinals) {
+        const auto positions = _positions_of(ordinal);
+        buffer->flat.insert(buffer->flat.end(), positions.begin(), positions.end());
+        buffer->offsets.push_back(static_cast<uint32_t>(buffer->flat.size()));
+    }
+    *out = {.flat = buffer->flat, .offsets = buffer->offsets};
+    return Status::OK();
+}
+
+Status SniiPostingsCursor::_decode_selected(std::span<const uint32_t> ordinals,
+                                            index_query::BlockPositions* out) {
+    RETURN_IF_ERROR(_ensure_prx(_current_window));
+    ByteSource source(_windows[_current_window].prx);
+    format::PrxDecodedShape shape;
+    format::PrxDecodeContext context {.shape = &shape};
+    RETURN_IF_ERROR(format::read_prx_window_csr_selective(&source, ordinals, &_selected_flat,
+                                                          &_selected_off, &context));
+    if (!source.eof()) {
+        return posting_corrupted("snii postings: trailing bytes after prx frame");
+    }
+    if (shape.total_docs != _doc_count || _selected_off.size() != ordinals.size() + 1) {
+        return posting_corrupted("snii postings: prx/frq doc-count mismatch");
+    }
+    *out = {.flat = _selected_flat, .offsets = _selected_off};
+    return Status::OK();
+}
+
 uint32_t SniiPostingsCursor::frequency() const {
     DORIS_CHECK(_doc_open);
-    return _csr_positions ? static_cast<uint32_t>(_doc_positions.size()) : _positions.freq();
+    return static_cast<uint32_t>(_doc_positions.size());
 }
 
 Status SniiPostingsCursor::next_position(uint32_t* position, bool* available) {
     DORIS_CHECK(_doc_open);
-    if (!_csr_positions) {
-        return _positions.next_position(position, available);
-    }
     if (_doc_position_next >= _doc_positions.size()) {
         *available = false;
         return Status::OK();
@@ -541,16 +714,11 @@ Status SniiPostingsCursor::next_position(uint32_t* position, bool* available) {
 Status SniiPostingsCursor::finish_doc() {
     DORIS_CHECK(_doc_open);
     _doc_open = false;
-    if (_csr_positions) {
-        return Status::OK();
-    }
-    return _positions.finish_doc();
+    return Status::OK();
 }
 
 std::optional<std::span<const uint32_t>> SniiPostingsCursor::view() const {
-    if (!_csr_positions) {
-        return std::nullopt;
-    }
+    DORIS_CHECK(_doc_open);
     return _doc_positions;
 }
 

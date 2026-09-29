@@ -27,32 +27,51 @@
 
 #include "common/status.h"
 #include "storage/index/query/spi/index_source.h"
+#include "storage/index/snii/format/frq_prelude.h"
 #include "storage/index/snii/format/norms_pod.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
+#include "storage/index/snii/reader/snii_postings_cursor.h"
 
 namespace doris::snii::reader {
 
 // A logical SNII index as the engine's source: terms resolved through the dictionary, a batch
-// ahead when prepared, and postings read by SniiPostingsCursor.
+// ahead when prepared or opened together, and postings read by SniiPostingsCursor. Cursors
+// opened together share one read wave, so their preludes make one round and the reads they
+// register afterwards make one round per fetch_pending.
 class SniiIndexSource final : public index_query::IndexSource {
 public:
     explicit SniiIndexSource(const LogicalIndexReader& idx);
 
     uint32_t doc_count() const override;
+    bool batches_reads() const override { return true; }
     Status prepare_terms(std::span<const std::string> terms) override;
     Status open_term(std::string_view term, bool positions, bool scoring,
                      std::unique_ptr<index_query::PostingsCursor>* out) override;
+    Status open_terms(std::span<const std::string> terms, bool positions, bool scoring,
+                      std::vector<std::unique_ptr<index_query::PostingsCursor>>* out) override;
+    Status fetch_pending() override { return _wave.fetch(); }
     Status expand_terms(index_query::TermPattern& pattern, int32_t max_expansions,
                         std::vector<std::string>* out) override;
 
     const LogicalIndexReader& index() const { return _idx; }
+    // The rounds the shared wave fetched so far.
+    size_t wave_rounds() const { return _wave.rounds(); }
 
 private:
-    Status _resolve(std::string_view term, LogicalIndexReader::BatchLookupResult* out);
+    // A term the dictionary answered, and its prelude once a cursor read it.
+    struct Term {
+        LogicalIndexReader::BatchLookupResult hit;
+        std::shared_ptr<const format::FrqPreludeReader> prelude;
+    };
+
+    Status _resolve(std::string_view term, Term** out);
     Status _open_norms(const format::NormsPodReader** out);
+    Status _cursor(Term& term, bool positions, bool scoring, SniiReadWave* wave,
+                   std::unique_ptr<SniiPostingsCursor>* out);
 
     const LogicalIndexReader& _idx;
-    std::unordered_map<std::string, LogicalIndexReader::BatchLookupResult> _prepared;
+    SniiReadWave _wave;
+    std::unordered_map<std::string, Term> _terms;
     format::NormsPodReader _norms;
     bool _norms_opened = false;
 };

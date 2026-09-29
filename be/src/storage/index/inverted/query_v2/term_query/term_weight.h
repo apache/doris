@@ -63,6 +63,9 @@ public:
                 std::move(result));
     }
 
+    const std::wstring& field() const { return _field; }
+    const std::string& term() const { return _term; }
+
 private:
     TermOrEmptyScorer specialized_scorer(const QueryExecutionContext& ctx,
                                          const std::string& binding_key) {

@@ -701,10 +701,17 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
     }
 
     std::shared_ptr<roaring::Roaring> roaring = std::make_shared<roaring::Roaring>();
+    // A three-valued root reports the rows it leaves UNKNOWN (TRUE OR NULL is TRUE, FALSE OR
+    // NULL is NULL); a lucene-style Boolean root is two-valued: every row it does not match is
+    // FALSE.
+    std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
+    const bool three_valued =
+            exec_ctx.null_resolver != nullptr && search_param.root.clause_type != "OCCUR_BOOLEAN";
+    const bool top_k_path = enable_scoring && !is_asc && top_k > 0;
     {
         int64_t exec_dummy = 0;
         SCOPED_RAW_TIMER(stats ? &stats->inverted_index_searcher_search_exec_timer : &exec_dummy);
-        if (enable_scoring && !is_asc && top_k > 0) {
+        if (top_k_path) {
             bool use_wand = index_query_context->runtime_state != nullptr &&
                             index_query_context->runtime_state->query_options()
                                     .enable_inverted_index_wand_query;
@@ -713,21 +720,18 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
                                                   index_query_context->collection_similarity,
                                                   use_wand, index_query_context->delete_bitmap);
         } else {
+            // The scorers listing the rows report the UNKNOWN ones as they go.
             query_v2::collect_multi_segment_doc_set(
                     weight, exec_ctx, root_binding_key, roaring,
                     index_query_context ? index_query_context->collection_similarity : nullptr,
-                    enable_scoring);
+                    enable_scoring, three_valued ? null_bitmap.get() : nullptr);
         }
     }
 
     VLOG_DEBUG << "search: Query completed, matched " << roaring->cardinality() << " documents";
 
-    // Extract NULL bitmap from three-valued logic scorer
-    // The scorer correctly computes which documents evaluate to NULL based on query logic
-    // For example: TRUE OR NULL = TRUE (not NULL), FALSE OR NULL = NULL
-    // A lucene-style Boolean root is two-valued: every row it does not match is FALSE.
-    std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
-    if (exec_ctx.null_resolver && search_param.root.clause_type != "OCCUR_BOOLEAN") {
+    // The top-k collector keeps no scorer, so the UNKNOWN rows come from one built for them.
+    if (three_valued && top_k_path) {
         auto scorer = weight->scorer(exec_ctx, root_binding_key);
         if (scorer && scorer->has_null_bitmap(exec_ctx.null_resolver)) {
             const auto* bitmap = scorer->get_null_bitmap(exec_ctx.null_resolver);

@@ -25,9 +25,13 @@
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
+// Collects the rows the weight matches across the segments into `roaring`, publishing their
+// scores when asked. With `null_rows`, the rows the scorers leave UNKNOWN are collected too,
+// so the caller needs no second scorer for them.
 void collect_multi_segment_doc_set(const WeightPtr& weight, const QueryExecutionContext& context,
                                    const std::string& binding_key,
                                    const std::shared_ptr<roaring::Roaring>& roaring,
-                                   const CollectionSimilarityPtr& similarity, bool enable_scoring);
+                                   const CollectionSimilarityPtr& similarity, bool enable_scoring,
+                                   roaring::Roaring* null_rows = nullptr);
 
 } // namespace doris::segment_v2::inverted_index::query_v2

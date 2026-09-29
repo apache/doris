@@ -29,6 +29,7 @@
 #include "storage/index/inverted/query_v2/expand_query/expand_query.h"
 #include "storage/index/inverted/spi/clucene_index_source.h"
 #include "storage/index/inverted/util/string_helper.h"
+#include "storage/index/query/fake_index_source.h"
 
 CL_NS_USE(store)
 CL_NS_USE(index)
@@ -386,6 +387,39 @@ TEST_F(PrefixQueryV2Test, scorer_with_binding_key) {
 }
 
 // --- PrefixQuery end-to-end ---
+
+// A source batching its reads opens every expanded term at once and reads them in one round.
+TEST_F(PrefixQueryV2Test, ExpandedTermsOfABatchingSourceOpenTogether) {
+    auto ctx = std::make_shared<IndexQueryContext>();
+    std::wstring field = StringHelper::to_wstring("content");
+    for (const bool batches : {false, true}) {
+        auto source = std::make_shared<index_query::testing::FakeIndexSource>();
+        source->batches = batches;
+        source->set_doc_count(8);
+        source->add("apple", {0, 4});
+        source->add("application", {1});
+        source->add("apply", {2, 4});
+        source->add("banana", {3});
+        QueryExecutionContext exec_ctx;
+        exec_ctx.segment_num_rows = 8;
+        exec_ctx.field_sources.emplace(field, source);
+        ExpandWeight w(ctx, field, index_query::TermPatternKind::kPrefix, "app");
+        EXPECT_EQ(collect_docs(w.scorer(exec_ctx, "")), (std::vector<uint32_t> {0, 1, 2, 4}))
+                << batches;
+        if (batches) {
+            EXPECT_EQ(source->opened_together,
+                      (std::vector<std::vector<std::string>> {{"apple", "application", "apply"}}));
+            EXPECT_TRUE(source->opened.empty());
+            EXPECT_EQ(source->fetches, 1U);
+            ASSERT_EQ(source->prefetches["apply"].size(), 1U);
+            EXPECT_TRUE(source->prefetches["apply"][0].whole);
+        } else {
+            EXPECT_EQ(source->opened, (std::vector<std::string> {"apple", "application", "apply"}));
+            EXPECT_TRUE(source->opened_together.empty());
+            EXPECT_EQ(source->fetches, 0U);
+        }
+    }
+}
 
 TEST_F(PrefixQueryV2Test, end_to_end) {
     auto ctx = std::make_shared<IndexQueryContext>();

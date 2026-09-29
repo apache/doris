@@ -25,12 +25,15 @@
 
 #include "common/check.h"
 #include "storage/index/inverted/query_v2/bit_set_query/bit_set_scorer.h"
+#include "storage/index/inverted/query_v2/boolean_query/listed_terms.h"
 #include "storage/index/inverted/query_v2/boolean_query/operator.h"
 #include "storage/index/inverted/query_v2/buffered_union_scorer.h"
 #include "storage/index/inverted/query_v2/complete_null_bitmap.h"
 #include "storage/index/inverted/query_v2/doc_set.h"
 #include "storage/index/inverted/query_v2/intersection_scorer.h"
 #include "storage/index/inverted/query_v2/match_all_docs_scorer.h"
+#include "storage/index/inverted/query_v2/null_bitmap_fetcher.h"
+#include "storage/index/inverted/query_v2/term_query/term_weight.h"
 #include "storage/index/inverted/query_v2/weight.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
@@ -152,30 +155,143 @@ private:
         return std::dynamic_pointer_cast<DoNothingCombiner>(_score_combiner) != nullptr;
     }
 
-    index_query::TruthSet evaluate_children(const QueryExecutionContext& context) {
-        if (_type == OperatorType::OP_AND) {
-            // Cheaper children run first, so the others read only the rows they leave.
-            std::vector<ScorerPtr> scorers;
-            scorers.reserve(_sub_weights.size());
-            for (size_t i = 0; i < _sub_weights.size(); ++i) {
-                scorers.push_back(_sub_weights[i]->scorer(context, _binding_keys[i]));
-                DORIS_CHECK(scorers.back() != nullptr);
+    // The term clauses reading a source that batches its reads, grouped by source and opened
+    // together; the other clauses run through their scorers.
+    std::vector<ListedTerms> listed_terms(const QueryExecutionContext& context) {
+        std::vector<ListedTerms> groups;
+        for (size_t i = 0; i < _sub_weights.size(); ++i) {
+            const auto* term = dynamic_cast<const TermWeight*>(_sub_weights[i].get());
+            if (term == nullptr) {
+                continue;
             }
-            std::ranges::stable_sort(scorers, {},
-                                     [](const ScorerPtr& scorer) { return scorer->cost(); });
-            return intersect_truth_sets(
-                    scorers, context.segment_num_rows,
-                    [&](const ScorerPtr& scorer, const roaring::Roaring* candidates) {
-                        return collect_truth_set(scorer, context.null_resolver, candidates);
-                    });
+            auto source = lookup_source(term->field(), context, _binding_keys[i]);
+            if (source == nullptr || !source->batches_reads()) {
+                continue;
+            }
+            auto group = std::ranges::find_if(groups, [&source](const ListedTerms& candidate) {
+                return candidate.source() == source;
+            });
+            if (group == groups.end()) {
+                auto nulls = FieldNullBitmapFetcher::fetch(
+                        context.null_resolver,
+                        logical_field_or_fallback(context, _binding_keys[i], term->field()));
+                group = groups.insert(groups.end(), ListedTerms(source, std::move(nulls)));
+            }
+            group->add(i, term->term());
+        }
+        for (ListedTerms& group : groups) {
+            group.open();
+        }
+        return groups;
+    }
+
+    static bool is_listed(const std::vector<ListedTerms>& groups, size_t clause) {
+        return std::ranges::any_of(
+                groups, [clause](const ListedTerms& group) { return group.holds(clause); });
+    }
+
+    index_query::TruthSet clause_rows(const QueryExecutionContext& context, size_t clause,
+                                      const roaring::Roaring* candidates) {
+        const WeightPtr& weight = _sub_weights[clause];
+        const std::string& binding_key = _binding_keys[clause];
+        if (weight->lists_rows(context, binding_key)) {
+            return weight->listed_rows(context, binding_key, candidates);
+        }
+        return collect_truth_set(weight->scorer(context, binding_key), context.null_resolver,
+                                 candidates);
+    }
+
+    index_query::TruthSet evaluate_children(const QueryExecutionContext& context) {
+        auto groups = listed_terms(context);
+        if (_type == OperatorType::OP_AND) {
+            return evaluate_conjunction(context, groups);
         }
         index_query::TruthSet result;
+        for (ListedTerms& group : groups) {
+            result.union_with(group.disjunction());
+        }
         for (size_t i = 0; i < _sub_weights.size(); ++i) {
-            auto scorer = _sub_weights[i]->scorer(context, _binding_keys[i]);
-            result.union_with(collect_truth_set(scorer, context.null_resolver));
+            if (!is_listed(groups, i)) {
+                result.union_with(clause_rows(context, i, nullptr));
+            }
         }
         if (_type == OperatorType::OP_NOT) {
             result.negate(context.segment_num_rows);
+        }
+        return result;
+    }
+
+    // Cheaper clauses run first, so the others read only the rows they keep: the scorers and
+    // the listed groups in cost order, then the clauses listing their own rows on what is left.
+    index_query::TruthSet evaluate_conjunction(const QueryExecutionContext& context,
+                                               std::vector<ListedTerms>& groups) {
+        index_query::TruthSet result;
+        if (std::ranges::any_of(groups,
+                                [](const ListedTerms& group) { return group.has_absent_term(); })) {
+            return result;
+        }
+        struct Step {
+            uint64_t cost = 0;
+            ScorerPtr scorer;
+            ListedTerms* group = nullptr;
+        };
+        std::vector<Step> steps;
+        std::vector<size_t> listing;
+        for (size_t i = 0; i < _sub_weights.size(); ++i) {
+            if (is_listed(groups, i)) {
+                continue;
+            }
+            if (_sub_weights[i]->lists_rows(context, _binding_keys[i])) {
+                listing.push_back(i);
+                continue;
+            }
+            auto scorer = _sub_weights[i]->scorer(context, _binding_keys[i]);
+            DORIS_CHECK(scorer != nullptr);
+            steps.push_back(
+                    {.cost = scorer->cost(), .scorer = std::move(scorer), .group = nullptr});
+        }
+        for (ListedTerms& group : groups) {
+            steps.push_back(
+                    {.cost = group.cheapest_doc_freq(), .scorer = nullptr, .group = &group});
+        }
+        std::ranges::stable_sort(steps, {}, &Step::cost);
+        result.true_rows.addRange(0, context.segment_num_rows);
+        roaring::Roaring possible;
+        const roaring::Roaring* candidates = nullptr;
+        std::vector<uint32_t> listed_candidates;
+        // Narrows the result by one clause's rows; true when nothing can match any more.
+        const auto narrow = [&](const index_query::TruthSet& rows) {
+            result.intersect_with(rows);
+            if (result.null_rows.isEmpty()) {
+                candidates = &result.true_rows;
+            } else {
+                possible = result.true_rows | result.null_rows;
+                candidates = &possible;
+            }
+            return result.true_rows.isEmpty() && result.null_rows.isEmpty();
+        };
+        for (Step& step : steps) {
+            bool exhausted = false;
+            if (step.group != nullptr) {
+                const std::vector<uint32_t>* chain_candidates = nullptr;
+                if (candidates != nullptr) {
+                    listed_candidates.resize(candidates->cardinality());
+                    candidates->toUint32Array(listed_candidates.data());
+                    chain_candidates = &listed_candidates;
+                }
+                exhausted = narrow(step.group->conjunction(chain_candidates));
+            } else {
+                exhausted =
+                        narrow(collect_truth_set(step.scorer, context.null_resolver, candidates));
+            }
+            if (exhausted) {
+                return result;
+            }
+        }
+        for (const size_t clause : listing) {
+            if (narrow(clause_rows(context, clause, candidates))) {
+                return result;
+            }
         }
         return result;
     }

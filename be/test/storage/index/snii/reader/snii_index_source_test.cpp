@@ -25,6 +25,7 @@
 
 #include "storage/index/query/exec/block_doc_set.h"
 #include "storage/index/query/term_pattern.h"
+#include "storage/index/snii/io/metered_file_reader.h"
 #include "storage/index/snii/query/internal/docid_posting_reader.h"
 #include "storage/index/snii/writer/snii_compound_writer.h"
 #include "storage/index/snii_query_test_util.h"
@@ -170,6 +171,106 @@ TEST_F(SniiIndexSourceTest, PositionsNeedAPositionedIndex) {
     EXPECT_TRUE(set.advance());
     EXPECT_EQ(set.doc(), 7U);
     EXPECT_FALSE(set.advance());
+}
+
+// The corpus read through a metered reader, so the rounds of every open count.
+class SniiIndexSourceRoundsTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        SniiSegmentReader written;
+        LogicalIndexReader written_index;
+        assert_ok(snii_test::build_reader(&_file, &written, &written_index));
+        assert_ok(SniiSegmentReader::open(&_metered, &_segment));
+        assert_ok(_segment.open_index(7, "Body", &_index));
+        _source = std::make_unique<SniiIndexSource>(_index);
+    }
+
+    uint64_t rounds() const { return _metered.metrics().serial_rounds; }
+
+    std::vector<uint32_t> list(index_query::PostingsCursor& cursor) const {
+        std::vector<uint32_t> docs;
+        index_query::BlockDocSet set(cursor);
+        while (!set.exhausted()) {
+            docs.push_back(set.doc());
+            set.advance();
+        }
+        return docs;
+    }
+
+    std::vector<uint32_t> oracle(const std::string& term) const {
+        bool found = false;
+        format::DictEntry entry;
+        uint64_t frq_base = 0;
+        uint64_t prx_base = 0;
+        EXPECT_TRUE(_index.lookup(term, &found, &entry, &frq_base, &prx_base).ok());
+        EXPECT_TRUE(found) << term;
+        std::vector<uint32_t> docids;
+        EXPECT_TRUE(query::internal::read_docid_posting(_index, entry, frq_base, prx_base, &docids)
+                            .ok());
+        return docids;
+    }
+
+    MemoryFile _file;
+    io::MeteredFileReader _metered {&_file, /*block_size=*/256};
+    SniiSegmentReader _segment;
+    LogicalIndexReader _index;
+    std::unique_ptr<SniiIndexSource> _source;
+};
+
+TEST_F(SniiIndexSourceRoundsTest, TermsOpenedTogetherReadInSharedRounds) {
+    const std::vector<std::string> terms = {"sparse_left", "absent", "sparse_right", "failed"};
+    std::vector<std::unique_ptr<index_query::PostingsCursor>> cursors;
+    assert_ok(_source->open_terms(terms, /*positions=*/false, /*scoring=*/false, &cursors));
+    ASSERT_EQ(cursors.size(), 4U);
+    EXPECT_EQ(cursors[1], nullptr);
+    const uint64_t opened = rounds();
+    // Every span registers on the wave and one round reads them all.
+    for (const auto& cursor : cursors) {
+        if (cursor != nullptr) {
+            assert_ok(cursor->prefetch(nullptr, /*positions=*/false));
+        }
+    }
+    EXPECT_EQ(rounds(), opened);
+    assert_ok(_source->fetch_pending());
+    EXPECT_EQ(rounds(), opened + 1);
+    EXPECT_EQ(list(*cursors[0]), oracle("sparse_left"));
+    EXPECT_EQ(list(*cursors[2]), oracle("sparse_right"));
+    EXPECT_EQ(list(*cursors[3]), oracle("failed"));
+    EXPECT_EQ(rounds(), opened + 1);
+    EXPECT_EQ(_source->wave_rounds(), 2U);
+}
+
+TEST_F(SniiIndexSourceRoundsTest, ALaterOpenOfATermStartsFromItsPrelude) {
+    const std::vector<std::string> terms = {"sparse_left", "failed"};
+    std::vector<std::unique_ptr<index_query::PostingsCursor>> cursors;
+    assert_ok(_source->open_terms(terms, false, false, &cursors));
+    const uint64_t opened = rounds();
+    // Neither the dictionary nor the prelude is read again: only the span, in one round.
+    std::unique_ptr<index_query::PostingsCursor> again;
+    assert_ok(_source->open_term("sparse_left", false, false, &again));
+    ASSERT_NE(again, nullptr);
+    EXPECT_EQ(rounds(), opened);
+    EXPECT_EQ(list(*again), oracle("sparse_left"));
+    EXPECT_EQ(rounds(), opened + 1);
+    std::vector<std::unique_ptr<index_query::PostingsCursor>> together;
+    assert_ok(_source->open_terms(terms, false, false, &together));
+    EXPECT_EQ(rounds(), opened + 1);
+}
+
+TEST_F(SniiIndexSourceRoundsTest, ExpandedTermsOpenWithoutALookup) {
+    index_query::TermPattern pattern;
+    assert_ok(index_query::TermPattern::create(index_query::TermPatternKind::kPrefix, "sparse",
+                                               &pattern));
+    std::vector<std::string> terms;
+    assert_ok(_source->expand_terms(pattern, 0, &terms));
+    ASSERT_EQ(terms, (std::vector<std::string> {"sparse_left", "sparse_right"}));
+    const uint64_t expanded = rounds();
+    std::vector<std::unique_ptr<index_query::PostingsCursor>> cursors;
+    assert_ok(_source->open_terms(terms, false, false, &cursors));
+    // The dictionary answered the terms while enumerating; one round reads their preludes.
+    EXPECT_EQ(rounds(), expanded + 1);
+    EXPECT_EQ(list(*cursors[0]), oracle("sparse_left"));
+    EXPECT_EQ(list(*cursors[1]), oracle("sparse_right"));
 }
 
 } // namespace

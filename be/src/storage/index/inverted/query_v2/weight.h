@@ -28,6 +28,7 @@
 #include "common/exception.h"
 #include "storage/index/inverted/query_v2/scorer.h"
 #include "storage/index/inverted/query_v2/segment_postings.h"
+#include "storage/index/query/boolean/truth_set.h"
 #include "storage/index/query/spi/index_source.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
@@ -88,6 +89,26 @@ public:
             }
             doc = scorer->advance();
         }
+    }
+
+    // Whether the weight lists its rows for a set of candidates itself, without a scorer, so
+    // a conjunction runs it last on the rows the other clauses kept (see listed_rows).
+    virtual bool lists_rows(const QueryExecutionContext& context,
+                            const std::string& binding_key) const {
+        (void)context;
+        (void)binding_key;
+        return false;
+    }
+
+    // The rows the weight holds TRUE among `candidates` (every row when null) and the rows it
+    // leaves UNKNOWN. Only a weight that lists_rows answers.
+    virtual index_query::TruthSet listed_rows(const QueryExecutionContext& context,
+                                              const std::string& binding_key,
+                                              const roaring::Roaring* candidates) {
+        (void)context;
+        (void)binding_key;
+        (void)candidates;
+        throw Exception(ErrorCode::INTERNAL_ERROR, "this weight does not list its rows");
     }
 
 protected:

@@ -31,10 +31,12 @@
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/query/query_info.h"
+#include "storage/index/inverted/query_v2/phrase_query/phrase_scorer.h"
 #include "storage/index/inverted/query_v2/phrase_query/phrase_weight.h"
 #include "storage/index/inverted/spi/clucene_index_source.h"
 #include "storage/index/inverted/spi/clucene_postings_cursor.h"
 #include "storage/index/inverted/util/string_helper.h"
+#include "storage/index/query/fake_index_source.h"
 
 CL_NS_USE(search)
 CL_NS_USE(store)
@@ -748,6 +750,121 @@ TEST_F(PhraseQueryV2Test, CandidatesRestrictThePhrase) {
             phrase_docs(kTestDir, {"quick", "brown"}, {.candidates = &past_the_matches}).empty());
     const roaring::Roaring none;
     EXPECT_TRUE(phrase_docs(kTestDir, {"quick", "brown"}, {.candidates = &none}).empty());
+}
+
+// The phrase over in-memory postings, streamed one document at a time or, on a source that
+// batches its reads, listed as a chain with the positions read in one round.
+static index_query::testing::FakeIndexSource::Posting posting(uint32_t doc,
+                                                              std::vector<uint32_t> positions) {
+    return {.doc = doc, .positions = std::move(positions)};
+}
+
+static std::shared_ptr<index_query::testing::FakeIndexSource> fake_phrase_source(bool batches) {
+    auto source = std::make_shared<index_query::testing::FakeIndexSource>();
+    source->batches = batches;
+    source->set_doc_count(16);
+    source->add("quick", {posting(0, {1}), posting(1, {0}), posting(5, {0, 4}), posting(8, {3}),
+                          posting(11, {0})});
+    source->add("brown", {posting(0, {2}), posting(1, {1}), posting(5, {2}), posting(8, {4, 7}),
+                          posting(12, {1})});
+    return source;
+}
+
+static std::vector<TermInfo> phrase_terms(const std::vector<std::string>& terms) {
+    std::vector<TermInfo> term_infos;
+    for (size_t i = 0; i < terms.size(); ++i) {
+        TermInfo term_info;
+        term_info.term = terms[i];
+        term_info.position = static_cast<int32_t>(i);
+        term_infos.push_back(std::move(term_info));
+    }
+    return term_infos;
+}
+
+static std::set<uint32_t> fake_phrase_docs(
+        const std::shared_ptr<index_query::testing::FakeIndexSource>& source,
+        const std::vector<std::string>& terms, const index_query::PhraseQueryOptions& options) {
+    const std::wstring field = L"content";
+    query_v2::PhraseQuery query(std::make_shared<IndexQueryContext>(), field, phrase_terms(terms),
+                                options);
+    query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = source->doc_count();
+    exec_ctx.field_sources.emplace(field, source);
+    auto scorer = query.weight(false)->scorer(exec_ctx);
+    std::set<uint32_t> docs;
+    for (uint32_t doc = scorer->doc(); doc != query_v2::TERMINATED; doc = scorer->advance()) {
+        docs.insert(doc);
+    }
+    return docs;
+}
+
+// "quick brown" is exact in docs 0, 1 and 8, and one move apart in doc 5.
+TEST_F(PhraseQueryV2Test, AListedPhraseMatchesTheStreamedOne) {
+    roaring::Roaring candidates;
+    candidates.addMany(3, std::array<uint32_t, 3> {1, 8, 12}.data());
+    for (const bool batches : {false, true}) {
+        auto source = fake_phrase_source(batches);
+        EXPECT_EQ(fake_phrase_docs(source, {"quick", "brown"}, {}), (std::set<uint32_t> {0, 1, 8}))
+                << batches;
+        EXPECT_EQ(fake_phrase_docs(source, {"quick", "brown"}, {.slop = 1}),
+                  (std::set<uint32_t> {0, 1, 5, 8}))
+                << batches;
+        EXPECT_EQ(fake_phrase_docs(source, {"brown", "quick"}, {.slop = 1}),
+                  (std::set<uint32_t> {5}))
+                << batches;
+        EXPECT_EQ(fake_phrase_docs(source, {"quick", "brown"}, {.candidates = &candidates}),
+                  (std::set<uint32_t> {1, 8}))
+                << batches;
+        EXPECT_TRUE(fake_phrase_docs(source, {"quick", "absent"}, {}).empty()) << batches;
+    }
+}
+
+TEST_F(PhraseQueryV2Test, AListedPhraseReadsItsTermsTogether) {
+    auto source = fake_phrase_source(true);
+    EXPECT_EQ(fake_phrase_docs(source, {"quick", "brown"}, {}), (std::set<uint32_t> {0, 1, 8}));
+    EXPECT_EQ(source->opened_together,
+              (std::vector<std::vector<std::string>> {{"quick", "brown"}}));
+    EXPECT_TRUE(source->opened.empty());
+    // The chain lists the first term whole and the second on its rows; then both read the
+    // positions of the rows holding every term, in one round.
+    const auto& quick = source->prefetches["quick"];
+    const auto& brown = source->prefetches["brown"];
+    ASSERT_EQ(quick.size(), 2U);
+    ASSERT_EQ(brown.size(), 2U);
+    EXPECT_TRUE(quick[0].whole);
+    EXPECT_FALSE(quick[0].positions);
+    EXPECT_EQ(brown[0].candidates, (std::vector<uint32_t> {0, 1, 5, 8, 11}));
+    EXPECT_FALSE(brown[0].positions);
+    EXPECT_EQ(quick[1].candidates, (std::vector<uint32_t> {0, 1, 5, 8}));
+    EXPECT_TRUE(quick[1].positions);
+    EXPECT_EQ(brown[1].candidates, (std::vector<uint32_t> {0, 1, 5, 8}));
+    EXPECT_EQ(source->fetches, 1U);
+}
+
+TEST_F(PhraseQueryV2Test, AListedPhraseListsItsRowsForAConjunction) {
+    const std::wstring field = L"content";
+    query_v2::PhraseQuery query(std::make_shared<IndexQueryContext>(), field,
+                                phrase_terms({"quick", "brown"}));
+    query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = 16;
+    auto streamed = fake_phrase_source(false);
+    exec_ctx.field_sources.emplace(field, streamed);
+    EXPECT_FALSE(query.weight(false)->lists_rows(exec_ctx, ""));
+    auto listed = fake_phrase_source(true);
+    exec_ctx.field_sources[field] = listed;
+    // A scored phrase streams even on a batching source.
+    query_v2::PhraseWeight scored(field, phrase_terms({"quick", "brown"}), {}, nullptr,
+                                  /*enable_scoring=*/true, /*nullable=*/true);
+    EXPECT_FALSE(scored.lists_rows(exec_ctx, ""));
+    auto weight = query.weight(false);
+    ASSERT_TRUE(weight->lists_rows(exec_ctx, ""));
+    roaring::Roaring candidates;
+    candidates.addMany(3, std::array<uint32_t, 3> {1, 8, 12}.data());
+    const auto rows = weight->listed_rows(exec_ctx, "", &candidates);
+    EXPECT_EQ(rows.true_rows, roaring::Roaring::bitmapOf(2, 1U, 8U));
+    EXPECT_TRUE(rows.null_rows.isEmpty());
+    // The chain started from the candidates.
+    EXPECT_EQ(listed->prefetches["quick"][0].candidates, (std::vector<uint32_t> {1, 8, 12}));
 }
 
 } // namespace doris::segment_v2

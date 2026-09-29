@@ -21,36 +21,46 @@
 #include <utility>
 
 #include "storage/index/query/term_pattern.h"
-#include "storage/index/snii/reader/snii_postings_cursor.h"
 
 namespace doris::snii::reader {
 
-SniiIndexSource::SniiIndexSource(const LogicalIndexReader& idx) : _idx(idx) {}
+SniiIndexSource::SniiIndexSource(const LogicalIndexReader& idx) : _idx(idx), _wave(idx.reader()) {}
 
 uint32_t SniiIndexSource::doc_count() const {
     return static_cast<uint32_t>(_idx.stats().doc_count);
 }
 
 Status SniiIndexSource::prepare_terms(std::span<const std::string> terms) {
-    std::vector<std::string> sorted(terms.begin(), terms.end());
+    std::vector<std::string> sorted;
+    for (const std::string& term : terms) {
+        if (!_terms.contains(term)) {
+            sorted.push_back(term);
+        }
+    }
+    if (sorted.empty()) {
+        return Status::OK();
+    }
     std::ranges::sort(sorted);
     const auto duplicates = std::ranges::unique(sorted);
     sorted.erase(duplicates.begin(), duplicates.end());
     std::vector<LogicalIndexReader::BatchLookupResult> results;
     RETURN_IF_ERROR(_idx.lookup_batch(sorted, &results));
     for (size_t i = 0; i < sorted.size(); ++i) {
-        _prepared[std::move(sorted[i])] = std::move(results[i]);
+        _terms[std::move(sorted[i])] = {.hit = std::move(results[i]), .prelude = nullptr};
     }
     return Status::OK();
 }
 
-Status SniiIndexSource::_resolve(std::string_view term,
-                                 LogicalIndexReader::BatchLookupResult* out) {
-    if (const auto it = _prepared.find(std::string(term)); it != _prepared.end()) {
-        *out = it->second;
-        return Status::OK();
+Status SniiIndexSource::_resolve(std::string_view term, Term** out) {
+    auto it = _terms.find(std::string(term));
+    if (it == _terms.end()) {
+        Term resolved;
+        RETURN_IF_ERROR(_idx.lookup(term, &resolved.hit.found, &resolved.hit.entry,
+                                    &resolved.hit.frq_base, &resolved.hit.prx_base));
+        it = _terms.emplace(std::string(term), std::move(resolved)).first;
     }
-    return _idx.lookup(term, &out->found, &out->entry, &out->frq_base, &out->prx_base);
+    *out = &it->second;
+    return Status::OK();
 }
 
 Status SniiIndexSource::_open_norms(const format::NormsPodReader** out) {
@@ -62,23 +72,64 @@ Status SniiIndexSource::_open_norms(const format::NormsPodReader** out) {
     return Status::OK();
 }
 
+Status SniiIndexSource::_cursor(Term& term, bool positions, bool scoring, SniiReadWave* wave,
+                                std::unique_ptr<SniiPostingsCursor>* out) {
+    const format::NormsPodReader* norms = nullptr;
+    if (scoring && _idx.has_norms()) {
+        RETURN_IF_ERROR(_open_norms(&norms));
+    }
+    *out = std::make_unique<SniiPostingsCursor>(_idx, term.hit.entry, term.hit.frq_base,
+                                                term.hit.prx_base, positions, scoring, norms, wave);
+    if (term.prelude != nullptr) {
+        (*out)->set_prelude(term.prelude);
+    }
+    return Status::OK();
+}
+
 Status SniiIndexSource::open_term(std::string_view term, bool positions, bool scoring,
                                   std::unique_ptr<index_query::PostingsCursor>* out) {
     out->reset();
     if (positions && !_idx.has_positions()) {
         return Status::NotSupported("snii: the index holds no positions");
     }
-    LogicalIndexReader::BatchLookupResult hit;
-    RETURN_IF_ERROR(_resolve(term, &hit));
-    if (!hit.found) {
+    Term* resolved = nullptr;
+    RETURN_IF_ERROR(_resolve(term, &resolved));
+    if (!resolved->hit.found) {
         return Status::OK();
     }
-    const format::NormsPodReader* norms = nullptr;
-    if (scoring && _idx.has_norms()) {
-        RETURN_IF_ERROR(_open_norms(&norms));
+    std::unique_ptr<SniiPostingsCursor> cursor;
+    RETURN_IF_ERROR(_cursor(*resolved, positions, scoring, /*wave=*/nullptr, &cursor));
+    *out = std::move(cursor);
+    return Status::OK();
+}
+
+Status SniiIndexSource::open_terms(std::span<const std::string> terms, bool positions, bool scoring,
+                                   std::vector<std::unique_ptr<index_query::PostingsCursor>>* out) {
+    out->clear();
+    if (positions && !_idx.has_positions()) {
+        return Status::NotSupported("snii: the index holds no positions");
     }
-    *out = std::make_unique<SniiPostingsCursor>(_idx, std::move(hit.entry), hit.frq_base,
-                                                hit.prx_base, positions, scoring, norms);
+    RETURN_IF_ERROR(prepare_terms(terms));
+    std::vector<std::pair<Term*, SniiPostingsCursor*>> opened;
+    for (const std::string& term : terms) {
+        Term* resolved = nullptr;
+        RETURN_IF_ERROR(_resolve(term, &resolved));
+        std::unique_ptr<SniiPostingsCursor> cursor;
+        if (resolved->hit.found) {
+            RETURN_IF_ERROR(_cursor(*resolved, positions, scoring, &_wave, &cursor));
+            RETURN_IF_ERROR(cursor->open_prelude());
+            opened.emplace_back(resolved, cursor.get());
+        }
+        out->push_back(std::move(cursor));
+    }
+    // The preludes of the windowed terms arrive in one round; later cursors of the same terms
+    // start from them.
+    RETURN_IF_ERROR(_wave.fetch());
+    for (auto& [term, cursor] : opened) {
+        if (term->prelude == nullptr) {
+            term->prelude = cursor->prelude();
+        }
+    }
     return Status::OK();
 }
 
@@ -98,6 +149,12 @@ Status SniiIndexSource::expand_terms(index_query::TermPattern& pattern, int32_t 
                 if (!pattern.matches(hit.term)) {
                     return Status::OK();
                 }
+                // The dictionary answered the term here, so its open needs no lookup.
+                _terms[hit.term] = {.hit = {.found = true,
+                                            .entry = std::move(hit.entry),
+                                            .frq_base = hit.frq_base,
+                                            .prx_base = hit.prx_base},
+                                    .prelude = nullptr};
                 out->push_back(std::move(hit.term));
                 *stop = max_expansions > 0 && out->size() == static_cast<size_t>(max_expansions);
                 return Status::OK();

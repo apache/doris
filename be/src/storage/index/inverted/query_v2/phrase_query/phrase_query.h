@@ -21,6 +21,7 @@
 #include "storage/index/inverted/query_v2/phrase_query/phrase_weight.h"
 #include "storage/index/inverted/query_v2/query.h"
 #include "storage/index/inverted/similarity/bm25_similarity.h"
+#include "storage/index/inverted/util/string_helper.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 

@@ -598,14 +598,18 @@ Status emit_decoded_window_docids(const WindowWork& f, Slice window_bytes,
 }
 
 // Lists one planned term for the shared chained conjunction. A windowed term reads
-// only the windows that can hold candidates, merging reads within the same-term
-// gap; full windows need no read. A flat term decodes the posting fetched with the
-// term plans.
+// only the windows that can hold candidates, in one round merging reads within the
+// same-term gap; full windows need no read. A flat term decodes the posting fetched
+// with the term plans.
 class ChainedTermPostings final : public index_query::ChainedPostings {
 public:
     ChainedTermPostings(const LogicalIndexReader& idx, const io::BatchRangeFetcher& round1,
                         const TermPlan& plan, DocidSource* source)
-            : _idx(idx), _round1(round1), _plan(plan), _source(source) {}
+            : _idx(idx),
+              _round1(round1),
+              _plan(plan),
+              _source(source),
+              _batch(idx.reader(), reader::kSameTermCoalesceGap) {}
 
     uint64_t doc_freq() const override { return _plan.df; }
 
@@ -615,6 +619,8 @@ public:
         _next_window = 0;
         _candidate_search_begin = 0;
         _reserved = false;
+        _work.clear();
+        _batch.clear();
         if (!_plan.windowed) {
             return Status::OK();
         }
@@ -628,18 +634,13 @@ public:
         } else {
             _plan.prelude.select_covering_windows(*candidates, &_windows);
         }
-        return Status::OK();
-    }
-
-    Status register_reads(index_query::IoReadBatch& batch) override {
-        _work.clear();
-        while (_plan.windowed && _next_window < _windows.size()) {
-            RETURN_IF_ERROR(_prepare_window(batch));
+        while (_next_window < _windows.size()) {
+            RETURN_IF_ERROR(_prepare_window(_batch));
         }
-        return Status::OK();
+        return _batch.pending() > 0 ? _batch.fetch() : Status::OK();
     }
 
-    Status collect(const index_query::IoReadBatch& batch, std::vector<uint32_t>* out) override {
+    Status collect(std::vector<uint32_t>* out) override {
         if (!_plan.windowed) {
             return _collect_flat(out);
         }
@@ -653,7 +654,7 @@ public:
                 RETURN_IF_ERROR(emit_dense_full_window_docids(work, _candidates, *out, _source));
                 continue;
             }
-            const auto bytes = batch.get(work.handle);
+            const auto bytes = _batch.get(work.handle);
             RETURN_IF_ERROR(emit_decoded_window_docids(work, Slice(bytes.data(), bytes.size()),
                                                        _candidates, *out, _source, _docs,
                                                        _positions));
@@ -749,6 +750,7 @@ private:
     std::vector<WindowWork> _work;
     std::vector<uint32_t> _docs;
     std::vector<std::vector<uint32_t>> _positions;
+    io::BatchRangeFetcher _batch;
 };
 
 // Runs the shared chained conjunction over the planned terms. `sources`, when
@@ -762,20 +764,19 @@ Status run_chained_conjunction(const LogicalIndexReader& idx, const io::BatchRan
     if (sources != nullptr) {
         sources->assign(plans.size(), DocidSource {});
     }
-    std::vector<ChainedTermPostings> terms;
+    std::vector<std::unique_ptr<ChainedTermPostings>> terms;
     terms.reserve(plans.size());
     for (size_t i = 0; i < plans.size(); ++i) {
-        terms.emplace_back(idx, round1, plans[i], sources == nullptr ? nullptr : &(*sources)[i]);
+        terms.push_back(std::make_unique<ChainedTermPostings>(
+                idx, round1, plans[i], sources == nullptr ? nullptr : &(*sources)[i]));
     }
     std::vector<index_query::ChainedPostings*> chain;
     chain.reserve(terms.size());
-    for (ChainedTermPostings& term : terms) {
-        chain.push_back(&term);
+    for (const auto& term : terms) {
+        chain.push_back(term.get());
     }
-    // One batch per term, its reads merged within the same-term gap.
-    io::BatchRangeFetcher batch(idx.reader(), reader::kSameTermCoalesceGap);
     std::vector<size_t> visited;
-    RETURN_IF_ERROR(index_query::chained_conjunction(chain, initial_candidates, batch, candidates,
+    RETURN_IF_ERROR(index_query::chained_conjunction(chain, initial_candidates, candidates,
                                                      sources == nullptr ? nullptr : &visited));
     if (sources != nullptr && !plans.empty() && visited.size() == plans.size()) {
         (*sources)[visited.back()].docids_are_final_candidates = true;
