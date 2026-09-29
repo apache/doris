@@ -62,6 +62,7 @@ public:
             : Scanner(state, local_state, limit, profile), _allow_padding(allow_padding) {}
 
     void add_block(Block block) { _blocks.push_back(std::move(block)); }
+    size_t unread_blocks() const { return _blocks.size(); }
 
 protected:
     bool _can_merge_padding_blocks(const Block& /*left*/, const Block& /*right*/) const override {
@@ -737,6 +738,45 @@ TEST_F(ScannerLateArrivalRfTest, olap_scanner_releases_resources_before_open) {
     EXPECT_TRUE(prepared_scanner->_tablet_reader_params.rs_splits.empty());
     EXPECT_EQ(prepared_scanner->_tablet_reader_params.tablet, nullptr);
     prepared_scanner->update_realtime_counters();
+}
+
+// Admission does not look at the shared LIMIT, so a pending scanner is still scheduled after its
+// peers have exhausted it. The scanner reports EOS with an empty block on that call instead of
+// reading its range.
+TEST(ScannerProjectionTest, shared_limit_exhausted_before_call_reports_eos_without_reading) {
+    ObjectPool pool;
+    auto data_type = std::make_shared<DataTypeInt32>();
+    auto row_descriptor = MockRowDescriptor({data_type}, &pool);
+
+    MockRuntimeState state;
+    state._batch_size = 8;
+
+    auto op = std::make_shared<MockScanOperatorX>();
+    op->_row_descriptor = row_descriptor;
+    auto& projection = op->set_projection_for_test(
+            MockRowDescriptor(std::vector<DataTypePtr> {data_type}, &pool));
+    op->_output_tuple_desc = projection.output_row_descriptor.tuple_descriptors()[0];
+    op->_shared_scan_limit.store(4);
+
+    auto local_state = std::make_shared<MockScanLocalState>(&state, op.get());
+    local_state->_projections = MockSlotRef::create_mock_contexts(0, data_type);
+
+    RuntimeProfile profile("scanner");
+    TestScanner scanner(&state, local_state.get(), -1, &profile);
+    ASSERT_TRUE(scanner.init(&state, {}).ok());
+    scanner.add_block(ColumnHelper::create_block<DataTypeInt32>({0, 1}));
+    scanner.add_block(ColumnHelper::create_block<DataTypeInt32>({2, 3, 4}));
+
+    // Peer scanners returned the whole LIMIT before this scanner ran.
+    op->_shared_scan_limit.fetch_sub(4);
+
+    Block output;
+    bool eos = false;
+    ASSERT_TRUE(scanner.get_block_after_projects(&state, &output, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_EQ(output.rows(), 0);
+    EXPECT_EQ(scanner.unread_blocks(), 2);
+    EXPECT_EQ(op->_shared_scan_limit.load(), 0);
 }
 
 TEST(ScannerProjectionTest, merges_padding_block_when_limit_eos_without_extra_flag) {

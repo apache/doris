@@ -89,6 +89,13 @@ Status Scanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
 
 Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool* eos) {
     SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().vscanner_get_block);
+    // Peer scanners may have exhausted the shared LIMIT while this scanner waited to be
+    // scheduled. Admission does not look at the LIMIT, so the scanner reports EOS itself with an
+    // empty block instead of reading on; the operator already has enough rows and cuts the rest.
+    if (_shared_scan_limit && _shared_scan_limit->load(std::memory_order_acquire) <= 0) {
+        *eos = true;
+        return Status::OK();
+    }
     const auto& row_descriptor = _local_state->_parent->operator_row_desc_before_projection();
     if (_has_projection) {
         _origin_block.clear_column_data(row_descriptor.num_slots());
