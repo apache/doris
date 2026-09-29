@@ -115,8 +115,11 @@ public class BaseController {
             ctx.setCurrentUserIdentity(currentUser);
             ctx.setEnv(Env.getCurrentEnv());
 
-            if (Config.isCloudMode() && checkAuth) {
-                checkInstanceOverdue(currentUser);
+            // The cookie branch below requires ADMIN_OR_NODE whenever checkAuth is set, in every deployment
+            // mode, so this branch must as well: which of the two ways a caller authenticates must not change
+            // what it is allowed to reach. Only the overdue fence is specific to cloud mode.
+            if (checkAuth) {
+                checkInstanceOverdueIfCloud(currentUser);
                 checkGlobalAuth(ctx, PrivPredicate.ADMIN_OR_NODE);
             }
 
