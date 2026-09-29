@@ -79,11 +79,34 @@ import java.util.function.Supplier;
  * reference would keep scanning the abandoned pre-image manager after an FE
  * restart while replay, admission and SHOW all move on to the restored one.
  * Every phase of one round shares the single resolved instance.
+ *
+ * <p>The sleep between rounds is sliced at {@link #MAX_SLEEP_SLICE_MS} so a
+ * shortened polling interval takes effect within one slice (see the field
+ * javadoc), and {@link Config#lance_index_job_dispatcher_paused} suspends only
+ * the dispatch phase (see {@link #dispatchPendingJobs}).
  */
 public class LanceIndexJobDispatcher extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(LanceIndexJobDispatcher.class);
 
+    /**
+     * Upper bound of one sleep slice, equal to the shipped default interval. The
+     * daemon never sleeps longer than this, so a shortened
+     * {@link Config#lance_index_job_dispatch_interval_second} takes effect within
+     * one slice instead of waiting out a previously adopted long sleep: the
+     * elapsed check in {@link #runAfterCatalogReady} is re-evaluated against the
+     * current config at every wake. Slices bound only the sleep; rounds still
+     * honor the configured interval, because a wake whose configured interval
+     * (longer than this bound) has not elapsed since the last round skips the
+     * round. A lengthened interval takes effect at the next wake through the same
+     * check, and an interval at or below this bound needs no check at all — every
+     * wake runs a round, exactly one per configured period.
+     */
+    private static final long MAX_SLEEP_SLICE_MS = 10_000L;
+
     private final Supplier<LanceIndexJobManager> jobManagerSupplier;
+
+    /** Wall time of the last executed round, or -1 before the first one. */
+    private long lastRoundMs = -1L;
 
     public LanceIndexJobDispatcher(LanceIndexJobManager jobManager) {
         this(() -> jobManager);
@@ -120,12 +143,24 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
         if (Env.isCheckpointThread()) {
             return;
         }
-        setInterval(dispatchIntervalMs());
+        long configuredMs = dispatchIntervalMs();
+        setInterval(Math.min(configuredMs, MAX_SLEEP_SLICE_MS));
+        if (configuredMs > MAX_SLEEP_SLICE_MS && lastRoundMs >= 0 && nowMs() - lastRoundMs < configuredMs) {
+            // A wake inside a long configured interval: the slice elapsed, the
+            // round period has not. Skipping is cheap and writes no journal record.
+            return;
+        }
+        lastRoundMs = nowMs();
         try {
             runOneRound(jobManagerSupplier.get());
         } catch (Throwable t) {
             LOG.warn("Failed to process one round of the lance index job dispatcher", t);
         }
+    }
+
+    /** Clock seam for the round-period check; tests advance it instead of sleeping. */
+    protected long nowMs() {
+        return System.currentTimeMillis();
     }
 
     private void runOneRound(LanceIndexJobManager jobManager) {
@@ -298,12 +333,30 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
      * jobs this round already made RUNNING. A job that cannot be dispatched
      * keeps waiting as PENDING: there is no dispatch-exhaustion terminal state
      * and no backoff beyond the daemon period.
+     *
+     * <p>{@link Config#lance_index_job_dispatcher_paused} suspends this phase
+     * only — the sweeps and the refresh driver keep running while it is set.
+     * The switch is checked at the phase entry and again before every single
+     * job attempt, which closes the admission race a test or operator cares
+     * about: anyone who sets the switch <em>before</em> admitting a job is
+     * guaranteed the job is never dispatched while paused. A round whose
+     * snapshot was taken before the admission never sees the job at all, and
+     * any round that can see it performs its per-job check after the
+     * admission, hence after the switch was set, and skips it. A skipped job
+     * never consumes the round's dispatch budget.
      */
     private void dispatchPendingJobs(LanceIndexJobManager jobManager) {
+        if (Config.lance_index_job_dispatcher_paused) {
+            return;
+        }
         int maxPerRound = Math.max(1, Config.lance_index_job_max_dispatch_per_round);
         Map<Long, Integer> inflightByBackend = jobManager.countPossibleLiveSlotsByBackend();
         int dispatched = 0;
         for (LanceIndexJob job : jobManager.getJobsNeedingDispatch()) {
+            if (Config.lance_index_job_dispatcher_paused) {
+                // Flipped mid-round: stop without touching the budget.
+                break;
+            }
             if (dispatched >= maxPerRound) {
                 break;
             }
