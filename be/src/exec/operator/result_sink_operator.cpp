@@ -57,9 +57,9 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
     } else {
         std::shared_ptr<arrow::Schema> arrow_schema;
         if (p._sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCOL) {
-            RETURN_IF_ERROR(get_arrow_schema_from_expr_ctxs(_output_vexpr_ctxs, &arrow_schema,
-                                                            state->timezone(),
-                                                            /*datetime_naive=*/true));
+            RETURN_IF_ERROR(get_arrow_schema_from_expr_ctxs(
+                    _output_vexpr_ctxs, &arrow_schema, state->timezone(),
+                    /*datetime_naive=*/true, p._enable_arrow_type_metadata));
         }
         VLOG_DEBUG << "create sender in INIT with instance id " << fragment_instance_id;
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
@@ -103,6 +103,8 @@ ResultSinkOperatorX::ResultSinkOperatorX(int operator_id, int node_id,
           _sink_type(!sink.__isset.type || sink.type == TResultSinkType::MYSQL_PROTOCOL
                              ? TResultSinkType::MYSQL_PROTOCOL
                              : sink.type),
+          _enable_arrow_type_metadata(sink.__isset.enable_arrow_type_metadata &&
+                                      sink.enable_arrow_type_metadata),
           _result_sink_buffer_size_rows(_sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCOL
                                                 ? config::arrow_flight_result_sink_buffer_size_rows
                                                 : RESULT_SINK_BUFFER_SIZE),
@@ -123,9 +125,9 @@ Status ResultSinkOperatorX::prepare(RuntimeState* state) {
     if (state->query_options().enable_parallel_result_sink) {
         std::shared_ptr<arrow::Schema> arrow_schema;
         if (_sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCOL) {
-            RETURN_IF_ERROR(get_arrow_schema_from_expr_ctxs(_output_vexpr_ctxs, &arrow_schema,
-                                                            state->timezone(),
-                                                            /*datetime_naive=*/true));
+            RETURN_IF_ERROR(get_arrow_schema_from_expr_ctxs(
+                    _output_vexpr_ctxs, &arrow_schema, state->timezone(),
+                    /*datetime_naive=*/true, _enable_arrow_type_metadata));
         }
         VLOG_DEBUG << "create sender in prepare with query id " << state->query_id();
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(

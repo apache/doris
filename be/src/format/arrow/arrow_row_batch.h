@@ -58,7 +58,8 @@ Status get_arrow_schema_from_block(const Block& block, std::shared_ptr<arrow::Sc
 
 Status get_arrow_schema_from_expr_ctxs(const VExprContextSPtrs& output_vexpr_ctxs,
                                        std::shared_ptr<arrow::Schema>* result,
-                                       const std::string& timezone, bool datetime_naive = false);
+                                       const std::string& timezone, bool datetime_naive = false,
+                                       bool enable_arrow_type_metadata = true);
 
 Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::string* result);
 

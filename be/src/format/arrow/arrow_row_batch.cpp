@@ -238,9 +238,47 @@ Status get_arrow_schema_from_block(const Block& block, std::shared_ptr<arrow::Sc
     return Status::OK();
 }
 
+namespace {
+std::shared_ptr<arrow::Field> legacy_arrow_field(const std::shared_ptr<arrow::Field>& field,
+                                                 bool top_level) {
+    auto type = field->type();
+    switch (type->id()) {
+    case arrow::Type::LIST:
+        type = arrow::list(legacy_arrow_field(type->field(0), false));
+        break;
+    case arrow::Type::MAP:
+        type = std::make_shared<arrow::MapType>(
+                legacy_arrow_field(type->field(0), false),
+                static_cast<const arrow::MapType&>(*type).keys_sorted());
+        break;
+    case arrow::Type::STRUCT: {
+        arrow::FieldVector children;
+        for (const auto& child : type->fields()) {
+            children.push_back(legacy_arrow_field(child, false));
+        }
+        type = arrow::struct_(children);
+        break;
+    }
+    default:
+        break;
+    }
+    auto result = field->WithType(type);
+    if (field->metadata() && field->metadata()->Contains("doris_type")) {
+        const auto marker = field->metadata()->Get("doris_type").ValueOrDie();
+        if (!top_level || marker == "JSON" || marker == "VARIANT") {
+            auto metadata = field->metadata()->Copy();
+            (void)metadata->Delete("doris_type");
+            result = result->WithMetadata(metadata->size() == 0 ? nullptr : metadata);
+        }
+    }
+    return result;
+}
+} // namespace
+
 Status get_arrow_schema_from_expr_ctxs(const VExprContextSPtrs& output_vexpr_ctxs,
                                        std::shared_ptr<arrow::Schema>* result,
-                                       const std::string& timezone, bool datetime_naive) {
+                                       const std::string& timezone, bool datetime_naive,
+                                       bool enable_arrow_type_metadata) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
     for (int i = 0; i < output_vexpr_ctxs.size(); i++) {
         std::shared_ptr<arrow::DataType> arrow_type;
@@ -253,7 +291,9 @@ Status get_arrow_schema_from_expr_ctxs(const VExprContextSPtrs& output_vexpr_ctx
         auto field =
                 create_arrow_field_with_metadata(field_name, arrow_type, root_expr->is_nullable(),
                                                  root_expr->data_type()->get_primitive_type());
-        fields.push_back(field);
+        // Old FEs compare full schemas during BE-first rolling upgrades. Use the legacy
+        // metadata for both schema fetch and result batches until the FE opts in.
+        fields.push_back(enable_arrow_type_metadata ? field : legacy_arrow_field(field, true));
     }
     *result = arrow::schema(std::move(fields));
     return Status::OK();

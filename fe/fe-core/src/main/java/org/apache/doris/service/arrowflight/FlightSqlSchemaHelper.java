@@ -17,8 +17,12 @@
 
 package org.apache.doris.service.arrowflight;
 
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
@@ -161,6 +165,47 @@ public class FlightSqlSchemaHelper {
             default:
                 return new ArrowType.Null();
         }
+    }
+
+    static Field withDorisTypeMetadata(Field field, Type type) {
+        List<Field> children = new ArrayList<>(field.getChildren());
+        if (type.isArrayType()) {
+            children.set(0, withDorisTypeMetadata(children.get(0), ((ArrayType) type).getItemType()));
+        } else if (type.isMapType()) {
+            Field entries = children.get(0);
+            List<Field> pair = new ArrayList<>(entries.getChildren());
+            pair.set(0, withDorisTypeMetadata(pair.get(0), ((MapType) type).getKeyType()));
+            pair.set(1, withDorisTypeMetadata(pair.get(1), ((MapType) type).getValueType()));
+            children.set(0, new Field(entries.getName(), entries.getFieldType(), pair));
+        } else if (type.isStructType()) {
+            StructType struct = (StructType) type;
+            for (int i = 0; i < children.size(); i++) {
+                children.set(i, withDorisTypeMetadata(children.get(i), struct.getFields().get(i).getType()));
+            }
+        }
+        String marker = null;
+        switch (type.getPrimitiveType()) {
+            case LARGEINT:
+            case IPV4:
+            case IPV6:
+            case VARIANT:
+                marker = type.getPrimitiveType().name();
+                break;
+            case JSONB:
+                marker = "JSON";
+                break;
+            default:
+                break;
+        }
+        FieldType fieldType = field.getFieldType();
+        if (marker != null && !field.getMetadata().containsKey("doris_type")) {
+            Map<String, String> metadata = new HashMap<>(field.getMetadata());
+            metadata.put("doris_type", marker);
+            fieldType = new FieldType(field.isNullable(), field.getType(), field.getDictionary(), metadata);
+        }
+        // Old BEs omit these markers. Fill only missing ones from the planned Doris type;
+        // preserve conflicting markers and all physical properties for the strict schema comparison.
+        return new Field(field.getName(), fieldType, children);
     }
 
     private static ArrowType columnDescToArrowType(final TColumnDesc desc) {
