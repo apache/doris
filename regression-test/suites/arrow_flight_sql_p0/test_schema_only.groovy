@@ -38,8 +38,8 @@ suite("test_schema_only", "arrow_flight_sql") {
             CallOption[] options = [token, CallOptions.timeout(30, java.util.concurrent.TimeUnit.SECONDS)]
             def client = new FlightSqlClient(flight)
             String showTimeout = "SHOW VARIABLES LIKE 'query_timeout'"
-            def readTimeout = {
-                def info = client.execute(showTimeout, options)
+            def readVariable = { String name ->
+                def info = client.execute("SHOW VARIABLES LIKE '${name}'", options)
                 assertEquals(1, info.getEndpoints().size())
                 def values = []
                 flight.getStream(info.getEndpoints().get(0).getTicket(), options).withCloseable { stream ->
@@ -53,6 +53,7 @@ suite("test_schema_only", "arrow_flight_sql") {
                 assertEquals(1, values.size())
                 return values[0]
             }
+            def readTimeout = { readVariable("query_timeout") }
             def prepareSchema = { String query ->
                 def prepared = client.prepare(query, options)
                 try {
@@ -66,6 +67,7 @@ suite("test_schema_only", "arrow_flight_sql") {
                 }
             }
             try {
+                client.execute("USE information_schema", options)
                 def cases = [
                         ["SELECT CAST(1 AS BIGINT) AS id, CAST(NULL AS VARCHAR(20)) AS name",
                          ["id", "name"], [new ArrowType.Int(64, true), new ArrowType.Utf8()]],
@@ -83,6 +85,53 @@ suite("test_schema_only", "arrow_flight_sql") {
                         [showTimeout, ["Variable_name", "Value", "Default_Value", "Changed"],
                          [new ArrowType.Utf8(), new ArrowType.Utf8(), new ArrowType.Utf8(), new ArrowType.Utf8()]]
                 ]
+                [
+                        ["SHOW PROCEDURE STATUS", ["ProcedureName", "CatalogId", "DbId", "DbName", "PackageName",
+                                                  "OwnerName", "CreateTime", "ModifyTime"]],
+                        ["SHOW CREATE PROCEDURE schema_proc", ["Procedure", "Create Procedure"]],
+                        ["EXPLAIN SELECT 1", ["Explain String(Nereids Planner)"]],
+                        ["PLAN REPLAYER DUMP SELECT 1", ["Plan Replayer dump url"]],
+                        ["WARM UP SELECT * FROM schema_source", ["BackendId", "ScanRows", "ScanBytes",
+                         "ScanBytesFromLocalStorage", "ScanBytesFromRemoteStorage", "BytesWriteIntoCache"]],
+                        ["INSERT INTO schema_source VALUES (1)", ["StatusResult"]],
+                        ["UPDATE schema_source SET id=1", ["StatusResult"]],
+                        ["DELETE FROM schema_source WHERE id=1", ["StatusResult"]],
+                        ["MERGE INTO schema_target t USING schema_source s ON t.id=s.id WHEN MATCHED THEN DELETE",
+                         ["StatusResult"]],
+                        ["KILL QUERY 123", ["StatusResult"]],
+                        ["BEGIN", ["StatusResult"]], ["COMMIT", ["StatusResult"]], ["ROLLBACK", ["StatusResult"]]
+                ].each { entry ->
+                    def schema = prepareSchema(entry[0])
+                    assertEquals(entry[1], schema.getFields()*.getName())
+                    assertEquals(schema, client.getExecuteSchema(entry[0], options).getSchema())
+                    assertTrue(schema.getFields().every { it.getType() == new ArrowType.Utf8() })
+                }
+                // Re-parsing a prepared statement must not silently change its advertised result type.
+                String previousMode = readVariable("sql_mode")
+                try {
+                    [true, false].each { fetchSchema ->
+                        client.execute("SET sql_mode=''", options)
+                        def prepared = client.prepare("SELECT 1 || 2 AS x", options)
+                        try {
+                            assertEquals(new ArrowType.Bool(), prepared.getResultSetSchema().getFields()[0].getType())
+                            client.execute("SET sql_mode='PIPES_AS_CONCAT'", options)
+                            try {
+                                if (fetchSchema) {
+                                    prepared.fetchSchema(options)
+                                } else {
+                                    prepared.execute(options)
+                                }
+                                assertTrue(false, "A changed result schema must expire the prepared handle")
+                            } catch (FlightRuntimeException error) {
+                                assertEquals(FlightStatusCode.NOT_FOUND, error.status().code())
+                            }
+                        } finally {
+                            prepared.close(options)
+                        }
+                    }
+                } finally {
+                    client.execute("SET sql_mode='${previousMode}'", options)
+                }
                 cases.eachWithIndex { entry, index ->
                     def schema = prepareSchema(entry[0])
                     assertEquals(entry[1], schema.getFields()*.getName())

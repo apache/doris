@@ -29,6 +29,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.es.EsExternalCatalog;
+import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
@@ -40,8 +41,13 @@ import org.apache.doris.nereids.rules.rewrite.CheckPrivileges;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PrepareCommandPlanner;
+import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DescribeCommand;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.commands.KillCommand;
+import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDataCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionsCommand;
@@ -49,12 +55,22 @@ import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPythonPackagesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueryStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.TransactionCommand;
+import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateIndexOp;
+import org.apache.doris.nereids.trees.plans.commands.info.DropIndexOp;
+import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTVFCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.SwitchCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.UseCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.ResultSetMetaData;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 
@@ -97,7 +113,20 @@ final class FlightSqlQuerySchema {
                 context.setStatementContext(null);
                 // Match execution's HTTP/plugin conversion before the dialect parser sees the SQL.
                 String converted = SqlDialectHelper.convertSqlByDialect(query, context.getSessionVariable());
-                statements = new NereidsParser().parseSQL(converted, context.getSessionVariable());
+                try {
+                    statements = new NereidsParser().parseSQL(converted, context.getSessionVariable());
+                } catch (Exception convertedError) {
+                    if (!context.getSessionVariable().isRetryOriginSqlOnConvertFail() || converted.equals(query)) {
+                        throw convertedError;
+                    }
+                    // Match execution's parse fallback while discarding any failed parser context.
+                    StatementContext failed = context.getStatementContext();
+                    if (failed != null) {
+                        failed.close();
+                        context.setStatementContext(null);
+                    }
+                    statements = new NereidsParser().parseSQL(query, context.getSessionVariable());
+                }
                 Map<String, String> scopedDatabases = new HashMap<>();
                 if (statements.isEmpty()) {
                     throw CallStatus.UNIMPLEMENTED.withDescription(
@@ -219,7 +248,41 @@ final class FlightSqlQuerySchema {
         } else if (command instanceof ShowProcCommand) {
             return ((ShowProcCommand) command).getMetaData(context);
         }
-        return command.getResultSetMetaData();
+        if (command instanceof ExplainCommand) {
+            // PLAN PROCESS has no Flight serialization path in StmtExecutor.
+            if (((ExplainCommand) command).showPlanProcess()) {
+                throw CallStatus.UNIMPLEMENTED.withDescription("EXPLAIN PLAN PROCESS is not supported over Flight SQL")
+                        .toRuntimeException();
+            }
+            return stringMetadata("Explain String(Nereids Planner)");
+        } else if (command instanceof ReplayCommand) {
+            return stringMetadata("Plan Replayer dump url");
+        } else if (command instanceof AlterTableCommand) {
+            AlterTableCommand alter = (AlterTableCommand) command;
+            String catalog = alter.getTbl().getCtl();
+            // Lance index admission returns a JobId header even for an IF no-op. Do not run
+            // validation/admission here: those paths can resolve remote tables or allocate IDs.
+            if (context.getCatalog(catalog == null ? context.getDefaultCatalog() : catalog)
+                    instanceof LanceExternalCatalog && alter.getNereidsOps().stream().anyMatch(op ->
+                        (op instanceof CreateIndexOp && !((CreateIndexOp) op).isAlter())
+                                || (op instanceof DropIndexOp && !((DropIndexOp) op).isAlter()))) {
+                return stringMetadata("JobId");
+            }
+        }
+        ResultSetMetaData metadata = command.getResultSetMetaData();
+        // Concrete DML commands return OK, but subclasses such as WARM UP SELECT supply rows.
+        if (metadata != null && metadata.getColumnCount() == 0 && (command instanceof InsertIntoTableCommand
+                || command instanceof InsertOverwriteTableCommand || command instanceof BatchInsertIntoTableCommand
+                || command instanceof InsertIntoTVFCommand || command instanceof UpdateCommand
+                || command instanceof DeleteFromCommand || command instanceof MergeIntoCommand
+                || command instanceof KillCommand || command instanceof TransactionCommand)) {
+            return stringMetadata("StatusResult");
+        }
+        return metadata;
+    }
+
+    private static ResultSetMetaData stringMetadata(String name) {
+        return ShowResultSetMetaData.builder().addColumn(new Column(name, Type.STRING)).build();
     }
 
     private static void resolveNamespace(ConnectContext context, Plan plan, Map<String, String> scopedDatabases)

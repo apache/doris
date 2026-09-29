@@ -24,6 +24,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.proc.CurrentQueryStatisticsProcDir;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.proc.ProcService;
@@ -35,6 +36,7 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -74,13 +76,26 @@ public class ShowProcCommand extends ShowCommand {
         return ShowResultSetMetaData.builder().build();
     }
 
-    /** Resolve a proc node's header with the same privilege checks as SHOW PROC. */
+    /** Resolve a static PROC header, or return null when discovery would require fetching rows. */
     public ShowResultSetMetaData getMetaData(ConnectContext ctx) throws AnalysisException {
         // PROC headers belong to the resolved node and require the same privilege as reading it.
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN_OR_NODE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
-        return getMetaData(ProcService.getInstance().open(path));
+        // Even opening nested nodes can perform remote lookups. Only use known static headers.
+        List<String> names;
+        if ("/".equals(path)) {
+            names = Collections.singletonList("name");
+        } else if ("/current_queries".equals(path)) {
+            names = CurrentQueryStatisticsProcDir.TITLE_NAMES;
+        } else {
+            return null;
+        }
+        ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
+        for (String name : names) {
+            builder.addColumn(new Column(name, ScalarType.createVarchar(30)));
+        }
+        return builder.build();
     }
 
     private ShowResultSet handleShowProc(ConnectContext ctx, StmtExecutor executor) throws Exception {

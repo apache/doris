@@ -91,6 +91,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -160,11 +161,13 @@ public class ConnectContext {
         private final String sql;
         private final String catalog;
         private final String database;
+        private final Schema schema;
 
-        private PreparedQuery(String sql, String catalog, String database) {
+        private PreparedQuery(String sql, String catalog, String database, Schema schema) {
             this.sql = sql;
             this.catalog = catalog;
             this.database = database;
+            this.schema = schema;
         }
     }
 
@@ -922,7 +925,17 @@ public class ConnectContext {
     }
 
     public synchronized void addPreparedQuery(String preparedStatementId, String preparedQuery) {
-        preparedQuerys.put(preparedStatementId, new PreparedQuery(preparedQuery, getDefaultCatalog(), getDatabase()));
+        addPreparedQuery(preparedStatementId, preparedQuery, null);
+    }
+
+    public synchronized void addPreparedQuery(String preparedStatementId, String preparedQuery, Schema schema) {
+        preparedQuerys.put(preparedStatementId,
+                new PreparedQuery(preparedQuery, getDefaultCatalog(), getDatabase(), schema));
+    }
+
+    public synchronized Schema getPreparedQuerySchema(String preparedStatementId) {
+        PreparedQuery query = preparedQuerys.get(preparedStatementId);
+        return query == null ? null : query.schema;
     }
 
     public synchronized String getPreparedQuery(String preparedStatementId) {

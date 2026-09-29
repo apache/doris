@@ -79,6 +79,7 @@ import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.WriteChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -329,7 +330,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         ConnectContext connection = flightSessionsManager.getConnectContext(context.peerIdentity());
         synchronized (connection) {
             return executeQueryStatement(context.peerIdentity(), connection,
-                    preparedQuery(connection, context, command), descriptor);
+                    preparedQuery(connection, context, command).getLeft(), descriptor);
         }
     }
 
@@ -345,24 +346,33 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             final CallContext context, final FlightDescriptor descriptor) {
         ConnectContext connection = flightSessionsManager.getConnectContext(context.peerIdentity());
         synchronized (connection) {
-            return new SchemaResult(analyzeQuerySchema(connection, preparedQuery(connection, context, command)));
+            return new SchemaResult(preparedQuery(connection, context, command).getRight());
         }
     }
 
-    private String preparedQuery(ConnectContext connection, CallContext context,
+    private Pair<String, Schema> preparedQuery(ConnectContext connection, CallContext context,
             CommandPreparedStatementQuery command) {
         String prefix = context.peerIdentity() + ":";
         String handle = command.getPreparedStatementHandle().toStringUtf8();
         if (!handle.startsWith(prefix)) {
             throw CallStatus.INVALID_ARGUMENT.withDescription("Invalid prepared statement handle").toRuntimeException();
         }
-        String query = connection.getPreparedQuery(handle.substring(prefix.length()));
+        String id = handle.substring(prefix.length());
+        String query = connection.getPreparedQuery(id);
         if (query == null) {
             throw CallStatus.NOT_FOUND
                     .withDescription("Prepared statement expired; prepare again in the current namespace")
                     .toRuntimeException();
         }
-        return query;
+        Schema schema = analyzeQuerySchema(connection, query);
+        // Execution reparses SQL using the current session. Never silently replace the schema
+        // advertised by Prepare when settings such as sql_mode or time_zone change its result.
+        if (!schema.equals(connection.getPreparedQuerySchema(id))) {
+            connection.removePreparedQuery(id);
+            throw CallStatus.NOT_FOUND.withDescription("Prepared statement schema changed; prepare again")
+                    .toRuntimeException();
+        }
+        return Pair.of(query, schema);
     }
 
     private Schema analyzeQuerySchema(ConnectContext context, String query) {
@@ -413,7 +423,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                     ByteString handle = ByteString.copyFromUtf8(context.peerIdentity() + ":" + preparedStatementId);
                     Result result = new Result(Any.pack(buildCreatePreparedStatementResult(handle,
                             new Schema(Collections.emptyList()), schema)).toByteArray());
-                    connectContext.addPreparedQuery(preparedStatementId, query);
+                    connectContext.addPreparedQuery(preparedStatementId, query, schema);
                     listener.onNext(result);
                     listener.onCompleted();
                 }

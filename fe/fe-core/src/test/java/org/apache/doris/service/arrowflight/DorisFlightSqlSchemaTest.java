@@ -20,12 +20,16 @@ package org.apache.doris.service.arrowflight;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.proc.ProcNodeInterface;
+import org.apache.doris.common.proc.ProcService;
+import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.SqlDialectHelper;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.service.arrowflight.sessions.FlightSessionsManager;
@@ -178,7 +182,7 @@ public class DorisFlightSqlSchemaTest extends TestWithFeService {
             Assertions.assertThrows(FlightRuntimeException.class, () -> schema(sql));
             Mockito.clearInvocations(connectContext);
             Assertions.assertThrows(java.util.concurrent.ExecutionException.class, () -> prepare(sql));
-            Mockito.verify(connectContext, Mockito.never()).addPreparedQuery(Mockito.anyString(), Mockito.anyString());
+            Mockito.verify(connectContext, Mockito.never()).addPreparedQuery(Mockito.anyString(), Mockito.anyString(), Mockito.any());
             Assertions.assertEquals("id", preparedSchema("SELECT id FROM schema_input")
                     .getFields().get(0).getName());
         }
@@ -455,4 +459,150 @@ public class DorisFlightSqlSchemaTest extends TestWithFeService {
             connectContext.getFlightSqlChannel().reset();
         }
     }
+
+    @Test
+    void preparedSchemaCannotDriftWithSqlMode() throws Exception {
+        long mode = connectContext.getSessionVariable().getSqlMode();
+        try {
+            connectContext.getSessionVariable().setSqlMode(0);
+            for (boolean fetchSchema : Arrays.asList(true, false)) {
+                ActionCreatePreparedStatementResult result = prepare("SELECT 1 || 2 AS x");
+                CommandPreparedStatementQuery command = CommandPreparedStatementQuery.newBuilder()
+                        .setPreparedStatementHandle(result.getPreparedStatementHandle()).build();
+                connectContext.getSessionVariable().setSqlMode(SqlModeHelper.MODE_PIPES_AS_CONCAT);
+                Assertions.assertEquals(new ArrowType.Utf8(), schema("SELECT 1 || 2 AS x")
+                        .getFields().get(0).getType());
+                FlightRuntimeException error = Assertions.assertThrows(FlightRuntimeException.class, () -> {
+                    if (fetchSchema) {
+                        producer.getSchemaPreparedStatement(command, callContext, FlightDescriptor.command(new byte[0]));
+                    } else {
+                        producer.getFlightInfoPreparedStatement(command, callContext,
+                                FlightDescriptor.command(new byte[0]));
+                    }
+                });
+                Assertions.assertEquals(FlightStatusCode.NOT_FOUND, error.status().code());
+                String handle = result.getPreparedStatementHandle().toStringUtf8();
+                Assertions.assertNull(connectContext.getPreparedQuery(handle.substring(handle.indexOf(':') + 1)));
+                connectContext.getSessionVariable().setSqlMode(0);
+            }
+        } finally {
+            connectContext.getSessionVariable().setSqlMode(mode);
+        }
+    }
+
+    @Test
+    void preparedHandleSurvivesSettingsThatDoNotChangeSchema() throws Exception {
+        int timeout = connectContext.getSessionVariable().getQueryTimeoutS();
+        ActionCreatePreparedStatementResult result = prepare("SELECT 1 AS x");
+        CommandPreparedStatementQuery command = CommandPreparedStatementQuery.newBuilder()
+                .setPreparedStatementHandle(result.getPreparedStatementHandle()).build();
+        try {
+            connectContext.getSessionVariable().setQueryTimeoutS(timeout + 1);
+            Assertions.assertEquals(schema("SELECT 1 AS x"), producer.getSchemaPreparedStatement(
+                    command, callContext, FlightDescriptor.command(new byte[0])).getSchema());
+        } finally {
+            connectContext.getSessionVariable().setQueryTimeoutS(timeout);
+            String handle = result.getPreparedStatementHandle().toStringUtf8();
+            connectContext.removePreparedQuery(handle.substring(handle.indexOf(':') + 1));
+        }
+    }
+
+    @Test
+    void dialectParseFailureRetriesOriginalOnlyWhenEnabled() {
+        SessionVariable session = connectContext.getSessionVariable();
+        boolean retry = session.retryOriginSqlOnConvertFail;
+        String query = "SELECT id FROM schema_input";
+        try (MockedStatic<SqlDialectHelper> converter = Mockito.mockStatic(SqlDialectHelper.class)) {
+            converter.when(() -> SqlDialectHelper.convertSqlByDialect(Mockito.eq(query), Mockito.any()))
+                    .thenReturn("SELECT FROM");
+            session.retryOriginSqlOnConvertFail = true;
+            Assertions.assertEquals("id", schema(query).getFields().get(0).getName());
+            Assertions.assertSame(session, connectContext.getSessionVariable());
+            session.retryOriginSqlOnConvertFail = false;
+            Assertions.assertEquals(FlightStatusCode.INVALID_ARGUMENT,
+                    Assertions.assertThrows(FlightRuntimeException.class, () -> schema(query)).status().code());
+        } finally {
+            session.retryOriginSqlOnConvertFail = retry;
+        }
+    }
+
+    @Test
+    void procSchemaDoesNotFetchRowsOrTraverseRemoteNodes() throws Exception {
+        ProcService service = Mockito.mock(ProcService.class);
+        ProcNodeInterface node = Mockito.mock(ProcNodeInterface.class);
+        Mockito.when(service.open(Mockito.anyString())).thenReturn(node);
+        Mockito.when(node.fetchResult()).thenThrow(new AssertionError("Schema discovery fetched PROC rows"));
+        try (MockedStatic<ProcService> services = Mockito.mockStatic(ProcService.class)) {
+            services.when(ProcService::getInstance).thenReturn(service);
+            Assertions.assertEquals("name", schema("SHOW PROC '/'").getFields().get(0).getName());
+            Assertions.assertEquals("QueryId", schema("SHOW PROC '/current_queries'")
+                    .getFields().get(0).getName());
+            Assertions.assertEquals(FlightStatusCode.UNIMPLEMENTED, Assertions.assertThrows(
+                    FlightRuntimeException.class, () -> schema("SHOW PROC '/dbs/1/2/index_schema/3'"))
+                    .status().code());
+            Mockito.verifyNoInteractions(service, node);
+        }
+    }
+
+    @Test
+    void lanceIndexSchemaIsJobIdWithoutAdmission() throws Exception {
+        LanceExternalCatalog catalog = Mockito.mock(LanceExternalCatalog.class);
+        Mockito.doReturn(catalog).when(connectContext).getCatalog("schema_lance");
+        for (String query : Arrays.asList(
+                "CREATE INDEX idx ON schema_lance.db1.source (v) USING ANN",
+                "CREATE INDEX IF NOT EXISTS idx ON schema_lance.db1.source (v) USING ANN",
+                "DROP INDEX IF EXISTS idx ON schema_lance.db1.source")) {
+            Assertions.assertEquals("JobId", preparedSchema(query).getFields().get(0).getName(), query);
+            Assertions.assertEquals(schema(query), preparedSchema(query));
+        }
+        Mockito.verifyNoInteractions(catalog);
+        Assertions.assertEquals("StatusResult", schema("CREATE INDEX idx ON schema_input (name) USING INVERTED")
+                .getFields().get(0).getName());
+    }
+
+    @Test
+    void procedureCommandsExposeFixedHeaders() throws Exception {
+        Assertions.assertEquals(Arrays.asList("Procedure", "Create Procedure"),
+                preparedSchema("SHOW CREATE PROCEDURE schema_proc").getFields().stream()
+                        .map(Field::getName).collect(Collectors.toList()));
+        Assertions.assertEquals(Arrays.asList("ProcedureName", "CatalogId", "DbId", "DbName", "PackageName",
+                "OwnerName", "CreateTime", "ModifyTime"), preparedSchema("SHOW PROCEDURE STATUS")
+                .getFields().stream().map(Field::getName).collect(Collectors.toList()));
+    }
+
+    @Test
+    void noRowCommandsRemainPreparableWithoutExecution() throws Exception {
+        try (MockedConstruction<StmtExecutor> executors = Mockito.mockConstruction(StmtExecutor.class)) {
+            for (String query : Arrays.asList("INSERT INTO schema_input VALUES (1, 'x')",
+                    "INSERT OVERWRITE TABLE schema_input SELECT * FROM schema_input",
+                    "UPDATE schema_input SET name='x' WHERE id=1", "DELETE FROM schema_input WHERE id=1",
+                    "MERGE INTO schema_input t USING schema_input s ON t.id=s.id WHEN MATCHED THEN DELETE",
+                    "KILL QUERY 123", "BEGIN", "COMMIT", "ROLLBACK")) {
+                Assertions.assertEquals("StatusResult", preparedSchema(query).getFields().get(0).getName(), query);
+                Assertions.assertEquals(schema(query), preparedSchema(query));
+            }
+            Assertions.assertTrue(executors.constructed().isEmpty());
+        }
+    }
+
+    @Test
+    void warmupSelectHasStatisticsInsteadOfOkHeader() throws Exception {
+        String query = "WARM UP SELECT * FROM schema_input";
+        Assertions.assertEquals(Arrays.asList("BackendId", "ScanRows", "ScanBytes", "ScanBytesFromLocalStorage",
+                "ScanBytesFromRemoteStorage", "BytesWriteIntoCache"), preparedSchema(query).getFields().stream()
+                .map(Field::getName).collect(Collectors.toList()));
+        Assertions.assertEquals(schema(query), preparedSchema(query));
+    }
+
+    @Test
+    void explainAndReplayExposeHeadersWithoutRunningPlanner() throws Exception {
+        Assertions.assertEquals("Explain String(Nereids Planner)",
+                preparedSchema("EXPLAIN SELECT 1").getFields().get(0).getName());
+        Assertions.assertEquals("Plan Replayer dump url",
+                preparedSchema("PLAN REPLAYER DUMP SELECT 1").getFields().get(0).getName());
+        // PLAN PROCESS currently has no Flight result serialization, unlike ordinary EXPLAIN.
+        Assertions.assertEquals(FlightStatusCode.UNIMPLEMENTED, Assertions.assertThrows(
+                FlightRuntimeException.class, () -> schema("EXPLAIN PLAN PROCESS SELECT 1")).status().code());
+    }
+
 }
