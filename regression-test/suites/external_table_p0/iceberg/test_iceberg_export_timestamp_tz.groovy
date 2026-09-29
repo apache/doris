@@ -111,6 +111,9 @@ suite("test_iceberg_export_timestamp_tz", "external,hive,external_docker") {
                         """
 
             def outfile_url0_false = outfile_to_HDFS(format, export_table_name, "false")
+            // Read each export independently: INT96 loses the instant annotation and exposes
+            // its stored UTC fields as DATETIMEV2; INT64 retains the TIMESTAMPTZ type.
+            // Reusing the INT96 URL would never test the INT64 branch.
             order_qt_select_tvf0_false """ select * from HDFS(
                         "uri" = "${outfile_url0_false}.${format}",
                         "hadoop.username" = "${hdfsUserName}",

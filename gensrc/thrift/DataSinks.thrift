@@ -492,6 +492,8 @@ struct TIcebergTableSink {
     17: optional TIcebergWriteType write_type = TIcebergWriteType.INSERT;
     // Unset keeps collection enabled for rolling upgrades with older FEs.
     18: optional bool collect_column_stats;
+    // Thrift map values cannot be null. These keys distinguish SQL NULL from text and empty bytes.
+    19: optional set<string> static_partition_null_keys;
 }
 
 struct TIcebergRewritableDeleteFileSet {

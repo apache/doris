@@ -34,7 +34,9 @@ import java.nio.charset.StandardCharsets;
 import java.sql.Clob;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.sql.Types;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 
 public class OracleJdbcExecutor extends BaseJdbcExecutor {
     private static final Logger LOG = Logger.getLogger(OracleJdbcExecutor.class);
@@ -44,6 +46,12 @@ public class OracleJdbcExecutor extends BaseJdbcExecutor {
     public OracleJdbcExecutor(byte[] thriftParams) throws Exception {
         super(thriftParams);
         isNewJdbcVersion = isJdbcVersionGreaterThanOrEqualTo("12.2.0");
+    }
+
+    @Override
+    protected void setTimestampTz(int parameterIndex, LocalDateTime value) throws SQLException {
+        // An unzoned TIMESTAMP bind is session-local for both Oracle TZ and LOCAL TIME ZONE columns.
+        preparedStatement.setObject(parameterIndex, value.atOffset(ZoneOffset.UTC), Types.TIMESTAMP_WITH_TIMEZONE);
     }
 
     @Override
@@ -67,6 +75,11 @@ public class OracleJdbcExecutor extends BaseJdbcExecutor {
 
     @Override
     protected Object getColumnValue(int columnIndex, ColumnType type, String[] replaceStringList) throws SQLException {
+        if (type.getType() == Type.TIMESTAMPTZ) {
+            // Both driver paths must preserve the instant instead of passing a local wall clock to JNI.
+            Timestamp value = resultSet.getTimestamp(columnIndex + 1);
+            return value == null ? null : LocalDateTime.ofInstant(value.toInstant(), java.time.ZoneOffset.UTC);
+        }
         if (isNewJdbcVersion) {
             return newGetColumnValue(columnIndex, type, replaceStringList);
         } else {
@@ -103,9 +116,6 @@ public class OracleJdbcExecutor extends BaseJdbcExecutor {
                 return resultSet.getObject(columnIndex + 1);
             case VARBINARY:
                 return resultSet.getObject(columnIndex + 1, byte[].class);
-            case TIMESTAMPTZ:
-                Timestamp ts = resultSet.getObject(columnIndex + 1, Timestamp.class);
-                return ts == null ? null : LocalDateTime.ofInstant(ts.toInstant(), java.time.ZoneOffset.UTC);
             default:
                 throw new IllegalArgumentException("Unsupported column type: " + type.getType());
         }

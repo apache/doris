@@ -36,7 +36,8 @@ suite("test_hive_varbinary_type","p0,external,tvf,hive,external_docker,external_
         sql """drop catalog if exists ${catalog_name_no_mapping}"""
         sql """create catalog if not exists ${catalog_name_no_mapping} properties (
             "type"="hms",
-            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
+            'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
+            "enable.mapping.varbinary"="false"
         );"""
         
         sql """drop catalog if exists ${catalog_name_with_mapping}"""
@@ -46,7 +47,7 @@ suite("test_hive_varbinary_type","p0,external,tvf,hive,external_docker,external_
             "enable.mapping.varbinary"="true"
         );"""
 
-        // no mapping
+        // The obsolete property cannot turn arbitrary binary bytes into UTF-8 strings.
         sql """ switch ${catalog_name_no_mapping}"""
         sql """ use `test_varbinary` """
         qt_select1 """ select * from test_hive_binary_orc order by id; """

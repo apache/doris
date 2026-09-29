@@ -31,6 +31,7 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.TableIf;
@@ -68,6 +69,7 @@ public class JdbcScanNode extends ExternalScanNode {
     private String graphQueryString = "";
     private boolean isTableValuedFunction = false;
     private String query = "";
+    private boolean projectsTimestamps;
 
     private JdbcTable tbl;
     private long catalogId;
@@ -155,9 +157,28 @@ public class JdbcScanNode extends ExternalScanNode {
 
     private void createJdbcColumns() {
         columns.clear();
+        projectsTimestamps = false;
         for (SlotDescriptor slot : desc.getSlots()) {
             Column col = slot.getColumn();
-            columns.add(tbl.getProperRemoteColumnName(jdbcType, col.getName()));
+            String remoteName = tbl.getProperRemoteColumnName(jdbcType, col.getName());
+            org.apache.doris.catalog.Type leaf = col.getType();
+            while (leaf.isArrayType()) {
+                leaf = ((ArrayType) leaf).getItemType();
+            }
+            if (jdbcType == TOdbcTableType.CLICKHOUSE && leaf.isTimeStampTz()) {
+                // JDBC v1 loses the offset at DST overlaps, including for scalar ZonedDateTime.
+                // Send epoch microseconds for both scalar and nested instants before JDBC decoding.
+                columns.add(clickHouseTimestampProjection(remoteName, col.getType(), 0) + " AS " + remoteName);
+                projectsTimestamps = true;
+            } else if ((jdbcType == TOdbcTableType.TRINO || jdbcType == TOdbcTableType.PRESTO)
+                    && leaf.isTimeStampTz()) {
+                // Trino and Presto JDBC lose the offset when decoding a named-zone timestamp in a DST fold.
+                // Convert instants to UTC on the server before scalar or array values reach the driver.
+                columns.add(trinoTimestampProjection(remoteName, col.getType(), 0) + " AS " + remoteName);
+                projectsTimestamps = true;
+            } else {
+                columns.add(remoteName);
+            }
         }
         if (columns.isEmpty()) {
             columns.add("*");
@@ -166,6 +187,37 @@ public class JdbcScanNode extends ExternalScanNode {
 
     private boolean shouldPushDownLimit() {
         return limit != -1 && conjuncts.size() == pushedDownConjuncts.size();
+    }
+
+    private static String clickHouseTimestampProjection(String value, org.apache.doris.catalog.Type type,
+            int depth) {
+        if (type.isArrayType()) {
+            String element = "t" + depth;
+            return "arrayMap(" + element + " -> "
+                    + clickHouseTimestampProjection(element, ((ArrayType) type).getItemType(), depth + 1)
+                    + ", " + value + ")";
+        }
+        return "toUnixTimestamp64Micro(toDateTime64(" + value + ", 6))";
+    }
+
+    private static String trinoTimestampProjection(String value, org.apache.doris.catalog.Type type, int depth) {
+        if (type.isArrayType()) {
+            String element = "t" + depth;
+            return "transform(" + value + ", " + element + " -> "
+                    + trinoTimestampProjection(element, ((ArrayType) type).getItemType(), depth + 1) + ")";
+        }
+        return "at_timezone(" + value + ", 'UTC')";
+    }
+
+    private String getTvfQuery() {
+        if (!projectsTimestamps) {
+            return query;
+        }
+        String source = query.trim();
+        if (source.endsWith(";")) {
+            source = source.substring(0, source.length() - 1);
+        }
+        return "SELECT " + Joiner.on(", ").join(columns) + " FROM (" + source + ") doris_jdbc_source";
     }
 
     private String getJdbcQueryStr() {
@@ -219,7 +271,7 @@ public class JdbcScanNode extends ExternalScanNode {
         if (isTableValuedFunction) {
             output.append(prefix).append("TABLE VALUE FUNCTION\n");
             output.append(prefix).append("CATALOG ID: ").append(catalogId).append("\n");
-            output.append(prefix).append("QUERY: ").append(query).append("\n");
+            output.append(prefix).append("QUERY: ").append(getTvfQuery()).append("\n");
         } else {
             output.append(prefix).append("CATALOG ID: ").append(catalogId).append("\n");
             output.append(prefix).append("TABLE: ").append(tableName).append("\n");
@@ -260,7 +312,7 @@ public class JdbcScanNode extends ExternalScanNode {
         msg.jdbc_scan_node.setTupleId(desc.getId().asInt());
         msg.jdbc_scan_node.setTableName(tableName);
         if (isTableValuedFunction) {
-            msg.jdbc_scan_node.setQueryString(query);
+            msg.jdbc_scan_node.setQueryString(getTvfQuery());
         } else {
             msg.jdbc_scan_node.setQueryString(getJdbcQueryStr());
         }
@@ -285,6 +337,33 @@ public class JdbcScanNode extends ExternalScanNode {
     }
 
     private static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
+        // PostgreSQL instants outside the Doris range become NULL during decoding. Remote null
+        // checks and even column comparisons can therefore disagree with the values Doris sees.
+        if (tableType == TOdbcTableType.POSTGRESQL
+                && expr.contains((Expr child) -> child.getType().isTimeStampTz())) {
+            return false;
+        }
+        // JDBC dialects do not share Doris' zoned literal syntax or session timezone.
+        // Keep instant comparisons local until each dialect has a lossless literal serializer.
+        List<DateLiteral> dates = Lists.newArrayList();
+        expr.collect(DateLiteral.class, dates);
+        if (dates.stream().anyMatch(date -> date.getType().isTimeStampTz())) {
+            return false;
+        }
+        if ((containsFunctionCallExpr(expr) || containsCastExpr(expr))
+                && expr.contains((Expr child) -> child.getType().isTimeStampTz())) {
+            // Calendar extraction and casts use the Doris session zone. A remote UTC session
+            // (or a ClickHouse column zone) can filter out rows before Doris evaluates them.
+            return false;
+        }
+        // These dialects do not accept Doris X'...' as binary literals (PostgreSQL reads bit
+        // strings, DB2 uses BX, and Oracle modes require HEXTORAW). Keep these predicates local.
+        if ((tableType == TOdbcTableType.POSTGRESQL || tableType == TOdbcTableType.ORACLE
+                || tableType == TOdbcTableType.SQLSERVER || tableType == TOdbcTableType.DB2
+                || tableType == TOdbcTableType.OCEANBASE_ORACLE)
+                && expr.contains(org.apache.doris.analysis.VarBinaryLiteral.class)) {
+            return false;
+        }
         // Prevent pushing down expressions with NullLiteral to Oracle
         if (ConnectContext.get() != null
                 && !ConnectContext.get().getSessionVariable().enableJdbcOracleNullPredicatePushDown

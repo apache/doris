@@ -94,7 +94,7 @@ import java.io.OutputStream;
 import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -326,11 +326,13 @@ public class PaimonUtil {
                 return ScalarType.createCharType(charLen);
             case BINARY:
                 int binaryLen = ((BinaryType) dataType).getLength();
-                return enableVarbinaryMapping ? ScalarType.createVarbinaryType(binaryLen) : Type.STRING;
+                // Binary payloads must retain their byte semantics; mapping them to STRING makes
+                // Flight clients attempt UTF-8 decoding on arbitrary bytes.
+                return ScalarType.createVarbinaryType(binaryLen);
             case VARBINARY:
                 // Paimon VarBinaryType length is in [1, 2147483647]
                 int varbinaryLen = ((VarBinaryType) dataType).getLength();
-                return enableVarbinaryMapping ? ScalarType.createVarbinaryType(varbinaryLen) : Type.STRING;
+                return ScalarType.createVarbinaryType(varbinaryLen);
             case DECIMAL:
                 DecimalType decimal = (DecimalType) dataType;
                 return ScalarType.createDecimalV3Type(decimal.getPrecision(), decimal.getScale());
@@ -356,10 +358,8 @@ public class PaimonUtil {
                         tsScale = 6;
                     }
                 }
-                if (enableTimestampTzMapping) {
-                    return ScalarType.createTimeStampTzType(tsScale);
-                }
-                return ScalarType.createDatetimeV2Type(tsScale);
+                // Local-zoned timestamps are instants, regardless of legacy catalog properties.
+                return ScalarType.createTimeStampTzType(tsScale);
             case VARIANT:
                 // External-table schemas are cached and shared, so the physical marker must not
                 // depend on enable_variant_v2. PaimonScanNode checks the global switch per query.
@@ -729,6 +729,11 @@ public class PaimonUtil {
     }
 
     public static Map<String, String> getPartitionInfoMap(Table table, BinaryRow partitionValues, String timeZone) {
+        return getPartitionInfoMap(table, partitionValues, timeZone, false);
+    }
+
+    public static Map<String, String> getPartitionInfoMap(Table table, BinaryRow partitionValues, String timeZone,
+            boolean enableTimestampTzMapping) {
         Map<String, String> partitionInfoMap = new HashMap<>();
         List<String> partitionKeys = table.partitionKeys();
         RowType partitionType = table.rowType().project(partitionKeys);
@@ -738,7 +743,7 @@ public class PaimonUtil {
         for (int i = 0; i < partitionKeys.size(); i++) {
             try {
                 String partitionValue = serializePartitionValue(partitionType.getFields().get(i).type(),
-                        partitionValuesArray[i], timeZone);
+                        partitionValuesArray[i], timeZone, enableTimestampTzMapping);
                 partitionInfoMap.put(partitionKeys.get(i), partitionValue);
             } catch (UnsupportedOperationException e) {
                 LOG.warn("Failed to serialize table {} partition value for key {}: {}", table.name(),
@@ -750,7 +755,7 @@ public class PaimonUtil {
     }
 
     private static String serializePartitionValue(org.apache.paimon.types.DataType type, Object value,
-            String timeZone) {
+            String timeZone, boolean enableTimestampTzMapping) {
         switch (type.getTypeRoot()) {
             case BOOLEAN:
             case INTEGER:
@@ -807,13 +812,11 @@ public class PaimonUtil {
                 if (value == null) {
                     return null;
                 }
-                // Paimon timestamp with local time zone is stored as Timestamp type in utc
+                // Path readers have no session-zone fallback. Preserve the UTC instant and its
+                // explicit offset, including the two otherwise identical times in a DST overlap.
                 Timestamp timestamp = (Timestamp) value;
-                return timestamp.toLocalDateTime()
-                        .atZone(ZoneId.of("UTC"))
-                        .withZoneSameInstant(ZoneId.of(timeZone))
-                        .toLocalDateTime()
-                        .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                return timestamp.toLocalDateTime().atOffset(ZoneOffset.UTC)
+                        .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
             default:
                 throw new UnsupportedOperationException("Unsupported type for serializePartitionValue: " + type);
         }
