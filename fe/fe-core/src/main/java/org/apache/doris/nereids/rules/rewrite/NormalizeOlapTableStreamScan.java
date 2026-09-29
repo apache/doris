@@ -262,16 +262,22 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
         OlapTableStreamWrapper streamWrapper = scan.getTable();
         OlapTable baseTable = streamWrapper.getBaseTable();
         List<Slot> originSlots = scan.getOutput();
-        selectedPartitionIds = streamWrapper.filterConsumedPartitionIds(selectedPartitionIds);
         // What this read is about to answer with is recorded here, where the plan is final and the read states
         // are in place, and before the read is built: the refresh that reads it back may not record a
         // partition it replaced from an answer that is not the table as it is now as caught up -- what it
-        // wrote is that answer, and the delta that would bring the table up to date does not apply to it. See
+        // wrote is that answer, and the delta that follows is what brings the table up to date for it. See
         // MTMVTask#executePartitionBasedRefresh.
+        //
+        // Asked with the partitions the scan selected, before the filter below drops the ones with no
+        // consumption baseline. Those are partitions this read leaves out although they may hold rows by now,
+        // and what the question is about is what the answer is missing -- so the filtering has to be the
+        // wrapper's own, which sees what it dropped. Handed the filtered list, it would be asked about a read
+        // that left nothing out.
         if (!streamWrapper.answersWithTheCurrentTable(selectedPartitionIds)) {
             cascadesContext.getStatementContext().getIvmRewriteContext()
                     .ifPresent(IvmRewriteContext::markReadFromAStreamOffset);
         }
+        selectedPartitionIds = streamWrapper.filterConsumedPartitionIds(selectedPartitionIds);
         if (baseTable.getKeysType().equals(KeysType.DUP_KEYS)) {
             // dup key table can just rebuild from base table
             Map<Long, Pair<Long, Long>> partitionOffsetMap =
