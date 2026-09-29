@@ -88,8 +88,12 @@ public interface MTMVHookService {
      * @param oldTableInfo info before alter
      * @param newTableInfo info after alter
      * @param isReplace
+     * @param judgeStateByQueryUsability whether re-analysing each dependent MV's query decides the state
+     *                                   it ends in; the alter says so for the column changes it has already
+     *                                   applied, see {@code AlterOp#needQueryUsabilityCheck}
      */
-    void alterTable(BaseTableInfo oldTableInfo, Optional<BaseTableInfo> newTableInfo, boolean isReplace);
+    void alterTable(BaseTableInfo oldTableInfo, Optional<BaseTableInfo> newTableInfo, boolean isReplace,
+            boolean judgeStateByQueryUsability);
 
     /**
      * Triggered when pause mtmv

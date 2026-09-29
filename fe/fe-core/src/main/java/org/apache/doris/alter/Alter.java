@@ -373,8 +373,19 @@ public class Alter {
             throw new DdlException("Invalid alter operations: " + currentAlterOps);
         }
         if (needChangeMTMVState(alterOps)) {
-            Env.getCurrentEnv().getMtmvService()
-                .alterTable(oldBaseTableInfo, newBaseTableInfo, currentAlterOps.hasReplaceTableOp());
+            // Whether the state a dependent MV ends in is decided by re-analysing its query is the
+            // operation's to say, see AlterOp#needQueryUsabilityCheck -- and the operation is asked whether
+            // the change it carries has reached the table, because the query is analysed against the table
+            // as it is now. A schema change that is not a light one is applied by a job, and where that job
+            // has not run yet the table is the one from before the change: every query still analyses
+            // against it, and an invalidation decided on that answer would be about the wrong table. A
+            // change that has not been seen that way keeps invalidating the MVs that read the table, which
+            // is what it did before the queries were asked at all.
+            boolean judgeStateByQueryUsability = alterOps.stream().anyMatch(AlterOp::needQueryUsabilityCheck)
+                    && alterOps.stream().filter(AlterOp::needQueryUsabilityCheck)
+                            .allMatch(op -> op.hasReachedTheTable(olapTable));
+            Env.getCurrentEnv().getMtmvService().alterTable(oldBaseTableInfo, newBaseTableInfo,
+                    currentAlterOps.hasReplaceTableOp(), judgeStateByQueryUsability);
         }
         olapTable.writeLock();
         try {

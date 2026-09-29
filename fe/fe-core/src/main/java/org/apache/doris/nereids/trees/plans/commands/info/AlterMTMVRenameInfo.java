@@ -73,6 +73,6 @@ public class AlterMTMVRenameInfo extends AlterMTMVInfo {
         BaseTableInfo oldTableInfo = new BaseTableInfo(table);
         Env.getCurrentEnv().renameTable(db, table, newName.getTbl());
         BaseTableInfo newTableInfo = new BaseTableInfo(table);
-        Env.getCurrentEnv().getMtmvService().alterTable(oldTableInfo, Optional.of(newTableInfo), false);
+        Env.getCurrentEnv().getMtmvService().alterTable(oldTableInfo, Optional.of(newTableInfo), false, false);
     }
 }

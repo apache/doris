@@ -190,7 +190,8 @@ public class MTMVJobManager implements MTMVHookService {
     }
 
     @Override
-    public void alterTable(BaseTableInfo oldTableInfo, Optional<BaseTableInfo> newTableInfo, boolean isReplace) {
+    public void alterTable(BaseTableInfo oldTableInfo, Optional<BaseTableInfo> newTableInfo, boolean isReplace,
+            boolean judgeStateByQueryUsability) {
 
     }
 

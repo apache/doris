@@ -356,9 +356,14 @@ public class MTMVRelationManager implements MTMVHookService {
      * update mtmv status to `SCHEMA_CHANGE`.
      *
      * @param isReplace
+     * @param judgeStateByQueryUsability whether the alter is one re-analysing each MV's query decides; the
+     *                                   operations that say so are the column changes, see
+     *                                   {@code AlterOp#needQueryUsabilityCheck}, and the caller only asks
+     *                                   for it once the change it carries has reached the table
      */
     @Override
-    public void alterTable(BaseTableInfo oldTableInfo, Optional<BaseTableInfo> newTableInfo, boolean isReplace) {
+    public void alterTable(BaseTableInfo oldTableInfo, Optional<BaseTableInfo> newTableInfo, boolean isReplace,
+            boolean judgeStateByQueryUsability) {
         // when replace, need deal two table
         if (isReplace) {
             // REPLACE TABLE already invalidates the IVM baseline explicitly, see Alter#processReplaceTable
@@ -369,7 +374,7 @@ public class MTMVRelationManager implements MTMVHookService {
         // A rename is the one change whose query check is skipped: the MV query keeps spelling the old
         // name, so it is unanalyzable by construction, and the reason it would be invalidated with --
         // "the query is no longer analyzable" -- says less than the message this call records anyway.
-        boolean checkQueryUsable = !renamed;
+        boolean checkQueryUsable = !renamed && judgeStateByQueryUsability;
         processBaseTableChange(oldTableInfo, "The base table has been updated:", checkQueryUsable);
     }
 
@@ -385,16 +390,19 @@ public class MTMVRelationManager implements MTMVHookService {
      * rows computed under the old column epoch. Invalidating the MV is what keeps that from being
      * reported as current.
      *
+     * <p>The check is the criterion, not just the reason for the record: a column the query does not name
+     * is one this change leaves the MV's rows alone for, so nothing is invalidated for it. It is a whole
+     * query that is analysed, not a column that is looked up: what the MV can no longer be computed from
+     * is what the analysis refuses, wherever in the query it stood.
+     *
      * <p>Every MV is checked, not only an IVM one: whether the query still analyzes is a property of
      * the MV and of the base table it reads, not of how the MV refreshes, and the invalidation is the
      * same one a change to that table records. What an IVM MV has on top of it is a per-partition
      * requirement, and that is decided elsewhere, from a query that analyzed.
      *
-     * @return whether the MV was invalidated. That is the whole record for this change: the invalidation
-     *         carries the reason, and the caller has nothing left to write -- a second record would land
-     *         on the same state, and MTMVStatus#updateStateAndDetail would overwrite the detail with the
-     *         blunter "the base table has been updated", which is what knowing the query is unusable is
-     *         for. It would also bump the version and drop the snapshot twice for one change.
+     * @return whether the MV was invalidated. False is the answer for a query that still analyzes, and it
+     *         is the whole record for this change: there is nothing to write, and writing the generic
+     *         "the base table has been updated" anyway would stand for a rebuild the MV does not owe.
      */
     private boolean invalidateMvIfQueryUnusable(BaseTableInfo baseTableInfo, Table mvTable) {
         if (!(mvTable instanceof MTMV)) {
@@ -483,9 +491,10 @@ public class MTMVRelationManager implements MTMVHookService {
     }
 
     /**
-     * Puts every MV that reads this base table into {@code SCHEMA_CHANGE}.
+     * Puts every MV that reads this base table into {@code SCHEMA_CHANGE} -- or, for the changes that ask
+     * for it, every MV whose query no longer analyses.
      *
-     * @param checkQueryUsable whether to re-analyze each MV's query first; see
+     * @param checkQueryUsable whether re-analysing each MV's query is what decides; see
      *                         {@link #invalidateMvIfQueryUnusable}
      */
     private void processBaseTableChange(BaseTableInfo baseTableInfo, String msgPrefix,
@@ -502,10 +511,19 @@ public class MTMVRelationManager implements MTMVHookService {
                 LOG.warn(e);
                 continue;
             }
-            if (checkQueryUsable && invalidateMvIfQueryUnusable(baseTableInfo, mvTable)) {
-                // Invalidated with the reason, which is the more specific of the two messages and the one
-                // this change is worth recording: the state is the same one the generic record below
-                // would set, so writing it too would only bury the reason.
+            if (checkQueryUsable) {
+                // The query has the last word on this change: a view whose query still analyses holds the
+                // rows it should hold, and invalidating it would discard the result of a refresh running
+                // against it on the strength of a change that never reached it. Nothing else is recorded
+                // here either -- the invalidation carries its reason, and a second record would land on
+                // the same state with the blunter "the base table has been updated", having bumped the
+                // version and dropped the snapshot a second time for one change.
+                if (invalidateMvIfQueryUnusable(baseTableInfo, mvTable)) {
+                    LOG.info("Invalidated MV, baseTable={}, mv={}", baseTableInfo, mvTable.getName());
+                } else {
+                    LOG.info("The MV query still analyses, nothing to invalidate. baseTable={}, mv={}",
+                            baseTableInfo, mvTable.getName());
+                }
                 continue;
             }
             if (!(mvTable instanceof MTMV)) {

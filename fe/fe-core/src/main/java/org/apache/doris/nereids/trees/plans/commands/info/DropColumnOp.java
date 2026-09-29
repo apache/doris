@@ -173,6 +173,19 @@ public class DropColumnOp extends AlterTableOp {
     }
 
     @Override
+    public boolean needQueryUsabilityCheck() {
+        return true;
+    }
+
+    @Override
+    public boolean hasReachedTheTable(OlapTable table) {
+        // A path into a column leaves the column itself in place, so what the table holds is the container
+        // of the part this asks about: dropping the part cannot be told apart from a change that has not
+        // been applied, and that is the answer which keeps the views invalidated.
+        return !columnPath.isNested() && table.getColumn(getColName()) == null;
+    }
+
+    @Override
     public boolean allowOpRowBinlog() {
         // Drop column is considered safe for row binlog tables after whitelist
         // check in schema change job.
