@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.DateUtils;
@@ -27,7 +28,7 @@ public interface FromSecondMonotonic extends Monotonic {
     default boolean isMonotonic(Literal lower, Literal upper) {
         if (lower instanceof BigIntLiteral) {
             return ((BigIntLiteral) lower).getValue() >= 0
-                    && !DateUtils.hasFallbackTransition(DateUtils.getTimeZone());
+                    && !DateUtils.hasFallbackTransition(TimeUtils.getDorisZoneId());
         }
         return false;
     }
