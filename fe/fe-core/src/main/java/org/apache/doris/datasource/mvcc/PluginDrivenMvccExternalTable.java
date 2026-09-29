@@ -271,8 +271,10 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
      */
     private static RangePartitionItem toRangePartitionItem(ConnectorMvccPartition partition,
             List<Column> partitionColumns) throws AnalysisException {
-        PartitionKey lowerKey = PartitionKey.createPartitionKey(
-                toPartitionValues(partition.getLowerBound()), partitionColumns);
+        // The NULL-min sentinel is not a wall-clock date: parsing it in a positive offset underflows year zero.
+        PartitionKey lowerKey = partition.getUpperBound().isEmpty()
+                ? PartitionKey.createInfinityPartitionKey(partitionColumns, false)
+                : PartitionKey.createPartitionKey(toPartitionValues(partition.getLowerBound()), partitionColumns);
         PartitionKey upperKey = partition.getUpperBound().isEmpty()
                 ? lowerKey.successor()
                 : PartitionKey.createPartitionKey(toPartitionValues(partition.getUpperBound()), partitionColumns);

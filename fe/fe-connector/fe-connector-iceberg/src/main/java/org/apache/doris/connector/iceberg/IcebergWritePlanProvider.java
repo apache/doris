@@ -782,7 +782,17 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         tSink.setOverwrite(handle.isOverwrite());
         Map<String, String> staticPartitionSpec = handle.getStaticPartitionSpec();
         if (handle.isOverwrite() && staticPartitionSpec != null && !staticPartitionSpec.isEmpty()) {
-            tSink.setStaticPartitionValues(staticPartitionSpec);
+            Map<String, String> values = new java.util.HashMap<>();
+            java.util.Set<String> nullKeys = new java.util.HashSet<>();
+            staticPartitionSpec.forEach((key, value) -> {
+                // Thrift map values cannot be null; keep SQL NULL distinct from the text "null".
+                values.put(key, value == null ? "null" : value);
+                if (value == null) {
+                    nullKeys.add(key);
+                }
+            });
+            tSink.setStaticPartitionValues(values);
+            tSink.setStaticPartitionNullKeys(nullKeys);
         }
         return tSink;
     }

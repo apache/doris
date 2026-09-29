@@ -158,6 +158,8 @@ public class JdbcPostgreSQLConnectorClient extends JdbcConnectorClient {
                 return ConnectorType.of("DATETIMEV2", scale, -1);
             }
             case "timestamptz": {
+                // Decoding infinities and out-of-range instants produces SQL NULL.
+                fieldInfo.setAllowNull(true);
                 int scale = computeTimestampScale(fieldInfo);
                 return enableMappingTimestampTz
                         ? ConnectorType.of("TIMESTAMPTZ", scale, -1)

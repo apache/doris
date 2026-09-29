@@ -553,27 +553,20 @@ public class PaimonConnectorMetadataTest {
     }
 
     @Test
-    public void getTableSchemaDefaultsMappingFlagsOff() {
+    public void getTableSchemaPreservesBinaryAndInstantWithoutFlags() {
         RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
         ops.table = new FakePaimonTable(
                 "t1", binaryAndLtzRowType(), Collections.emptyList(), Collections.emptyList());
 
-        // No mapping keys set — the default (legacy-compatible) behavior.
+        // Logical mappings are enabled even when legacy toggles are absent.
         PaimonConnectorMetadata metadata =
                 new PaimonConnectorMetadata(ops, PaimonCatalogProperties.of(Collections.emptyMap()), new RecordingConnectorContext());
 
         ConnectorTableHandle handle = metadata.getTableHandle(null, "db1", "t1").get();
         ConnectorTableSchema schema = metadata.getTableSchema(null, handle);
 
-        // WHY: with the toggles absent, BINARY must map to STRING and LTZ to DATETIMEV2 (default
-        // false), matching legacy. This guards against a fix that accidentally flips the defaults on
-        // (e.g. reading the wrong default or inverting the boolean). MUTATION: defaulting either flag
-        // to true -> VARBINARY / TIMESTAMPTZ -> red. Green in both the buggy and fixed states (it
-        // pins the default, not the key spelling), so it is a regression guard, not the bug-catcher.
-        Assertions.assertEquals("STRING", schema.getColumns().get(0).getType().getTypeName(),
-                "absent enable.mapping.varbinary must leave Paimon BINARY as STRING (default off)");
-        Assertions.assertEquals("DATETIMEV2", schema.getColumns().get(1).getType().getTypeName(),
-                "absent enable.mapping.timestamp_tz must leave Paimon LTZ as DATETIMEV2 (default off)");
+        Assertions.assertEquals("VARBINARY", schema.getColumns().get(0).getType().getTypeName());
+        Assertions.assertEquals("TIMESTAMPTZ", schema.getColumns().get(1).getType().getTypeName());
     }
 
     @Test

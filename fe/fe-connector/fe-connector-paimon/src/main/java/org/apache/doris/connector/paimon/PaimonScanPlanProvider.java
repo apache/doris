@@ -95,7 +95,6 @@ import org.apache.thrift.protocol.TBinaryProtocol;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -942,6 +941,11 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 ? physicalVariantSchemaIds(table, paimonHandle, rowType, columns, dataSplits)
                 : Collections.emptySet();
 
+        // Schema IDs belong to this resolved table/branch; avoid reloading one schema for every file.
+        Map<Long, Boolean> legacyOrcTimestampSchemas = new HashMap<>();
+        // $ro wraps the pinned file-store table; resolve its schema dictionary once, only if native is considered.
+        java.util.function.Supplier<Table> legacyOrcSchemaTable = com.google.common.base.Suppliers.memoize(
+                () -> resolveSchemaDictTable(table, paimonHandle));
         // Process DataSplits
         for (DataSplit dataSplit : dataSplits) {
             if (isCountPushdownSplit(countPushdown, dataSplit)) {
@@ -960,7 +964,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
 
             if (shouldUseNativeReader(paimonHandle.isForceJni(),
                     isForceJniScannerEnabled(session), hasVariantProjection,
-                    physicalVariantSchemaIds, optRawFiles)) {
+                    physicalVariantSchemaIds, optRawFiles)
+                    && !requiresLegacyOrcTimestampReader(
+                            legacyOrcSchemaTable.get(), optRawFiles, legacyOrcTimestampSchemas)) {
                 if (ignoreNative) {
                     if (requiresMetadataColumns) {
                         throw new DorisConnectorException(
@@ -1927,6 +1933,45 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                 .anyMatch(index -> containsVariant(rowType.getTypeAt(index)));
     }
 
+    static boolean requiresLegacyOrcTimestampReader(Table table, Optional<List<RawFile>> rawFiles,
+            Map<Long, Boolean> schemaTimestamps) {
+        if (!rawFiles.isPresent() || rawFiles.get().stream().noneMatch(f -> f.path().endsWith(".orc"))
+                || !new org.apache.paimon.options.Options(table.options()).get(
+                        org.apache.paimon.format.OrcOptions.ORC_TIMESTAMP_LTZ_LEGACY_TYPE)) {
+            return false;
+        }
+        // Legacy ORC LTZ bytes require the SDK's JVM-zone conversion, including old nested schemas.
+        if (containsTimestampLtz(table.rowType())) {
+            return true;
+        }
+        FileStoreTable fileStoreTable = (FileStoreTable) table;
+        for (RawFile file : rawFiles.get()) {
+            if (file.path().endsWith(".orc") && schemaTimestamps.computeIfAbsent(file.schemaId(),
+                    id -> containsTimestampLtz(fileStoreTable.schemaManager().schema(id).logicalRowType()))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean containsTimestampLtz(DataType type) {
+        if (type instanceof org.apache.paimon.types.LocalZonedTimestampType) {
+            return true;
+        }
+        if (type instanceof org.apache.paimon.types.ArrayType) {
+            return containsTimestampLtz(((org.apache.paimon.types.ArrayType) type).getElementType());
+        }
+        if (type instanceof org.apache.paimon.types.MapType) {
+            org.apache.paimon.types.MapType map = (org.apache.paimon.types.MapType) type;
+            return containsTimestampLtz(map.getKeyType()) || containsTimestampLtz(map.getValueType());
+        }
+        if (type instanceof org.apache.paimon.types.MultisetType) {
+            return containsTimestampLtz(((org.apache.paimon.types.MultisetType) type).getElementType());
+        }
+        return type instanceof RowType
+                && ((RowType) type).getFieldTypes().stream().anyMatch(PaimonScanPlanProvider::containsTimestampLtz);
+    }
+
     private static boolean supportNativeReader(Optional<List<RawFile>> optRawFiles) {
         if (!optRawFiles.isPresent() || optRawFiles.get().isEmpty()) {
             return false;
@@ -2025,10 +2070,8 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
                     return null;
                 }
                 return ((Timestamp) value).toLocalDateTime()
-                        .atZone(ZoneId.of("UTC"))
-                        .withZoneSameInstant(ZoneId.of(timeZone))
-                        .toLocalDateTime()
-                        .format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                        .atOffset(java.time.ZoneOffset.UTC)
+                        .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
             default:
                 throw new UnsupportedOperationException(
                         "Unsupported type for serializePartitionValue: " + type);

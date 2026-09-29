@@ -808,7 +808,14 @@ TEST(DataTypeSerDeArrowTest, PaimonTimestampBindsTargetTimezone) {
     EXPECT_TRUE(iceberg_ntz_batch->Equals(*ntz_batch));
     EXPECT_TRUE(iceberg_ltz_batch->Equals(*ltz_batch));
 
+    auto wrong_unit_schema =
+            arrow::schema({arrow::field("0", arrow::timestamp(arrow::TimeUnit::MICRO), false)});
     std::shared_ptr<arrow::RecordBatch> unused_batch;
+    status = convert(wrong_unit_schema, make_arrow_convertor<paimon::PaimonArrowBlockConvertor>,
+                     &unused_batch);
+    EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
+    EXPECT_NE(std::string::npos, status.to_string().find("Paimon timestamp writer has no binding"));
+
     status = convert(ntz_schema, make_arrow_convertor<ArrowFlightArrowBlockConvertor>,
                      &unused_batch);
     ASSERT_TRUE(status.ok()) << status;
@@ -880,6 +887,13 @@ TEST(DataTypeSerDeArrowTest, PaimonTimestampTzPreservesBothSidesOfDstFold) {
     // Both instants display as 01:30 locally, but must remain one hour apart on the wire.
     EXPECT_EQ(1699173000123456LL, timestamps.Value(0));
     EXPECT_EQ(1699176600123456LL, timestamps.Value(1));
+    auto incompatible_schema = arrow::schema({arrow::field(
+            "event_time", arrow::timestamp(arrow::TimeUnit::MILLI, "America/Los_Angeles"), false)});
+    Status status = convert_to_arrow_batch_for_test(
+            block, incompatible_schema, arrow::default_memory_pool(), &batch, timezone, 0,
+            block.rows(), make_arrow_convertor<paimon::PaimonArrowBlockConvertor>);
+    EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
+    EXPECT_NE(std::string::npos, status.to_string().find("Paimon timestamp writer has no binding"));
 }
 
 TEST(DataTypeSerDeArrowTest, IcebergUuidStringToFixedSizeBinary) {
@@ -1000,7 +1014,7 @@ TEST(DataTypeSerDeArrowTest, IcebergFixedVarbinaryPreservesRawBytesNullsAndRowRa
     EXPECT_EQ(0, std::memcmp(fixed->GetValue(2), values[3].data(), width));
 }
 
-TEST(DataTypeSerDeArrowTest, IcebergFixedBinaryPreservesBindingsAndRejectsInvalidValues) {
+TEST(DataTypeSerDeArrowTest, IcebergFixedVarbinaryRejectsInvalidBindingsAndValues) {
     auto convert = [](DataTypePtr type, std::string_view value, int target_width,
                       ArrowConvertorFactory converter) {
         MutableColumnPtr column = type->create_column();
@@ -1026,11 +1040,14 @@ TEST(DataTypeSerDeArrowTest, IcebergFixedBinaryPreservesBindingsAndRejectsInvali
     EXPECT_NE(std::string::npos,
               status.to_string().find("Fixed size binary column expects 4 bytes, got 5"));
 
-    // This refactor preserves the current external mappings and validates physical values.
     status = convert(std::make_shared<DataTypeVarbinary>(8), "abcd", 4, iceberg_converter);
-    EXPECT_TRUE(status.ok()) << status;
+    EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
+    EXPECT_NE(std::string::npos, status.to_string().find("Iceberg fixed width does not match"));
+
     status = convert(std::make_shared<DataTypeString>(4, TYPE_CHAR), "abcd", 4, iceberg_converter);
-    EXPECT_TRUE(status.ok()) << status;
+    EXPECT_EQ(ErrorCode::INVALID_ARGUMENT, status.code());
+    EXPECT_NE(std::string::npos,
+              status.to_string().find("Iceberg fixed writer requires Doris VARBINARY"));
 
     status = convert(std::make_shared<DataTypeVarbinary>(4), "abcd", 4,
                      make_arrow_convertor<ArrowFlightArrowBlockConvertor>);
@@ -1125,25 +1142,19 @@ TEST(DataTypeSerDeArrowTest, NestedIcebergFixedVarbinaryUsesIcebergConverterRecu
 }
 
 TEST(DataTypeSerDeArrowTest, CharToFixedSizeBinaryPadsZeros) {
-    auto block = std::make_shared<Block>();
-    auto strcol = ColumnString::create();
-    strcol->insert_data("ab", 2);
-    DataTypePtr data_type(std::make_shared<DataTypeString>(4, TYPE_CHAR));
-    block->insert(ColumnWithTypeAndName(strcol->get_ptr(), data_type, "fixed_col"));
-
-    auto schema = arrow::schema({arrow::field("fixed_col", arrow::fixed_size_binary(4), true)});
-
-    std::shared_ptr<arrow::RecordBatch> record_batch;
-    cctz::time_zone default_timezone;
-    Status status = convert_to_arrow_batch_for_test(
-            *block, schema, arrow::default_memory_pool(), &record_batch, default_timezone, 0,
-            block->rows(), make_arrow_convertor<iceberg::IcebergArrowBlockConvertor>);
-    ASSERT_TRUE(status.ok()) << status;
-
-    auto fixed_array =
-            std::static_pointer_cast<arrow::FixedSizeBinaryArray>(record_batch->column(0));
+    auto column = ColumnString::create();
+    column->insert_data("ab", 2);
+    DataTypeString type(4, TYPE_CHAR);
+    arrow::FixedSizeBinaryBuilder builder(arrow::fixed_size_binary(4));
+    ASSERT_TRUE(
+            type.get_serde()
+                    ->write_column_to_arrow(*column, nullptr, &builder, 0, 1, cctz::utc_time_zone())
+                    .ok());
+    std::shared_ptr<arrow::Array> result;
+    ASSERT_TRUE(builder.Finish(&result).ok());
     const char expected[] = {'a', 'b', '\0', '\0'};
-    EXPECT_EQ(0, std::memcmp(fixed_array->GetValue(0), expected, sizeof(expected)));
+    EXPECT_EQ(0, std::memcmp(assert_cast<const arrow::FixedSizeBinaryArray&>(*result).GetValue(0),
+                             expected, sizeof(expected)));
 }
 
 TEST(DataTypeSerDeArrowTest, StringToLargeBinary) {

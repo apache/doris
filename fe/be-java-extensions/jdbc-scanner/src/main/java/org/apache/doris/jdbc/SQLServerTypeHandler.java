@@ -30,6 +30,8 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 
 /**
  * SQLServer-specific type handler.
@@ -43,6 +45,11 @@ public class SQLServerTypeHandler extends DefaultTypeHandler {
     @Override
     public Object getColumnValue(ResultSet rs, int columnIndex, ColumnType type,
                                  ResultSetMetaData metadata) throws SQLException {
+        if (type.getType() == ColumnType.Type.TIMESTAMPTZ) {
+            // The remote projection and driver preserve the instant; JNI receives UTC fields.
+            Timestamp value = rs.getTimestamp(columnIndex);
+            return value == null ? null : LocalDateTime.ofInstant(value.toInstant(), ZoneOffset.UTC);
+        }
         switch (type.getType()) {
             case DECIMALV2:
             case DECIMAL32:
@@ -103,4 +110,13 @@ public class SQLServerTypeHandler extends DefaultTypeHandler {
             conn.abort(MoreExecutors.directExecutor());
         }
     }
+
+    @Override
+    public void setTimestampTz(java.sql.PreparedStatement statement, int parameterIndex, LocalDateTime value)
+            throws SQLException {
+        // setObject(Timestamp) drops the offset and serializes JVM-local fields as datetime2.
+        // An ISO literal retains the UTC instant and precision even on pre-JDBC-4.2 drivers.
+        statement.setString(parameterIndex, DateTimeFormatter.ISO_LOCAL_DATE_TIME.format(value) + "+00:00");
+    }
+
 }

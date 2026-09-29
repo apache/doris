@@ -113,7 +113,9 @@ public final class HudiTypeMapping {
                 return "int";
             case LONG:
                 if (logicalType instanceof LogicalTypes.TimestampMillis
-                        || logicalType instanceof LogicalTypes.TimestampMicros) {
+                        || logicalType instanceof LogicalTypes.TimestampMicros
+                        || logicalType instanceof LogicalTypes.LocalTimestampMillis
+                        || logicalType instanceof LogicalTypes.LocalTimestampMicros) {
                     return "timestamp";
                 }
                 if (logicalType instanceof LogicalTypes.TimeMicros) {
@@ -186,9 +188,17 @@ public final class HudiTypeMapping {
             return ConnectorType.of("TIMEV2", 6, 0);
         }
         if (logicalType instanceof LogicalTypes.TimestampMillis) {
-            return ConnectorType.of("DATETIMEV2", 3, 0);
+            // Avro timestamp logical types are instants, not local wall-clock timestamps.
+            return ConnectorType.of("TIMESTAMPTZ", 3, 0);
         }
         if (logicalType instanceof LogicalTypes.TimestampMicros) {
+            return ConnectorType.of("TIMESTAMPTZ", 6, 0);
+        }
+        // Local timestamp annotations describe wall-clock fields rather than an instant.
+        if (logicalType instanceof LogicalTypes.LocalTimestampMillis) {
+            return ConnectorType.of("DATETIMEV2", 3, 0);
+        }
+        if (logicalType instanceof LogicalTypes.LocalTimestampMicros) {
             return ConnectorType.of("DATETIMEV2", 6, 0);
         }
         return ConnectorType.of("BIGINT");

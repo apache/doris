@@ -321,7 +321,7 @@ public class IcebergWritePlanProviderTest {
         Assertions.assertEquals("'O''Reilly'", columns.get("text").getDefaultValueSql());
         Assertions.assertEquals("UNHEX('433A5C6E6577')",
                 columns.get("windows_path").getDefaultValueSql());
-        Assertions.assertEquals("UNHEX('000FFF')", columns.get("payload").getDefaultValueSql());
+        Assertions.assertEquals("X'000FFF'", columns.get("payload").getDefaultValueSql());
         Assertions.assertEquals("NULL", columns.get("nullable_value").getDefaultValueSql());
         Assertions.assertNull(columns.get("required_value").getDefaultValueSql());
         for (ConnectorColumn column : writeColumns) {

@@ -203,4 +203,20 @@ public class ExternalFileTableValuedFunctionTest {
             Assertions.fail();
         }
     }
+
+    @Test
+    public void testTimestampMappingCannotBeDisabled() throws AnalysisException {
+        for (String legacyFlag : Arrays.asList(null, "false", "true")) {
+            ExternalFileTableValuedFunction tvf = Mockito.mock(
+                    ExternalFileTableValuedFunction.class, Mockito.CALLS_REAL_METHODS);
+            Map<String, String> properties = Maps.newHashMap();
+            properties.put(FileFormatConstants.PROP_FORMAT, FileFormatConstants.FORMAT_PARQUET);
+            if (legacyFlag != null) {
+                properties.put(FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ, legacyFlag);
+            }
+            Map<String, String> storageProperties = tvf.parseCommonProperties(properties);
+            Assertions.assertTrue(tvf.fileFormatProperties.enableMappingTimestampTz);
+            Assertions.assertFalse(storageProperties.containsKey(FileFormatConstants.PROP_ENABLE_MAPPING_TIMESTAMP_TZ));
+        }
+    }
 }

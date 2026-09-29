@@ -124,6 +124,9 @@ public class JdbcSQLServerConnectorClient extends JdbcConnectorClient {
                 int scale = fieldInfo.requiredDecimalDigits();
                 return createDecimalOrString(precision, scale);
             }
+            case "datetimeoffset":
+                return ConnectorType.of("TIMESTAMPTZ",
+                        Math.min(fieldInfo.getDecimalDigits().orElse(0), JDBC_DATETIME_SCALE), -1);
             case "date":
                 return ConnectorType.of("DATEV2");
             case "datetime":
@@ -140,7 +143,6 @@ public class JdbcSQLServerConnectorClient extends JdbcConnectorClient {
             case "text":
             case "ntext":
             case "time":
-            case "datetimeoffset":
             case "uniqueidentifier":
             case "timestamp":
                 return ConnectorType.of("STRING");

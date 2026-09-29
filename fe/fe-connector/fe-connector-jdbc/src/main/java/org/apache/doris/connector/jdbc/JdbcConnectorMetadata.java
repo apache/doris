@@ -163,7 +163,14 @@ public class JdbcConnectorMetadata implements ConnectorMetadata, ConnectorPassth
     public Map<String, ConnectorColumnHandle> getColumnHandles(
             ConnectorSession session, ConnectorTableHandle handle) {
         if (handle instanceof PassthroughQueryTableHandle) {
-            return Collections.emptyMap();
+            Map<String, ConnectorColumnHandle> handles = new LinkedHashMap<>();
+            ConnectorTableSchema schema = getColumnsFromQuery(
+                    session, ((PassthroughQueryTableHandle) handle).getQuery());
+            for (ConnectorColumn column : schema.getColumns()) {
+                handles.put(column.getName(), new JdbcColumnHandle(
+                        column.getName(), column.getName(), column.getType()));
+            }
+            return handles;
         }
         JdbcTableHandle jdbcHandle = (JdbcTableHandle) handle;
         String dbName = jdbcHandle.getRemoteDbName();
@@ -177,7 +184,7 @@ public class JdbcConnectorMetadata implements ConnectorMetadata, ConnectorPassth
         for (JdbcFieldInfo field : fields) {
             String remoteName = field.getColumnName();
             String localName = mapper.fromRemoteColumnName(dbName, tableName, remoteName);
-            handles.put(localName, new JdbcColumnHandle(localName, remoteName));
+            handles.put(localName, new JdbcColumnHandle(localName, remoteName, client.jdbcTypeToConnectorType(field)));
         }
         return handles;
     }

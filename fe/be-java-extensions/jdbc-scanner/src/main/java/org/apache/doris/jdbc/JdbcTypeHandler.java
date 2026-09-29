@@ -27,6 +27,10 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.sql.Types;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 
 /**
  * Strategy interface for database-specific JDBC type handling.
@@ -39,6 +43,19 @@ import java.sql.SQLException;
  * handler by table type, rather than one scanner subclass per database.
  */
 public interface JdbcTypeHandler {
+
+    default void initializeWriteConnection(Connection connection) throws SQLException {
+    }
+
+    default void setTimestampTz(PreparedStatement statement, int parameterIndex, LocalDateTime value)
+            throws SQLException {
+        // JNI timestamps carry UTC fields; valueOf would reinterpret them in the JVM timezone.
+        statement.setObject(parameterIndex, Timestamp.from(value.toInstant(ZoneOffset.UTC)));
+    }
+
+    default void setTimestampTzNull(PreparedStatement statement, int parameterIndex) throws SQLException {
+        statement.setNull(parameterIndex, Types.TIMESTAMP_WITH_TIMEZONE);
+    }
 
     /**
      * Extract a column value from the ResultSet with database-specific handling.

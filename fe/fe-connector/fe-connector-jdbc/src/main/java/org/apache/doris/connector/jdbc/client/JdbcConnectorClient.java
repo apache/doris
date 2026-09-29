@@ -209,8 +209,9 @@ public abstract class JdbcConnectorClient implements Closeable {
         this.onlySpecifiedDatabase = onlySpecifiedDatabase;
         this.includeDatabaseMap = includeDatabaseMap != null ? includeDatabaseMap : Collections.emptyMap();
         this.excludeDatabaseMap = excludeDatabaseMap != null ? excludeDatabaseMap : Collections.emptyMap();
-        this.enableMappingVarbinary = enableMappingVarbinary;
-        this.enableMappingTimestampTz = enableMappingTimestampTz;
+        // Deprecated flags cannot change the external logical type contract.
+        this.enableMappingVarbinary = true;
+        this.enableMappingTimestampTz = true;
     }
 
     // -- lifecycle --

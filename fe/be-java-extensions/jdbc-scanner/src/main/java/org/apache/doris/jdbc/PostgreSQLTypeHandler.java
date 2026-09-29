@@ -26,9 +26,12 @@ import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.sql.Types;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -77,7 +80,7 @@ public class PostgreSQLTypeHandler extends DefaultTypeHandler {
                 return rs.getBytes(columnIndex);
             case TIMESTAMPTZ: {
                 OffsetDateTime odt = rs.getObject(columnIndex, OffsetDateTime.class);
-                return odt == null ? null : Timestamp.from(odt.toInstant());
+                return odt == null ? null : toDorisTimestamp(odt.toInstant());
             }
             case ARRAY: {
                 Array array = rs.getArray(columnIndex);
@@ -113,11 +116,10 @@ public class PostgreSQLTypeHandler extends DefaultTypeHandler {
                 }, LocalDateTime.class);
             case TIMESTAMPTZ:
                 return createConverter(input -> {
-                    if (input instanceof Timestamp) {
-                        return checkSubSecondFits(LocalDateTime.ofInstant(
-                                ((Timestamp) input).toInstant(), java.time.ZoneOffset.UTC), columnType);
-                    }
-                    return input;
+                    LocalDateTime value = input instanceof Timestamp
+                            ? toDorisTimestamp(((Timestamp) input).toInstant()) : (LocalDateTime) input;
+                    // Out-of-range PostgreSQL instants become NULL before checking fractional precision.
+                    return value == null ? null : checkSubSecondFits(value, columnType);
                 }, LocalDateTime.class);
             case CHAR:
                 return createConverter(input -> trimSpaces(input.toString()), String.class);
@@ -213,6 +215,13 @@ public class PostgreSQLTypeHandler extends DefaultTypeHandler {
                 }
                 return result;
             }
+            case TIMESTAMPTZ: {
+                List<LocalDateTime> result = new ArrayList<>(input.size());
+                for (Object element : input) {
+                    result.add(element == null ? null : toDorisTimestamp(((Timestamp) element).toInstant()));
+                }
+                return result;
+            }
             case ARRAY: {
                 List<List<?>> result = new ArrayList<>(input.size());
                 for (Object element : input) {
@@ -259,4 +268,24 @@ public class PostgreSQLTypeHandler extends DefaultTypeHandler {
         }
         return v;
     }
+
+    private static final Instant MIN_TIMESTAMP = LocalDateTime.of(0, 1, 1, 0, 0).toInstant(ZoneOffset.UTC);
+    private static final Instant MAX_TIMESTAMP = LocalDateTime.of(10000, 1, 1, 0, 0).toInstant(ZoneOffset.UTC);
+
+    private static LocalDateTime toDorisTimestamp(Instant value) {
+        // PostgreSQL supports BC years and infinities. Reject them before Timestamp/packed JNI
+        // conversion can overflow into an unrelated date or emit an invalid offset-only value.
+        if (value.isBefore(MIN_TIMESTAMP) || !value.isBefore(MAX_TIMESTAMP)) {
+            return null;
+        }
+        return LocalDateTime.ofInstant(value, ZoneOffset.UTC);
+    }
+
+    @Override
+    public void setTimestampTz(java.sql.PreparedStatement statement, int parameterIndex, LocalDateTime value)
+            throws SQLException {
+        // Declare the parameter as an instant so PostgreSQL never interprets UTC fields in its session zone.
+        statement.setObject(parameterIndex, value.atOffset(ZoneOffset.UTC), Types.TIMESTAMP_WITH_TIMEZONE);
+    }
+
 }
