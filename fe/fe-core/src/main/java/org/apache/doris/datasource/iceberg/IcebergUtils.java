@@ -1104,13 +1104,8 @@ public class IcebergUtils {
         for (int i = 0; i < fields.size(); i++) {
             NestedField field = fields.get(i);
             Object value = partitionData.get(i);
-            try {
-                partitionValues.add(serializePartitionValue(field.type(), value, timeZone));
-            } catch (UnsupportedOperationException e) {
-                LOG.warn("Failed to serialize Iceberg partition value for field {}: {}", field.name(),
-                        e.getMessage());
-                partitionValues.add(null);
-            }
+            // These values also identify delete-file partitions; an unsupported value must never become NULL.
+            partitionValues.add(serializePartitionValue(field.type(), value, timeZone));
         }
         return partitionValues;
     }
@@ -1407,6 +1402,8 @@ public class IcebergUtils {
                     return (int) LocalDate.parse(valueStr, DateTimeFormatter.ISO_LOCAL_DATE).toEpochDay();
                 case TIMESTAMP:
                     return parseTimestampToMicros(valueStr, (TimestampType) icebergType);
+                case TIME:
+                    return LocalTime.parse(valueStr, DateTimeFormatter.ISO_LOCAL_TIME).toNanoOfDay() / 1000;
                 case DECIMAL:
                     return new BigDecimal(valueStr);
                 default:
