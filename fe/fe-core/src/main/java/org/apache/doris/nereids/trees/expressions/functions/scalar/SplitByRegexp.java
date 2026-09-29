@@ -87,7 +87,7 @@ public class SplitByRegexp extends ScalarFunction
         List<Expression> arguments = getArguments();
         if (arguments.size() == 3) {
             Expression thirdArgument = getArgument(2);
-            // a constant FE cannot fold is passed to BE, which takes a negative limit as unlimited
+            // a constant FE cannot fold is validated by BE when it is evaluated
             if (!thirdArgument.isConstant() || (thirdArgument instanceof Literal
                     && (!(thirdArgument instanceof IntegerLikeLiteral)
                     || ((IntegerLikeLiteral) thirdArgument).getIntValue() < 0))) {

@@ -226,9 +226,10 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        DCHECK(!is_column_const(*block.get_by_position(arguments[0]).column));
-
-        ColumnPtr data_col = block.get_by_position(arguments[0]).column;
+        // The input is a constant too when the digest length is a constant BE evaluates to a full
+        // column, such as uniform(...).
+        ColumnPtr data_col =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
 
         [[maybe_unused]] const auto& [right_column, right_const] =
                 unpack_if_const(block.get_by_position(arguments[1]).column);

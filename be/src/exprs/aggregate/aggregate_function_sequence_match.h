@@ -228,18 +228,10 @@ private:
         const char* end = pos + pattern.size();
         const size_t event_count = arg_count - 2;
 
-        // Pattern is checked in fe, so pattern should be valid here, we check it and if pattern is invalid, we return.
-        auto fail_parse = [&]() {
-            actions.clear();
-            dfa_states.clear();
-            conditions_in_pattern.reset();
-            pattern_has_time = false;
-        };
-
+        // FE checks a literal pattern, but a constant pattern only BE can evaluate is checked here.
         auto throw_exception = [&](const std::string& msg) {
-            LOG(WARNING) << msg + " '" + std::string(pos, end) + "' at position " +
-                                    std::to_string(pos - begin);
-            fail_parse();
+            throw Exception(ErrorCode::INVALID_ARGUMENT, "{} '{}' at position {} of pattern '{}'",
+                            msg, std::string(pos, end), pos - begin, pattern);
         };
 
         auto match = [&pos, end](const char* str) mutable {
