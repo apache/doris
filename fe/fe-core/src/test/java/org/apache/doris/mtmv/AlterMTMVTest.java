@@ -487,7 +487,7 @@ public class AlterMTMVTest extends TestWithFeService {
     public void testReplayAlterPartitionStatesRemovesSnapshots() throws Exception {
         Config.enable_table_stream = true;
         createDatabaseAndUse("alter_partition_states_snapshot_test");
-        createTable("CREATE TABLE alter_partition_states_snapshot_test.states_base (k1 int, v1 int)\n"
+        createTableWithRowBinlog("CREATE TABLE alter_partition_states_snapshot_test.states_base (k1 int, v1 int)\n"
                 + "DUPLICATE KEY(k1)\n"
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
                 + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
