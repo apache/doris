@@ -429,8 +429,8 @@ public abstract class ExternalCatalog
                     Math.max(Config.max_meta_object_cache_num, 1),
                     ignored -> getFilteredDatabaseNames(),
                     this::updateLowerCaseToDatabaseName,
-                    (remoteName, localName) -> lowerCaseToDatabaseName.put(remoteName.toLowerCase(), remoteName),
-                    localName -> lowerCaseToDatabaseName.remove(localName.toLowerCase()),
+                    (remoteName, localName) -> lowerCaseToDatabaseName.put(foldDatabaseName(remoteName), remoteName),
+                    localName -> lowerCaseToDatabaseName.remove(foldDatabaseName(localName)),
                     localDbName -> Optional.ofNullable(
                             buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType,
                                     true)),
@@ -595,7 +595,7 @@ public abstract class ExternalCatalog
 
             // Collect lowercased local names and their remote counterparts
             for (Pair<String, String> pair : remoteToLocalPairs) {
-                String lowerCaseLocalName = pair.second.toLowerCase();
+                String lowerCaseLocalName = foldDatabaseName(pair.second);
                 lowerCaseToRemoteNames.computeIfAbsent(lowerCaseLocalName, k -> Lists.newArrayList()).add(pair.first);
             }
 
@@ -623,10 +623,14 @@ public abstract class ExternalCatalog
         String localDbName = fromRemoteDatabaseName(remoteDbName);
         int mode = getLowerCaseDatabaseNames();
         if (mode == 1) {
-            return localDbName.toLowerCase(Locale.ROOT);
+            return foldDatabaseName(localDbName);
         }
         // Mode 2 preserves remote spelling for display and deterministic database IDs.
         return mode == 2 ? remoteDbName : localDbName;
+    }
+
+    private static String foldDatabaseName(String dbName) {
+        return dbName.toLowerCase(Locale.ROOT);
     }
 
     protected boolean isDatabaseAllowedByFilter(String dbName) {
@@ -650,14 +654,14 @@ public abstract class ExternalCatalog
         if (!ignoreCase) {
             return databaseMap.containsKey(dbName);
         }
-        String normalizedDbName = dbName.toLowerCase(Locale.ROOT);
+        String normalizedDbName = foldDatabaseName(dbName);
         return databaseMap.keySet().stream()
-                .anyMatch(configuredName -> configuredName.toLowerCase(Locale.ROOT).equals(normalizedDbName));
+                .anyMatch(configuredName -> foldDatabaseName(configuredName).equals(normalizedDbName));
     }
 
     private void updateLowerCaseToDatabaseName(List<Pair<String, String>> names) {
         Map<String, String> updated = Maps.newConcurrentMap();
-        names.forEach(pair -> updated.put(pair.key().toLowerCase(), pair.key()));
+        names.forEach(pair -> updated.put(foldDatabaseName(pair.key()), pair.key()));
         lowerCaseToDatabaseName = updated;
     }
 
@@ -1542,14 +1546,14 @@ public abstract class ExternalCatalog
 
         if (mode == 1) {
             // Mode 1: Store as lowercase
-            finalName = dbName.toLowerCase();
+            finalName = foldDatabaseName(dbName);
         } else if (mode == 2) {
             // Mode 2: Case-insensitive comparison
-            finalName = lowerCaseToDatabaseName.get(dbName.toLowerCase());
+            finalName = lowerCaseToDatabaseName.get(foldDatabaseName(dbName));
             if (finalName == null && !isReplay) {
                 try {
                     metaCache.refreshNames();
-                    finalName = lowerCaseToDatabaseName.get(dbName.toLowerCase());
+                    finalName = lowerCaseToDatabaseName.get(foldDatabaseName(dbName));
                 } catch (Exception e) {
                     if (Thread.currentThread().isInterrupted()
                             && e instanceof java.util.concurrent.CompletionException

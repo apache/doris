@@ -2626,7 +2626,7 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
-    public void testModeOneSdkOnlyDatabaseInvalidationUsesCatalogLocale() throws Exception {
+    public void testModeOneSdkOnlyDatabaseInvalidationUsesRootLocale() throws Exception {
         Locale previousLocale = Locale.getDefault();
         Locale.setDefault(new Locale("tr", "TR"));
         PaimonExternalCatalog dorisCatalog = null;
@@ -2654,8 +2654,8 @@ public class PaimonExternalMetaCacheTest {
             externalCatalog.makeSureInitialized();
             externalCatalog.catalog.dropTable(identifier, false);
 
-            // Doris mode 1 stores local "I" as the Turkish dotless "ı" on this FE.
-            dorisCatalog.invalidatePaimonDatabaseByLocalName("ı");
+            // Doris mode 1 uses a locale-independent local name on every FE.
+            dorisCatalog.invalidatePaimonDatabaseByLocalName("i");
             PaimonExternalCatalog cachedCatalog = dorisCatalog;
             Assert.assertThrows(Catalog.TableNotExistException.class,
                     () -> cachedCatalog.catalog.getTable(identifier));
@@ -3815,5 +3815,3 @@ public class PaimonExternalMetaCacheTest {
         }
     }
 }
-
-

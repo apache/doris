@@ -54,6 +54,7 @@ import java.lang.reflect.Field;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -163,6 +164,65 @@ public class CatalogMgrTest {
         Mockito.verify(catalog.metaCache).invalidate("bar", barId);
         Mockito.verify(cacheMgr).invalidateRowCountCache(catalogId, fooId);
         Mockito.verify(cacheMgr).invalidateRowCountCache(catalogId, barId);
+    }
+
+    @Test
+    void testModeOneDatabaseEventLookupAndDropUseRootLocale() throws Exception {
+        Locale previousLocale = Locale.getDefault();
+        Locale.setDefault(Locale.forLanguageTag("tr-TR"));
+        try {
+            long catalogId = 88L;
+            long dbId = Util.genIdByName("hms", "i");
+            TestingHmsEventCatalog catalog = new TestingHmsEventCatalog(catalogId,
+                    ImmutableMap.of(ExternalCatalog.LOWER_CASE_DATABASE_NAMES, "1"));
+            CatalogMgr catalogMgr = new CatalogMgr();
+            addNamedCatalog(catalogMgr, catalog);
+            ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+            Env env = Mockito.mock(Env.class);
+            Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+            Mockito.when(catalog.metaCache.updateCache(Mockito.anyString(), Mockito.anyString(),
+                    Mockito.any(), Mockito.anyLong(), Mockito.anyLong())).thenReturn(true);
+            @SuppressWarnings("unchecked")
+            ExternalDatabase<? extends ExternalTable> db = Mockito.mock(ExternalDatabase.class);
+            Mockito.when(catalog.metaCache.getMetaObj("i", dbId)).thenReturn(Optional.of(db));
+
+            try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+                mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+                catalogMgr.registerExternalDatabaseFromEvent("I", "hms");
+                Assertions.assertSame(db, catalog.getDbNullable("I"));
+                catalogMgr.unregisterExternalDatabase("I", "hms");
+            }
+
+            Mockito.verify(catalog.metaCache).updateCache(Mockito.eq("I"), Mockito.eq("i"),
+                    Mockito.any(), Mockito.eq(dbId), Mockito.anyLong());
+            Mockito.verify(catalog.metaCache).invalidate("i", dbId);
+            Mockito.verify(cacheMgr).invalidateRowCountCache(catalogId, dbId);
+        } finally {
+            Locale.setDefault(previousLocale);
+        }
+    }
+
+    @Test
+    void testModeTwoDatabaseLookupUsesRootLocale() throws Exception {
+        Locale previousLocale = Locale.getDefault();
+        Locale.setDefault(Locale.forLanguageTag("tr-TR"));
+        try {
+            TestingUnregisterCatalog catalog = new TestingUnregisterCatalog(89L,
+                    ImmutableMap.of(ExternalCatalog.LOWER_CASE_DATABASE_NAMES, "2"));
+            @SuppressWarnings("unchecked")
+            MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache = Mockito.mock(MetaCache.class);
+            catalog.installMetaCache(metaCache);
+            Field mappingField = ExternalCatalog.class.getDeclaredField("lowerCaseToDatabaseName");
+            mappingField.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            Map<String, String> mapping = (Map<String, String>) mappingField.get(catalog);
+            mapping.put("i", "I");
+
+            Assertions.assertEquals(Pair.of("I", Util.genIdByName("testing_catalog", "I")),
+                    catalog.getDbIdentityForReplay("I", 0L).orElseThrow(AssertionError::new));
+        } finally {
+            Locale.setDefault(previousLocale);
+        }
     }
 
     private static void addCatalog(CatalogMgr catalogMgr, ExternalCatalog catalog) throws Exception {

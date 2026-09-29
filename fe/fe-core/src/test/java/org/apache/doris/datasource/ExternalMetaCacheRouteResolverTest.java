@@ -512,6 +512,21 @@ public class ExternalMetaCacheRouteResolverTest {
     }
 
     @Test
+    public void testPermanentCatalogRemovalReleasesRowCountGenerationButRenameDoesNot() {
+        long catalogId = 29L;
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        mockCurrentCatalog(catalogId, catalog);
+        ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
+        ExternalRowCountCache rowCountCache = Mockito.mock(ExternalRowCountCache.class);
+        metaCacheMgr.replaceRowCountCacheForTest(rowCountCache);
+
+        metaCacheMgr.removeCatalog(catalogId);
+        Mockito.verify(rowCountCache, Mockito.never()).releaseCatalog(catalogId);
+        metaCacheMgr.removeCatalogPermanently(catalogId);
+        Mockito.verify(rowCountCache).releaseCatalog(catalogId);
+    }
+
+    @Test
     public void testRollbackRetiresEngineCachesWhenResetCleanupThrows() throws Exception {
         ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
         ExternalRowCountCache rowCountCache = Mockito.mock(ExternalRowCountCache.class);

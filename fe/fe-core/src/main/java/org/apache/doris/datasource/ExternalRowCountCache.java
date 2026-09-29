@@ -243,6 +243,15 @@ public class ExternalRowCountCache {
                 ignored -> new AtomicLong(nextCatalogGeneration.incrementAndGet())).get();
     }
 
+    private boolean isCatalogGenerationCurrent(long catalogId, long generation) {
+        AtomicLong current = catalogGenerations.get(catalogId);
+        return current != null && current.get() == generation;
+    }
+
+    int getCatalogGenerationCountForTest() {
+        return catalogGenerations.size();
+    }
+
     static Optional<Long> loadRowCount(RowCountKey rowCountKey, boolean fillMetaCache) {
         try {
             ExternalTable table = (ExternalTable) StatisticsUtil.findTable(
@@ -294,12 +303,12 @@ public class ExternalRowCountCache {
             if (ConnectContext.get() == null
                     || ConnectContext.get().getSessionVariable().fetchHiveRowCountSync) {
                 Optional<Long> value = f.get();
-                return generation == currentCatalogGeneration(catalogId)
+                return isCatalogGenerationCurrent(catalogId, generation)
                         ? value.orElse(TableIf.UNKNOWN_ROW_COUNT) : TableIf.UNKNOWN_ROW_COUNT;
             } else {
                 if (f.isDone()) {
                     Optional<Long> value = f.get();
-                    return generation == currentCatalogGeneration(catalogId)
+                    return isCatalogGenerationCurrent(catalogId, generation)
                             ? value.orElse(TableIf.UNKNOWN_ROW_COUNT) : TableIf.UNKNOWN_ROW_COUNT;
                 }
                 LOG.info("Row count for table {}.{}.{} is still processing.", catalogId, dbId, tableId);
@@ -321,7 +330,11 @@ public class ExternalRowCountCache {
             long generation;
             publicationLock.readLock().lock();
             try {
-                generation = currentCatalogGeneration(catalogId);
+                AtomicLong current = catalogGenerations.get(catalogId);
+                if (current == null) {
+                    return -1;
+                }
+                generation = current.get();
                 RowCountKey key = new RowCountKey(catalogId, dbId, tableId, generation);
                 f = rowCountCache.getIfPresent(key);
             } finally {
@@ -329,7 +342,7 @@ public class ExternalRowCountCache {
             }
             if (f == null) {
                 return -1;
-            } else if (f.isDone() && generation == currentCatalogGeneration(catalogId)) {
+            } else if (f.isDone() && isCatalogGenerationCurrent(catalogId, generation)) {
                 return f.get().orElse(-1L);
             }
         } catch (Exception e) {
@@ -343,8 +356,20 @@ public class ExternalRowCountCache {
     void invalidateCatalog(long catalogId) {
         publicationLock.writeLock().lock();
         try {
-            catalogGenerations.computeIfAbsent(catalogId, ignored -> new AtomicLong())
-                    .set(nextCatalogGeneration.incrementAndGet());
+            AtomicLong current = catalogGenerations.get(catalogId);
+            if (current != null) {
+                current.set(nextCatalogGeneration.incrementAndGet());
+            }
+        } finally {
+            publicationLock.writeLock().unlock();
+        }
+    }
+
+    /** Catalog IDs are never reused after DROP; old readers still fail the generation check. */
+    void releaseCatalog(long catalogId) {
+        publicationLock.writeLock().lock();
+        try {
+            catalogGenerations.remove(catalogId);
         } finally {
             publicationLock.writeLock().unlock();
         }
@@ -367,7 +392,11 @@ public class ExternalRowCountCache {
     void invalidateTable(long catalogId, long dbId, long tableId) {
         publicationLock.writeLock().lock();
         try {
-            RowCountKey key = new RowCountKey(catalogId, dbId, tableId, currentCatalogGeneration(catalogId));
+            AtomicLong current = catalogGenerations.get(catalogId);
+            if (current == null) {
+                return;
+            }
+            RowCountKey key = new RowCountKey(catalogId, dbId, tableId, current.get());
             Set<LoadFence> fences = inFlightLoads.get(new LoadKey(key));
             if (fences != null) {
                 fences.forEach(fence -> fence.invalidated = true);

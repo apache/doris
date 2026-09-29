@@ -468,7 +468,13 @@ public class ExternalMetaCacheMgr {
                 }
             }
         } finally {
-            lifecycleLock.unlock();
+            // DROP never reuses the catalog ID. The earlier row-count fence protects readers;
+            // release its generation after permanent engine cleanup, not on rename.
+            try {
+                rowCountCache.releaseCatalog(catalogId);
+            } finally {
+                lifecycleLock.unlock();
+            }
         }
     }
 

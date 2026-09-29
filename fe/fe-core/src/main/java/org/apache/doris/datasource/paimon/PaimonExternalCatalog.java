@@ -179,14 +179,9 @@ public class PaimonExternalCatalog extends ExternalCatalog {
         }
         withSdkCatalogCacheWriteLock(() -> executionAuthenticator.execute(() -> {
             boolean caseSensitive = catalog.caseSensitive();
-            int nameMode = getLowerCaseDatabaseNames();
             invalidateCachedPaimonTables(identifier -> {
                 String remoteName = identifier.getDatabaseName();
-                String candidateLocalName = nameMode == 2 ? remoteName : fromRemoteDatabaseName(remoteName);
-                if (nameMode == 1) {
-                    // Match ExternalCatalog's mode-1 local database name and deterministic ID.
-                    candidateLocalName = candidateLocalName.toLowerCase();
-                }
+                String candidateLocalName = localDatabaseNameFromRemote(remoteName);
                 return identifierPartEquals(candidateLocalName, localDbName, caseSensitive);
             });
             return null;

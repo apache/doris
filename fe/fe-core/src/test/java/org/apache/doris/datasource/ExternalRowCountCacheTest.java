@@ -334,6 +334,43 @@ public class ExternalRowCountCacheTest {
     }
 
     @Test
+    public void testPermanentCatalogRemovalReleasesGenerationWithoutRevivingOldReader() throws Exception {
+        CountDownLatch loadStarted = new CountDownLatch(1);
+        CountDownLatch releaseLoad = new CountDownLatch(1);
+        ExternalRowCountCache.RowCountCacheLoader loader = new ExternalRowCountCache.RowCountCacheLoader() {
+            @Override
+            protected Optional<Long> doLoad(ExternalRowCountCache.RowCountKey key) {
+                loadStarted.countDown();
+                Uninterruptibles.awaitUninterruptibly(releaseLoad);
+                return Optional.of(100L);
+            }
+        };
+        ExecutorService cacheExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService readerExecutor = Executors.newSingleThreadExecutor();
+        try {
+            ExternalRowCountCache cache = new ExternalRowCountCache(cacheExecutor, null, loader);
+            cache.invalidateCatalog(2L);
+            Assertions.assertEquals(0, cache.getCatalogGenerationCountForTest());
+            Future<Long> oldRead = readerExecutor.submit(() -> cache.getCachedRowCount(1L, 10L, 100L, false));
+            Assertions.assertTrue(loadStarted.await(10, TimeUnit.SECONDS));
+            Assertions.assertEquals(1, cache.getCatalogGenerationCountForTest());
+
+            cache.invalidateCatalog(1L);
+            cache.releaseCatalog(1L);
+            Assertions.assertEquals(0, cache.getCatalogGenerationCountForTest());
+            releaseLoad.countDown();
+
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, oldRead.get(10, TimeUnit.SECONDS));
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, cache.getCachedRowCountIfPresent(1L, 10L, 100L));
+            Assertions.assertEquals(0, cache.getCatalogGenerationCountForTest());
+        } finally {
+            releaseLoad.countDown();
+            readerExecutor.shutdownNow();
+            cacheExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testInvalidateWhileRefreshIsRunningDoesNotRepublishStaleValue() throws Exception {
         AtomicInteger loadCount = new AtomicInteger();
         CountDownLatch refreshStarted = new CountDownLatch(1);
