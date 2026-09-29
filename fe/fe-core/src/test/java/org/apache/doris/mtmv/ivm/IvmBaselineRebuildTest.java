@@ -90,6 +90,54 @@ public class IvmBaselineRebuildTest extends TestWithFeService {
         Assertions.assertEquals(MTMVState.SCHEMA_CHANGE, getMtmv(db).getStatus().getState());
     }
 
+    /**
+     * A truncated partition is placed on the MV partitions that read it, the way a dropped partition is:
+     * the requirement is what carries the change, not the state, and every other partition keeps catching
+     * up incrementally.
+     */
+    @Test
+    public void testTruncateAPartitionStaysOnThePartitionsThatReadIt() throws Exception {
+        String db = "ivm_truncate_one_partition";
+        createPartitionedIvmTableAndPartitionedMv(db);
+        MTMV mtmv = getMtmv(db);
+        Set<String> expected = mvPartitionsWithSameRange(mtmv, getBaseTable(db), "p202001");
+        Assertions.assertEquals(1, expected.size());
+
+        alignStatesOf(mtmv);
+        executeSql("TRUNCATE TABLE ivm_base PARTITION(p202001)");
+
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
+        for (String partitionName : mtmv.getPartitionNames()) {
+            long expectedLatest = expected.contains(partitionName) ? 2 : 1;
+            Assertions.assertEquals(expectedLatest,
+                    mtmv.getPartitionStates().get(partitionName).getLatestEpoch());
+        }
+    }
+
+    /**
+     * An entire-table truncate is recorded the same way, and this is the case that says the scope of the
+     * change is not what decides: every MV partition reads a partition that was replaced, so every one of
+     * them has its requirement raised -- and the state, which is the coarser record, is not what carries
+     * it. Recording it as a whole-MV change instead would send every partition of the MV to a rebuild and
+     * reset the streams, for a change whose scope the per-partition requirement already expresses.
+     */
+    @Test
+    public void testTruncateTableStaysOnThePartitionsThatReadIt() throws Exception {
+        String db = "ivm_truncate_entire_table";
+        createPartitionedIvmTableAndPartitionedMv(db);
+        MTMV mtmv = getMtmv(db);
+        Assertions.assertEquals(2, mtmv.getPartitionNames().size());
+
+        alignStatesOf(mtmv);
+        executeSql("TRUNCATE TABLE ivm_base");
+
+        Assertions.assertNotEquals(MTMVState.SCHEMA_CHANGE, mtmv.getStatus().getState());
+        for (String partitionName : mtmv.getPartitionNames()) {
+            Assertions.assertEquals(2,
+                    mtmv.getPartitionStates().get(partitionName).getLatestEpoch());
+        }
+    }
+
     @Test
     public void testTruncatePartitionMarksBaselineRebuild() throws Exception {
         String db = "ivm_broken_truncate_partition";
