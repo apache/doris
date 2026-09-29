@@ -530,7 +530,18 @@ int run_index_worker(const IndexWorkerParams& params) {
         return 1;
     }
 
-    // Step 3: dispatch revalidation. Every rejection from here on carries the
+    // Step 3: the handshake frame. It precedes EVERY result frame, including the
+    // pre-invocation rejections below: the supervisor decodes the first stdout
+    // frame as the handshake, so a result emitted before it would be a protocol
+    // violation and the typed rejection would never reach the FE. (A malformed
+    // dispatch above still exits bare — without an identity there is no result
+    // path at all.)
+    if (!write_handshake(params)) {
+        diag(params.diag_fd, DIAG_HANDSHAKE_WRITE_FAILED);
+        return 1;
+    }
+
+    // Step 4: dispatch revalidation. Every rejection from here on carries the
     // dispatch identity in a complete pre-invocation result frame.
     if (!storage_options_valid(dispatch)) {
         return reject_pre_invocation(params, dispatch,
@@ -581,13 +592,6 @@ int run_index_worker(const IndexWorkerParams& params) {
                     TLanceIndexJobResultCode::PRE_INVOCATION_UNSUPPORTED_SCHEMA_CONTRACT, false,
                     "unsupported schema contract");
         }
-    }
-
-    // Step 4: the handshake frame. Without the supervisor channel there is no
-    // trusted result path at all.
-    if (!write_handshake(params)) {
-        diag(params.diag_fd, DIAG_HANDSHAKE_WRITE_FAILED);
-        return 1;
     }
 
     // Step 5: D11 — a local-filesystem dataset is rejected before any native
@@ -718,12 +722,8 @@ int run_index_worker(const IndexWorkerParams& params) {
     // agreed contract (the contract holds exactly one field here: the comparison
     // above pins equality with the single-field recompute).
     if (is_build) {
-        const ContractField& field = recomputed_contract.flds.front();
-        bool shape_supported = !field.nul && field.nt == "fixed_size_list" && field.fsd.has_value() &&
-                               *field.fsd > 0 && field.vet.has_value() &&
-                               (*field.vet == "float16" || *field.vet == "float32");
-        if (!shape_supported ||
-            *field.fsd % static_cast<int32_t>(arguments.num_sub_vectors) != 0) {
+        if (!vector_index_shape_supported(recomputed_contract.flds.front(),
+                                          arguments.num_sub_vectors)) {
             return reject_pre_invocation(
                     params, dispatch,
                     TLanceIndexJobResultCode::PRE_INVOCATION_UNSUPPORTED_SCHEMA_CONTRACT,
@@ -752,38 +752,15 @@ int run_index_worker(const IndexWorkerParams& params) {
         SavedLanceError saved = save_lance_error();
         native_code = saved.code;
     }
-    TLanceIndexJobResultCode::type result_code;
-    switch (native_code) {
-    case LANCE_OK:
-        result_code = TLanceIndexJobResultCode::NATIVE_OK;
-        break;
-    case LANCE_ERR_COMMIT_CONFLICT:
-        result_code = TLanceIndexJobResultCode::NATIVE_COMMIT_CONFLICT;
-        break;
-    case LANCE_ERR_NOT_FOUND:
-        result_code = TLanceIndexJobResultCode::NATIVE_NOT_FOUND;
-        break;
-    case LANCE_ERR_INVALID_ARGUMENT:
-        result_code = TLanceIndexJobResultCode::NATIVE_INVALID_ARGUMENT;
-        break;
-    case LANCE_ERR_NOT_SUPPORTED:
-        result_code = TLanceIndexJobResultCode::NATIVE_NOT_SUPPORTED;
-        break;
-    case LANCE_ERR_INDEX:
-        result_code = TLanceIndexJobResultCode::NATIVE_INDEX;
-        break;
-    case LANCE_ERR_IO:
-        result_code = TLanceIndexJobResultCode::NATIVE_IO;
-        break;
-    case LANCE_ERR_INTERNAL:
-        result_code = TLanceIndexJobResultCode::NATIVE_INTERNAL;
-        break;
-    default:
+    std::optional<TLanceIndexJobResultCode::type> mapped =
+            wire_result_code_for_native_error(native_code);
+    if (!mapped.has_value()) {
         // DATASET_ALREADY_EXISTS, PANIC, or any unknown code: never inferred, no
         // result frame, nonzero exit.
         diag(params.diag_fd, DIAG_UNKNOWN_NATIVE_CODE);
         return 1;
     }
+    const TLanceIndexJobResultCode::type result_code = *mapped;
 
     // Defensive completion of the envelope: the FE recomputes the completion
     // reason from ifExists and the typed code, the worker only mirrors it.
@@ -796,6 +773,30 @@ int run_index_worker(const IndexWorkerParams& params) {
         return 1;
     }
     return 0;
+}
+
+std::optional<TLanceIndexJobResultCode::type> wire_result_code_for_native_error(
+        LanceErrorCode code) {
+    switch (code) {
+    case LANCE_OK:
+        return TLanceIndexJobResultCode::NATIVE_OK;
+    case LANCE_ERR_COMMIT_CONFLICT:
+        return TLanceIndexJobResultCode::NATIVE_COMMIT_CONFLICT;
+    case LANCE_ERR_NOT_FOUND:
+        return TLanceIndexJobResultCode::NATIVE_NOT_FOUND;
+    case LANCE_ERR_INVALID_ARGUMENT:
+        return TLanceIndexJobResultCode::NATIVE_INVALID_ARGUMENT;
+    case LANCE_ERR_NOT_SUPPORTED:
+        return TLanceIndexJobResultCode::NATIVE_NOT_SUPPORTED;
+    case LANCE_ERR_INDEX:
+        return TLanceIndexJobResultCode::NATIVE_INDEX;
+    case LANCE_ERR_IO:
+        return TLanceIndexJobResultCode::NATIVE_IO;
+    case LANCE_ERR_INTERNAL:
+        return TLanceIndexJobResultCode::NATIVE_INTERNAL;
+    default:
+        return std::nullopt;
+    }
 }
 
 } // namespace doris::lance

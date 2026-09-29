@@ -34,9 +34,11 @@ constexpr int64_t ARROW_FLAG_MAP_KEYS_SORTED = 4;
 
 // P1c fail-closed caps, evaluated on the cheap manifest-side fragment count before
 // the expensive per-fragment statistics scan, plus a wall-clock sub-budget on that
-// scan itself.
-constexpr uint64_t MAX_STATS_FRAGMENTS = 4096;
-constexpr uint64_t MAX_STATS_FRAGMENT_FIELD_PRODUCT = 32768;
+// scan itself. The two fragment caps are mutable ONLY through
+// force_recompute_fragment_caps_for_test so unit tests can reach the rejection
+// with small values; production never touches them.
+uint64_t g_max_stats_fragments = RECOMPUTE_MAX_STATS_FRAGMENTS;
+uint64_t g_max_stats_fragment_field_product = RECOMPUTE_MAX_STATS_FRAGMENT_FIELD_PRODUCT;
 constexpr int64_t MAX_RECOMPUTE_WALL_CLOCK_SECONDS = 60;
 
 // Maps a failed lance FFI call to a contract status: the typed code makes it a
@@ -131,13 +133,70 @@ bool is_fixed_size_list(const std::string& format) {
     return fixed_size_list_dimension(format).has_value();
 }
 
+// Byte-wise ASCII fold: A-Z becomes a-z, every other byte passes through. Returns
+// false when the input contains a non-ASCII byte (the Java ROOT fold is not
+// byte-reproducible there, so callers fail closed instead of risking a divergent
+// fold).
+bool ascii_fold(const char* data, size_t size, std::string* out) {
+    bool pure_ascii = true;
+    std::string folded;
+    folded.reserve(size);
+    for (size_t i = 0; i < size; ++i) {
+        unsigned char c = static_cast<unsigned char>(data[i]);
+        if (c >= 0x80) {
+            pure_ascii = false;
+        }
+        folded.push_back(c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a')
+                                              : static_cast<char>(c));
+    }
+    *out = std::move(folded);
+    return pure_ascii;
+}
+
+struct ArrowSchemaReleaser {
+    void operator()(ArrowSchema* schema) const {
+        if (schema != nullptr && schema->release != nullptr) {
+            // The exporter's callback recursively releases the whole subtree and
+            // then clears the struct; calling it exactly once is the entire duty.
+            schema->release(schema);
+        }
+    }
+};
+
+struct LanceDataStatisticsDeleter {
+    void operator()(LanceDataStatistics* stats) const {
+        if (stats != nullptr) {
+            lance_data_statistics_close(stats);
+        }
+    }
+};
+
+// One node of the manifest-DFS walk: DFS pre-order over the exported ArrowSchema
+// tree, skipping the single item child of every fixed-size-list node (the item has
+// no manifest field and no statistics entry — the proven binding model).
+struct WalkNode {
+    const ArrowSchema* schema = nullptr;
+    // Index of the parent inside the walk vector, or -1 for a top-level field.
+    int64_t parent_index = -1;
+    bool top_level = false;
+};
+
+struct PendingNode {
+    const ArrowSchema* schema = nullptr;
+    int64_t parent_index = -1;
+    bool top_level = false;
+};
+
+} // namespace
+
 // Maps an Arrow C Data Interface format string to the canonical normalized-type
 // vocabulary of the FE LanceSchemaContractBuilder, byte-exactly. Returns nullopt
 // for any format outside the proven type set (scalar leaves, struct, list, large
 // list, map, fixed-size list): the binding model is unproven there and the caller
 // fails closed. The generic-fallback forms replicate the Java
 // "<arrow class name lowercased>(param=value,...)" rendering for the shapes an
-// Arrow format string can express.
+// Arrow format string can express. Defined outside the anonymous namespace as a
+// unit-test seam (see the header); production reaches it via recompute_contract.
 std::optional<std::string> canonical_type_for_format(const char* raw_format, int64_t flags) {
     if (raw_format == nullptr) {
         return std::nullopt;
@@ -242,69 +301,22 @@ std::optional<std::string> canonical_type_for_format(const char* raw_format, int
             return std::nullopt;
         }
         std::string tz = format.substr(4);
-        if (tz.empty() || is_safe_timezone(tz)) {
+        if (tz.empty()) {
+            // The manifest records a timezone-less timestamp with the "-"
+            // placeholder: arrow-rs normalizes it to the empty string on export,
+            // while the FE builder copies the placeholder verbatim from the JNI
+            // view (empirical, locked by the timestamp_sec_nozone golden fixture).
+            // The canonical form must restore the placeholder or every no-tz
+            // timestamp contract would read as a false STALE.
+            tz = "-";
+        }
+        if (is_safe_timezone(tz)) {
             return std::string("timestamp<") + canonical_unit + ",tz=\"" + tz + "\">";
         }
         return std::string("timestamp(unit=") + java_unit + ",timezone=" + tz + ")";
     }
     return std::nullopt;
 }
-
-// Byte-wise ASCII fold: A-Z becomes a-z, every other byte passes through. Returns
-// false when the input contains a non-ASCII byte (the Java ROOT fold is not
-// byte-reproducible there, so callers fail closed instead of risking a divergent
-// fold).
-bool ascii_fold(const char* data, size_t size, std::string* out) {
-    bool pure_ascii = true;
-    std::string folded;
-    folded.reserve(size);
-    for (size_t i = 0; i < size; ++i) {
-        unsigned char c = static_cast<unsigned char>(data[i]);
-        if (c >= 0x80) {
-            pure_ascii = false;
-        }
-        folded.push_back(c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a')
-                                              : static_cast<char>(c));
-    }
-    *out = std::move(folded);
-    return pure_ascii;
-}
-
-struct ArrowSchemaReleaser {
-    void operator()(ArrowSchema* schema) const {
-        if (schema != nullptr && schema->release != nullptr) {
-            // The exporter's callback recursively releases the whole subtree and
-            // then clears the struct; calling it exactly once is the entire duty.
-            schema->release(schema);
-        }
-    }
-};
-
-struct LanceDataStatisticsDeleter {
-    void operator()(LanceDataStatistics* stats) const {
-        if (stats != nullptr) {
-            lance_data_statistics_close(stats);
-        }
-    }
-};
-
-// One node of the manifest-DFS walk: DFS pre-order over the exported ArrowSchema
-// tree, skipping the single item child of every fixed-size-list node (the item has
-// no manifest field and no statistics entry — the proven binding model).
-struct WalkNode {
-    const ArrowSchema* schema = nullptr;
-    // Index of the parent inside the walk vector, or -1 for a top-level field.
-    int64_t parent_index = -1;
-    bool top_level = false;
-};
-
-struct PendingNode {
-    const ArrowSchema* schema = nullptr;
-    int64_t parent_index = -1;
-    bool top_level = false;
-};
-
-} // namespace
 
 SavedLanceError save_lance_error() {
     SavedLanceError saved;
@@ -431,10 +443,10 @@ ContractStatus recompute_contract(LanceDataset* dataset, const std::string& colu
     uint64_t fragment_count = lance_dataset_fragment_count(dataset);
     uint64_t top_level_count = static_cast<uint64_t>(root.n_children);
     // fragments * top_level_fields > 32768, evaluated overflow-safely.
-    if (fragment_count > MAX_STATS_FRAGMENTS ||
-        top_level_count > MAX_STATS_FRAGMENT_FIELD_PRODUCT ||
+    if (fragment_count > g_max_stats_fragments ||
+        top_level_count > g_max_stats_fragment_field_product ||
         (top_level_count != 0 &&
-         fragment_count > MAX_STATS_FRAGMENT_FIELD_PRODUCT / top_level_count)) {
+         fragment_count > g_max_stats_fragment_field_product / top_level_count)) {
         return ContractStatus::UNSUPPORTED;
     }
 
@@ -601,6 +613,22 @@ ContractStatus recompute_contract(LanceDataset* dataset, const std::string& colu
     out->flds.clear();
     out->flds.push_back(std::move(field));
     return ContractStatus::OK;
+}
+
+bool vector_index_shape_supported(const ContractField& field, uint32_t num_sub_vectors) {
+    // The worker product matrix only admits float16/float32 vector elements;
+    // uint8/int8 are refused even though lance supports them natively.
+    bool shape_supported = !field.nul && field.nt == "fixed_size_list" && field.fsd.has_value() &&
+                           *field.fsd > 0 && field.vet.has_value() &&
+                           (*field.vet == "float16" || *field.vet == "float32");
+    return shape_supported && num_sub_vectors != 0 &&
+           *field.fsd % static_cast<int32_t>(num_sub_vectors) == 0;
+}
+
+void force_recompute_fragment_caps_for_test(uint64_t max_stats_fragments,
+                                            uint64_t max_stats_fragment_field_product) {
+    g_max_stats_fragments = max_stats_fragments;
+    g_max_stats_fragment_field_product = max_stats_fragment_field_product;
 }
 
 } // namespace doris::lance

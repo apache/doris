@@ -110,4 +110,33 @@ ContractStatus parse_schema_contract(const std::string& json, SchemaContract* ou
 ContractStatus recompute_contract(LanceDataset* dataset, const std::string& column_name,
                                   SchemaContract* out);
 
+// The product-matrix shape check the worker applies to the AGREED contract field
+// before the native build call: a non-nullable fixed-size list of positive
+// dimension whose element is float16 or float32, and num_sub_vectors dividing the
+// dimension. Pure slot logic over the contract (no dataset access), shared by
+// run_index_worker and unit tests.
+bool vector_index_shape_supported(const ContractField& field, uint32_t num_sub_vectors);
+
+// ── Unit-test seams (never used by production call sites) ──
+
+// Direct access to the Arrow-format → canonical normalized-type mapping (the
+// proven mapping table): unit tests pin every row byte-exactly, including the
+// generic-fallback value grammar and the fail-closed rows (nullopt) that no
+// creatable dataset can reach. Production code reaches it only through
+// recompute_contract.
+std::optional<std::string> canonical_type_for_format(const char* raw_format, int64_t flags);
+
+// The production defaults of the fail-closed fragment caps, exposed so tests can
+// restore them after forcing small values.
+inline constexpr uint64_t RECOMPUTE_MAX_STATS_FRAGMENTS = 4096;
+inline constexpr uint64_t RECOMPUTE_MAX_STATS_FRAGMENT_FIELD_PRODUCT = 32768;
+
+// Overrides the fail-closed fragment caps of recompute_contract so unit tests can
+// exercise the cap rejection with small values instead of building >4096-fragment
+// datasets (the force_*_timeouts_for_test precedent). Values are set verbatim;
+// restore the production defaults afterwards by passing the constants above. Not
+// thread-safe by design: tests set it before any recompute call and reset it after.
+void force_recompute_fragment_caps_for_test(uint64_t max_stats_fragments,
+                                            uint64_t max_stats_fragment_field_product);
+
 } // namespace doris::lance
