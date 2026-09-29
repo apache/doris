@@ -160,30 +160,44 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
      */
     @VisibleForTesting
     public static Set<Expression> constructPredicates(Set<PartitionItem> partitions, Slot colSlot) {
+        return constructPredicates(partitions, colSlot, 0);
+    }
+
+    /**
+     * construct predicates for partition items, on the key each of them holds at {@code keyPos}.
+     *
+     * @param keyPos the position of the column the predicate is about among a partition's keys. A partition
+     *               of the MV itself holds exactly the one key its column has, so a caller passing those
+     *               passes 0; a caller passing a base partition passes the position the MV's partition
+     *               column has in that base table, which a list partitioned table can hold more than one
+     *               key of
+     */
+    @VisibleForTesting
+    static Set<Expression> constructPredicates(Set<PartitionItem> partitions, Slot colSlot, int keyPos) {
         Set<Expression> predicates = new HashSet<>();
         if (partitions.isEmpty()) {
             return Sets.newHashSet(BooleanLiteral.TRUE);
         }
         if (partitions.iterator().next() instanceof ListPartitionItem) {
             for (PartitionItem item : partitions) {
-                predicates.add(convertListPartitionToIn(item, colSlot));
+                predicates.add(convertListPartitionToIn(item, colSlot, keyPos));
             }
         } else {
             for (PartitionItem item : partitions) {
-                predicates.add(convertRangePartitionToCompare(item, colSlot));
+                predicates.add(convertRangePartitionToCompare(item, colSlot, keyPos));
             }
         }
         return predicates;
     }
 
-    private static Expression convertPartitionKeyToLiteral(PartitionKey key) {
-        return Literal.fromLegacyLiteral(key.getKeys().get(0),
-                Type.fromPrimitiveType(key.getTypes().get(0)));
+    private static Expression convertPartitionKeyToLiteral(PartitionKey key, int keyPos) {
+        return Literal.fromLegacyLiteral(key.getKeys().get(keyPos),
+                Type.fromPrimitiveType(key.getTypes().get(keyPos)));
     }
 
-    private static Expression convertListPartitionToIn(PartitionItem item, Slot col) {
+    private static Expression convertListPartitionToIn(PartitionItem item, Slot col, int keyPos) {
         List<Expression> inValues = ((ListPartitionItem) item).getItems().stream()
-                .map(UpdateMvByPartitionCommand::convertPartitionKeyToLiteral)
+                .map(key -> convertPartitionKeyToLiteral(key, keyPos))
                 .collect(ImmutableList.toImmutableList());
         List<Expression> predicates = new ArrayList<>();
         if (inValues.stream().anyMatch(NullLiteral.class::isInstance)) {
@@ -202,16 +216,16 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         return ExpressionUtils.or(predicates);
     }
 
-    private static Expression convertRangePartitionToCompare(PartitionItem item, Slot col) {
+    private static Expression convertRangePartitionToCompare(PartitionItem item, Slot col, int keyPos) {
         Range<PartitionKey> range = item.getItems();
         List<Expression> expressions = new ArrayList<>();
         if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
             PartitionKey key = range.lowerEndpoint();
-            expressions.add(new GreaterThanEqual(col, convertPartitionKeyToLiteral(key)));
+            expressions.add(new GreaterThanEqual(col, convertPartitionKeyToLiteral(key, keyPos)));
         }
         if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
             PartitionKey key = range.upperEndpoint();
-            expressions.add(new LessThan(col, convertPartitionKeyToLiteral(key)));
+            expressions.add(new LessThan(col, convertPartitionKeyToLiteral(key, keyPos)));
         }
         if (expressions.isEmpty()) {
             return BooleanLiteral.of(true);

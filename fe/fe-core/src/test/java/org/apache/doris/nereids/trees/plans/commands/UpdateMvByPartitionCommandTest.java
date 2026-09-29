@@ -33,6 +33,7 @@ import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
@@ -339,6 +340,26 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         StatementContext statementContext = createStatementCtx("refresh materialized view test.ivm_mv");
         statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
         return UpdateMvByPartitionCommand.from(mtmv, Sets.newHashSet(), ImmutableMap.of(), statementContext);
+    }
+
+    @Test
+    void testKeyPositionOfAMultiKeyListPartition() throws AnalysisException {
+        Column first = new Column("a", PrimitiveType.INT);
+        Column second = new Column("b", PrimitiveType.INT);
+        PartitionKey key = PartitionKey.createPartitionKey(
+                ImmutableList.of(new PartitionValue(1L), new PartitionValue(2L)),
+                ImmutableList.of(first, second));
+        ListPartitionItem item = new ListPartitionItem(ImmutableList.of(key));
+        Slot slot = new UnboundSlot("b");
+
+        // A base partition can hold one key per partition column, and the MV's partition column is not
+        // necessarily the first of them; the predicate is about the key at its position.
+        Expression secondKey = UpdateMvByPartitionCommand.constructPredicates(Sets.newHashSet(item), slot, 1)
+                .iterator().next();
+        Assertions.assertEquals("b IN (2)", secondKey.toSql());
+        Expression firstKey = UpdateMvByPartitionCommand.constructPredicates(Sets.newHashSet(item), slot, 0)
+                .iterator().next();
+        Assertions.assertEquals("b IN (1)", firstKey.toSql());
     }
 
     private MTMV getMtmv(String mvName) throws Exception {
