@@ -38,8 +38,10 @@ import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.sql.Types;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 
 /**
  * Oracle-specific type handler.
@@ -117,6 +119,11 @@ public class OracleTypeHandler extends DefaultTypeHandler {
     @Override
     public Object getColumnValue(ResultSet rs, int columnIndex, ColumnType type,
                                  ResultSetMetaData metadata) throws SQLException {
+        if (type.getType() == ColumnType.Type.TIMESTAMPTZ) {
+            // Both driver paths preserve the instant instead of passing local wall-clock fields to JNI.
+            Timestamp value = rs.getTimestamp(columnIndex);
+            return value == null ? null : LocalDateTime.ofInstant(value.toInstant(), ZoneOffset.UTC);
+        }
         if (jdbc41Supported) {
             return newGetColumnValue(rs, columnIndex, type);
         } else {
@@ -285,4 +292,12 @@ public class OracleTypeHandler extends DefaultTypeHandler {
     public void setValidationQuery(HikariDataSource ds) {
         ds.setConnectionTestQuery("SELECT 1 FROM dual");
     }
+
+    @Override
+    public void setTimestampTz(java.sql.PreparedStatement statement, int parameterIndex, LocalDateTime value)
+            throws SQLException {
+        // An unzoned TIMESTAMP bind is session-local for both Oracle TZ and LOCAL TIME ZONE columns.
+        statement.setObject(parameterIndex, value.atOffset(ZoneOffset.UTC), Types.TIMESTAMP_WITH_TIMEZONE);
+    }
+
 }

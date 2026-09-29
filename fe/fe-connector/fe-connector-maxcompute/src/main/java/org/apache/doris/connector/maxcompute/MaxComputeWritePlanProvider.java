@@ -129,7 +129,7 @@ public class MaxComputeWritePlanProvider implements ConnectorWritePlanProvider {
             tSink.setPartitionColumns(partitionColumnNames);
         }
         if (isStaticPartition) {
-            tSink.setStaticPartitionSpec(staticPartitionSpec);
+            tSink.setStaticPartitionSpec(encodeStaticPartitionSpec(staticPartitionSpec));
         }
         tSink.setWriteSessionId(writeSessionId);
         tSink.setTxnId(transaction.getTransactionId());
@@ -165,9 +165,17 @@ public class MaxComputeWritePlanProvider implements ConnectorWritePlanProvider {
      * Creates the ODPS Storage API batch write session and returns its id. Ports
      * {@code MCTransaction.beginInsert()}: a static partition pins the target
      * partition, otherwise a partitioned table uses dynamic partitioning; overwrite
-     * is applied when requested. Note the write path uses MILLI/MILLI Arrow units
+     * is applied when requested. Note the write path uses MILLI/MICRO Arrow units
      * (the scan path differs).
      */
+    static Map<String, String> encodeStaticPartitionSpec(Map<String, String> spec) {
+        // The shared context preserves SQL NULL; MaxCompute's string-only wire format retains
+        // its existing textual partition representation and must never receive a null map value.
+        Map<String, String> values = new java.util.HashMap<>();
+        spec.forEach((key, value) -> values.put(key, String.valueOf(value)));
+        return values;
+    }
+
     private String createWriteSession(TableIdentifier tableId, EnvironmentSettings settings,
             List<String> partitionColumnNames, Map<String, String> staticPartitionSpec,
             boolean isStaticPartition, boolean isDynamicPartition, boolean isOverwrite,
@@ -179,7 +187,7 @@ public class MaxComputeWritePlanProvider implements ConnectorWritePlanProvider {
                     .withMaxFieldSize(getMaxFieldSize())
                     .withArrowOptions(ArrowOptions.newBuilder()
                             .withDatetimeUnit(TimestampUnit.MILLI)
-                            .withTimestampUnit(TimestampUnit.MILLI)
+                            .withTimestampUnit(TimestampUnit.MICRO)
                             .build());
 
             if (isStaticPartition) {

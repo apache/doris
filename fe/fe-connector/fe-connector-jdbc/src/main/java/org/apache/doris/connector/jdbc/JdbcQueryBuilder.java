@@ -158,8 +158,9 @@ public final class JdbcQueryBuilder {
             StringJoiner colJoiner = new StringJoiner(", ");
             for (ConnectorColumnHandle col : columns) {
                 if (col instanceof JdbcColumnHandle) {
-                    colJoiner.add(JdbcIdentifierQuoter.quoteRemoteIdentifier(
-                            dbType, ((JdbcColumnHandle) col).getRemoteName()));
+                    JdbcColumnHandle jdbcColumn = (JdbcColumnHandle) col;
+                    colJoiner.add(timestampProjection(JdbcIdentifierQuoter.quoteRemoteIdentifier(
+                            dbType, jdbcColumn.getRemoteName()), jdbcColumn.getType(), 0));
                 }
             }
             String colStr = colJoiner.toString();
@@ -188,6 +189,72 @@ public final class JdbcQueryBuilder {
         }
 
         return sql.toString();
+    }
+
+    private String timestampProjection(String expression, org.apache.doris.connector.spi.ConnectorType type,
+            int depth) {
+        if ("TIMESTAMPTZ".equals(type.getTypeName())) {
+            if (dbType == JdbcDbType.CLICKHOUSE) {
+                return "toUnixTimestamp64Micro(toDateTime64(" + expression + ", 6))";
+            }
+            if (dbType == JdbcDbType.TRINO || dbType == JdbcDbType.PRESTO) {
+                return "(" + expression + " AT TIME ZONE 'UTC')";
+            }
+        }
+        if ("ARRAY".equals(type.getTypeName()) && containsInstant(type)) {
+            String element = "doris_ts_" + depth;
+            String converted = timestampProjection(element, type.getChildren().get(0), depth + 1);
+            if (dbType == JdbcDbType.CLICKHOUSE) {
+                return "arrayMap(" + element + " -> " + converted + ", " + expression + ")";
+            }
+            if (dbType == JdbcDbType.TRINO || dbType == JdbcDbType.PRESTO) {
+                return "transform(" + expression + ", " + element + " -> " + converted + ")";
+            }
+        }
+        return expression;
+    }
+
+    private static boolean containsInstant(org.apache.doris.connector.spi.ConnectorType type) {
+        return "TIMESTAMPTZ".equals(type.getTypeName()) || type.getChildren().stream().anyMatch(
+                JdbcQueryBuilder::containsInstant);
+    }
+
+    public String wrapPassthroughQuery(String query, List<ConnectorColumnHandle> columns) {
+        if (columns.stream().noneMatch(c -> c instanceof JdbcColumnHandle
+                && containsInstant(((JdbcColumnHandle) c).getType()))
+                || (dbType != JdbcDbType.CLICKHOUSE && dbType != JdbcDbType.TRINO && dbType != JdbcDbType.PRESTO)) {
+            return query;
+        }
+        // Project before driver decoding: a named-zone DST fold has already lost its offset afterward.
+        StringJoiner projections = new StringJoiner(", ");
+        for (ConnectorColumnHandle column : columns) {
+            JdbcColumnHandle jdbcColumn = (JdbcColumnHandle) column;
+            String name = JdbcIdentifierQuoter.quoteRemoteIdentifier(dbType, jdbcColumn.getRemoteName());
+            projections.add(timestampProjection(name, jdbcColumn.getType(), 0) + " AS " + name);
+        }
+        String inner = query.trim().replaceAll(";+$", "");
+        return "SELECT " + projections + " FROM (" + inner + ") doris_jdbc_query";
+    }
+
+    private static boolean hasInstant(ConnectorExpression expr) {
+        if (expr instanceof ConnectorColumnRef && containsInstant(((ConnectorColumnRef) expr).getType())) {
+            return true;
+        }
+        if (expr instanceof ConnectorLiteral && containsInstant(((ConnectorLiteral) expr).getType())) {
+            return true;
+        }
+        return expr.getChildren().stream().anyMatch(JdbcQueryBuilder::hasInstant);
+    }
+
+    private static boolean containsBinaryLiteral(ConnectorExpression expr) {
+        return expr instanceof ConnectorLiteral
+                && "VARBINARY".equalsIgnoreCase(((ConnectorLiteral) expr).getType().getTypeName())
+                || expr.getChildren().stream().anyMatch(JdbcQueryBuilder::containsBinaryLiteral);
+    }
+
+    private static boolean hasInstantLiteral(ConnectorExpression expr) {
+        return expr instanceof ConnectorLiteral && containsInstant(((ConnectorLiteral) expr).getType())
+                || expr.getChildren().stream().anyMatch(JdbcQueryBuilder::hasInstantLiteral);
     }
 
     private boolean shouldPushDownLimit(long limit, boolean allFiltersCollected,
@@ -258,6 +325,17 @@ public final class JdbcQueryBuilder {
      * Mirrors the old JdbcScanNode.shouldPushDownConjunct() guards.
      */
     private boolean shouldPushDownExpression(ConnectorExpression expr) {
+        // Remote NULL handling and calendar operations can differ from decoded Doris instants.
+        if ((dbType == JdbcDbType.POSTGRESQL && hasInstant(expr)) || hasInstantLiteral(expr)
+                || (containsFunctionCall(expr) && hasInstant(expr))) {
+            return false;
+        }
+        // These dialects interpret X'...' differently or require a different binary literal syntax.
+        if ((dbType == JdbcDbType.POSTGRESQL || dbType == JdbcDbType.ORACLE
+                || dbType == JdbcDbType.OCEANBASE_ORACLE || dbType == JdbcDbType.SQLSERVER
+                || dbType == JdbcDbType.DB2) && containsBinaryLiteral(expr)) {
+            return false;
+        }
         // Guard: Oracle NULL literal exclusion
         if (!oracleNullPredicatePushDown
                 && (dbType == JdbcDbType.ORACLE || dbType == JdbcDbType.OCEANBASE_ORACLE)
@@ -542,6 +620,12 @@ public final class JdbcQueryBuilder {
             return "NULL";
         }
         Object val = lit.getValue();
+        if ("VARBINARY".equalsIgnoreCase(lit.getType().getTypeName())) {
+            // Legacy literals cross the SPI as a lossless Latin-1 carrier, not remote character data.
+            String hex = java.util.HexFormat.of().formatHex(
+                    ((String) val).getBytes(java.nio.charset.StandardCharsets.ISO_8859_1));
+            return "X'" + hex + "'";
+        }
         if (val instanceof String) {
             return "'" + escapeSql((String) val) + "'";
         } else if (val instanceof Boolean) {

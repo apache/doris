@@ -50,7 +50,7 @@ public class JdbcTrinoConnectorClient extends JdbcConnectorClient {
         if (trinoType.startsWith("char(")) {
             return parseChar(trinoType);
         }
-        if (trinoType.startsWith("timestamp(")) {
+        if (trinoType.startsWith("timestamp")) {
             return parseTimestamp(trinoType);
         }
         if (trinoType.startsWith("array(")) {
@@ -100,10 +100,10 @@ public class JdbcTrinoConnectorClient extends JdbcConnectorClient {
     }
 
     private ConnectorType parseTimestamp(String type) {
-        String inner = type.substring(10, type.length() - 1);
-        int scale = Integer.parseInt(inner.trim());
+        int scale = type.startsWith("timestamp(")
+                ? Integer.parseInt(type.substring(10, type.indexOf(')')).trim()) : JDBC_DATETIME_SCALE;
         scale = Math.min(scale, JDBC_DATETIME_SCALE);
-        return ConnectorType.of("DATETIMEV2", scale, -1);
+        return ConnectorType.of(type.endsWith("with time zone") ? "TIMESTAMPTZ" : "DATETIMEV2", scale, -1);
     }
 
     private ConnectorType parseArray(String type, JdbcFieldInfo fieldInfo) {

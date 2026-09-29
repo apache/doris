@@ -82,7 +82,7 @@ public class TrinoTypeMappingTest {
         Assertions.assertEquals("CHAR", name(CharType.createCharType(10)));
         Assertions.assertEquals("STRING", name(VarcharType.createVarcharType(20)));
         Assertions.assertEquals("STRING", name(VarcharType.VARCHAR));
-        Assertions.assertEquals("STRING", name(VarbinaryType.VARBINARY));
+        Assertions.assertEquals("VARBINARY", name(VarbinaryType.VARBINARY));
     }
 
     @Test

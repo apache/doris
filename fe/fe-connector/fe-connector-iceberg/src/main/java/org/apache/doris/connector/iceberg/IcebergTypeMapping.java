@@ -124,28 +124,24 @@ public final class IcebergTypeMapping {
             case STRING:
                 return ConnectorType.of("STRING");
             case UUID:
-                return enableMappingVarbinary
-                        ? ConnectorType.of("VARBINARY", 16, 0) : ConnectorType.of("STRING");
+                return ConnectorType.of("VARBINARY", 16, 0);
             case BINARY:
                 // Iceberg BINARY is unbounded. Emit VARBINARY with NO explicit length so
                 // ConnectorColumnConverter applies ScalarType.MAX_VARBINARY_LENGTH — byte-identical to
                 // legacy IcebergUtils createVarbinaryType(VarBinaryType.MAX_VARBINARY_LENGTH). A
                 // concrete length (e.g. 65535) would render a different DESCRIBE / SHOW CREATE type.
-                return enableMappingVarbinary
-                        ? ConnectorType.of("VARBINARY") : ConnectorType.of("STRING");
+                // Binary payloads need not be valid UTF-8.
+                return ConnectorType.of("VARBINARY");
             case FIXED:
                 int fixedLen = ((Types.FixedType) primitive).length();
-                return enableMappingVarbinary
-                        ? ConnectorType.of("VARBINARY", fixedLen, 0)
-                        : ConnectorType.of("CHAR", fixedLen, 0);
+                return ConnectorType.of("VARBINARY", fixedLen, 0);
             case DECIMAL:
                 Types.DecimalType decimal = (Types.DecimalType) primitive;
                 return ConnectorType.of("DECIMALV3", decimal.precision(), decimal.scale());
             case DATE:
                 return ConnectorType.of("DATEV2");
             case TIMESTAMP:
-                if (enableMappingTimestampTz
-                        && ((Types.TimestampType) primitive).shouldAdjustToUTC()) {
+                if (((Types.TimestampType) primitive).shouldAdjustToUTC()) {
                     // Must be "TIMESTAMPTZ" (not "TIMESTAMPTZV2"): ConnectorColumnConverter only
                     // recognizes TIMESTAMPTZ -> ScalarType.createTimeStampTzType(precision); an
                     // unrecognized name degrades the column to UNSUPPORTED. Legacy

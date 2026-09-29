@@ -185,11 +185,13 @@ public final class IcebergCatalogProperties {
     }
 
     public boolean isEnableMappingVarbinary() {
-        return enableMappingVarbinary;
+        // Legacy properties remain parseable, but binary values always retain their bytes.
+        return true;
     }
 
     public boolean isEnableMappingTimestampTz() {
-        return enableMappingTimestampTz;
+        // Instant types cannot be downgraded to session-local wall clocks.
+        return true;
     }
 
     /** Empty when the catalog names no extra namespace level. */

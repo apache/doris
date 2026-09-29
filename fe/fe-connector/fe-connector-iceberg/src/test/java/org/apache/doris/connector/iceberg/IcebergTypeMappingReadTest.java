@@ -117,13 +117,11 @@ public class IcebergTypeMappingReadTest {
     // ---------------------------------------------------------------------
 
     @Test
-    public void varbinaryFlagOffMapsToStringOrChar() {
-        // WHY: with the varbinary flag OFF, UUID and BINARY fall back to STRING and a FIXED(n) becomes
-        // CHAR(n) — legacy returns Type.STRING / Type.STRING / createCharType(length). This is the
-        // compatibility default. MUTATION: emitting VARBINARY when the flag is off -> red.
-        Assertions.assertEquals("STRING", mapOff(Types.UUIDType.get()).getTypeName());
-        Assertions.assertEquals("STRING", mapOff(Types.BinaryType.get()).getTypeName());
-        assertScalar(mapOff(Types.FixedType.ofLength(12)), "CHAR", 12, 0);
+    public void varbinaryFlagOffStillPreservesBytes() {
+        // Legacy false flags cannot reinterpret arbitrary binary bytes as UTF-8.
+        Assertions.assertEquals("VARBINARY", mapOff(Types.UUIDType.get()).getTypeName());
+        Assertions.assertEquals("VARBINARY", mapOff(Types.BinaryType.get()).getTypeName());
+        assertScalar(mapOff(Types.FixedType.ofLength(12)), "VARBINARY", 12, 0);
     }
 
     @Test
@@ -164,12 +162,10 @@ public class IcebergTypeMappingReadTest {
     }
 
     @Test
-    public void zonedTimestampWithFlagOffStaysDatetimev2() {
-        // WHY: the tz flag gates the TIMESTAMPTZ mapping; with it OFF even a zoned timestamp must stay
-        // DATETIMEV2(6) (legacy createDatetimeV2Type(6)). This guards a fix that accidentally promotes
-        // zoned timestamps unconditionally. MUTATION: emitting TIMESTAMPTZ when the flag is off -> red.
+    public void zonedTimestampWithFlagOffStillPreservesInstants() {
+        // Timestamp kind follows the source schema, independently of legacy options.
         assertScalar(IcebergTypeMapping.fromIcebergType(Types.TimestampType.withZone(), false, false),
-                "DATETIMEV2", MS6, 0);
+                "TIMESTAMPTZ", MS6, 0);
     }
 
     // ---------------------------------------------------------------------
