@@ -153,10 +153,10 @@ public class HudiTypeMappingTest {
         Assertions.assertEquals(ConnectorType.of("DATEV2"),
                 HudiTypeMapping.fromAvroSchema(
                         LogicalTypes.date().addToSchema(Schema.create(Schema.Type.INT))));
-        Assertions.assertEquals(ConnectorType.of("DATETIMEV2", 3, 0),
+        Assertions.assertEquals(ConnectorType.of("TIMESTAMPTZ", 3, 0),
                 HudiTypeMapping.fromAvroSchema(
                         LogicalTypes.timestampMillis().addToSchema(Schema.create(Schema.Type.LONG))));
-        Assertions.assertEquals(ConnectorType.of("DATETIMEV2", 6, 0),
+        Assertions.assertEquals(ConnectorType.of("TIMESTAMPTZ", 6, 0),
                 HudiTypeMapping.fromAvroSchema(
                         LogicalTypes.timestampMicros().addToSchema(Schema.create(Schema.Type.LONG))));
         // Time types map to TIMEV2 here, unlike toHiveTypeString which fails loud —

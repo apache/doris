@@ -81,17 +81,13 @@ public class PaimonTypeMappingToPaimonTest {
     }
 
     @Test
-    public void datetimeDropsScaleToNoArgTimestamp() {
-        // WHY: legacy maps DATETIME/DATETIMEV2 -> new TimestampType() (no-arg, precision 6); the
-        // requested datetime scale is intentionally dropped, and it is a plain timestamp not a
-        // zoned one. MUTATION: propagating the scale (new TimestampType(scale)) or using
-        // LocalZonedTimestampType makes this red.
-        TimestampType expected = new TimestampType();
-        Assertions.assertEquals(6, expected.getPrecision(), "no-arg TimestampType must default to precision 6");
-        Assertions.assertEquals(expected,
-                PaimonTypeMapping.toPaimonType(ConnectorType.of("DATETIMEV2", 3, 0)),
-                "DATETIMEV2(scale 3) must drop the scale -> TimestampType() precision 6");
-        Assertions.assertEquals(expected, PaimonTypeMapping.toPaimonType(ConnectorType.of("DATETIME")));
+    public void datetimePreservesPrecisionAndTimestampKind() {
+        Assertions.assertEquals(new TimestampType(3),
+                PaimonTypeMapping.toPaimonType(ConnectorType.of("DATETIMEV2", 3, 0)));
+        Assertions.assertEquals(new TimestampType(),
+                PaimonTypeMapping.toPaimonType(ConnectorType.of("DATETIME")));
+        Assertions.assertEquals(new org.apache.paimon.types.LocalZonedTimestampType(6),
+                PaimonTypeMapping.toPaimonType(ConnectorType.of("TIMESTAMPTZ", 6, 0)));
     }
 
     @Test
@@ -218,9 +214,9 @@ public class PaimonTypeMappingToPaimonTest {
     public void unsupportedScalarTypesThrow() {
         // WHY: the legacy visitor had no branch for these and threw; the connector preserves that
         // gap by throwing DorisConnectorException rather than inventing a mapping. MUTATION: adding
-        // a TINYINT/SMALLINT/LARGEINT/TIME/TIMESTAMPTZ branch (silently widening support) would
+        // a TINYINT/SMALLINT/LARGEINT/TIME branch (silently widening support) would
         // make the corresponding assertion red.
-        for (String unsupported : new String[] {"TINYINT", "SMALLINT", "LARGEINT", "TIMEV2", "TIMESTAMPTZ"}) {
+        for (String unsupported : new String[] {"TINYINT", "SMALLINT", "LARGEINT", "TIMEV2"}) {
             Assertions.assertThrows(DorisConnectorException.class,
                     () -> PaimonTypeMapping.toPaimonType(ConnectorType.of(unsupported)),
                     unsupported + " must throw (legacy gap preserved)");

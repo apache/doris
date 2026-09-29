@@ -332,8 +332,9 @@ public final class HmsTypeMapping {
         public Options(int timeScale, boolean mapBinaryToVarbinary,
                 boolean mapTimestampTz) {
             this.timeScale = timeScale;
-            this.mapBinaryToVarbinary = mapBinaryToVarbinary;
-            this.mapTimestampTz = mapTimestampTz;
+            // External payload types retain bytes and instant semantics regardless of legacy options.
+            this.mapBinaryToVarbinary = true;
+            this.mapTimestampTz = true;
         }
 
         public int getTimeScale() {

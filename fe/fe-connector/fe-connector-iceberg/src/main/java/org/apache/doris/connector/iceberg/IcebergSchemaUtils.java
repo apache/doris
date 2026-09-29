@@ -480,13 +480,10 @@ public final class IcebergSchemaUtils {
             case BINARY:
                 // Legacy ScalarType.toColumnTypeThrift omits len for VARBINARY, including UUID(16) and
                 // unbounded BINARY. Keep that carrier shape; BE only needs the primitive class here.
-                columnType.setType(enableVarbinary ? TPrimitiveType.VARBINARY : TPrimitiveType.STRING);
+                columnType.setType(TPrimitiveType.VARBINARY);
                 break;
             case FIXED:
-                columnType.setType(enableVarbinary ? TPrimitiveType.VARBINARY : TPrimitiveType.CHAR);
-                if (!enableVarbinary) {
-                    columnType.setLen(((Types.FixedType) type).length());
-                }
+                columnType.setType(TPrimitiveType.VARBINARY);
                 break;
             case DECIMAL:
                 Types.DecimalType decimal = (Types.DecimalType) type;
@@ -504,8 +501,7 @@ public final class IcebergSchemaUtils {
                 columnType.setType(TPrimitiveType.DATEV2);
                 break;
             case TIMESTAMP:
-                boolean timestampTz = enableTimestampTz
-                        && ((Types.TimestampType) type).shouldAdjustToUTC();
+                boolean timestampTz = ((Types.TimestampType) type).shouldAdjustToUTC();
                 columnType.setType(timestampTz ? TPrimitiveType.TIMESTAMPTZ : TPrimitiveType.DATETIMEV2);
                 columnType.setPrecision(18);
                 columnType.setScale(IcebergTypeMapping.ICEBERG_DATETIME_SCALE_MS);
@@ -528,11 +524,7 @@ public final class IcebergSchemaUtils {
         if (type.typeId() == TypeID.TIMESTAMP) {
             // Iceberg prints ISO-8601 (2024-01-01T00:00:00); Doris DATETIMEV2 needs a space separator.
             String dorisValue = humanValue.replace('T', ' ');
-            if (((Types.TimestampType) type).shouldAdjustToUTC() && !enableTimestampTz) {
-                // timestamptz human form carries a trailing offset; DATETIMEV2 has no offset carrier, so keep
-                // the displayed UTC wall time and drop the suffix (only when tz-mapping is off).
-                return dorisValue.replaceFirst("(Z|[+-]\\d{2}:\\d{2})$", "");
-            }
+            // Preserve the offset through the FE-to-BE transport independently of legacy flags.
             return dorisValue;
         }
         return humanValue;

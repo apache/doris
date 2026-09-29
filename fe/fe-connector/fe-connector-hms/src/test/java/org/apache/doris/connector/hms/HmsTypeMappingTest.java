@@ -65,7 +65,7 @@ public class HmsTypeMappingTest {
 
     @Test
     public void testBinaryDefaultAndVarbinaryOption() {
-        Assertions.assertEquals(ConnectorType.of("STRING"), map("binary"));
+        Assertions.assertEquals(ConnectorType.of("VARBINARY"), map("binary"));
         Assertions.assertEquals(ConnectorType.of("VARBINARY"),
                 HmsTypeMapping.toConnectorType("binary", new HmsTypeMapping.Options(6, true, false)));
     }
@@ -124,8 +124,8 @@ public class HmsTypeMappingTest {
 
     @Test
     public void testTimestampWithLocalTimeZone() {
-        // Default: mapped to DATETIMEV2.
-        Assertions.assertEquals(ConnectorType.of("DATETIMEV2", 6, -1),
+        // Instant semantics are unconditional, including legacy false options.
+        Assertions.assertEquals(ConnectorType.of("TIMESTAMPTZ", 6, -1),
                 map("timestamp with local time zone"));
         // With the timestamp-tz option: mapped to TIMESTAMPTZ.
         Assertions.assertEquals(ConnectorType.of("TIMESTAMPTZ", 6, -1),

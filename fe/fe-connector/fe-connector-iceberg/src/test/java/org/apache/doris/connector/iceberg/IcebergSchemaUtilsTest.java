@@ -443,15 +443,15 @@ public class IcebergSchemaUtilsTest {
         Assertions.assertEquals("2024-01-01 00:00:00.123456",
                 IcebergSchemaUtils.writeDefaultToDorisString(tsField.type(), tsField.writeDefault(), false));
 
-        // TIMESTAMP with zone, tz-mapping off: keep the UTC wall time, drop the trailing offset.
+        // TIMESTAMP with zone retains its offset even when a legacy flag is false.
         Types.NestedField tstzField = Types.NestedField.optional("tstz").withId(6)
                 .ofType(Types.TimestampType.withZone()).withWriteDefault(1_704_067_200_123_456L).build();
         String tstz = IcebergSchemaUtils.writeDefaultToDorisString(
                 tstzField.type(), tstzField.writeDefault(), false);
         Assertions.assertTrue(tstz.startsWith("2024-01-01 00:00:00"),
                 "timestamptz wall time preserved: " + tstz);
-        Assertions.assertFalse(tstz.matches(".*(Z|[+-]\\d{2}:\\d{2})$"),
-                "timestamptz offset dropped when tz mapping off: " + tstz);
+        Assertions.assertTrue(tstz.matches(".*(Z|[+-]\\d{2}:\\d{2})$"),
+                "timestamptz offset retained when tz mapping off: " + tstz);
 
         // Binary-like (UUID/BINARY/FIXED): not representable as a flat Doris default literal -> null (skip).
         Types.NestedField uuidField = Types.NestedField.optional("u").withId(7)
@@ -503,8 +503,8 @@ public class IcebergSchemaUtilsTest {
         Assertions.assertEquals(TPrimitiveType.DATETIMEV2,
                 fields.get("timestamp_col").getType().getType());
         Assertions.assertEquals(6, fields.get("timestamp_col").getType().getScale());
-        Assertions.assertEquals(TPrimitiveType.CHAR, fields.get("fixed_col").getType().getType());
-        Assertions.assertEquals(4, fields.get("fixed_col").getType().getLen());
+        Assertions.assertEquals(TPrimitiveType.VARBINARY, fields.get("fixed_col").getType().getType());
+        Assertions.assertFalse(fields.get("fixed_col").getType().isSetLen());
 
         Schema mappedSchema = new Schema(
                 Types.NestedField.optional(1, "timestamp_tz_col", Types.TimestampType.withZone()),

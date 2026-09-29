@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_pg_all_types_select", "p0,external") {
+    // Zoned JDBC types preserve instants; pin their display zone independently of the runner.
+    sql "SET time_zone = '+08:00'"
+
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
@@ -37,6 +40,48 @@ suite("test_pg_all_types_select", "p0,external") {
         sql """use pg_all_type_test.catalog_pg_test"""
 
         qt_desc_all_types_null """desc catalog_pg_test.extreme_test;"""
+
+        // PostgreSQL infinities and BC/out-of-range years cannot be packed into Doris timestamps.
+        assertEquals([[true], [true], [true], [true]],
+                sql("select timestamptz_val is null from catalog_pg_test.extreme_test order by id"))
+
+        // Filtering must see the same decoded NULLs as projection, even with a remote LIMIT candidate.
+        def extremeIds = sql("select id from catalog_pg_test.extreme_test order by id")
+        assertEquals(extremeIds,
+                sql("select id from catalog_pg_test.extreme_test where timestamptz_val is null order by id"))
+        assertEquals([], sql("select id from catalog_pg_test.extreme_test where timestamptz_val is not null"))
+        assertEquals(extremeIds.take(1), sql("select id from catalog_pg_test.extreme_test " +
+                "where timestamptz_val is null order by id limit 1"))
+
+        // A PostgreSQL NOT NULL constraint does not cover NULLs introduced by Doris range conversion.
+        String rangeTable = "catalog_pg_test.timestamp_range_nullability"
+        def executeRangeDdl = { String statement ->
+            sql("CALL EXECUTE_STMT('pg_all_type_test', '" + statement.replace("'", "''") + "')")
+        }
+        executeRangeDdl("DROP TABLE IF EXISTS ${rangeTable}")
+        try {
+            executeRangeDdl("CREATE TABLE ${rangeTable} " +
+                    "(id INT NOT NULL, event_time TIMESTAMPTZ NOT NULL, other_time TIMESTAMPTZ NOT NULL)")
+            executeRangeDdl("INSERT INTO ${rangeTable} VALUES " +
+                    "(1, '9999-12-31 23:59:59-08', '10000-01-02 00:00:00+00'), " +
+                    "(2, '2023-11-05 08:30:00+00', '2023-11-05 08:30:00+00'), " +
+                    "(3, 'infinity', '-infinity'), (4, '-infinity', 'infinity'), " +
+                    "(5, '0002-01-01 00:00:00+00 BC', '0002-01-02 00:00:00+00 BC'), " +
+                    "(6, '99999-01-01 00:00:00+00', '99999-01-02 00:00:00+00')")
+            assertEquals([[1, true], [2, false], [3, true], [4, true], [5, true], [6, true]],
+                    sql("select id, event_time is null from ${rangeTable} order by id"))
+            assertEquals([[1], [3], [4], [5], [6]],
+                    sql("select id from ${rangeTable} where event_time is null order by id"))
+            assertEquals([[2]], sql("select id from ${rangeTable} where event_time is not null"))
+            assertEquals([[1], [2], [3], [4], [5], [6]],
+                    sql("select id from ${rangeTable} where event_time <=> other_time order by id"))
+            assertEquals([[2]], sql("select id from ${rangeTable} where event_time = other_time"))
+            assertEquals([[1]], sql("select id from ${rangeTable} where event_time is null order by id limit 1"))
+            // COUNT returns JDBC BIGINT (Long); nested JUnit list equality also compares numeric types.
+            assertEquals([[1L]], sql("select count(event_time) from ${rangeTable}"))
+        } finally {
+            executeRangeDdl("DROP TABLE IF EXISTS ${rangeTable}")
+        }
 
         qt_select_all_types_null """SELECT 
                                     id,
@@ -87,7 +132,9 @@ suite("test_pg_all_types_select", "p0,external") {
         sql """SET time_zone = '+08:00';"""
         sql """use pg_timestamp_tz_type_test.test_timestamp_tz_db"""
         sql """ CALL EXECUTE_STMT("pg_timestamp_tz_type_test", "ALTER TABLE test_timestamp_tz_db.ts_test REPLICA IDENTITY FULL") """
-        sql """ CALL EXECUTE_STMT("pg_timestamp_tz_type_test", "delete from test_timestamp_tz_db.ts_test where id in (3, 4)") """
+        // Keep the write round trip repeatable without changing the preinstalled seed rows.
+        sql """CALL EXECUTE_STMT('pg_timestamp_tz_type_test',
+                'DELETE FROM test_timestamp_tz_db.ts_test WHERE id IN (3, 4)')"""
         qt_desc_timestamp_tz """desc ts_test;"""
         qt_select_timestamp_tz """select * from ts_test order by id;"""
         qt_select_timestamp_tz2 """insert into ts_test values(3,"1999-10-10 12:00:00+08:00","1999-10-10 12:00:00");"""

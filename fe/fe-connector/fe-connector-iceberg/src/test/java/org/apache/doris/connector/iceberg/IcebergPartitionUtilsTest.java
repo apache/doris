@@ -18,7 +18,6 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
-import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartition;
 import org.apache.doris.connector.spi.mvcc.ConnectorMvccPartitionView;
 
@@ -119,10 +118,9 @@ public class IcebergPartitionUtilsTest {
     }
 
     @Test
-    public void serializeTimestamptzShiftsToSessionZone() {
-        // timestamptz (shouldAdjustToUTC) -> the stored UTC instant is rendered in the session zone.
-        // 2021-01-01T00:00:00Z in Asia/Shanghai (+08) = 2021-01-01T08:00:00. MUTATION: ignoring the zone -> red.
-        Assertions.assertEquals("2021-01-01T08:00:00",
+    public void serializeTimestamptzRetainsExplicitUtcOffset() {
+        // A session-local rendering would conflate the two instants of a DST overlap.
+        Assertions.assertEquals("2021-01-01T00:00:00Z",
                 IcebergPartitionUtils.serializePartitionValue(Types.TimestampType.withZone(),
                         1609459200_000_000L, SHANGHAI));
     }
@@ -136,12 +134,14 @@ public class IcebergPartitionUtilsTest {
     }
 
     @Test
-    public void serializeBinaryThrowsUnsupported() {
-        // Legacy throws UnsupportedOperationException for BINARY/FIXED (utf8 round-trip would corrupt data);
-        // callers catch it and drop the field. MUTATION: silently returning a string -> red.
-        Assertions.assertThrows(UnsupportedOperationException.class, () ->
-                IcebergPartitionUtils.serializePartitionValue(Types.BinaryType.get(),
-                        java.nio.ByteBuffer.wrap(new byte[] {1}), ZoneOffset.UTC));
+    public void serializeBinaryPreservesOnlyRemainingBytes() {
+        ByteBuffer bytes = ByteBuffer.wrap(new byte[] {42, 0, (byte) 0xff, 7});
+        bytes.position(1);
+        bytes.limit(3);
+        Assertions.assertEquals("0x00ff", IcebergPartitionUtils.serializePartitionValue(
+                Types.BinaryType.get(), bytes, ZoneOffset.UTC));
+        Assertions.assertEquals(1, bytes.position());
+        Assertions.assertEquals(3, bytes.limit());
     }
 
     // ---- getIdentityPartitionColumns ----
@@ -357,11 +357,8 @@ public class IcebergPartitionUtilsTest {
     }
 
     @Test
-    public void partitionDataObjectJsonRejectsBinaryAndFixedPartitionValues() {
-        // WHY: this text transport cannot round-trip raw bytes. Legacy fails loud rather than let BE
-        // materialize a corrupted or silently-NULL partition value — and silent is exactly what would happen,
-        // since the struct serde swallows parse failures. MUTATION: emitting a utf8 rendering (or letting
-        // getPartitionValues' null-on-unsupported through) -> no throw -> red.
+    public void partitionDataObjectJsonPreservesBinaryAndFixedPartitionValues() {
+        // Arbitrary bytes use hex so the nullable struct serde cannot silently replace them with NULL.
         for (Types.NestedField field : outputFields(
                 Types.NestedField.required(2, "p", Types.BinaryType.get()),
                 Types.NestedField.required(2, "p", Types.FixedType.ofLength(2)))) {
@@ -373,21 +370,14 @@ public class IcebergPartitionUtilsTest {
             Types.NestedField out = Types.NestedField.optional(
                     spec.fields().get(0).fieldId(), "p", field.type());
 
-            DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
-                    () -> IcebergPartitionUtils.getPartitionDataObjectJson(
-                            pd, spec, outputFields(out), false, ZoneOffset.UTC));
-            Assertions.assertTrue(e.getMessage().contains("partition field 'p'"), e.getMessage());
-            Assertions.assertTrue(e.getMessage().contains(field.type().toString()), e.getMessage());
+            Assertions.assertEquals("{\"p\":\"0x00FF\"}", IcebergPartitionUtils.getPartitionDataObjectJson(
+                    pd, spec, outputFields(out), false, ZoneOffset.UTC));
         }
     }
 
     @Test
-    public void partitionDataObjectJsonRejectsUuidOnlyWhenVarbinaryMappingIsOn() {
-        // WHY: enable.mapping.varbinary makes UUID a VARBINARY column, which this text transport cannot carry
-        // either — but with the flag OFF a UUID is a plain string and MUST still work. So the guard is
-        // conditional, and a test that only checks the throw would not catch over-rejection.
-        // MUTATION: rejecting UUID unconditionally -> the flag-off case -> red; never rejecting it -> the
-        // flag-on case -> red.
+    public void partitionDataObjectJsonPreservesUuidBytesRegardlessOfLegacyFlag() {
+        // UUID is a fixed 16-byte value under both legacy flag settings.
         Schema schema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
                 Types.NestedField.required(2, "p", Types.UUIDType.get()));
@@ -398,15 +388,11 @@ public class IcebergPartitionUtilsTest {
         Types.NestedField out = Types.NestedField.optional(
                 spec.fields().get(0).fieldId(), "p", Types.UUIDType.get());
 
-        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
-                () -> IcebergPartitionUtils.getPartitionDataObjectJson(
-                        pd, spec, outputFields(out), true, ZoneOffset.UTC));
-        Assertions.assertTrue(e.getMessage().contains("partition field 'p'"), e.getMessage());
-        Assertions.assertTrue(e.getMessage().contains("uuid"), e.getMessage());
-
-        Assertions.assertEquals("{\"p\":\"" + uuid + "\"}", IcebergPartitionUtils.getPartitionDataObjectJson(
-                        pd, spec, outputFields(out), false, ZoneOffset.UTC),
-                "with varbinary mapping off a UUID partition is a plain string and must still render");
+        for (boolean flag : new boolean[] {false, true}) {
+            Assertions.assertEquals("{\"p\":\"0x0000000000000000000000000000002A\"}",
+                    IcebergPartitionUtils.getPartitionDataObjectJson(
+                            pd, spec, outputFields(out), flag, ZoneOffset.UTC));
+        }
     }
 
     @Test
@@ -489,7 +475,7 @@ public class IcebergPartitionUtilsTest {
     public void parseTimestamptzIsInterpretedInSessionZone() {
         // timestamptz (shouldAdjustToUTC): the wall-clock string is read in the session zone, stored as UTC
         // micros. 2021-01-01T08:00:00 Asia/Shanghai (+08) = 2021-01-01T00:00:00Z. Inverse of
-        // serializeTimestamptzShiftsToSessionZone. MUTATION: ignoring the zone -> 8h off -> red.
+        // serializeTimestamptzRetainsExplicitUtcOffset. MUTATION: ignoring the zone -> 8h off -> red.
         Assertions.assertEquals(1609459200_000_000L, IcebergPartitionUtils.parsePartitionValueFromString(
                 "2021-01-01 08:00:00", Types.TimestampType.withZone(), SHANGHAI));
     }
@@ -1247,4 +1233,15 @@ public class IcebergPartitionUtilsTest {
         // remote-name lookup misses -> red.
         Assertions.assertFalse(values.containsKey("pt"));
     }
+
+    @Test
+    public void timestampPartitionsRoundTripNegativeEpochAndDstOverlap() {
+        for (long micros : new long[] {-1L, 1699173000123456L, 1699176600123456L}) {
+            String encoded = IcebergPartitionUtils.serializePartitionValue(
+                    Types.TimestampType.withZone(), micros, ZoneId.of("America/Los_Angeles"));
+            Assertions.assertEquals(micros, IcebergPartitionUtils.parsePartitionValueFromString(
+                    encoded, Types.TimestampType.withZone(), SHANGHAI));
+        }
+    }
+
 }

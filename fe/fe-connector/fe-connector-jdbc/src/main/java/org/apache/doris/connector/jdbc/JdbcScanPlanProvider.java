@@ -67,7 +67,8 @@ public class JdbcScanPlanProvider implements ConnectorScanPlanProvider {
         String querySql;
         if (handle instanceof PassthroughQueryTableHandle) {
             // Query passthrough from TVF — use the raw SQL directly
-            querySql = ((PassthroughQueryTableHandle) handle).getQuery();
+            querySql = new JdbcQueryBuilder(dbType).wrapPassthroughQuery(
+                    ((PassthroughQueryTableHandle) handle).getQuery(), columns);
         } else {
             JdbcTableHandle jdbcHandle = (JdbcTableHandle) handle;
             String remoteDbName = jdbcHandle.getRemoteDbName();
@@ -132,7 +133,8 @@ public class JdbcScanPlanProvider implements ConnectorScanPlanProvider {
         // Build the same query SQL that planScan() would produce, for EXPLAIN output
         String querySql;
         if (handle instanceof PassthroughQueryTableHandle) {
-            querySql = ((PassthroughQueryTableHandle) handle).getQuery();
+            querySql = new JdbcQueryBuilder(dbType).wrapPassthroughQuery(
+                    ((PassthroughQueryTableHandle) handle).getQuery(), columns);
         } else {
             JdbcTableHandle jdbcHandle = (JdbcTableHandle) handle;
             Map<String, String> sessionProps = session.getSessionProperties();
