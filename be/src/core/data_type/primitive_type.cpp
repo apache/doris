@@ -90,6 +90,9 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
     case TPrimitiveType::IPV6:
         return TYPE_IPV6;
 
+    case TPrimitiveType::UUID:
+        return TYPE_UUID;
+
     case TPrimitiveType::DECIMALV2:
         return TYPE_DECIMALV2;
 
@@ -215,6 +218,9 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
     case TYPE_IPV6:
         return TPrimitiveType::IPV6;
 
+    case TYPE_UUID:
+        return TPrimitiveType::UUID;
+
     case TYPE_DECIMALV2:
         return TPrimitiveType::DECIMALV2;
 
@@ -325,6 +331,9 @@ std::string type_to_string(PrimitiveType t) {
 
     case TYPE_IPV6:
         return "IPV6";
+
+    case TYPE_UUID:
+        return "UUID";
 
     case TYPE_DECIMALV2:
         return "DECIMALV2";

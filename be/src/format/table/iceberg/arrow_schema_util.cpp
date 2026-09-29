@@ -18,6 +18,7 @@
 #include "format/table/iceberg/arrow_schema_util.h"
 
 #include <arrow/extension/parquet_variant.h>
+#include <arrow/extension/uuid.h>
 #include <arrow/type.h>
 #include <arrow/util/key_value_metadata.h>
 
@@ -107,7 +108,7 @@ Status IcebergArrowSchemaConvertor::convert_to_arrow_field(
 
     case iceberg::TypeID::UUID:
         metadata[ORIGINAL_TYPE] = UUID_TYPE_VALUE;
-        arrow_type = arrow::fixed_size_binary(16);
+        arrow_type = _use_uuid_extension ? arrow::extension::uuid() : arrow::fixed_size_binary(16);
         break;
 
     case iceberg::TypeID::FIXED: {

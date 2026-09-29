@@ -71,7 +71,7 @@ template <PrimitiveType T>
 class ColumnVector final : public COWHelper<IColumn, ColumnVector<T>> {
     static_assert(is_int_or_bool(T) || is_ip(T) || is_date_type(T) || is_float_or_double(T) ||
                   T == TYPE_TIME || T == TYPE_TIMEV2 || T == TYPE_UINT32 || T == TYPE_UINT64 ||
-                  T == TYPE_TIMESTAMPTZ);
+                  T == TYPE_TIMESTAMPTZ || T == TYPE_UUID);
 
 private:
     using Self = ColumnVector;
@@ -439,6 +439,7 @@ using ColumnFloat64 = ColumnVector<TYPE_DOUBLE>;
 using ColumnIPv4 = ColumnVector<TYPE_IPV4>;
 using ColumnIPv6 = ColumnVector<TYPE_IPV6>;
 using ColumnTime = ColumnVector<TYPE_TIME>;
+using ColumnUUID = ColumnVector<TYPE_UUID>;
 using ColumnTimeV2 = ColumnVector<TYPE_TIMEV2>;
 using ColumnTimeStampTz = ColumnVector<TYPE_TIMESTAMPTZ>;
 using ColumnOffset32 = ColumnVector<TYPE_UINT32>;

@@ -65,7 +65,7 @@ public:
               std::unique_ptr<io::FileDescription>& file_description,
               std::shared_ptr<io::IOContext> io_ctx, RuntimeProfile* profile,
               std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
-              bool enable_mapping_timestamp_tz = false,
+              bool enable_mapping_timestamp_tz = false, bool enable_mapping_varbinary = false,
               std::shared_ptr<const FileContext> file_context = nullptr);
     ~OrcReader() override;
 
@@ -202,6 +202,7 @@ private:
     OrcProfile _orc_profile; // RuntimeProfile counters
     std::optional<format::GlobalRowIdContext> _global_rowid_context;
     bool _enable_mapping_timestamp_tz = false;
+    bool _enable_mapping_varbinary = false;
     std::shared_ptr<const FileContext> _file_context;
 };
 

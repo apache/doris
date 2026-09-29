@@ -1691,13 +1691,14 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
                 _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
                 _current_task->file_context, _current_task->format_split_id,
-                _current_task->format_split_id_end, hive_parquet_time_zone);
+                _current_task->format_split_id_end, hive_parquet_time_zone, preserve_binary_uuid());
         return Status::OK();
     }
     if (_format == FileFormat::ORC) {
         *reader = std::make_unique<format::orc::OrcReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
-                _global_rowid_context, enable_mapping_timestamp_tz, _current_task->file_context);
+                _global_rowid_context, enable_mapping_timestamp_tz, enable_mapping_varbinary,
+                _current_task->file_context);
         return Status::OK();
     }
     if (_format == FileFormat::CSV) {

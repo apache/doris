@@ -24,6 +24,7 @@ import org.apache.doris.thrift.TPrimitiveType;
 
 import org.apache.arrow.vector.complex.BaseRepeatedValueVector;
 import org.apache.arrow.vector.complex.MapVector;
+import org.apache.arrow.vector.extension.UuidType;
 import org.apache.arrow.vector.ipc.ReadChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
 import org.apache.arrow.vector.types.DateUnit;
@@ -73,6 +74,12 @@ public class FlightSqlSchemaHelperArrowTypeTest {
         TColumnDesc columnDesc = desc(name, type);
         columnDesc.setChildren(Arrays.asList(children));
         return columnDesc;
+    }
+
+    @Test
+    public void uuidIsDescribedAsUuidExtension() {
+        Assertions.assertEquals(UuidType.INSTANCE,
+                buildField(desc("u", TPrimitiveType.UUID)).getType());
     }
 
     private static Field buildField(TColumnDesc columnDesc) {

@@ -195,6 +195,8 @@ public:
 
     bool count_read_rows() override { return true; }
 
+    void set_preserve_binary_uuid(bool value) { _preserve_binary_uuid = value; }
+
 protected:
     void _collect_profile_before_close() override;
 
@@ -391,6 +393,7 @@ private:
 
 protected:
     bool _filter_groups = true;
+    bool _preserve_binary_uuid = false;
 
     RowGroupReader::IcebergRowIdParams _iceberg_rowid_params;
 

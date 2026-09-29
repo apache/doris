@@ -712,6 +712,9 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
             case LARGEINT:
                 preparedStatement.setObject(parameterIndex, column.getBigInteger(rowIdx));
                 break;
+            case UUID:
+                preparedStatement.setObject(parameterIndex, column.getUuid(rowIdx));
+                break;
             case FLOAT:
                 preparedStatement.setFloat(parameterIndex, column.getFloat(rowIdx));
                 break;
@@ -765,6 +768,9 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
                 break;
             case BIGINT:
                 preparedStatement.setNull(parameterIndex, Types.BIGINT);
+                break;
+            case UUID:
+                preparedStatement.setNull(parameterIndex, Types.OTHER);
                 break;
             case LARGEINT:
                 preparedStatement.setNull(parameterIndex, Types.JAVA_OBJECT);

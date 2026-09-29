@@ -59,6 +59,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.StructLiteral;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
+import org.apache.doris.analysis.UuidLiteral;
 import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.analysis.VirtualSlotRef;
 import org.apache.doris.backup.BackupJob;
@@ -322,6 +323,7 @@ public class GsonUtils {
             .registerSubtype(CastExpr.class, CastExpr.class.getSimpleName())
             .registerSubtype(TimestampArithmeticExpr.class, TimestampArithmeticExpr.class.getSimpleName())
             .registerSubtype(IsNullPredicate.class, IsNullPredicate.class.getSimpleName())
+            .registerSubtype(UuidLiteral.class, UuidLiteral.class.getSimpleName())
             .registerSubtype(BetweenPredicate.class, BetweenPredicate.class.getSimpleName())
             .registerSubtype(BinaryPredicate.class, BinaryPredicate.class.getSimpleName())
             .registerSubtype(LikePredicate.class, LikePredicate.class.getSimpleName())

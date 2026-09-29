@@ -418,6 +418,7 @@ ZoneMapIndexReader::~ZoneMapIndexReader() = default;
     M(TYPE_TIMESTAMPTZ)          \
     M(TYPE_IPV4)                 \
     M(TYPE_IPV6)                 \
+    M(TYPE_UUID)                 \
     M(TYPE_VARCHAR)              \
     M(TYPE_STRING)               \
     M(TYPE_DECIMAL32)            \

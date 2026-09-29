@@ -60,6 +60,7 @@ import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.UuidType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -140,6 +141,7 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
             LargeIntType.class,
             IPv4Type.class,
             IPv6Type.class,
+            UuidType.class,
             DateType.class,
             DateV2Type.class,
             DateTimeType.class,

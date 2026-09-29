@@ -210,6 +210,10 @@ public class ColumnDefinition {
         return onUpdateDefaultValue.isPresent();
     }
 
+    public boolean hasUuidDefaultValue() {
+        return defaultValue.map(DefaultValue::isUuidFunction).orElse(false);
+    }
+
     public boolean isVisible() {
         return isVisible;
     }

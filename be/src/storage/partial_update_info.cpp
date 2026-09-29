@@ -60,12 +60,17 @@ Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSc
                                bool is_strict_mode_, int64_t timestamp_ms_, int32_t nano_seconds_,
                                const std::string& timezone_,
                                const std::string& auto_increment_column,
-                               int32_t sequence_map_col_uid, int64_t cur_max_version) {
+                               int32_t sequence_map_col_uid, int64_t cur_max_version,
+                               const PUniqueId* load_id) {
     partial_update_mode = unique_key_update_mode;
     partial_update_new_key_policy = policy;
     partial_update_input_columns = partial_update_cols;
     max_version_in_flush_phase = cur_max_version;
     sequence_map_col_unqiue_id = sequence_map_col_uid;
+    // Callers with only deterministic defaults need no load seed.
+    has_load_id = load_id != nullptr;
+    load_id_hi = has_load_id ? load_id->hi() : 0;
+    load_id_lo = has_load_id ? load_id->lo() : 0;
     timestamp_ms = timestamp_ms_;
     nano_seconds = nano_seconds_;
     timezone = timezone_;
@@ -134,6 +139,10 @@ void PartialUpdateInfo::to_pb(PartialUpdateInfoPB* partial_update_info_pb) const
     partial_update_info_pb->set_can_insert_new_rows_in_partial_update(
             can_insert_new_rows_in_partial_update);
     partial_update_info_pb->set_is_strict_mode(is_strict_mode);
+    if (has_load_id) {
+        partial_update_info_pb->mutable_load_id()->set_hi(load_id_hi);
+        partial_update_info_pb->mutable_load_id()->set_lo(load_id_lo);
+    }
     partial_update_info_pb->set_timestamp_ms(timestamp_ms);
     partial_update_info_pb->set_nano_seconds(nano_seconds);
     partial_update_info_pb->set_timezone(timezone);
@@ -178,6 +187,9 @@ void PartialUpdateInfo::from_pb(PartialUpdateInfoPB* partial_update_info_pb) {
     can_insert_new_rows_in_partial_update =
             partial_update_info_pb->can_insert_new_rows_in_partial_update();
     is_strict_mode = partial_update_info_pb->is_strict_mode();
+    has_load_id = partial_update_info_pb->has_load_id();
+    load_id_hi = partial_update_info_pb->load_id().hi();
+    load_id_lo = partial_update_info_pb->load_id().lo();
     timestamp_ms = partial_update_info_pb->timestamp_ms();
     timezone = partial_update_info_pb->timezone();
     is_input_columns_contains_auto_inc_column =
@@ -389,8 +401,6 @@ Status FixedReadPlan::fill_missing_columns(
         const TabletSchema& tablet_schema, Block& full_block,
         const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
         uint32_t segment_start_pos, const Block* block) const {
-    auto mutable_full_columns_guard = full_block.mutate_columns_scoped();
-    auto& mutable_full_columns = mutable_full_columns_guard.mutable_columns();
     // create old value columns
     const auto& missing_cids = rowset_ctx->partial_update_info->missing_cids;
     bool have_input_seq_column = false;
@@ -416,9 +426,13 @@ Status FixedReadPlan::fill_missing_columns(
     }
     // build default value columns
     auto default_value_block = old_value_block.clone_empty();
-    RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
-            tablet_schema, missing_cids, rowset_ctx->partial_update_info->default_values,
-            old_value_block, default_value_block));
+    RETURN_IF_ERROR(BaseTablet::generate_default_value_block(tablet_schema, missing_cids,
+                                                             *rowset_ctx->partial_update_info,
+                                                             *block, default_value_block));
+    // The V2 writer passes the same block as input and output. Read its key columns before
+    // acquiring mutable ownership, which temporarily removes columns from the Block.
+    auto mutable_full_columns_guard = full_block.mutate_columns_scoped();
+    auto& mutable_full_columns = mutable_full_columns_guard.mutable_columns();
     auto mutable_default_value_columns_guard = default_value_block.mutate_columns_scoped();
     auto& mutable_default_value_columns = mutable_default_value_columns_guard.mutable_columns();
 
@@ -451,7 +465,8 @@ Status FixedReadPlan::fill_missing_columns(
 
             if (should_use_default) {
                 if (tablet_column.has_default_value()) {
-                    missing_col->insert_from(*mutable_default_value_columns[i], 0);
+                    const auto& defaults = *mutable_default_value_columns[i];
+                    missing_col->insert_from(defaults, defaults.size() == 1 ? 0 : idx);
                 } else if (tablet_column.is_nullable()) {
                     auto* nullable_column = assert_cast<ColumnNullable*>(missing_col.get());
                     nullable_column->insert_many_defaults(1);
@@ -629,7 +644,8 @@ static void fill_non_primary_key_cell_for_column_store(
         }
         if (use_default) {
             if (tablet_column.has_default_value()) {
-                new_col->insert_from(default_value_col, 0);
+                new_col->insert_from(default_value_col,
+                                     default_value_col.size() == 1 ? 0 : block_pos);
             } else if (tablet_column.is_nullable()) {
                 assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(new_col.get())
                         ->insert_many_defaults(1);
@@ -674,8 +690,7 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_column_store(
     auto default_value_block = old_value_block.clone_empty();
     if (has_default_or_nullable || delete_sign_column_data != nullptr) {
         RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
-                tablet_schema, non_sort_key_cids, info->default_values, old_value_block,
-                default_value_block));
+                tablet_schema, non_sort_key_cids, *info, *block, default_value_block));
     }
 
     // fill all non sort key columns from mutable_old_columns, need to consider default value and null value
@@ -735,7 +750,8 @@ static void fill_non_primary_key_cell_for_row_store(
         }
         if (use_default) {
             if (tablet_column.has_default_value()) {
-                new_col->insert_from(default_value_col, 0);
+                new_col->insert_from(default_value_col,
+                                     default_value_col.size() == 1 ? 0 : block_pos);
             } else if (tablet_column.is_nullable()) {
                 assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(new_col.get())
                         ->insert_many_defaults(1);
@@ -778,8 +794,7 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_row_store(
     auto default_value_block = old_value_block.clone_empty();
     if (has_default_or_nullable || delete_sign_column_data != nullptr) {
         RETURN_IF_ERROR(BaseTablet::generate_default_value_block(
-                tablet_schema, non_sort_key_cids, info->default_values, old_value_block,
-                default_value_block));
+                tablet_schema, non_sort_key_cids, *info, *block, default_value_block));
     }
 
     // fill all non sort key columns from mutable_old_columns, need to consider default value and null value
