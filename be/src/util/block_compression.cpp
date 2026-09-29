@@ -1447,8 +1447,9 @@ public:
     ~GzipBlockCompressionByLibdeflate() override = default;
 
     Status decompress(const Slice& input, Slice* output) override {
-        if (input.empty()) {
-            output->size = 0;
+        // Parquet page headers give the exact uncompressed size, so the page must fill the
+        // output buffer. Without actual_out_nbytes_ret, libdeflate rejects shorter output.
+        if (input.empty() && output->size == 0) {
             return Status::OK();
         }
         thread_local std::unique_ptr<libdeflate_decompressor, void (*)(libdeflate_decompressor*)>
@@ -1456,11 +1457,12 @@ public:
         if (!decompressor) {
             return Status::InternalError("libdeflate_alloc_decompressor error.");
         }
-        std::size_t out_len;
         auto result = libdeflate_gzip_decompress(decompressor.get(), input.data, input.size,
-                                                 output->data, output->size, &out_len);
+                                                 output->data, output->size, nullptr);
         if (result != LIBDEFLATE_SUCCESS) {
-            return Status::InternalError("libdeflate_gzip_decompress error, res={}", result);
+            return Status::InternalError(
+                    "libdeflate_gzip_decompress error, res={}, input size={}, output size={}",
+                    result, input.size, output->size);
         }
         return Status::OK();
     }
