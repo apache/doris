@@ -24,13 +24,16 @@
 #include <parquet/arrow/reader.h>
 #include <parquet/schema.h>
 
+#include <algorithm>
 #include <optional>
 #include <string_view>
 
 #include "core/block/block.h"
 #include "core/column/column_array.h"
+#include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -62,6 +65,62 @@ protected:
     void TearDown() override {
         ExecEnv::GetInstance()->_arrow_memory_pool = _previous_pool;
         static_cast<void>(_fs->delete_file(_file_path));
+    }
+
+    void check_decimal_bounds(int64_t unscaled, const std::string& expected) {
+        const int min_precision = unscaled > -10 && unscaled < 10 ? 1 : 3;
+        DataTypes types;
+        std::vector<std::string> names;
+        std::string json = R"({"type":"struct","fields":[)";
+        Block block;
+        for (int precision = min_precision; precision <= 38; ++precision) {
+            const auto name = "d" + std::to_string(precision);
+            const int scale = std::min(precision, 2);
+            auto type = make_nullable(create_decimal(precision, scale, false));
+            auto column = type->create_column();
+            if (precision <= 9) {
+                column->insert(Field::create_field<TYPE_DECIMAL32>(Decimal32(unscaled)));
+            } else if (precision <= 18) {
+                column->insert(Field::create_field<TYPE_DECIMAL64>(Decimal64(unscaled)));
+            } else {
+                column->insert(Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(unscaled)));
+            }
+            column->insert_default();
+            block.insert({std::move(column), type, name});
+            types.push_back(type);
+            names.push_back(name);
+            if (precision != min_precision) {
+                json += ",";
+            }
+            json += "{\"id\":" + std::to_string(precision) + ",\"name\":\"" + name +
+                    "\",\"required\":false,\"type\":\"decimal(" + std::to_string(precision) + "," +
+                    std::to_string(scale) + ")\"}";
+        }
+        json += "]}";
+        auto schema = iceberg::SchemaParser::from_json(json);
+        auto output_exprs = MockSlotRef::create_mock_contexts(types);
+        io::FileWriterPtr file_writer;
+        ASSERT_TRUE(_fs->create_file(_file_path, &file_writer).ok());
+        RuntimeState state;
+        state.set_timezone("UTC");
+        ParquetFileOptions options {.compression_type = TParquetCompressionType::UNCOMPRESSED,
+                                    .parquet_version = TParquetVersion::PARQUET_1_0,
+                                    .parquet_disable_dictionary = false,
+                                    .enable_int96_timestamps = false};
+        VIcebergParquetWriter writer(&state, file_writer.get(), output_exprs, names, false, options,
+                                     &json, *schema);
+        ASSERT_TRUE(writer.open().ok());
+        ASSERT_TRUE(writer.write(block).ok());
+        ASSERT_TRUE(writer.close().ok());
+        TIcebergColumnStats stats;
+        ASSERT_TRUE(writer.collect_file_statistics_after_close(&stats).ok());
+        for (int precision = min_precision; precision <= 38; ++precision) {
+            SCOPED_TRACE("precision=" + std::to_string(precision));
+            EXPECT_EQ(expected, stats.lower_bounds.at(precision));
+            EXPECT_EQ(expected, stats.upper_bounds.at(precision));
+            EXPECT_EQ(2, stats.value_counts.at(precision));
+            EXPECT_EQ(1, stats.null_value_counts.at(precision));
+        }
     }
 
     arrow::MemoryPool* _previous_pool = nullptr;
@@ -103,6 +162,23 @@ TEST_F(VParquetWriterTest, WritesIcebergPrimitiveAndCollectsMetrics) {
     EXPECT_GT(stats.column_sizes.at(7), 0);
     EXPECT_EQ(std::string("\x01\x00\x00\x00", 4), stats.lower_bounds.at(7));
     EXPECT_EQ(std::string("\x03\x00\x00\x00", 4), stats.upper_bounds.at(7));
+}
+
+TEST_F(VParquetWriterTest, IcebergDecimalBoundsUseMinimalSignedBytes) {
+    for (const auto& [unscaled, expected] :
+         std::vector<std::pair<int64_t, std::string>> {{0, std::string("\x00", 1)},
+                                                       {1, std::string("\x01", 1)},
+                                                       {127, std::string("\x7f", 1)},
+                                                       {128, std::string("\x00\x80", 2)},
+                                                       {255, std::string("\x00\xff", 2)},
+                                                       {256, std::string("\x01\x00", 2)},
+                                                       {-1, std::string("\xff", 1)},
+                                                       {-128, std::string("\x80", 1)},
+                                                       {-129, std::string("\xff\x7f", 2)},
+                                                       {-256, std::string("\xff\x00", 2)}}) {
+        SCOPED_TRACE("unscaled=" + std::to_string(unscaled));
+        check_decimal_bounds(unscaled, expected);
+    }
 }
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity): keep schema and value assertions together.

@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.functions.RequiresShortCircuitEvaluation;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -70,7 +71,12 @@ public class CaseWhenToCompoundPredicate implements ExpressionPatternRuleFactory
     }
 
     private boolean checkBooleanType(Expression expression) {
-        return expression.getDataType().isBooleanType();
+        return expression.getDataType().isBooleanType()
+                && !requiresShortCircuitEvaluation(expression);
+    }
+
+    private static boolean requiresShortCircuitEvaluation(Expression expression) {
+        return expression.anyMatch(node -> node instanceof RequiresShortCircuitEvaluation);
     }
 
     private Expression rewriteCaseWhen(CaseWhen caseWhen) {
@@ -126,11 +132,15 @@ public class CaseWhenToCompoundPredicate implements ExpressionPatternRuleFactory
         @Override
         protected boolean needRewrite(Expression expression, boolean isInsideCondition) {
             return expression.containsType(If.class)
-                    && expression.containsType(BooleanLiteral.class, NullLiteral.class);
+                    && expression.containsType(BooleanLiteral.class, NullLiteral.class)
+                    && !requiresShortCircuitEvaluation(expression);
         }
 
         @Override
         public Expression visitIf(If ifExpr, Boolean isInsideCondition) {
+            if (ifExpr instanceof RequiresShortCircuitEvaluation) {
+                return ifExpr;
+            }
             If newIf = (If) super.visitIf(ifExpr, isInsideCondition);
             if (isInsideCondition) {
                 Expression newCondition = newIf.getCondition();

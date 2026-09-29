@@ -43,7 +43,7 @@ import java.util.Optional;
  */
 public interface RowLevelDmlTransform {
 
-    /** Whether this transform handles the given target table (a connector-capability probe). */
+    /** Whether this transform handles the table's row-change representation and write operations. */
     boolean handles(TableIf table);
 
     /** Reject unsupported table modes (e.g. copy-on-write) for the operation, mirroring legacy command checks. */
@@ -59,15 +59,13 @@ public interface RowLevelDmlTransform {
     /** Locate and validate the required physical sink in the planned plan (throws with the legacy messages). */
     PhysicalSink<?> requirePhysicalSink(NereidsPlanner planner, RowLevelDmlOp op);
 
-    /** The label prefix; the shell appends {@code _<hi>_<lo>}. Frozen for profile/txn parity. */
-    String labelPrefix(RowLevelDmlOp op);
+    /** The connector-owned label prefix; the shell appends {@code _<hi>_<lo>}. */
+    String labelPrefix(TableIf table, RowLevelDmlOp op);
 
-    /**
-     * Legacy optimistic-conflict-detection wiring (kept live until P6.7): build the connector-specific
-     * conflict filter from the analyzed plan and stash it on the executor for its {@code beforeExec}.
-     */
-    void setupConflictDetection(BaseExternalTableInsertExecutor executor, Plan analyzedPlan, TableIf table,
-            RowLevelDmlOp op);
+    /** Whether planning must disable external-table batch mode so every source split is available. */
+    default boolean requiresExternalTableBatchModeDisabled() {
+        return false;
+    }
 
     /** Finalize the sink (op-specific; e.g. attaching rewritable delete-file metadata for the BE). */
     void finalizeSink(BaseExternalTableInsertExecutor executor, RowLevelDmlOp op, PlanFragment fragment,
