@@ -17,7 +17,12 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.Pair;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.profile.ExecutionProfile;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TIcebergCommitData;
@@ -38,6 +43,8 @@ import org.mockito.Mockito;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.util.Collections;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 class QeProcessorImplReportAckTest {
     private TUniqueId registeredQueryId;
@@ -125,6 +132,50 @@ class QeProcessorImplReportAckTest {
 
         Assertions.assertTrue(Modifier.isVolatile(done.getModifiers()));
         Assertions.assertTrue(Modifier.isVolatile(txnId.getModifiers()));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void legacyCoordinatorPublishesTrackingUrlBeforeCancellation() throws Exception {
+        int fragmentId = 7;
+        long backendId = 9;
+        String trackingUrl = "http://127.0.0.1/error-log";
+        AtomicReference<String> trackingUrlAtCancel = new AtomicReference<>();
+
+        PlanFragment fragment = Mockito.mock(PlanFragment.class);
+        Mockito.when(fragment.getFragmentId()).thenReturn(new PlanFragmentId(fragmentId));
+        Coordinator coordinator = new Coordinator(-1L, new TUniqueId(12345, 6), new DescriptorTable(),
+                Collections.singletonList(fragment), Collections.emptyList(), "UTC", false, false) {
+            @Override
+            protected void cancelInternal(Status cancelReason) {
+                trackingUrlAtCancel.set(getTrackingUrl());
+            }
+        };
+
+        TReportExecStatusParams report = new TReportExecStatusParams()
+                .setFragmentId(fragmentId)
+                .setBackendId(backendId)
+                .setDone(true)
+                .setStatus(new TStatus(TStatusCode.DATA_QUALITY_ERROR))
+                .setTrackingUrl(trackingUrl);
+        Coordinator.PipelineExecContext context = Mockito.mock(Coordinator.PipelineExecContext.class);
+        Mockito.when(context.updatePipelineStatus(report)).thenReturn(true);
+
+        Field contextsField = Coordinator.class.getDeclaredField("pipelineExecContexts");
+        contextsField.setAccessible(true);
+        Map<Pair<Integer, Long>, Coordinator.PipelineExecContext> contexts =
+                (Map<Pair<Integer, Long>, Coordinator.PipelineExecContext>) contextsField.get(coordinator);
+        contexts.put(Pair.of(fragmentId, backendId), context);
+
+        MarkedCountDownLatch<Integer, Long> fragmentsDoneLatch = new MarkedCountDownLatch<>(1);
+        fragmentsDoneLatch.addMark(fragmentId, backendId);
+        Field latchField = Coordinator.class.getDeclaredField("fragmentsDoneLatch");
+        latchField.setAccessible(true);
+        latchField.set(coordinator, fragmentsDoneLatch);
+
+        coordinator.updateFragmentExecStatus(report);
+
+        Assertions.assertEquals(trackingUrl, trackingUrlAtCancel.get());
     }
 
     @Test
