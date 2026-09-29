@@ -418,26 +418,60 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
      * Modify the catalog property and write the meta log.
      */
     public void alterCatalogProps(String catalogName, Map<String, String> newProperties) throws UserException {
-        Runnable accessControllerCleanup = () -> { };
-        writeLock();
+        Map<String, String> updates = Maps.newHashMap(newProperties);
+        while (true) {
+            CatalogIf catalog;
+            Map<String, String> oldProperties;
+            readLock();
+            try {
+                catalog = nameToCatalog.get(catalogName);
+                if (catalog == null) {
+                    throw new DdlException("No catalog found with name: " + catalogName);
+                }
+                oldProperties = Maps.newHashMap(catalog.getProperties());
+                if (updates.containsKey("type") && !catalog.getType()
+                        .equalsIgnoreCase(updates.get("type"))) {
+                    throw new DdlException("Can't modify the type of catalog property with name: " + catalogName);
+                }
+            } finally {
+                readUnlock();
+            }
+
+            // Filesystem binding may read Hadoop XML files. Validate the detached snapshot before
+            // taking the global catalog write lock, then retry if another ALTER changed the snapshot.
+            boolean validatedWithoutMutation = catalog instanceof ExternalCatalog
+                    && validateCatalogPropsBeforeUpdate((ExternalCatalog) catalog, oldProperties, updates);
+            Runnable accessControllerCleanup = () -> { };
+            writeLock();
+            try {
+                if (nameToCatalog.get(catalogName) != catalog
+                        || !oldProperties.equals(catalog.getProperties())) {
+                    continue;
+                }
+                CatalogLog log = new CatalogLog();
+                log.setCatalogId(catalog.getId());
+                log.setNewProps(updates);
+                accessControllerCleanup = applyAlterCatalogProps(
+                        log, oldProperties, false, true, validatedWithoutMutation);
+                Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
+                return;
+            } finally {
+                writeUnlock();
+                accessControllerCleanup.run();
+            }
+        }
+    }
+
+    private boolean validateCatalogPropsBeforeUpdate(ExternalCatalog catalog, Map<String, String> oldProperties,
+            Map<String, String> newProperties) throws DdlException {
         try {
-            CatalogIf catalog = nameToCatalog.get(catalogName);
-            if (catalog == null) {
-                throw new DdlException("No catalog found with name: " + catalogName);
+            return catalog.validatePropertiesBeforeUpdate(oldProperties, newProperties);
+        } catch (Exception validationException) {
+            if (validationException instanceof DdlException) {
+                throw (DdlException) validationException;
             }
-            Map<String, String> oldProperties = catalog.getProperties();
-            if (newProperties.containsKey("type") && !catalog.getType()
-                    .equalsIgnoreCase(newProperties.get("type"))) {
-                throw new DdlException("Can't modify the type of catalog property with name: " + catalogName);
-            }
-            CatalogLog log = new CatalogLog();
-            log.setCatalogId(catalog.getId());
-            log.setNewProps(newProperties);
-            accessControllerCleanup = applyAlterCatalogProps(log, oldProperties, false, true);
-            Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
-        } finally {
-            writeUnlock();
-            accessControllerCleanup.run();
+            throw new DdlException("Invalid catalog properties: "
+                    + validationException.getMessage(), validationException);
         }
     }
 
@@ -652,7 +686,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         Runnable accessControllerCleanup = () -> { };
         writeLock();
         try {
-            accessControllerCleanup = applyAlterCatalogProps(log, oldProperties, isReplay, true);
+            accessControllerCleanup = applyAlterCatalogProps(log, oldProperties, isReplay, true, false);
         } finally {
             writeUnlock();
             accessControllerCleanup.run();
@@ -660,16 +694,17 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     }
 
     private Runnable applyAlterCatalogProps(CatalogLog log, Map<String, String> oldProperties,
-            boolean isReplay, boolean deferAccessControllerCleanup) throws DdlException {
+            boolean isReplay, boolean deferAccessControllerCleanup, boolean validatedWithoutMutation)
+            throws DdlException {
         CatalogIf catalog = idToCatalog.get(log.getCatalogId());
         if (catalog instanceof ExternalCatalog) {
             Map<String, String> newProps = log.getNewProps();
-            if (!isReplay) {
+            if (!isReplay && !validatedWithoutMutation) {
                 ExternalCatalog externalCatalog = (ExternalCatalog) catalog;
                 try {
-                    boolean validatedWithoutMutation = externalCatalog.validatePropertiesBeforeUpdate(
+                    boolean validatedWithoutMutationInLock = externalCatalog.validatePropertiesBeforeUpdate(
                             oldProperties, newProps);
-                    if (!validatedWithoutMutation) {
+                    if (!validatedWithoutMutationInLock) {
                         synchronized (externalCatalog) {
                             Map<String, String> currentProperties = Maps.newHashMap(externalCatalog.getProperties());
                             try {
