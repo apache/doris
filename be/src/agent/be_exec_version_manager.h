@@ -35,6 +35,7 @@ constexpr inline int SUPPORT_ICEBERG_VARIANT_VERSION = 12;
 constexpr inline int SUPPORT_EXTERNAL_TABLE_SINK_HASH_VERSION = 13;
 constexpr inline int SUPPORT_TIMESTAMP_NS_VERSION = 14;
 constexpr inline int SUPPORT_HIVE_OPEN_CSV_VERSION = 15;
+constexpr inline int SUPPORT_MAP_AGG_V2_EXACT_FRAME_VERSION = 16;
 
 class BeExecVersionManager {
 public:
@@ -43,6 +44,10 @@ public:
     static Status check_be_exec_version(int be_exec_version);
 
     static int get_function_compatibility(int be_exec_version, std::string function_name);
+
+    static int get_function_alternative(int be_exec_version, std::string function_name);
+
+    static void check_function_restriction(int be_exec_version, const std::string& function_name);
 
     static void check_function_compatibility(int current_be_exec_version, int data_be_exec_version,
                                              std::string function_name);
@@ -57,6 +62,12 @@ public:
     static void registe_old_function_compatibility(int breaking_old_version,
                                                    std::string function_name) {
         _function_change_map[function_name].insert(breaking_old_version);
+        register_old_function_alternative(breaking_old_version, function_name);
+    }
+
+    static void register_old_function_alternative(int breaking_old_version,
+                                                  std::string function_name) {
+        _function_alternative_map[function_name].insert(breaking_old_version);
     }
 
     static void registe_restrict_function_compatibility(std::string function_name) {
@@ -68,6 +79,8 @@ private:
     static const int min_be_exec_version;
     // [function name] -> [breaking change start version]
     static std::map<std::string, std::set<int>> _function_change_map;
+    // [function name] -> [alternative implementation start version]
+    static std::map<std::string, std::set<int>> _function_alternative_map;
     // those function must has input newest be exec version
     static std::set<std::string> _function_restrict_map;
 };

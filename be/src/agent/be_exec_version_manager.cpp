@@ -21,6 +21,26 @@
 
 namespace doris {
 
+namespace {
+
+int get_function_version(const std::map<std::string, std::set<int>>& function_versions,
+                         int be_exec_version, const std::string& function_name) {
+    auto it = function_versions.find(function_name);
+    if (it == function_versions.end()) {
+        // 0 means no version-specific behavior is registered.
+        return 0;
+    }
+
+    auto version_it = it->second.lower_bound(be_exec_version);
+    if (version_it == it->second.end()) {
+        return 0;
+    }
+
+    return *version_it;
+}
+
+} // namespace
+
 Status BeExecVersionManager::check_be_exec_version(int be_exec_version) {
     if (be_exec_version > max_be_exec_version || be_exec_version < min_be_exec_version) {
         return Status::InternalError(
@@ -34,25 +54,22 @@ Status BeExecVersionManager::check_be_exec_version(int be_exec_version) {
 
 int BeExecVersionManager::get_function_compatibility(int be_exec_version,
                                                      std::string function_name) {
+    check_function_restriction(be_exec_version, function_name);
+    return get_function_version(_function_change_map, be_exec_version, function_name);
+}
+
+int BeExecVersionManager::get_function_alternative(int be_exec_version, std::string function_name) {
+    return get_function_version(_function_alternative_map, be_exec_version, function_name);
+}
+
+void BeExecVersionManager::check_function_restriction(int be_exec_version,
+                                                      const std::string& function_name) {
     if (_function_restrict_map.contains(function_name) && be_exec_version != get_newest_version()) {
         throw Exception(Status::InternalError(
                 "function {} do not support old be exec version, maybe it's because doris are "
                 "doing a rolling upgrade. newest_version={}, input_be_exec_version={}",
                 function_name, get_newest_version(), be_exec_version));
     }
-
-    auto it = _function_change_map.find(function_name);
-    if (it == _function_change_map.end()) {
-        // 0 means no compatibility issues need to be dealt with
-        return 0;
-    }
-
-    auto version_it = it->second.lower_bound(be_exec_version);
-    if (version_it == it->second.end()) {
-        return 0;
-    }
-
-    return *version_it;
 }
 
 void BeExecVersionManager::check_function_compatibility(int current_be_exec_version,
@@ -135,9 +152,12 @@ void BeExecVersionManager::check_function_compatibility(int current_be_exec_vers
 //   a. support TIMESTAMP_NS in Thrift descriptors and PBlock exchange.
 // 15: start from master
 //   a. distinguish Hive OpenCSVSerde row semantics from generic CSV decoding during upgrades.
+// 16: start from master
+//   a. use exact logical frames for map_agg_v2 aggregate state serialization.
 
-const int BeExecVersionManager::max_be_exec_version = SUPPORT_HIVE_OPEN_CSV_VERSION;
+const int BeExecVersionManager::max_be_exec_version = SUPPORT_MAP_AGG_V2_EXACT_FRAME_VERSION;
 const int BeExecVersionManager::min_be_exec_version = 0;
 std::map<std::string, std::set<int>> BeExecVersionManager::_function_change_map {};
+std::map<std::string, std::set<int>> BeExecVersionManager::_function_alternative_map {};
 std::set<std::string> BeExecVersionManager::_function_restrict_map;
 } // namespace doris

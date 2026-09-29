@@ -17,18 +17,21 @@
 
 #include "exprs/aggregate/aggregate_function_map_v2.h"
 
+#include "agent/be_exec_version_manager.h"
 #include "exprs/aggregate/helpers.h"
 
 namespace doris {
 
+template <bool use_exact_key_frame>
 AggregateFunctionPtr create_agg_function_map_agg_v2(const DataTypes& argument_types,
                                                     const bool result_is_nullable,
                                                     const AggregateFunctionAttr& attr) {
     return creator_without_type::create_ignore_nullable<
-            AggregateFunctionMapAggV2<AggregateFunctionMapAggDataV2>>(argument_types,
-                                                                      result_is_nullable, attr);
+            AggregateFunctionMapAggV2<AggregateFunctionMapAggDataV2<use_exact_key_frame>>>(
+            argument_types, result_is_nullable, attr);
 }
 
+template <bool use_exact_key_frame>
 AggregateFunctionPtr create_aggregate_function_map_agg_v2(const std::string& name,
                                                           const DataTypes& argument_types,
                                                           const DataTypePtr& result_type,
@@ -56,16 +59,30 @@ AggregateFunctionPtr create_aggregate_function_map_agg_v2(const std::string& nam
     case PrimitiveType::TYPE_TIMESTAMP_NS:
     case PrimitiveType::TYPE_TIMEV2:
     case PrimitiveType::TYPE_TIMESTAMPTZ:
-        return create_agg_function_map_agg_v2(argument_types, result_is_nullable, attr);
+        return create_agg_function_map_agg_v2<use_exact_key_frame>(argument_types,
+                                                                   result_is_nullable, attr);
+    case PrimitiveType::TYPE_IPV4:
+    case PrimitiveType::TYPE_IPV6:
+        if constexpr (use_exact_key_frame) {
+            return create_agg_function_map_agg_v2<use_exact_key_frame>(argument_types,
+                                                                       result_is_nullable, attr);
+        }
+        break;
     default:
-        LOG(WARNING) << fmt::format("unsupported input type {} for aggregate function {}",
-                                    argument_types[0]->get_name(), name);
-        return nullptr;
+        break;
     }
+    LOG(WARNING) << fmt::format("unsupported input type {} for aggregate function {}",
+                                argument_types[0]->get_name(), name);
+    return nullptr;
 }
 
 void register_aggregate_function_map_agg_v2(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both("map_agg_v2", create_aggregate_function_map_agg_v2);
+    factory.register_function_both("map_agg_v2", create_aggregate_function_map_agg_v2<true>);
+    constexpr auto old_be_exec_version = SUPPORT_MAP_AGG_V2_EXACT_FRAME_VERSION - 1;
+    factory.register_transient_alternative_function(
+            "map_agg_v2", create_aggregate_function_map_agg_v2<false>, false, old_be_exec_version);
+    factory.register_transient_alternative_function(
+            "map_agg_v2", create_aggregate_function_map_agg_v2<false>, true, old_be_exec_version);
 }
 
 } // namespace doris
