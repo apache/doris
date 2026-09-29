@@ -167,6 +167,56 @@ public class ExternalRowCountCacheTest {
     }
 
     @Test
+    public void testUnresolvedTableFencesRowCountBeforeObjectGenerationSwap() throws Exception {
+        ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
+        Mockito.when(catalog.getId()).thenReturn(1L);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        new MockUp<Env>() {
+            @Mock
+            Env getCurrentEnv() {
+                return env;
+            }
+        };
+        ExternalDatabase<ExternalTable> db = new ExternalDatabase<ExternalTable>(
+                catalog, 2L, "db", "db", InitDatabaseLog.Type.TEST) {
+            @Override
+            protected ExternalTable buildTableInternal(String remoteTableName, String localTableName, long tblId,
+                    ExternalCatalog externalCatalog, ExternalDatabase externalDatabase) {
+                return null;
+            }
+        };
+        @SuppressWarnings("unchecked")
+        MetaCache<ExternalTable> tableCache = Mockito.mock(MetaCache.class);
+        CountDownLatch swapStarted = new CountDownLatch(1);
+        CountDownLatch releaseSwap = new CountDownLatch(1);
+        Mockito.doAnswer(invocation -> {
+            swapStarted.countDown();
+            Assertions.assertTrue(releaseSwap.await(10, TimeUnit.SECONDS));
+            return null;
+        }).when(tableCache).invalidateObjects();
+        Field metaCacheField = ExternalDatabase.class.getDeclaredField("metaCache");
+        metaCacheField.setAccessible(true);
+        metaCacheField.set(db, tableCache);
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> retirement = executor.submit(() -> {
+                db.retireAllTableObjectsWithoutEngineInvalidation();
+            });
+            Assertions.assertTrue(swapStarted.await(10, TimeUnit.SECONDS));
+            Mockito.verify(cacheMgr).invalidateRowCountCache(1L, 2L);
+            releaseSwap.countDown();
+            retirement.get(10, TimeUnit.SECONDS);
+            Mockito.verify(cacheMgr, Mockito.times(2)).invalidateRowCountCache(1L, 2L);
+        } finally {
+            releaseSwap.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testRowCountKeyUsesTableIdAsCacheIdentity() {
         ExternalRowCountCache.RowCountKey key1 = new ExternalRowCountCache.RowCountKey(1, 2, 3);
         ExternalRowCountCache.RowCountKey key2 = new ExternalRowCountCache.RowCountKey(2, 3, 3);

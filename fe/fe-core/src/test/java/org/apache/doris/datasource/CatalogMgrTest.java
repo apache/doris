@@ -36,6 +36,8 @@ import org.apache.doris.statistics.query.QueryStats;
 
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.google.common.collect.ImmutableMap;
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
@@ -518,6 +520,8 @@ public class CatalogMgrTest {
         // engine flush cannot leave the dropped database resident.
         Mockito.verify(metaCache).invalidate("CanonicalDb",
                 Util.genIdByName("testing_catalog", "CanonicalDb"));
+        Mockito.verify(cacheMgr).invalidateRowCountCache(catalogId,
+                Util.genIdByName("testing_catalog", "CanonicalDb"));
     }
 
     @Test
@@ -538,8 +542,51 @@ public class CatalogMgrTest {
 
         Mockito.verify(metaCache).invalidate("CanonicalDb",
                 Util.genIdByName("testing_catalog", "CanonicalDb"));
+        Mockito.verify(cacheMgr).invalidateRowCountCache(catalogId,
+                Util.genIdByName("testing_catalog", "CanonicalDb"));
         Mockito.verify(cacheMgr).invalidateDb(catalogId,
                 Util.genIdByName("testing_catalog", "CanonicalDb"), "CanonicalDb");
+    }
+
+    @Test
+    void testColdDatabaseDropFencesBeforeRemovingNameSlot() throws Exception {
+        long catalogId = 86L;
+        long dbId = Util.genIdByName("testing_catalog", "cold_db");
+        TestingUnregisterCatalog catalog = new TestingUnregisterCatalog(catalogId);
+        @SuppressWarnings("unchecked")
+        MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache = Mockito.mock(MetaCache.class);
+        catalog.installMetaCache(metaCache);
+        CountDownLatch nameRemovalStarted = new CountDownLatch(1);
+        CountDownLatch releaseNameRemoval = new CountDownLatch(1);
+        Mockito.doAnswer(invocation -> {
+            nameRemovalStarted.countDown();
+            Assertions.assertTrue(releaseNameRemoval.await(10, TimeUnit.SECONDS));
+            return null;
+        }).when(metaCache).invalidate("cold_db", dbId);
+        Env env = Mockito.mock(Env.class);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        new MockUp<Env>() {
+            @Mock
+            Env getCurrentEnv() {
+                return env;
+            }
+        };
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> drop = executor.submit(() -> {
+                catalog.unregisterDatabase("cold_db");
+            });
+            Assertions.assertTrue(nameRemovalStarted.await(10, TimeUnit.SECONDS));
+            Mockito.verify(cacheMgr).invalidateRowCountCache(catalogId, dbId);
+            Mockito.verify(cacheMgr, Mockito.never()).invalidateDb(catalogId, dbId, "cold_db");
+            releaseNameRemoval.countDown();
+            drop.get(10, TimeUnit.SECONDS);
+            Mockito.verify(cacheMgr).invalidateDb(catalogId, dbId, "cold_db");
+        } finally {
+            releaseNameRemoval.countDown();
+            executor.shutdownNow();
+        }
     }
 
     @Test
@@ -564,6 +611,7 @@ public class CatalogMgrTest {
         // catalog-wide instead of evicting a lowercased local key that may not exist.
         Mockito.verify(metaCache).invalidateObjects();
         Mockito.verify(cacheMgr).invalidateCatalog(catalogId);
+        Mockito.verify(cacheMgr, Mockito.times(2)).invalidateRowCountCache(catalogId);
         Mockito.verify(cacheMgr, Mockito.never()).invalidateDb(Mockito.anyLong(), Mockito.anyString());
     }
 
@@ -586,8 +634,47 @@ public class CatalogMgrTest {
         // Retire the hidden database generation and fence the catalog scope (engine + row counts),
         // even though the per-database removal callbacks suppress their own fences.
         Mockito.verify(metaCache).invalidateObjects();
-        Mockito.verify(cacheMgr).invalidateRowCountCache(catalogId);
+        Mockito.verify(cacheMgr, Mockito.times(2)).invalidateRowCountCache(catalogId);
         Mockito.verify(cacheMgr).invalidateCatalog(catalogId);
+    }
+
+    @Test
+    void testUnresolvedDatabaseFencesBeforeObjectGenerationSwap() throws Exception {
+        long catalogId = 87L;
+        TestingUnregisterCatalog catalog = new TestingUnregisterCatalog(catalogId);
+        @SuppressWarnings("unchecked")
+        MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache = Mockito.mock(MetaCache.class);
+        catalog.installMetaCache(metaCache);
+        CountDownLatch swapStarted = new CountDownLatch(1);
+        CountDownLatch releaseSwap = new CountDownLatch(1);
+        Mockito.doAnswer(invocation -> {
+            swapStarted.countDown();
+            Assertions.assertTrue(releaseSwap.await(10, TimeUnit.SECONDS));
+            return null;
+        }).when(metaCache).invalidateObjects();
+        Env env = Mockito.mock(Env.class);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        new MockUp<Env>() {
+            @Mock
+            Env getCurrentEnv() {
+                return env;
+            }
+        };
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> retirement = executor.submit(() -> {
+                catalog.retireAllDatabaseObjectsWithoutEngineInvalidation();
+            });
+            Assertions.assertTrue(swapStarted.await(10, TimeUnit.SECONDS));
+            Mockito.verify(cacheMgr).invalidateRowCountCache(catalogId);
+            releaseSwap.countDown();
+            retirement.get(10, TimeUnit.SECONDS);
+            Mockito.verify(cacheMgr, Mockito.times(2)).invalidateRowCountCache(catalogId);
+        } finally {
+            releaseSwap.countDown();
+            executor.shutdownNow();
+        }
     }
 
     @Test
@@ -620,6 +707,7 @@ public class CatalogMgrTest {
 
         // The mode-2 mapping is gone: retire the hidden table generation and widen the fence.
         Mockito.verify(tableCache).invalidateObjects();
+        Mockito.verify(cacheMgr, Mockito.times(2)).invalidateRowCountCache(catalogId, 74L);
         Mockito.verify(cacheMgr).invalidateTableByNameOrWider(catalogId, "db1", "Tbl");
     }
 

@@ -1288,8 +1288,18 @@ public abstract class ExternalCatalog
             return;
         }
         long dbId = Util.genIdByName(name, localDbName);
-        metaCache.invalidate(localDbName, dbId);
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), dbId, localDbName);
+        // A cold database has no removal callback. Fence its deterministic table IDs before
+        // removing the name slot, so a same-name replacement cannot use an old completed count.
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(getId(), dbId);
+        // The explicit routed invalidation below owns this DROP. Suppress the object removal
+        // callback's routed work so a warm database does not flush the SDK cache twice.
+        invalidateEngineCacheOnDatabaseRemoval.set(false);
+        try {
+            metaCache.invalidate(localDbName, dbId);
+        } finally {
+            invalidateEngineCacheOnDatabaseRemoval.remove();
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), dbId, localDbName);
+        }
     }
 
     boolean shouldInvalidateRowCountOnDatabaseRemoval() {
@@ -1317,6 +1327,9 @@ public abstract class ExternalCatalog
         if (metaCache == null) {
             return;
         }
+        // A mode-2 mapping loss can hide an old object while its row count remains reachable.
+        // Close that window before swapping the database-object cache generation.
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(getId());
         invalidateEngineCacheOnDatabaseRemoval.set(false);
         try {
             metaCache.invalidateObjects();

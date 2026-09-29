@@ -173,6 +173,25 @@ public class PaimonExternalCatalog extends ExternalCatalog {
         }));
     }
 
+    public synchronized void invalidatePaimonDatabaseByLocalName(String localDbName) throws Exception {
+        if (!isInitialized()) {
+            return;
+        }
+        withSdkCatalogCacheWriteLock(() -> executionAuthenticator.execute(() -> {
+            boolean caseSensitive = catalog.caseSensitive();
+            int nameMode = getLowerCaseDatabaseNames();
+            invalidateCachedPaimonTables(identifier -> {
+                String remoteName = identifier.getDatabaseName();
+                String candidateLocalName = nameMode == 2 ? remoteName : fromRemoteDatabaseName(remoteName);
+                if (nameMode == 1) {
+                    candidateLocalName = candidateLocalName.toLowerCase(Locale.ROOT);
+                }
+                return identifierPartEquals(candidateLocalName, localDbName, caseSensitive);
+            });
+            return null;
+        }));
+    }
+
     public synchronized void invalidatePaimonCatalog() throws Exception {
         if (!isInitialized()) {
             return;

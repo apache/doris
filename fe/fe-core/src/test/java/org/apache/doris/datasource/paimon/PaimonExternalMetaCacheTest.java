@@ -3206,7 +3206,7 @@ public class PaimonExternalMetaCacheTest {
 
             // Name-only invalidation must also cover SDK-only tables not present in Doris's
             // table entry; the SDK scope is catalog-wide when the remote DB name is unknown.
-            Mockito.verify(dorisCatalog).invalidatePaimonCatalog();
+            Mockito.verify(dorisCatalog).invalidatePaimonDatabaseByLocalName("db1");
             Assert.assertNull(tableEntry.getIfPresent(db1Table));
             Assert.assertNotNull(tableEntry.getIfPresent(db2Table));
             Assert.assertNull(schemaEntry.getIfPresent(db1Schema));
@@ -3282,7 +3282,7 @@ public class PaimonExternalMetaCacheTest {
             }
             Mockito.clearInvocations(cachingCatalog, delegate);
 
-            dorisCatalog.invalidatePaimonDatabase("db1");
+            dorisCatalog.invalidatePaimonDatabaseByLocalName("db1");
 
             // The batch path must not re-scan the table cache once per matched identifier.
             Mockito.verify(cachingCatalog, Mockito.never()).invalidateTable(Mockito.any(Identifier.class));
@@ -3381,9 +3381,11 @@ public class PaimonExternalMetaCacheTest {
 
             metadataOps.afterDropDb("db");
 
-            // The cached database's synchronous removal listener performs the typed SDK
-            // invalidation; the explicit duplicate must not run a second scan under the fence.
-            Mockito.verify(cacheMgr, Mockito.times(1)).invalidateDb(Mockito.any(ExternalDatabase.class));
+            // The explicit DROP owns the one routed SDK invalidation, rather than duplicating
+            // the removal listener's work after the local object has been retired.
+            Mockito.verify(cacheMgr, Mockito.never()).invalidateDb(Mockito.any(ExternalDatabase.class));
+            Mockito.verify(cacheMgr, Mockito.times(1)).invalidateDb(
+                    Mockito.eq(catalogId), Mockito.anyLong(), Mockito.eq("db"));
         } finally {
             dorisCatalog.catalog.close();
         }
@@ -3767,7 +3769,6 @@ public class PaimonExternalMetaCacheTest {
         }
     }
 }
-
 
 
 

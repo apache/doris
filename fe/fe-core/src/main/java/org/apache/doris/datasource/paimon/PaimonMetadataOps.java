@@ -196,10 +196,12 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
             if (db.isPresent()) {
                 // getDbForReplay normalizes case-insensitive database names (lower_case_database_names
                 // mode 1/2), so an alternate-case DROP DATABASE can resolve the cached database while
-                // an exact-key eviction with the caller's spelling would miss it. Evict by the resolved
-                // canonical local key so the removal listener still performs the one typed SDK
-                // invalidation; do not add a second typed scan under the catalog write fence.
+                // an exact-key eviction with the caller's spelling would miss it.
                 dorisCatalog.unregisterDatabase(db.get().getFullName());
+                return;
+            }
+            if (dorisCatalog.getDbIdentityForReplay(dbName, 0L).isPresent()) {
+                dorisCatalog.unregisterDatabase(dbName);
                 return;
             }
             // The cached database could not be resolved (for example a mode-2 case mapping was removed

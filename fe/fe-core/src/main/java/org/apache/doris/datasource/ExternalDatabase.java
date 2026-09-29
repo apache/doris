@@ -681,7 +681,13 @@ public abstract class ExternalDatabase<T extends ExternalTable>
      */
     public void retireAllTableObjectsWithoutEngineInvalidation() {
         if (metaCache != null) {
-            metaCache.invalidateObjects();
+            ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+            cacheMgr.invalidateRowCountCache(extCatalog.getId(), getId());
+            try {
+                metaCache.invalidateObjects();
+            } finally {
+                cacheMgr.invalidateRowCountCache(extCatalog.getId(), getId());
+            }
         }
     }
 
