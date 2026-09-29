@@ -28,6 +28,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
@@ -75,18 +76,32 @@ public class SessionBaselineStore {
      * Creates a session baseline.
      *
      * Duplicate detection mirrors BaselineManager: identical (bindSqlHash,
-     * bindSqlDigest, planSql) returns the existing id ("IF NOT EXISTS" semantics).
+     * bindSqlDigest, planSql, schemaFingerprint) returns the existing id
+     * ("IF NOT EXISTS" semantics). A row with the same bind key but an OLD fingerprint
+     * (the referenced schema changed, e.g. ALTER TABLE after the baseline was created)
+     * is NOT a duplicate: SPM matching skips it, so returning its id would leave the
+     * session unable to recreate a usable baseline - it is retired instead.
      *
      * @param plan the baseline (id is assigned here from the session id range)
      * @return the id of the created baseline (or the existing id when duplicated)
      */
     public synchronized long createBaseline(BaselinePlan plan) {
         if (plan.getBindSqlHash() != 0) {
+            List<BaselinePlan> stale = new ArrayList<>();
             for (BaselinePlan existing : findByHash(plan.getBindSqlHash())) {
-                if (existing.getBindSqlDigest().equals(plan.getBindSqlDigest())
-                        && existing.getPlanSql().equals(plan.getPlanSql())) {
+                if (!existing.getBindSqlDigest().equals(plan.getBindSqlDigest())
+                        || !existing.getPlanSql().equals(plan.getPlanSql())) {
+                    continue;
+                }
+                if (Objects.equals(existing.getSchemaFingerprint(),
+                        plan.getSchemaFingerprint())) {
                     return existing.getId(); // exact duplicate -> skip
                 }
+                stale.add(existing);
+            }
+            for (BaselinePlan row : stale) {
+                // retire the stale-fingerprint row (matching no longer accepts it)
+                dropBaseline(row.getId());
             }
         }
         plan.setScope(BaselineScope.SESSION);

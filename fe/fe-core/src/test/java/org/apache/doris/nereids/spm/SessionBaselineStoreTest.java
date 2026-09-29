@@ -99,6 +99,38 @@ public class SessionBaselineStoreTest {
         Assertions.assertEquals(0, store.findCandidateBaselines(digest, hash).size());
     }
 
+    /**
+     * The session dedup must consider the schema fingerprint like the global manager: a
+     * same-key baseline whose fingerprint moved on (ALTER TABLE after the CREATE) is
+     * SKIPPED by SPM matching, so returning its id would leave the session unable to
+     * recreate a usable baseline - the stale row is retired and a fresh one allocated.
+     */
+    @Test
+    public void testSessionCreateReplacesStaleFingerprint() throws Exception {
+        SessionBaselineStore store = new SessionBaselineStore();
+        String bindSql = "SELECT * FROM t1 WHERE a = 100";
+        String frozen = "SELECT * FROM t1 WHERE (a = CAST(_spm_const_var(1) AS INT))";
+
+        BaselinePlan first = frozenBaseline(bindSql, frozen);
+        first.setSchemaFingerprint("t1|7|old");
+        long idOld = store.createBaseline(first);
+
+        BaselinePlan altered = frozenBaseline(bindSql, frozen);
+        altered.setSchemaFingerprint("t1|7|new");
+        long idNew = store.createBaseline(altered);
+        Assertions.assertNotEquals(idOld, idNew,
+                "a stale-fingerprint row is not a duplicate: the re-CREATE must allocate a"
+                        + " usable session baseline");
+        Assertions.assertNull(store.getBaseline(idOld),
+                "the stale session row is retired");
+
+        BaselinePlan same = frozenBaseline(bindSql, frozen);
+        same.setSchemaFingerprint("t1|7|new");
+        Assertions.assertEquals(idNew, store.createBaseline(same),
+                "an exact duplicate (same fingerprint) still dedups");
+        Assertions.assertEquals(1, store.getAllBaselines().size());
+    }
+
     @Test
     public void testSessionBaselineWinsOverGlobalForSameShape() throws Exception {
         installConnectContext();

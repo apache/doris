@@ -188,4 +188,82 @@ public class PlanCaptureCycleHandoffTest {
             manager.resetForTest();
         }
     }
+
+    /**
+     * The internal statements of the capture daemon must carry a SHORT explicit timeout:
+     * the default StatisticsUtil overloads inherit the analyze timeout (43,200 s), so a
+     * stalled audit read / checkpoint read / checkpoint write could hold the single
+     * capture cycle for hours and delay every later capture and retry. A timeout is
+     * handled like any other internal-I/O failure: the cycle aborts (read) or completes
+     * best-effort (write) and the NEXT cycle succeeds.
+     */
+    @Test
+    public void testInternalStatementTimeoutsRecoverNextCycle() {
+        Assertions.assertTrue(AuditLogScanner.AUDIT_SCAN_TIMEOUT_SECONDS > 0
+                        && AuditLogScanner.AUDIT_SCAN_TIMEOUT_SECONDS <= 60,
+                "the audit read must use a SHORT explicit timeout, got "
+                        + AuditLogScanner.AUDIT_SCAN_TIMEOUT_SECONDS);
+        Assertions.assertTrue(PlanCaptureManager.CHECKPOINT_IO_TIMEOUT_SECONDS > 0
+                        && PlanCaptureManager.CHECKPOINT_IO_TIMEOUT_SECONDS <= 60,
+                "the checkpoint read / write must use a SHORT explicit timeout, got "
+                        + PlanCaptureManager.CHECKPOINT_IO_TIMEOUT_SECONDS);
+
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            AtomicInteger reads = new AtomicInteger();
+            String tail = "[\"10.0.0.1\",\"h1\",\"100\",\"10\",\"m1\"]";
+            manager.setCheckpointReaderForTest(() -> {
+                if (reads.incrementAndGet() == 1) {
+                    throw new RuntimeException("internal statement timed out after 10s");
+                }
+                return List.of(new ResultRow(List.of("123456", "100", "200", "7",
+                        "2026-01-01 00:00:00", "qid-cursor", "{}", "{}", tail)));
+            });
+            RecordingScanner scanner = new RecordingScanner(List.of(), true,
+                    AuditLogScanner.CURSOR_ABSENT, "", "", "");
+            manager.setScannerForTest(scanner);
+            AtomicInteger writes = new AtomicInteger();
+            List<Map<String, String>> persisted = new ArrayList<>();
+            manager.setCheckpointWriterForTest((sql, params) -> {
+                if (writes.incrementAndGet() == 1) {
+                    throw new RuntimeException("internal statement timed out after 10s");
+                }
+                persisted.add(new HashMap<>(params));
+            });
+
+            // cycle 1: the READ times out -> nothing is scanned or written, the cycle
+            // stays retryable
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(0, scanner.calls.get(),
+                    "a timed-out checkpoint read must skip the scan");
+            Assertions.assertEquals(0, writes.get(),
+                    "a timed-out checkpoint read must skip the persist");
+            Assertions.assertFalse(manager.isCheckpointLoadedForTest(),
+                    "the timed-out read must stay retryable");
+
+            // cycle 2: the read succeeds, the WRITE times out -> the cycle still finishes
+            // (the checkpoint is best effort) and the scan resumed the pending window
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(1, scanner.calls.get());
+            Assertions.assertEquals(1, writes.get());
+            Assertions.assertArrayEquals(new long[] {100L, 200L}, scanner.windows.get(0),
+                    "the pending window is reused after the read recovered");
+            Assertions.assertEquals(7L, scanner.cursors.get(0)[0]);
+            Assertions.assertEquals("2026-01-01 00:00:00", scanner.cursors.get(0)[1]);
+
+            // cycle 3: both internal statements succeed -> the checkpoint is persisted
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(1, persisted.size(),
+                    "the first cycle whose write succeeds persists the checkpoint");
+            Assertions.assertEquals(String.valueOf(manager.checkpointFieldsForTest()[0]),
+                    persisted.get(0).get("lastScan"),
+                    "the persisted watermark must match the advanced local state");
+        } finally {
+            manager.resetForTest();
+        }
+    }
 }

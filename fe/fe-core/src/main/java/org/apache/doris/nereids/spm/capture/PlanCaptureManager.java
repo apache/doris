@@ -105,6 +105,15 @@ public class PlanCaptureManager extends MasterDaemon {
     /** Upper bound for the retry entries written into the checkpoint row (row size). */
     private static final int MAX_PERSISTED_RETRIES = 64;
 
+    /**
+     * Statement timeout (seconds) of the checkpoint read / write. The default
+     * StatisticsUtil overloads assign the ANALYZE timeout (43,200 seconds), so a stalled
+     * internal-table read or write could hold the single capture cycle for hours and
+     * delay every later capture / retry. Both operations are latency-sensitive: fail
+     * fast, keep the cycle consistent, retry next cycle.
+     */
+    static final int CHECKPOINT_IO_TIMEOUT_SECONDS = 10;
+
     /** Table of the durable capture checkpoint (see InternalSchema). */
     private static final String CHECKPOINT_TABLE =
             "`__internal_schema`.`spm_capture_checkpoint`";
@@ -257,8 +266,8 @@ public class PlanCaptureManager extends MasterDaemon {
      * StatisticsUtil; tests replace them to simulate a failing first read and to observe
      * the exact statements a persist issues.
      */
-    private Supplier<List<ResultRow>> checkpointReader =
-            () -> StatisticsUtil.executeQuery(CHECKPOINT_SELECT_SQL, Collections.emptyMap());
+    private Supplier<List<ResultRow>> checkpointReader = () -> StatisticsUtil.executeQuery(
+            CHECKPOINT_SELECT_SQL, Collections.emptyMap(), CHECKPOINT_IO_TIMEOUT_SECONDS);
 
     /** One checkpoint write statement. */
     @VisibleForTesting
@@ -266,7 +275,8 @@ public class PlanCaptureManager extends MasterDaemon {
         void write(String sql, Map<String, String> params) throws Exception;
     }
 
-    private CheckpointWriter checkpointWriter = StatisticsUtil::execUpdate;
+    private CheckpointWriter checkpointWriter = (sql, params) -> StatisticsUtil.execUpdate(
+            sql, params, CHECKPOINT_IO_TIMEOUT_SECONDS);
 
     /** Whether the cloud-mode warning was already logged (the gate fires every cycle). */
     private boolean cloudModeWarned = false;
@@ -804,10 +814,11 @@ public class PlanCaptureManager extends MasterDaemon {
         failedCaptureQueue.clear();
         failedCaptureQueue.putAll(decodeRetryQueue(row.get(7)));
         failedCaptureAnchors.clear();
-        // Restored retries have no in-page anchor in this process yet: the restored
-        // cursor IS a position before every persisted retry (the checkpoint rewound to
-        // the earliest OMITTED one, and the JSON keeps the NEWER ones), so it can serve
-        // as their anchor until a later re-read / re-queue refreshes it.
+        // Restored retries take the RESTORED cursor as their anchor. That is now always a
+        // position BEFORE every persisted retry row: persistCheckpoint rewinds to the
+        // oldest queued entry's PRE-PAGE anchor whenever the queue is non-empty (not only
+        // when the JSON truncates), so a truncated 65th entry can still re-scan the row
+        // whose retry the JSON dropped.
         RetryAnchor restoredAnchor = new RetryAnchor(lastScanTimestamp, pendingWindowStart,
                 pendingWindowEnd, cursorQueryTime, cursorTime, cursorQueryId, cursorTail);
         for (String retryKey : failedCaptureQueue.keySet()) {
@@ -831,23 +842,28 @@ public class PlanCaptureManager extends MasterDaemon {
         // reachable by keyset pagination (the cursor is past them; the five-minute overlap
         // only reaches recent rows).
         //
-        // The durable cursor must sit before the EARLIEST entry the JSON drops, not merely
-        // before the CURRENT page: page 1 may queue 100 failures (its checkpoint rewinds
-        // before page 1), and a LATER page - already past page 1 - still sees the same
-        // 100. Rewinding only to that later page's start would leave the 36 oldest
-        // entries neither queued (truncated JSON) nor re-readable (cursor past them).
+        // The durable cursor must sit before the EARLIEST queued entry, not merely before
+        // the CURRENT page: page 1 may queue 100 failures (its checkpoint rewinds before
+        // page 1), and a LATER page - already past page 1 - still sees the same 100.
+        // Rewinding only to that later page's start would leave the 36 oldest entries
+        // neither queued (truncated JSON) nor re-readable (cursor past them).
         // Every queued retry therefore carries the PRE-PAGE anchor of the page it was
         // FIRST seen on (failedCaptureAnchors), and the durable cursor uses the OLDEST
-        // queued entry's anchor. The condition is self-healing: retries leave the queue
-        // on success or after MAX_CAPTURE_ATTEMPTS, and the cursor advances again once
-        // the maps fit the budget.
+        // queued entry's anchor whenever ANY retry is queued. That is required even when
+        // the JSON fits the budget: on RESTORE every queued entry takes the CHECKPOINT
+        // cursor as its anchor, so a checkpoint written with the LIVE cursor (past the
+        // rows of entries that fit) would later rewind a truncated 65th entry only to a
+        // position AFTER the omitted row - which the next leader can neither replay from
+        // the queue nor re-scan, losing its remaining attempt.
+        // The condition is self-healing: retries leave the queue on success or after
+        // MAX_CAPTURE_ATTEMPTS, and the cursor advances again once the queue is empty.
         boolean queueTruncated = failedCaptureQueue.size() > MAX_PERSISTED_RETRIES;
         boolean attemptsTruncated = failedCaptureAttempts.size() > MAX_PERSISTED_RETRIES;
         boolean retriesTruncated = queueTruncated || attemptsTruncated;
         RetryAnchor durableAnchor = null;
-        if (queueTruncated && !failedCaptureQueue.isEmpty()) {
-            // insertion order = page order: the FIRST (oldest) queued retry is an entry
-            // the persisted JSON drops, and its anchor precedes every other queued retry
+        if (!failedCaptureQueue.isEmpty()) {
+            // insertion order = page order: the FIRST (oldest) queued retry precedes every
+            // other queued retry, and its anchor precedes its own audit row
             durableAnchor = failedCaptureAnchors.get(
                     failedCaptureQueue.keySet().iterator().next());
         }
@@ -866,7 +882,7 @@ public class PlanCaptureManager extends MasterDaemon {
             durableCursorTime = durableAnchor.cursorTime;
             durableCursorQueryId = durableAnchor.cursorQueryId;
             durableCursorTail = durableAnchor.cursorTail;
-        } else if (retriesTruncated) {
+        } else if (retriesTruncated || !failedCaptureQueue.isEmpty()) {
             durableLastScan = pageStartLastScanTimestamp;
             durablePendingStart = pageStartWindowStart;
             durablePendingEnd = pageStartWindowEnd;
@@ -1157,8 +1173,9 @@ public class PlanCaptureManager extends MasterDaemon {
         checkpointLoaded = false;
         // restore the production read / write seams (tests replace them)
         checkpointReader = () -> StatisticsUtil.executeQuery(
-                CHECKPOINT_SELECT_SQL, Collections.emptyMap());
-        checkpointWriter = StatisticsUtil::execUpdate;
+                CHECKPOINT_SELECT_SQL, Collections.emptyMap(), CHECKPOINT_IO_TIMEOUT_SECONDS);
+        checkpointWriter = (sql, params) -> StatisticsUtil.execUpdate(
+                sql, params, CHECKPOINT_IO_TIMEOUT_SECONDS);
         successCount.set(0);
         skipDuplicateCount.set(0);
         skipSingleTableCount.set(0);

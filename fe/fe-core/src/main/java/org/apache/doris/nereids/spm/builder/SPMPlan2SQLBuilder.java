@@ -276,6 +276,20 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     private int generatedColumnSeq = 0;
 
     /**
+     * Normalized names already visible in the CURRENT decompile: user aliases and the
+     * preserved source columns of the relations a generated name gets exported next to.
+     * A generated {@code c_<seq>} must avoid them - the counter alone only keeps the
+     * GENERATED names apart, so a source column literally named {@code c_1} (or a group-by
+     * item / user alias of that name) could end up next to {@code sum(v) AS c_1} or
+     * {@code MARK_SLOT c_1}: two ExprIds registered under one visible name make the
+     * enclosing projection / result sink read an AMBIGUOUS column from the derived
+     * relation after reload. Project / window outputs repair duplicates afterwards
+     * (dedupeSelectOutputNames); the join (MARK_SLOT / explicit projection) and aggregate
+     * exports do not, so they reserve here instead.
+     */
+    private final Set<String> reservedOutputNames = new HashSet<>();
+
+    /**
      * Marks the OUTERMOST projection of the decompiled tree: the first PhysicalProject
      * reached from the root along single-child pass-through nodes (ResultSink / Sort /
      * Distribute / ...). Walking stops at an aggregate - an aggregate that feeds the
@@ -733,6 +747,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         cteDefinitions.clear();
         generatedColumnNames.clear();
         generatedColumnSeq = 0;
+        reservedOutputNames.clear();
         lateralViewSeq = 0;
         outputProjects.clear();
         localAggParams.clear();
@@ -1795,6 +1810,15 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             return decompileNullAwareAnti(join, left, right);
         }
 
+        // Materialize BOTH FROM fragments BEFORE any qualified reference is built, but
+        // AFTER the same-alias force-wrap below: toRelationSQL() allocates the FINAL
+        // alias when the relation needs a wrapper - a TopN / Limit over a set operation
+        // carries fromCarriesAlias AND its own ORDER BY / LIMIT block, so it is wrapped
+        // one level deeper under a FRESH alias. Building the ON condition (or the
+        // explicit projection's qualifiers) through ensureQualifierAlias() first made
+        // them reference the INNER set alias (t_0) while the FROM fragment exposed t_1 -
+        // the frozen SQL could not bind after reload. toRelationSQL() allocates at most
+        // one alias per relation, so the fragments are materialized once and reused.
         SQLRelation joinRelation = new SQLRelation();
         String hints = getJoinDistributionHints(join);
         String hintStr = hints.isEmpty() ? "" : "[" + hints + "]";
@@ -1805,6 +1829,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             left.newAlias();
             right.newAlias();
         }
+        String leftSql = left.toRelationSQL();
+        String rightSql = right.toRelationSQL();
         // SEMI / ANTI joins only project the preserved side (Doris JoinType semantics:
         // LEFT SEMI/ANTI outputs left columns only, RIGHT SEMI/ANTI right columns only).
         // The DROPPED side's columns are still registered during ON rendering (the ON
@@ -1894,7 +1920,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             if (markSlot == null) {
                 throw new UnsupportedOperationException("SPM decompile mark join: missing mark slot");
             }
-            String markName = generatedColumnName(markSlot.getExprId());
+            String markName = generatedColumnName(markSlot.getExprId(),
+                    scopeNames(joinRelation));
             if (!join.getMarkJoinConjuncts().isEmpty()) {
                 String markCond = join.getMarkJoinConjuncts().stream()
                         .map(e -> exprSqlBuilder.print(e, joinRelation))
@@ -1929,8 +1956,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         if (nativeMarkJoin && effectiveOn.isEmpty() && matchSql.isEmpty()) {
             effectiveOn = " ON true";
         }
-        joinRelation.setFrom(left.toRelationSQL() + " " + joinTypeWord + hintStr + " "
-                + right.toRelationSQL() + markSpec + matchSql + effectiveOn);
+        joinRelation.setFrom(leftSql + " " + joinTypeWord + hintStr + " "
+                + rightSql + markSpec + matchSql + effectiveOn);
         if (columnConflicts) {
             // Conflicting column names: the qualified references (t_a.X) above are only
             // valid INSIDE the join scope (ON clause). Once this join is wrapped into a
@@ -1946,7 +1973,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 if (isSystemColumnName(entry.getValue())) {
                     continue;
                 }
-                String alias = generatedColumnName(entry.getKey());
+                String alias = generatedColumnName(entry.getKey(),
+                        scopeNames(joinRelation));
                 explicitProjection.add(Pair.of(entry.getKey(), entry.getValue() + " AS " + alias));
                 joinRelation.registerRef(entry.getKey(), alias);
             }
@@ -2054,6 +2082,14 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     "SPM decompile NULL_AWARE anti: cannot split the IN key sides");
         }
 
+        // Materialize BOTH fragments BEFORE building any qualified reference: a left /
+        // right relation carrying its own ORDER BY / LIMIT block over a set operation is
+        // wrapped under a FRESH alias by toRelationSQL(), and a qualifier allocated
+        // earlier would name the INNER set alias (hidden inside the FROM text) - the
+        // frozen SQL then cannot bind after reload (mirrors visitPhysicalJoin).
+        String leftSql = left.toRelationSQL();
+        String rightSql = right.toRelationSQL();
+
         // every column must be resolvable: preserved columns in the outer scope of the
         // subquery, subquery columns inside it
         Set<ExprId> knownIds = new HashSet<>(left.getColumnNames().keySet());
@@ -2111,12 +2147,12 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 .map(e -> exprSqlBuilder.print(e, printRelation))
                 .collect(Collectors.joining(" AND "));
         String notInPredicate = "(" + exprSqlBuilder.print(probe, printRelation)
-                + ") NOT IN (SELECT " + buildSql + " FROM " + right.toRelationSQL() + whereSql + ")";
+                + ") NOT IN (SELECT " + buildSql + " FROM " + rightSql + whereSql + ")";
 
         // the anti join keeps the left rows whose NOT IN result is TRUE; the predicate
         // becomes the WHERE clause of this relation, and the left columns are re-exported
         SQLRelation joinRelation = new SQLRelation();
-        joinRelation.setFrom(left.toRelationSQL());
+        joinRelation.setFrom(leftSql);
         List<Pair<ExprId, String>> selects = new ArrayList<>();
         appendLivePreservedColumns(join, left, joinRelation, selects);
         joinRelation.setSelects(selects);
@@ -2481,7 +2517,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 // it here under a plain alias (c_<seq>) so upper projections reference the
                 // alias column instead of re-printing GROUPING(col) in a non-grouping
                 // scope ("LOGICAL_PROJECT should not contain grouping expression").
-                String alias = stableRef(output);
+                String alias = stableRef(output, scopeNames(child, relation));
                 sql = ref + " AS " + alias;
                 ref = alias;
                 relation.registerRef(output.getExprId(), alias);
@@ -2509,9 +2545,10 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     throw new UnsupportedOperationException(
                             "SPM decompile: group_concat shape is not supported yet");
                 }
-                String groupConcatRef = stableRef(output);
+                String groupConcatRef = stableRef(output, scopeNames(child, relation));
                 if (groupConcatRef.equalsIgnoreCase(fn.getName())) {
-                    groupConcatRef = generatedColumnName(output.getExprId());
+                    groupConcatRef = generatedColumnName(output.getExprId(),
+                            scopeNames(child, relation));
                 }
                 relation.registerRef(output.getExprId(), groupConcatRef);
                 selects.add(Pair.of(output.getExprId(), rendered + " AS " + groupConcatRef));
@@ -2580,14 +2617,14 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             } else {
                 sql = aggName + "(" + distinctSql + String.join(", ", argSqls) + ")";
             }
-            ref = stableRef(output);
+            ref = stableRef(output, scopeNames(child, relation));
             if (ref.equalsIgnoreCase(aggName)) {
                 // The alias was generated by Doris from the function name (no user
                 // alias, e.g. an execution-added pre-aggregate with several "sum"
                 // columns). Keeping "sum" would decompile many identical aggregate
                 // columns whose bare references are ambiguous on re-parse ("sum is
                 // ambiguous: sum#23, sum#24, ..."). Emit a unique c_<seq> instead.
-                ref = generatedColumnName(output.getExprId());
+                ref = generatedColumnName(output.getExprId(), scopeNames(child, relation));
             }
             sql = sql + " AS " + ref;
         } else {
@@ -2603,13 +2640,23 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * unique within the decompiled SQL (see generatedColumnName).
      */
     private String stableRef(NamedExpression namedExpression) {
+        return stableRef(namedExpression, null);
+    }
+
+    /**
+     * Same as {@link #stableRef(NamedExpression)} with the in-scope exported names the
+     * generated fallback must avoid (a preserved source column named {@code c_1}).
+     */
+    private String stableRef(NamedExpression namedExpression, Collection<String> scope) {
         if (namedExpression instanceof Alias) {
             String name = ((Alias) namedExpression).getName();
             if (name != null && name.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+                // reserve the user alias too: a later generated c_N must not shadow it
+                reservedOutputNames.add(normalizeIdentifier(name));
                 return name;
             }
         }
-        return generatedColumnName(namedExpression.getExprId());
+        return generatedColumnName(namedExpression.getExprId(), scope);
     }
 
     /**
@@ -2621,7 +2668,50 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * readable regardless of the analyzer's ExprId values.
      */
     private String generatedColumnName(ExprId exprId) {
-        return generatedColumnNames.computeIfAbsent(exprId, id -> "c_" + (++generatedColumnSeq));
+        return generatedColumnName(exprId, null);
+    }
+
+    /**
+     * Same as {@link #generatedColumnName(ExprId)} with the in-scope exported names of
+     * the target relation: candidates colliding with a preserved source column / user
+     * alias are skipped (see {@link #reservedOutputNames}).
+     */
+    private String generatedColumnName(ExprId exprId, Collection<String> scope) {
+        String existing = generatedColumnNames.get(exprId);
+        if (existing != null) {
+            return existing;
+        }
+        reserveOutputNames(scope);
+        String candidate;
+        do {
+            candidate = "c_" + (++generatedColumnSeq);
+        } while (reservedOutputNames.contains(normalizeIdentifier(candidate)));
+        reservedOutputNames.add(normalizeIdentifier(candidate));
+        generatedColumnNames.put(exprId, candidate);
+        return candidate;
+    }
+
+    /** Reserves the (normalized) exported names of the given relations. */
+    private void reserveOutputNames(Collection<String> names) {
+        if (names == null) {
+            return;
+        }
+        for (String name : names) {
+            if (name != null && !name.isEmpty()) {
+                reservedOutputNames.add(normalizeIdentifier(name));
+            }
+        }
+    }
+
+    /** In-scope exported names of the given relations (a generated c_N must avoid them). */
+    private static Collection<String> scopeNames(SQLRelation... relations) {
+        List<String> names = new ArrayList<>();
+        for (SQLRelation relation : relations) {
+            if (relation != null) {
+                names.addAll(relation.getColumnNames().values());
+            }
+        }
+        return names;
     }
 
     // ==================== Sort / TopN / Limit ====================
