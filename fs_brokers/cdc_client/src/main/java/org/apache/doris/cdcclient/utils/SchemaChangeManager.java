@@ -17,6 +17,7 @@
 
 package org.apache.doris.cdcclient.utils;
 
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
@@ -78,9 +79,29 @@ public class SchemaChangeManager {
             LOG.info("No DDL statements to execute");
             return;
         }
-        for (SchemaChangeOperation operation : schemaChanges) {
+        for (int i = 0; i < schemaChanges.size(); i++) {
+            SchemaChangeOperation operation = schemaChanges.get(i);
             LOG.info("Executing DDL on FE {}: {}", feAddr, operation.getSql());
-            execute(feAddr, db, token, jobId, operation);
+            try {
+                execute(feAddr, db, token, jobId, operation);
+            } catch (Exception failure) {
+                String message =
+                        "Failed to execute schema change. SQL: "
+                                + operation.getSql()
+                                + ". Reason: "
+                                + ExceptionUtils.getRootCauseMessage(failure);
+                if (i + 1 < schemaChanges.size()) {
+                    List<String> remainingSqls =
+                            schemaChanges.subList(i + 1, schemaChanges.size()).stream()
+                                    .map(SchemaChangeOperation::getSql)
+                                    .toList();
+                    message += ". Remaining SQLs: " + remainingSqls;
+                }
+                IOException error = new IOException(message);
+                // FE receives the root message; keep the SQL context and retain the original stack.
+                error.addSuppressed(failure);
+                throw error;
+            }
         }
     }
 
@@ -261,6 +282,7 @@ public class SchemaChangeManager {
         }
 
         LOG.warn("DDL execution failed. SQL: {}. Response: {}", operation.getSql(), responseBody);
-        throw new IOException("Failed to execute schema change: " + responseBody);
+        throw new IOException(
+                data.isEmpty() ? "Failed to execute schema change: " + responseBody : data);
     }
 }

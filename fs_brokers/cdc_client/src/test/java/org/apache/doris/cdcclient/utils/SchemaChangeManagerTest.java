@@ -20,6 +20,8 @@ package org.apache.doris.cdcclient.utils;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import org.apache.commons.lang3.exception.ExceptionUtils;
+
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
@@ -30,6 +32,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.sql.Types;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -165,6 +168,76 @@ class SchemaChangeManagerTest {
                         "ALTER TABLE `target_db`.`target_table` ADD COLUMN `new_col` INT"));
 
         assertThat(schemaRequests).hasValue(0);
+    }
+
+    @Test
+    void ddlFailureRetainsSqlAndConcreteReasonForJob() {
+        server.createContext(
+                "/api/streaming/schema_change",
+                exchange ->
+                        respond(
+                                exchange,
+                                "{\"code\":1,\"msg\":\"Error\","
+                                        + "\"data\":\"ALTER TABLE command denied\"}"));
+        respondToSchemaWithColumns("id");
+        SchemaChangeOperation operation =
+                SchemaChangeOperation.addColumn(
+                        "target_table",
+                        "new_col",
+                        "ALTER TABLE `target_db`.`target_table` ADD COLUMN `new_col` INT");
+
+        assertThatThrownBy(
+                        () ->
+                                SchemaChangeManager.executeChanges(
+                                        feAddr, "target_db", "token", "123", List.of(operation)))
+                .isInstanceOf(IOException.class)
+                .satisfies(
+                        error -> {
+                            // This is the message that PipelineCoordinator reports to FE.
+                            assertThat(ExceptionUtils.getRootCauseMessage(error))
+                                    .contains(operation.getSql(), "ALTER TABLE command denied")
+                                    .doesNotContain("\"code\"", "Remaining SQLs");
+                            assertThat(error.getSuppressed()).hasSize(1);
+                        });
+        assertThat(schemaRequests).hasValue(1);
+    }
+
+    @Test
+    void ddlFailureReportsRemainingSqlsWithoutExecutingThem() {
+        AtomicInteger ddlRequests = new AtomicInteger();
+        server.createContext(
+                "/api/streaming/schema_change",
+                exchange ->
+                        respond(
+                                exchange,
+                                ddlRequests.incrementAndGet() == 1
+                                        ? "{\"code\":0,\"msg\":\"success\"}"
+                                        : "{\"code\":1,\"msg\":\"Column operation cannot be applied\"}"));
+        respondToSchemaWithColumns("id", "first_col");
+        String firstSql = "ALTER TABLE `target_db`.`target_table` ADD COLUMN `first_col` INT";
+        String failedSql = "ALTER TABLE `target_db`.`target_table` ADD COLUMN `second_col` INT";
+        String remainingSql = "ALTER TABLE `target_db`.`target_table` ADD COLUMN `third_col` INT";
+        List<SchemaChangeOperation> changes =
+                List.of(
+                        SchemaChangeOperation.addColumn("target_table", "first_col", firstSql),
+                        SchemaChangeOperation.addColumn("target_table", "second_col", failedSql),
+                        SchemaChangeOperation.addColumn("target_table", "third_col", remainingSql));
+
+        assertThatThrownBy(
+                        () ->
+                                SchemaChangeManager.executeChanges(
+                                        feAddr, "target_db", "token", "123", changes))
+                .isInstanceOf(IOException.class)
+                .satisfies(
+                        error ->
+                                assertThat(ExceptionUtils.getRootCauseMessage(error))
+                                        .contains(
+                                                "SQL: " + failedSql,
+                                                "Column operation cannot be applied",
+                                                "Remaining SQLs: [" + remainingSql + "]")
+                                        .doesNotContain(firstSql));
+        assertThat(ddlRequests).hasValue(2);
+        assertThat(schemaRequests).hasValue(1);
     }
 
     @Test
