@@ -901,9 +901,11 @@ Status AnalyticSinkLocalState::_seal_spill_batch(RuntimeState* state) {
     DCHECK_EQ(_batch_partition_ends.back(), _batch_store->rows());
 
     // Once published, an in-memory batch is owned by the source side and can no longer be
-    // reclaimed through this sink's revoke callback. Do not publish a sizeable revocable buffer.
+    // reclaimed through this sink's revoke callback. A batch that reaches the proactive spill
+    // limit is spilled before it is published; smaller batches stay in memory.
     if (!_batch_store->is_spilled() &&
-        _batch_store->revocable_mem_size() > state->spill_min_revocable_mem()) {
+        std::cmp_greater_equal(_batch_store->revocable_mem_size(),
+                               state->spill_analytic_sink_mem_limit_bytes())) {
         RETURN_IF_ERROR(_spill_batch_store(state));
     }
 
