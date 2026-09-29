@@ -126,8 +126,8 @@ class HdfsPropertiesTest {
 
         Map<String, String> raw = new HashMap<>();
         raw.put("fs.defaultFS", "hdfs://ns");
-        // No _HADOOP_CONFIG_DIR_ injected: the resource is given as a full absolute path
-        // and must load as-is (configDir falls back to "").
+        // An absolute resource must remain absolute even when the configured Hadoop directory is set.
+        raw.put("_HADOOP_CONFIG_DIR_", tmp.resolve("configured").toString() + "/");
         raw.put("hadoop.config.resources", site.toString());
 
         Map<String, String> resolved = resolve(raw);
