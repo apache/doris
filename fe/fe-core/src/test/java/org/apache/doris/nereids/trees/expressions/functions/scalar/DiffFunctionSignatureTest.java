@@ -122,6 +122,35 @@ public class DiffFunctionSignatureTest {
     }
 
     /**
+     * Second mixed case from the same review finding: both literals carry an explicit zone, but
+     * {@code DateTimeChecker.hasTimeZone} requires a colon before the offset minutes, so the compact
+     * {@code -0700} counts as zone-less on its own even though the cast path accepts it. A summed
+     * score would let it cancel the recognised {@code -08:00} and tie DATETIMEV2 again. Under
+     * {@code time_zone='America/Los_Angeles'},
+     * {@code hours_diff('2021-03-15 00:00:00-0700', '2021-03-14 00:00:00-08:00')} must bind
+     * TIMESTAMPTZ so it is computed as 23 elapsed hours, not 24 civil hours.
+     */
+    @Test
+    public void testCompactAndColonOffsetLiteralsKeepTimeStampTz() {
+        FunctionSignature signature = new HoursDiff(
+                new VarcharLiteral("2021-03-15 00:00:00-0700"),
+                new VarcharLiteral("2021-03-14 00:00:00-08:00")).getSignature();
+        Assertions.assertInstanceOf(TimeStampTzType.class, signature.getArgType(0),
+                "compact offset + colon offset: arg0 should bind to TimeStampTzType");
+        Assertions.assertInstanceOf(TimeStampTzType.class, signature.getArgType(1),
+                "compact offset + colon offset: arg1 should bind to TimeStampTzType");
+
+        // Order must not matter: colon offset first, compact offset second must also keep TIMESTAMPTZ.
+        FunctionSignature reversed = new HoursDiff(
+                new VarcharLiteral("2021-03-14 00:00:00-08:00"),
+                new VarcharLiteral("2021-03-15 00:00:00-0700")).getSignature();
+        Assertions.assertInstanceOf(TimeStampTzType.class, reversed.getArgType(0),
+                "colon offset + compact offset: arg0 should bind to TimeStampTzType");
+        Assertions.assertInstanceOf(TimeStampTzType.class, reversed.getArgType(1),
+                "colon offset + compact offset: arg1 should bind to TimeStampTzType");
+    }
+
+    /**
      * Guards apache/doris#64127's intent: when every inspectable literal is zone-less, the
      * call should still prefer DATETIMEV2 (civil semantics), not TIMESTAMPTZ.
      */
