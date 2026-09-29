@@ -59,11 +59,38 @@ Status AnalyticSpillBatchStore::append_block(RuntimeState* state, Block block) {
     DCHECK_GT(block.rows(), 0);
     _rows += block.rows();
     if (_data_writer) {
-        return _data_writer->write_block(state, block);
+        return _write_data_block(state, std::move(block));
     }
     _blocks_memory_bytes += block.allocated_bytes();
     _blocks.emplace_back(std::move(block));
     return Status::OK();
+}
+
+Status AnalyticSpillBatchStore::_write_data_block(RuntimeState* state, Block block) {
+    DCHECK(_data_writer != nullptr);
+    const auto spill_buffer_bytes = static_cast<size_t>(state->spill_buffer_size_bytes());
+    if (block.allocated_bytes() >= spill_buffer_bytes) {
+        // Keep the input order: buffered rows go to the file before this Block.
+        RETURN_IF_ERROR(_flush_write_buffer(state));
+        return _data_writer->write_block(state, block);
+    }
+    // Serializing and compressing every small Block separately is costly, so small Blocks are
+    // coalesced up to the spill buffer size before they are written.
+    RETURN_IF_ERROR(_write_buffer.merge(std::move(block)));
+    if (_write_buffer.allocated_bytes() >= spill_buffer_bytes) {
+        RETURN_IF_ERROR(_flush_write_buffer(state));
+    }
+    return Status::OK();
+}
+
+Status AnalyticSpillBatchStore::_flush_write_buffer(RuntimeState* state) {
+    if (_write_buffer.rows() == 0) {
+        return Status::OK();
+    }
+    DCHECK(_data_writer != nullptr);
+    auto block = _write_buffer.to_block();
+    _write_buffer = MutableBlock();
+    return _data_writer->write_block(state, block);
 }
 
 Status AnalyticSpillBatchStore::_ensure_peer_group_writer(RuntimeState* state) {
@@ -114,11 +141,13 @@ Status AnalyticSpillBatchStore::spill(RuntimeState* state) {
     if (!_data_writer) {
         RETURN_IF_ERROR(_create_writer(state, "analytic", _data_file, _data_writer));
     }
-    for (const auto& block : _blocks) {
+    for (auto& block : _blocks) {
         RETURN_IF_CANCELLED(state);
-        RETURN_IF_ERROR(_data_writer->write_block(state, block));
+        RETURN_IF_ERROR(_write_data_block(state, std::move(block)));
     }
     _release_blocks();
+    // spill() backs revoke_memory(), so nothing revocable may stay buffered.
+    RETURN_IF_ERROR(_flush_write_buffer(state));
     if (_has_peer_groups) {
         RETURN_IF_ERROR(_flush_peer_group_ends(state));
     }
@@ -126,13 +155,15 @@ Status AnalyticSpillBatchStore::spill(RuntimeState* state) {
 }
 
 size_t AnalyticSpillBatchStore::revocable_mem_size() const {
-    return _blocks_memory_bytes + _peer_group_ends.capacity() * sizeof(int64_t);
+    return _blocks_memory_bytes + _write_buffer.allocated_bytes() +
+           _peer_group_ends.capacity() * sizeof(int64_t);
 }
 
 Status AnalyticSpillBatchStore::seal(RuntimeState* state, AnalyticSpillBatch* batch) {
     RETURN_IF_CANCELLED(state);
     DCHECK_GT(_rows, 0);
     if (_data_writer) {
+        RETURN_IF_ERROR(_flush_write_buffer(state));
         RETURN_IF_ERROR(_data_writer->close());
         _data_writer.reset();
     }

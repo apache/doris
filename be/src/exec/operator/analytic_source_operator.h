@@ -46,6 +46,7 @@ private:
     Status _get_spill_block(RuntimeState* state, Block* block, bool* eos);
     Status _open_spill_batch(RuntimeState* state, std::shared_ptr<AnalyticSpillBatch> batch);
     Status _read_batch_block(RuntimeState* state, Block* block, bool* batch_eos);
+    Status _next_replay_rows(RuntimeState* state, Block* block, bool* batch_eos);
     Status _next_peer_group_end(RuntimeState* state);
     void _next_spill_partition();
     Status _append_spill_results(RuntimeState* state, Block* block);
@@ -69,6 +70,9 @@ private:
     SpillFileReaderSPtr _batch_reader;
     SpillFileReaderSPtr _peer_group_reader;
     size_t _in_memory_block_index = 0;
+    // Block read from the batch and the first row of it that has not been output yet.
+    Block _replay_block;
+    size_t _replay_block_position = 0;
     int64_t _in_memory_batch_bytes = 0;
     // Batch-relative row of the next output row and bounds of the partition containing it.
     int64_t _batch_output_position = 0;
