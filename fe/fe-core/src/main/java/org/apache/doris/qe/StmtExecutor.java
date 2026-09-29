@@ -1456,6 +1456,12 @@ public class StmtExecutor {
             if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
                 Preconditions.checkState(!context.isReturnResultFromLocal());
                 profile.getSummaryProfile().setTempStartTime();
+                if (coordBase == coord) {
+                    context.getFlightSqlChannel().registerRemoteQuery(coord.getQueryId(),
+                            context.getFlightSqlEndpointsLocations().stream()
+                                    .map(endpoint -> endpoint.getFinstId()).distinct().collect(Collectors.toList()),
+                            coord.getBackendBrpcAddresses(), coord.getQueryOptions().getExecutionTimeout());
+                }
                 // The client pulls the results from the BE later (DoGet). Only an external-table
                 // scan in batch mode still needs the coordinator after this point: the BE fetches
                 // its splits lazily from the split source the coordinator holds, so closing the

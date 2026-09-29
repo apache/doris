@@ -3828,6 +3828,11 @@ public class Coordinator implements CoordInterface {
         return result;
     }
 
+    public List<TNetworkAddress> getBackendBrpcAddresses() {
+        return beToPipelineExecCtxs.values().stream().map(ctx -> ctx.brpcAddr.deepCopy())
+                .collect(Collectors.toList());
+    }
+
     @Override
     public List<TNetworkAddress> getInvolvedBackends() {
         List<TNetworkAddress> backendAddresses = Lists.newArrayList();
