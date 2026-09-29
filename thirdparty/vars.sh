@@ -618,10 +618,10 @@ PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
 # lance-c
 # Complete-segment prefilter fixes are supplied by upstream lance-c, not local patches.
-LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/4e6b2edbee36103758feb4b3f14ace2475e3be4d"
-LANCE_C_NAME="lance-c-4e6b2edbee36103758feb4b3f14ace2475e3be4d.tar.gz"
-LANCE_C_SOURCE="lance-c-4e6b2edbee36103758feb4b3f14ace2475e3be4d"
-LANCE_C_MD5SUM="bb47fd5cee55428a625ef5278b7005f8"
+LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/abba808a6e105f033b9575c28263201b739f89d5"
+LANCE_C_NAME="lance-c-abba808a6e105f033b9575c28263201b739f89d5.tar.gz"
+LANCE_C_SOURCE="lance-c-abba808a6e105f033b9575c28263201b739f89d5"
+LANCE_C_MD5SUM="35c202659051cd059977bbc377f3beb0"
 
 # paimon-rust
 PAIMON_RUST_DOWNLOAD="https://github.com/apache/paimon-rust/archive/refs/tags/v0.4.0-rc1.tar.gz"
