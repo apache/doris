@@ -84,6 +84,7 @@
 #include "re2/re2.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "storage/iterators.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset.h"
@@ -841,8 +842,7 @@ TabletColumn create_sparse_column(const TabletColumn& variant) {
     res.set_aggregation_method(variant.aggregation());
     res.set_path_info(PathInData {variant.name_lower_case() + "." + SPARSE_COLUMN_PATH});
     res.set_parent_unique_id(variant.unique_id());
-    // set default value to "NULL" DefaultColumnIterator will call insert_many_defaults
-    res.set_default_value("NULL");
+    res.set_default_value("{}");
     TabletColumn child_tcolumn;
     child_tcolumn.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
     res.add_sub_column(child_tcolumn);
@@ -858,7 +858,7 @@ TabletColumn create_sparse_shard_column(const TabletColumn& variant, int bucket_
     res.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
     res.set_aggregation_method(variant.aggregation());
     res.set_parent_unique_id(variant.unique_id());
-    res.set_default_value("NULL");
+    res.set_default_value("{}");
     PathInData path(name);
     res.set_path_info(path);
     TabletColumn child_tcolumn;
@@ -876,7 +876,7 @@ TabletColumn create_doc_value_column(const TabletColumn& variant, int bucket_ind
     res.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
     res.set_aggregation_method(variant.aggregation());
     res.set_parent_unique_id(variant.unique_id());
-    res.set_default_value("NULL");
+    res.set_default_value("{}");
     res.set_path_info(PathInData {name});
 
     TabletColumn child_tcolumn;
@@ -909,17 +909,18 @@ Status VariantCompactionUtil::aggregate_path_to_stats(
             continue;
         }
         for (const auto& segment : segment_cache.get_segments()) {
-            std::shared_ptr<ColumnReader> column_reader;
+            std::shared_ptr<segment_v2::VariantColumnReader> variant_column_reader;
             OlapReaderStatistics stats;
-            RETURN_IF_ERROR(
-                    segment->get_column_reader(column->unique_id(), &column_reader, &stats));
-            if (!column_reader) {
+            StorageReadOptions read_options(stats);
+            Status st =
+                    segment->get_variant_root_reader(*column, read_options, &variant_column_reader);
+            if (st.is<ErrorCode::NOT_FOUND>()) {
+                // An ALTER-added nullable/defaulted VARIANT has no physical path statistics in old
+                // segments; its logical default is handled only by the value-read path.
                 continue;
             }
-
-            CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
-            auto* variant_column_reader =
-                    assert_cast<segment_v2::VariantColumnReader*>(column_reader.get());
+            RETURN_IF_ERROR(st);
+            DORIS_CHECK(variant_column_reader != nullptr);
             // load external meta before getting stats
             RETURN_IF_ERROR(variant_column_reader->load_external_meta_once());
             const auto* source_stats = variant_column_reader->get_stats();
@@ -954,17 +955,18 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
             extended_info.has_nested_group = true;
         }
         for (const auto& segment : segment_cache.get_segments()) {
-            std::shared_ptr<ColumnReader> column_reader;
+            std::shared_ptr<segment_v2::VariantColumnReader> variant_column_reader;
             OlapReaderStatistics stats;
-            RETURN_IF_ERROR(
-                    segment->get_column_reader(column->unique_id(), &column_reader, &stats));
-            if (!column_reader) {
+            StorageReadOptions read_options(stats);
+            Status st =
+                    segment->get_variant_root_reader(*column, read_options, &variant_column_reader);
+            if (st.is<ErrorCode::NOT_FOUND>()) {
+                // A schema default contributes logical rows but no sparse paths, typed leaves, or
+                // nested-group metadata to this physical-metadata aggregation.
                 continue;
             }
-
-            CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
-            auto* variant_column_reader =
-                    assert_cast<segment_v2::VariantColumnReader*>(column_reader.get());
+            RETURN_IF_ERROR(st);
+            DORIS_CHECK(variant_column_reader != nullptr);
             // load external meta before getting stats
             RETURN_IF_ERROR(variant_column_reader->load_external_meta_once());
             const auto* source_stats = variant_column_reader->get_stats();
@@ -1670,21 +1672,24 @@ TabletSchemaSPtr VariantCompactionUtil::calculate_variant_extended_schema(
                 if (!column->is_variant_type()) {
                     continue;
                 }
-                std::shared_ptr<ColumnReader> column_reader;
+                std::shared_ptr<segment_v2::VariantColumnReader> variant_column_reader;
                 OlapReaderStatistics stats;
-                st = segment->get_column_reader(column->unique_id(), &column_reader, &stats);
+                StorageReadOptions read_options(stats);
+                st = segment->get_variant_root_reader(*column, read_options,
+                                                      &variant_column_reader);
+                if (st.is<ErrorCode::NOT_FOUND>()) {
+                    // Old segments predating an ALTER-added VARIANT have no physical subcolumn
+                    // metadata, so only newer segments contribute to the calculated schema.
+                    continue;
+                }
                 if (!st.ok()) {
-                    LOG(WARNING) << "Failed to get column reader for column: " << column->name()
-                                 << " error: " << st.to_string();
+                    LOG(WARNING) << "Failed to get VARIANT root reader for column: "
+                                 << column->name() << " error: " << st.to_string();
+                    // Extended-schema collection is best-effort per segment. Skip this column but
+                    // preserve metadata already collected from the remaining readable segments.
                     continue;
                 }
-                if (!column_reader) {
-                    continue;
-                }
-
-                CHECK(column_reader->get_meta_type() == FieldType::OLAP_FIELD_TYPE_VARIANT);
-                auto* variant_column_reader =
-                        assert_cast<segment_v2::VariantColumnReader*>(column_reader.get());
+                DORIS_CHECK(variant_column_reader != nullptr);
                 // load external meta before getting subcolumn meta info
                 st = variant_column_reader->load_external_meta_once();
                 if (!st.ok()) {

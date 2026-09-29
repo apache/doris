@@ -22,7 +22,9 @@
 
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -156,5 +158,57 @@ TEST_F(TabletReaderTest, initializes_unbounded_key_ranges) {
     EXPECT_TRUE(reader._keys_param.end_keys[0].has_value());
     EXPECT_TRUE(reader._keys_param.start_keys[1].has_value());
     EXPECT_FALSE(reader._keys_param.end_keys[1].has_value());
+}
+
+// A delete predicate is bound to the historical column identity, not merely its name. This is
+// critical for DROP COLUMN x followed by ADD COLUMN x: the old delete must not filter the new x.
+TEST_F(TabletReaderTest, delete_predicate_keeps_dropped_same_name_column_identity) {
+    auto historical_schema = create_schema({{"k", 10}, {"x", 11}});
+    auto current_schema = create_schema({{"k", 10}, {"x", 20}});
+
+    for (bool predicate_has_uid : {true, false}) {
+        SCOPED_TRACE(predicate_has_uid ? "predicate with uid" : "legacy predicate without uid");
+
+        DeletePredicatePB delete_predicate;
+        if (predicate_has_uid) {
+            auto* predicate = delete_predicate.add_sub_predicates_v2();
+            predicate->set_column_name("x");
+            predicate->set_column_unique_id(11);
+            predicate->set_op("=");
+            predicate->set_cond_value("7");
+        } else {
+            delete_predicate.add_sub_predicates("x='7'");
+        }
+
+        auto rowset_meta = std::make_shared<RowsetMeta>();
+        rowset_meta->set_tablet_schema(historical_schema);
+        rowset_meta->set_version(Version(2, 2));
+        rowset_meta->set_delete_predicate(delete_predicate);
+
+        auto read_schema = std::make_shared<ReadSchema>(current_schema->columns());
+        std::vector<TabletColumn> dropped_columns;
+        DeleteHandler handler;
+        auto st = handler.init({rowset_meta}, /*version=*/100, read_schema, &dropped_columns);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_EQ(1, dropped_columns.size());
+        EXPECT_EQ("x", dropped_columns[0].name());
+        EXPECT_EQ(11, dropped_columns[0].unique_id());
+
+        read_schema->append_dropped_columns(std::move(dropped_columns));
+        EXPECT_EQ(1, read_schema->ordinal_by_uid(20));
+        EXPECT_EQ(2, read_schema->ordinal_by_uid(11));
+
+        AndBlockColumnPredicate delete_conditions;
+        std::unordered_map<int32_t, std::vector<std::shared_ptr<const ColumnPredicate>>>
+                delete_zone_maps;
+        handler.get_delete_conditions_after_version(0, &delete_conditions, &delete_zone_maps);
+
+        std::set<std::shared_ptr<const ColumnPredicate>> predicates;
+        delete_conditions.get_all_column_predicate(predicates);
+        ASSERT_EQ(1, predicates.size());
+        EXPECT_EQ(2, (*predicates.begin())->column_id());
+        EXPECT_EQ(0, delete_zone_maps.count(1));
+        EXPECT_EQ(1, delete_zone_maps.count(2));
+    }
 }
 } // namespace doris

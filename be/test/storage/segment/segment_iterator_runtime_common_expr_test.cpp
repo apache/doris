@@ -119,8 +119,8 @@ class SegmentIteratorRuntimeCommonExprTest : public ::testing::Test {
 protected:
     void SetUp() override {
         _read_schema = make_read_schema();
-        _iter = std::make_unique<SegmentIterator>(nullptr, _read_schema);
-        _iter->_opts.stats = &_stats;
+        StorageReadOptions opts(_stats);
+        _iter = std::make_unique<SegmentIterator>(nullptr, _read_schema, opts);
         _iter->_enable_prune_nested_column = true;
 
         auto struct_iter = std::make_unique<SplitStructColumnIterator>();
@@ -129,8 +129,8 @@ protected:
     }
 
     ReadSchemaSPtr _read_schema;
-    std::unique_ptr<SegmentIterator> _iter;
     OlapReaderStatistics _stats;
+    std::unique_ptr<SegmentIterator> _iter;
 };
 
 TEST_F(SegmentIteratorRuntimeCommonExprTest, plannerExprKeepsLazyNestedRecovery) {

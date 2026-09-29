@@ -29,6 +29,7 @@
 #include "gtest/gtest.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
+#include "storage/schema.h"
 
 // test expr is: v not in (ipv4_literal, casttoipv4(varchar))
 TEST(TExprInvertedIndexTest, test_expr_evaluate_inverted_index) {
@@ -162,7 +163,8 @@ TEST(TExprInvertedIndexTest, test_expr_evaluate_inverted_index) {
     doris::segment_v2::ColumnIteratorOptions column_iter_opts;
     auto inverted_index_context = std::make_shared<doris::IndexExecContext>(
             index_iterators, storage_types, common_expr_inverted_index_status, nullptr, nullptr,
-            column_iter_opts);
+            column_iter_opts,
+            std::make_shared<doris::ReadSchema>(std::vector<doris::TabletColumnPtr> {}));
     expr_ctx.set_index_context(inverted_index_context);
     doris::RuntimeState state;
     doris::RowDescriptor row_desc;

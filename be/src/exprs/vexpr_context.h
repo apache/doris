@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "common/factory_creator.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
@@ -45,6 +46,8 @@
 
 namespace doris {
 class RowDescriptor;
+class ReadSchema;
+using ReadSchemaSPtr = std::shared_ptr<ReadSchema>;
 class RuntimeState;
 class ZoneMapEvalContext;
 } // namespace doris
@@ -67,13 +70,17 @@ public:
                      std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>>&
                              common_expr_index_status,
                      ScoreRuntimeSPtr score_runtime, segment_v2::Segment* segment,
-                     const segment_v2::ColumnIteratorOptions& column_iter_opts)
+                     const segment_v2::ColumnIteratorOptions& column_iter_opts,
+                     ReadSchemaSPtr read_schema)
             : _index_iterators(index_iterators),
               _storage_name_and_type(storage_name_and_type_vec),
               _expr_index_status(common_expr_index_status),
               _score_runtime(std::move(score_runtime)),
               _segment(segment),
-              _column_iter_opts(column_iter_opts) {}
+              _column_iter_opts(column_iter_opts),
+              _read_schema(std::move(read_schema)) {
+        DORIS_CHECK(_read_schema != nullptr);
+    }
 
     segment_v2::IndexIterator* get_inverted_index_iterator(int32_t read_ordinal) const {
         if (read_ordinal < 0 || static_cast<size_t>(read_ordinal) >= _index_iterators.size()) {
@@ -95,6 +102,8 @@ public:
     }
 
     segment_v2::Segment* segment() const { return _segment; }
+
+    const ReadSchemaSPtr& read_schema() const { return _read_schema; }
 
     const segment_v2::ColumnIteratorOptions& column_iter_opts() const { return _column_iter_opts; }
 
@@ -184,6 +193,8 @@ private:
 
     segment_v2::Segment* _segment = nullptr; // Ref
     segment_v2::ColumnIteratorOptions _column_iter_opts;
+    // Keep the scan columns alive while index expressions use their TabletColumn pointers.
+    ReadSchemaSPtr _read_schema;
     segment_v2::IndexQueryContextPtr _index_query_context;
 };
 

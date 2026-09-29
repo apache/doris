@@ -1296,6 +1296,7 @@ TEST_F(SchemaUtilTest, TestCreateSparseColumn) {
     EXPECT_EQ(sparse_column.aggregation(), FieldAggregationMethod::OLAP_FIELD_AGGREGATION_GENERIC);
     EXPECT_EQ(sparse_column.parent_unique_id(), 42);
     EXPECT_EQ(sparse_column.path_info_ptr()->get_path(), "test_variant." + SPARSE_COLUMN_PATH);
+    EXPECT_EQ(sparse_column.default_value(), "{}");
 
     // Check map value columns
     EXPECT_EQ(sparse_column.get_sub_column(0).type(), FieldType::OLAP_FIELD_TYPE_STRING);

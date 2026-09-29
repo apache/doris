@@ -132,6 +132,8 @@ struct HashOfIteratorKey {
 };
 
 struct IteratorItem {
+    explicit IteratorItem(OlapReaderStatistics& stats) : storage_read_options(stats) {}
+
     std::unique_ptr<ColumnIterator> iterator;
     SegmentSharedPtr segment;
     // for holding the reference of storage read options to avoid use after release
@@ -1032,13 +1034,18 @@ Status RowIdStorageReader::read_doris_format_row(
                                       .rowset_id = rowset_id,
                                       .segment_id = segment_id,
                                       .slot_id = slots[x].id()};
-            IteratorItem& iterator_item = iterator_map[iterator_key];
+            IteratorItem& iterator_item =
+                    iterator_map.try_emplace(iterator_key, stats).first->second;
             if (iterator_item.segment == nullptr) {
-                iterator_map[iterator_key].segment = segment;
-                iterator_item.storage_read_options.stats = &stats;
+                iterator_item.segment = segment;
                 iterator_item.storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
                 iterator_item.storage_read_options.io_ctx.file_cache_miss_policy =
                         file_cache_miss_policy;
+                // A rowid fetch bypasses TabletReader, so copy the rowset context it would have
+                // supplied. For example, a rowset with commit_tso=100 must expose 100 through
+                // __DORIS_COMMIT_TSO_COL__ instead of its on-disk placeholder 0.
+                iterator_item.storage_read_options.version = rowset->version();
+                iterator_item.storage_read_options.commit_tso = rowset->commit_tso();
             }
             if (x >= fetch_columns.size()) {
                 return Status::InternalError(
