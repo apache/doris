@@ -1,17 +1,17 @@
 # Lance JNI packaging for Linux x86_64
 
 `bash build.sh --fe` automatically replaces the Linux x86_64 JNI entry in
-`lance-core-11.0.0.jar` with the glibc 2.17 rebuild. No local Lance checkout,
+`lance-core-12.0.0.jar` with the glibc 2.17 rebuild. No local Lance checkout,
 Rust toolchain, or `LANCE_JNI_SO` variable is required on the Doris build host.
 
 The artifact is pinned in `docker/thirdparties/lance-jni-helpers.sh` and published
-in [apache/doris-thirdparty](https://github.com/apache/doris-thirdparty/releases/tag/lance-jni-11.0.0-glibc2.17-r1).
+in [apache/doris-thirdparty](https://github.com/apache/doris-thirdparty/releases/tag/lance-jni-12.0.0-glibc2.17-r1).
 Both the compressed archive and the extracted library have fixed SHA256 values.
 
 The archive is cached under:
 
 ```text
-thirdparty/installed/lance-jni/liblance_jni-11.0.0-linux-x86_64-glibc2.17-r1.so.gz
+thirdparty/installed/lance-jni/liblance_jni-12.0.0-linux-x86_64-glibc2.17-r1.so.gz
 ```
 
 With a custom `DORIS_THIRDPARTY`, the cache is under that directory's

@@ -29,6 +29,9 @@ The generated catalog contains:
   - __manifest            Directory Namespace V2 manifest table (with its scalar indexes).
   - all_types.lance       The pre-existing compatibility-mode root table, re-registered as-is.
   - nested_null.lance     Nullable Null leaves inside lists, structs, and maps.
+  - time_travel.lance     Three uncompacted versions for FOR VERSION / TIME AS OF; carried
+                          over as-is because the suites hard-code its commit times
+                          (see lance_build_time_travel.py).
   - The `doris` namespace with two full-text-search fixtures, one indexed vector table per cell of the
     algorithm x element type x metric matrix (hash-prefixed directories), listed in
     VECTOR_TABLES below; BREADTH_TABLE, one table carrying the remaining cells at plan
@@ -88,6 +91,7 @@ import pyarrow as pa
 import pyarrow.ipc as ipc
 from lance_build_multivector import build as build_multivector, check as check_multivector
 from lance_build_nested_null import build as build_nested_null, check as check_nested_null
+from lance_build_time_travel import check as check_time_travel
 from lance_namespace_urllib3_client.models import (
     CreateNamespaceRequest,
     CreateTableRequest,
@@ -103,6 +107,7 @@ NUM_PARTITIONS = 4
 NAMESPACE = "doris"
 ALL_TYPES_DIR = "all_types.lance"
 NESTED_NULL_DIR = "nested_null.lance"
+TIME_TRAVEL_DIR = "time_travel.lance"
 MANIFEST_DIR = "__manifest"
 
 # 4-bit PQ keeps codebook training comfortable on 1024 rows. This only serves fixture
@@ -931,8 +936,10 @@ def build_multi_frag(root: Path) -> None:
     lance.dataset(location).delete(f"row_id in ({deleted})")
 
 
-def build(root: Path, all_types_source: Path) -> None:
+def build(root: Path, all_types_source: Path, time_travel_source: Path) -> None:
     shutil.copytree(all_types_source, root / ALL_TYPES_DIR)
+    # Not rebuilt: its commit times are hard-coded in the time-travel suites.
+    shutil.copytree(time_travel_source, root / TIME_TRAVEL_DIR)
     build_multi_frag(root)
     # Recreate this fixture in staging because promotion replaces the entire catalog tree.
     build_nested_null(root / NESTED_NULL_DIR)
@@ -1726,6 +1733,7 @@ def check_catalog(root: Path) -> None:
     check_nested_dataset(nested.location)
     check_multi_frag(root)
     check_nested_null(root / NESTED_NULL_DIR)
+    check_time_travel(root / TIME_TRAVEL_DIR)
     check_multivector(root / "multivector.lance")
 
     full_fts = namespace.describe_table(DescribeTableRequest(id=[NAMESPACE, FTS_TABLE]))
@@ -1793,11 +1801,15 @@ def main() -> int:
     if not all_types_source.is_dir():
         print(f"missing all_types source: {all_types_source}", file=sys.stderr)
         return 1
+    time_travel_source = output / TIME_TRAVEL_DIR
+    if not time_travel_source.is_dir():
+        print(f"missing time_travel source: {time_travel_source}", file=sys.stderr)
+        return 1
 
     with tempfile.TemporaryDirectory(prefix="lance_fixture_") as staging_name:
         staging = Path(staging_name) / "lance"
         staging.mkdir()
-        build(staging, all_types_source)
+        build(staging, all_types_source, time_travel_source)
         check_catalog(staging)
         backup = output.with_name(output.name + ".old")
         if backup.exists():

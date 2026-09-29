@@ -31,23 +31,31 @@ import org.apache.commons.lang3.StringUtils;
 import org.lance.namespace.LanceNamespace;
 import org.lance.namespace.errors.NamespaceNotFoundException;
 import org.lance.namespace.errors.TableNotFoundException;
+import org.lance.namespace.errors.TableVersionNotFoundException;
 import org.lance.namespace.model.DescribeTableRequest;
 import org.lance.namespace.model.DescribeTableResponse;
+import org.lance.namespace.model.DescribeTableVersionRequest;
+import org.lance.namespace.model.DescribeTableVersionResponse;
 import org.lance.namespace.model.ListNamespacesRequest;
 import org.lance.namespace.model.ListNamespacesResponse;
+import org.lance.namespace.model.ListTableVersionsRequest;
+import org.lance.namespace.model.ListTableVersionsResponse;
 import org.lance.namespace.model.ListTablesRequest;
 import org.lance.namespace.model.ListTablesResponse;
 import org.lance.namespace.model.TableExistsRequest;
+import org.lance.namespace.model.TableVersion;
 
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -66,6 +74,13 @@ final class LanceNamespaceClient {
     private final String rootDatabase;
     private final List<String> parentNamespace;
     private final List<StorageProperties> storageProperties;
+    /**
+     * Serializes the namespace and table listings and table existence checks. Table describes and
+     * version requests, which a read makes whenever the table's access is not cached (always for a
+     * managed table), do not take it: the REST and Directory namespaces are safe to call
+     * concurrently (lance-jni calls them through a shared reference on its multi-threaded runtime),
+     * and a stalled describe must not hold up every other table of the catalog.
+     */
     private final Object namespaceLock = new Object();
     private final long tableAccessTtlNanos;
     private final Ticker ticker;
@@ -227,22 +242,137 @@ final class LanceNamespaceClient {
 
     private CachedTableAccess loadTableAccess(List<String> tableId) {
         DescribeTableResponse table = describeTable(tableId);
-        if (Boolean.TRUE.equals(table.getManagedVersioning())) {
-            throw new UnsupportedOperationException(
-                    "Lance managed versioning is not supported by the current BE reader");
+        if (Boolean.TRUE.equals(table.getIsOnlyDeclared())) {
+            throw new RuntimeException("Lance table is declared in the namespace but has no data yet");
         }
         String datasetUri = StringUtils.firstNonBlank(table.getTableUri(), table.getLocation());
         if (datasetUri == null) {
             throw new RuntimeException("Lance namespace returned no table URI for " + tableId);
         }
 
-        // One option map serves both readers: the FE opens the dataset through the Lance Java SDK
-        // and the BE through lance-c, so neither can end up with credentials the other lacks. The
-        // dataset URL picks the option vocabulary, the same way Lance picks a provider from it.
-        Map<String, String> storageOptions = LanceStorageOptions.fromDorisAndVendedStorageOptions(datasetUri,
-                storageProperties, table.getStorageOptions());
-        return new CachedTableAccess(new LanceTableAccess(datasetUri, storageOptions),
-                tableAccessTtlNanos(datasetUri, table.getStorageOptions()));
+        LanceTableAccess access;
+        boolean managed = Boolean.TRUE.equals(table.getManagedVersioning());
+        if (managed) {
+            // The namespace decides which versions exist; the FE and the BE both read one of them
+            // by URI, which is all lance-c supports. The manifest paths the namespace records are
+            // object-store paths under `location`, so `table_uri` must name the same place; it may
+            // add a query, such as presigned credentials, which Doris then opens it with.
+            if (StringUtils.isBlank(table.getLocation())) {
+                throw new RuntimeException("Lance namespace returned no location for managed table " + tableId);
+            }
+            // An s3+ddb URI commits through DynamoDB, whose handler records and finalizes versions
+            // itself, even on read; the namespace already decides the versions of a managed table.
+            if (StringUtils.startsWithIgnoreCase(datasetUri, "s3+ddb:")) {
+                throw new RuntimeException("Lance namespace returned an s3+ddb URI for managed table " + tableId
+                        + ", whose versions the namespace manages");
+            }
+            if (StringUtils.isNotBlank(table.getTableUri())
+                    && !withoutQuery(table.getTableUri()).equals(withoutQuery(table.getLocation()))) {
+                throw new RuntimeException("Lance namespace returned a table_uri that differs from location for "
+                        + "managed table " + tableId);
+            }
+            access = LanceTableAccess.managedByNamespace(datasetUri,
+                    storageOptions(datasetUri, table.getStorageOptions()), tableId);
+        } else {
+            access = new LanceTableAccess(datasetUri, storageOptions(datasetUri, table.getStorageOptions()));
+        }
+        // A managed access is not cached: the version list the read asks for next is the
+        // namespace's current one, and must be checked against the location the namespace
+        // reports now, not against one it reported before moving the table.
+        return new CachedTableAccess(access, managed ? 0 : tableAccessTtlNanos(datasetUri, table.getStorageOptions()));
+    }
+
+    /**
+     * A location without its query and trailing slash. A fragment is kept: Lance ignores it, but
+     * joins a branch directory after it, so it would move the branch onto the table root.
+     */
+    private static String withoutQuery(String uri) {
+        return StringUtils.removeEnd(StringUtils.substringBefore(uri, "?"), "/");
+    }
+
+    /**
+     * One option map serves both readers: the FE opens the dataset through the Lance Java SDK and
+     * the BE through lance-c, so neither can end up with credentials the other lacks. The dataset
+     * URL picks the option vocabulary, the same way Lance picks a provider from it.
+     */
+    private Map<String, String> storageOptions(String datasetUri, Map<String, String> vendedOptions) {
+        return LanceStorageOptions.fromDorisAndVendedStorageOptions(datasetUri, storageProperties, vendedOptions);
+    }
+
+    /**
+     * Every version the namespace records for a managed chain. No page size is requested: Lance's
+     * Directory namespace applies a limit without returning a page token, which would silently
+     * truncate the history, while a namespace that pages on its own still returns one.
+     */
+    List<TableVersion> listManagedVersions(LanceTableAccess access, Optional<String> branch) {
+        List<TableVersion> result = new ArrayList<>();
+        String pageToken = null;
+        Set<String> consumedTokens = new HashSet<>();
+        do {
+            ListTableVersionsRequest request = new ListTableVersionsRequest().id(access.getNamespaceTableId());
+            branch.ifPresent(request::branch);
+            if (pageToken != null) {
+                request.pageToken(pageToken);
+            }
+            ListTableVersionsResponse response = namespace.listTableVersions(request);
+            if (response.getVersions() != null) {
+                result.addAll(response.getVersions());
+            }
+            pageToken = response.getPageToken();
+            if (StringUtils.isNotEmpty(pageToken) && !consumedTokens.add(pageToken)) {
+                throw new IllegalStateException("Lance namespace repeated a pagination token");
+            }
+        } while (StringUtils.isNotEmpty(pageToken));
+        return result;
+    }
+
+    /**
+     * The newest version the namespace records for a managed chain, asked for the way the Lance
+     * SDK asks when it opens the latest version: newest first, one entry. Empty when the chain
+     * records no version.
+     */
+    Optional<TableVersion> latestManagedVersion(LanceTableAccess access, Optional<String> branch) {
+        String pageToken = null;
+        Set<String> consumedTokens = new HashSet<>();
+        do {
+            ListTableVersionsRequest request = new ListTableVersionsRequest().id(access.getNamespaceTableId())
+                    .descending(true).limit(1);
+            branch.ifPresent(request::branch);
+            if (pageToken != null) {
+                request.pageToken(pageToken);
+            }
+            ListTableVersionsResponse response = namespace.listTableVersions(request);
+            // The maximum rather than the first entry, in case a namespace ignores the limit. A
+            // limit is an upper bound, so a page may be empty and the version on a later one.
+            Optional<TableVersion> newest = response.getVersions() == null ? Optional.empty()
+                    : response.getVersions().stream().filter(version -> version.getVersion() != null)
+                            .max(Comparator.comparingLong(TableVersion::getVersion));
+            if (newest.isPresent()) {
+                return newest;
+            }
+            pageToken = response.getPageToken();
+            if (StringUtils.isNotEmpty(pageToken) && !consumedTokens.add(pageToken)) {
+                throw new IllegalStateException("Lance namespace repeated a pagination token");
+            }
+        } while (StringUtils.isNotEmpty(pageToken));
+        return Optional.empty();
+    }
+
+    /**
+     * What the namespace records for one version of a managed chain.
+     *
+     * @throws TableVersionNotFoundException if the namespace does not record it
+     */
+    TableVersion describeManagedVersion(LanceTableAccess access, Optional<String> branch, long version) {
+        DescribeTableVersionRequest request = new DescribeTableVersionRequest().id(access.getNamespaceTableId())
+                .version(version);
+        branch.ifPresent(request::branch);
+        DescribeTableVersionResponse response = namespace.describeTableVersion(request);
+        if (response.getVersion() == null || !Long.valueOf(version).equals(response.getVersion().getVersion())) {
+            throw new IllegalStateException("Lance namespace described another version than " + version
+                    + " of table " + access.getNamespaceTableId());
+        }
+        return response.getVersion();
     }
 
     private long tableAccessTtlNanos(String datasetUri, Map<String, String> vendedOptions) {
@@ -302,9 +432,7 @@ final class LanceNamespaceClient {
     private DescribeTableResponse describeTable(List<String> tableId) {
         DescribeTableRequest request = new DescribeTableRequest().id(tableId).withTableUri(true)
                 .vendCredentials(LANCE_REST.equals(catalogType));
-        synchronized (namespaceLock) {
-            return namespace.describeTable(request);
-        }
+        return namespace.describeTable(request);
     }
 
     private List<String> buildNamespaceId(String dbName) throws DdlException {
