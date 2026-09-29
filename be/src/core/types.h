@@ -573,7 +573,6 @@ struct NativeType<Decimal256> {
     using Type = wide::Int256;
 };
 
-// NOLINTEND(readability-function-size)
 } // namespace doris
 
 /// Specialization of `std::hash` for the Decimal<T> types.
