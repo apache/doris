@@ -23,6 +23,7 @@ import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
 
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.types.DataField;
@@ -37,6 +38,18 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public class PaimonWritePlanProviderTest {
+
+    @Test
+    public void changelogModeMatchesJniWriterEncoding() {
+        PaimonWritePlanProvider provider = new PaimonWritePlanProvider(null, null, null);
+        ConnectorChangelogMode mode = provider.getChangelogMode().orElseThrow(AssertionError::new);
+
+        Assertions.assertEquals(PaimonWritePlanProvider.ROW_KIND_COLUMN,
+                mode.getOperationColumnName());
+        Assertions.assertEquals(PaimonWritePlanProvider.INSERT_OPERATION, mode.getInsertValue());
+        Assertions.assertEquals(PaimonWritePlanProvider.UPDATE_OPERATION, mode.getUpdateValue());
+        Assertions.assertEquals(PaimonWritePlanProvider.DELETE_OPERATION, mode.getDeleteValue());
+    }
 
     @Test
     public void paimonWritesUseReservedExternalSinkVersion() {

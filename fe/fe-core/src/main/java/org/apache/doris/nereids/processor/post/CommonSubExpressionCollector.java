@@ -50,9 +50,9 @@ public class CommonSubExpressionCollector extends ExpressionVisitor<Integer, Boo
 
     @Override
     public Integer visitShortCircuitIf(ShortCircuitIf expr, Boolean inLambda) {
-        // Do not hoist the control-flow expression itself, but keep finding CSE candidates
-        // inside its condition and branches.
-        return collectChildrenDepth(expr.children(), inLambda);
+        // A short-circuit expression is an evaluation boundary. Extracting anything from its
+        // branches into an earlier projection layer would evaluate inactive branches eagerly.
+        return 0;
     }
 
     @Override

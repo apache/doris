@@ -25,6 +25,7 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.ConnectorTransaction;
 import org.apache.doris.connector.spi.handle.ConnectorWriteHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
+import org.apache.doris.connector.spi.write.ConnectorChangelogMode;
 import org.apache.doris.connector.spi.write.ConnectorRowChangeStyle;
 import org.apache.doris.connector.spi.write.ConnectorRowLevelDmlRequest;
 import org.apache.doris.connector.spi.write.ConnectorSinkPlan;
@@ -66,6 +67,9 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
     static final int MIN_BE_EXEC_VERSION = 13;
 
     static final String ROW_KIND_COLUMN = "__DORIS_PAIMON_ROW_KIND__";
+    static final byte INSERT_OPERATION = 0;
+    static final byte UPDATE_OPERATION = 1;
+    static final byte DELETE_OPERATION = 2;
 
     private final PaimonCatalogProperties catalogProperties;
     private final PaimonCatalogOps catalogOps;
@@ -180,6 +184,12 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
     @Override
     public ConnectorRowChangeStyle getRowChangeStyle() {
         return ConnectorRowChangeStyle.CHANGELOG;
+    }
+
+    @Override
+    public Optional<ConnectorChangelogMode> getChangelogMode() {
+        return Optional.of(new ConnectorChangelogMode(
+                ROW_KIND_COLUMN, INSERT_OPERATION, UPDATE_OPERATION, DELETE_OPERATION));
     }
 
     @Override

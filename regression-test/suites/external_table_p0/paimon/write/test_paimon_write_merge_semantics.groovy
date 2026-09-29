@@ -189,7 +189,7 @@ suite("test_paimon_write_merge_semantics", "p0,external,paimon") {
                     VALUES (s.id, s.delta,
                         named_struct('x', s.new_x, 'y', s.new_y), 'invalid')
             """
-            exception "requires values for every table column"
+            exception "Column has no default value, column=required_value"
         }
         assertEquals(beforeFailureSnapshot, latestSnapshotId())
         assertEquals(beforeFailureFiles, activeFileCount())

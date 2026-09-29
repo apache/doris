@@ -59,19 +59,9 @@ suite("test_paimon_write_external_paths", "p0,external,paimon") {
             'data-file.external-paths.strategy' = 'round-robin'
         );
 
-        DROP TABLE IF EXISTS paimon.${dbName}.t_weight_robin;
-        CREATE TABLE paimon.${dbName}.t_weight_robin (
-            id INT, payload STRING
-        ) USING paimon
-        TBLPROPERTIES (
-            'primary-key' = 'id',
-            'bucket' = '1',
-            'write-only' = 'true',
-            'target-file-size' = '1 kb',
-            'data-file.external-paths' = '${pathRoot}/weight-a,${pathRoot}/weight-b',
-            'data-file.external-paths.strategy' = 'weight-robin',
-            'data-file.external-paths.weights' = '1,1'
-        );
+        -- The Spark fixture uses Paimon 1.3.1, which cannot create a table with the
+        -- weight-robin strategy introduced in Paimon 1.4. Re-enable that strategy
+        -- after the fixture has a compatible Spark connector.
 
         DROP TABLE IF EXISTS paimon.${dbName}.t_specific_fs;
         CREATE TABLE paimon.${dbName}.t_specific_fs (
@@ -206,18 +196,6 @@ suite("test_paimon_write_external_paths", "p0,external,paimon") {
         })
         assertDorisSparkRows("external_round_robin_changed", "t_round_robin",
                 "pt, id, length(payload)", "ORDER BY pt, id")
-
-        (1..6).each { id ->
-            sql """INSERT INTO t_weight_robin VALUES (${id}, 'weight-${id}')"""
-        }
-        def weightedFiles = dataFiles("t_weight_robin")
-        assertFalse(weightedFiles.isEmpty())
-        assertTrue(weightedFiles.every {
-            it.startsWith("${pathRoot}/weight-a/") ||
-                    it.startsWith("${pathRoot}/weight-b/")
-        })
-        assertDorisSparkRows("external_weight_robin", "t_weight_robin",
-                "id, payload", "ORDER BY id")
 
         sql """INSERT INTO t_specific_fs VALUES (1, 'specific-1')"""
         sql """INSERT INTO t_specific_fs VALUES (2, 'specific-2')"""

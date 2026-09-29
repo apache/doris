@@ -75,7 +75,7 @@ public class CommonSubExpressionTest extends ExpressionRewriteTestHelper {
     }
 
     @Test
-    public void testShortCircuitIfStillCollectsChildCommonExpressions() {
+    public void testShortCircuitIfDoesNotCollectChildCommonExpressions() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
         SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
         Expression add = new Add(a, b);
@@ -85,10 +85,23 @@ public class CommonSubExpressionTest extends ExpressionRewriteTestHelper {
 
         collector.collect(guarded);
 
-        Assertions.assertTrue(collector.commonExprByDepth.values().stream()
+        Assertions.assertFalse(collector.commonExprByDepth.values().stream()
                 .anyMatch(expressions -> expressions.contains(add)));
         Assertions.assertFalse(collector.commonExprByDepth.values().stream()
                 .anyMatch(expressions -> expressions.contains(guarded)));
+    }
+
+    @Test
+    public void testShortCircuitIfDoesNotReuseExtractedBranchExpression() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        Expression add = new Add(a, b);
+        ShortCircuitIf guarded = new ShortCircuitIf(BooleanLiteral.TRUE, add, Literal.of(0));
+        Alias extracted = new Alias(add, "extracted");
+
+        Assertions.assertEquals(guarded,
+                guarded.accept(CommonSubExpressionOpt.ExpressionReplacer.INSTANCE,
+                        ImmutableMap.of(add, extracted)));
     }
 
     @Test

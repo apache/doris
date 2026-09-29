@@ -477,7 +477,7 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
                 ON t.id = s.id
                 WHEN MATCHED THEN UPDATE SET name = s.name, score = s.score
             """
-            exception "Paimon MERGE matched one target row with multiple source rows"
+            exception "Connector MERGE matched one target row with multiple source rows"
         }
         order_qt_paimon_merge_duplicate_unchanged """SELECT * FROM t_dml ORDER BY id"""
 
@@ -498,7 +498,7 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
                 WHEN NOT MATCHED THEN INSERT (id, name, score, status)
                     VALUES (s.id, s.name, s.score, 'invalid-extra-predicate')
             """
-            exception "Paimon MERGE with NOT MATCHED INSERT requires ON to contain only equality predicates"
+            exception "Connector MERGE with NOT MATCHED INSERT requires ON to contain only equality predicates"
         }
 
         sql """TRUNCATE TABLE internal.${dbName}.t_merge_source"""
@@ -514,7 +514,7 @@ suite("test_paimon_write_row_level_dml", "p0,external,paimon") {
                 WHEN NOT MATCHED THEN INSERT (id, name, score, status)
                     VALUES (s.id, s.name, s.score, 'duplicate-insert')
             """
-            exception "Paimon MERGE attempted to insert multiple rows with the same primary key"
+            exception "Connector MERGE attempted to insert multiple rows with the same primary key"
         }
         order_qt_paimon_merge_duplicate_insert_unchanged """SELECT * FROM t_dml ORDER BY id"""
 

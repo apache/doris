@@ -32,14 +32,6 @@ p2	4	4
 p3	5	4
 p3	6	3
 
--- !external_weight_robin --
-1	weight-1
-2	weight-2
-3	weight-3
-4	weight-4
-5	weight-5
-6	weight-6
-
 -- !external_specific_fs --
 1	specific-1
 2	specific-2
