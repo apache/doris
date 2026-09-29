@@ -516,8 +516,9 @@ inline void CastToString::push_timestamp_ns(const TimeStampNsValue& from, Buffer
 inline void CastToString::push_timestamptz(const TimestampTzValue& from, UInt32 scale,
                                            BufferWritable& bw,
                                            const DataTypeSerDe::FormatOptions& options) {
-    auto str = from.to_string(*options.timezone, scale);
-    bw.write(str.data(), str.size());
+    char buffer[64];
+    const int len = from.to_buffer(buffer, *options.timezone, scale);
+    bw.write(buffer, len);
 }
 
 // IPv4
