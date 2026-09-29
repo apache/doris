@@ -31,6 +31,19 @@ import java.util.Optional;
 public class HiveMetadataOpsTest {
     @Test
     @SuppressWarnings("unchecked")
+    public void testAlternateCaseCreateResetsWarmDatabaseTableNames() {
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        ExternalDatabase<?> db = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(catalog.getDbForReplay("mixeddb")).thenReturn((Optional) Optional.of(db));
+
+        new HiveMetadataOps(catalog, Mockito.mock(HMSCachedClient.class))
+                .afterCreateTable("mixeddb", "new_table");
+
+        Mockito.verify(db).resetMetaCacheNames();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     public void testColdTruncateReplayInvalidatesCanonicalDatabaseScope() {
         HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
         Mockito.when(catalog.getId()).thenReturn(1L);

@@ -446,7 +446,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void afterDropTable(String dbName, String tblName) {
-        Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dbName);
+        Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForDropReplay(dbName);
         if (db.isPresent()) {
             db.get().unregisterTable(tblName);
         } else {

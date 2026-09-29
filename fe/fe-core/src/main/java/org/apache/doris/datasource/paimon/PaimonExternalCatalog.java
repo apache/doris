@@ -184,7 +184,8 @@ public class PaimonExternalCatalog extends ExternalCatalog {
                 String remoteName = identifier.getDatabaseName();
                 String candidateLocalName = nameMode == 2 ? remoteName : fromRemoteDatabaseName(remoteName);
                 if (nameMode == 1) {
-                    candidateLocalName = candidateLocalName.toLowerCase(Locale.ROOT);
+                    // Match ExternalCatalog's mode-1 local database name and deterministic ID.
+                    candidateLocalName = candidateLocalName.toLowerCase();
                 }
                 return identifierPartEquals(candidateLocalName, localDbName, caseSensitive);
             });

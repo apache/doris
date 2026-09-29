@@ -191,27 +191,10 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void afterDropDb(String dbName) {
-        Optional<ExternalDatabase<? extends ExternalTable>> db = dorisCatalog.getDbForReplay(dbName);
         try {
-            if (db.isPresent()) {
-                // getDbForReplay normalizes case-insensitive database names (lower_case_database_names
-                // mode 1/2), so an alternate-case DROP DATABASE can resolve the cached database while
-                // an exact-key eviction with the caller's spelling would miss it.
-                dorisCatalog.unregisterDatabase(db.get().getFullName());
-                return;
-            }
-            if (dorisCatalog.getDbIdentityForReplay(dbName, 0L).isPresent()) {
-                dorisCatalog.unregisterDatabase(dbName);
-                return;
-            }
-            // The cached database could not be resolved (for example a mode-2 case mapping was removed
-            // by a names refresh before replay). Exact-key eviction can miss the canonical local key,
-            // so also retire the remaining legacy database objects; otherwise a same-name recreation
-            // could reuse the stale object and its nested table-name cache. The catalog-wide engine
-            // flush below covers the SDK side, so the per-database engine callbacks are suppressed.
+            // The DROP owns historical-name resolution. Ordinary replay lookup also serves CREATE
+            // and REFRESH, where a case-insensitive alias must still resolve the current database.
             dorisCatalog.unregisterDatabase(dbName);
-            dorisCatalog.retireAllDatabaseObjectsWithoutEngineInvalidation();
-            invalidatePaimonCatalogForUnresolvedReplay();
         } catch (Exception e) {
             // The remote drop is already committed and ExternalCatalog.dropDb still has to journal
             // it; keep the post-drop cache cleanup best-effort so the log and its replay are not
@@ -396,7 +379,7 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void afterDropTable(String dbName, String tblName) {
-        Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dbName);
+        Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForDropReplay(dbName);
         try {
             if (db.isPresent()) {
                 boolean invalidated = db.get().unregisterTableForReplay(tblName);

@@ -962,15 +962,6 @@ public abstract class ExternalCatalog
         String localDbName = getLocalDatabaseName(dbName, true);
         if (localDbName == null) {
             localDbName = dbName;  // Fallback to original name
-        } else if (getLowerCaseDatabaseNames() == 2 && !localDbName.equals(dbName)) {
-            // The current case-insensitive mapping may have rebound after a DROP. A replay
-            // record names the historical object, not a new same-folded replacement.
-            long historicalId = Util.genIdByName(name, dbName);
-            if (metaCache.getNameByIdIfPresent(historicalId).isPresent()) {
-                localDbName = dbName;
-            } else {
-                return Optional.empty();
-            }
         }
 
         return metaCache.tryGetMetaObj(localDbName);
@@ -983,15 +974,32 @@ public abstract class ExternalCatalog
         }
         if (dbName != null && !dbName.isEmpty()) {
             String localName = getLocalDatabaseName(dbName, true);
-            if (getLowerCaseDatabaseNames() == 2 && localName != null && !localName.equals(dbName)) {
-                long historicalId = Util.genIdByName(name, dbName);
-                return metaCache.getNameByIdIfPresent(historicalId)
-                        .map(historicalName -> Pair.of(historicalName, historicalId));
-            }
             return localName == null ? Optional.empty()
                     : Optional.of(Pair.of(localName, Util.genIdByName(name, localName)));
         }
         return metaCache.getNameByIdIfPresent(dbId).map(localName -> Pair.of(localName, dbId));
+    }
+
+    /** A DROP must not follow a mode-2 mapping that has rebound to a case-only replacement. */
+    private Optional<Pair<String, Long>> getDbIdentityForDrop(String dbName) {
+        if (!isInitialized() || metaCache == null) {
+            return Optional.empty();
+        }
+        String localName = getLocalDatabaseName(dbName, true);
+        if (localName == null) {
+            return Optional.empty();
+        }
+        if (getLowerCaseDatabaseNames() == 2 && !localName.equals(dbName)) {
+            long historicalId = Util.genIdByName(name, dbName);
+            return metaCache.getNameByIdIfPresent(historicalId)
+                    .map(historicalName -> Pair.of(historicalName, historicalId));
+        }
+        return Optional.of(Pair.of(localName, Util.genIdByName(name, localName)));
+    }
+
+    /** Cache-only DROP lookup; normal replay lookups may follow a current case-insensitive alias. */
+    public Optional<ExternalDatabase<? extends ExternalTable>> getDbForDropReplay(String dbName) {
+        return getDbIdentityForDrop(dbName).flatMap(identity -> metaCache.tryGetMetaObj(identity.first));
     }
 
     /**
@@ -1291,13 +1299,8 @@ public abstract class ExternalCatalog
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), dbName);
             return;
         }
-        String localDbName = getLocalDatabaseName(dbName, true);
-        if (localDbName != null && getLowerCaseDatabaseNames() == 2 && !localDbName.equals(dbName)) {
-            // Prefer the logged spelling when its old name slot survives a names refresh.
-            // Otherwise the current mapping cannot identify the historical DROP target.
-            localDbName = metaCache.getNameByIdIfPresent(Util.genIdByName(name, dbName)).orElse(null);
-        }
-        if (localDbName == null) {
+        Optional<Pair<String, Long>> identity = getDbIdentityForDrop(dbName);
+        if (!identity.isPresent()) {
             // A mode-2 remote-to-local mapping can disappear (for example after a names refresh)
             // while the resident database object survives. The canonical key is then unknown, so
             // treat the scope as unknown: retire every cached database object and flush the engine
@@ -1306,7 +1309,8 @@ public abstract class ExternalCatalog
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(getId());
             return;
         }
-        long dbId = Util.genIdByName(name, localDbName);
+        String localDbName = identity.get().first;
+        long dbId = identity.get().second;
         // A cold database has no removal callback. Fence its deterministic table IDs before
         // removing the name slot, so a same-name replacement cannot use an old completed count.
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(getId(), dbId);
@@ -1380,7 +1384,7 @@ public abstract class ExternalCatalog
     /** Retire a cold replay database narrowly when its canonical name survived object eviction. */
     public void invalidateColdDatabaseForReplay(String dbName) {
         try {
-            Optional<Pair<String, Long>> identity = getDbIdentityForReplay(dbName, 0L);
+            Optional<Pair<String, Long>> identity = getDbIdentityForDrop(dbName);
             if (identity.isPresent()) {
                 Env.getCurrentEnv().getExtMetaCacheMgr()
                         .invalidateDb(getId(), identity.get().second, identity.get().first);

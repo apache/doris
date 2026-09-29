@@ -95,6 +95,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Callable;
@@ -2625,6 +2626,51 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
+    public void testModeOneSdkOnlyDatabaseInvalidationUsesCatalogLocale() throws Exception {
+        Locale previousLocale = Locale.getDefault();
+        Locale.setDefault(new Locale("tr", "TR"));
+        PaimonExternalCatalog dorisCatalog = null;
+        PaimonExternalCatalog externalCatalog = null;
+        try {
+            java.io.File warehouse = temporaryFolder.newFolder("mode_one_turkish_sdk_invalidation");
+            Map<String, String> properties = new HashMap<>();
+            properties.put("type", "paimon");
+            properties.put(PaimonExternalCatalog.PAIMON_CATALOG_TYPE,
+                    PaimonExternalCatalog.PAIMON_FILESYSTEM);
+            properties.put("warehouse", warehouse.toURI().toString());
+            properties.put(ExternalCatalog.LOWER_CASE_DATABASE_NAMES, "1");
+            dorisCatalog = new PaimonExternalCatalog(121L, "mode_one_turkish_sdk_test", null, properties, "");
+            dorisCatalog.makeSureInitialized();
+            dorisCatalog.catalog.createDatabase("I", false);
+            Identifier identifier = Identifier.create("I", "table");
+            Schema schema = Schema.newBuilder().column("id", DataTypes.INT()).build();
+            dorisCatalog.catalog.createTable(identifier, schema, false);
+            dorisCatalog.catalog.getTable(identifier); // Populate only the SDK cache.
+
+            Map<String, String> uncachedProperties = new HashMap<>(properties);
+            uncachedProperties.put("paimon.cache-enabled", "false");
+            externalCatalog = new PaimonExternalCatalog(122L, "mode_one_turkish_external", null,
+                    uncachedProperties, "");
+            externalCatalog.makeSureInitialized();
+            externalCatalog.catalog.dropTable(identifier, false);
+
+            // Doris mode 1 stores local "I" as the Turkish dotless "ı" on this FE.
+            dorisCatalog.invalidatePaimonDatabaseByLocalName("ı");
+            PaimonExternalCatalog cachedCatalog = dorisCatalog;
+            Assert.assertThrows(Catalog.TableNotExistException.class,
+                    () -> cachedCatalog.catalog.getTable(identifier));
+        } finally {
+            if (dorisCatalog != null) {
+                dorisCatalog.catalog.close();
+            }
+            if (externalCatalog != null) {
+                externalCatalog.catalog.close();
+            }
+            Locale.setDefault(previousLocale);
+        }
+    }
+
+    @Test
     public void testCatalogResetWaitsForInFlightSdkTableLoad() throws Exception {
         java.io.File warehouse = temporaryFolder.newFolder("reset_fences_inflight_load");
         Map<String, String> properties = new HashMap<>();
@@ -3769,7 +3815,6 @@ public class PaimonExternalMetaCacheTest {
         }
     }
 }
-
 
 
 

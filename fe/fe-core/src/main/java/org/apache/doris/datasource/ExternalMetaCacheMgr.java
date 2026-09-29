@@ -382,6 +382,7 @@ public class ExternalMetaCacheMgr {
     }
 
     public void invalidateCatalog(long catalogId) {
+        rowCountCache.invalidateCatalog(catalogId);
         try {
             invalidateLanceTableAccess(catalogId);
             routeCatalogEngines(catalogId, cache -> safeInvalidate(
@@ -529,19 +530,26 @@ public class ExternalMetaCacheMgr {
     }
 
     private void invalidateDb(long catalogId, String dbName, OptionalLong dbId, boolean invalidateRowCountCache) {
+        if (invalidateRowCountCache) {
+            invalidateDatabaseRowCount(catalogId, dbId);
+        }
         try {
             routeCatalogEngines(catalogId, cache -> safeInvalidate(
                     cache, catalogId, "invalidateDb", () -> cache.invalidateDb(catalogId, dbName)));
         } finally {
             if (invalidateRowCountCache) {
-                if (dbId.isPresent()) {
-                    rowCountCache.invalidateDb(catalogId, dbId.getAsLong());
-                } else {
-                    // The database object cache is smaller than the row-count cache. If the object has
-                    // already been evicted, retire the catalog scope rather than hashing caller spelling.
-                    rowCountCache.invalidateCatalog(catalogId);
-                }
+                invalidateDatabaseRowCount(catalogId, dbId);
             }
+        }
+    }
+
+    private void invalidateDatabaseRowCount(long catalogId, OptionalLong dbId) {
+        if (dbId.isPresent()) {
+            rowCountCache.invalidateDb(catalogId, dbId.getAsLong());
+        } else {
+            // The database object cache is smaller than the row-count cache. If the object has
+            // already been evicted, retire the catalog scope rather than hashing caller spelling.
+            rowCountCache.invalidateCatalog(catalogId);
         }
     }
 
@@ -554,8 +562,9 @@ public class ExternalMetaCacheMgr {
     public void invalidateTable(long catalogId, String dbName, String tableName) {
         Optional<ExternalDatabase<? extends ExternalTable>> db = Optional.empty();
         try {
-            invalidateLanceTableAccess(catalogId);
             db = getCachedDb(catalogId, dbName);
+            invalidateTableRowCount(catalogId, db, tableName);
+            invalidateLanceTableAccess(catalogId);
             routeCatalogEngines(catalogId, cache -> safeInvalidate(
                     cache, catalogId, "invalidateTable",
                     () -> cache.invalidateTable(catalogId, dbName, tableName)));
@@ -568,6 +577,7 @@ public class ExternalMetaCacheMgr {
         Optional<ExternalDatabase<? extends ExternalTable>> db = Optional.empty();
         try {
             db = getCachedDb(catalogId, dbName);
+            invalidateTableRowCount(catalogId, db, tableName);
             routeSpecifiedEngine(engine, cache -> safeInvalidate(
                     cache, catalogId, "invalidateTableByEngine",
                     () -> cache.invalidateTable(catalogId, dbName, tableName)));
@@ -590,6 +600,7 @@ public class ExternalMetaCacheMgr {
         Optional<ExternalDatabase<? extends ExternalTable>> db = Optional.empty();
         try {
             db = getCachedDb(catalogId, dbName);
+            invalidateTableRowCount(catalogId, db, tableName);
             routeCatalogEngines(catalogId, cache -> safeInvalidate(
                     cache, catalogId, "invalidatePartitions",
                     () -> cache.invalidatePartitions(catalogId, dbName, tableName, partitions)));

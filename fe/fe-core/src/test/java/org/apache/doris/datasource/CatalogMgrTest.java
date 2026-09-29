@@ -86,13 +86,12 @@ public class CatalogMgrTest {
         Map<String, String> mapping = (Map<String, String>) mappingField.get(catalog);
         mapping.put("mixeddb", "MixedDb");
 
-        long historicalId = Util.genIdByName("testing_catalog", "mixeddb");
-        Mockito.when(metaCache.getNameByIdIfPresent(historicalId)).thenReturn(Optional.of("mixeddb"));
-        Assertions.assertEquals(Pair.of("mixeddb", historicalId),
+        @SuppressWarnings("unchecked")
+        ExternalDatabase<? extends ExternalTable> warmDb = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(metaCache.tryGetMetaObj("MixedDb")).thenReturn(Optional.of(warmDb));
+        Assertions.assertSame(warmDb, catalog.getDbForReplay("mixeddb").orElseThrow(AssertionError::new));
+        Assertions.assertEquals(Pair.of("MixedDb", Util.genIdByName("testing_catalog", "MixedDb")),
                 catalog.getDbIdentityForReplay("mixeddb", 0L).orElseThrow(AssertionError::new));
-        Mockito.when(metaCache.getNameByIdIfPresent(historicalId)).thenReturn(Optional.empty());
-        Assertions.assertFalse(catalog.getDbIdentityForReplay("mixeddb", 0L).isPresent());
-        mapping.put("mixeddb", "MixedDb");
         Assertions.assertEquals(Pair.of("MixedDb", Util.genIdByName("testing_catalog", "MixedDb")),
                 catalog.getDbIdentityForReplay("MixedDb", 0L).orElseThrow(AssertionError::new));
         Mockito.verify(metaCache, Mockito.never()).getMetaObj(Mockito.anyString(), Mockito.anyLong());
@@ -637,6 +636,14 @@ public class CatalogMgrTest {
         mapping.put("foo", "FOO");
         long oldId = Util.genIdByName("testing_catalog", "Foo");
         Mockito.when(metaCache.getNameByIdIfPresent(oldId)).thenReturn(Optional.of("Foo"));
+        @SuppressWarnings("unchecked")
+        ExternalDatabase<? extends ExternalTable> oldDb = Mockito.mock(ExternalDatabase.class);
+        @SuppressWarnings("unchecked")
+        ExternalDatabase<? extends ExternalTable> replacementDb = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(metaCache.tryGetMetaObj("Foo")).thenReturn(Optional.of(oldDb));
+        Mockito.when(metaCache.tryGetMetaObj("FOO")).thenReturn(Optional.of(replacementDb));
+        Assertions.assertSame(replacementDb, catalog.getDbForReplay("Foo").orElseThrow(AssertionError::new));
+        Assertions.assertSame(oldDb, catalog.getDbForDropReplay("Foo").orElseThrow(AssertionError::new));
 
         Env env = Mockito.mock(Env.class);
         ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
@@ -650,6 +657,35 @@ public class CatalogMgrTest {
         Mockito.verify(metaCache, Mockito.never()).invalidate("FOO",
                 Util.genIdByName("testing_catalog", "FOO"));
         Mockito.verify(cacheMgr).invalidateDb(catalogId, oldId, "Foo");
+    }
+
+    @Test
+    void testColdReboundModeTwoDropUsesHistoricalIdentity() throws Exception {
+        long catalogId = 90L;
+        TestingUnregisterCatalog catalog = new TestingUnregisterCatalog(catalogId,
+                ImmutableMap.of(ExternalCatalog.LOWER_CASE_DATABASE_NAMES, "2"));
+        @SuppressWarnings("unchecked")
+        MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache = Mockito.mock(MetaCache.class);
+        catalog.installMetaCache(metaCache);
+        Field mappingField = ExternalCatalog.class.getDeclaredField("lowerCaseToDatabaseName");
+        mappingField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<String, String> mapping = (Map<String, String>) mappingField.get(catalog);
+        mapping.put("foo", "FOO");
+        long oldId = Util.genIdByName("testing_catalog", "Foo");
+        Mockito.when(metaCache.getNameByIdIfPresent(oldId)).thenReturn(Optional.of("Foo"));
+        Env env = Mockito.mock(Env.class);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            catalog.invalidateColdDatabaseForReplay("Foo");
+        }
+
+        Mockito.verify(cacheMgr).invalidateDb(catalogId, oldId, "Foo");
+        Mockito.verify(cacheMgr, Mockito.never()).invalidateDb(catalogId,
+                Util.genIdByName("testing_catalog", "FOO"), "FOO");
     }
 
     @Test

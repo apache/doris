@@ -320,7 +320,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void afterDropTable(String dbName, String tblName) {
-        Optional<ExternalDatabase<?>> db = catalog.getDbForReplay(dbName);
+        Optional<ExternalDatabase<?>> db = catalog.getDbForDropReplay(dbName);
         if (db.isPresent()) {
             db.get().unregisterTable(tblName);
         } else {
