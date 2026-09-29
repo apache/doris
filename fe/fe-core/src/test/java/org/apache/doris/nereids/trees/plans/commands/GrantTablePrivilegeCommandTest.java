@@ -18,8 +18,10 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.TablePattern;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -103,5 +105,90 @@ public class GrantTablePrivilegeCommandTest extends TestWithFeService {
         LogicalPlan plan = nereidsParser.parseSingle(query);
         Assertions.assertTrue(plan instanceof GrantTablePrivilegeCommand);
         Assertions.assertThrows(DdlException.class, () -> ((GrantTablePrivilegeCommand) plan).run(connectContext, null));
+    }
+
+    @Test
+    public void testGrantColPrivWithOnlyGrantPriv() throws Exception {
+        addUser("col_grantor1", true);
+        addUser("col_target1", true);
+        grantPriv("GRANT GRANT_PRIV ON test.test_table TO 'col_grantor1'");
+        try {
+            useUser("col_grantor1");
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> runCommand("GRANT SELECT_PRIV(k1) ON test.test_table TO 'col_target1'"));
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> runCommand("GRANT SELECT_PRIV(k1, k2) ON test.test_table TO 'col_grantor1'"));
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> runCommand("REVOKE SELECT_PRIV(k1) ON test.test_table FROM 'col_target1'"));
+        } finally {
+            connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
+        }
+    }
+
+    @Test
+    public void testGrantColPrivWithColSelectPriv() throws Exception {
+        addUser("col_grantor2", true);
+        addUser("col_target2", true);
+        grantPriv("GRANT GRANT_PRIV, SELECT_PRIV(k1) ON test.test_table TO 'col_grantor2'");
+        try {
+            useUser("col_grantor2");
+            Assertions.assertDoesNotThrow(
+                    () -> runCommand("GRANT SELECT_PRIV(k1) ON test.test_table TO 'col_target2'"));
+            AnalysisException e = Assertions.assertThrows(AnalysisException.class,
+                    () -> runCommand("GRANT SELECT_PRIV(k2) ON test.test_table TO 'col_target2'"));
+            Assertions.assertTrue(e.getMessage().contains("k2"), e.getMessage());
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> runCommand("GRANT SELECT_PRIV(k1, k2) ON test.test_table TO 'col_target2'"));
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> runCommand("REVOKE SELECT_PRIV(k2) ON test.test_table FROM 'col_target2'"));
+            Assertions.assertDoesNotThrow(
+                    () -> runCommand("REVOKE SELECT_PRIV(k1) ON test.test_table FROM 'col_target2'"));
+        } finally {
+            connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
+        }
+    }
+
+    @Test
+    public void testGrantColPrivWithTableSelectPriv() throws Exception {
+        addUser("col_grantor3", true);
+        addUser("col_target3", true);
+        grantPriv("GRANT GRANT_PRIV, SELECT_PRIV ON test.test_table TO 'col_grantor3'");
+        try {
+            useUser("col_grantor3");
+            Assertions.assertDoesNotThrow(
+                    () -> runCommand("GRANT SELECT_PRIV(k1, k2) ON test.test_table TO 'col_target3'"));
+            Assertions.assertDoesNotThrow(
+                    () -> runCommand("REVOKE SELECT_PRIV(k2) ON test.test_table FROM 'col_target3'"));
+        } finally {
+            connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
+        }
+    }
+
+    @Test
+    public void testGrantColPrivWithDbGrantPriv() throws Exception {
+        addUser("col_grantor4", true);
+        addUser("col_target4", true);
+        grantPriv("GRANT GRANT_PRIV ON test.* TO 'col_grantor4'");
+        try {
+            useUser("col_grantor4");
+            Assertions.assertThrows(AnalysisException.class,
+                    () -> runCommand("GRANT SELECT_PRIV(k1) ON test.test_table TO 'col_target4'"));
+        } finally {
+            connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
+        }
+    }
+
+    @Test
+    public void testGrantColPrivByAdmin() throws Exception {
+        addUser("col_target5", true);
+        Assertions.assertDoesNotThrow(
+                () -> runCommand("GRANT SELECT_PRIV(k1) ON test.test_table TO 'col_target5'"));
+        Assertions.assertDoesNotThrow(
+                () -> runCommand("REVOKE SELECT_PRIV(k1) ON test.test_table FROM 'col_target5'"));
+    }
+
+    private void runCommand(String sql) throws Exception {
+        LogicalPlan plan = new NereidsParser().parseSingle(sql);
+        ((Command) plan).run(connectContext, null);
     }
 }
