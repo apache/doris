@@ -147,6 +147,12 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException {
+        return dropDbImplWithResolvedName(dbName, ifExists, force).isPresent();
+    }
+
+    @Override
+    public Optional<String> dropDbImplWithResolvedName(String dbName, boolean ifExists, boolean force)
+            throws DdlException {
         try {
             return executionAuthenticator.execute(() -> performDropDb(dbName, ifExists, force));
         } catch (Exception e) {
@@ -155,17 +161,17 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
         }
     }
 
-    private boolean performDropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
+    private Optional<String> performDropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
         ExternalDatabase dorisDb = dorisCatalog.getDbNullable(dbName);
         if (dorisDb == null) {
             if (ifExists) {
                 LOG.info("drop database[{}] which does not exist", dbName);
                 // Database does not exist and IF EXISTS is specified; treat as no-op.
-                return false;
+                return Optional.empty();
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_DB_DROP_EXISTS, dbName);
                 // ErrorReport.reportDdlException is expected to throw DdlException.
-                return false;
+                return Optional.empty();
             }
         }
 
@@ -186,7 +192,7 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
         } catch (DatabaseNotEmptyException e) {
             throw new RuntimeException("database " + dbName + " is not empty! please check!");
         }
-        return true;
+        return Optional.of(dorisDb.getFullName());
     }
 
     @Override

@@ -276,6 +276,12 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException {
+        return dropDbImplWithResolvedName(dbName, ifExists, force).isPresent();
+    }
+
+    @Override
+    public Optional<String> dropDbImplWithResolvedName(String dbName, boolean ifExists, boolean force)
+            throws DdlException {
         try {
             return executeCatalogOperation(() -> performDropDb(dbName, ifExists, force));
         } catch (Exception e) {
@@ -284,15 +290,15 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
     }
 
-    private boolean performDropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
+    private Optional<String> performDropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
         ExternalDatabase dorisDb = getDatabaseWithinCatalogGeneration(dbName);
         if (dorisDb == null) {
             if (ifExists) {
                 LOG.info("drop database[{}] which does not exist", dbName);
-                return false;
+                return Optional.empty();
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_DB_DROP_EXISTS, dbName);
-                return false;
+                return Optional.empty();
             }
         }
         if (force) {
@@ -317,11 +323,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 // The remote namespace is already gone, but the resolved local database object
                 // still has to be unregistered, so treat the drop as handled.
                 LOG.info("drop database[{}] force which does not exist", dbName);
-                return true;
+                return Optional.of(dorisDb.getFullName());
             }
         }
         nsCatalog.dropNamespace(getNamespace(dorisDb.getRemoteName()));
-        return true;
+        return Optional.of(dorisDb.getFullName());
     }
 
     @Override

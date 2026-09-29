@@ -28,9 +28,12 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.datasource.metacache.MetaCache;
+import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.property.metastore.AbstractPaimonProperties;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.persist.DropDbInfo;
+import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.statistics.query.QueryStats;
 
@@ -40,6 +43,7 @@ import mockit.Mock;
 import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -644,6 +648,7 @@ public class CatalogMgrTest {
         Mockito.when(metaCache.tryGetMetaObj("FOO")).thenReturn(Optional.of(replacementDb));
         Assertions.assertSame(replacementDb, catalog.getDbForReplay("Foo").orElseThrow(AssertionError::new));
         Assertions.assertSame(oldDb, catalog.getDbForDropReplay("Foo").orElseThrow(AssertionError::new));
+        Assertions.assertSame(replacementDb, catalog.getDbForDropReplay("FOO").orElseThrow(AssertionError::new));
 
         Env env = Mockito.mock(Env.class);
         ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
@@ -686,6 +691,87 @@ public class CatalogMgrTest {
         Mockito.verify(cacheMgr).invalidateDb(catalogId, oldId, "Foo");
         Mockito.verify(cacheMgr, Mockito.never()).invalidateDb(catalogId,
                 Util.genIdByName("testing_catalog", "FOO"), "FOO");
+    }
+
+    @Test
+    void testModeTwoDropReplayUsesResolvedTargetAndLegacyLogRetiresBothCandidates() throws Exception {
+        long catalogId = 91L;
+        TestingUnregisterCatalog catalog = new TestingUnregisterCatalog(catalogId,
+                ImmutableMap.of(ExternalCatalog.LOWER_CASE_DATABASE_NAMES, "2"));
+        @SuppressWarnings("unchecked")
+        MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache = Mockito.mock(MetaCache.class);
+        catalog.installMetaCache(metaCache);
+        ExternalMetadataOps metadataOps = Mockito.mock(ExternalMetadataOps.class);
+        catalog.metadataOps = metadataOps;
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            // Both histories carry caller spelling Foo. New logs preserve the resolved target.
+            catalog.replayDropTable("Foo", "t", "FOO");
+            catalog.replayDropDb("Foo", "FOO");
+            catalog.replayDropTable("Foo", "t", "Foo");
+            catalog.replayDropDb("Foo", "Foo");
+            // An old name-only log cannot distinguish those histories.
+            catalog.replayDropTable("Foo", "t", null);
+            catalog.replayDropDb("Foo", null);
+        }
+
+        Mockito.verify(metadataOps).afterDropTable("FOO", "t");
+        Mockito.verify(metadataOps).afterDropDb("FOO");
+        Mockito.verify(metadataOps).afterDropTable("Foo", "t");
+        Mockito.verify(metadataOps).afterDropDb("Foo");
+        Mockito.verify(metaCache, Mockito.times(2)).invalidateObjects();
+        Mockito.verify(cacheMgr, Mockito.times(2)).invalidateCatalog(catalogId);
+    }
+
+    @Test
+    void testLiveDropLogsResolvedDatabaseInsteadOfCallerAlias() throws Exception {
+        ExternalDatabase<?> resolvedDb = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(resolvedDb.getFullName()).thenReturn("FOO");
+        ExternalTable resolvedTable = Mockito.mock(ExternalTable.class);
+        Mockito.when(resolvedTable.getName()).thenReturn("t");
+        Mockito.doReturn(resolvedTable).when(resolvedDb).getTableNullable("t");
+        TestingUnregisterCatalog catalog = new TestingUnregisterCatalog(92L,
+                ImmutableMap.of(ExternalCatalog.LOWER_CASE_DATABASE_NAMES, "2")) {
+            @Override
+            public ExternalDatabase<? extends ExternalTable> getDbNullable(String dbName) {
+                return resolvedDb;
+            }
+        };
+        @SuppressWarnings("unchecked")
+        MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache = Mockito.mock(MetaCache.class);
+        catalog.installMetaCache(metaCache);
+        Field mappingField = ExternalCatalog.class.getDeclaredField("lowerCaseToDatabaseName");
+        mappingField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Map<String, String> mapping = (Map<String, String>) mappingField.get(catalog);
+        mapping.put("foo", "FOO");
+        ExternalMetadataOps metadataOps = Mockito.mock(ExternalMetadataOps.class, Mockito.CALLS_REAL_METHODS);
+        Mockito.when(metadataOps.dropDbImplWithResolvedName("Foo", false, false))
+                .thenReturn(Optional.of("FOO"));
+        catalog.metadataOps = metadataOps;
+        Env env = Mockito.mock(Env.class);
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            catalog.dropDb("Foo", false, false);
+            catalog.dropTable("Foo", "t", false, false, false, false, false);
+        }
+
+        Mockito.verify(metadataOps).afterDropDb("FOO");
+        ArgumentCaptor<DropDbInfo> log = ArgumentCaptor.forClass(DropDbInfo.class);
+        Mockito.verify(editLog).logDropDb(log.capture());
+        Assertions.assertEquals("FOO", log.getValue().getDbName());
+        Assertions.assertEquals("FOO", log.getValue().getResolvedDbName());
+        ArgumentCaptor<DropInfo> tableLog = ArgumentCaptor.forClass(DropInfo.class);
+        Mockito.verify(editLog).logDropTable(tableLog.capture());
+        Assertions.assertEquals("FOO", tableLog.getValue().getDb());
+        Assertions.assertEquals("FOO", tableLog.getValue().getResolvedDb());
     }
 
     @Test

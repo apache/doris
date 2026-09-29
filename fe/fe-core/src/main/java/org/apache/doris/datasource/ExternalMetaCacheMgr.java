@@ -560,29 +560,29 @@ public class ExternalMetaCacheMgr {
     }
 
     public void invalidateTable(long catalogId, String dbName, String tableName) {
-        Optional<ExternalDatabase<? extends ExternalTable>> db = Optional.empty();
+        Runnable rowCountFence = () -> rowCountCache.invalidateCatalog(catalogId);
         try {
-            db = getCachedDb(catalogId, dbName);
-            invalidateTableRowCount(catalogId, db, tableName);
+            rowCountFence = resolveTableRowCountFence(catalogId, dbName, getCachedDb(catalogId, dbName), tableName);
+            rowCountFence.run();
             invalidateLanceTableAccess(catalogId);
             routeCatalogEngines(catalogId, cache -> safeInvalidate(
                     cache, catalogId, "invalidateTable",
                     () -> cache.invalidateTable(catalogId, dbName, tableName)));
         } finally {
-            invalidateTableRowCount(catalogId, db, tableName);
+            rowCountFence.run();
         }
     }
 
     public void invalidateTableByEngine(long catalogId, String engine, String dbName, String tableName) {
-        Optional<ExternalDatabase<? extends ExternalTable>> db = Optional.empty();
+        Runnable rowCountFence = () -> rowCountCache.invalidateCatalog(catalogId);
         try {
-            db = getCachedDb(catalogId, dbName);
-            invalidateTableRowCount(catalogId, db, tableName);
+            rowCountFence = resolveTableRowCountFence(catalogId, dbName, getCachedDb(catalogId, dbName), tableName);
+            rowCountFence.run();
             routeSpecifiedEngine(engine, cache -> safeInvalidate(
                     cache, catalogId, "invalidateTableByEngine",
                     () -> cache.invalidateTable(catalogId, dbName, tableName)));
         } finally {
-            invalidateTableRowCount(catalogId, db, tableName);
+            rowCountFence.run();
         }
     }
 
@@ -597,30 +597,37 @@ public class ExternalMetaCacheMgr {
 
     public void invalidatePartitions(long catalogId,
             String dbName, String tableName, List<String> partitions) {
-        Optional<ExternalDatabase<? extends ExternalTable>> db = Optional.empty();
+        Runnable rowCountFence = () -> rowCountCache.invalidateCatalog(catalogId);
         try {
-            db = getCachedDb(catalogId, dbName);
-            invalidateTableRowCount(catalogId, db, tableName);
+            rowCountFence = resolveTableRowCountFence(catalogId, dbName, getCachedDb(catalogId, dbName), tableName);
+            rowCountFence.run();
             routeCatalogEngines(catalogId, cache -> safeInvalidate(
                     cache, catalogId, "invalidatePartitions",
                     () -> cache.invalidatePartitions(catalogId, dbName, tableName, partitions)));
         } finally {
-            invalidateTableRowCount(catalogId, db, tableName);
+            rowCountFence.run();
         }
     }
 
-    private void invalidateTableRowCount(long catalogId,
+    private Runnable resolveTableRowCountFence(long catalogId, String dbName,
             Optional<ExternalDatabase<? extends ExternalTable>> db, String tableName) {
         if (db.isPresent()) {
             Optional<? extends ExternalTable> table = db.get().getTableForReplay(tableName);
             if (table.isPresent()) {
-                invalidateRowCountCache(table.get());
-            } else {
-                rowCountCache.invalidateDb(catalogId, db.get().getId());
+                long tableCatalogId = table.get().getCatalog().getId();
+                long tableDbId = table.get().getDb().getId();
+                long tableId = table.get().getId();
+                return () -> rowCountCache.invalidateTable(tableCatalogId, tableDbId, tableId);
             }
-        } else {
-            rowCountCache.invalidateCatalog(catalogId);
+            long dbId = db.get().getId();
+            return () -> rowCountCache.invalidateDb(catalogId, dbId);
         }
+        Optional<Pair<String, Long>> identity = getDbIdentityForReplay(catalogId, dbName);
+        if (identity.isPresent()) {
+            long dbId = identity.get().second;
+            return () -> rowCountCache.invalidateDb(catalogId, dbId);
+        }
+        return () -> rowCountCache.invalidateCatalog(catalogId);
     }
 
     private Optional<Pair<String, Long>> getDbIdentityForReplay(long catalogId, String dbName) {
@@ -859,16 +866,7 @@ public class ExternalMetaCacheMgr {
 
     public void invalidateRowCountCache(long catalogId, String dbName, String tableName) {
         Optional<ExternalDatabase<? extends ExternalTable>> db = getCachedDb(catalogId, dbName);
-        if (db.isPresent()) {
-            invalidateTableRowCount(catalogId, db, tableName);
-        } else {
-            Optional<Pair<String, Long>> identity = getDbIdentityForReplay(catalogId, dbName);
-            if (identity.isPresent()) {
-                rowCountCache.invalidateDb(catalogId, identity.get().second);
-            } else {
-                rowCountCache.invalidateCatalog(catalogId);
-            }
-        }
+        resolveTableRowCountFence(catalogId, dbName, db, tableName).run();
     }
 
     public LegacyMetaCacheFactory legacyMetaCacheFactory() {

@@ -20,6 +20,7 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergHMSExternalCatalog;
@@ -697,6 +698,34 @@ public class ExternalMetaCacheRouteResolverTest {
 
         Assert.assertEquals(1, hive.invalidateTableCalls);
         Mockito.verify(rowCountCache, Mockito.times(2)).invalidateTable(catalogId, dbId, tableId);
+    }
+
+    @Test
+    public void testColdKnownDatabaseTableRoutesDoNotFenceUnrelatedCounts() throws Exception {
+        long catalogId = 101L;
+        long dbId = 102L;
+        RecordingExternalMetaCache hive = new RecordingExternalMetaCache(
+                "hive", Collections.singletonList("hms"), catalog -> catalog instanceof HMSExternalCatalog);
+        RecordingExternalMetaCache hudi = new RecordingExternalMetaCache(
+                "hudi", Collections.emptyList(), catalog -> catalog instanceof HMSExternalCatalog);
+        RecordingExternalMetaCache iceberg = new RecordingExternalMetaCache(
+                "iceberg", Collections.emptyList(), catalog -> catalog instanceof HMSExternalCatalog);
+        ExternalMetaCacheMgr cacheMgr = newManagerWithCaches(hive, hudi, iceberg);
+        ExternalRowCountCache rowCountCache = Mockito.mock(ExternalRowCountCache.class);
+        cacheMgr.replaceRowCountCacheForTest(rowCountCache);
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        Mockito.doReturn(Optional.empty()).when(catalog).getDbForReplay("cold_db");
+        Mockito.when(catalog.getDbIdentityForReplay("cold_db", 0L))
+                .thenReturn(Optional.of(Pair.of("ColdDb", dbId)));
+        mockCurrentCatalog(catalogId, catalog);
+        hive.initializedCatalogIds.add(catalogId);
+
+        cacheMgr.invalidateTable(catalogId, "cold_db", "tbl");
+        cacheMgr.invalidateTableByEngine(catalogId, "hive", "cold_db", "tbl");
+        cacheMgr.invalidatePartitions(catalogId, "cold_db", "tbl", Collections.singletonList("p"));
+
+        Mockito.verify(rowCountCache, Mockito.times(6)).invalidateDb(catalogId, dbId);
+        Mockito.verify(rowCountCache, Mockito.never()).invalidateCatalog(catalogId);
     }
 
     @Test

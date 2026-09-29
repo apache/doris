@@ -3617,8 +3617,8 @@ public class PaimonExternalMetaCacheTest {
             // still retire it even though the drop is not journaled.
             PaimonMetadataOps noOpMetadataOps = new PaimonMetadataOps(dorisCatalog, dorisCatalog.catalog) {
                 @Override
-                public boolean dropDbImpl(String dbName, boolean ifExists, boolean force) {
-                    return false;
+                public Optional<String> dropDbImplWithResolvedName(String dbName, boolean ifExists, boolean force) {
+                    return Optional.empty();
                 }
             };
             Assert.assertFalse(noOpMetadataOps.dropDb("DB", true, false));
@@ -3815,8 +3815,5 @@ public class PaimonExternalMetaCacheTest {
         }
     }
 }
-
-
-
 
 

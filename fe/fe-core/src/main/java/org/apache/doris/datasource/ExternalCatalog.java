@@ -1179,14 +1179,15 @@ public abstract class ExternalCatalog
             throw new DdlException("Drop database is not supported for catalog: " + getName());
         }
         try {
-            if (!metadataOps.dropDb(dbName, ifExists, force)) {
+            Optional<String> resolvedDbName = metadataOps.dropDbWithResolvedName(dbName, ifExists, force);
+            if (!resolvedDbName.isPresent()) {
                 // No remote drop happened (for example DROP DATABASE IF EXISTS on a missing
                 // database). Do not journal the no-op, otherwise every follower would replay a
                 // post-drop hook that retires caches for a database that was never touched.
                 LOG.info("skip drop database {}.{} because the database does not exist", getName(), dbName);
                 return;
             }
-            DropDbInfo info = new DropDbInfo(getName(), dbName);
+            DropDbInfo info = new DropDbInfo(getName(), resolvedDbName.get(), resolvedDbName.get());
             Env.getCurrentEnv().getEditLog().logDropDb(info);
         } catch (Exception e) {
             LOG.warn("Failed to drop database {} in catalog {}", dbName, getName(), e);
@@ -1197,6 +1198,18 @@ public abstract class ExternalCatalog
     public void replayDropDb(String dbName) {
         if (metadataOps != null) {
             metadataOps.afterDropDb(dbName);
+        }
+    }
+
+    public void replayDropDb(String dbName, String resolvedDbName) {
+        if (resolvedDbName != null) {
+            replayDropDb(resolvedDbName);
+        } else if (getLowerCaseDatabaseNames() == 2) {
+            // An old name-only record cannot distinguish a historical DROP from an alias that
+            // targeted a case-only replacement. Retire both possibilities conservatively.
+            retireUnresolvedDatabaseGeneration();
+        } else {
+            replayDropDb(dbName);
         }
     }
 
@@ -1271,7 +1284,7 @@ public abstract class ExternalCatalog
         }
         try {
             metadataOps.dropTable(dorisTable, ifExists);
-            DropInfo info = new DropInfo(getName(), dbName, tableName);
+            DropInfo info = new DropInfo(getName(), db.getFullName(), dorisTable.getName(), db.getFullName());
             Env.getCurrentEnv().getEditLog().logDropTable(info);
         } catch (Exception e) {
             LOG.warn("Failed to drop a table", e);
@@ -1282,6 +1295,18 @@ public abstract class ExternalCatalog
     public void replayDropTable(String dbName, String tblName) {
         if (metadataOps != null) {
             metadataOps.afterDropTable(dbName, tblName);
+        }
+    }
+
+    public void replayDropTable(String dbName, String tblName, String resolvedDbName) {
+        if (resolvedDbName != null) {
+            replayDropTable(resolvedDbName, tblName);
+        } else if (getLowerCaseDatabaseNames() == 2) {
+            // Old logs carry only caller spelling, which can identify either side of a case-only
+            // database replacement. Never guess which cached database was actually dropped.
+            retireUnresolvedDatabaseGeneration();
+        } else {
+            replayDropTable(dbName, tblName);
         }
     }
 

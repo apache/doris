@@ -128,14 +128,20 @@ public class MaxComputeMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException {
+        return dropDbImplWithResolvedName(dbName, ifExists, force).isPresent();
+    }
+
+    @Override
+    public Optional<String> dropDbImplWithResolvedName(String dbName, boolean ifExists, boolean force)
+            throws DdlException {
         ExternalDatabase<?> dorisDb = dorisCatalog.getDbNullable(dbName);
         if (dorisDb == null) {
             if (ifExists) {
                 LOG.info("drop database[{}] which does not exist", dbName);
-                return false;
+                return Optional.empty();
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_DB_DROP_EXISTS, dbName);
-                return false;
+                return Optional.empty();
             }
         }
         if (force) {
@@ -153,7 +159,7 @@ public class MaxComputeMetadataOps implements ExternalMetadataOps {
             }
         }
         dorisCatalog.getMcStructureHelper().dropDb(odps, dbName, ifExists);
-        return true;
+        return Optional.of(dorisDb.getFullName());
     }
 
     @Override

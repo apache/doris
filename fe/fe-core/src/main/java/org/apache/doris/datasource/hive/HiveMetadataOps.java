@@ -131,14 +131,20 @@ public class HiveMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException {
+        return dropDbImplWithResolvedName(dbName, ifExists, force).isPresent();
+    }
+
+    @Override
+    public Optional<String> dropDbImplWithResolvedName(String dbName, boolean ifExists, boolean force)
+            throws DdlException {
         ExternalDatabase dorisDb = catalog.getDbNullable(dbName);
         if (dorisDb == null) {
             if (ifExists) {
                 LOG.info("drop database[{}] which does not exist", dbName);
-                return false;
+                return Optional.empty();
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_DB_DROP_EXISTS, dbName);
-                return false;
+                return Optional.empty();
             }
         }
         try {
@@ -161,7 +167,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
                 }
             }
             client.dropDatabase(dorisDb.getRemoteName());
-            return true;
+            return Optional.of(dorisDb.getFullName());
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage(), e);
         }
