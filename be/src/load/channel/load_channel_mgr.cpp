@@ -91,11 +91,10 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
             auto* handle = _load_state_channels->lookup(load_id.to_string());
             if (handle != nullptr) {
                 auto* value = static_cast<CacheValue*>(_load_state_channels->value(handle));
-                auto reason = value != nullptr ? value->_cancel_reason : std::string();
+                auto status =
+                        value != nullptr ? Status::Cancelled(value->_cancel_reason) : Status::OK();
                 _load_state_channels->release(handle);
-                if (!reason.empty()) {
-                    return Status::Cancelled(reason);
-                }
+                RETURN_IF_ERROR(status);
             }
             // create a new load channel
             int64_t timeout_in_req_s =
@@ -132,12 +131,9 @@ Status LoadChannelMgr::_get_load_channel(std::shared_ptr<LoadChannel>& channel, 
             if (auto* value = _load_state_channels->value(handle); value != nullptr) {
                 const auto cancel_reason = reinterpret_cast<CacheValue*>(value)->_cancel_reason;
                 _load_state_channels->release(handle);
-                if (!cancel_reason.empty()) {
-                    LOG(INFO) << fmt::format(
-                            "The channel has been cancelled, load_id = {}, error = {}",
-                            print_id(load_id), cancel_reason);
-                    return Status::Cancelled(cancel_reason);
-                }
+                LOG(INFO) << fmt::format("The channel has been cancelled, load_id = {}, error = {}",
+                                         print_id(load_id), cancel_reason);
+                return Status::Cancelled(cancel_reason);
             } else {
                 // load is success, success only when eos be true
                 _load_state_channels->release(handle);
@@ -209,7 +205,7 @@ Status LoadChannelMgr::_cancel_load_channel(const std::shared_ptr<LoadChannel>& 
         return Status::OK();
     }
     _load_channels.erase(it);
-    _record_cancelled_load_channel(load_id, channel->cancel_status().to_string());
+    _record_cancelled_load_channel(load_id, std::string(channel->cancel_status().msg()));
     return Status::OK();
 }
 
@@ -246,7 +242,8 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
             // cancel() only updates the shared status; it takes no writer locks.
             RETURN_IF_ERROR(cancelled_channel->cancel(Status::Cancelled(reason)));
             _load_channels.erase(load_id);
-            _record_cancelled_load_channel(load_id, cancelled_channel->cancel_status().to_string());
+            _record_cancelled_load_channel(load_id,
+                                           std::string(cancelled_channel->cancel_status().msg()));
         } else {
             _record_cancelled_load_channel(load_id, reason);
         }
@@ -316,12 +313,13 @@ Status LoadChannelMgr::_start_load_channels_clean() {
         }
     }
 
-    // we must cancel these load channels before destroying them.
-    // otherwise some object may be invalid before trying to visit it.
-    // eg: MemTracker in load channel
+    // Publish cancellation to retained RPCs before releasing the cleanup references.
+    // The last owner performs writer cleanup; memtables and writers retain their
+    // resource contexts until their work finishes. Destruction may still wait here
+    // when cleanup owns the last reference, so keep it outside the manager lock.
     for (auto& channel : need_delete_channels) {
         RETURN_IF_ERROR(channel->cancel());
-        LOG(INFO) << "load channel has been safely deleted: " << channel->load_id()
+        LOG(INFO) << "cancellation published for timed out load channel: " << channel->load_id()
                   << ", timeout(s): " << channel->timeout();
     }
 

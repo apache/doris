@@ -22,11 +22,50 @@
 #include <chrono>
 #include <future>
 
+#include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
+#include "runtime/workload_management/resource_context.h"
 #include "util/countdown_latch.h"
 #include "util/defer_op.h"
 
 namespace doris {
+
+TEST(CalcDeleteBitmapTokenTest, QueuedCallbacksKeepTheirSubmitterResourceContext) {
+    SCOPED_INIT_THREAD_CONTEXT();
+    std::unique_ptr<ThreadPool> pool;
+    ASSERT_TRUE(ThreadPoolBuilder("BitmapResourceContextTest")
+                        .set_min_threads(1)
+                        .set_max_threads(1)
+                        .build(&pool)
+                        .ok());
+    CalcDeleteBitmapToken token(pool->new_token(ThreadPool::ExecutionMode::CONCURRENT));
+    CountDownLatch entered(1);
+    CountDownLatch release(1);
+    Defer cleanup {[&] {
+        release.count_down();
+        pool->wait();
+    }};
+    ASSERT_TRUE(pool->submit_func([&] {
+                        entered.count_down();
+                        release.wait();
+                    }).ok());
+    ASSERT_TRUE(entered.wait_for(std::chrono::seconds(10)));
+
+    // Queue callbacks from different submitters before allowing either to run.
+    // A token-wide context would incorrectly attach the last submitter to both.
+    for (const auto* label : {"BitmapSubmitter1", "BitmapSubmitter2"}) {
+        auto resource_ctx = ResourceContext::create_shared();
+        resource_ctx->memory_context()->set_mem_tracker(
+                MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, label));
+        SCOPED_ATTACH_TASK(resource_ctx);
+        ASSERT_TRUE(token.submit_func([resource_ctx] {
+                             EXPECT_EQ(thread_context()->resource_ctx(), resource_ctx);
+                             return Status::OK();
+                         }).ok());
+    }
+    release.count_down();
+    EXPECT_TRUE(token.wait().ok());
+}
 
 TEST(CalcDeleteBitmapTokenTest, PreservesTaskFailure) {
     SCOPED_INIT_THREAD_CONTEXT();

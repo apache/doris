@@ -137,8 +137,8 @@ void BaseTabletsChannel::_init_profile(RuntimeProfile* profile) {
 Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
     std::lock_guard<std::mutex> l(_lock);
     RETURN_IF_ERROR(_check_cancelled());
-    // if _state is kOpened, it's a normal case, already open by other sender
-    // if _state is kFinished, already cancelled by other sender
+    // Another sender may have already opened or closed this channel.
+    // Shared load cancellation is checked above and does not change _state.
     if (_state == kOpened) {
         RETURN_IF_ERROR(_init_adaptive_random_bucket_state(request));
         return Status::OK();

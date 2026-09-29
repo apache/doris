@@ -89,6 +89,8 @@ private:
     public:
         class CacheValue : public LRUCacheValueBase {
         public:
+            // Unformatted message, without a Status code prefix or stack trace.
+            // A non-null cache value marks cancellation even when the message is empty.
             std::string _cancel_reason;
         };
 

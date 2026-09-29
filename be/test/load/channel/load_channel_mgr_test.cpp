@@ -72,7 +72,7 @@ protected:
                 static_cast<LoadChannelMgr::CacheValue*>(_mgr->_load_state_channels->value(handle));
         EXPECT_NE(value, nullptr);
         if (value != nullptr) {
-            EXPECT_EQ(value->_cancel_reason, reason.to_string());
+            EXPECT_EQ(value->_cancel_reason, reason.msg());
         }
         _mgr->_load_state_channels->release(handle);
     }
@@ -97,7 +97,7 @@ TEST_F(LoadChannelMgrTest, FailedBatchCancelsRetainedChannelAndCachesReason) {
     request.set_eos(true);
     auto late_status = _mgr->add_batch(request, &response);
     EXPECT_TRUE(late_status.is<ErrorCode::CANCELLED>()) << late_status;
-    EXPECT_NE(late_status.to_string().find(st.to_string()), std::string::npos);
+    EXPECT_EQ(late_status.msg(), st.msg());
 
     PTabletWriterOpenRequest open_request;
     *open_request.mutable_id() = _load_id.to_proto();
@@ -141,7 +141,7 @@ TEST_F(LoadChannelMgrTest, PublicCancelCachesAlreadyPublishedFailure) {
     *open_request.mutable_id() = _load_id.to_proto();
     const auto open_status = _mgr->open(open_request);
     EXPECT_TRUE(open_status.is<ErrorCode::CANCELLED>()) << open_status;
-    EXPECT_NE(open_status.to_string().find(first_failure.to_string()), std::string::npos);
+    EXPECT_EQ(open_status.msg(), first_failure.msg());
 
     PTabletWriterAddBlockRequest add_request;
     *add_request.mutable_id() = _load_id.to_proto();
@@ -149,7 +149,64 @@ TEST_F(LoadChannelMgrTest, PublicCancelCachesAlreadyPublishedFailure) {
     PTabletWriterAddBlockResult response;
     const auto add_status = _mgr->add_batch(add_request, &response);
     EXPECT_TRUE(add_status.is<ErrorCode::CANCELLED>()) << add_status;
-    EXPECT_NE(add_status.to_string().find(first_failure.to_string()), std::string::npos);
+    EXPECT_EQ(add_status.msg(), first_failure.msg());
+}
+
+TEST_F(LoadChannelMgrTest, PublicCancelKeepsTheSameMessageWithOrWithoutChannel) {
+    PTabletWriterCancelRequest request;
+    *request.mutable_id() = _load_id.to_proto();
+    request.set_cancel_reason("upstream load failed");
+    const auto reason = Status::Cancelled(request.cancel_reason());
+
+    // The no-channel path also covers cancellation arriving before open.
+    for (bool has_channel : {false, true}) {
+        if (has_channel) {
+            create_channel();
+        }
+        ASSERT_TRUE(_mgr->cancel(request).ok());
+        expect_cached_failure(reason);
+
+        PTabletWriterOpenRequest open_request;
+        *open_request.mutable_id() = _load_id.to_proto();
+        auto open_status = _mgr->open(open_request);
+        EXPECT_TRUE(open_status.is<ErrorCode::CANCELLED>());
+        EXPECT_EQ(open_status.msg(), reason.msg());
+
+        PTabletWriterAddBlockRequest add_request;
+        *add_request.mutable_id() = _load_id.to_proto();
+        add_request.set_eos(true);
+        PTabletWriterAddBlockResult response;
+        auto add_status = _mgr->add_batch(add_request, &response);
+        EXPECT_TRUE(add_status.is<ErrorCode::CANCELLED>());
+        EXPECT_EQ(add_status.msg(), reason.msg());
+
+        PTabletWriterCancelRequest later_request = request;
+        later_request.set_cancel_reason("later cancellation");
+        ASSERT_TRUE(_mgr->cancel(later_request).ok());
+        expect_cached_failure(reason);
+        _mgr->_load_state_channels->erase(_load_id.to_string());
+    }
+}
+
+TEST_F(LoadChannelMgrTest, EmptyFailureMessageStillRejectsLateRequests) {
+    auto channel = create_channel();
+    const auto reason = Status::InternalError("");
+    ASSERT_TRUE(_mgr->_cancel_load_channel(channel, reason).ok());
+    expect_cached_failure(reason);
+
+    PTabletWriterOpenRequest open_request;
+    *open_request.mutable_id() = _load_id.to_proto();
+    auto open_status = _mgr->open(open_request);
+    EXPECT_TRUE(open_status.is<ErrorCode::CANCELLED>());
+    EXPECT_TRUE(open_status.msg().empty());
+
+    PTabletWriterAddBlockRequest add_request;
+    *add_request.mutable_id() = _load_id.to_proto();
+    add_request.set_eos(true);
+    PTabletWriterAddBlockResult response;
+    auto add_status = _mgr->add_batch(add_request, &response);
+    EXPECT_TRUE(add_status.is<ErrorCode::CANCELLED>());
+    EXPECT_TRUE(add_status.msg().empty());
 }
 
 TEST_F(LoadChannelMgrTest, LateFailureDoesNotCancelReplacementAfterTimeout) {

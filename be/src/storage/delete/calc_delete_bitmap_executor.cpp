@@ -38,13 +38,13 @@ Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, RowsetSharedPtr cur_
     {
         std::shared_lock rlock(_lock);
         RETURN_IF_ERROR(_status);
-        _resource_ctx = thread_context()->resource_ctx();
     }
 
+    auto resource_ctx = thread_context()->resource_ctx();
     const auto submit_time_us = MonotonicMicros();
     return _thread_token->submit_func([=, this]() {
         const auto queue_time_us = MonotonicMicros() - submit_time_us;
-        SCOPED_ATTACH_TASK(_resource_ctx);
+        SCOPED_ATTACH_TASK(resource_ctx);
         auto st = tablet->calc_segment_delete_bitmap(cur_rowset, cur_segment, target_rowsets,
                                                      delete_bitmap, end_version, rowset_writer,
                                                      tablet_delete_bitmap, queue_time_us);
@@ -68,12 +68,12 @@ Status CalcDeleteBitmapToken::submit(BaseTabletSPtr tablet, TabletSchemaSPtr sch
     {
         std::shared_lock rlock(_lock);
         RETURN_IF_ERROR(_status);
-        _resource_ctx = thread_context()->resource_ctx();
     }
+    auto resource_ctx = thread_context()->resource_ctx();
     const auto submit_time_us = MonotonicMicros();
     return _thread_token->submit_func([=, this]() {
         const auto queue_time_us = MonotonicMicros() - submit_time_us;
-        SCOPED_ATTACH_TASK(_resource_ctx);
+        SCOPED_ATTACH_TASK(resource_ctx);
         auto st = tablet->calc_delete_bitmap_between_segments(schema, rowset_id, segments,
                                                               delete_bitmap, queue_time_us);
         if (!st.ok()) {

@@ -236,10 +236,8 @@ Status MemTableWriter::flush_async() {
         return Status::Cancelled("Load has been cancelled: {}",
                                  _req.load_cancel_status->status().to_string());
     }
-    // Three calling paths:
-    // 1. call by local, from `VTabletWriterV2::_write_memtable`.
-    // 2. call by remote, from `LoadChannelMgr::_get_load_channel`.
-    // 3. call by daemon thread, from `handle_paused_queries` -> `flush_workload_group_memtables`.
+    // Memory-pressure flushing can race with writer initialization or close.
+    // DeltaWriter also exposes this operation through flush_memtable_async().
     if (!_is_init || _is_closed) {
         // This writer is uninitialized or closed before flushing, do nothing.
         // We return OK instead of NOT_INITIALIZED or ALREADY_CLOSED.
