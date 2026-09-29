@@ -73,7 +73,8 @@ CELLARS=(
     # dyld reimplemented dyld_shared_cache_iterate_text in Swift there and its
     # _Block_copy allocation re-enters ASAN init, so every -fsanitize=address
     # binary built with llvm@20 deadlocks before main() (llvm/llvm-project#182943,
-    # fixed in 22.1.8; no 20.x or 21.x backport exists).
+    # fixed in 22.1.8; no 20.x or 21.x backport exists). That is the BE's compiler:
+    # thirdparty/build-thirdparty.sh keeps the third-party libraries on llvm@20.
     llvm@22
     m4
 )

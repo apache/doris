@@ -87,6 +87,28 @@ unset CMAKE_TOOLCHAIN_FILE \
     VCPKG_DEFAULT_TRIPLET \
     CONDA_PREFIX
 
+# The macOS third-party libraries stay on LLVM 20 while env.sh gives the BE LLVM 22 (the
+# first compiler-rt whose ASAN runtime survives macOS 26.4+). clang 22 turns
+# -Wincompatible-pointer-types into an error and stops at unixODBC 2.3.7
+# (SQLBrowseConnectW.c passes SQLSMALLINT* where int* is expected), and no package after it
+# has been built with clang 22. Every macOS third-party build comes through here - the
+# rebuild build.sh starts on its own, a manual run, the pull request check and the
+# apache/doris-thirdparty job that publishes doris-thirdparty-prebuilt-darwin-*.tar.xz - so
+# this is the one place that decides their compiler. Like the unset above, it has to come
+# after env.sh: custom_env.sh may point DORIS_CLANG_HOME at another LLVM for the BE. CC/CXX
+# carry the compiler and PATH the rest of the LLVM tools, as when env.sh named llvm@20.
+if [[ "$(uname -s)" == 'Darwin' ]]; then
+    DORIS_CLANG_HOME="$(brew --prefix llvm@20)"
+    if [[ ! -x "${DORIS_CLANG_HOME}/bin/clang" ]]; then
+        echo "The macOS third-party build needs LLVM 20 (${DORIS_CLANG_HOME}/bin/clang is missing): brew install llvm@20" >&2
+        exit 1
+    fi
+    export DORIS_CLANG_HOME
+    export CC="${DORIS_CLANG_HOME}/bin/clang"
+    export CXX="${DORIS_CLANG_HOME}/bin/clang++"
+    export PATH="${DORIS_CLANG_HOME}/bin:${PATH}"
+fi
+
 # Check args
 usage() {
     echo "
