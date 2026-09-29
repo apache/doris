@@ -341,6 +341,25 @@ Status ArrowBlockConvertor::init() {
     return Status::OK();
 }
 
+Status ArrowFlightArrowBlockConvertor::convert_to_arrow(const Block& block, arrow::MemoryPool* pool,
+                                                        std::shared_ptr<arrow::RecordBatch>* result,
+                                                        size_t start_row, size_t end_row) const {
+    std::shared_ptr<arrow::RecordBatch> batch;
+    RETURN_IF_ERROR(ArrowBlockConvertor::convert_to_arrow(block, pool, &batch, start_row, end_row));
+    // String builders accept arbitrary bytes, but Flight UTF-8 values must be valid per row,
+    // including nested children. Validate before publishing the batch to the reader.
+    for (int i = 0; i < batch->num_columns(); ++i) {
+        auto status = batch->column(i)->ValidateFull();
+        if (!status.ok()) {
+            return Status::InvalidArgument("Invalid Arrow Flight result in column {} ('{}'): {}",
+                                           i + 1, batch->schema()->field(i)->name(),
+                                           status.ToString());
+        }
+    }
+    *result = std::move(batch);
+    return Status::OK();
+}
+
 Status DorisArrowBlockConvertor::init() {
     if (_arrow_schema == nullptr) {
         // cctz names fixed offsets as "Fixed/UTC+HH:MM:SS", which is not the Arrow
