@@ -204,6 +204,10 @@ int BucketedAggLocalState::_merge_bucket(int bucket, int merge_target) {
     SCOPED_TIMER(_merge_timer);
     auto& shared_state = *_shared_state;
     auto& bs = shared_state.bucket_states[bucket];
+    // Other source instances may merge other buckets at the same time, so aggregate
+    // function merges must allocate from this source instance's own arena.
+    DCHECK_LT(_task_idx, shared_state.source_merge_arenas.size());
+    auto& merge_arena = *shared_state.source_merge_arenas[_task_idx];
 
     // Merge target's bucket is the destination.
     auto& dst_agg_data = *shared_state.per_instance_data[merge_target].bucket_agg_data[bucket];
@@ -290,7 +294,7 @@ int BucketedAggLocalState::_merge_bucket(int bucket, int merge_target) {
                                                                             .aggregate_evaluators,
                                                                     shared_state
                                                                             .offsets_of_aggregate_states,
-                                                                    *src_inst.arena);
+                                                                    merge_arena);
                                                         }
                                                     });
 
@@ -299,7 +303,7 @@ int BucketedAggLocalState::_merge_bucket(int bucket, int merge_target) {
                                                             shared_state.aggregate_evaluators,
                                                             shared_state
                                                                     .offsets_of_aggregate_states,
-                                                            *src_inst.arena);
+                                                            merge_arena);
 
                                                     // Mark this instance as merged for this bucket.
                                                     bs.merged_instances[inst_idx] = true;

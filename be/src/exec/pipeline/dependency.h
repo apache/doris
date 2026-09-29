@@ -503,6 +503,15 @@ public:
     /// Per-bucket merge state. Indexed by bucket id [0, 256).
     std::array<BucketMergeState, BUCKETED_AGG_NUM_BUCKETS> bucket_states;
 
+    /// Arenas for memory allocated by aggregate function merges on the source side.
+    /// One per source instance, indexed by the source task idx and sized in init_instances().
+    /// Sink instance arenas cannot be used there because different buckets are merged
+    /// concurrently by different source instances and Arena is not thread-safe, while a
+    /// source instance runs on one thread at a time. Merged states may point into these
+    /// arenas and may be output by any source instance, so they live as long as the
+    /// shared state.
+    std::vector<std::unique_ptr<Arena>> source_merge_arenas;
+
     // Aggregate function metadata (shared, read-only after init).
     std::vector<AggFnEvaluator*> aggregate_evaluators;
     VExprContextSPtrs probe_expr_ctxs;
@@ -547,6 +556,10 @@ public:
             }
             for (auto& bs : bucket_states) {
                 bs.merged_instances.resize(num_instances, false);
+            }
+            source_merge_arenas.resize(source_deps.size());
+            for (auto& arena : source_merge_arenas) {
+                arena = std::make_unique<Arena>();
             }
             _init_status = std::forward<Func>(metadata_init)();
         });
