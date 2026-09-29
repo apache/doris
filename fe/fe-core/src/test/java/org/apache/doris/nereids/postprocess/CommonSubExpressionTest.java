@@ -35,6 +35,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -70,6 +72,23 @@ public class CommonSubExpressionTest extends ExpressionRewriteTestHelper {
         assertExpression(l1.get(0), "a+b");
         Assertions.assertEquals(1, l2.size());
         assertExpression(l2.get(0), "a+b+1");
+    }
+
+    @Test
+    public void testShortCircuitIfStillCollectsChildCommonExpressions() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        Expression add = new Add(a, b);
+        ShortCircuitIf guarded = new ShortCircuitIf(
+                BooleanLiteral.TRUE, new Add(add, add), Literal.of(0));
+        CommonSubExpressionCollector collector = new CommonSubExpressionCollector();
+
+        collector.collect(guarded);
+
+        Assertions.assertTrue(collector.commonExprByDepth.values().stream()
+                .anyMatch(expressions -> expressions.contains(add)));
+        Assertions.assertFalse(collector.commonExprByDepth.values().stream()
+                .anyMatch(expressions -> expressions.contains(guarded)));
     }
 
     @Test

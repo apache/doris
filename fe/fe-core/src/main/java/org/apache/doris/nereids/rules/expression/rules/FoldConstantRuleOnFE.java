@@ -62,7 +62,6 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
-import org.apache.doris.nereids.trees.expressions.functions.RequiresShortCircuitEvaluation;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
@@ -77,6 +76,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Version;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
@@ -188,6 +188,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 matches(BoundFunction.class, this::visitBoundFunction),
                 matches(BinaryArithmetic.class, this::visitBinaryArithmetic),
                 matches(CaseWhen.class, this::visitCaseWhen),
+                matches(ShortCircuitIf.class, this::visitShortCircuitIf),
                 matches(If.class, this::visitIf),
                 matches(InPredicate.class, this::visitInPredicate),
                 matches(IsNull.class, this::visitIsNull),
@@ -666,9 +667,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     @Override
     public Expression visitIf(If ifExpr, ExpressionRewriteContext context) {
         If originIf = ifExpr;
-        if (!(ifExpr instanceof RequiresShortCircuitEvaluation)) {
-            ifExpr = rewriteChildren(ifExpr, context);
-        }
+        ifExpr = rewriteChildren(ifExpr, context);
         Expression condition = ifExpr.getCondition();
         Expression typeCoercionTrueValue
                 = TypeCoercionUtils.ensureSameResultType(originIf, ifExpr.getTrueValue(), context);
@@ -682,6 +681,27 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
             return typeCoercionTrueValue;
         }
         return TypeCoercionUtils.ensureSameResultType(originIf, ifExpr, context);
+    }
+
+    @Override
+    public Expression visitShortCircuitIf(ShortCircuitIf ifExpr, ExpressionRewriteContext context) {
+        Expression condition = ifExpr.getCondition();
+        if (deepRewrite) {
+            condition = condition.accept(this, context);
+        }
+        if (condition.equals(BooleanLiteral.TRUE)) {
+            Expression selected = deepRewrite
+                    ? ifExpr.getTrueValue().accept(this, context) : ifExpr.getTrueValue();
+            return TypeCoercionUtils.ensureSameResultType(ifExpr, selected, context);
+        } else if (condition.equals(BooleanLiteral.FALSE) || condition.isNullLiteral()) {
+            Expression selected = deepRewrite
+                    ? ifExpr.getFalseValue().accept(this, context) : ifExpr.getFalseValue();
+            return TypeCoercionUtils.ensureSameResultType(ifExpr, selected, context);
+        }
+        return condition == ifExpr.getCondition()
+                ? ifExpr
+                : ifExpr.withChildren(ImmutableList.of(
+                        condition, ifExpr.getTrueValue(), ifExpr.getFalseValue()));
     }
 
     @Override
