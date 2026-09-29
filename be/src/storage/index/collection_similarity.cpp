@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/compaction/collection_similarity.h"
+#include "storage/index/collection_similarity.h"
 
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
