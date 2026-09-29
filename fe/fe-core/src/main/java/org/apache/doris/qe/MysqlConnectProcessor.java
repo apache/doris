@@ -343,7 +343,9 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         table.readLock();
         try {
             MysqlProtocolAdapter.of(ctx).resultSender(ctx)
-                    .sendFieldList(db.getFullName(), table.getName(), table.getBaseSchema());
+                    // COM_FIELD_LIST is a metadata statement: it must agree with SHOW COLUMNS, so it serves
+                    // the display schema (the nullability the source declares), not the read schema.
+                    .sendFieldList(db.getFullName(), table.getName(), table.getBaseSchemaForDisplay());
         } catch (Throwable throwable) {
             handleQueryException(throwable, "", null, null);
         } finally {
