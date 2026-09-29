@@ -15,11 +15,15 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# The Lance index worker execution library: a pure library with zero BE
-# global-state dependency (no config, logging, metrics, or ExecEnv), callable
-# from a bare main and from unit tests. Modeled on the storage/index/ann
-# precedent: built as its own static library and linked into doris_be through
-# DORIS_LINK_LIBS.
+# The Lance index worker components, modeled on the storage/index/ann
+# precedent: built as their own static library and linked into doris_be
+# through DORIS_LINK_LIBS.
+#   * index_worker / index_worker_contract: the worker execution library — a
+#     pure library with zero BE global-state dependency (no config, logging,
+#     metrics, or ExecEnv), callable from a bare main and from unit tests.
+#   * index_job_supervisor: the in-BE supervisor — startup cgroup-delegation
+#     preflight, per-invocation cgroup setup, fork barrier + pidfd/wall-clock
+#     lifecycle, bounded pipe IPC, message sanitization, report callbacks.
 
 file(GLOB LANCE_SOURCES CONFIGURE_DEPENDS *.cpp)
 
