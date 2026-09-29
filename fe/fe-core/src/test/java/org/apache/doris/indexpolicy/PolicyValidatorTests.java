@@ -127,8 +127,132 @@ public class PolicyValidatorTests {
         NGramTokenizerValidator validator = new NGramTokenizerValidator();
         Map<String, String> props = new HashMap<>();
         props.put("min_gram", "3");
-        props.put("max_gram", "5");
+        props.put("max_gram", "4");
         validator.validate(props); // Should not throw
+    }
+
+    @Test
+    public void testNGramValidator_DefaultDifferenceLimit() {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> props = new HashMap<>();
+        props.put("min_gram", "1");
+        props.put("max_gram", "8");
+
+        Exception exception = Assertions.assertThrows(DdlException.class,
+                () -> validator.validate(props));
+        Assertions.assertTrue(exception.getMessage().contains("less than or equal to: [ 1 ]"));
+    }
+
+    @Test
+    public void testNGramValidator_ConfiguredDifferenceLimit() throws Exception {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> props = new HashMap<>();
+        props.put("min_gram", "1");
+        props.put("max_gram", "8");
+        props.put("max_ngram_diff", "7");
+        validator.validate(props); // Should not throw
+    }
+
+    @Test
+    public void testNGramValidator_InvalidDifferenceLimit() {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> props = new HashMap<>();
+        props.put("max_ngram_diff", "-1");
+
+        Exception exception = Assertions.assertThrows(DdlException.class,
+                () -> validator.validate(props));
+        Assertions.assertTrue(exception.getMessage().contains("greater than or equal to 0"));
+    }
+
+    @Test
+    public void testNGramValidator_RejectsNonAsciiDifferenceLimit() {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> props = new HashMap<>();
+        props.put("max_ngram_diff", "٧");
+
+        Exception exception = Assertions.assertThrows(DdlException.class,
+                () -> validator.validate(props));
+        Assertions.assertTrue(exception.getMessage().contains("non-negative integer"));
+    }
+
+    @Test
+    public void testNGramValidator_RejectsExcessiveDifferenceLimit() {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> props = new HashMap<>();
+        props.put("max_ngram_diff", Integer.toString(NGramTokenizerValidator.MAX_NGRAM_DIFF + 1));
+
+        Exception exception = Assertions.assertThrows(DdlException.class,
+                () -> validator.validate(props));
+        Assertions.assertTrue(exception.getMessage().contains("less than or equal to 255"));
+    }
+
+    @Test
+    public void testNGramValidator_AcceptsDifferenceLimitBoundary() {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> props = new HashMap<>();
+        props.put("min_gram", "1");
+        props.put("max_gram", Integer.toString(NGramTokenizerValidator.MAX_NGRAM_DIFF + 1));
+        props.put("max_ngram_diff", Integer.toString(NGramTokenizerValidator.MAX_NGRAM_DIFF));
+
+        Assertions.assertDoesNotThrow(() -> validator.validate(props));
+    }
+
+    @Test
+    public void testNGramValidator_AcceptsAbsoluteSizeBoundary() {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> props = new HashMap<>();
+        props.put("min_gram", Integer.toString(NGramTokenizerValidator.MAX_NGRAM_SIZE));
+        props.put("max_gram", Integer.toString(NGramTokenizerValidator.MAX_NGRAM_SIZE));
+
+        Assertions.assertDoesNotThrow(() -> validator.validate(props));
+    }
+
+    @Test
+    public void testNGramValidator_RejectsExcessiveAbsoluteSize() {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> props = new HashMap<>();
+        props.put("min_gram", Integer.toString(NGramTokenizerValidator.MAX_NGRAM_SIZE));
+        props.put("max_gram", Integer.toString(NGramTokenizerValidator.MAX_NGRAM_SIZE + 1));
+
+        Exception exception = Assertions.assertThrows(DdlException.class,
+                () -> validator.validate(props));
+        Assertions.assertTrue(exception.getMessage().contains("less than or equal to 1024"));
+    }
+
+    @Test
+    public void testLegacyNGramPolicyAboveCurrentLimitRemainsValidAfterReplay() throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put(IndexPolicy.PROP_TYPE, "ngram");
+        props.put("min_gram", "2048");
+        props.put("max_gram", "2048");
+
+        IndexPolicy replayed = roundTrip(new IndexPolicy(
+                1, "legacy_large_ngram", IndexPolicyTypeEnum.TOKENIZER, props));
+
+        Assertions.assertFalse(replayed.isInvalid());
+
+        props.put("max_ngram_diff", "1");
+        IndexPolicy current = roundTrip(new IndexPolicy(
+                2, "current_large_ngram", IndexPolicyTypeEnum.TOKENIZER, props));
+        Assertions.assertTrue(current.isInvalid());
+    }
+
+    @Test
+    public void testNewNGramPolicyPersistsCompatibilityMarker() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getNextId()).thenReturn(2L);
+        Mockito.when(env.getEditLog()).thenReturn(Mockito.mock(EditLog.class));
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        Map<String, String> props = new HashMap<>();
+        props.put(IndexPolicy.PROP_TYPE, "ngram");
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            policyMgr.createIndexPolicy(false, "new_ngram", IndexPolicyTypeEnum.TOKENIZER, props);
+        }
+
+        Assertions.assertEquals("1",
+                policyMgr.getPolicyByName("new_ngram").getProperties().get("max_ngram_diff"));
     }
 
     // StandardTokenizerValidator Tests
@@ -234,6 +358,12 @@ public class PolicyValidatorTests {
         Exception exception = Assertions.assertThrows(DdlException.class,
                 () -> validator.validate(props));
         Assertions.assertTrue(exception.getMessage().contains("enclosed in square brackets"));
+    }
+
+    private static IndexPolicy roundTrip(IndexPolicy policy) throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        policy.write(new DataOutputStream(bytes));
+        return IndexPolicy.read(new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
     }
 
     private static IndexPolicyMgr roundTrip(IndexPolicyMgr manager) throws Exception {

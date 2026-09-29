@@ -151,6 +151,42 @@ public class AnalyzerIdentityBuilderTest {
     }
 
     @Test
+    public void testNgramValidationLimitDoesNotChangeAnalyzerIdentity() {
+        IndexPolicyMgr policyMgr = Mockito.mock(IndexPolicyMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        Map<String, String> tokenizerProps = new HashMap<>();
+        tokenizerProps.put(IndexPolicy.PROP_TYPE, "ngram");
+        tokenizerProps.put("min_gram", "1");
+        tokenizerProps.put("max_gram", "2");
+        tokenizerProps.put("max_ngram_diff", "7");
+        IndexPolicy tokenizerWithLimit = new IndexPolicy(
+                1, "ngram_with_limit", IndexPolicyTypeEnum.TOKENIZER, tokenizerProps);
+
+        Map<String, String> equivalentTokenizerProps = new HashMap<>(tokenizerProps);
+        equivalentTokenizerProps.remove("max_ngram_diff");
+        IndexPolicy tokenizerWithoutLimit = new IndexPolicy(
+                2, "ngram_without_limit", IndexPolicyTypeEnum.TOKENIZER, equivalentTokenizerProps);
+
+        IndexPolicy analyzerWithLimit = analyzerPolicy(3, "analyzer_with_limit", "ngram_with_limit");
+        IndexPolicy analyzerWithoutLimit = analyzerPolicy(4, "analyzer_without_limit", "ngram_without_limit");
+        Mockito.when(policyMgr.getPolicyByName("ngram_with_limit")).thenReturn(tokenizerWithLimit);
+        Mockito.when(policyMgr.getPolicyByName("ngram_without_limit")).thenReturn(tokenizerWithoutLimit);
+        Mockito.when(policyMgr.getPolicyByName("analyzer_with_limit")).thenReturn(analyzerWithLimit);
+        Mockito.when(policyMgr.getPolicyByName("analyzer_without_limit")).thenReturn(analyzerWithoutLimit);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            String identityWithLimit = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    nonEmptyProperties(), "analyzer_with_limit", "", "__default__", "none", null);
+            String identityWithoutLimit = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    nonEmptyProperties(), "analyzer_without_limit", "", "__default__", "none", null);
+            Assertions.assertEquals(identityWithoutLimit, identityWithLimit);
+        }
+    }
+
+    @Test
     public void testReplayedInvalidNgramDoesNotBlockValidReplacement() throws Exception {
         IndexPolicyMgr policyMgr = new IndexPolicyMgr();
         Env env = Mockito.mock(Env.class);
@@ -165,6 +201,45 @@ public class AnalyzerIdentityBuilderTest {
 
         Map<String, String> replacementProps = new HashMap<>(invalidProps);
         replacementProps.put("min_gram", "1");
+        IndexPolicy replacementTokenizer = new IndexPolicy(
+                11, "replacement_ngram", IndexPolicyTypeEnum.TOKENIZER, replacementProps);
+        IndexPolicy invalidAnalyzer = analyzerPolicy(12, "replayed_analyzer", "replayed_ngram");
+        IndexPolicy replacementAnalyzer = analyzerPolicy(13, "replacement_analyzer", "replacement_ngram");
+        policyMgr.replayCreateIndexPolicy(invalidTokenizer);
+        policyMgr.replayCreateIndexPolicy(replacementTokenizer);
+        policyMgr.replayCreateIndexPolicy(invalidAnalyzer);
+        policyMgr.replayCreateIndexPolicy(replacementAnalyzer);
+
+        Assertions.assertTrue(invalidTokenizer.isInvalid());
+        Assertions.assertFalse(replacementTokenizer.isInvalid());
+        Assertions.assertThrows(DdlException.class,
+                () -> policyMgr.validateAnalyzerExists("replayed_analyzer"));
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            String invalidIdentity = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    nonEmptyProperties(), "replayed_analyzer", "", "__default__", "none", null);
+            String replacementIdentity = AnalyzerIdentityBuilder.buildAnalyzerIdentity(
+                    nonEmptyProperties(), "replacement_analyzer", "", "__default__", "none", null);
+            Assertions.assertNotEquals(invalidIdentity, replacementIdentity);
+        }
+    }
+
+    @Test
+    public void testReplayedNgramDifferenceLimitDoesNotBlockValidReplacement() throws Exception {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+
+        Map<String, String> invalidProps = new HashMap<>();
+        invalidProps.put(IndexPolicy.PROP_TYPE, "ngram");
+        invalidProps.put("min_gram", "1");
+        invalidProps.put("max_gram", "8");
+        IndexPolicy invalidTokenizer = new IndexPolicy(
+                10, "replayed_ngram", IndexPolicyTypeEnum.TOKENIZER, invalidProps);
+
+        Map<String, String> replacementProps = new HashMap<>(invalidProps);
+        replacementProps.put("max_ngram_diff", "7");
         IndexPolicy replacementTokenizer = new IndexPolicy(
                 11, "replacement_ngram", IndexPolicyTypeEnum.TOKENIZER, replacementProps);
         IndexPolicy invalidAnalyzer = analyzerPolicy(12, "replayed_analyzer", "replayed_ngram");

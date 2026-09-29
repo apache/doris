@@ -332,6 +332,11 @@ public class IndexPolicyMgr implements Writable, GsonPostProcessable {
             Map<String, String> storedProperties = properties == null
                     ? null : Maps.newHashMap(properties);
             validatePolicyProperties(type, storedProperties);
+            if (type == IndexPolicyTypeEnum.TOKENIZER
+                    && "ngram".equals(storedProperties.get(IndexPolicy.PROP_TYPE))) {
+                // Persist the marker so replay applies the size limit to newly created policies.
+                storedProperties.putIfAbsent("max_ngram_diff", "1");
+            }
             IndexPolicy indexPolicy = IndexPolicy.create(policyName, type, storedProperties);
 
             if (nameToIndexPolicy.containsKey(normalizedName)) {
