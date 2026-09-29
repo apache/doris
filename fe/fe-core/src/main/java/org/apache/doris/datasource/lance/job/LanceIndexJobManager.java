@@ -759,16 +759,17 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
     }
 
     /**
-     * PENDING jobs eligible for the dispatcher, in job id order (FIFO fairness),
-     * at most {@code limit} of them. Target identity must be complete: corrupt
-     * identity-less records are never dispatchable (their only exit is the
-     * force-release transition by job id) and are skipped here. The dispatch
-     * quad is deliberately not required: it is written by {@code markRunning},
-     * which is the step this query feeds. All matches are collected and ordered
-     * before truncating, so a stable subset of permanently undispatchable jobs
-     * can never crowd out later ids.
+     * All PENDING jobs eligible for the dispatcher, in job id order (FIFO
+     * fairness). Target identity must be complete: corrupt identity-less
+     * records are never dispatchable (their only exit is the force-release
+     * transition by job id) and are skipped here. The dispatch quad is
+     * deliberately not required: it is written by {@code markRunning}, which is
+     * the step this query feeds. The result is deliberately untruncated: the
+     * dispatcher's per-round budget counts only jobs it actually made RUNNING,
+     * so a stable subset of permanently undispatchable jobs returned here can
+     * never crowd out later ids.
      */
-    public List<LanceIndexJob> getJobsNeedingDispatch(int limit) {
+    public List<LanceIndexJob> getJobsNeedingDispatch() {
         readLock();
         try {
             List<LanceIndexJob> result = new ArrayList<>();
@@ -779,7 +780,34 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
                 }
             }
             result.sort(Comparator.comparingLong(LanceIndexJob::getJobId));
-            return result.size() <= limit ? result : new ArrayList<>(result.subList(0, limit));
+            return result;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    /**
+     * Per-backend count of possible-live worker slots still held. This is the
+     * dispatcher's capacity view, and it deliberately counts slot ownership
+     * rather than RUNNING state: a RUNNING job whose slot was already released
+     * (its worker was proven gone by a replaced process epoch, reaped, or never
+     * enqueued) no longer blocks its backend, while an UNKNOWN job whose slot
+     * is still held may still have a live worker behind a partition and keeps
+     * occupying capacity. Records are aggregated in place under the read lock:
+     * unlike {@link #getAllJobsSnapshot()}, no job is copied or sorted, so the
+     * per-round cost stays proportional to the durable history with a tiny
+     * constant instead of allocating and ordering a full clone of it.
+     */
+    public Map<Long, Integer> countPossibleLiveSlotsByBackend() {
+        readLock();
+        try {
+            Map<Long, Integer> slotsByBackend = Maps.newHashMap();
+            for (LanceIndexJob job : jobs.values()) {
+                if (job != null && job.getBackendId() != null && job.holdsPossibleLiveSlot()) {
+                    slotsByBackend.merge(job.getBackendId(), 1, Integer::sum);
+                }
+            }
+            return slotsByBackend;
         } finally {
             readUnlock();
         }

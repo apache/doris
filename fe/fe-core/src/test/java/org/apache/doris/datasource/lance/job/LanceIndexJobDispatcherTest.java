@@ -73,10 +73,16 @@ import java.util.function.Supplier;
  * client borrow failure, or an UNKNOWN_METHOD answer converges NOT_COMMITTED
  * and releases the possible-live slot in the same transition, while a transport
  * failure after the invocation may have started converges UNKNOWN with the
- * slot still held; only a changed backend process epoch releases a slot; a
- * local-filesystem dataset is dispatched only on the asserted single-node
- * topology; and an idle round writes no journal record. Storage options reach
- * the wire but never a durable record.
+ * slot still held; only a changed backend process epoch releases a slot;
+ * per-backend capacity counts possible-live slot ownership rather than RUNNING
+ * state, so a released slot stops blocking while a deadline-expired UNKNOWN job
+ * still holding its slot keeps occupying capacity; the per-round budget counts
+ * only jobs actually made RUNNING, so permanently ineligible jobs are scanned
+ * past and never crowd out later ids; a backend at capacity is scanned past
+ * for a schedule-available one with a free slot; a local-filesystem dataset is
+ * dispatched only on the asserted single-node topology; and an idle round
+ * writes no journal record. Storage options reach the wire but never a durable
+ * record.
  */
 public class LanceIndexJobDispatcherTest {
     private static final long CATALOG_ID = 10L;
@@ -114,7 +120,7 @@ public class LanceIndexJobDispatcherTest {
         mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
         Mockito.when(env.isMaster()).thenReturn(true);
         mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfo = Mockito.mock(SystemInfoService.class));
-        Mockito.when(systemInfo.selectBackendIdsByPolicy(Mockito.any(BeSelectionPolicy.class), Mockito.eq(1)))
+        Mockito.when(systemInfo.selectBackendIdsByPolicy(Mockito.any(BeSelectionPolicy.class), Mockito.eq(-1)))
                 .thenReturn(Collections.singletonList(BE1_ID));
         Mockito.when(systemInfo.getBackend(BE1_ID)).thenReturn(backend(BE1_ID, BE_EPOCH));
         Mockito.when(systemInfo.getBackend(BE2_ID)).thenReturn(backend(BE2_ID, BE_EPOCH));
@@ -178,6 +184,10 @@ public class LanceIndexJobDispatcherTest {
 
     @Test
     public void oneRoundRunsTheFivePhasesInFixedOrder() throws Exception {
+        // This case pins the phase order, not the capacity rule: raise the per-backend
+        // slot cap so the slot holders below (the deadline-swept UNKNOWN keeps its
+        // slot, the COMMITTED one keeps its own) cannot crowd out job 4's dispatch.
+        Config.lance_index_job_max_inflight_per_backend = 10;
         // Job 1: expired RUNNING, converged by the deadline sweep. Its backend keeps
         // the recorded epoch so the epoch sweep leaves it alone.
         admit(1L, "IdxDeadline", LOCATOR);
@@ -652,14 +662,18 @@ public class LanceIndexJobDispatcherTest {
 
         dispatcher.runAfterCatalogReady();
 
-        // Both in-flight slots of the only selectable backend are taken: the round
+        // Both possible-live slots of the only selectable backend are taken: the round
         // attempts nothing and the job keeps waiting as PENDING.
         Assertions.assertTrue(dispatcher.sends.isEmpty(), events.toString());
         Assertions.assertEquals(LanceIndexJobMutationState.PENDING, manager.getJob(3L).getMutationState());
         Assertions.assertEquals(journalBefore, manager.editLog.size());
 
-        // One placeholder converges, so the snapshot count drops and the next round sends.
-        Assertions.assertTrue(manager.completeWithResult(1L, 1L, "place-1", BE_EPOCH, okResult()));
+        // A termination proof releases one slot while the job itself stays RUNNING:
+        // capacity follows slot ownership, not the mutation state, so the next round
+        // sends even though both placeholder jobs are still RUNNING.
+        Assertions.assertTrue(manager.recordTerminationProof(1L, 1L, BE1_ID, BE_EPOCH, "place-1",
+                LanceIndexTerminationProof.CHILD_REAPED));
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, manager.getJob(1L).getMutationState());
         dispatcher.runAfterCatalogReady();
 
         Assertions.assertEquals(1, dispatcher.sends.size());
@@ -667,8 +681,49 @@ public class LanceIndexJobDispatcherTest {
     }
 
     @Test
+    public void unknownJobHoldingItsSlotStillOccupiesBackendCapacity() throws Exception {
+        Config.lance_index_job_max_inflight_per_backend = 2;
+        admit(1L, "IdxExpired", LOCATOR);
+        Assertions.assertTrue(manager.markRunning(1L, 0L, BE1_ID, BE_EPOCH, "inv-1", FAR_DEADLINE_MS));
+        // Deadline expiry converges the job UNKNOWN but never proves termination: its
+        // possible-live slot stays held and must keep occupying backend capacity.
+        Assertions.assertTrue(manager.completeWithResult(1L, 1L, "inv-1", BE_EPOCH,
+                new LanceIndexJobResult(LanceIndexJobResultCode.NO_TRUSTED_RESULT,
+                        LanceIndexJobCompletionReason.NONE, "deadline expired", false)));
+        admit(2L, "IdxCurrent", LOCATOR);
+        Assertions.assertTrue(manager.markRunning(2L, 0L, BE1_ID, BE_EPOCH, "inv-2", FAR_DEADLINE_MS));
+        admit(3L, "IdxWaiting", LOCATOR);
+
+        dispatcher.runAfterCatalogReady();
+
+        // One RUNNING plus one UNKNOWN slot holder fill the cap of two: a RUNNING-only
+        // count would see a free slot here, the slot-ownership count does not.
+        Assertions.assertTrue(dispatcher.sends.isEmpty(), events.toString());
+        Assertions.assertEquals(LanceIndexJobMutationState.PENDING, manager.getJob(3L).getMutationState());
+        Assertions.assertTrue(manager.getJob(1L).holdsPossibleLiveSlot());
+    }
+
+    @Test
+    public void fullBackendIsSkippedForOneWithAFreeSlot() throws Exception {
+        Config.lance_index_job_max_inflight_per_backend = 1;
+        admit(1L, "IdxOccupied", LOCATOR);
+        Assertions.assertTrue(manager.markRunning(1L, 0L, BE1_ID, BE_EPOCH, "inv-1", FAR_DEADLINE_MS));
+        // The policy returns both backends with the full one first: the dispatcher must
+        // scan past it instead of deferring the job for a whole round.
+        Mockito.when(systemInfo.selectBackendIdsByPolicy(Mockito.any(BeSelectionPolicy.class), Mockito.eq(-1)))
+                .thenReturn(Arrays.asList(BE1_ID, BE2_ID));
+        admit(2L, "IdxWaiting", LOCATOR);
+
+        dispatcher.runAfterCatalogReady();
+
+        Assertions.assertEquals(1, dispatcher.sends.size());
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, manager.getJob(2L).getMutationState());
+        Assertions.assertEquals(BE2_ID, manager.getJob(2L).getBackendId().longValue());
+    }
+
+    @Test
     public void noSelectableBackendKeepsTheJobPending() throws Exception {
-        Mockito.when(systemInfo.selectBackendIdsByPolicy(Mockito.any(BeSelectionPolicy.class), Mockito.eq(1)))
+        Mockito.when(systemInfo.selectBackendIdsByPolicy(Mockito.any(BeSelectionPolicy.class), Mockito.eq(-1)))
                 .thenReturn(Collections.emptyList());
         admit(1L, "IdxA", LOCATOR);
         int journalBefore = manager.editLog.size();
@@ -678,6 +733,36 @@ public class LanceIndexJobDispatcherTest {
         Assertions.assertTrue(dispatcher.sends.isEmpty());
         Assertions.assertEquals(LanceIndexJobMutationState.PENDING, manager.getJob(1L).getMutationState());
         Assertions.assertEquals(journalBefore, manager.editLog.size());
+    }
+
+    @Test
+    public void ineligibleJobsNeverCrowdOutLaterDispatchableIds() throws Exception {
+        Config.lance_index_job_max_dispatch_per_round = 1;
+        Config.enable_lance_index_local_file_mutation = false;
+        // More permanently ineligible jobs than the round budget: local-file datasets
+        // while the operator assertion is off. They must be scanned past without
+        // consuming the budget.
+        for (long jobId = 1L; jobId <= 16L; jobId++) {
+            admit(jobId, "IdxLocal" + jobId, "/tmp/local-dataset-" + jobId);
+        }
+        admit(17L, "IdxRemote1", LOCATOR);
+        admit(18L, "IdxRemote2", LOCATOR);
+
+        dispatcher.runAfterCatalogReady();
+
+        // The single budgeted dispatch of the round reaches job 17 behind the sixteen
+        // ineligible ones; the second remote job waits for the next round.
+        Assertions.assertEquals(1, dispatcher.sends.size());
+        Assertions.assertEquals(17L, dispatcher.sends.get(0).getJobId());
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, manager.getJob(17L).getMutationState());
+        Assertions.assertEquals(LanceIndexJobMutationState.PENDING, manager.getJob(18L).getMutationState());
+        Assertions.assertEquals(LanceIndexJobMutationState.PENDING, manager.getJob(1L).getMutationState());
+
+        dispatcher.runAfterCatalogReady();
+
+        Assertions.assertEquals(2, dispatcher.sends.size());
+        Assertions.assertEquals(18L, dispatcher.sends.get(1).getJobId());
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, manager.getJob(18L).getMutationState());
     }
 
     @Test
@@ -929,7 +1014,7 @@ public class LanceIndexJobDispatcherTest {
         manager.write(new DataOutputStream(byteStream));
         LanceIndexJobManager restored = LanceIndexJobManager.read(
                 new DataInputStream(new ByteArrayInputStream(byteStream.toByteArray())));
-        Assertions.assertTrue(containsJob(restored.getJobsNeedingDispatch(10), 1L),
+        Assertions.assertTrue(containsJob(restored.getJobsNeedingDispatch(), 1L),
                 "the restored image must carry the PENDING job");
 
         // The restored manager journals through the real base seam; route it to a mock.

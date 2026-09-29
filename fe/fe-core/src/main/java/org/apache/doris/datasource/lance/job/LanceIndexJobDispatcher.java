@@ -35,7 +35,6 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
-import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TApplicationException;
@@ -287,80 +286,89 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
     }
 
     /**
-     * PENDING dispatch. Attempts at most
+     * PENDING dispatch. Makes at most
      * {@link Config#lance_index_job_max_dispatch_per_round} fresh dispatches per
-     * round, and never more than {@link Config#lance_index_job_max_inflight_per_backend}
-     * in-flight jobs per backend, counted from the RUNNING snapshot plus the
+     * round, and only a job this round actually made RUNNING consumes that
+     * budget: skipped jobs (an eligibility gate is closed, or every backend is
+     * at capacity) are scanned past, so a stable subset of permanently
+     * undispatchable jobs can never crowd out later ids. Per backend it never
+     * exceeds {@link Config#lance_index_job_max_inflight_per_backend}
+     * possible-live worker slots, counted from slot ownership (see
+     * {@link LanceIndexJobManager#countPossibleLiveSlotsByBackend()}) plus the
      * jobs this round already made RUNNING. A job that cannot be dispatched
      * keeps waiting as PENDING: there is no dispatch-exhaustion terminal state
      * and no backoff beyond the daemon period.
      */
     private void dispatchPendingJobs(LanceIndexJobManager jobManager) {
         int maxPerRound = Math.max(1, Config.lance_index_job_max_dispatch_per_round);
-        Map<Long, Integer> inflightByBackend = countInflightByBackend(jobManager);
-        int attempted = 0;
-        for (LanceIndexJob job : jobManager.getJobsNeedingDispatch(maxPerRound)) {
-            if (++attempted > maxPerRound) {
+        Map<Long, Integer> inflightByBackend = jobManager.countPossibleLiveSlotsByBackend();
+        int dispatched = 0;
+        for (LanceIndexJob job : jobManager.getJobsNeedingDispatch()) {
+            if (dispatched >= maxPerRound) {
                 break;
             }
             try {
-                tryDispatch(jobManager, job, inflightByBackend);
+                if (tryDispatch(jobManager, job, inflightByBackend)) {
+                    dispatched++;
+                }
             } catch (Throwable t) {
                 LOG.warn("failed to dispatch lance index job " + job.getJobId(), t);
             }
         }
     }
 
-    private Map<Long, Integer> countInflightByBackend(LanceIndexJobManager jobManager) {
-        Map<Long, Integer> inflightByBackend = Maps.newHashMap();
-        for (LanceIndexJob job : jobManager.getAllJobsSnapshot()) {
-            if (job.getMutationState() == LanceIndexJobMutationState.RUNNING && job.getBackendId() != null) {
-                inflightByBackend.merge(job.getBackendId(), 1, Integer::sum);
-            }
-        }
-        return inflightByBackend;
-    }
-
     /**
-     * One dispatch attempt for one PENDING job. Every early return before
-     * markRunning leaves the job PENDING for a later round: the eligibility
-     * gates, the backend and capacity checks, and also the whole request
-     * preparation — storage-option resolution and the wire request build run
-     * before the durable boundary, so an FE-side failure there (for example a
-     * catalog id that resolves to nothing while ALTER CATALOG RENAME has the
-     * catalog temporarily removed) just retries next round instead of
-     * stranding the job UNKNOWN without a single byte sent. Once markRunning
-     * succeeds the job is durable RUNNING and this invocation id gets exactly
-     * one send attempt; after that only a matching callback, the deadline
-     * sweep, or the epoch sweep can converge the job.
+     * One dispatch attempt for one PENDING job; returns true only when the
+     * attempt made the job durable RUNNING (and so consumes this round's
+     * dispatch budget). Every early return before markRunning leaves the job
+     * PENDING for a later round: the eligibility gates, the backend and
+     * capacity checks, and also the whole request preparation — storage-option
+     * resolution and the wire request build run before the durable boundary,
+     * so an FE-side failure there (for example a catalog id that resolves to
+     * nothing while ALTER CATALOG RENAME has the catalog temporarily removed)
+     * just retries next round instead of stranding the job UNKNOWN without a
+     * single byte sent. Once markRunning succeeds the job is durable RUNNING
+     * and this invocation id gets exactly one send attempt; after that only a
+     * matching callback, the deadline sweep, or the epoch sweep can converge
+     * the job.
      */
-    private void tryDispatch(LanceIndexJobManager jobManager, LanceIndexJob job,
+    private boolean tryDispatch(LanceIndexJobManager jobManager, LanceIndexJob job,
             Map<Long, Integer> inflightByBackend) {
         boolean localDataset = isLocalFileDataset(job.getNormalizedLocator());
         if (localDataset && !Config.enable_lance_index_local_file_mutation) {
             // Operator assertion is off: a local-filesystem mutation stays PENDING.
-            return;
+            return false;
         }
         if (localDataset && Env.getCurrentEnv().getFrontends(null).size() != 1) {
             // Local files are only shared by a single-node deployment.
-            return;
+            return false;
         }
         SystemInfoService systemInfo = Env.getCurrentSystemInfo();
+        // All schedule-available backends, shuffled by the selection policy: the
+        // first one with a free possible-live slot takes the job, so a full
+        // backend defers this attempt only when every selectable backend is at
+        // the cap, never just because the randomly picked one is.
         List<Long> backendIds = systemInfo.selectBackendIdsByPolicy(
-                new BeSelectionPolicy.Builder().needScheduleAvailable().build(), 1);
-        if (backendIds.isEmpty()) {
-            return;
+                new BeSelectionPolicy.Builder().needScheduleAvailable().build(), -1);
+        int perBackendCap = Math.max(1, Config.lance_index_job_max_inflight_per_backend);
+        Backend backend = null;
+        for (Long backendId : backendIds) {
+            Backend candidate = systemInfo.getBackend(backendId);
+            if (candidate == null) {
+                continue;
+            }
+            if (localDataset && !isOnlyAliveBackend(systemInfo, candidate.getId())) {
+                continue;
+            }
+            Integer inflight = inflightByBackend.get(candidate.getId());
+            if (inflight != null && inflight >= perBackendCap) {
+                continue;
+            }
+            backend = candidate;
+            break;
         }
-        Backend backend = systemInfo.getBackend(backendIds.get(0));
         if (backend == null) {
-            return;
-        }
-        if (localDataset && !isOnlyAliveBackend(systemInfo, backend.getId())) {
-            return;
-        }
-        Integer inflight = inflightByBackend.get(backend.getId());
-        if (inflight != null && inflight >= Math.max(1, Config.lance_index_job_max_inflight_per_backend)) {
-            return;
+            return false;
         }
         String invocationId = UUID.randomUUID().toString();
         // The process epoch is captured once, and the same value goes to the
@@ -379,13 +387,13 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             // marked and nothing was sent, so the job simply waits for the next round.
             LOG.warn("failed to prepare the dispatch of lance index job {}; staying PENDING: {}",
                     job.getJobId(), e.getMessage());
-            return;
+            return false;
         }
         if (!jobManager.markRunning(job.getJobId(), job.getRevision(), backend.getId(),
                 beProcessEpoch, invocationId, deadlineMs)) {
             // The compare-and-set lost: this attempt's dispatch identity is void and its
             // invocation id is discarded. A fresh identity is built from scratch next round.
-            return;
+            return false;
         }
         inflightByBackend.merge(backend.getId(), 1, Integer::sum);
         LanceIndexJob fresh = jobManager.getJob(job.getJobId());
@@ -398,7 +406,7 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             // The job is durable RUNNING, so the deadline sweep or a matching callback
             // converges it.
             LOG.warn("lance index job {} did not survive the pre-send recheck; not sending", job.getJobId());
-            return;
+            return true;
         }
         TStatus status;
         try {
@@ -409,12 +417,12 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             // the same durable transition.
             LOG.warn("dispatch of lance index job {} provably never enqueued: {}", job.getJobId(), e.getMessage());
             completePreInvocationRejected(jobManager, fresh, e.getMessage());
-            return;
+            return true;
         } catch (Exception e) {
             // The request may have reached the backend, so its outcome cannot be trusted.
             LOG.warn("dispatch send of lance index job {} failed: {}", job.getJobId(), e.getMessage());
             completeNoTrusted(jobManager, fresh, "dispatch send failed; the result cannot be trusted");
-            return;
+            return true;
         }
         if (status == null || status.getStatusCode() == null) {
             // Absence of a status is the absence of a trusted answer, not a clean
@@ -422,7 +430,7 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             // enqueued.
             LOG.warn("dispatch send of lance index job {} returned no status", job.getJobId());
             completeNoTrusted(jobManager, fresh, "dispatch send returned no status");
-            return;
+            return true;
         }
         if (status.getStatusCode() != TStatusCode.OK) {
             // A clean error status proves the backend did not enqueue the dispatch, so
@@ -434,6 +442,7 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
         }
         // OK: enqueued exactly once. The result arrives through the report callback;
         // nothing more is done here, and the deadline sweep bounds the wait.
+        return true;
     }
 
     /**
