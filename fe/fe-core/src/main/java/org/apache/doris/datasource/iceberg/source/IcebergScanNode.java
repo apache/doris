@@ -2598,8 +2598,19 @@ public class IcebergScanNode extends FileQueryScanNode {
             PartitionSpec partitionSpec = icebergTable.specs().get(specId);
             Preconditions.checkNotNull(partitionSpec, "Partition spec with specId %s not found for table %s",
                     specId, icebergTable.name());
-            split.setPartitionDataJson(IcebergUtils.getPartitionDataJson(
-                    partitionData, partitionSpec, sessionVariable.getTimeZone()));
+            try {
+                split.setPartitionDataJson(IcebergUtils.getPartitionDataJson(
+                        partitionData, partitionSpec, sessionVariable.getTimeZone()));
+            } catch (UnsupportedOperationException e) {
+                // Dropped source columns leave UNKNOWN types in historical specs. Reads do not need
+                // this row-ID payload, but DML must never replace an unrepresentable partition with NULL.
+                boolean requiresRowId = desc.getSlots().stream().anyMatch(slot -> slot.getColumn() != null
+                        && Column.ICEBERG_ROWID_COL.equalsIgnoreCase(slot.getColumn().getName()));
+                if (requiresRowId) {
+                    throw new UserException("Cannot produce Iceberg row IDs with unsupported partition types in spec "
+                            + specId + ". Rewrite historical data files before DELETE or UPDATE.", e);
+                }
+            }
             if (isPartitionedTable) {
                 Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(
                         Pair.of(specId, partitionData), k -> IcebergUtils.getIdentityPartitionInfoMap(

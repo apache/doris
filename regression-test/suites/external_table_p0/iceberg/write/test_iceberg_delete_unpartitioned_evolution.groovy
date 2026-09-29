@@ -118,6 +118,37 @@ suite("test_iceberg_delete_unpartitioned_evolution",
     sql """update mixed_partition_specs set metric = metric + 100"""
     checkRows("mixed_partition_specs", expectedAfterUpdate)
 
+    // Dropping a source column makes its historical partition type unknown, even for non-null values.
+    for (String fileFormat : ["parquet", "orc"]) {
+        String table = "dropped_partition_source_${fileFormat}"
+        spark_iceberg """drop table if exists demo.${dbName}.${table}"""
+        spark_iceberg """
+            create table demo.${dbName}.${table} (record_key int, partition_key int, metric int)
+            using iceberg partitioned by (partition_key)
+            tblproperties ('format-version' = '2', 'write.format.default' = '${fileFormat}',
+                           'write.delete.mode' = 'merge-on-read', 'write.update.mode' = 'merge-on-read')
+        """
+        spark_iceberg """insert into demo.${dbName}.${table} values (1, 7, 10), (2, 7, 20), (3, null, 30)"""
+        spark_iceberg """alter table demo.${dbName}.${table} drop partition field partition_key"""
+        spark_iceberg """alter table demo.${dbName}.${table} drop column partition_key"""
+        spark_iceberg """insert into demo.${dbName}.${table} values (4, 40)"""
+        sql """refresh database ${dbName}"""
+        def expected = spark_iceberg """
+            select record_key, metric from demo.${dbName}.${table} order by record_key
+        """
+        checkRows(table, expected)
+        test {
+            sql """delete from ${table} where record_key = 1"""
+            exception "Cannot produce Iceberg row IDs with unsupported partition types"
+        }
+        test {
+            sql """update ${table} set metric = metric + 100 where record_key = 2"""
+            exception "Cannot produce Iceberg row IDs with unsupported partition types"
+        }
+        checkRows(table, expected)
+        assertEquals([[0L]], sql("""select count(*) from ${table}\$delete_files"""))
+    }
+
     // Historical binary partitions must retain their bytes, not become NULL delete partitions.
     spark_iceberg """drop table if exists demo.${dbName}.historical_binary"""
     spark_iceberg """

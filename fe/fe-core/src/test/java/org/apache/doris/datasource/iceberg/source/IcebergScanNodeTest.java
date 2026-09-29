@@ -49,6 +49,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergPartitionInfo;
+import org.apache.doris.datasource.iceberg.IcebergRowId;
 import org.apache.doris.datasource.iceberg.IcebergRuntimeContext;
 import org.apache.doris.datasource.iceberg.IcebergSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSnapshotCacheValue;
@@ -1921,6 +1922,91 @@ public class IcebergScanNodeTest {
 
         Assert.assertTrue(table.spec().isUnpartitioned());
         assertDeleteSplitPartitionMetadata(table);
+    }
+
+    @Test
+    public void testReadSplitAfterDroppingPartitionSourceColumn() throws Exception {
+        for (boolean keepPartitioned : Arrays.asList(false, true)) {
+            for (Integer value : Arrays.asList(7, null)) {
+                assertSplitAfterDroppingPartitionSourceColumn(keepPartitioned, value, false);
+            }
+        }
+    }
+
+    @Test
+    public void testRowIdScanRejectsDroppedPartitionSourceColumn() throws Exception {
+        for (boolean keepPartitioned : Arrays.asList(false, true)) {
+            for (Integer value : Arrays.asList(7, null)) {
+                assertSplitAfterDroppingPartitionSourceColumn(keepPartitioned, value, true);
+            }
+        }
+    }
+
+    private void assertSplitAfterDroppingPartitionSourceColumn(
+            boolean keepPartitioned, Integer value, boolean requireRowId) throws Exception {
+        Schema schema = new Schema(Types.NestedField.optional(1, "record_key", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "partition_key", Types.IntegerType.get()),
+                Types.NestedField.optional(3, "retained_key", Types.IntegerType.get()));
+        PartitionSpec.Builder specBuilder = PartitionSpec.builderFor(schema).identity("partition_key");
+        if (keepPartitioned) {
+            specBuilder.identity("retained_key");
+        }
+        HadoopTables tables = new HadoopTables(new Configuration());
+        String location = temporaryFolder.newFolder().toURI().toString();
+        Table table = tables.create(schema, specBuilder.build(),
+                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"), location);
+        PartitionData partition = new PartitionData(table.spec().partitionType());
+        partition.set(0, value);
+        if (keepPartitioned) {
+            partition.set(1, 3);
+        }
+        table.newAppend().appendFile(DataFiles.builder(table.spec()).withPath("file:///warehouse/old.parquet")
+                .withPartition(partition).withRecordCount(1).withFileSizeInBytes(128).build()).commit();
+        table.updateSpec().removeField("partition_key").commit();
+        table.updateSchema().deleteColumn("partition_key").commit();
+        // Reload metadata so historical specs bind to the schema without the dropped source column.
+        table = tables.load(location);
+        Assert.assertEquals(keepPartitioned, table.spec().isPartitioned());
+        TestIcebergScanNode node = new TestIcebergScanNode(new SessionVariable());
+        setIcebergTable(node, table);
+        setPrivateField(node, "isPartitionedTable", keepPartitioned);
+        setPrivateField(node, "storagePropertiesMap", Collections.emptyMap());
+        setPrivateField(node, "formatVersion", 2);
+        setPrivateField(node, "partitionMapInfos", new HashMap<>());
+        setPrivateField(node, "orderedPathPartitionKeys", Collections.emptyList());
+        setPrivateField(node, "orderedPartitionMetadataKeys", Collections.emptyList());
+        node.addSlot(0, new Column("record_key", Type.INT));
+        if (requireRowId) {
+            node.addSlot(1, IcebergRowId.createHiddenColumn());
+        }
+        try (CloseableIterable<FileScanTask> tasks = table.newScan().planFiles()) {
+            int fileCount = 0;
+            for (FileScanTask task : tasks) {
+                PartitionData actualPartition = (PartitionData) task.file().partition();
+                Assert.assertEquals(Types.UnknownType.get(), actualPartition.getPartitionType().fields().get(0).type());
+                Assert.assertEquals(value, actualPartition.get(0));
+                if (requireRowId) {
+                    InvocationTargetException thrown = Assert.assertThrows(InvocationTargetException.class,
+                            () -> createIcebergSplit(node, task));
+                    Assert.assertTrue(thrown.getCause() instanceof UserException);
+                    Assert.assertTrue(thrown.getCause().getMessage().contains(
+                            "Cannot produce Iceberg row IDs with unsupported partition types"));
+                } else {
+                    IcebergSplit split = createIcebergSplit(node, task);
+                    TFileRangeDesc range = new TFileRangeDesc();
+                    setIcebergParams(node, range, split);
+                    TIcebergFileDesc file = range.getTableFormatParams().getIcebergParams();
+                    Assert.assertEquals(task.file().specId(), file.getPartitionSpecId());
+                    Assert.assertFalse(file.isSetPartitionDataJson());
+                    if (keepPartitioned) {
+                        Assert.assertEquals(Collections.singletonMap("retained_key", "3"),
+                                split.getIcebergPartitionValues());
+                    }
+                }
+                fileCount++;
+            }
+            Assert.assertEquals(1, fileCount);
+        }
     }
 
     @Test
