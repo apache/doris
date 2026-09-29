@@ -342,6 +342,59 @@ public class LanceIndexJobStateMachineTest {
     }
 
     @Test
+    public void provenNoEnqueueReleasesTheSlotInTheSameTransition() throws DdlException {
+        TestManager manager = new TestManager();
+        createAndRun(manager, 1L, "IdxA");
+
+        Assertions.assertTrue(manager.completeProvenNoEnqueue(1L, 1L, INVOCATION_ID, BE_EPOCH,
+                result(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED)));
+
+        LanceIndexJob stored = manager.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobMutationState.NOT_COMMITTED, stored.getMutationState());
+        Assertions.assertFalse(stored.holdsPossibleLiveSlot());
+        Assertions.assertEquals(LanceIndexTerminationProof.NOT_ENQUEUED, stored.getTerminationProof());
+        // A slot may still be proven exactly once: a later proof for the same identity
+        // only warns and changes nothing.
+        Assertions.assertFalse(manager.recordTerminationProof(1L, 1L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                LanceIndexTerminationProof.CHILD_REAPED));
+        Assertions.assertEquals(LanceIndexTerminationProof.NOT_ENQUEUED, manager.getJob(1L).getTerminationProof());
+    }
+
+    @Test
+    public void provenNoEnqueueKeepsAnEarlierTerminationProof() throws DdlException {
+        TestManager manager = new TestManager();
+        createAndRun(manager, 1L, "IdxA");
+        Assertions.assertTrue(manager.recordTerminationProof(1L, 1L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                LanceIndexTerminationProof.CHILD_REAPED));
+
+        Assertions.assertTrue(manager.completeProvenNoEnqueue(1L, 1L, INVOCATION_ID, BE_EPOCH,
+                result(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED)));
+
+        // The reaping proof is the stronger evidence and is kept; the slot was already
+        // released by it.
+        LanceIndexJob stored = manager.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobMutationState.NOT_COMMITTED, stored.getMutationState());
+        Assertions.assertEquals(LanceIndexTerminationProof.CHILD_REAPED, stored.getTerminationProof());
+        Assertions.assertFalse(stored.holdsPossibleLiveSlot());
+    }
+
+    @Test
+    public void plainCompletionNeverTouchesTheSlot() throws DdlException {
+        TestManager manager = new TestManager();
+        createAndRun(manager, 1L, "IdxA");
+
+        // Even a pre-invocation rejection reported by a worker keeps the slot: only the
+        // dispatcher's own proven no-enqueue channel releases it without a proof.
+        Assertions.assertTrue(manager.completeWithResult(1L, 1L, INVOCATION_ID, BE_EPOCH,
+                result(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED)));
+
+        LanceIndexJob stored = manager.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobMutationState.NOT_COMMITTED, stored.getMutationState());
+        Assertions.assertTrue(stored.holdsPossibleLiveSlot());
+        Assertions.assertEquals(LanceIndexTerminationProof.NONE, stored.getTerminationProof());
+    }
+
+    @Test
     public void everyAcceptedTransitionWritesExactlyOneEditLogRecord() throws DdlException {
         TestManager manager = new TestManager();
         manager.createJob(newCreateJob(1L, "IdxA"), 100, 100, 100);

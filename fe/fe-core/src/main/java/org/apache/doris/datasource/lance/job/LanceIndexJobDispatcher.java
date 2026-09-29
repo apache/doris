@@ -38,6 +38,7 @@ import org.apache.doris.thrift.TStatusCode;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TApplicationException;
 
 import java.util.List;
 import java.util.Locale;
@@ -59,12 +60,19 @@ import java.util.function.Supplier;
  * thread runs unconditionally on the master and simply finds nothing to do
  * while no jobs exist. An idle round writes no journal record.
  *
- * <p>Dispatch follows the durable-before-send boundary: the markRunning edit
- * log is written and re-read before the first byte of network I/O, and the
- * invocation id of an attempt that lost the compare-and-set is never reused.
- * After a successful markRunning there is exactly one send; from that point a
- * job converges only through a matching result callback, the deadline sweep,
- * or the epoch sweep, never through a resend.
+ * <p>Dispatch follows the durable-before-send boundary: the whole request is
+ * prepared first (so a preparation failure just leaves the job PENDING), then
+ * the markRunning edit log is written and re-read before the first byte of
+ * network I/O, and the invocation id of an attempt that lost the compare-and-set
+ * is never reused. After a successful markRunning there is exactly one send;
+ * from that point a job converges only through a matching result callback, the
+ * deadline sweep, or the epoch sweep, never through a resend. A failure that
+ * still proves the dispatch was never enqueued (a clean pre-enqueue error
+ * status, a client-pool borrow failure, or an UNKNOWN_METHOD answer from an
+ * old backend) converges it NOT_COMMITTED through the no-enqueue channel,
+ * which releases the possible-live slot in the same durable transition;
+ * anything ambiguous after the invocation may have started converges UNKNOWN
+ * with the slot retained.
  *
  * <p>The manager is resolved from the supplier once per round rather than
  * captured at construction: {@code Env.loadLanceIndexJobManager} replaces the
@@ -315,7 +323,13 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
 
     /**
      * One dispatch attempt for one PENDING job. Every early return before
-     * markRunning leaves the job PENDING for a later round. Once markRunning
+     * markRunning leaves the job PENDING for a later round: the eligibility
+     * gates, the backend and capacity checks, and also the whole request
+     * preparation — storage-option resolution and the wire request build run
+     * before the durable boundary, so an FE-side failure there (for example a
+     * catalog id that resolves to nothing while ALTER CATALOG RENAME has the
+     * catalog temporarily removed) just retries next round instead of
+     * stranding the job UNKNOWN without a single byte sent. Once markRunning
      * succeeds the job is durable RUNNING and this invocation id gets exactly
      * one send attempt; after that only a matching callback, the deadline
      * sweep, or the epoch sweep can converge the job.
@@ -355,6 +369,18 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
         // value, and the epoch sweep releases the slot against it).
         long beProcessEpoch = backend.getProcessEpoch();
         long deadlineMs = executeDeadlineMs(System.currentTimeMillis());
+        long expectedDispatchRevision = job.getRevision() + 1;
+        TLanceIndexJobDispatch dispatch;
+        try {
+            dispatch = buildDispatch(job, expectedDispatchRevision, invocationId, deadlineMs, beProcessEpoch,
+                    resolveStorageOptions(job));
+        } catch (Exception e) {
+            // Not a trusted worker rejection and not an ambiguity either: nothing was
+            // marked and nothing was sent, so the job simply waits for the next round.
+            LOG.warn("failed to prepare the dispatch of lance index job {}; staying PENDING: {}",
+                    job.getJobId(), e.getMessage());
+            return;
+        }
         if (!jobManager.markRunning(job.getJobId(), job.getRevision(), backend.getId(),
                 beProcessEpoch, invocationId, deadlineMs)) {
             // The compare-and-set lost: this attempt's dispatch identity is void and its
@@ -362,7 +388,6 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             return;
         }
         inflightByBackend.merge(backend.getId(), 1, Integer::sum);
-        long expectedDispatchRevision = job.getRevision() + 1;
         LanceIndexJob fresh = jobManager.getJob(job.getJobId());
         if (!Env.getCurrentEnv().isMaster() || fresh == null
                 || fresh.getMutationState() != LanceIndexJobMutationState.RUNNING
@@ -375,21 +400,16 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             LOG.warn("lance index job {} did not survive the pre-send recheck; not sending", job.getJobId());
             return;
         }
-        TLanceIndexJobDispatch dispatch;
-        try {
-            dispatch = buildDispatch(fresh, invocationId, deadlineMs, beProcessEpoch,
-                    resolveStorageOptions(fresh));
-        } catch (Exception e) {
-            // An FE-side resolution failure is not a trusted worker rejection, so it must
-            // not fabricate NOT_COMMITTED. The job is already RUNNING without a send, and
-            // the send may never happen, so converge it to UNKNOWN fail-closed.
-            LOG.warn("failed to prepare the dispatch of lance index job {}: {}", job.getJobId(), e.getMessage());
-            completeNoTrusted(jobManager, fresh, "dispatch preparation failed before send");
-            return;
-        }
         TStatus status;
         try {
             status = sendExecuteRequest(backend, dispatch);
+        } catch (PreInvocationSendException e) {
+            // Proven never enqueued: converge through the no-enqueue channel, which
+            // releases the possible-live slot this attempt took with markRunning in
+            // the same durable transition.
+            LOG.warn("dispatch of lance index job {} provably never enqueued: {}", job.getJobId(), e.getMessage());
+            completePreInvocationRejected(jobManager, fresh, e.getMessage());
+            return;
         } catch (Exception e) {
             // The request may have reached the backend, so its outcome cannot be trusted.
             LOG.warn("dispatch send of lance index job {} failed: {}", job.getJobId(), e.getMessage());
@@ -409,25 +429,62 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             // this invocation is known never to have executed.
             LOG.warn("backend {} rejected the dispatch of lance index job {} before enqueueing",
                     backend.getId(), job.getJobId());
-            completePreInvocationRejected(jobManager, fresh);
+            completePreInvocationRejected(jobManager, fresh,
+                    "backend returned a clean error status before enqueueing the dispatch");
         }
         // OK: enqueued exactly once. The result arrives through the report callback;
         // nothing more is done here, and the deadline sweep bounds the wait.
     }
 
     /**
+     * A send failure that proves the dispatch never reached a worker: the
+     * client could not be borrowed, so no connection was ever established, or
+     * an old backend answered UNKNOWN_METHOD for the new RPC during a rolling
+     * upgrade, so it provably never enqueued the dispatch. Every other failure
+     * after the invocation may have started (a broken write, a read timeout)
+     * stays ambiguous and converges UNKNOWN instead.
+     */
+    public static class PreInvocationSendException extends Exception {
+        public PreInvocationSendException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    /**
      * Sends one dispatch to the backend's thrift service and returns its status.
      * The connection is borrowed per send, returned only when the call completed,
-     * and invalidated after a failed call. Test seam: subclasses override this
-     * method to record the request or inject faults without a live client pool.
+     * and invalidated after a failed call. Two failure families are wrapped into
+     * {@link PreInvocationSendException} because they prove the dispatch never
+     * reached a worker: a borrow failure means no connection was ever
+     * established, and an UNKNOWN_METHOD answer means an old backend (a rolling
+     * upgrade not yet serving this RPC) provably never enqueued the dispatch —
+     * with no BE capability bit to gate on, classifying that answer is what lets
+     * a dispatch retry on another, already-upgraded backend. Everything thrown
+     * later propagates unwrapped as ambiguous. Test seam: subclasses override
+     * this method to record the request or inject faults without a live client
+     * pool.
      */
     protected TStatus sendExecuteRequest(Backend backend, TLanceIndexJobDispatch dispatch) throws Exception {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBePort());
         BackendService.Client client = null;
         boolean callCompleted = false;
         try {
-            client = ClientPool.backendPool.borrowObject(address);
-            TStatus status = client.submitLanceIndexJob(dispatch);
+            try {
+                client = ClientPool.backendPool.borrowObject(address);
+            } catch (Exception e) {
+                throw new PreInvocationSendException(
+                        "no backend client could be borrowed; the dispatch was never sent", e);
+            }
+            TStatus status;
+            try {
+                status = client.submitLanceIndexJob(dispatch);
+            } catch (TApplicationException e) {
+                if (e.getType() == TApplicationException.UNKNOWN_METHOD) {
+                    throw new PreInvocationSendException(
+                            "backend does not serve submitLanceIndexJob (rolling upgrade); not enqueued", e);
+                }
+                throw e;
+            }
             callCompleted = true;
             return status;
         } finally {
@@ -442,15 +499,18 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
     }
 
     /**
-     * Builds the wire request from the durable record. Definition fields a DROP
-     * never carries travel as the empty string: the wire marks them required,
-     * and the worker only reads them for CREATE and REPLACE.
+     * Builds the wire request from the job record and the dispatch identity
+     * that markRunning is about to make durable (the dispatch revision is the
+     * pre-computed {@code job.revision + 1}; the pre-send recheck pins that the
+     * durable record landed with exactly this identity). Definition fields a
+     * DROP never carries travel as the empty string: the wire marks them
+     * required, and the worker only reads them for CREATE and REPLACE.
      */
-    private TLanceIndexJobDispatch buildDispatch(LanceIndexJob job, String invocationId, long deadlineMs,
-            long beProcessEpoch, Map<String, String> storageOptions) {
+    private TLanceIndexJobDispatch buildDispatch(LanceIndexJob job, long dispatchRevision, String invocationId,
+            long deadlineMs, long beProcessEpoch, Map<String, String> storageOptions) {
         TLanceIndexJobDispatch dispatch = new TLanceIndexJobDispatch();
         dispatch.setJobId(job.getJobId());
-        dispatch.setDispatchRevision(job.getDispatchRevision());
+        dispatch.setDispatchRevision(dispatchRevision);
         dispatch.setInvocationId(invocationId);
         dispatch.setBeProcessEpoch(beProcessEpoch);
         dispatch.setDeadlineMs(deadlineMs);
@@ -501,12 +561,11 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
         }
     }
 
-    private void completePreInvocationRejected(LanceIndexJobManager jobManager, LanceIndexJob job) {
-        boolean completed = jobManager.completeWithResult(job.getJobId(),
+    private void completePreInvocationRejected(LanceIndexJobManager jobManager, LanceIndexJob job, String reason) {
+        boolean completed = jobManager.completeProvenNoEnqueue(job.getJobId(),
                 dispatchRevisionOf(job), job.getInvocationId(), job.getBeProcessEpoch(),
                 new LanceIndexJobResult(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED,
-                        LanceIndexJobCompletionReason.NONE,
-                        "backend returned a clean error status before enqueueing the dispatch", false));
+                        LanceIndexJobCompletionReason.NONE, reason, false));
         if (!completed) {
             LOG.warn("rejection convergence skipped for lance index job {}: already converged by a callback or sweep",
                     job.getJobId());

@@ -344,9 +344,9 @@ public class LanceIndexJob implements Writable {
     }
 
     /**
-     * Whether this job still owns a possible-live worker slot: released only
-     * by a matching termination proof or a durable FORCE_RELEASE, never by a
-     * deadline.
+     * Whether this job still owns a possible-live worker slot: released by a
+     * matching termination proof, by the dispatcher's proven no-enqueue
+     * completion channel, or by a durable FORCE_RELEASE, never by a deadline.
      */
     public boolean holdsPossibleLiveSlot() {
         return possibleLiveOwned

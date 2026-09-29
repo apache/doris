@@ -37,8 +37,9 @@ import java.util.List;
  * the classification table; a stale report (wrong dispatch revision, invocation id, BE
  * process epoch, or an already-terminal job) only warns and changes nothing; a
  * CHILD_REAPED proof releases exactly the possible-live slot (never the outcome, never
- * the fence); and a malformed envelope (missing or unknown result code, sanitized
- * message past the durable bound) is dropped whole so the dispatcher's deadline sweep
+ * the fence) and still lands when the result of the same envelope is malformed; a
+ * malformed envelope (missing or unknown result code, sanitized message past the
+ * durable bound) has its result dropped whole so the dispatcher's deadline sweep
  * converges the job. Message text is stored verbatim and never inspected to infer an
  * outcome, and NO_TRUSTED_RESULT never arrives on the wire.
  */
@@ -333,6 +334,53 @@ public class LanceIndexJobReportHandlerTest {
         new LanceIndexJobReportHandler(manager).handle(matchingReport(skew));
 
         assertManagerUnchangedByDroppedEnvelope(manager);
+    }
+
+    @Test
+    public void malformedResultStillRecordsAChildReapedProof() throws DdlException {
+        TestManager overlong = runningManager(1L, "IdxOverlong", LanceIndexJobMutationType.CREATE, false);
+        StringBuilder over = new StringBuilder();
+        for (int i = 0; i < LanceIndexJobResult.MAX_MESSAGE_BYTES + 1; i++) {
+            over.append('x');
+        }
+        new LanceIndexJobReportHandler(overlong).handle(
+                matchingReport(TLanceIndexJobResultCode.NATIVE_OK)
+                        .setSanitizedMessage(over.toString())
+                        .setTerminationProof(TLanceIndexTerminationProof.CHILD_REAPED));
+
+        // The malformed result is dropped, but the independently validated proof lands:
+        // the slot is released while the job stays RUNNING with no result stored.
+        LanceIndexJob stored = overlong.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, stored.getMutationState());
+        Assertions.assertNull(stored.getResult());
+        Assertions.assertEquals(LanceIndexTerminationProof.CHILD_REAPED, stored.getTerminationProof());
+        Assertions.assertFalse(stored.holdsPossibleLiveSlot());
+        Assertions.assertEquals(1, overlong.editLog.size());
+
+        // A later valid envelope still completes the job; the proof's revision bump does
+        // not break the dispatch-revision match of the completion.
+        new LanceIndexJobReportHandler(overlong).handle(matchingReport(TLanceIndexJobResultCode.NATIVE_OK));
+        LanceIndexJob completed = overlong.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobMutationState.COMMITTED, completed.getMutationState());
+        Assertions.assertFalse(completed.holdsPossibleLiveSlot());
+    }
+
+    @Test
+    public void unknownWireCodeStillRecordsAChildReapedProof() throws DdlException {
+        TestManager manager = runningManager(1L, "IdxSkewProof", LanceIndexJobMutationType.CREATE, false);
+        TLanceIndexJobResultCode skew = Mockito.mock(TLanceIndexJobResultCode.class);
+        Mockito.when(skew.name()).thenReturn("SOMETHING_ONLY_THE_BE_KNOWS");
+        Mockito.when(skew.getValue()).thenReturn(9999);
+
+        new LanceIndexJobReportHandler(manager).handle(matchingReport(skew)
+                .setTerminationProof(TLanceIndexTerminationProof.CHILD_REAPED));
+
+        LanceIndexJob stored = manager.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, stored.getMutationState());
+        Assertions.assertNull(stored.getResult());
+        Assertions.assertEquals(LanceIndexTerminationProof.CHILD_REAPED, stored.getTerminationProof());
+        Assertions.assertFalse(stored.holdsPossibleLiveSlot());
+        Assertions.assertEquals(1, manager.editLog.size());
     }
 
     @Test
