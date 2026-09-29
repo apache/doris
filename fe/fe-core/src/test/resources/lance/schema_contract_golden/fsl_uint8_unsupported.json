@@ -1,0 +1,20 @@
+{
+  "dataset_dir": "fsl_uint8.lance",
+  "version": 1,
+  "column": "v",
+  "verdict": "unsupported",
+  "expected_contract": {
+    "scv": 1,
+    "flds": [
+      {
+        "fid": 0,
+        "nn": "v",
+        "nt": "fixed_size_list",
+        "nul": false,
+        "fsd": 4,
+        "vet": "uint\u003c8\u003e",
+        "ven": true
+      }
+    ]
+  }
+}

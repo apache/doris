@@ -17,7 +17,11 @@
 
 #pragma once
 
+#include <gen_cpp/MasterService_types.h>
+#include <lance/lance.h>
+
 #include <cstdint>
+#include <optional>
 
 namespace doris::lance {
 
@@ -52,5 +56,13 @@ struct IndexWorkerParams {
 };
 
 int run_index_worker(const IndexWorkerParams& params);
+
+// Unit-test seam: the single place a typed lance error code becomes a wire result
+// code (the R4 §1.7 mapping table). Only the codes with a wire counterpart map; any
+// other code (DATASET_ALREADY_EXISTS, PANIC, or unknown values) yields nullopt, and
+// run_index_worker then exits nonzero WITHOUT a result frame. Production reaches
+// the mapping only through run_index_worker.
+std::optional<TLanceIndexJobResultCode::type> wire_result_code_for_native_error(
+        LanceErrorCode code);
 
 } // namespace doris::lance

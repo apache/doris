@@ -1,0 +1,20 @@
+{
+  "dataset_dir": "nonascii_col.lance",
+  "version": 1,
+  "column": "向量",
+  "verdict": "unsupported",
+  "expected_contract": {
+    "scv": 1,
+    "flds": [
+      {
+        "fid": 0,
+        "nn": "向量",
+        "nt": "fixed_size_list",
+        "nul": false,
+        "fsd": 4,
+        "vet": "float32",
+        "ven": true
+      }
+    ]
+  }
+}

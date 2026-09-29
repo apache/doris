@@ -1,0 +1,17 @@
+{
+  "dataset_dir": "edge_time.lance",
+  "version": 1,
+  "column": "t32s",
+  "verdict": "compare",
+  "expected_contract": {
+    "scv": 1,
+    "flds": [
+      {
+        "fid": 0,
+        "nn": "t32s",
+        "nt": "time(unit\u003dSECOND,bitWidth\u003d32)",
+        "nul": true
+      }
+    ]
+  }
+}
