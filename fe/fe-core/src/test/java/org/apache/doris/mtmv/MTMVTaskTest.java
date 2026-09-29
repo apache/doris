@@ -468,6 +468,76 @@ public class MTMVTaskTest {
     }
 
     /**
+     * A batch whose records are held back records the partition each was taken under as well. Nothing is
+     * published yet, but the question the id answers -- whether the name still means that partition -- is
+     * asked of held records too: a retry that replaces one has to be able to drop it, rather than have a later
+     * delta redeem it onto the partition that took the name. Both maps are named, since a batch holds a
+     * snapshot for partitions it has no epoch for.
+     */
+    @Test
+    public void testHeldRecordsCarryThePartitionTheyWereTakenUnder() {
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        Map<String, MTMVRefreshPartitionSnapshot> snapshots = Maps.newHashMap();
+        snapshots.put(poneName, Mockito.mock(MTMVRefreshPartitionSnapshot.class));
+        // p2's snapshot is held without an epoch: it had no entry to capture when the batch read it.
+        snapshots.put(ptwoName, Mockito.mock(MTMVRefreshPartitionSnapshot.class));
+        Partition held = partitionWithId(10L);
+        Partition heldWithoutAnEpoch = partitionWithId(20L);
+        Mockito.when(mtmv.getPartition(poneName)).thenReturn(held);
+        Mockito.when(mtmv.getPartition(ptwoName)).thenReturn(heldWithoutAnEpoch);
+
+        Deencapsulation.invoke(task, "holdCapturedEpochs", snapshots, Maps.newHashMap(Map.of(poneName, 3L)));
+
+        Assertions.assertEquals(Map.of(poneName, 10L, ptwoName, 20L),
+                Deencapsulation.getField(task, "capturedPartitionIds"));
+        Assertions.assertEquals(Map.of(poneName, 3L),
+                Deencapsulation.getField(task, "epochsHeldUntilTheDeltaRuns"));
+        // Held rather than published: what the epochs and snapshots wait for is the delta, not the result.
+        Assertions.assertTrue(
+                ((Map<?, ?>) Deencapsulation.getField(task, "ivmCapturedEpochs")).isEmpty());
+        Assertions.assertTrue(
+                ((Map<?, ?>) Deencapsulation.getField(task, "partitionSnapshots")).isEmpty());
+    }
+
+    /**
+     * The fence reaches what this task held back, not only what it committed. What a delta that succeeds after
+     * the retry would redeem is exactly those records, so a name that now means another partition must not
+     * have them published onto it: the partition that took the name has a baseline it never received.
+     */
+    @Test
+    public void testARetryThatReplacedAPartitionDropsWhatThisTaskHeldBackForIt() {
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        Deencapsulation.setField(task, "ivmPlannedEpochs", Maps.newHashMap(Map.of(poneName, 2L, ptwoName, 2L)));
+        Map<String, Long> heldEpochs = Maps.newHashMap(Map.of(poneName, 2L, ptwoName, 2L));
+        Map<String, MTMVRefreshPartitionSnapshot> heldSnapshots = Maps.newHashMap();
+        heldSnapshots.put(poneName, Mockito.mock(MTMVRefreshPartitionSnapshot.class));
+        heldSnapshots.put(ptwoName, Mockito.mock(MTMVRefreshPartitionSnapshot.class));
+        Deencapsulation.setField(task, "epochsHeldUntilTheDeltaRuns", heldEpochs);
+        Deencapsulation.setField(task, "snapshotsHeldUntilTheDeltaRuns", heldSnapshots);
+        // Both were held for the partition they still carry, except p1, whose name now belongs to the
+        // partition the sync added: 11 where the record was taken against 10.
+        Deencapsulation.setField(task, "capturedPartitionIds",
+                Maps.newHashMap(Map.of(poneName, 10L, ptwoName, 21L)));
+        Mockito.when(mtmv.getPartitionStates()).thenReturn(Maps.newHashMap(Map.of(
+                poneName, MTMVPartitionState.initial(),
+                ptwoName, MTMVPartitionState.initial())));
+        Partition replaced = partitionWithId(11L);
+        Partition kept = partitionWithId(21L);
+        Mockito.when(mtmv.getPartition(poneName)).thenReturn(replaced);
+        Mockito.when(mtmv.getPartition(ptwoName)).thenReturn(kept);
+
+        Deencapsulation.invoke(task, "adoptPartitionsCreatedByTheRetry", Sets.newLinkedHashSet());
+
+        // p1's is gone from all three, so nothing a later delta redeems can reach the partition that took its
+        // name; p2's partition is the one it was taken under, so what it holds stands.
+        Assertions.assertEquals(Map.of(ptwoName, 2L),
+                Deencapsulation.getField(task, "epochsHeldUntilTheDeltaRuns"));
+        Assertions.assertEquals(Sets.newHashSet(ptwoName),
+                ((Map<?, ?>) Deencapsulation.getField(task, "snapshotsHeldUntilTheDeltaRuns")).keySet());
+        Assertions.assertEquals(Map.of(ptwoName, 21L), Deencapsulation.getField(task, "capturedPartitionIds"));
+    }
+
+    /**
      * What a partial read held back is published once the delta that brings those tables up to date has run.
      *
      * <p>Holding it is right while the partitions are behind: recording them then would say they are current

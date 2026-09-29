@@ -1045,7 +1045,9 @@ public class MTMVTask extends AbstractTask {
             // then the captures and snapshots describe a partition that is gone. Writing them back would
             // credit the new one with what the old one held, which is worse than a wrong number -- a partition
             // clean at an epoch a later change only raises to is one no refresh rebuilds, so the rows the
-            // recreation removed would be published as current.
+            // recreation removed would be published as current. Records this task held back are the same
+            // question: nothing published them yet, and a delta that succeeds after this point is what would
+            // redeem them onto the new partition, which has a baseline it never received.
             //
             // Told apart by id rather than by the state: a partition this task rebuilt has its rows and its
             // capture, and its state still reads as the one an entry starts with until the task result writes
@@ -1057,6 +1059,8 @@ public class MTMVTask extends AbstractTask {
             if (partition != null && capturedId != null && capturedId.longValue() != partition.getId()) {
                 ivmCapturedEpochs.remove(entry.getKey());
                 partitionSnapshots.remove(entry.getKey());
+                epochsHeldUntilTheDeltaRuns.remove(entry.getKey());
+                snapshotsHeldUntilTheDeltaRuns.remove(entry.getKey());
                 capturedPartitionIds.remove(entry.getKey());
             }
         }
@@ -1097,12 +1101,41 @@ public class MTMVTask extends AbstractTask {
     private void commitCapturedEpochs(Map<String, Long> capturedEpochs) {
         for (Entry<String, Long> entry : capturedEpochs.entrySet()) {
             ivmCapturedEpochs.merge(entry.getKey(), plannedCeiling(entry), Math::max);
-            Partition partition = mtmv.getPartition(entry.getKey());
-            if (partition != null) {
-                // The partition this epoch belongs to, so a later phase can tell whether the name still means
-                // the same partition; see adoptPartitionsCreatedByTheRetry.
-                capturedPartitionIds.put(entry.getKey(), partition.getId());
-            }
+            recordCapturedPartitionId(entry.getKey());
+        }
+    }
+
+    /**
+     * Notes the partition the record for this name was taken under, so a later phase can tell whether the name
+     * still means that partition; see {@link #adoptPartitionsCreatedByTheRetry}.
+     *
+     * <p>Recorded for records this task holds back as well as for the ones it has committed -- both are its,
+     * and a retry that replaces the partition behind a name has to be able to drop either. A held record
+     * without an id here would be redeemed onto the partition that took the name, crediting it with a
+     * baseline it never received.
+     */
+    private void recordCapturedPartitionId(String partitionName) {
+        Partition partition = mtmv.getPartition(partitionName);
+        if (partition != null) {
+            capturedPartitionIds.put(partitionName, partition.getId());
+        }
+    }
+
+    /**
+     * Holds a batch's records back until the delta that brings the tables it read up to date has run, and
+     * notes the partitions they were taken under -- see {@link #redeemHeldRecords} for what publishing them
+     * waits for, and {@link #recordCapturedPartitionId} for why the ids are recorded here too.
+     *
+     * <p>Named by both maps: a batch holds a snapshot for every partition it replaced, and an epoch only for
+     * the ones that already had an entry to capture, so the names are the union of the two rather than the
+     * epochs alone.
+     */
+    private void holdCapturedEpochs(Map<String, MTMVRefreshPartitionSnapshot> snapshots,
+            Map<String, Long> capturedEpochs) {
+        snapshotsHeldUntilTheDeltaRuns.putAll(snapshots);
+        epochsHeldUntilTheDeltaRuns.putAll(capturedEpochs);
+        for (String partitionName : Sets.union(snapshots.keySet(), capturedEpochs.keySet())) {
+            recordCapturedPartitionId(partitionName);
         }
     }
 
@@ -1311,8 +1344,7 @@ public class MTMVTask extends AbstractTask {
                 LOG.info("Holding back the {} partitions of mv={}: their read answered with a base table as of "
                         + "an older state than it is in now, taskId={}",
                         execPartitionNames.size(), mtmv.getName(), getTaskId());
-                snapshotsHeldUntilTheDeltaRuns.putAll(execPartitionSnapshots);
-                epochsHeldUntilTheDeltaRuns.putAll(batchCapturedEpochs);
+                holdCapturedEpochs(execPartitionSnapshots, batchCapturedEpochs);
             } else {
                 partitionSnapshots.putAll(execPartitionSnapshots);
                 commitCapturedEpochs(batchCapturedEpochs);
