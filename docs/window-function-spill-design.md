@@ -279,7 +279,7 @@ revoke 后保持打开；后续输入按 `spill_buffer_size_bytes` 聚合成小�
 刷出缓冲区。由于读回的 Block 可能远大于 `batch_size`，Source 重放时按 `batch_size` 切片输出。
 
 一个 batch 对应一个逻辑 `SpillFile`，其中可以包含多个 partition。超过主动阈值、被内存
-仲裁器 revoke，或 seal 时仍大于 `spill_min_revocable_mem` 的 batch 会落盘，避免发布后失去
+仲裁器 revoke，或 seal 时仍达到 `spill_analytic_sink_mem_limit_bytes` 的 batch 会落盘，避免发布后失去
 revoke 入口。小 partition 随所在输入 Block 的 batch 一起发布，不会单独产生 spill 文件。
 
 ## 6. Spill 触发和内存回收
