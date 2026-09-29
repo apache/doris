@@ -138,7 +138,9 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         std::shared_ptr<arrow::DataType> item_type;
         RETURN_IF_ERROR(convert_to_arrow_type(type_arr->get_nested_type(), &item_type, timezone,
                                               datetime_naive));
-        *result = std::make_shared<arrow::ListType>(item_type);
+        // Arrow stores metadata on fields, so implicit child fields lose the Doris logical type.
+        *result = std::make_shared<arrow::ListType>(create_arrow_field_with_metadata(
+                "item", item_type, true, type_arr->get_nested_type()->get_primitive_type()));
         break;
     }
     case TYPE_MAP: {
@@ -149,7 +151,11 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
                                               datetime_naive));
         RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_value_type(), &val_type, timezone,
                                               datetime_naive));
-        *result = std::make_shared<arrow::MapType>(key_type, val_type);
+        auto key_field = create_arrow_field_with_metadata(
+                "key", key_type, false, type_map->get_key_type()->get_primitive_type());
+        auto value_field = create_arrow_field_with_metadata(
+                "value", val_type, true, type_map->get_value_type()->get_primitive_type());
+        *result = std::make_shared<arrow::MapType>(key_field, value_field);
         break;
     }
     case TYPE_STRUCT: {
@@ -159,9 +165,10 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
             std::shared_ptr<arrow::DataType> field_type;
             RETURN_IF_ERROR(convert_to_arrow_type(type_struct->get_element(i), &field_type,
                                                   timezone, datetime_naive));
-            fields.push_back(
-                    std::make_shared<arrow::Field>(type_struct->get_element_name(i), field_type,
-                                                   type_struct->get_element(i)->is_nullable()));
+            fields.push_back(create_arrow_field_with_metadata(
+                    type_struct->get_element_name(i), field_type,
+                    type_struct->get_element(i)->is_nullable(),
+                    type_struct->get_element(i)->get_primitive_type()));
         }
         *result = std::make_shared<arrow::StructType>(fields);
         break;
@@ -187,22 +194,32 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
     return Status::OK();
 }
 
-// Helper function to create an Arrow Field with type metadata if applicable, such as IP types
+// Logical types sharing Arrow storage need the same marker at the root and every child field.
 std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
         const std::string& field_name, const std::shared_ptr<arrow::DataType>& arrow_type,
         bool is_nullable, PrimitiveType primitive_type) {
-    if (primitive_type == PrimitiveType::TYPE_IPV4) {
-        auto metadata = arrow::KeyValueMetadata::Make({"doris_type"}, {"IPV4"});
-        return std::make_shared<arrow::Field>(field_name, arrow_type, is_nullable, metadata);
-    } else if (primitive_type == PrimitiveType::TYPE_IPV6) {
-        auto metadata = arrow::KeyValueMetadata::Make({"doris_type"}, {"IPV6"});
-        return std::make_shared<arrow::Field>(field_name, arrow_type, is_nullable, metadata);
-    } else if (primitive_type == PrimitiveType::TYPE_LARGEINT) {
-        auto metadata = arrow::KeyValueMetadata::Make({"doris_type"}, {"LARGEINT"});
-        return std::make_shared<arrow::Field>(field_name, arrow_type, is_nullable, metadata);
-    } else {
+    const char* type_name;
+    switch (primitive_type) {
+    case TYPE_IPV4:
+        type_name = "IPV4";
+        break;
+    case TYPE_IPV6:
+        type_name = "IPV6";
+        break;
+    case TYPE_LARGEINT:
+        type_name = "LARGEINT";
+        break;
+    case TYPE_JSONB:
+        type_name = "JSON";
+        break;
+    case TYPE_VARIANT:
+        type_name = "VARIANT";
+        break;
+    default:
         return std::make_shared<arrow::Field>(field_name, arrow_type, is_nullable);
     }
+    auto metadata = arrow::KeyValueMetadata::Make({"doris_type"}, {type_name});
+    return std::make_shared<arrow::Field>(field_name, arrow_type, is_nullable, metadata);
 }
 
 Status get_arrow_schema_from_block(const Block& block, std::shared_ptr<arrow::Schema>* result,
