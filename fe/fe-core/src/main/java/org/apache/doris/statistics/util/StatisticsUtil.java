@@ -137,6 +137,22 @@ public class StatisticsUtil {
         execUpdate(sql);
     }
 
+    /**
+     * Same as {@link #execUpdate(String, Map)} with an explicit statement timeout: the
+     * temporary context otherwise inherits the analyze timeout (12h by default), which is
+     * far too long for a latency-sensitive internal write such as the SPM capture
+     * checkpoint - a stalled tablet / BE would block the writing cycle instead of failing
+     * fast and being retried by the next cycle.
+     *
+     * @param timeoutSeconds the statement timeout in seconds
+     */
+    public static void execUpdate(String template, Map<String, String> params,
+            int timeoutSeconds) throws Exception {
+        StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
+        String sql = stringSubstitutor.replace(template);
+        execUpdate(sql, timeoutSeconds);
+    }
+
     public static List<ResultRow> execStatisticQuery(String sql) {
         return execStatisticQuery(sql, false);
     }
@@ -167,8 +183,13 @@ public class StatisticsUtil {
     }
 
     public static QueryState execUpdate(String sql) throws Exception {
+        return execUpdate(sql, getAnalyzeTimeout());
+    }
+
+    /** Same as {@link #execUpdate(String)} with an explicit statement timeout. */
+    public static QueryState execUpdate(String sql, int timeoutSeconds) throws Exception {
         StmtExecutor stmtExecutor = null;
-        AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false);
+        AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false, timeoutSeconds);
         try {
             stmtExecutor = new StmtExecutor(r.connectContext, sql);
             stmtExecutor.execute();

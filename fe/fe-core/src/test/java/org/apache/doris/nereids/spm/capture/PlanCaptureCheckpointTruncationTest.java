@@ -84,7 +84,7 @@ public class PlanCaptureCheckpointTruncationTest {
     }
 
     @Test
-    public void testCompleteRetryStateAdvancesTheCursor() {
+    public void testCompleteRetryStateRewindsBeforeQueuedRetries() {
         PlanCaptureManager manager = PlanCaptureManager.getInstance();
         manager.resetForTest();
         try {
@@ -92,17 +92,76 @@ public class PlanCaptureCheckpointTruncationTest {
                     50L, 999L, "cursor-z", "qid-z", "tail-a", "tail-z");
             Map<String, String> params = persist(manager);
 
-            Assertions.assertEquals("50", params.get("lastScan"),
-                    "with a fully persisted retry state the watermark advances normally");
-            Assertions.assertEquals("999", params.get("cursorQueryTime"));
-            Assertions.assertEquals("cursor-z", params.get("cursorTime"));
-            Assertions.assertEquals("qid-z", params.get("cursorQueryId"));
-            Assertions.assertEquals("tail-z", params.get("cursorTail"),
-                    "with a fully persisted retry state the cursor tail advances too");
+            // #7 (round 16): the JSON budget is NOT the trigger - the restore assigns the
+            // checkpoint cursor as the anchor of EVERY queued entry, so the durable cursor
+            // must sit before the oldest queued row even when all of them fit the payload
+            Assertions.assertEquals("49", params.get("lastScan"),
+                    "a queued retry must rewind the durable watermark before its row");
+            Assertions.assertEquals("-1", params.get("cursorQueryTime"));
+            Assertions.assertEquals("cursor-a", params.get("cursorTime"));
+            Assertions.assertEquals("qid-a", params.get("cursorQueryId"));
+            Assertions.assertEquals("tail-a", params.get("cursorTail"),
+                    "the durable cursor tail must be the pre-page tail of the queued entry");
             Assertions.assertEquals("100", params.get("pendingStart"));
             Assertions.assertEquals("200", params.get("pendingEnd"));
             Assertions.assertEquals(5,
                     PlanCaptureManager.decodeRetryQueue(params.get("retryQueue")).size());
+        } finally {
+            manager.resetForTest();
+        }
+    }
+
+    /**
+     * #7 (round 16): a 64-to-65 transition across TWO handoffs. A checkpoint whose retry
+     * state FITS the budget (64 entries) used to persist the LIVE cursor - past all
+     * queued rows. The restored leader takes that cursor as the anchor of every restored
+     * entry, so when its 65th failure truncates the JSON, the rewind lands AFTER the
+     * dropped oldest row: the next leader can neither reload it from the queue nor
+     * re-scan it (keyset pagination is past it), losing its remaining attempt.
+     */
+    @Test
+    public void testCheckpointStaysBeforeQueuedRowsAcrossTwoHandoffs() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            // leader A: 64 queued retries - exactly the JSON budget, NOT truncated
+            manager.seedCheckpointStateForTest(100L, 200L, -1L, "cursor-page", "qid-page",
+                    64, 50L, 999L, "cursor-live", "qid-live", "tail-page", "tail-live");
+            Map<String, String> params = persist(manager);
+            Assertions.assertEquals("49", params.get("lastScan"));
+            Assertions.assertEquals("cursor-page", params.get("cursorTime"));
+            Assertions.assertEquals("-1", params.get("cursorQueryTime"));
+            Assertions.assertEquals("tail-page", params.get("cursorTail"));
+            Assertions.assertEquals(64,
+                    PlanCaptureManager.decodeRetryQueue(params.get("retryQueue")).size());
+
+            // HANDOFF 1: leader B restores that checkpoint (its cursor IS the anchor of
+            // every restored retry)
+            manager.resetForTest();
+            manager.applyCheckpointRow(new ResultRow(List.of("49", "100", "200", "-1",
+                    "cursor-page", "qid-page", params.get("failedAttempts"),
+                    params.get("retryQueue"), "tail-page")));
+            Assertions.assertTrue(manager.isQueuedForTest("seed-failed-0"),
+                    "the oldest retry survives the handoff");
+
+            // leader B queues a 65th failure -> the persisted JSON truncates and drops
+            // the OLDEST retry
+            manager.handleCandidateForTest(failingCandidate(999));
+            Assertions.assertTrue(manager.isQueuedForTest("qid-999"));
+
+            Map<String, String> second = persist(manager);
+            Assertions.assertEquals("49", second.get("lastScan"),
+                    "the truncating checkpoint must rewind to the anchor the restored"
+                            + " retries carry, which sits BEFORE their rows");
+            Assertions.assertEquals("-1", second.get("cursorQueryTime"));
+            Assertions.assertEquals("cursor-page", second.get("cursorTime"));
+            Assertions.assertEquals("qid-page", second.get("cursorQueryId"));
+            Assertions.assertEquals("tail-page", second.get("cursorTail"));
+            Map<String, CapturedQuery> persistedQueue =
+                    PlanCaptureManager.decodeRetryQueue(second.get("retryQueue"));
+            Assertions.assertFalse(persistedQueue.containsKey("seed-failed-0"),
+                    "the oldest retry is beyond the JSON budget: " + persistedQueue.keySet());
+            Assertions.assertTrue(persistedQueue.size() <= 64);
         } finally {
             manager.resetForTest();
         }

@@ -406,7 +406,7 @@ public class AuditLogScannerCursorTest {
                 "qid", tail);
         Assertions.assertTrue(predicate.contains("`db` < 'b'"),
                 "the resume chain must reach a row that differs only by db: " + predicate);
-        Assertions.assertTrue(predicate.contains("`sql_mode` < 0"),
+        Assertions.assertTrue(predicate.contains("`sql_mode` < '0'"),
                 "... and one that differs only by parser mode: " + predicate);
 
         // legacy five-element tails keep the prefix-only comparison
@@ -434,6 +434,32 @@ public class AuditLogScannerCursorTest {
                 modeRow(plain, "d-gen", "NO_BACKSLASH_ESCAPES"));
         Assertions.assertEquals(2, AuditLogScanner.toBatch(rows, 10).getCandidates().size(),
                 "the two generators are concrete SPM arguments: both rows are eligible");
+    }
+
+    /**
+     * audit_log.sql_mode is a STRING column: a page ending on a NAMED mode row
+     * (PIPES_AS_CONCAT) must carry that TEXT into the cursor, and the resume predicate
+     * must compare it as a quoted string literal - the numeric rendering emitted
+     * "sql_mode < PIPES_AS_CONCAT" (an identifier, not a literal), so every later page
+     * failed with an unknown column and the capture window stayed pinned forever.
+     */
+    @Test
+    public void testNamedModeRowKeepsStringCursor() {
+        List<ResultRow> page = List.of(
+                modeRow("SELECT * FROM t1 JOIN t2 ON t1.a = t2.a", "d1", "PIPES_AS_CONCAT"),
+                modeRow("SELECT * FROM t1 JOIN t2 ON t1.a = t2.a WHERE t2.b = 1", "d2",
+                        "PIPES_AS_CONCAT"));
+        AuditLogScanner.ScanBatch batch = AuditLogScanner.toBatch(page, 1);
+        Assertions.assertFalse(batch.isWindowExhausted(), "a full page truncates the window");
+        String tail = batch.getCursorTail();
+        Assertions.assertNotEquals("", tail, "the named mode travels in the cursor tail");
+
+        String predicate = AuditLogScanner.cursorPredicate(batch.getCursorQueryTime(),
+                batch.getCursorTime(), batch.getCursorQueryId(), tail);
+        Assertions.assertTrue(predicate.contains("`sql_mode` < 'PIPES_AS_CONCAT'"),
+                "the named mode must be compared as an escaped string literal: " + predicate);
+        Assertions.assertFalse(predicate.contains("`sql_mode` < PIPES_AS_CONCAT"),
+                "an unquoted mode name parses as an identifier (unknown column): " + predicate);
     }
 
     /** One raw audit_log row (12 columns) with statement / digest / sql_mode overridden. */

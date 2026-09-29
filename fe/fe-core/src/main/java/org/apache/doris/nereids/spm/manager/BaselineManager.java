@@ -393,19 +393,50 @@ public class BaselineManager {
             // watermark read fails fails visibly and allocates nothing, instead of silently
             // colliding with a row written by a newer master.
             final long watermark = readPersistedWatermark();
-            // Phase 1: exact-duplicate validation against the in-memory index (read lock).
+            // Phase 1: duplicate validation against the in-memory index (read lock). A
+            // duplicate must agree on the SCHEMA FINGERPRINT as well: after
+            // ALTER TABLE t ADD COLUMN extra the stored fingerprint goes stale and
+            // SPMPlanner skips the old baseline even for a still-matching bind, while a
+            // repeated CREATE produces the same digest / planSql with a NEW fingerprint -
+            // returning the old id would leave the user unable to recreate a usable
+            // baseline without dropping it first. A stale row is retired once the
+            // replacement row is durable.
+            BaselinePlan duplicate = null;
+            List<BaselinePlan> staleCacheRows = new ArrayList<>();
             stateLock.readLock().lock();
             try {
                 if (plan.getBindSqlHash() != 0) {
                     for (BaselinePlan existing : findByHash(plan.getBindSqlHash())) {
-                        if (existing.getBindSqlDigest().equals(plan.getBindSqlDigest())
-                                && existing.getPlanSql().equals(plan.getPlanSql())) {
-                            return existing.getId(); // exact duplicate -> skip
+                        if (!existing.getBindSqlDigest().equals(plan.getBindSqlDigest())
+                                || !existing.getPlanSql().equals(plan.getPlanSql())) {
+                            continue;
+                        }
+                        if (Objects.equals(existing.getSchemaFingerprint(),
+                                plan.getSchemaFingerprint())) {
+                            duplicate = existing;
+                        } else {
+                            staleCacheRows.add(existing);
                         }
                     }
                 }
             } finally {
                 stateLock.readLock().unlock();
+            }
+            if (duplicate != null) {
+                // The duplicate is only real while it still EXISTS durably: right after a
+                // promotion (Env.transferToMaster sets isReady BEFORE the baseline reload
+                // finishes) this cache can hold a row the previous master already
+                // dropped. Returning its id would report success for a baseline that is
+                // not there.
+                if (!persistenceEnabled() && statusProtocolStoreForTest == null) {
+                    return duplicate.getId();
+                }
+                if (durableRowCount(duplicate.getId(), duplicate.getStatus()) > 0) {
+                    return duplicate.getId(); // exact duplicate -> skip
+                }
+                LOG.warn("SPM baseline create: the cached duplicate {} is gone durably"
+                        + " (promotion window); creating a fresh row", duplicate.getId());
+                staleCacheRows.add(duplicate);
             }
             // Durable-key check: the in-memory index can be stale (e.g. a follower that
             // loaded=true before becoming master missed rows written after its last
@@ -418,28 +449,61 @@ public class BaselineManager {
                 List<BaselinePlan> durable =
                         readPersistedByKey(plan.getBindSqlDigest(), plan.getPlanSql());
                 if (!durable.isEmpty()) {
-                    BaselinePlan winner = durable.get(0);
-                    for (int i = 1; i < durable.size(); i++) {
-                        winner = pickDurableWinner(winner, durable.get(i));
-                    }
+                    List<BaselinePlan> sameFingerprint = new ArrayList<>();
+                    List<BaselinePlan> staleRows = new ArrayList<>();
                     for (BaselinePlan row : durable) {
-                        if (row.getId() != winner.getId()) {
-                            try {
-                                persistDeleteByIdentity(row);
-                            } catch (RuntimeException e) {
-                                // best-effort repair: the key state is deterministic either
-                                // way (the winner above), the leftover row is warned below
-                                LOG.warn("SPM failed to repair a duplicate baseline row (id={}): {}",
-                                        row.getId(), e.getMessage());
-                            }
+                        if (Objects.equals(row.getSchemaFingerprint(),
+                                plan.getSchemaFingerprint())) {
+                            sameFingerprint.add(row);
+                        } else {
+                            staleRows.add(row);
                         }
                     }
-                    publishBaseline(winner);
-                    LOG.info("SPM baseline create deduplicated against the durable key: id={}",
-                            winner.getId());
-                    return winner.getId();
+                    // Rows under an OLD fingerprint are unreachable for matching
+                    // (schemaFingerprintBindSideContained / verifyReplayMetadata reject
+                    // them) and would only compete with the row this CREATE is about to
+                    // write: retire them (best effort) in favour of the usable version.
+                    for (BaselinePlan row : staleRows) {
+                        try {
+                            persistDeleteByIdentity(row);
+                            LOG.info("SPM retired the stale baseline row {} (schema fingerprint"
+                                    + " changed)", row.getId());
+                        } catch (RuntimeException e) {
+                            LOG.warn("SPM failed to retire the stale baseline row (id={}): {}",
+                                    row.getId(), e.getMessage());
+                        }
+                    }
+                    if (!sameFingerprint.isEmpty()) {
+                        BaselinePlan winner = sameFingerprint.get(0);
+                        for (int i = 1; i < sameFingerprint.size(); i++) {
+                            winner = pickDurableWinner(winner, sameFingerprint.get(i));
+                        }
+                        for (BaselinePlan row : sameFingerprint) {
+                            if (row.getId() != winner.getId()) {
+                                try {
+                                    persistDeleteByIdentity(row);
+                                } catch (RuntimeException e) {
+                                    // best-effort repair: the key state is deterministic either
+                                    // way (the winner above), the leftover row is warned below
+                                    LOG.warn("SPM failed to repair a duplicate baseline row (id={}): {}",
+                                            row.getId(), e.getMessage());
+                                }
+                            }
+                        }
+                        retireStaleInMemory(staleCacheRows);
+                        publishBaseline(winner);
+                        LOG.info("SPM baseline create deduplicated against the durable key: id={}",
+                                winner.getId());
+                        return winner.getId();
+                    }
+                    // only stale rows existed: the fall-through below retires their
+                    // in-memory copies and allocates a NEW row (same digest / planSql,
+                    // new fingerprint)
                 }
             }
+            // no usable duplicate survived (a stale-fingerprint row is retired instead of
+            // being returned): drop the stale in-memory copies and allocate a fresh row
+            retireStaleInMemory(staleCacheRows);
             // every baseline owned by the global manager is GLOBAL-scope (same value the
             // rows loaded from the internal table and the auto capturer get); the id stays
             // in the GLOBAL range [1, 2^62), so BaselineScope.ofId(id) is exact
@@ -695,7 +759,32 @@ public class BaselineManager {
                 // ALTER to the already-set status: nothing to persist. (Inserting + "deleting
                 // the old row by its status" would delete the freshly inserted row as well,
                 // because both rows carry the same status.)
-                return true;
+                // The cache can be STALE here: Env.transferToMaster sets isReady BEFORE
+                // forceReloadFromInternalTable finishes, so a freshly promoted follower
+                // still serves its pre-promotion snapshot while the previous master may
+                // already have durably flipped - or dropped - the row. Confirm against the
+                // durable table before reporting a no-op success.
+                if (!persistenceEnabled() && statusProtocolStoreForTest == null) {
+                    return true;
+                }
+                DurableStatusProbe probe = probeDurableStatus(id, status);
+                if (probe == DurableStatusProbe.MATCHES || probe == DurableStatusProbe.UNKNOWN) {
+                    return true;
+                }
+                if (probe == DurableStatusProbe.ABSENT) {
+                    // the row is gone durably (the previous master dropped it): never
+                    // report a successful ALTER for a baseline that does not exist
+                    LOG.warn("SPM status update of baseline {}: the row is gone durably;"
+                            + " dropping it from the cache", id);
+                    retireStaleInMemory(List.of(plan));
+                    return false;
+                }
+                // DIFFERS: the durable row carries the OTHER status. Treat that as the
+                // real previous status so the INSERT(new) / DELETE(old) pair lands on the
+                // durable state and the live object flips to the requested status.
+                LOG.warn("SPM status update of baseline {}: the cache says {} but the durable"
+                        + " row is {}; repairing", id, previousStatus, otherStatus(status));
+                previousStatus = otherStatus(status);
             }
             // The internal table is a DUPLICATE-key table on which UPDATE is not supported, so a
             // status change is persisted as INSERT (new status) + DELETE (old status). The INSERT
@@ -758,6 +847,61 @@ public class BaselineManager {
             plan.setStatus(status);
             plan.setUpdateTime(updateTime);
             stateVersion++;
+        } finally {
+            stateLock.writeLock().unlock();
+        }
+    }
+
+    /** Outcome of the durable status probe (see {@link #updateStatus}). */
+    private enum DurableStatusProbe { MATCHES, DIFFERS, ABSENT, UNKNOWN }
+
+    /**
+     * Compares the durable status of one baseline with the expected one. The binary
+     * ENABLED / DISABLED model makes the comparison a two-count read; a read failure is
+     * UNKNOWN (the caller keeps its previous behaviour - the cache may be stale, but
+     * acting on an unreadable durable state could drop a healthy baseline).
+     */
+    private static DurableStatusProbe probeDurableStatus(long id, BaselineStatus expected) {
+        try {
+            if (durableRowCount(id, expected) > 0) {
+                return DurableStatusProbe.MATCHES;
+            }
+            if (durableRowCount(id, otherStatus(expected)) > 0) {
+                return DurableStatusProbe.DIFFERS;
+            }
+            return DurableStatusProbe.ABSENT;
+        } catch (Throwable t) {
+            LOG.warn("SPM cannot probe the durable status of baseline {}: {}", id, t.getMessage());
+            return DurableStatusProbe.UNKNOWN;
+        }
+    }
+
+    /** The other status of the binary enable / disable model. */
+    private static BaselineStatus otherStatus(BaselineStatus status) {
+        return status == BaselineStatus.ENABLED
+                ? BaselineStatus.DISABLED : BaselineStatus.ENABLED;
+    }
+
+    /**
+     * Removes stale in-memory duplicates (see {@link #createBaseline} / {@link #updateStatus}):
+     * rows whose schema fingerprint no longer matches the incoming key or that the durable
+     * table no longer has. Memory-only: the durable side is retired by the caller.
+     */
+    private void retireStaleInMemory(List<BaselinePlan> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        stateLock.writeLock().lock();
+        try {
+            for (BaselinePlan row : rows) {
+                BaselinePlan gone = baselines.get(row.getId());
+                if (gone != null) {
+                    baselines.remove(row.getId());
+                    removeFromHashIndex(gone);
+                    stateVersion++;
+                    LOG.info("SPM retired the stale cached baseline {}", row.getId());
+                }
+            }
         } finally {
             stateLock.writeLock().unlock();
         }

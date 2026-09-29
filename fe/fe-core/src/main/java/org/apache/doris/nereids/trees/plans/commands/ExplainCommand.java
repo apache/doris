@@ -177,6 +177,12 @@ public class ExplainCommand extends Command implements NoForward {
                     // where the original reads a view). Reset it so the retry is authorized exactly like a
                     // normal EXPLAIN of the original statement (mirrors StmtExecutor's SPM fallback).
                     explainCtx.getStatementContext().setPrivChecked(false);
+                    // The rest of the first pass's planner state must not leak either: the rewritten
+                    // tree can have set hintForcePreAggOn (a plan-side PREAGGOPEN hint) - a spurious
+                    // PREAGGOPEN failure on the ORIGINAL t@incr(...) EXPLAIN - and its resolved
+                    // TableIf objects survive an intervening DDL (DROP + CREATE), binding the retry to
+                    // the OLD table. StmtExecutor resets the same state in its fallback.
+                    explainCtx.getStatementContext().resetPlannerStateForReplan();
                     explainPlan = originalPlan;
                     Optional<NereidsPlanner> retryPlanner =
                             explainable.getExplainPlanner(explainPlan,

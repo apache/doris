@@ -56,6 +56,15 @@ import java.util.Map;
 public class AuditLogScanner {
 
     /**
+     * Statement timeout (seconds) of the synchronous audit read. The default
+     * StatisticsUtil overload assigns the ANALYZE timeout (43,200 seconds), so a stalled
+     * internal-table read could hold the single capture cycle for half a day and delay
+     * every later capture / retry. The read is latency-sensitive: fail fast and let the
+     * next cycle retry.
+     */
+    static final int AUDIT_SCAN_TIMEOUT_SECONDS = 30;
+
+    /**
      * Cursor sentinel: no resume cursor is pending. A valid audit query_time is
      * non-negative, so the sentinel lies outside the valid domain (a zero query_time is
      * a perfectly valid cursor and must not be mistaken for "no cursor").
@@ -381,7 +390,10 @@ public class AuditLogScanner {
         String sql = buildScanSql(start, end, limit, minQueryTimeMs, minScanRows,
                 cursorPredicate(cursorQueryTime, cursorTime, cursorQueryId, cursorTail));
 
-        List<ResultRow> rows = StatisticsUtil.execStatisticQuery(sql);
+        // bounded statement timeout: see AUDIT_SCAN_TIMEOUT_SECONDS (the no-timeout
+        // overload would inherit the 12h analyze timeout)
+        List<ResultRow> rows = StatisticsUtil.execStatisticQuery(sql, false,
+                AUDIT_SCAN_TIMEOUT_SECONDS);
         return toBatch(rows, limit);
     }
 
@@ -598,7 +610,13 @@ public class AuditLogScanner {
                 // appended NULL comparison would skip the group's remaining rows.
                 keys.add(new CursorKey("`catalog`", emptyToNull(tail.getCatalog()), false));
                 keys.add(new CursorKey("`db`", emptyToNull(tail.getDb()), false));
-                keys.add(new CursorKey("`sql_mode`", emptyToNull(tail.getSqlMode()), true));
+                // audit_log.sql_mode is a STRING column carrying the mode NAME (e.g.
+                // PIPES_AS_CONCAT; numeric modes are stored as their decimal text). The
+                // ORDER BY compares it as a string, so the cursor must too: rendering it
+                // numerically emitted "sql_mode < PIPES_AS_CONCAT" (an identifier, not a
+                // literal) and EVERY page after a named-mode row failed with "unknown
+                // column", pinning the capture window forever.
+                keys.add(new CursorKey("`sql_mode`", emptyToNull(tail.getSqlMode()), false));
             }
         }
         return " AND (" + renderAfter(keys, 0) + ") ";

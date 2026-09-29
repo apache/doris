@@ -525,4 +525,146 @@ public class BaselineManagerConcurrencyTest {
             manager.clearForTest();
         }
     }
+
+    // ==================== promotion window / stale fingerprint (round 16) ====================
+
+    /** A protocol store recording every write it receives. */
+    private static final class RecordingProtocolStore
+            implements BaselineManager.StatusProtocolStoreForTest {
+        private final List<String> operations = new ArrayList<>();
+        private final java.util.function.LongFunction<Integer> enabledCounts;
+        private final java.util.function.LongFunction<Integer> disabledCounts;
+
+        RecordingProtocolStore(int enabledRows, int disabledRows) {
+            this.enabledCounts = id -> enabledRows;
+            this.disabledCounts = id -> disabledRows;
+        }
+
+        @Override
+        public void insert(BaselinePlan plan) {
+            operations.add("insert:" + plan.getStatus());
+        }
+
+        @Override
+        public void deleteByIdAndStatus(long id, BaselineStatus status) {
+            operations.add("delete:" + status);
+        }
+
+        @Override
+        public int countByIdAndStatus(long id, BaselineStatus status) {
+            return status == BaselineStatus.ENABLED
+                    ? enabledCounts.apply(id) : disabledCounts.apply(id);
+        }
+    }
+
+    /**
+     * Env.transferToMaster sets isReady BEFORE forceReloadFromInternalTable finishes, so
+     * a freshly promoted follower can still serve its pre-promotion snapshot: an
+     * "ALTER ... ENABLE" that the cache believes is a no-op may actually have to flip a
+     * durably DISABLED row. The early return must confirm against the durable table
+     * instead of reporting success without changing the durable status.
+     */
+    @Test
+    public void testNoOpAlterRepairsStaleDurableStatus() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        RecordingProtocolStore store = new RecordingProtocolStore(0, 1);
+        try {
+            BaselineManager.statusProtocolStoreForTest = store;
+            BaselinePlan stale = baseline("fp-status", "select 1");
+            stale.setSchemaFingerprint("fp-A");
+            stale.setStatus(BaselineStatus.ENABLED); // pre-promotion snapshot
+            long id = manager.createBaseline(stale);
+
+            Assertions.assertTrue(manager.updateStatus(id, BaselineStatus.ENABLED),
+                    "the ALTER must repair the stale status, not silently succeed");
+            Assertions.assertEquals(BaselineStatus.ENABLED,
+                    manager.getBaseline(id).getStatus());
+            Assertions.assertTrue(store.operations.contains("insert:ENABLED"),
+                    "the durable ENABLED row must be written: " + store.operations);
+            Assertions.assertTrue(store.operations.contains("delete:DISABLED"),
+                    "the durably stale DISABLED row must be deleted: " + store.operations);
+        } finally {
+            BaselineManager.statusProtocolStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * The other promotion-window direction: the cache holds a row the previous master
+     * already DROPPED durably. An ALTER must not report success for it - it is removed
+     * from the cache and reported as missing.
+     */
+    @Test
+    public void testNoOpAlterDropsRowGoneDurably() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        RecordingProtocolStore store = new RecordingProtocolStore(0, 0);
+        try {
+            BaselineManager.statusProtocolStoreForTest = store;
+            BaselinePlan stale = baseline("fp-gone", "select 2");
+            stale.setSchemaFingerprint("fp-A");
+            stale.setStatus(BaselineStatus.ENABLED);
+            long id = manager.createBaseline(stale);
+            store.operations.clear(); // the CREATE itself writes the initial row
+
+            Assertions.assertFalse(manager.updateStatus(id, BaselineStatus.ENABLED),
+                    "a row that no longer exists durably must not report success");
+            Assertions.assertNull(manager.getBaseline(id),
+                    "the stale cache entry must be dropped");
+            Assertions.assertTrue(store.operations.isEmpty(),
+                    "no durable write may follow: " + store.operations);
+        } finally {
+            BaselineManager.statusProtocolStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * CREATE dedup must consider the SCHEMA FINGERPRINT: after ALTER TABLE t ADD COLUMN
+     * extra the stored fingerprint is stale (SPMPlanner skips the old baseline), so a
+     * repeated CREATE produces the same digest / planSql under a NEW fingerprint and must
+     * allocate a usable row instead of returning the unusable id. The same durable-truth
+     * check applies to a cached row the previous master dropped.
+     */
+    @Test
+    public void testCreateDedupDistinguishesFingerprintAndDurablePresence() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        try {
+            BaselinePlan first = baseline("fp-create", "select 3");
+            first.setSchemaFingerprint("fp-old");
+            long idOld = manager.createBaseline(first);
+
+            BaselinePlan altered = baseline("fp-create", "select 3");
+            altered.setSchemaFingerprint("fp-new");
+            long idNew = manager.createBaseline(altered);
+            Assertions.assertNotEquals(idOld, idNew,
+                    "a stale-fingerprint row is NOT a duplicate: the re-CREATE must"
+                            + " produce a usable baseline");
+            Assertions.assertNull(manager.getBaseline(idOld),
+                    "the stale row is retired from the cache");
+
+            BaselinePlan same = baseline("fp-create", "select 3");
+            same.setSchemaFingerprint("fp-new");
+            Assertions.assertEquals(idNew, manager.createBaseline(same),
+                    "an exact duplicate (same fingerprint) still dedups");
+
+            // a cached duplicate that is gone durably (promotion window) must be
+            // replaced, not returned
+            manager.clearForTest();
+            BaselineManager.statusProtocolStoreForTest = new RecordingProtocolStore(0, 0);
+            BaselinePlan cached = baseline("fp-dropped", "select 4");
+            cached.setSchemaFingerprint("fp-x");
+            long idCached = manager.createBaseline(cached);
+            BaselinePlan again = baseline("fp-dropped", "select 4");
+            again.setSchemaFingerprint("fp-x");
+            long idRecreated = manager.createBaseline(again);
+            Assertions.assertNotEquals(idCached, idRecreated,
+                    "a durably dropped cached row must not be returned as the duplicate");
+        } finally {
+            BaselineManager.statusProtocolStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
 }

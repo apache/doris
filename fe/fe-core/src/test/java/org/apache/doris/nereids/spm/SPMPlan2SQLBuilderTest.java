@@ -99,6 +99,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -592,6 +593,159 @@ public class SPMPlan2SQLBuilderTest {
         Assertions.assertThrows(UnsupportedOperationException.class,
                 () -> new SPMPlan2SQLBuilder().toSQL(assertNumRows),
                 "ASSERT_ROWS has no SQL representation and must fail the decompile");
+    }
+
+    // ==================== the exported alias of a wrapped join operand ====================
+
+    /**
+     * A joined operand whose clauses force ONE MORE wrapper (a TopN / Limit over a set
+     * operation: the relation carries fromCarriesAlias AND its own ORDER BY / LIMIT block)
+     * must expose the FINAL wrapper alias to the join references. Building the ON clause
+     * through ensureQualifierAlias() before that wrap referenced the INNER set alias
+     * (t_0), which afterwards only names the derived table INSIDE the FROM text - the
+     * frozen SQL could not bind after reload.
+     */
+    @Test
+    public void testJoinOverWrappedSetOperandUsesExposedAlias() {
+        SlotReference setOutput = new SlotReference("k", IntegerType.INSTANCE);
+        PhysicalUnion union = mockUnionExporting(setOutput);
+        PhysicalTopN<?> wrapped = mockTopN(union,
+                List.of(new OrderKey(setOutput, true, true)), 1);
+        SlotReference rightKey = new SlotReference("k", IntegerType.INSTANCE);
+        PhysicalOlapScan right = mockScan("t9", List.of(rightKey));
+
+        PhysicalHashJoin<?, ?> join = mockJoin(wrapped, right,
+                new EqualTo(setOutput, rightKey));
+        Mockito.when(join.getOutput()).thenReturn(List.of(setOutput, rightKey));
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(join);
+        String leftOperand = sql.substring(sql.indexOf(" FROM ") + 6, sql.indexOf(" INNER JOIN"))
+                .trim();
+        List<String> aliases = tAliases(leftOperand);
+        Assertions.assertTrue(aliases.size() >= 2,
+                "the set operand must be wrapped one level deeper: " + sql);
+        String inner = aliases.get(0);
+        String exposed = aliases.get(aliases.size() - 1);
+        Assertions.assertNotEquals(inner, exposed, sql);
+        String on = sql.substring(sql.indexOf(" ON ") + 4);
+        Assertions.assertTrue(on.contains(exposed + "."),
+                "the ON clause must reference the EXPOSED alias " + exposed + ": " + sql);
+        Assertions.assertFalse(on.contains(inner + "."),
+                "the ON clause must not reference the hidden inner alias " + inner + ": " + sql);
+        Assertions.assertDoesNotThrow(() -> new NereidsParser().parseSingle(sql),
+                "the frozen join text must re-parse: " + sql);
+    }
+
+    /**
+     * Same for the NULL-AWARE anti path: the NOT IN predicate qualifies the preserved
+     * (left) columns, so the qualifier must be allocated AFTER the wrapped operand's
+     * final alias exists.
+     */
+    @Test
+    public void testNullAwareAntiOverWrappedLeftUsesExposedAlias() {
+        SlotReference setOutput = new SlotReference("k", IntegerType.INSTANCE);
+        PhysicalUnion union = mockUnionExporting(setOutput);
+        PhysicalTopN<?> wrapped = mockTopN(union,
+                List.of(new OrderKey(setOutput, true, true)), 1);
+        SlotReference rightKey = new SlotReference("k", IntegerType.INSTANCE);
+        PhysicalOlapScan right = mockScan("t9", List.of(rightKey));
+
+        PhysicalHashJoin<?, ?> join = Mockito.mock(PhysicalHashJoin.class);
+        Mockito.when(join.getJoinType()).thenReturn(JoinType.NULL_AWARE_LEFT_ANTI_JOIN);
+        Mockito.when(join.getHashJoinConjuncts())
+                .thenReturn(List.of((Expression) new EqualTo(setOutput, rightKey)));
+        Mockito.when(join.getOtherJoinConjuncts())
+                .thenReturn(List.of((Expression) new GreaterThan(rightKey, new IntegerLiteral(5))));
+        Mockito.when(join.getMarkJoinConjuncts()).thenReturn(List.of());
+        Mockito.when(join.getMarkJoinSlotReference()).thenReturn(Optional.empty());
+        Mockito.when(join.left()).thenReturn(wrapped);
+        Mockito.when(join.right()).thenReturn(right);
+        Mockito.when(join.getOutput()).thenReturn(List.of(setOutput));
+        stubAccept(join);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(join);
+        String leftOperand = sql.substring(sql.indexOf(" FROM ") + 6, sql.indexOf(" WHERE "))
+                .trim();
+        List<String> aliases = tAliases(leftOperand);
+        Assertions.assertTrue(aliases.size() >= 2,
+                "the preserved set operand must be wrapped: " + sql);
+        String inner = aliases.get(0);
+        String exposed = aliases.get(aliases.size() - 1);
+        String where = sql.substring(sql.indexOf(" WHERE "));
+        Assertions.assertTrue(where.contains(exposed + ".k"),
+                "the NOT IN probe must use the EXPOSED alias " + exposed + ": " + sql);
+        Assertions.assertFalse(where.contains(inner + ".k"),
+                "the NOT IN probe must not use the hidden inner alias " + inner + ": " + sql);
+        Assertions.assertTrue(where.contains("NOT IN"), sql);
+    }
+
+    // ==================== generated c_N vs preserved output names ====================
+
+    /**
+     * The c_N counter only keeps GENERATED names apart. A preserved source column named
+     * c_1 (here the group-by key) plus an unaliased SUM(v) used to emit
+     * "GROUP BY c_1 ... sum(v) AS c_1": two ExprIds registered under one visible name, so
+     * an enclosing projection / result sink read an AMBIGUOUS c_1 from the derived
+     * relation. The generated name must skip the in-scope output names.
+     */
+    @Test
+    public void testGeneratedAggregateAliasAvoidsSourceColumnName() {
+        SlotReference groupKey = new SlotReference("c_1", IntegerType.INSTANCE);
+        SlotReference v = new SlotReference("v", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(groupKey, v));
+
+        PhysicalHashAggregate<?> agg = Mockito.mock(PhysicalHashAggregate.class);
+        Mockito.when(agg.child(0)).thenReturn(scan);
+        Mockito.when(agg.getAggPhase()).thenReturn(AggPhase.GLOBAL);
+        Mockito.when(agg.getGroupByExpressions()).thenReturn(List.of(groupKey));
+        Mockito.when(agg.getOutputExpressions()).thenReturn(List.of(
+                (NamedExpression) groupKey,
+                (NamedExpression) new Alias(new AggregateExpression(new Sum(v),
+                        new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT)), "sum")));
+        stubAccept(agg);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(agg);
+        Assertions.assertEquals(2, countOccurrences(sql, "c_1"),
+                "c_1 may only appear as the source column (SELECT list + GROUP BY): " + sql);
+        Assertions.assertFalse(sql.contains(" AS c_1"),
+                "the generated aggregate alias must not shadow the source column: " + sql);
+        Assertions.assertTrue(sql.contains("sum(v) AS c_"),
+                "the aggregate still needs a generated reference: " + sql);
+    }
+
+    /**
+     * A MARK_SLOT name is generated, so a preserved input column literally named c_1
+     * would collide: "MARK_SLOT c_1" plus the exported c_1 make the upper filter /
+     * projection ambiguous after reload.
+     */
+    @Test
+    public void testMarkSlotNameAvoidsPreservedColumnName() {
+        SlotReference preserved = new SlotReference("c_1", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+        MarkJoinSlotReference markSlot = new MarkJoinSlotReference("m");
+
+        PhysicalOlapScan left = mockScan("t1", List.of(preserved));
+        PhysicalOlapScan right = mockScan("t2", List.of(b));
+        PhysicalHashJoin<?, ?> join = Mockito.mock(PhysicalHashJoin.class);
+        Mockito.when(join.getHashJoinConjuncts())
+                .thenReturn(List.of((Expression) new EqualTo(preserved, b)));
+        Mockito.when(join.getOtherJoinConjuncts()).thenReturn(List.of());
+        Mockito.when(join.getMarkJoinConjuncts()).thenReturn(List.of());
+        Mockito.when(join.getMarkJoinSlotReference()).thenReturn(Optional.of(markSlot));
+        Mockito.when(join.getJoinType()).thenReturn(JoinType.LEFT_SEMI_JOIN);
+        Mockito.when(join.isMarkJoin()).thenReturn(true);
+        Mockito.when(join.left()).thenReturn(left);
+        Mockito.when(join.right()).thenReturn(right);
+        stubAccept(join);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(join);
+        int idx = sql.indexOf("MARK_SLOT ");
+        Assertions.assertTrue(idx > 0, sql);
+        String markName = sql.substring(idx + "MARK_SLOT ".length()).split("\\s")[0];
+        Assertions.assertNotEquals("c_1", markName,
+                "the generated MARK_SLOT name must not collide with the preserved c_1: " + sql);
+        Assertions.assertEquals(1, countOccurrences(sql, "c_1"),
+                "the preserved column stays the only c_1: " + sql);
     }
 
     // ==================== test helpers ====================
@@ -1258,6 +1412,39 @@ public class SPMPlan2SQLBuilderTest {
         Mockito.when(union.getConstantExprsList()).thenReturn(List.of());
         stubAccept(union);
         return union;
+    }
+
+    /**
+     * Builds a UNION ALL over two scans whose EXPORTED column is the given slot (so a
+     * join against a same-named column takes the qualification path). The slot instance
+     * is SHARED with the caller: the join references it by ExprId, so a different
+     * instance would look up nothing.
+     */
+    private PhysicalUnion mockUnionExporting(SlotReference output) {
+        SlotReference leftX = new SlotReference("x", IntegerType.INSTANCE);
+        SlotReference rightX = new SlotReference("x", IntegerType.INSTANCE);
+        PhysicalOlapScan left = mockScan("t1", List.of(leftX));
+        PhysicalOlapScan right = mockScan("t2", List.of(rightX));
+        PhysicalUnion union = Mockito.mock(PhysicalUnion.class);
+        Mockito.when(union.getQualifier()).thenReturn(Qualifier.ALL);
+        Mockito.when(union.children()).thenReturn(List.of(left, right));
+        Mockito.when(union.getRegularChildrenOutputs())
+                .thenReturn(List.of(List.of(leftX), List.of(rightX)));
+        Mockito.when(union.getOutput()).thenReturn(List.of(output));
+        Mockito.when(union.getConstantExprsList()).thenReturn(List.of());
+        stubAccept(union);
+        return union;
+    }
+
+    /** All t_N alias tokens of a FROM fragment, in order of appearance. */
+    private static List<String> tAliases(String fragment) {
+        List<String> aliases = new ArrayList<>();
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("t_\\d+")
+                .matcher(fragment);
+        while (matcher.find()) {
+            aliases.add(matcher.group());
+        }
+        return aliases;
     }
 
     private PhysicalExcept mockExcept(Qualifier qualifier) {
