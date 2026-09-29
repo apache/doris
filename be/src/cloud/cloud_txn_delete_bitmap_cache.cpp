@@ -350,7 +350,8 @@ void CloudTxnDeleteBitmapCache::remove_unused_tablet_txn_info(TTransactionId tra
         erase(cache_key);
         _txn_map.erase(txn_key);
     }
-    _empty_rowset_markers.erase(txn_key);
+    // Local visibility also calls this on failed or out-of-order attempts. Keep empty
+    // markers and their owners available for retries until expiration.
 }
 
 void CloudTxnDeleteBitmapCache::mark_empty_rowset(TTransactionId txn_id, int64_t tablet_id,

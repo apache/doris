@@ -62,7 +62,7 @@ TEST(CloudTxnDeleteBitmapCacheTest, ContextlessDeleteUsesDefaultWorkloadGroup) {
     worker.join();
 }
 
-TEST(CloudTxnDeleteBitmapCacheTest, EmptyRowsetOwnerIsRetainedUntilCleanup) {
+TEST(CloudTxnDeleteBitmapCacheTest, EmptyRowsetOwnerIsRetainedUntilExpiration) {
     CloudTxnDeleteBitmapCache cache(1024 * 1024);
     ASSERT_TRUE(cache.init().ok());
     auto wg = std::make_shared<WorkloadGroup>(
@@ -89,9 +89,17 @@ TEST(CloudTxnDeleteBitmapCacheTest, EmptyRowsetOwnerIsRetainedUntilCleanup) {
     wg.reset();
     EXPECT_FALSE(weak_wg.expired());
 
-    cache.remove_unused_tablet_txn_info(1, 10);
-    EXPECT_FALSE(cache.is_empty_rowset(1, 10));
-    EXPECT_EQ(cache.get_workload_group(1, 10), nullptr);
+    // Failed/out-of-order visibility attempts run this cleanup unconditionally.
+    // Repeated attempts must still find the empty rowset and its resource owner.
+    for (int i = 0; i < 2; ++i) {
+        cache.remove_unused_tablet_txn_info(1, 10);
+        EXPECT_TRUE(cache.is_empty_rowset(1, 10));
+        EXPECT_EQ(cache.get_workload_group(1, 10), weak_wg.lock());
+        auto retry_rowset_and_bitmap = cache.get_rowset_and_delete_bitmap(1, 10);
+        ASSERT_TRUE(retry_rowset_and_bitmap.has_value());
+        EXPECT_EQ(retry_rowset_and_bitmap->first, nullptr);
+        EXPECT_EQ(retry_rowset_and_bitmap->second, nullptr);
+    }
     EXPECT_FALSE(weak_wg.expired());
     {
         std::unique_lock lock(cache._rwlock);
@@ -104,11 +112,15 @@ TEST(CloudTxnDeleteBitmapCacheTest, EmptyRowsetOwnerIsRetainedUntilCleanup) {
     EXPECT_FALSE(weak_wg.expired());
     {
         std::unique_lock lock(cache._rwlock);
-        CloudTxnDeleteBitmapCache::TxnKey key(2, 10);
-        cache._empty_rowset_markers.at(key).txn_expiration = 0;
-        cache._expiration_txn.emplace(0, key);
+        for (int64_t txn_id : {1, 2}) {
+            CloudTxnDeleteBitmapCache::TxnKey key(txn_id, 10);
+            cache._empty_rowset_markers.at(key).txn_expiration = 0;
+            cache._expiration_txn.emplace(0, key);
+        }
     }
     cache.remove_expired_tablet_txn_info();
+    EXPECT_FALSE(cache.is_empty_rowset(1, 10));
+    EXPECT_EQ(cache.get_workload_group(1, 10), nullptr);
     EXPECT_FALSE(cache.is_empty_rowset(2, 10));
     EXPECT_EQ(cache.get_workload_group(2, 10), nullptr);
     EXPECT_TRUE(weak_wg.expired());

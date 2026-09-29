@@ -73,7 +73,7 @@ public:
     // Check if this is a known empty/skipped rowset
     // Returns true if was marked as empty rowset
     // Note: Does not remove the marker, as CalcDeleteBitmapTask may retry.
-    // Cleanup is handled by remove_expired_tablet_txn_info() or remove_unused_tablet_txn_info().
+    // Cleanup is handled by remove_expired_tablet_txn_info().
     bool is_empty_rowset(TTransactionId txn_id, int64_t tablet_id);
 
     // !!!ATTENTION!!!: the delete bitmap stored in CloudTxnDeleteBitmapCache contains sentinel marks,
