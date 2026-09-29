@@ -32,6 +32,14 @@ namespace doris {
 namespace {
 using DateTime = DateV2Value<DateTimeV2ValueType>;
 
+DateTime make_datetime(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
+                       uint16_t second, uint32_t microsecond) {
+    DateTime value;
+    // Invalid calendar values must reach the converter to exercise its range validation.
+    value.unchecked_set_time(year, month, day, hour, minute, second, microsecond);
+    return value;
+}
+
 Block timestamp_block(int scale, const std::vector<DateTime>& values) {
     auto column = ColumnDateTimeV2::create();
     for (const auto& value : values) {
@@ -47,8 +55,8 @@ protected:
 
 TEST_F(ArrowFlightTimestampTest, RejectsOutOfRangeInEveryUnitWithoutPublishingBatch) {
     for (int scale : {0, 3, 6}) {
-        for (const auto& value :
-             {DateTime {}, DateTime(0, 12, 31, 0, 0, 0, 0), DateTime(10000, 1, 1, 0, 0, 0, 0)}) {
+        for (const auto& value : {DateTime {}, make_datetime(0, 12, 31, 0, 0, 0, 0),
+                                  make_datetime(10000, 1, 1, 0, 0, 0, 0)}) {
             SCOPED_TRACE(scale);
             auto block = timestamp_block(scale, {value});
             ArrowFlightArrowBlockConvertor flight(block, "UTC", cctz::utc_time_zone(), true);
@@ -77,9 +85,9 @@ TEST_F(ArrowFlightTimestampTest, PreservesCalendarBoundariesAndPreEpochFractions
     for (int scale : {0, 3, 6}) {
         const int64_t factor = scale == 0 ? 1 : scale == 3 ? 1000 : 1000000;
         const uint32_t fraction = scale == 0 ? 0 : scale == 3 ? 999000 : 999999;
-        auto block = timestamp_block(
-                scale, {DateTime(1, 1, 1, 0, 0, 0, 0), DateTime(9999, 12, 31, 23, 59, 59, fraction),
-                        DateTime(1969, 12, 31, 23, 59, 59, fraction)});
+        auto block = timestamp_block(scale, {make_datetime(1, 1, 1, 0, 0, 0, 0),
+                                             make_datetime(9999, 12, 31, 23, 59, 59, fraction),
+                                             make_datetime(1969, 12, 31, 23, 59, 59, fraction)});
         ArrowFlightArrowBlockConvertor converter(block, "UTC", cctz::utc_time_zone(), true);
         ASSERT_TRUE(converter.init().ok());
         std::shared_ptr<arrow::RecordBatch> batch;
@@ -92,7 +100,7 @@ TEST_F(ArrowFlightTimestampTest, PreservesCalendarBoundariesAndPreEpochFractions
 }
 
 TEST_F(ArrowFlightTimestampTest, ChecksSlicesAndSubsequentBatches) {
-    auto block = timestamp_block(6, {DateTime(2024, 1, 1, 0, 0, 0, 0), DateTime {}});
+    auto block = timestamp_block(6, {make_datetime(2024, 1, 1, 0, 0, 0, 0), DateTime {}});
     ArrowFlightArrowBlockConvertor converter(block, "UTC", cctz::utc_time_zone(), true);
     ASSERT_TRUE(converter.init().ok());
     std::shared_ptr<arrow::RecordBatch> batch;
@@ -108,7 +116,7 @@ TEST_F(ArrowFlightTimestampTest, ChecksSlicesAndSubsequentBatches) {
 TEST_F(ArrowFlightTimestampTest, RejectsNestedTimestampValuesAndMapKeys) {
     auto datetime = make_nullable(std::make_shared<DataTypeDateTimeV2>(6));
     const auto invalid = Field::create_field<TYPE_DATETIMEV2>(DateTime {});
-    const auto valid = Field::create_field<TYPE_DATETIMEV2>(DateTime(2024, 1, 1, 0, 0, 0, 0));
+    const auto valid = Field::create_field<TYPE_DATETIMEV2>(make_datetime(2024, 1, 1, 0, 0, 0, 0));
     DataTypes types {std::make_shared<DataTypeArray>(datetime),
                      std::make_shared<DataTypeStruct>(DataTypes {datetime}, Strings {"child"}),
                      std::make_shared<DataTypeMap>(datetime, datetime),
@@ -144,10 +152,10 @@ TEST_F(ArrowFlightTimestampTest, RejectsNestedTimestampValuesAndMapKeys) {
 
 TEST_F(ArrowFlightTimestampTest, ChecksBothUtcAndZonedCalendarBounds) {
     const std::vector<std::pair<std::string, DateTime>> cases {
-            {"+08:00", DateTime(1, 1, 1, 0, 0, 0, 0)},
-            {"-08:00", DateTime(9999, 12, 31, 23, 0, 0, 0)},
-            {"-08:00", DateTime(0, 12, 31, 23, 0, 0, 0)},
-            {"+08:00", DateTime(10000, 1, 1, 1, 0, 0, 0)}};
+            {"+08:00", make_datetime(1, 1, 1, 0, 0, 0, 0)},
+            {"-08:00", make_datetime(9999, 12, 31, 23, 0, 0, 0)},
+            {"-08:00", make_datetime(0, 12, 31, 23, 0, 0, 0)},
+            {"+08:00", make_datetime(10000, 1, 1, 1, 0, 0, 0)}};
     for (const auto& [zone, value] : cases) {
         SCOPED_TRACE(zone);
         cctz::time_zone timezone;
@@ -161,7 +169,7 @@ TEST_F(ArrowFlightTimestampTest, ChecksBothUtcAndZonedCalendarBounds) {
         EXPECT_EQ(nullptr, batch);
 
         auto valid = timestamp_block(
-                6, {DateTime(1, 1, 2, 0, 0, 0, 0), DateTime(9999, 12, 30, 23, 0, 0, 0)});
+                6, {make_datetime(1, 1, 2, 0, 0, 0, 0), make_datetime(9999, 12, 30, 23, 0, 0, 0)});
         ASSERT_TRUE(converter.convert_to_arrow(valid, arrow::default_memory_pool(), &batch).ok());
     }
 }
@@ -169,8 +177,8 @@ TEST_F(ArrowFlightTimestampTest, ChecksBothUtcAndZonedCalendarBounds) {
 TEST_F(ArrowFlightTimestampTest, NaiveBoundsDoNotDependOnSessionTimezone) {
     cctz::time_zone timezone;
     ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("+08:00", timezone));
-    auto block = timestamp_block(
-            6, {DateTime(1, 1, 1, 0, 0, 0, 0), DateTime(9999, 12, 31, 23, 59, 59, 999999)});
+    auto block = timestamp_block(6, {make_datetime(1, 1, 1, 0, 0, 0, 0),
+                                     make_datetime(9999, 12, 31, 23, 59, 59, 999999)});
     ArrowFlightArrowBlockConvertor converter(block, "+08:00", timezone, true);
     ASSERT_TRUE(converter.init().ok());
     std::shared_ptr<arrow::RecordBatch> batch;

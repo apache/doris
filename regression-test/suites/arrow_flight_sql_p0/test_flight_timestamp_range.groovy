@@ -18,65 +18,64 @@
 import java.time.LocalDateTime
 
 suite("test_flight_timestamp_range", "arrow_flight_sql") {
-    sql "DROP TABLE IF EXISTS flight_timestamp_input"
-    sql """CREATE TABLE flight_timestamp_input (id INT, value STRING)
+    // Reuse the configured Flight connection so TLS settings cannot skip the assertions or change credentials.
+    def flight = context.getArrowFlightSqlConnection()
+    def input = "${context.dbName}.flight_timestamp_input"
+    def expectRangeError = { String query ->
+        try {
+            arrow_flight_sql(query)
+            assertTrue(false, "Expected an out-of-range Flight timestamp error")
+        } catch (Exception error) {
+            assertTrue(error.toString().contains("outside the supported 0001-9999 range"), error.toString())
+        }
+    }
+    arrow_flight_sql "DROP TABLE IF EXISTS ${input}"
+    arrow_flight_sql """CREATE TABLE ${input} (id INT, value STRING)
            DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1
            PROPERTIES ("replication_num" = "1")"""
-    sql """INSERT INTO flight_timestamp_input VALUES
-           (1, '0001-01-01 00:00:00.000000'),
-           (2, '9999-12-31 23:59:59.999999'),
-           (3, '1969-12-31 23:59:59.999999'),
-           (4, NULL), (5, '0000-12-31 00:00:00.000000')"""
     try {
+        arrow_flight_sql """INSERT INTO ${input} VALUES
+               (1, '0001-01-01 00:00:00.000000'),
+               (2, '9999-12-31 23:59:59.999999'),
+               (3, '1969-12-31 23:59:59.999999'),
+               (4, NULL), (5, '0000-12-31 00:00:00.000000')"""
         // Check that the source value reaches the date conversion instead of becoming SQL NULL.
         assertEquals([['0000-12-31 00:00:00.000000']],
-                sql("SELECT CAST(CAST(value AS DATETIME(6)) AS STRING) FROM flight_timestamp_input WHERE id = 5"))
-        def flightUrl = context.getArrowFlightSqlConnection().getMetaData().getURL()
-        connect(context.config.jdbcUser, context.config.jdbcPassword, flightUrl) {
-            def input = "${context.dbName}.flight_timestamp_input"
-            for (def scale : [0, 3, 6]) {
-                test {
-                    sql "SELECT CAST(value AS DATETIME(${scale})) AS event_time FROM ${input} WHERE id = 5"
-                    exception "outside the supported 0001-9999 range"
-                }
-            }
-            test {
-                sql "SELECT CAST('0000-12-31 00:00:00' AS DATETIME(6)) AS event_time"
-                exception "outside the supported 0001-9999 range"
-            }
-            for (def expression : ["array(CAST(value AS DATETIME(6)))",
-                                    "named_struct('child', CAST(value AS DATETIME(6)))",
-                                    "map('key', CAST(value AS DATETIME(6)))",
-                                    "map(CAST(value AS DATETIME(6)), 'value')"]) {
-                test {
-                    sql "SELECT ${expression} AS nested FROM ${input} WHERE id = 5"
-                    exception "outside the supported 0001-9999 range"
-                }
-            }
-            test {
-                sql "SELECT CAST(value AS DATETIME(6)) AS event_time FROM ${input} ORDER BY id"
-                exception "outside the supported 0001-9999 range"
-            }
-            context.getConnection().createStatement().withCloseable { statement ->
-                statement.executeQuery("SELECT CAST(value AS DATETIME(6)) FROM ${input} WHERE id <= 4 ORDER BY id")
-                        .withCloseable { rows ->
-                    // Typed access preserves proleptic calendar dates and microseconds.
-                    for (def expected : ["0001-01-01T00:00:00", "9999-12-31T23:59:59.999999",
-                                          "1969-12-31T23:59:59.999999"]) {
-                        assertTrue(rows.next())
-                        assertEquals(LocalDateTime.parse(expected), rows.getObject(1, LocalDateTime.class))
-                    }
+                arrow_flight_sql("SELECT CAST(CAST(value AS DATETIME(6)) AS STRING) FROM ${input} WHERE id = 5"))
+        for (def scale : [0, 3, 6]) {
+            expectRangeError("SELECT CAST(value AS DATETIME(${scale})) AS event_time FROM ${input} WHERE id = 5")
+        }
+        expectRangeError("SELECT CAST('0000-12-31 00:00:00' AS DATETIME(6)) AS event_time")
+        for (def expression : ["array(CAST(value AS DATETIME(6)))",
+                                "named_struct('child', CAST(value AS DATETIME(6)))",
+                                "map('key', CAST(value AS DATETIME(6)))",
+                                "map(CAST(value AS DATETIME(6)), 'value')"]) {
+            expectRangeError("SELECT ${expression} AS nested FROM ${input} WHERE id = 5")
+        }
+        expectRangeError("SELECT CAST(value AS DATETIME(6)) AS event_time FROM ${input} ORDER BY id")
+        flight.createStatement().withCloseable { statement ->
+            statement.executeQuery("SELECT CAST(value AS DATETIME(6)) FROM ${input} WHERE id <= 4 ORDER BY id")
+                    .withCloseable { rows ->
+                // Typed access preserves proleptic calendar dates and microseconds.
+                for (def expected : ["0001-01-01T00:00:00", "9999-12-31T23:59:59.999999",
+                                      "1969-12-31T23:59:59.999999"]) {
                     assertTrue(rows.next())
-                    assertNull(rows.getObject(1, LocalDateTime.class))
-                    assertFalse(rows.next())
+                    assertEquals(LocalDateTime.parse(expected), rows.getObject(1, LocalDateTime.class))
                 }
+                assertTrue(rows.next())
+                assertNull(rows.getObject(1, LocalDateTime.class))
+                assertFalse(rows.next())
             }
-            test {
-                sql "SELECT array(CAST(value AS DATETIME(6))) FROM ${input} WHERE id = 4"
-                result [[[null]]]
+            statement.executeQuery("SELECT array(CAST(value AS DATETIME(6))) FROM ${input} WHERE id = 4")
+                    .withCloseable { rows ->
+                assertTrue(rows.next())
+                def values = rows.getArray(1).getArray()
+                assertEquals(1, values.length)
+                assertNull(values[0])
+                assertFalse(rows.next())
             }
         }
     } finally {
-        sql "DROP TABLE IF EXISTS flight_timestamp_input"
+        arrow_flight_sql "DROP TABLE IF EXISTS ${input}"
     }
 }
