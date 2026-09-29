@@ -1700,7 +1700,7 @@ protected:
             std::optional<format::GlobalRowIdContext> global_rowid_context = std::nullopt,
             bool is_immutable = false, bool enable_mapping_varbinary = false,
             std::string fs_name = {}, int64_t mtime = 0,
-            std::string hive_parquet_time_zone = {}) const {
+            std::optional<std::string> hive_parquet_time_zone = std::nullopt) const {
         auto system_properties = std::make_shared<io::FileSystemProperties>();
         system_properties->system_type = TFileType::FILE_LOCAL;
         auto file_description = std::make_unique<io::FileDescription>();
@@ -2736,7 +2736,7 @@ TEST_F(NewParquetReaderTest, ComplexColumnDoesNotMisreportSiblingPagesAsCrossing
     EXPECT_EQ(profile.get_counter("PageCrossingBatches")->value(), 0);
 }
 
-TEST_F(NewParquetReaderTest, GetSchemaMapsInt96ToTimestampTzWhenTimestampTzMappingEnabled) {
+TEST_F(NewParquetReaderTest, GetSchemaKeepsUnannotatedInt96AsDateTime) {
     write_int96_timestamp_parquet_file(_file_path);
     auto reader = create_reader(0, -1, nullptr, true);
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -2747,7 +2747,7 @@ TEST_F(NewParquetReaderTest, GetSchemaMapsInt96ToTimestampTzWhenTimestampTzMappi
     ASSERT_EQ(schema.size(), 1);
     EXPECT_EQ(schema[0].name, "ts_tz");
     ASSERT_TRUE(schema[0].type->is_nullable());
-    EXPECT_EQ(remove_nullable(schema[0].type)->get_primitive_type(), TYPE_TIMESTAMPTZ);
+    EXPECT_EQ(remove_nullable(schema[0].type)->get_primitive_type(), TYPE_DATETIMEV2);
     EXPECT_EQ(remove_nullable(schema[0].type)->get_scale(), 6);
 }
 
@@ -2755,12 +2755,12 @@ TEST_F(NewParquetReaderTest, Int96TimezoneUsesCatalogPropertyInsteadOfSessionTim
     TimezoneUtils::load_timezones_to_cache();
     write_int96_timestamp_parquet_file(_file_path);
 
-    auto read_first_value = [&](const std::string& hive_parquet_time_zone,
+    auto read_first_value = [&](std::optional<std::string> hive_parquet_time_zone,
                                 bool enable_mapping_timestamp_tz = false) {
         auto reader = create_reader(0, -1, nullptr, enable_mapping_timestamp_tz, nullptr,
                                     std::nullopt, false, false, {}, 0, hive_parquet_time_zone);
         RuntimeState state {TQueryOptions(), TQueryGlobals()};
-        // A session timezone must never implicitly opt an INT96 column into legacy conversion.
+        // Only legacy plans without an explicit contract inherit this session timezone.
         state.set_timezone("America/Los_Angeles");
         auto status = reader->init(&state);
         if (!status.ok()) {
@@ -2795,21 +2795,25 @@ TEST_F(NewParquetReaderTest, Int96TimezoneUsesCatalogPropertyInsteadOfSessionTim
         return block.get_by_position(0).type->to_string(*block.get_by_position(0).column, 0);
     };
 
-    // A Trino/UTC-style file stores the wall clock 2024-12-31 16:00 directly. With the property
-    // absent, Doris preserves it even though the SQL session is America/Los_Angeles.
-    EXPECT_EQ(read_first_value(""), "2024-12-31 16:00:00.000000");
+    // An old FE cannot send the semantics marker, so a new BE must preserve legacy session-zone
+    // decoding until every FE has been upgraded.
+    EXPECT_EQ(read_first_value(std::nullopt), "2024-12-31 08:00:00.000000");
+    // A new FE uses an engaged empty value for lake formats whose INT96 wall clock is authoritative.
+    EXPECT_EQ(read_first_value(std::string {}), "2024-12-31 16:00:00.000000");
     // A legacy Hive writer configured for Asia/Shanghai can normalize local 2025-01-01 00:00 to
     // raw INT96 2024-12-31 16:00. The matching catalog property reverses that normalization.
-    EXPECT_EQ(read_first_value("Asia/Shanghai"), "2025-01-01 00:00:00.000000");
-    // TIMESTAMPTZ preserves the instant even when the INT96 compatibility timezone is configured.
-    EXPECT_EQ(read_first_value("Asia/Shanghai", true), "2024-12-31 16:00:00.000000+00:00");
+    EXPECT_EQ(read_first_value(std::string {"Asia/Shanghai"}), "2025-01-01 00:00:00.000000");
+    // Enabling instant mappings cannot invent timezone semantics for unannotated INT96.
+    EXPECT_EQ(read_first_value(std::string {"Asia/Shanghai"}, true), "2025-01-01 00:00:00.000000");
+    EXPECT_EQ(read_first_value(std::string {}, true), "2024-12-31 16:00:00.000000");
 }
 
-TEST_F(NewParquetReaderTest, Int96UsesPerColumnPaimonTimestampSemantics) {
+TEST_F(NewParquetReaderTest, Int96UsesPerColumnTimestampSemantics) {
     write_int96_timestamp_parquet_file(_file_path);
 
     auto read_first_value = [&](bool adjusted_to_utc) {
-        auto reader = create_reader();
+        auto reader = create_reader(0, -1, nullptr, false, nullptr, std::nullopt, false, false, {},
+                                    0, std::string {});
         RuntimeState state {TQueryOptions(), TQueryGlobals()};
         state.set_timezone("Asia/Shanghai");
         auto status = reader->init(&state);
@@ -2852,7 +2856,7 @@ TEST_F(NewParquetReaderTest, Int96UsesPerColumnPaimonTimestampSemantics) {
 TEST_F(NewParquetReaderTest, NestedInt96UsesHiveParquetTimezone) {
     TimezoneUtils::load_timezones_to_cache();
     write_nested_int96_timestamp_parquet_file(_file_path);
-    auto reader = create_reader(0, -1, nullptr, false, nullptr, std::nullopt, false, false, {}, 0,
+    auto reader = create_reader(0, -1, nullptr, true, nullptr, std::nullopt, false, false, {}, 0,
                                 "Asia/Shanghai");
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     state.set_timezone("America/Los_Angeles");

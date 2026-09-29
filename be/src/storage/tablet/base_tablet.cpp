@@ -1923,7 +1923,8 @@ Status BaseTablet::check_rowid_conversion(
         for (auto& [src, dst] : locations) {
             std::string src_key;
             std::string dst_key;
-            const size_t src_segment_pos = src_rowset->rowset_meta()->position_of(src.segment_id);
+            const size_t src_segment_pos =
+                    DORIS_TRY(src_rowset->rowset_meta()->position_of(src.segment_id));
             Status s = segments[src_segment_pos]->read_key_by_rowid(src.row_id, &src_key);
             if (UNLIKELY(s.is<NOT_IMPLEMENTED_ERROR>())) {
                 LOG(INFO) << "primary key index of old version does not "
@@ -1937,7 +1938,8 @@ Status BaseTablet::check_rowid_conversion(
                 return s;
             }
 
-            const size_t dst_segment_pos = dst_rowset->rowset_meta()->position_of(dst.segment_id);
+            const size_t dst_segment_pos =
+                    DORIS_TRY(dst_rowset->rowset_meta()->position_of(dst.segment_id));
             s = dst_segments[dst_segment_pos]->read_key_by_rowid(dst.row_id, &dst_key);
             if (UNLIKELY(!s)) {
                 LOG(WARNING) << "failed to get dst key: |" << dst.rowset_id << "|" << dst.segment_id
@@ -2390,6 +2392,11 @@ void BaseTablet::prefill_dbm_agg_cache_after_compaction(const RowsetSharedPtr& o
         int64_t cur_max_version {-1};
         {
             std::shared_lock rlock(get_header_lock());
+            // Schema change may still be rebuilding the delete bitmap of a NOTREADY tablet.
+            // Prefilling now can cache incomplete bitmaps that remain stale after it becomes RUNNING.
+            if (tablet_state() != TABLET_RUNNING) {
+                return;
+            }
             cur_max_version = max_version_unlocked();
         }
         if (config::enable_prefill_all_dbm_agg_cache_after_compaction) {

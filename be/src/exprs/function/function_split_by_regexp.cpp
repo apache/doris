@@ -43,6 +43,7 @@ public:
     bool get(const char*& token_begin, const char*& token_end);
 
 private:
+    const char* _begin;
     const char* _pos;
     const char* _end;
 
@@ -52,12 +53,12 @@ private:
     re2::RE2* _re2 = nullptr;
     unsigned _number_of_subpatterns = 0;
 
-    unsigned match(const char* subject, size_t subject_size, std::vector<Match>& matches,
-                   unsigned limit) const;
+    unsigned match(const char* subject, size_t subject_size, size_t start_pos,
+                   std::vector<Match>& matches, unsigned limit) const;
 };
 
-unsigned RegexpSplit::match(const char* subject, size_t subject_size, std::vector<Match>& matches,
-                            unsigned limit) const {
+unsigned RegexpSplit::match(const char* subject, size_t subject_size, size_t start_pos,
+                            std::vector<Match>& matches, unsigned limit) const {
     matches.clear();
 
     if (limit == 0) {
@@ -67,8 +68,8 @@ unsigned RegexpSplit::match(const char* subject, size_t subject_size, std::vecto
     limit = std::min(limit, _number_of_subpatterns + 1);
     std::vector<re2::StringPiece> pieces(limit);
 
-    if (!_re2->Match({subject, subject_size}, 0, subject_size, re2::RE2::UNANCHORED, pieces.data(),
-                     limit)) {
+    if (!_re2->Match({subject, subject_size}, start_pos, subject_size, re2::RE2::UNANCHORED,
+                     pieces.data(), limit)) {
         return 0;
     } else {
         matches.resize(limit);
@@ -95,6 +96,7 @@ void RegexpSplit::init(re2::RE2* re2, int32_t max_splits) {
 
 // Called for each next string.
 void RegexpSplit::set(const char* pos, const char* end) {
+    _begin = pos;
     _pos = pos;
     _end = end;
     _splits = 0;
@@ -134,12 +136,12 @@ bool RegexpSplit::get(const char*& token_begin, const char*& token_end) {
             }
         }
 
-        if (!match(_pos, _end - _pos, _matches, _number_of_subpatterns + 1) ||
+        if (!match(_begin, _end - _begin, _pos - _begin, _matches, _number_of_subpatterns + 1) ||
             !_matches[0].length) {
             token_end = _end;
             _pos = _end + 1;
         } else {
-            token_end = _pos + _matches[0].offset;
+            token_end = _begin + _matches[0].offset;
             _pos = token_end + _matches[0].length;
             ++_splits;
         }
