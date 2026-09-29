@@ -52,7 +52,10 @@ final class LanceScanPlan {
         }
     }
 
-    /** Explains FE segment selection, not whether the BE may automatically use a Lance index. */
+    /**
+     * Explains FE segment selection. The BE searches an index only through the segments the FE
+     * plans, so a vector search under any status other than USED is a flat search.
+     */
     enum VectorIndexStatus {
         /** No vector planning result exists yet (also used by ordinary and FTS scans). */
         NOT_PLANNED,
