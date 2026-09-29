@@ -596,7 +596,13 @@ struct ChildLaunchPlan {
     int64_t as_limit_bytes;
     int64_t cpu_limit_seconds;
     const std::vector<char*>* envp;
+    // Exec target. Production: "/proc/self/exe" with kDefaultWorkerArgv.
+    const char* exec_path;
+    const char* const* exec_argv;
 };
+
+// Production worker argv (the UT exec-override seam substitutes its own).
+static const char* const kDefaultWorkerArgv[] = {"doris_be", "--lance-worker", nullptr};
 
 // Child path: arm PDEATHSIG and immediately re-check the parent (closing the
 // arm-after-death race), block on the fork barrier (EOF/error => _exit, so a
@@ -661,8 +667,7 @@ struct ChildLaunchPlan {
         ::_exit(127);
     }
     close_all_fds_from(STDERR_FILENO + 1);
-    static const char* const worker_argv[] = {"doris_be", "--lance-worker", nullptr};
-    ::execve("/proc/self/exe", const_cast<char* const*>(worker_argv), plan.envp->data());
+    ::execve(plan.exec_path, const_cast<char* const*>(plan.exec_argv), plan.envp->data());
     ::_exit(127);
 }
 
@@ -1893,6 +1898,29 @@ void IndexJobSupervisor::_execute(const TLanceIndexJobDispatch& dispatch) {
     const int64_t as_limit = config::lance_index_worker_as_limit_bytes;
     const int64_t cpu_limit =
             static_cast<int64_t>(config::lance_index_worker_cpu_limit_multiplier) * wall_s;
+    // Exec target: production self-exec. BE_TEST builds may override it with a
+    // protocol-speaking fake worker; the storage below outlives launch_child()
+    // (the child consumes the pointers before execve, synchronously).
+    const char* exec_path = "/proc/self/exe";
+    const char* const* exec_argv = kDefaultWorkerArgv;
+#ifdef BE_TEST
+    std::vector<std::string> exec_argv_storage;
+    std::vector<const char*> exec_argv_ptrs;
+    if (!_force_exec_path.empty()) {
+        exec_argv_storage.reserve(_force_exec_args.size() + 1);
+        exec_argv_storage.push_back(_force_exec_path);
+        for (const std::string& arg : _force_exec_args) {
+            exec_argv_storage.push_back(arg);
+        }
+        exec_argv_ptrs.reserve(exec_argv_storage.size() + 1);
+        for (const std::string& arg : exec_argv_storage) {
+            exec_argv_ptrs.push_back(arg.c_str());
+        }
+        exec_argv_ptrs.push_back(nullptr);
+        exec_path = exec_argv_storage.front().c_str();
+        exec_argv = exec_argv_ptrs.data();
+    }
+#endif
     ChildLaunchPlan plan {barrier_pipe.read_fd,
                           stdin_pipe.read_fd,
                           stdout_pipe.write_fd,
@@ -1902,7 +1930,9 @@ void IndexJobSupervisor::_execute(const TLanceIndexJobDispatch& dispatch) {
                           ::getpid(),
                           as_limit,
                           cpu_limit,
-                          &envp};
+                          &envp,
+                          exec_path,
+                          exec_argv};
     Launch launch;
     const char* fail_category = nullptr;
     if (!launch_child(plan, &stdin_pipe, &stdout_pipe, &stderr_pipe, &barrier_pipe, cgroup_dir,
@@ -2075,6 +2105,12 @@ void IndexJobSupervisor::force_budgets_for_test(int64_t wallclock_seconds,
     _force_wallclock_seconds.store(wallclock_seconds);
     _force_term_grace_seconds.store(term_grace_seconds);
     _force_report_margin_seconds.store(report_margin_seconds);
+}
+
+void IndexJobSupervisor::force_worker_exec_for_test(std::string path,
+                                                    std::vector<std::string> args) {
+    _force_exec_path = std::move(path);
+    _force_exec_args = std::move(args);
 }
 
 uint32_t IndexJobSupervisor::queue_depth_for_test() const {
