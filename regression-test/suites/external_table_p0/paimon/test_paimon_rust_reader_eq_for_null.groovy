@@ -225,10 +225,16 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
 
         // Reuse the framework's profile readiness polling and configured HTTP credentials.
         def profileAction = new ProfileAction(context)
-        def profileTextOf = { String query ->
+        def profileTextOf = { String query, boolean rustExpected = true ->
             sql(query)
             def queryId = sql("select last_query_id()")[0][0]
-            profileAction.getProfile(queryId.toString(), ["FileScannerV2"])
+            // Negative and zero-counter checks must never inspect a partially published profile.
+            def required = ["FileScannerV2", "Profile Completion State: COMPLETE"]
+            if (rustExpected) {
+                required.addAll(["PaimonRustReader", "RustPredicatesInput:", "RustPredicatesConverted:",
+                        "RustPredicatesApplied:", "RustRuntimeFiltersInput:", "RustRuntimeFiltersApplied:"])
+            }
+            profileAction.getProfile(queryId.toString(), required)
         }
         def counterValues = { String profile, String name ->
             def matches = (profile =~ /${name}: ([0-9]+)/).collect { it[1] as long }
@@ -353,7 +359,7 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
         def jniResults = testQueries.collect { query -> sql(query) }
         // The JNI leg must ride the logical-split JNI reader: the profile of a
         // representative query must not contain the rust reader's timer.
-        def jniProfile = profileTextOf(pushdownQuery)
+        def jniProfile = profileTextOf(pushdownQuery, false)
         assertFalse(jniProfile.contains("PaimonRustReader"), "JNI leg must not use the rust reader")
 
         sql """set enable_paimon_rust_reader=true"""
@@ -394,13 +400,13 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
         // rust is enabled (the FE gate): its profile must not carry the rust
         // reader's timer, while the differential above still expects the JNI
         // semantics — the retract of (1, 11) is skipped, so the row survives.
-        def rustDedupIgnoreDeleteProfile = profileTextOf(testQueries[9])
+        def rustDedupIgnoreDeleteProfile = profileTextOf(testQueries[9], false)
         assertFalse(rustDedupIgnoreDeleteProfile.contains("PaimonRustReader"),
                 "deduplicate.ignore-delete table must fall back to JNI")
         // The partial-update remove-record-on-delete table rides the JNI
         // fallback for the same reason: the rust read validation rejects the
         // option key outright.
-        def rustPuRemoveRecordProfile = profileTextOf(testQueries[10])
+        def rustPuRemoveRecordProfile = profileTextOf(testQueries[10], false)
         assertFalse(rustPuRemoveRecordProfile.contains("PaimonRustReader"),
                 "partial-update.remove-record-on-delete table must fall back to JNI")
         // Append-only inputs keep nested reconciliation independent of the multi-file
@@ -419,7 +425,7 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
 
         // Historical narrowing now falls back to JNI. Check the probe by itself: the
         // join's Rust-capable dimension would otherwise hide an incorrect probe route.
-        assertFalse(profileTextOf("select id,v,amount from t_narrowed order by id")
+        assertFalse(profileTextOf("select id,v,amount from t_narrowed order by id", false)
                 .contains("PaimonRustReader"))
         // Runtime filters are built from current-domain values. Historical file
         // values/statistics must not reject them before schema reconciliation.
@@ -508,7 +514,7 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
                 assertEquals(baseline.toString(), actual.toString())
                 // Forced logical splits must exercise Rust for Parquet and JNI for ORC:
                 // the ORC LTZ compatibility gate conservatively covers both encodings.
-                def profile = profileTextOf(query)
+                def profile = profileTextOf(query, format == "parquet")
                 assertEquals(format == "parquet", profile.contains("PaimonRustReader"),
                         "LTZ reader routing for ${format} ${zone}")
             }

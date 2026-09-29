@@ -2133,6 +2133,29 @@ install_rust_archive() {
     )
 }
 
+install_paimon_rust() {
+    (
+        set -e
+        local archive="$1"
+        local header="$2"
+        local destination="${TP_INSTALL_DIR}/include/paimon_rust/paimon.h"
+        local incomplete="${TP_INSTALL_DIR}/lib64/.paimon-installing"
+        mkdir -p "${TP_INSTALL_DIR}/include/paimon_rust" "${TP_INSTALL_DIR}/lib64"
+        local staged
+        staged="$(mktemp "${destination}.tmp.XXXXXX")"
+        trap 'rm -f "${staged}"' EXIT
+        cp -p "${header}" "${staged}"
+        test -s "${staged}"
+        test -s "${archive}"
+        # The two renames cannot be atomic together. Keep this recovery marker until
+        # both succeed so build.sh never reuses a mixed pair after interruption.
+        touch "${incomplete}"
+        install_rust_archive "${archive}"
+        mv -f "${staged}" "${destination}"
+        rm -f "${incomplete}"
+    )
+}
+
 build_lance_c() {
     check_if_source_exist "${LANCE_C_SOURCE}"
     cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
@@ -2329,11 +2352,7 @@ EOF
         --config "${cbindgen_toml}" \
         --output "${BUILD_DIR}/release/paimon.h"
 
-    mkdir -p "${TP_INSTALL_DIR}/include" "${TP_INSTALL_DIR}/lib64"
-    rm -rf "${TP_INSTALL_DIR}/include/paimon_rust"
-    mkdir -p "${TP_INSTALL_DIR}/include/paimon_rust"
-    cp -v "${BUILD_DIR}/release/paimon.h" "${TP_INSTALL_DIR}/include/paimon_rust/"
-    install_rust_archive "${BUILD_DIR}/release/libpaimon_c.a"
+    install_paimon_rust "${BUILD_DIR}/release/libpaimon_c.a" "${BUILD_DIR}/release/paimon.h"
 }
 
 if [[ "${#packages[@]}" -eq 0 ]]; then

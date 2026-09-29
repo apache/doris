@@ -64,6 +64,7 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.CoreOptions;
@@ -920,7 +921,13 @@ public class PaimonScanNode extends FileQueryScanNode {
                         ? null : backendStorageProperties.get("AWS_SECRET_KEY");
                 boolean staticKeys = accessKey != null && !accessKey.trim().isEmpty()
                         && secretKey != null && !secretKey.trim().isEmpty();
-                providerModeTranslatable = mode.equals("ANONYMOUS") || (mode.equals("DEFAULT") && staticKeys);
+                // Hadoop's Simple provider gives static keys precedence over anonymous,
+                // role and token settings. Rust interprets those settings differently.
+                boolean conflictingStaticSettings = staticKeys && (mode.equals("ANONYMOUS")
+                        || StringUtils.isNotEmpty(backendStorageProperties.get("AWS_ROLE_ARN"))
+                        || StringUtils.isNotEmpty(backendStorageProperties.get("AWS_TOKEN")));
+                providerModeTranslatable = !conflictingStaticSettings
+                        && (mode.equals("ANONYMOUS") || (mode.equals("DEFAULT") && staticKeys));
             } else if (providerType != null) {
                 providerModeTranslatable = mode.equals("DEFAULT") || mode.equals("ANONYMOUS");
                 // OSS has no anonymous FileIO mode in the pinned Rust dependency.
@@ -1022,6 +1029,13 @@ public class PaimonScanNode extends FileQueryScanNode {
                     && !deduplicateIgnoreDelete && !rustUnsupportedMergeOption
                     && schemeCapabilityVerified && hdfsBackendVerified
                     && paimonFileStoreTable != null;
+            if (canUseRust) {
+                // Branch tables can retain persisted modes without a selector. Validate the
+                // transported options too: the pinned Rust builder only accepts default here.
+                String scanMode = PaimonScanParams.withoutTimeTravelSelectors(paimonFileStoreTable.schema())
+                        .options().get(CoreOptions.SCAN_MODE.key());
+                canUseRust = scanMode == null || "default".equalsIgnoreCase(scanMode);
+            }
             if (canUseRust) {
                 // Every candidate can receive this range; older BEs cannot decode reader type 3.
                 canUseRust = !backendPolicy.getBackends().isEmpty()

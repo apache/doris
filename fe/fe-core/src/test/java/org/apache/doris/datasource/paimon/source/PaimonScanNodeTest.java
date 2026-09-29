@@ -2691,7 +2691,6 @@ public class PaimonScanNodeTest {
                     "AWS_CREDENTIALS_PROVIDER_TYPE", "DEFAULT",
                     "AWS_ACCESS_KEY", "ak",
                     "AWS_SECRET_KEY", "sk",
-                    "AWS_TOKEN", "expiring-or-static-token",
                     "AWS_ENDPOINT", "http://127.0.0.1:19001",
                     "AWS_REGION", "us-east-1"));
             if (restToken) {
@@ -2915,6 +2914,34 @@ public class PaimonScanNodeTest {
                     rangeDesc, new PaimonSplit(createDataSplit("provider_ok.parquet")));
             Assert.assertEquals("mode " + mode + " on " + location, expected,
                     rangeDesc.getTableFormatParams().getPaimonParams().getReaderType());
+        }
+    }
+
+    @Test
+    public void testRustReaderRejectsConflictingStaticCredentials() throws Exception {
+        for (Map<String, String> extra : Arrays.asList(
+                ImmutableMap.of("AWS_CREDENTIALS_PROVIDER_TYPE", "ANONYMOUS"),
+                ImmutableMap.of("AWS_ROLE_ARN", "arn:aws:iam::123456789012:role/example"),
+                ImmutableMap.of("AWS_TOKEN", "expired-example-token"),
+                ImmutableMap.of("AWS_TOKEN", " "), ImmutableMap.of("AWS_ROLE_ARN", " "))) {
+            RustRoutingFixture f = new RustRoutingFixture();
+            Map<String, String> properties = new HashMap<>();
+            properties.put("AWS_ACCESS_KEY", "example-key");
+            properties.put("AWS_SECRET_KEY", "example-secret");
+            properties.putAll(extra);
+            setField(PaimonScanNode.class, f.node, "backendStorageProperties", properties);
+            // Hadoop's Simple provider ignores these settings; Rust must not change identity.
+            Assert.assertEquals(extra.toString(), TPaimonReaderType.PAIMON_JNI, f.reader(f.split));
+        }
+    }
+
+    @Test
+    public void testRustReaderRejectsUnsupportedPersistedBranchScanModes() throws Exception {
+        for (String mode : Arrays.asList("latest", "latest-full", "full", "compacted-full", "LATEST-FULL", " default ")) {
+            RustRoutingFixture f = new RustRoutingFixture();
+            f.schema(1, new IntType(), ImmutableMap.of("branch", "audit", "scan.mode", mode), false);
+            // A branch can keep its persisted mode without a time-travel selector to strip it.
+            Assert.assertEquals(mode, TPaimonReaderType.PAIMON_JNI, f.reader(f.split));
         }
     }
 

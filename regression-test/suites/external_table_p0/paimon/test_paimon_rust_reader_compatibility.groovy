@@ -31,7 +31,7 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
     def saved = settings.collectEntries { [(it): sql("select @@${it}")[0][0]] }
     sql "DROP CATALOG IF EXISTS ${catalog}"
     sql """CREATE CATALOG ${catalog} PROPERTIES (
-        'type'='paimon', 'paimon.catalog.type'='filesystem',
+        'type'='paimon', 'paimon.catalog.type'='filesystem', 'fs.s3.support'='true',
         'warehouse'='s3://warehouse/wh', 's3.endpoint'='http://${endpoint}:${port}',
         's3.access_key'='admin', 's3.secret_key'='password',
         's3.region'='us-east-1', 'use_path_style'='true')"""
@@ -53,7 +53,12 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
             sql "set enable_paimon_rust_reader=true"
             def actual = sql(query)
             def queryId = sql("select last_query_id()")[0][0].toString()
-            def profile = profiles.getProfile(queryId, ["FileScannerV2"])
+            // A scanner can be published before its children; absence is meaningful only at completion.
+            def required = ["FileScannerV2", "Profile Completion State: COMPLETE"]
+            if (rustExpected) {
+                required.add("PaimonRustReader")
+            }
+            def profile = profiles.getProfile(queryId, required)
             assertEquals(expected.toString(), actual.toString())
             assertEquals(rustExpected, profile.contains("PaimonRustReader"), query)
         }
@@ -63,6 +68,36 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
                 PROPERTIES ('primary-key'='id', 'bucket'='1', 'write-only'='true',
                     'deletion-vectors.enabled'='false' ${extra})"""
         }
+
+        createPk("credential_values", "v INT", "")
+        sql "INSERT INTO credential_values VALUES (1,11)"
+        check("select id,v from credential_values", [[1,11]], true)
+        ["'s3.credentials_provider_type'='ANONYMOUS'",
+         "'s3.role_arn'='arn:aws:iam::123456789012:role/example'",
+         "'s3.session_token'='expired-example-token'"].eachWithIndex { extra, index ->
+            def crossedCatalog = "${catalog}_credentials_${index}"
+            sql "DROP CATALOG IF EXISTS ${crossedCatalog}"
+            try {
+                // Select S3 explicitly: endpoint guessing would choose MinIO and ignore S3 auth modes.
+                // Hadoop chooses static keys first; conflicting settings must retain that identity.
+                sql """CREATE CATALOG ${crossedCatalog} PROPERTIES (
+                    'type'='paimon', 'paimon.catalog.type'='filesystem', 'fs.s3.support'='true',
+                    'warehouse'='s3://warehouse/wh', 's3.endpoint'='http://${endpoint}:${port}',
+                    's3.access_key'='admin', 's3.secret_key'='password',
+                    's3.region'='us-east-1', 'use_path_style'='true', ${extra})"""
+                check("select id,v from ${crossedCatalog}.${database}.credential_values", [[1,11]], false)
+            } finally {
+                sql "DROP CATALOG IF EXISTS ${crossedCatalog}"
+            }
+        }
+
+        createPk("branch_scan_mode", "v INT", ", 'scan.mode'='latest-full'")
+        sql "INSERT INTO branch_scan_mode VALUES (1,11)"
+        spark_paimon """CALL paimon.sys.create_tag(table => '${database}.branch_scan_mode', tag => 'audit_tag')"""
+        spark_paimon """CALL paimon.sys.create_branch(table => '${database}.branch_scan_mode',
+            branch => 'audit', tag => 'audit_tag')"""
+        // A branch preserves the persisted scan mode instead of deriving one from a snapshot selector.
+        check("select id,v from branch_scan_mode@branch(audit)", [[1,11]], false)
 
         sql """CREATE TABLE footer_aggregates (v INT NULL) ENGINE=paimon
             PROPERTIES ('bucket'='-1', 'file.format'='parquet')"""
@@ -90,7 +125,7 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
                     }
                     assertEquals(entry[1].toString(), sql(entry[0]).toString())
                     def queryId = sql("select last_query_id()")[0][0].toString()
-                    def profile = profiles.getProfile(queryId, ["FileScannerV2", "ParquetReader"])
+                    def profile = profiles.getProfile(queryId, ["FileScannerV2", "ParquetReader", "Profile Completion State: COMPLETE"])
                     assertFalse(profile.contains("PaimonRustReader"))
                     def rows = rawRows(profile)
                     if (pushdown) {
