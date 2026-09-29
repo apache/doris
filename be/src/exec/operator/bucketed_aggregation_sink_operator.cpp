@@ -87,10 +87,9 @@ Status BucketedAggSinkLocalState::open(RuntimeState* state) {
             shared_state.aggregate_evaluators.push_back(evaluator->clone(state, p._pool));
         }
 
-        // Detect simple_count: exactly one COUNT(*) with no args, with GROUP BY present.
+        // Detect simple_count: exactly one COUNT(*) / COUNT(slot), with GROUP BY present.
         // Bucketed agg always has GROUP BY (without-key not supported).
-        if (p._aggregate_evaluators.size() == 1 &&
-            p._aggregate_evaluators[0]->function()->is_simple_count()) {
+        if (p._aggregate_evaluators.size() == 1 && p._aggregate_evaluators[0]->is_simple_count()) {
             shared_state.use_simple_count = true;
         }
         return Status::OK();

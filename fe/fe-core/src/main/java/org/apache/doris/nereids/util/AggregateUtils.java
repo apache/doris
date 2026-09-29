@@ -191,8 +191,8 @@ public class AggregateUtils {
      * discount), and PhysicalPlanTranslator (for fusion into BucketedAggregationNode).
      *
      * @return true if the session variable is enabled, there is exactly one alive BE,
-     *         no smooth upgrade is in progress, the aggregate has GROUP BY keys and
-     *         contains no user-defined aggregate function.
+     *         spill is disabled, no smooth upgrade is in progress, the aggregate has
+     *         GROUP BY keys and contains no user-defined aggregate function.
      */
     public static boolean isBucketedHashAggEnabled(Aggregate<? extends Plan> aggregate) {
         ConnectContext ctx = ConnectContext.get();
@@ -206,20 +206,30 @@ public class AggregateUtils {
         if (aggregate.getGroupByExpressions().isEmpty()) {
             return false;
         }
-        // Correctness gate: single-BE only (cross-BE in-memory merge is impossible).
-        // Use be_number_for_test first (set by regression tests), fall back to real cluster count.
-        // Note: do not clamp to 1 — with zero backends bucketed agg must not be enabled.
-        int beNumber = ctx.getSessionVariable().getBeNumberForTest();
-        if (beNumber <= 0) {
-            beNumber = ctx.getEnv().getClusterInfo().getBackendsNumber(true);
+        // Bucketed agg has no spill support. Keep the regular (spillable) aggregation
+        // when spill is enabled, otherwise a high-cardinality GROUP BY could hit the
+        // memory limit instead of spilling.
+        if (ctx.getSessionVariable().enableSpill || ctx.getSessionVariable().enableForceSpill) {
+            return false;
         }
-        if (beNumber != 1) {
+        // be_number_for_test can only disable bucketed agg (to test the multi-BE plan),
+        // never bypass the single-BE gate below.
+        int beNumberForTest = ctx.getSessionVariable().getBeNumberForTest();
+        if (beNumberForTest > 0 && beNumberForTest != 1) {
+            return false;
+        }
+        // Correctness gate: single-BE only (cross-BE in-memory merge is impossible).
+        // Scan ranges always go to the real alive backends, so count them directly
+        // (getBackendsNumber() would return be_number_for_test).
+        // Note: do not clamp to 1 — with zero backends bucketed agg must not be enabled.
+        SystemInfoService clusterInfo = ctx.getEnv().getClusterInfo();
+        List<Long> aliveBackendIds = clusterInfo.getAllBackendByCurrentCluster(true);
+        if (aliveBackendIds.size() != 1) {
             return false;
         }
         // Smooth upgrade safety net: old BE processes do not recognize
         // BUCKETED_AGGREGATION_NODE plan node type
-        SystemInfoService clusterInfo = ctx.getEnv().getClusterInfo();
-        for (Long beId : clusterInfo.getAllBackendByCurrentCluster(true)) {
+        for (Long beId : aliveBackendIds) {
             Backend be = clusterInfo.getBackend(beId);
             if (be != null && be.isSmoothUpgradeSrc()) {
                 return false;

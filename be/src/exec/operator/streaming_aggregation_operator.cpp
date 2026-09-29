@@ -102,8 +102,8 @@ Status StreamingAggLocalState::open(RuntimeState* state) {
     // Determine whether to use simple count aggregation.
     // StreamingAgg only operates in update + serialize mode: input is raw data, output is serialized intermediate state.
     // The serialization format of count is UInt64 itself, so it can be inlined into the hash table mapped slot.
-    if (_aggregate_evaluators.size() == 1 &&
-        _aggregate_evaluators[0]->function()->is_simple_count() && p._sort_limit == -1) {
+    if (_aggregate_evaluators.size() == 1 && _aggregate_evaluators[0]->is_simple_count() &&
+        p._sort_limit == -1) {
         _use_simple_count = true;
 #ifndef NDEBUG
         // Randomly enable/disable in debug mode to verify correctness of multi-phase agg promotion/demotion.

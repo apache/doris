@@ -19,11 +19,17 @@
 // concurrently in several source instances. Merges that allocate memory (collect_set
 // on strings, DISTINCT on strings) must not share an arena across those instances.
 suite("collect_set_bucketed_agg_merge") {
+    // Bucketed agg needs a real single-BE cluster (the P0 CI runs one BE):
+    // be_number_for_test can only disable it, so the BUCKETED AGGREGATE
+    // assertions below fail on a multi-BE cluster.
     sql "set enable_bucketed_hash_agg=true"
     sql "set be_number_for_test=1"
     sql "set agg_phase=1"
     sql "set parallel_pipeline_task_num=8"
     sql "set bucketed_agg_min_input_rows=0"
+    // Bucketed agg is disabled while spill is enabled, so turn off fuzzy spill.
+    sql "set enable_spill=false"
+    sql "set enable_force_spill=false"
     sql "set bucketed_agg_max_group_keys=0"
     sql "set bucketed_agg_high_card_threshold=1.0"
 

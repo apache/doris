@@ -263,6 +263,10 @@ int BucketedAggLocalState::_merge_bucket(int bucket, int merge_target) {
                                                     // allocating intermediate vectors (keys,
                                                     // mappeds, hashes) and eliminates the separate
                                                     // null-out traversal.
+                                                    // The source slot is cleared only after the
+                                                    // state is owned by dst: emplace and merge can
+                                                    // throw, and then shared-state cleanup must
+                                                    // still find and destroy the source state.
                                                     const bool use_simple_count =
                                                             shared_state.use_simple_count;
                                                     src_data.for_each([&](const auto& key,
@@ -270,8 +274,6 @@ int BucketedAggLocalState::_merge_bucket(int bucket, int merge_target) {
                                                         if (!mapped) {
                                                             return;
                                                         }
-                                                        auto src_mapped = mapped;
-                                                        mapped = nullptr;
 
                                                         typename std::remove_reference_t<
                                                                 decltype(dst_data)>::LookupResult
@@ -282,13 +284,13 @@ int BucketedAggLocalState::_merge_bucket(int bucket, int merge_target) {
 
                                                         if (inserted) {
                                                             *::lookup_result_get_mapped(dst_it) =
-                                                                    src_mapped;
+                                                                    mapped;
                                                         } else {
                                                             auto& dst_mapped =
                                                                     *::lookup_result_get_mapped(
                                                                             dst_it);
                                                             merge_agg_states(
-                                                                    dst_mapped, src_mapped,
+                                                                    dst_mapped, mapped,
                                                                     use_simple_count,
                                                                     shared_state
                                                                             .aggregate_evaluators,
@@ -296,6 +298,7 @@ int BucketedAggLocalState::_merge_bucket(int bucket, int merge_target) {
                                                                             .offsets_of_aggregate_states,
                                                                     merge_arena);
                                                         }
+                                                        mapped = nullptr;
                                                     });
 
                                                     merge_null_key(
@@ -442,6 +445,15 @@ Status BucketedAggLocalState::_output_bucket(RuntimeState* state, Block* block, 
                           agg_method.init_iterator();
                           auto& it = agg_method.begin;
                           auto& it_end = agg_method.end;
+
+                          // The bucket is fully output. Each of the 256 bucket methods has its
+                          // own output_keys buffer, so release it here; then at most the bucket
+                          // being output by each source instance keeps a batch-sized buffer.
+                          if (it == it_end) {
+                              decltype(agg_method.output_keys)().swap(agg_method.output_keys);
+                              *rows_output = 0;
+                              return Status::OK();
+                          }
 
                           uint32_t batch_size = state->batch_size();
                           auto table_size = agg_method.hash_table->size();

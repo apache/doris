@@ -16,16 +16,26 @@
 // under the License.
 
 suite ("testBucketedAggSyncMV") {
-    // Regression test: when enable_bucketed_hash_agg=true on a single-BE cluster,
-    // the PhysicalBucketedHashAggregate plan for the base table with multi_distinct_count
-    // could appear artificially cheap (bypasses one-phase agg ban, requests ANY properties),
-    // beating the sync MV path on cost. The fix bans bucketed agg for MultiDistinction
-    // functions in SplitAggWithoutDistinct.implementBucketedPhase().
+    // Regression test: with enable_bucketed_hash_agg=true on a single-BE cluster,
+    // a bucketed aggregation plan over the base table must not beat the sync MV
+    // on cost for a COUNT(DISTINCT) query that the MV can answer.
 
     sql "set pre_materialized_view_rewrite_strategy = TRY_IN_RBO"
     sql """set enable_nereids_planner=true;"""
     sql "set disable_nereids_rules='DISTINCT_AGGREGATE_SPLIT';"
     sql "set enable_bucketed_hash_agg = true;"
+    // Make the bucketed alternative eligible for this tiny table, otherwise the
+    // default thresholds reject it and the MV assertions below would prove nothing.
+    // Bucketed agg needs a real single-BE cluster (the P0 CI runs one BE):
+    // be_number_for_test can only disable it, so the BUCKETED AGGREGATE
+    // assertions below fail on a multi-BE cluster.
+    sql "set be_number_for_test = 1;"
+    sql "set bucketed_agg_min_input_rows = 0;"
+    sql "set bucketed_agg_max_group_keys = 0;"
+    sql "set bucketed_agg_high_card_threshold = 1.0;"
+    // Bucketed agg is disabled while spill is enabled, so turn off fuzzy spill.
+    sql "set enable_spill = false;"
+    sql "set enable_force_spill = false;"
 
     sql """ DROP TABLE IF EXISTS bucketed_agg_mv_test; """
 
@@ -65,6 +75,13 @@ suite ("testBucketedAggSyncMV") {
 
     sql "analyze table bucketed_agg_mv_test with sync;"
     sql """alter table bucketed_agg_mv_test modify column time_col set stats ('row_count'='6');"""
+
+    // Positive control: the same COUNT(DISTINCT) shape on a column the MV does not
+    // contain cannot use the MV, and does take the bucketed plan with the settings above.
+    explain {
+        sql("SELECT dt, advertiser, count(DISTINCT time_col) FROM bucketed_agg_mv_test GROUP BY dt, advertiser;")
+        contains("BUCKETED AGGREGATE")
+    }
 
     // Core assertion: with enable_bucketed_hash_agg=true, the sync MV must still be chosen.
     // Before the fix, PhysicalBucketedHashAggregate(multi_distinct_count) would win on cost.

@@ -18,11 +18,17 @@
 // Bucketed hash aggregation merges the per-instance states of the same group in the
 // source operator. PERCENTILE states merged there must keep every sample of both sides.
 suite("percentile_bucketed_agg_merge") {
+    // Bucketed agg needs a real single-BE cluster (the P0 CI runs one BE):
+    // be_number_for_test can only disable it, so the BUCKETED AGGREGATE
+    // assertions below fail on a multi-BE cluster.
     sql "set enable_bucketed_hash_agg=true"
     sql "set be_number_for_test=1"
     sql "set agg_phase=1"
     sql "set parallel_pipeline_task_num=4"
     sql "set bucketed_agg_min_input_rows=0"
+    // Bucketed agg is disabled while spill is enabled, so turn off fuzzy spill.
+    sql "set enable_spill=false"
+    sql "set enable_force_spill=false"
     sql "set bucketed_agg_max_group_keys=0"
     sql "set bucketed_agg_high_card_threshold=1.0"
 

@@ -56,7 +56,8 @@ struct MethodBaseInner {
 
     /// Reusable buffer for source-side output iteration to avoid per-batch
     /// heap allocation of std::vector<Key>. Callers use resize() + direct
-    /// element assignment, so the capacity is retained across batches.
+    /// element assignment, so the capacity is retained across batches. The bucketed
+    /// agg source releases it once the table is fully output.
     std::vector<Key> output_keys;
 
     // use in join case

@@ -22,9 +22,15 @@ suite("test_javaudaf_bucketed_agg") {
     def jarPath = """${context.file.parent}/../../javaudf_p0/jars/java-udf-case-jar-with-dependencies.jar"""
     scp_udf_file_to_all_be(jarPath)
 
+    // Bucketed agg needs a real single-BE cluster (the P0 CI runs one BE):
+    // be_number_for_test can only disable it, so the BUCKETED AGGREGATE
+    // assertions below fail on a multi-BE cluster.
     sql "set be_number_for_test=1"
     sql "set enable_bucketed_hash_agg=true"
     sql "set bucketed_agg_min_input_rows=0"
+    // Bucketed agg is disabled while spill is enabled, so turn off fuzzy spill.
+    sql "set enable_spill=false"
+    sql "set enable_force_spill=false"
     sql "set bucketed_agg_max_group_keys=0"
     sql "set bucketed_agg_high_card_threshold=1.0"
     sql "set parallel_pipeline_task_num=2"

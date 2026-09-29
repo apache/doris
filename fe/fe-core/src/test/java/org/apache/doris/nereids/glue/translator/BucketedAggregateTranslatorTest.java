@@ -118,6 +118,46 @@ public class BucketedAggregateTranslatorTest extends TestWithFeService {
         }
     }
 
+    @Test
+    public void testSpillKeepsRegularAggregation() throws Exception {
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        int oldAggPhase = sessionVariable.aggPhase;
+        int oldBeNumberForTest = sessionVariable.getBeNumberForTest();
+        long oldBucketedAggMinInputRows = sessionVariable.bucketedAggMinInputRows;
+        long oldBucketedAggMaxGroupKeys = sessionVariable.bucketedAggMaxGroupKeys;
+        double oldBucketedAggHighCardThreshold = sessionVariable.bucketedAggHighCardThreshold;
+        boolean oldEnableBucketedHashAgg = sessionVariable.enableBucketedHashAgg;
+        boolean oldEnableSpill = sessionVariable.enableSpill;
+        boolean oldEnableForceSpill = sessionVariable.enableForceSpill;
+        try {
+            sessionVariable.aggPhase = 1;
+            sessionVariable.setBeNumberForTest(1);
+            sessionVariable.bucketedAggMinInputRows = 0;
+            sessionVariable.bucketedAggMaxGroupKeys = 0;
+            sessionVariable.bucketedAggHighCardThreshold = 1.0;
+            sessionVariable.enableBucketedHashAgg = true;
+            sessionVariable.enableSpill = false;
+            sessionVariable.enableForceSpill = false;
+            Assertions.assertFalse(collectBucketedAggregationNodes("sum(kint)").isEmpty());
+
+            // Bucketed agg cannot spill, so the spillable regular aggregation must be kept.
+            sessionVariable.enableSpill = true;
+            assertUsesRegularAggregation("sum(kint)");
+            sessionVariable.enableSpill = false;
+            sessionVariable.enableForceSpill = true;
+            assertUsesRegularAggregation("sum(kint)");
+        } finally {
+            sessionVariable.aggPhase = oldAggPhase;
+            sessionVariable.setBeNumberForTest(oldBeNumberForTest);
+            sessionVariable.bucketedAggMinInputRows = oldBucketedAggMinInputRows;
+            sessionVariable.bucketedAggMaxGroupKeys = oldBucketedAggMaxGroupKeys;
+            sessionVariable.bucketedAggHighCardThreshold = oldBucketedAggHighCardThreshold;
+            sessionVariable.enableBucketedHashAgg = oldEnableBucketedHashAgg;
+            sessionVariable.enableSpill = oldEnableSpill;
+            sessionVariable.enableForceSpill = oldEnableForceSpill;
+        }
+    }
+
     private void assertUsesRegularAggregation(String aggregateFunction) throws Exception {
         Planner planner = planAggregate(aggregateFunction);
         Assertions.assertTrue(collectNodes(planner, BucketedAggregationNode.class).isEmpty());

@@ -25,12 +25,18 @@ suite("bucketed_hash_agg") {
     // On multi-BE deployments, bucketed agg must NOT be used.
     // ============================================================
 
+    // Bucketed agg needs a real single-BE cluster (the P0 CI runs one BE):
+    // be_number_for_test can only disable it, so the BUCKETED AGGREGATE
+    // assertions below fail on a multi-BE cluster.
     // --- session settings ---
     sql "set enable_nereids_planner=true"
     sql "set enable_parallel_result_sink=false"
     sql "set runtime_filter_mode=OFF"
     sql "set parallel_pipeline_task_num=2"
     sql "set bucketed_agg_min_input_rows=0"
+    // Bucketed agg is disabled while spill is enabled, so turn off fuzzy spill.
+    sql "set enable_spill=false"
+    sql "set enable_force_spill=false"
     sql "set bucketed_agg_max_group_keys=0"
     // The table below is never analyzed, so group-by column stats are unknown and
     // StatsCalculator falls back to rows * DEFAULT_AGGREGATE_RATIO (1/3.0) for the
@@ -234,4 +240,29 @@ suite("bucketed_hash_agg") {
         notContains("BUCKETED AGGREGATE")
     }
     sql(groupConcatWithOrder)
+
+    // ============================================================
+    // Test 8: COUNT must still evaluate a non-trivial argument, so the
+    //         inline count path cannot hide an assert_true() failure.
+    // ============================================================
+    sql "set agg_phase=0"
+    sql "set be_number_for_test=1"
+    String countWithAssert = """
+        SELECT grp, count(assert_true(val < 100, 'count argument is evaluated'))
+        FROM bucketed_agg_reg_test
+        GROUP BY grp
+    """
+    explain {
+        sql(countWithAssert)
+        contains("BUCKETED AGGREGATE")
+    }
+    test {
+        sql(countWithAssert)
+        exception "count argument is evaluated"
+    }
+    sql "set enable_bucketed_hash_agg=false"
+    test {
+        sql(countWithAssert)
+        exception "count argument is evaluated"
+    }
 }
