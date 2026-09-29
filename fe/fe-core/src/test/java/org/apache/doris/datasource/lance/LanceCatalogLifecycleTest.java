@@ -234,6 +234,36 @@ public class LanceCatalogLifecycleTest {
     }
 
     @Test
+    public void testCatalogRefreshAndDatabaseDropFenceCountsBeforeRetiringLanceAccess() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "lance");
+        properties.put(LanceExternalCatalog.WAREHOUSE, "/unused/lance-warehouse");
+        LanceExternalCatalog catalog = Mockito.spy(
+                new LanceExternalCatalog(903, "lance_fence", null, properties, ""));
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        Mockito.doAnswer(invocation -> {
+            Mockito.verify(cacheMgr).invalidateRowCountCache(903L);
+            return null;
+        }).when(catalog).refreshSessionCache();
+
+        try (MockedStatic<Env> currentEnv = Mockito.mockStatic(Env.class)) {
+            currentEnv.when(Env::getCurrentEnv).thenReturn(env);
+            catalog.onRefreshCache(true);
+            Mockito.verify(cacheMgr).invalidateCatalog(903L);
+            Mockito.clearInvocations(cacheMgr);
+            Mockito.doAnswer(invocation -> {
+                Mockito.verify(cacheMgr).invalidateRowCountCache(903L);
+                return null;
+            }).when(catalog).invalidateTableAccessCache();
+            catalog.unregisterDatabase("db1");
+        }
+
+        Mockito.verify(cacheMgr).invalidateDb(903L, "db1");
+    }
+
+    @Test
     public void testHeldTableInvalidationResetsLanceAccess() throws Exception {
         Session session = Mockito.mock(Session.class);
         LanceCatalogClient client = Mockito.spy(client(session));

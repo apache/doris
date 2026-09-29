@@ -128,6 +128,43 @@ public class CatalogMgrTest {
         Mockito.verify(cacheMgr, Mockito.never()).invalidateCatalog(catalogId);
     }
 
+    @Test
+    void testModeOneDatabaseEventCreateAndRenameUseDiscoveryIdentity() throws Exception {
+        long catalogId = 86L;
+        TestingHmsEventCatalog catalog = new TestingHmsEventCatalog(catalogId,
+                ImmutableMap.of(ExternalCatalog.LOWER_CASE_DATABASE_NAMES, "1"));
+        CatalogMgr catalogMgr = new CatalogMgr();
+        addNamedCatalog(catalogMgr, catalog);
+        Env env = Mockito.mock(Env.class);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        Mockito.when(catalog.metaCache.updateCache(Mockito.anyString(), Mockito.anyString(),
+                Mockito.any(), Mockito.anyLong(), Mockito.anyLong())).thenReturn(true);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            catalogMgr.registerExternalDatabaseFromEvent("Foo", "hms");
+            catalogMgr.unregisterExternalDatabase("Foo", "hms");
+            // ALTER DATABASE rename registers the new remote spelling through the same event route.
+            catalogMgr.registerExternalDatabaseFromEvent("Bar", "hms");
+            catalogMgr.unregisterExternalDatabase("Bar", "hms");
+        }
+
+        long fooId = Util.genIdByName("hms", "foo");
+        long barId = Util.genIdByName("hms", "bar");
+        ArgumentCaptor<ExternalDatabase> dbCaptor = ArgumentCaptor.forClass(ExternalDatabase.class);
+        Mockito.verify(catalog.metaCache).updateCache(Mockito.eq("Foo"), Mockito.eq("foo"),
+                dbCaptor.capture(), Mockito.eq(fooId), Mockito.anyLong());
+        Assertions.assertEquals("Foo", dbCaptor.getValue().getRemoteName());
+        Assertions.assertEquals("foo", dbCaptor.getValue().getFullName());
+        Mockito.verify(catalog.metaCache).invalidate("foo", fooId);
+        Mockito.verify(catalog.metaCache).updateCache(Mockito.eq("Bar"), Mockito.eq("bar"),
+                dbCaptor.capture(), Mockito.eq(barId), Mockito.anyLong());
+        Mockito.verify(catalog.metaCache).invalidate("bar", barId);
+        Mockito.verify(cacheMgr).invalidateRowCountCache(catalogId, fooId);
+        Mockito.verify(cacheMgr).invalidateRowCountCache(catalogId, barId);
+    }
+
     private static void addCatalog(CatalogMgr catalogMgr, ExternalCatalog catalog) throws Exception {
         Field idToCatalogField = CatalogMgr.class.getDeclaredField("idToCatalog");
         idToCatalogField.setAccessible(true);
@@ -380,10 +417,38 @@ public class CatalogMgrTest {
                     "hms", "db1", "tbl1", Collections.singletonList("p=1"), 1L, false);
         }
 
-        Mockito.verify(cacheMgr).invalidateRowCountCache(catalogId, "db1", "tbl1");
+        Mockito.verify(cacheMgr, Mockito.times(2)).invalidateRowCountCache(catalogId, "db1", "tbl1");
         Mockito.verify(cacheMgr, Mockito.never()).invalidateTableByNameOrWider(Mockito.anyLong(),
                 Mockito.anyString(), Mockito.anyString());
         Mockito.verify(cacheMgr, Mockito.never()).hive(catalogId);
+    }
+
+    @Test
+    void testAddPartitionCacheAcquisitionFailureClosesRowCountFence() throws Exception {
+        CatalogMgr catalogMgr = new CatalogMgr();
+        long catalogId = 48L;
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        ExternalDatabase<?> db = Mockito.mock(ExternalDatabase.class);
+        HMSExternalTable table = Mockito.mock(HMSExternalTable.class);
+        Mockito.when(catalog.getId()).thenReturn(catalogId);
+        Mockito.when(catalog.getName()).thenReturn("hms");
+        Mockito.doReturn(db).when(catalog).getDbNullable("db1");
+        Mockito.doReturn(table).when(db).getTableNullable("tbl1");
+        Mockito.when(table.getPartitionColumnTypes(Mockito.any())).thenReturn(Collections.emptyList());
+        addNamedCatalog(catalogMgr, catalog);
+
+        Env env = Mockito.mock(Env.class);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        Mockito.when(cacheMgr.hive(catalogId)).thenThrow(new IllegalStateException("cache acquisition failed"));
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertThrows(IllegalStateException.class,
+                    () -> catalogMgr.addExternalPartitions(
+                            "hms", "db1", "tbl1", Collections.singletonList("p=1"), 1L, false));
+        }
+
+        Mockito.verify(cacheMgr, Mockito.times(2)).invalidateRowCountCache(catalogId, "db1", "tbl1");
     }
 
     @Test
@@ -471,7 +536,7 @@ public class CatalogMgrTest {
                     "hms", "db1", "tbl1", Collections.singletonList("p=1"), 1L, true);
         }
 
-        Mockito.verify(cacheMgr, Mockito.times(2))
+        Mockito.verify(cacheMgr, Mockito.times(4))
                 .invalidateRowCountCache(catalogId, "db1", "tbl1");
         Mockito.verify(cacheMgr, Mockito.times(2))
                 .invalidateTableByNameOrWider(catalogId, "db1", "tbl1");
@@ -912,6 +977,18 @@ public class CatalogMgrTest {
     }
 
     @Test
+    void testHmsEventFilterMatchesNormalizedDatabaseNames() {
+        for (String mode : new String[] {"1", "2"}) {
+            HMSExternalCatalog catalog = new HMSExternalCatalog(97L, "hms", null,
+                    new HashMap<>(ImmutableMap.of(ExternalCatalog.LOWER_CASE_DATABASE_NAMES, mode,
+                            ExternalCatalog.INCLUDE_DATABASE_LIST, "AllowedDb",
+                            ExternalCatalog.EXCLUDE_DATABASE_LIST, "ExcludedDb")), "");
+            Assertions.assertFalse(catalog.isDatabaseEventTargetExcluded("alloweddb"));
+            Assertions.assertTrue(catalog.isDatabaseEventTargetExcluded("excludeddb"));
+        }
+    }
+
+    @Test
     void testLiveDropLogsResolvedDatabaseInsteadOfCallerAlias() throws Exception {
         ExternalDatabase<?> resolvedDb = Mockito.mock(ExternalDatabase.class);
         Mockito.when(resolvedDb.getFullName()).thenReturn("FOO");
@@ -1235,6 +1312,19 @@ public class CatalogMgrTest {
         @Override
         public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
             return false;
+        }
+
+        @Override
+        protected void initLocalObjectsImpl() {
+        }
+    }
+
+    private static class TestingHmsEventCatalog extends HMSExternalCatalog {
+        @SuppressWarnings("unchecked")
+        TestingHmsEventCatalog(long id, Map<String, String> properties) {
+            super(id, "hms", null, properties, "");
+            metaCache = Mockito.mock(MetaCache.class);
+            initialized = true;
         }
 
         @Override

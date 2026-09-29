@@ -297,6 +297,43 @@ public class ExternalRowCountCacheTest {
     }
 
     @Test
+    public void testCatalogGenerationFenceDoesNotReuseInFlightOrCompletedCount() throws Exception {
+        AtomicInteger loadCount = new AtomicInteger();
+        CountDownLatch oldLoadStarted = new CountDownLatch(1);
+        CountDownLatch releaseOldLoad = new CountDownLatch(1);
+        ExternalRowCountCache.RowCountCacheLoader loader = new ExternalRowCountCache.RowCountCacheLoader() {
+            @Override
+            protected Optional<Long> doLoad(ExternalRowCountCache.RowCountKey key) {
+                int load = loadCount.incrementAndGet();
+                if (load == 1) {
+                    oldLoadStarted.countDown();
+                    Uninterruptibles.awaitUninterruptibly(releaseOldLoad);
+                }
+                return Optional.of(load * 100L);
+            }
+        };
+        ExecutorService cacheExecutor = Executors.newFixedThreadPool(2);
+        ExecutorService readerExecutor = Executors.newSingleThreadExecutor();
+        try {
+            ExternalRowCountCache cache = new ExternalRowCountCache(cacheExecutor, null, loader);
+            Future<Long> oldRead = readerExecutor.submit(() -> cache.getCachedRowCount(1, 10, 100, false));
+            Assertions.assertTrue(oldLoadStarted.await(10, TimeUnit.SECONDS));
+
+            cache.invalidateCatalog(1);
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, cache.getCachedRowCountIfPresent(1, 10, 100));
+            Assertions.assertEquals(200L, cache.getCachedRowCount(1, 10, 100, false));
+
+            releaseOldLoad.countDown();
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, oldRead.get(10, TimeUnit.SECONDS));
+            Assertions.assertEquals(200L, cache.getCachedRowCountIfPresent(1, 10, 100));
+        } finally {
+            releaseOldLoad.countDown();
+            readerExecutor.shutdownNow();
+            cacheExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testInvalidateWhileRefreshIsRunningDoesNotRepublishStaleValue() throws Exception {
         AtomicInteger loadCount = new AtomicInteger();
         CountDownLatch refreshStarted = new CountDownLatch(1);

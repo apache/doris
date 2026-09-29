@@ -620,6 +620,10 @@ public class ExternalMetaCacheMgr {
                 return () -> rowCountCache.invalidateTable(tableCatalogId, tableDbId, tableId);
             }
             long dbId = db.get().getId();
+            OptionalLong tableId = db.get().getTableIdForReplay(tableName);
+            if (tableId.isPresent()) {
+                return () -> rowCountCache.invalidateTable(catalogId, dbId, tableId.getAsLong());
+            }
             return () -> rowCountCache.invalidateDb(catalogId, dbId);
         }
         Optional<Pair<String, Long>> identity = getDbIdentityForReplay(catalogId, dbName);

@@ -581,20 +581,11 @@ public abstract class ExternalCatalog
 
         allDatabases = allDatabases.stream()
                 .filter(dbName -> isDatabaseAllowedByFilter(
-                        dbName, includeDatabaseMap, excludeDatabaseMap, false))
+                        dbName, includeDatabaseMap, excludeDatabaseMap, getLowerCaseDatabaseNames() != 0))
                 .collect(Collectors.toList());
 
         for (String remoteDbName : allDatabases) {
-            String localDbName = fromRemoteDatabaseName(remoteDbName);
-            // Apply lower_case_database_names mode to local name
-            int dbNameMode = getLowerCaseDatabaseNames();
-            if (dbNameMode == 1) {
-                localDbName = localDbName.toLowerCase();
-            } else if (dbNameMode == 2) {
-                // Mode 2: preserve original remote case for display
-                localDbName = remoteDbName;
-            }
-            remoteToLocalPairs.add(Pair.of(remoteDbName, localDbName));
+            remoteToLocalPairs.add(Pair.of(remoteDbName, localDatabaseNameFromRemote(remoteDbName)));
         }
 
         // Check for conflicts when lower_case_meta_names = true or lower_case_database_names = 2
@@ -627,8 +618,20 @@ public abstract class ExternalCatalog
         return remoteToLocalPairs;
     }
 
+    /** Use the same local identity for database discovery and HMS create events. */
+    protected final String localDatabaseNameFromRemote(String remoteDbName) {
+        String localDbName = fromRemoteDatabaseName(remoteDbName);
+        int mode = getLowerCaseDatabaseNames();
+        if (mode == 1) {
+            return localDbName.toLowerCase(Locale.ROOT);
+        }
+        // Mode 2 preserves remote spelling for display and deterministic database IDs.
+        return mode == 2 ? remoteDbName : localDbName;
+    }
+
     protected boolean isDatabaseAllowedByFilter(String dbName) {
-        return isDatabaseAllowedByFilter(dbName, getIncludeDatabaseMap(), getExcludeDatabaseMap(), false);
+        return isDatabaseAllowedByFilter(dbName, getIncludeDatabaseMap(), getExcludeDatabaseMap(),
+                getLowerCaseDatabaseNames() != 0);
     }
 
     private boolean isDatabaseAllowedByFilter(String dbName, Map<String, Boolean> includeDatabaseMap,
@@ -1016,7 +1019,7 @@ public abstract class ExternalCatalog
             long dbId, InitCatalogLog.Type logType, boolean checkExists) {
         // Step 1: Map local database name if not already provided
         if (localDbName == null && remoteDbName != null) {
-            localDbName = fromRemoteDatabaseName(remoteDbName);
+            localDbName = localDatabaseNameFromRemote(remoteDbName);
         }
 
         // Step 2:

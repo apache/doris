@@ -25,6 +25,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
@@ -96,7 +97,7 @@ public class RefreshManager {
         }
         DatabaseIf db = catalog.getDbOrDdlException(dbName);
         // Local DB-object eviction also resets metadata; only an explicit refresh retires access.
-        invalidateLanceTableAccess(catalog);
+        invalidateLanceTableAccess((ExternalDatabase) db);
         refreshDbInternal((ExternalDatabase) db);
 
         ExternalObjectLog log = ExternalObjectLog.createForRefreshDb(catalog.getId(), db.getFullName());
@@ -111,7 +112,7 @@ public class RefreshManager {
                 LOG.warn("failed to find catalog when replaying refresh db: {}", log.debugForRefreshDb());
                 return;
             }
-            invalidateLanceTableAccess(catalog);
+            invalidateLanceTableAccess(catalog, log);
             Optional<ExternalDatabase<? extends ExternalTable>> db;
             if (!Strings.isNullOrEmpty(log.getDbName())) {
                 db = catalog.getDbForReplay(log.getDbName());
@@ -127,12 +128,32 @@ public class RefreshManager {
         });
     }
 
-    private void invalidateLanceTableAccess(CatalogIf catalog) {
-        // Access entries outlive the bounded DB/table object caches. Replay must invalidate by
-        // catalog identity before its cache-only object lookup can return early, including ID logs.
-        if (catalog instanceof LanceExternalCatalog) {
+    private void invalidateLanceTableAccess(ExternalDatabase db) {
+        if (db.getCatalog() instanceof LanceExternalCatalog) {
+            ExternalCatalog catalog = (ExternalCatalog) db.getCatalog();
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(catalog.getId(), db.getId());
             ((LanceExternalCatalog) catalog).invalidateTableAccessCache();
         }
+    }
+
+    private void invalidateLanceTableAccess(ExternalCatalog catalog, ExternalObjectLog log) {
+        if (!(catalog instanceof LanceExternalCatalog)) {
+            return;
+        }
+        // Access entries outlive the bounded DB/table object caches. Fence the retained identity
+        // before retiring access, even if the following cache-only object lookup misses.
+        ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        if (!Strings.isNullOrEmpty(log.getDbName()) && !Strings.isNullOrEmpty(log.getTableName())) {
+            cacheMgr.invalidateRowCountCache(catalog.getId(), log.getDbName(), log.getTableName());
+        } else {
+            Optional<Pair<String, Long>> identity = catalog.getDbIdentityForReplay(log.getDbName(), log.getDbId());
+            if (identity.isPresent()) {
+                cacheMgr.invalidateRowCountCache(catalog.getId(), identity.get().second);
+            } else {
+                cacheMgr.invalidateRowCountCache(catalog.getId());
+            }
+        }
+        ((LanceExternalCatalog) catalog).invalidateTableAccessCache();
     }
 
     private void refreshDbInternal(ExternalDatabase db) {
@@ -198,7 +219,7 @@ public class RefreshManager {
                 LOG.warn("failed to find catalog when replaying refresh table: {}", log.debugForRefreshTable());
                 return;
             }
-            invalidateLanceTableAccess(catalog);
+            invalidateLanceTableAccess(catalog, log);
             Optional<ExternalDatabase<? extends ExternalTable>> db;
             if (!Strings.isNullOrEmpty(log.getDbName())) {
                 db = catalog.getDbForReplay(log.getDbName());
@@ -404,6 +425,17 @@ public class RefreshManager {
         // before any database/table reload can fail and make the ignored-not-found path return.
         Env.getCurrentEnv().getExtMetaCacheMgr()
                 .invalidateRowCountCache(catalog.getId(), dbName, tableName);
+        try {
+            refreshPartitionsAfterFence(catalog, dbName, tableName, partitionNames, updateTime,
+                    ignoreIfNotExists);
+        } finally {
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateRowCountCache(catalog.getId(), dbName, tableName);
+        }
+    }
+
+    private void refreshPartitionsAfterFence(CatalogIf catalog, String dbName, String tableName,
+            List<String> partitionNames, long updateTime, boolean ignoreIfNotExists) throws DdlException {
         DatabaseIf db = catalog.getDbNullable(dbName);
         if (db == null) {
             Env.getCurrentEnv().getExtMetaCacheMgr()
@@ -426,15 +458,8 @@ public class RefreshManager {
 
         ExternalTable externalTable = (ExternalTable) table;
         HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().hive(externalTable.getCatalog().getId());
-        try {
-            for (String partitionName : partitionNames) {
-                cache.invalidatePartitionCache(externalTable, partitionName);
-            }
-        } finally {
-            // Close the admission window opened by the pre-fence above, even when the selective
-            // invalidation fails partway.
-            Env.getCurrentEnv().getExtMetaCacheMgr()
-                    .invalidateRowCountCache(catalog.getId(), dbName, tableName);
+        for (String partitionName : partitionNames) {
+            cache.invalidatePartitionCache(externalTable, partitionName);
         }
         ((HMSExternalTable) table).setUpdateTime(updateTime);
     }

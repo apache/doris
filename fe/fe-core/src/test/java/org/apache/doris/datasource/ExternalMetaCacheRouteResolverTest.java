@@ -786,7 +786,29 @@ public class ExternalMetaCacheRouteResolverTest {
     }
 
     @Test
-    public void testNameBasedRowCountFenceFallsBackToDatabaseWhenTableIsCold() {
+    public void testNameBasedRowCountFenceUsesRetainedColdTableIdentity() {
+        long catalogId = 22L;
+        long dbId = 23L;
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        ExternalDatabase<?> db = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(catalog.getDbForReplay("db1")).thenReturn(Optional.of(db));
+        Mockito.when(db.getId()).thenReturn(dbId);
+        Mockito.doReturn(Optional.empty()).when(db).getTableForReplay("tbl1");
+        Mockito.when(db.getTableIdForReplay("tbl1")).thenReturn(java.util.OptionalLong.of(24L));
+        mockCurrentCatalog(catalogId, catalog);
+
+        ExternalMetaCacheMgr metaCacheMgr = new ExternalMetaCacheMgr(true);
+        ExternalRowCountCache rowCountCache = Mockito.mock(ExternalRowCountCache.class);
+        metaCacheMgr.replaceRowCountCacheForTest(rowCountCache);
+
+        metaCacheMgr.invalidateRowCountCache(catalogId, "db1", "tbl1");
+
+        Mockito.verify(rowCountCache).invalidateTable(catalogId, dbId, 24L);
+        Mockito.verify(rowCountCache, Mockito.never()).invalidateDb(catalogId, dbId);
+    }
+
+    @Test
+    public void testNameBasedRowCountFenceWidensWhenColdTableNameIsLost() {
         long catalogId = 22L;
         long dbId = 23L;
         HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);

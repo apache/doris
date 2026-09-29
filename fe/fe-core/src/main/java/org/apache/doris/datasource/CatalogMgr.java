@@ -1090,7 +1090,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
         HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
         long metadataLoadEpoch = hmsCatalog.acquireMetadataLoadEpoch();
-        long dbId = Util.genIdByName(catalogName, dbName);
+        long dbId = Util.genIdByName(catalogName, hmsCatalog.localDatabaseNameFromRemote(dbName));
         // -1L means it will be dropped later, ignore
         if (dbId == ExternalMetaIdMgr.META_ID_FOR_NOT_EXISTS) {
             return;
@@ -1119,6 +1119,17 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         // before any database/table reload can fail and make the ignored-not-found path return.
         Env.getCurrentEnv().getExtMetaCacheMgr()
                 .invalidateRowCountCache(catalog.getId(), dbName, tableName);
+        try {
+            addExternalPartitionsAfterFence(catalog, dbName, tableName, partitionNames, updateTime,
+                    ignoreIfNotExists);
+        } finally {
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateRowCountCache(catalog.getId(), dbName, tableName);
+        }
+    }
+
+    private void addExternalPartitionsAfterFence(CatalogIf catalog, String dbName, String tableName,
+            List<String> partitionNames, long updateTime, boolean ignoreIfNotExists) throws DdlException {
         DatabaseIf db = catalog.getDbNullable(dbName);
         if (db == null) {
             Env.getCurrentEnv().getExtMetaCacheMgr()
@@ -1152,14 +1163,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             return;
         }
         HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().hive(catalog.getId());
-        try {
-            cache.addPartitionsCache(hmsTable.getOrBuildNameMapping(), partitionNames, partitionColumnTypes);
-        } finally {
-            // Close the admission window opened by the pre-fence above, even when the selective
-            // update fails partway.
-            Env.getCurrentEnv().getExtMetaCacheMgr()
-                    .invalidateRowCountCache(catalog.getId(), dbName, tableName);
-        }
+        cache.addPartitionsCache(hmsTable.getOrBuildNameMapping(), partitionNames, partitionColumnTypes);
         hmsTable.setUpdateTime(updateTime);
     }
 
@@ -1181,6 +1185,17 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         // before any database/table reload can fail and make the ignored-not-found path return.
         Env.getCurrentEnv().getExtMetaCacheMgr()
                 .invalidateRowCountCache(catalog.getId(), dbName, tableName);
+        try {
+            dropExternalPartitionsAfterFence(catalog, dbName, tableName, partitionNames, updateTime,
+                    ignoreIfNotExists);
+        } finally {
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateRowCountCache(catalog.getId(), dbName, tableName);
+        }
+    }
+
+    private void dropExternalPartitionsAfterFence(CatalogIf catalog, String dbName, String tableName,
+            List<String> partitionNames, long updateTime, boolean ignoreIfNotExists) throws DdlException {
         DatabaseIf db = catalog.getDbNullable(dbName);
         if (db == null) {
             Env.getCurrentEnv().getExtMetaCacheMgr()
@@ -1202,15 +1217,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
 
         HMSExternalTable hmsTable = (HMSExternalTable) table;
-        try {
-            Env.getCurrentEnv().getExtMetaCacheMgr().hive(catalog.getId())
-                    .dropPartitionsCache(hmsTable, partitionNames, true);
-        } finally {
-            // Close the admission window opened by the pre-fence above, even when the selective
-            // update fails partway.
-            Env.getCurrentEnv().getExtMetaCacheMgr()
-                    .invalidateRowCountCache(catalog.getId(), dbName, tableName);
-        }
+        Env.getCurrentEnv().getExtMetaCacheMgr().hive(catalog.getId())
+                .dropPartitionsCache(hmsTable, partitionNames, true);
         hmsTable.setUpdateTime(updateTime);
     }
 

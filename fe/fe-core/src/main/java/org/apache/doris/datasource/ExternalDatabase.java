@@ -417,6 +417,13 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         return getLocalTableName(tableName, true) != null;
     }
 
+    /** Resolve a cold table's deterministic ID without loading its evicted object. */
+    public OptionalLong getTableIdForReplay(String tableName) {
+        String localName = getLocalTableName(tableName, true);
+        return localName == null ? OptionalLong.empty()
+                : OptionalLong.of(Util.genIdByName(extCatalog.getName(), name, localName));
+    }
+
     @Override
     public void readLock() {
         this.rwLock.readLock().lock();
