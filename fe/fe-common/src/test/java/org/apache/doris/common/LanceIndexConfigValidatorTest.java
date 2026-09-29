@@ -51,6 +51,7 @@ public class LanceIndexConfigValidatorTest {
         Assertions.assertEquals(16, Config.lance_index_job_max_dispatch_per_round);
         Assertions.assertEquals(2, Config.lance_index_job_max_inflight_per_backend);
         Assertions.assertEquals(300, Config.lance_index_job_refresh_retry_second);
+        Assertions.assertFalse(Config.lance_index_job_dispatcher_paused);
         Assertions.assertFalse(Config.enable_lance_index_local_file_mutation);
     }
 
@@ -87,6 +88,15 @@ public class LanceIndexConfigValidatorTest {
                 LanceIndexConfigValidator.PositiveIntConfigHandler.class);
         assertCallbackWiring("lance_index_job_refresh_retry_second", true,
                 LanceIndexConfigValidator.PositiveIntConfigHandler.class);
+
+        // The dispatch-phase pause switch is a plain mutable master-only boolean with no
+        // numeric validator attached, same shape as the local-file operator assertion.
+        ConfigBase.ConfField paused = Config.class.getField("lance_index_job_dispatcher_paused")
+                .getAnnotation(ConfigBase.ConfField.class);
+        Assertions.assertNotNull(paused);
+        Assertions.assertTrue(paused.mutable());
+        Assertions.assertTrue(paused.masterOnly());
+        Assertions.assertEquals(ConfigBase.DefaultConfHandler.class, paused.callback());
 
         // The local-file operator assertion is a plain mutable master-only boolean: no
         // numeric validator is attached, so any boolean the ADMIN SET path accepts is legal.

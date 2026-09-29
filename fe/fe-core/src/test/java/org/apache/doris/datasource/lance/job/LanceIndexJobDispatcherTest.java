@@ -111,6 +111,7 @@ public class LanceIndexJobDispatcherTest {
     private int originalMaxInflightPerBackend;
     private long originalExecuteDeadlineSecond;
     private boolean originalLocalFileMutation;
+    private boolean originalDispatcherPaused;
 
     @BeforeEach
     public void setUp() throws Exception {
@@ -166,6 +167,8 @@ public class LanceIndexJobDispatcherTest {
         originalMaxInflightPerBackend = Config.lance_index_job_max_inflight_per_backend;
         originalExecuteDeadlineSecond = Config.lance_index_job_execute_deadline_second;
         originalLocalFileMutation = Config.enable_lance_index_local_file_mutation;
+        originalDispatcherPaused = Config.lance_index_job_dispatcher_paused;
+        Config.lance_index_job_dispatcher_paused = false;
     }
 
     @AfterEach
@@ -175,6 +178,7 @@ public class LanceIndexJobDispatcherTest {
         Config.lance_index_job_max_inflight_per_backend = originalMaxInflightPerBackend;
         Config.lance_index_job_execute_deadline_second = originalExecuteDeadlineSecond;
         Config.enable_lance_index_local_file_mutation = originalLocalFileMutation;
+        Config.lance_index_job_dispatcher_paused = originalDispatcherPaused;
         mockedEnv.close();
     }
 
@@ -312,6 +316,131 @@ public class LanceIndexJobDispatcherTest {
         dispatcher.runAfterCatalogReady();
 
         Assertions.assertEquals(1_000L, dispatcher.getInterval());
+    }
+
+    @Test
+    public void longIntervalIsSleptInBoundedSlicesWhileTheRoundStillRuns() throws Exception {
+        Config.lance_index_job_dispatch_interval_second = 3600;
+        admit(1L, "IdxA", LOCATOR);
+
+        dispatcher.runAfterCatalogReady();
+
+        // The daemon must not actually sleep an hour: the slice bound caps the sleep,
+        // and the round itself still ran and dispatched the job.
+        Assertions.assertEquals(10_000L, dispatcher.getInterval());
+        Assertions.assertTrue(events.contains("send:1"), events.toString());
+    }
+
+    @Test
+    public void longIntervalSkipsRoundsUntilItElapses() throws Exception {
+        Config.lance_index_job_dispatch_interval_second = 3600;
+        admit(1L, "IdxA", LOCATOR);
+        dispatcher.runAfterCatalogReady();
+        Assertions.assertTrue(events.contains("send:1"), events.toString());
+
+        // A wake one slice later: the configured hour has not elapsed, so the round
+        // is skipped and job 2 is not dispatched.
+        admit(2L, "IdxB", LOCATOR);
+        dispatcher.runAfterCatalogReady();
+        Assertions.assertFalse(events.contains("send:2"), events.toString());
+        Assertions.assertEquals(LanceIndexJobMutationState.PENDING, manager.getJob(2L).getMutationState());
+        Assertions.assertEquals(10_000L, dispatcher.getInterval());
+
+        // Once the configured interval has elapsed (seam clock, no real sleeping),
+        // the next wake runs the round.
+        dispatcher.nowOffsetMs = 3600_000L;
+        dispatcher.runAfterCatalogReady();
+        Assertions.assertTrue(events.contains("send:2"), events.toString());
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, manager.getJob(2L).getMutationState());
+    }
+
+    @Test
+    public void lengthenedIntervalTakesEffectAtTheNextWake() throws Exception {
+        admit(1L, "IdxA", LOCATOR);
+        dispatcher.runAfterCatalogReady();
+        Assertions.assertTrue(events.contains("send:1"), events.toString());
+
+        // Lengthen right after a round: the very next wake honors the new period and
+        // skips, instead of running on the stale short period.
+        Config.lance_index_job_dispatch_interval_second = 3600;
+        admit(2L, "IdxB", LOCATOR);
+        dispatcher.runAfterCatalogReady();
+        Assertions.assertFalse(events.contains("send:2"), events.toString());
+
+        dispatcher.nowOffsetMs = 3600_000L;
+        dispatcher.runAfterCatalogReady();
+        Assertions.assertTrue(events.contains("send:2"), events.toString());
+    }
+
+    @Test
+    public void shortenedIntervalTakesEffectWithinOneSlice() throws Exception {
+        // A round adopting a one-hour period would previously sleep the whole hour no
+        // matter what the config says later. With sliced sleeps the shortened config
+        // bypasses the elapsed check and the very next wake dispatches.
+        Config.lance_index_job_dispatch_interval_second = 3600;
+        admit(1L, "IdxA", LOCATOR);
+        dispatcher.runAfterCatalogReady();
+        Assertions.assertTrue(events.contains("send:1"), events.toString());
+
+        Config.lance_index_job_dispatch_interval_second = 10;
+        admit(2L, "IdxB", LOCATOR);
+        dispatcher.runAfterCatalogReady();
+        Assertions.assertTrue(events.contains("send:2"), events.toString());
+        Assertions.assertEquals(10_000L, dispatcher.getInterval());
+    }
+
+    @Test
+    public void pausedDispatcherSkipsDispatchButKeepsSweepsAndRefreshAlive() throws Exception {
+        // Job 1: expired RUNNING, the deadline sweep still converges it under pause.
+        admit(1L, "IdxDeadline", LOCATOR);
+        Assertions.assertTrue(manager.markRunning(1L, 0L, BE1_ID, BE_EPOCH, "inv-1",
+                System.currentTimeMillis() - 1_000L));
+        // Job 2: terminal with a refresh obligation, the refresh driver still runs.
+        admit(2L, "IdxRefresh", LOCATOR);
+        Assertions.assertTrue(manager.markRunning(2L, 0L, BE1_ID, BE_EPOCH, "inv-2", FAR_DEADLINE_MS));
+        Assertions.assertTrue(manager.completeWithResult(2L, 1L, "inv-2", BE_EPOCH, okResult()));
+        // Job 3: PENDING; pause must hold it back.
+        admit(3L, "IdxPending", LOCATOR);
+        Config.lance_index_job_dispatcher_paused = true;
+
+        dispatcher.runAfterCatalogReady();
+
+        Assertions.assertTrue(events.contains(journal(1L, "UNKNOWN", "NOT_REQUIRED", true)), events.toString());
+        Assertions.assertTrue(events.contains(journal(2L, "COMMITTED", "DONE", true)), events.toString());
+        Assertions.assertTrue(events.contains("refresh:db1.tbl1"), events.toString());
+        Assertions.assertFalse(events.contains(journal(3L, "RUNNING", "NOT_REQUIRED", true)), events.toString());
+        Assertions.assertFalse(events.contains("send:3"), events.toString());
+        Assertions.assertEquals(LanceIndexJobMutationState.PENDING, manager.getJob(3L).getMutationState());
+    }
+
+    @Test
+    public void pauseFlippedMidRoundSkipsTheRestWithoutConsumingBudget() throws Exception {
+        admit(1L, "IdxA", LOCATOR);
+        admit(2L, "IdxB", LOCATOR);
+        // Flip the switch as soon as the first dispatch reaches the send seam: the
+        // per-job check must then stop the loop before job 2, while the per-round
+        // budget (default 16, only 1 consumed) is provably not the blocker.
+        dispatcher.onSend = () -> Config.lance_index_job_dispatcher_paused = true;
+
+        dispatcher.runAfterCatalogReady();
+
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, manager.getJob(1L).getMutationState());
+        Assertions.assertEquals(1, dispatcher.sends.size());
+        Assertions.assertEquals(LanceIndexJobMutationState.PENDING, manager.getJob(2L).getMutationState());
+    }
+
+    @Test
+    public void unpauseResumesDispatch() throws Exception {
+        admit(1L, "IdxA", LOCATOR);
+        Config.lance_index_job_dispatcher_paused = true;
+        dispatcher.runAfterCatalogReady();
+        Assertions.assertTrue(dispatcher.sends.isEmpty());
+        Assertions.assertEquals(LanceIndexJobMutationState.PENDING, manager.getJob(1L).getMutationState());
+
+        Config.lance_index_job_dispatcher_paused = false;
+        dispatcher.runAfterCatalogReady();
+        Assertions.assertTrue(events.contains("send:1"), events.toString());
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, manager.getJob(1L).getMutationState());
     }
 
     @Test
@@ -1150,6 +1279,10 @@ public class LanceIndexJobDispatcherTest {
         private TStatus statusToReturn = new TStatus(TStatusCode.OK);
         private boolean throwOnSend;
         private Exception sendException;
+        /** Added to the wall clock by the round-period seam; lets tests skip hours. */
+        private volatile long nowOffsetMs;
+        /** Fired once per send, after the dispatch is durable; a fault-injection hook. */
+        private volatile Runnable onSend;
 
         TestDispatcher(LanceIndexJobManager jobManager, List<String> events) {
             super(jobManager);
@@ -1162,9 +1295,17 @@ public class LanceIndexJobDispatcherTest {
         }
 
         @Override
+        protected long nowMs() {
+            return System.currentTimeMillis() + nowOffsetMs;
+        }
+
+        @Override
         protected TStatus sendExecuteRequest(Backend backend, TLanceIndexJobDispatch dispatch) throws Exception {
             events.add("send:" + dispatch.getJobId());
             sends.add(dispatch);
+            if (onSend != null) {
+                onSend.run();
+            }
             if (sendException != null) {
                 throw sendException;
             }

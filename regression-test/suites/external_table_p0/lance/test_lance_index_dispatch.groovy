@@ -21,10 +21,10 @@
 // terminal-job refresh driver end to end, and every case in this suite is negative
 // or static: the six new dispatcher configs are smoked through SHOW/SET (validator
 // rejections plus a boolean two-state round trip), and, with the dispatcher's
-// polling interval pinned to one hour, an admitted job's user-visible row is proven
-// frozen for the suite's window (the daemon exists but is disabled by configuration
+// dispatch phase paused, an admitted job's user-visible row is proven
+// frozen for the suite's window (the daemon runs but is barred by configuration
 // from dispatching). The mutation gate is opened only to admit that one job; both
-// the gate and the interval are restored in the finally block. Deliberately NOT
+// the gate and the pause switch are restored in the finally block. Deliberately NOT
 // covered here (all wait for the worker slice / fake-worker UT): dispatch and
 // callback e2e, genuine UNKNOWN creation, and the G2/G4 evidence.
 
@@ -40,9 +40,9 @@ suite("test_lance_index_dispatch", "p0,external,nonConcurrent") {
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     // Admitted jobs are durable and stay PENDING in this delivery slice: no worker
-    // exists to execute a dispatched job and the dispatcher is pinned silent below,
-    // while FORCE_RELEASE and job GC only land in later slices, so their fences and
-    // quota charges can never be released here.
+    // exists to execute a dispatched job and the dispatcher's dispatch phase is
+    // paused below, while FORCE_RELEASE and job GC only land in later slices, so
+    // their fences and quota charges can never be released here.
     // Every index name (and the filesystem catalog itself, because fence/quota keys
     // include the persisted catalog id) carries this per-run suffix so that rerunning
     // the suite on a shared pipeline cluster can never collide with a previous run's
@@ -62,6 +62,7 @@ suite("test_lance_index_dispatch", "p0,external,nonConcurrent") {
     def inflightRows = master_sql """ADMIN SHOW FRONTEND CONFIG LIKE 'lance_index_job_max_inflight_per_backend'"""
     def retryRows = master_sql """ADMIN SHOW FRONTEND CONFIG LIKE 'lance_index_job_refresh_retry_second'"""
     def localFileRows = master_sql """ADMIN SHOW FRONTEND CONFIG LIKE 'enable_lance_index_local_file_mutation'"""
+    def pausedRows = master_sql """ADMIN SHOW FRONTEND CONFIG LIKE 'lance_index_job_dispatcher_paused'"""
     assertEquals(1, gateRows.size())
     assertEquals(1, intervalRows.size())
     assertEquals(1, deadlineRows.size())
@@ -69,6 +70,7 @@ suite("test_lance_index_dispatch", "p0,external,nonConcurrent") {
     assertEquals(1, inflightRows.size())
     assertEquals(1, retryRows.size())
     assertEquals(1, localFileRows.size())
+    assertEquals(1, pausedRows.size())
     String originalGate = gateRows[0][1].toString()
     String originalInterval = intervalRows[0][1].toString()
     String originalDeadline = deadlineRows[0][1].toString()
@@ -76,17 +78,17 @@ suite("test_lance_index_dispatch", "p0,external,nonConcurrent") {
     String originalInflight = inflightRows[0][1].toString()
     String originalRetry = retryRows[0][1].toString()
     String originalLocalFile = localFileRows[0][1].toString()
+    String originalPaused = pausedRows[0][1].toString()
     // The six dispatcher configs ship with these documented defaults; asserting them
     // here fails loudly if a shared cluster has drifted instead of silently
-    // restoring a non-default value afterwards. The derived wait below also relies
-    // on the interval really being the shipped 10 seconds when the pin is applied.
+    // restoring a non-default value afterwards. The pause switch ships off.
     assertEquals("10", originalInterval)
     assertEquals("3600", originalDeadline)
     assertEquals("16", originalRound)
     assertEquals("2", originalInflight)
     assertEquals("300", originalRetry)
     assertEquals("false", originalLocalFile)
-    long dispatchIntervalSecond = originalInterval.toLong()
+    assertEquals("false", originalPaused)
     Throwable suiteFailure = null
 
     // test { ... exception } always runs on the suite's default connection; the
@@ -149,13 +151,13 @@ suite("test_lance_index_dispatch", "p0,external,nonConcurrent") {
         // admission closed), and in this slice a round really reaches the backends:
         // their handler answers submit_lance_index_job with a clean not-implemented
         // error, which converges the job to NOT_COMMITTED
-        // (PRE_INVOCATION_RESOURCE_REJECTED). An unpinned round would therefore
+        // (PRE_INVOCATION_RESOURCE_REJECTED). An unpaused round would therefore
         // legitimately advance the admitted job, so the state-stability case below
-        // pins the interval to one hour first; a cycle already sleeping on the
-        // shipped interval can still wake once more within that interval, and
-        // outliving it here guarantees zero rounds for the rest of the suite.
-        master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_dispatch_interval_second" = "3600")"""
-        sleep((dispatchIntervalSecond + 1) * 1000L)
+        // pauses the dispatch phase first. The dispatcher checks the switch at the
+        // dispatch-phase entry and before every job attempt, so setting it before
+        // admission is a hard barrier: no wait on the daemon's in-flight sleep is
+        // needed, and the polling interval keeps its shipped value.
+        master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_dispatcher_paused" = "true")"""
 
         master_sql """ADMIN SET FRONTEND CONFIG ("enable_lance_index_mutation" = "true")"""
 
@@ -190,9 +192,8 @@ suite("test_lance_index_dispatch", "p0,external,nonConcurrent") {
         // refresh obligation yet; both must stay that way across the wait below.
         assertEquals("NO", jobRowBeforeWait.PossibleLive.toString())
 
-        // A short static wait inside the pinned window: with the daemon disabled by
-        // configuration no round can dispatch the job, so the visible row must not
-        // move.
+        // A short static wait under the pause barrier: with dispatch paused no round
+        // can dispatch the job, so the visible row must not move.
         sleep(5000)
 
         def jobsAfterWait = sql_return_maparray """SHOW LANCE INDEX JOBS FROM `${filesystemCatalog}`.`doris`
@@ -201,8 +202,8 @@ suite("test_lance_index_dispatch", "p0,external,nonConcurrent") {
         assertTrue(jobRowAfterWait != null)
         assertEquals("PENDING", jobRowAfterWait.State.toString())
         assertEquals("NO", jobRowAfterWait.PossibleLive.toString())
-        // No lifecycle column moved between the two reads: with the dispatcher
-        // pinned silent no round can dispatch the job, and without a worker nothing
+        // No lifecycle column moved between the two reads: with dispatch paused no
+        // round can dispatch the job, and without a worker nothing
         // else can advance it.
         ["JobId", "CatalogName", "DbName", "TableName", "IndexName", "Operation",
          "State", "RefreshState", "PossibleLive"].each { column ->
@@ -217,7 +218,7 @@ suite("test_lance_index_dispatch", "p0,external,nonConcurrent") {
         Throwable cleanupFailure = suiteFailure
         [
             { master_sql """ADMIN SET FRONTEND CONFIG ("enable_lance_index_mutation" = "${originalGate}")""" },
-            { master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_dispatch_interval_second" = "${originalInterval}")""" },
+            { master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_dispatcher_paused" = "${originalPaused}")""" },
             { master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_execute_deadline_second" = "${originalDeadline}")""" },
             { master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_max_dispatch_per_round" = "${originalRound}")""" },
             { master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_max_inflight_per_backend" = "${originalInflight}")""" },

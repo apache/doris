@@ -4312,6 +4312,18 @@ public class Config extends ConfigBase {
     public static int lance_index_job_refresh_retry_second = 300;
 
     @ConfField(mutable = true, masterOnly = true, description = {
+            "暂停 Lance 索引 job 的派发阶段(运维与测试屏障,默认关闭)。暂停只影响派发:deadline 与 "
+                    + "possible-live 扫掠、refresh 驱动照常运行;派发器在派发阶段入口和每个 job 尝试前"
+                    + "检查本开关,被跳过的 job 保持 PENDING 且不消耗单轮派发额度;恢复后继续派发。",
+            "Pause switch for the dispatch phase of Lance index jobs (operator and test barrier, "
+                    + "disabled by default). Pausing affects dispatch only: the deadline and "
+                    + "possible-live sweeps and the refresh driver keep running. The dispatcher checks "
+                    + "this switch at the dispatch-phase entry and before every job attempt; skipped "
+                    + "jobs stay PENDING and never consume the per-round dispatch budget. Dispatch "
+                    + "resumes once unpaused."})
+    public static boolean lance_index_job_dispatcher_paused = false;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
             "是否允许 file:// 本地路径上的 Lance 索引变更派发(运维断言,默认关闭)。开启后派发仍要求"
                     + "集群恰一台 FE 且目标 BE 是唯一存活 BE;对象存储是生产形态。",
             "Operator assertion allowing dispatch of Lance index mutations on local file:// datasets "
