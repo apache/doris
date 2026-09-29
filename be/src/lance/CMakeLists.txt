@@ -24,6 +24,10 @@
 #   * index_job_supervisor: the in-BE supervisor — startup cgroup-delegation
 #     preflight, per-invocation cgroup setup, fork barrier + pidfd/wall-clock
 #     lifecycle, bounded pipe IPC, message sanitization, report callbacks.
+#   * index_job_service: the thrift-facing component — owns the supervisor,
+#     validates and bounded-enqueues dispatches from the handler thread (never
+#     executes inline), deduplicates invocation ids, binds the report
+#     callbacks to MasterServerClient, and feeds the queue/inflight gauges.
 
 file(GLOB LANCE_SOURCES CONFIGURE_DEPENDS *.cpp)
 

@@ -29,8 +29,11 @@ namespace doris {
 class TConfirmUnusedRemoteFilesRequest;
 class TConfirmUnusedRemoteFilesResult;
 class TFinishTaskRequest;
+class TLanceIndexJobReport;
+class TLanceIndexJobTerminationReport;
 class TMasterResult;
 class TReportRequest;
+class TStatus;
 class ClusterInfo;
 
 class MasterServerClient {
@@ -60,6 +63,28 @@ public:
 
     Status confirm_unused_remote_files(const TConfirmUnusedRemoteFilesRequest& request,
                                        TConfirmUnusedRemoteFilesResult* result);
+
+    // Report the typed result envelope of one Lance index mutation invocation
+    // to the master FE (FrontendService.reportLanceIndexJobResult). Same
+    // connection/reopen-once discipline as finish_task.
+    //
+    // Input parameters:
+    // * request: The result envelope (identity + typed result code + proof)
+    //
+    // Output parameters:
+    // * result: The FE-side status of the report call
+    Status report_lance_index_job(const TLanceIndexJobReport& request, TStatus* result);
+
+    // Report a termination proof of one Lance index mutation invocation that
+    // produced no trusted result code (FrontendService.reportLanceIndexJobTermination).
+    //
+    // Input parameters:
+    // * request: The termination report (identity + proof)
+    //
+    // Output parameters:
+    // * result: The FE-side status of the report call
+    Status report_lance_index_job_termination(const TLanceIndexJobTerminationReport& request,
+                                              TStatus* result);
 
 private:
     MasterServerClient(const ClusterInfo* cluster_info);

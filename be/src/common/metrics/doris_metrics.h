@@ -82,6 +82,10 @@ public:
     IntCounter* finish_task_requests_total = nullptr;
     IntCounter* finish_task_requests_failed = nullptr;
 
+    // Lance index job report callback outcome counters (finish_task-style pair).
+    IntCounter* lance_index_job_report_requests_total = nullptr;
+    IntCounter* lance_index_job_report_requests_failed = nullptr;
+
     IntCounter* compaction_producer_callback_a_round_time = nullptr;
 
     IntCounter* base_compaction_request_total = nullptr;
@@ -234,6 +238,11 @@ public:
     UIntGauge* heavy_work_active_threads = nullptr;
     UIntGauge* peer_fetch_work_active_threads = nullptr;
     UIntGauge* light_work_active_threads = nullptr;
+
+    // Lance index job supervisor queue depth and in-flight worker gauges,
+    // pull-fed by LanceIndexJobService through REGISTER_HOOK_METRIC.
+    UIntGauge* lance_index_job_queue_size = nullptr;
+    UIntGauge* lance_index_job_inflight_workers = nullptr;
 
     UIntGauge* heavy_work_pool_max_queue_size = nullptr;
     UIntGauge* peer_fetch_work_pool_max_queue_size = nullptr;
