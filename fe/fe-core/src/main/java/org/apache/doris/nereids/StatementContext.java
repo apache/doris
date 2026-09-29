@@ -517,6 +517,24 @@ public class StatementContext implements Closeable {
     }
 
     /**
+     * Clears the planner-owned per-pass state before REPLANNING the SAME statement (the
+     * SPM fallback after a failed rewritten-plan pass): the rewritten pass may have set
+     * hintForcePreAggOn from a plan-side PREAGGOPEN hint - the original
+     * {@code t@incr(...)} query then fails with a spurious PREAGGOPEN error - and it
+     * cached the tables IT resolved, so after its locks were released a concurrent
+     * DROP / CREATE of t would let the fallback bind the old TableIf. The original
+     * statement is analyzed / planned like a fresh execution: the hint flag returns to
+     * its default and every resolved-table cache is dropped.
+     */
+    public void resetPlannerStateForReplan() {
+        hintForcePreAggOn = false;
+        tables.clear();
+        oneLevelTables.clear();
+        mtmvRelatedTables.clear();
+        insertTargetTables.clear();
+    }
+
+    /**
      * cache view info to avoid view's def and sql mode changed before lock it.
      *
      * @param qualifiedViewName full qualified name of the view

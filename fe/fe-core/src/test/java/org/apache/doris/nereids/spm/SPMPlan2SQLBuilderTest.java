@@ -642,9 +642,44 @@ public class SPMPlan2SQLBuilderTest {
     }
 
     /**
+     * Builds a PhysicalWindow mock over the child with the given window expressions.
+     */
+    private org.apache.doris.nereids.trees.plans.physical.PhysicalWindow<?> mockWindow(
+            Plan child, List<NamedExpression> windowExprs) {
+        org.apache.doris.nereids.trees.plans.physical.PhysicalWindow<?> window =
+                Mockito.mock(org.apache.doris.nereids.trees.plans.physical.PhysicalWindow.class);
+        Mockito.when(window.child(0)).thenReturn(child);
+        Mockito.when(window.getWindowExpressions()).thenReturn(List.copyOf(windowExprs));
+        // the live-column analysis starts from the ROOT output: without it the window
+        // subtree would be pruned to nothing
+        List<org.apache.doris.nereids.trees.expressions.Slot> output =
+                new java.util.ArrayList<>(child.getOutput());
+        for (NamedExpression windowExpr : windowExprs) {
+            output.add(new org.apache.doris.nereids.trees.expressions.SlotReference(
+                    windowExpr.getExprId(), windowExpr.getName(), windowExpr.getDataType(),
+                    true, List.of("t")));
+        }
+        Mockito.when(window.getOutput()).thenReturn(output);
+        stubAccept(window);
+        return window;
+    }
+
+    /**
      * Builds a PhysicalProject mock.
      */
     private PhysicalProject<?> mockProject(List<SlotReference> projects, Plan child) {
+        PhysicalProject<?> project = Mockito.mock(PhysicalProject.class);
+        Mockito.when(project.getProjects()).thenReturn(List.copyOf(projects));
+        Mockito.when(project.child(0)).thenReturn(child);
+        stubAccept(project);
+        return project;
+    }
+
+    /**
+     * Builds a PhysicalProject mock whose items are arbitrary named expressions
+     * (e.g. computed aliases that are not SlotReferences).
+     */
+    private PhysicalProject<?> mockProjectExprs(List<NamedExpression> projects, Plan child) {
         PhysicalProject<?> project = Mockito.mock(PhysicalProject.class);
         Mockito.when(project.getProjects()).thenReturn(List.copyOf(projects));
         Mockito.when(project.child(0)).thenReturn(child);
@@ -718,6 +753,10 @@ public class SPMPlan2SQLBuilderTest {
         }
         if (plan instanceof PhysicalTopN) {
             return builder.visitPhysicalTopN((PhysicalTopN<? extends Plan>) plan, null);
+        }
+        if (plan instanceof org.apache.doris.nereids.trees.plans.physical.PhysicalWindow) {
+            return builder.visitPhysicalWindow(
+                    (org.apache.doris.nereids.trees.plans.physical.PhysicalWindow<?>) plan, null);
         }
         if (plan instanceof PhysicalStorageLayerAggregate) {
             return builder.visitPhysicalStorageLayerAggregate(
@@ -1026,6 +1065,107 @@ public class SPMPlan2SQLBuilderTest {
         Assertions.assertThrows(UnsupportedOperationException.class,
                 () -> new SPMPlan2SQLBuilder().toSQL(union),
                 "a constant row that does not match the set arity must fail the decompile");
+    }
+
+    /**
+     * Constant-only UNION with DUPLICATE output names (including a case-variant pair:
+     * identifiers are case-insensitive): every constant branch must alias each
+     * duplicated output to the UNIQUE positional reference the set registered -
+     * emitting `AS x` twice left the result sink's c_<ExprId> references pointing at
+     * nonexistent columns and the frozen SQL failed re-analysis after reload.
+     */
+    @Test
+    public void testConstantUnionDuplicateNamesUseRegisteredPositionalRefs() {
+        SlotReference first = new SlotReference("x", IntegerType.INSTANCE);
+        SlotReference second = new SlotReference("X", IntegerType.INSTANCE);
+        PhysicalUnion union = Mockito.mock(PhysicalUnion.class);
+        Mockito.when(union.getQualifier()).thenReturn(Qualifier.ALL);
+        Mockito.when(union.children()).thenReturn(List.of());
+        Mockito.when(union.getRegularChildrenOutputs()).thenReturn(List.of());
+        Mockito.when(union.getOutput()).thenReturn(List.of(first, second));
+        Mockito.when(union.getConstantExprsList()).thenReturn(List.of(
+                List.of((NamedExpression) new Alias(new IntegerLiteral(1), "x"),
+                        (NamedExpression) new Alias(new IntegerLiteral(2), "x")),
+                List.of((NamedExpression) new Alias(new IntegerLiteral(3), "x"),
+                        (NamedExpression) new Alias(new IntegerLiteral(4), "x"))));
+        stubAccept(union);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(union);
+        Assertions.assertEquals(4, sql.split(" AS c_", -1).length - 1,
+                "both constant rows must alias BOTH duplicated outputs (x and the"
+                        + " case-variant X) to their positional refs: " + sql);
+        Assertions.assertFalse(sql.contains(" AS x"), sql);
+        Assertions.assertFalse(sql.contains(" AS X"), sql);
+    }
+
+    /**
+     * COMPUTED duplicate output aliases (k + 1 AS x, v + 1 AS x for two distinct
+     * ExprIds) must be repaired like pass-through columns: leaving both as x made a
+     * parent select x, x from a derived relation with two x columns and replay failed
+     * as ambiguous after reload.
+     */
+    @Test
+    public void testComputedDuplicateOutputNamesAreRenamed() {
+        SlotReference k = new SlotReference("k", IntegerType.INSTANCE);
+        SlotReference v = new SlotReference("v", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(k, v));
+        Alias first = new Alias(new Add(k, new IntegerLiteral(1)), "x");
+        Alias second = new Alias(new Add(v, new IntegerLiteral(1)), "x");
+        PhysicalProject<?> project = mockProjectExprs(List.of(first, second), scan);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(project);
+        Assertions.assertEquals(1, sql.split(" AS x", -1).length - 1,
+                "only the LATER duplicate keeps the shared alias: " + sql);
+        Assertions.assertTrue(sql.contains(" AS c_"),
+                "the earlier computed item must be renamed to a unique reference: " + sql);
+    }
+
+    /**
+     * A generator output colliding with a live input column (SELECT t.x, lv.x FROM t
+     * LATERAL VIEW explode(t.arr) lv AS x) must get a DISTINCT visible name: registering
+     * both as bare x made the parent emit SELECT x, x ... which fails binding as
+     * ambiguous after reload.
+     */
+    @Test
+    public void testGenerateOutputCollidingWithInputColumnIsRenamed() {
+        SlotReference x = new SlotReference("x", IntegerType.INSTANCE);
+        SlotReference arr = new SlotReference("arr", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(x, arr));
+        PhysicalGenerate<?> generate = mockGenerate(scan, new Explode(arr));
+
+        SQLRelation relation = new SPMPlan2SQLBuilder().visitPhysicalGenerate(generate, null);
+        Assertions.assertTrue(relation.getFrom().contains(" AS x_"),
+                "the colliding generator output must be renamed: " + relation.getFrom());
+        Assertions.assertTrue(relation.getColumnNames().containsValue("x"),
+                "the input column keeps its name");
+        Assertions.assertTrue(relation.getColumnNames().containsValue("x_"),
+                "the generator slot is registered under the unique name");
+    }
+
+    /**
+     * A window OUTPUT aliased like a live input column (row_number() ... AS x over a
+     * relation exporting x) must be repaired like the intermediate Project: both used
+     * to export bare x and the parent's SELECT x, x failed as ambiguous after reload.
+     */
+    @Test
+    public void testWindowOutputCollidingWithInputColumnIsRepaired() {
+        SlotReference x = new SlotReference("x", IntegerType.INSTANCE);
+        SlotReference k = new SlotReference("k", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(x, k));
+
+        org.apache.doris.nereids.trees.expressions.WindowExpression win =
+                new org.apache.doris.nereids.trees.expressions.WindowExpression(
+                        new org.apache.doris.nereids.trees.expressions.functions.window.RowNumber(),
+                        List.of(), List.of());
+        Alias windowAlias = new Alias(win, "x");
+
+        org.apache.doris.nereids.trees.plans.physical.PhysicalWindow<?> window =
+                mockWindow(scan, List.of(windowAlias));
+        String sql = new SPMPlan2SQLBuilder().toSQL(window);
+        Assertions.assertEquals(1, sql.split(" AS x", -1).length - 1,
+                "only the window output keeps the shared alias: " + sql);
+        Assertions.assertTrue(sql.contains(" AS c_") || sql.contains("x AS c"),
+                "the earlier input pass-through must be renamed: " + sql);
     }
 
     // ==================== set-operation quantifier ====================
@@ -1675,5 +1815,67 @@ public class SPMPlan2SQLBuilderTest {
         Mockito.when(udf.getDbName()).thenReturn("");
         Assertions.assertEquals("f", SPMExprSqlBuilder.functionName(udf),
                 "an empty qualifier renders the bare name");
+
+        // EVERY name component must be quoted independently: a database named my-db
+        // used to be emitted verbatim, so `my-db`.f(k) came out as my-db.f(k) and the
+        // frozen SQL re-parsed as the SUBTRACTION my - db.f(k) (analysis failure on
+        // replay, or - worse - silently resolving a different column list)
+        Mockito.when(udf.getDbName()).thenReturn("my-db");
+        Assertions.assertEquals("`my-db`.f", SPMExprSqlBuilder.functionName(udf),
+                "a database component that is not a plain identifier must be quoted");
+        Mockito.when(udf.getName()).thenReturn("my-fn");
+        Assertions.assertEquals("`my-db`.`my-fn`", SPMExprSqlBuilder.functionName(udf),
+                "the function name component is quoted independently as well");
+    }
+
+    // ==================== the final relabel wrapper keeps a top-level LIMIT ====================
+
+    /**
+     * The ResultSink wrapper is a PURE output relabelling (no filtering, no
+     * aggregation), so the child's TOP-LEVEL ORDER BY / LIMIT pair belongs on the
+     * wrapper: left INSIDE the derived table the LIMIT was unreachable for the
+     * positional mergeLimits of the user query's Limit node (a matched LIMIT 200 query
+     * kept the captured 100-row cap), and a derived-table ORDER BY without its LIMIT is
+     * only a hint the optimizer may drop (the replay would then return an arbitrary
+     * unordered LIMIT slice).
+     */
+    @Test
+    public void testSinkRelabelWrapperHoistsTopLevelOrderByWithLimit() {
+        SlotReference k = new SlotReference("k", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(k));
+        PhysicalProject<?> project = mockProject(List.of(k), scan);
+        PhysicalTopN<?> topN = mockTopN(project,
+                List.of(new OrderKey(k, true, true)), 100);
+
+        Slot output = Mockito.mock(Slot.class);
+        Mockito.when(output.getExprId()).thenReturn(k.getExprId());
+        Mockito.when(output.getName()).thenReturn("k1");
+        org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink sink =
+                Mockito.mock(org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink.class);
+        Mockito.when(sink.child(0)).thenReturn(topN);
+        Mockito.when(sink.getOutput()).thenReturn(List.of(output));
+
+        SQLRelation relation = new SPMPlan2SQLBuilder().visitPhysicalSink(sink, null);
+        String sql = relation.toSQL();
+        Assertions.assertTrue(sql.trim().endsWith("LIMIT 100"),
+                "the top-level LIMIT must stay reachable at the statement tail: " + sql);
+        Assertions.assertTrue(sql.contains("ORDER BY k ASC NULLS FIRST LIMIT 100"),
+                "the ORDER BY must move WITH its LIMIT - separated from the LIMIT it is"
+                        + " only a droppable hint and the replay returns an unordered"
+                        + " slice: " + sql);
+        Assertions.assertFalse(sql.contains("(SELECT k FROM t1 ORDER BY")
+                        || sql.contains("(SELECT k FROM t1 LIMIT"),
+                "neither clause may stay buried inside the relabel wrapper: " + sql);
+
+        // and the frozen text must re-parse with a Limit DIRECTLY under the result sink -
+        // that is exactly the node mergeLimits adopts the user's limit value from
+        LogicalPlan frozen = (LogicalPlan) new NereidsParser().parseSingle(sql);
+        boolean rootIsLimit = frozen
+                instanceof org.apache.doris.nereids.trees.plans.logical.LogicalLimit
+                || (!frozen.children().isEmpty() && frozen.child(0)
+                instanceof org.apache.doris.nereids.trees.plans.logical.LogicalLimit);
+        Assertions.assertTrue(rootIsLimit,
+                "mergeLimits can only adopt the user's limit when the frozen root IS a"
+                        + " Limit: " + frozen.getClass().getSimpleName() + " / " + sql);
     }
 }

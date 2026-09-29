@@ -338,6 +338,37 @@ public class BaselinePlan {
      *
      * @return the parameterized bind plan tree
      */
+    /**
+     * A detached copy of the PERSISTED scalar fields (no transient trees): used to write
+     * a status change durably WITHOUT publishing it on the live object first (see
+     * BaselineManager#updateStatus) - matching readers do not take the writer lock, so
+     * an early setStatus would let a concurrent query replay a baseline whose durable
+     * row is still DISABLED if the write later fails.
+     *
+     * @return the detached copy
+     */
+    public BaselinePlan copyPersistedScalars() {
+        BaselinePlan copy = new BaselinePlan();
+        copy.id = id;
+        copy.bindSql = bindSql;
+        copy.bindSqlDigest = bindSqlDigest;
+        copy.bindSqlHash = bindSqlHash;
+        copy.planSql = planSql;
+        copy.queryId = queryId;
+        copy.cost = cost;
+        copy.queryTimeMs = queryTimeMs;
+        copy.source = source;
+        copy.status = status;
+        copy.scope = scope;
+        copy.createTime = createTime;
+        copy.creatorSqlMode = creatorSqlMode;
+        copy.planSqlMode = planSqlMode;
+        copy.planFrozen = planFrozen;
+        copy.schemaFingerprint = schemaFingerprint;
+        copy.updateTime = updateTime;
+        return copy;
+    }
+
     public LogicalPlan getParameterizedBindPlan() {
         return parameterizedBindPlan;
     }

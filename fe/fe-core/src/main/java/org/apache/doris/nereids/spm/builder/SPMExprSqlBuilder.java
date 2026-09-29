@@ -359,7 +359,11 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         if (function instanceof Udf) {
             String dbName = ((Udf) function).getDbName();
             if (dbName != null && !dbName.isEmpty()) {
-                return dbName + "." + function.getName();
+                // Quote each component: a legal database name like my-db is NOT a
+                // parser identifier, and `my-db`.f(k) is what re-parses after a reload
+                // - the unquoted my-db.f(k) made the persisted frozen SQL unparseable.
+                return SPMPlan2SQLBuilder.quoteIdentifier(dbName) + "."
+                        + SPMPlan2SQLBuilder.quoteIdentifier(function.getName());
             }
         }
         return function.getName();
@@ -379,7 +383,9 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         // f(...) and resolve to db2.f when replayed under USE db2.
         String dbName = unboundFunction.getDbName();
         String qualifiedName = (dbName == null || dbName.isEmpty())
-                ? unboundFunction.getName() : dbName + "." + unboundFunction.getName();
+                ? unboundFunction.getName()
+                : SPMPlan2SQLBuilder.quoteIdentifier(dbName) + "."
+                        + SPMPlan2SQLBuilder.quoteIdentifier(unboundFunction.getName());
         return qualifiedName + "(" + args + ")";
     }
 

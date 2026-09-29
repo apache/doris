@@ -81,7 +81,9 @@ public class AuditLogScannerCursorTest {
         values.add(queryId);                     // 8 query_id
         values.add("false");                     // 9 is_internal
         values.add(time);                        // 10 time
-        values.add("");                          // 11 sql_mode
+        // 0 = MODE_DEFAULT: a real audit row ALWAYS carries sql_mode, and a NULL last
+        // tail key would make the resume chain terminate with 1 = 0
+        values.add("0");                         // 11 sql_mode
         values.add(clientIp);                    // 12 client_ip
         values.add(stmtHash);                    // 13 md5(stmt)
         return new ResultRow(values);
@@ -382,6 +384,56 @@ public class AuditLogScannerCursorTest {
         Assertions.assertEquals(1,
                 AuditLogScanner.toBatch(List.of(modeRow(withComma, "d1", ""),
                         modeRow(withComma, "d1", "")), 10).getCandidates().size());
+    }
+
+    /**
+     * Two NaN-id executions can differ ONLY by namespace or parser mode within one
+     * DATETIMEV2(3) tick; toBatch treats them as separate capture identities, so the
+     * ordered cursor must distinguish them too - otherwise the strict after-cursor
+     * chain excluded the second row on every later page (and the advanced window lost
+     * its baseline permanently).
+     */
+    @Test
+    public void testCursorOrderDistinguishesNamespaceAndModeRows() {
+        String sql = AuditLogScanner.buildScanSql("2026-01-01 00:00:00",
+                "2026-01-01 01:00:00", 500, 1000, 10000);
+        Assertions.assertTrue(sql.contains("`catalog` DESC, `db` DESC, `sql_mode` DESC"),
+                "the ordered cursor must distinguish namespace / mode rows too: " + sql);
+
+        String tail = AuditLogScanner.encodeCursorTail(new AuditLogScanner.CursorTail(
+                "10.0.0.1", "h1", "100", "10", "m1", "internal", "b", "0"));
+        String predicate = AuditLogScanner.cursorPredicate(5L, "2026-01-01 00:00:00",
+                "qid", tail);
+        Assertions.assertTrue(predicate.contains("`db` < 'b'"),
+                "the resume chain must reach a row that differs only by db: " + predicate);
+        Assertions.assertTrue(predicate.contains("`sql_mode` < 0"),
+                "... and one that differs only by parser mode: " + predicate);
+
+        // legacy five-element tails keep the prefix-only comparison
+        String legacy = "[\"10.0.0.1\",\"h1\",\"100\",\"10\",\"m1\"]";
+        Assertions.assertFalse(AuditLogScanner.cursorPredicate(5L, "2026-01-01 00:00:00",
+                "qid", legacy).contains("`db`"),
+                "a legacy tail has no namespace keys to compare");
+    }
+
+    /**
+     * The generator fingerprint must parse under the audit row's SQL mode: with
+     * NO_BACKSLASH_ESCAPES split '\\a' is backslash + a whereas the default mode reads
+     * it as 'a', so parsing both rows in the daemon's ambient mode made their
+     * fingerprints equal and one eligible row was discarded - although SPM compares
+     * these generator arguments concretely and the two baselines differ.
+     */
+    @Test
+    public void testGeneratorFingerprintParsesUnderTheAuditRowMode() {
+        String literal = "SELECT * FROM t1 JOIN t2 ON t1.a = t2.a"
+                + " LATERAL VIEW explode(split(t2.s, '\\a')) e AS c";
+        String plain = "SELECT * FROM t1 JOIN t2 ON t1.a = t2.a"
+                + " LATERAL VIEW explode(split(t2.s, 'a')) e AS c";
+        List<ResultRow> rows = List.of(
+                modeRow(literal, "d-gen", "NO_BACKSLASH_ESCAPES"),
+                modeRow(plain, "d-gen", "NO_BACKSLASH_ESCAPES"));
+        Assertions.assertEquals(2, AuditLogScanner.toBatch(rows, 10).getCandidates().size(),
+                "the two generators are concrete SPM arguments: both rows are eligible");
     }
 
     /** One raw audit_log row (12 columns) with statement / digest / sql_mode overridden. */

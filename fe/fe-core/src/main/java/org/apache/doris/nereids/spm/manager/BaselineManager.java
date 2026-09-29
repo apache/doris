@@ -704,12 +704,19 @@ public class BaselineManager {
             // delete-then-insert gap, where the next refresh / restart silently dropped the
             // baseline). Deleting by the PREVIOUS status can never touch the freshly inserted
             // row (the statuses differ).
-            long previousUpdateTime = plan.getUpdateTime();
-            plan.setStatus(status);
-            plan.setUpdateTime(System.currentTimeMillis());
+            long newUpdateTime = System.currentTimeMillis();
+            // Persist a DETACHED snapshot carrying the new status: the live object keeps
+            // the old status until the durable write (or the confirmed reconciliation)
+            // succeeded - matching readers do not take the writer lock, so publishing
+            // early would let a concurrent query replay a baseline whose durable row is
+            // still DISABLED when the write later fails, while ALTER still reports
+            // failure.
+            BaselinePlan durablePlan = plan.copyPersistedScalars();
+            durablePlan.setStatus(status);
+            durablePlan.setUpdateTime(newUpdateTime);
             try {
                 assertLeaderForWrite();
-                persistInsert(plan);
+                persistInsert(durablePlan);
                 persistDeleteByIdAndStatus(id, previousStatus);
             } catch (RuntimeException e) {
                 // The INSERT(new) / DELETE(old) pair spans two statements whose outcomes
@@ -718,19 +725,15 @@ public class BaselineManager {
                 // deleting the NEW row erases the only durable version when the old-row
                 // delete actually committed. At least one version must survive:
                 //  - the old row is gone and the new row is durable -> the delete
-                //    committed; keep the new row (and the in-memory flip) and report
-                //    success;
+                //    committed; PUBLISH the flip and report success;
                 //  - the old row is still durable -> the delete did not commit; delete
-                //    the freshly inserted row again and revert memory. A rollback that
-                //    also fails leaves both rows behind, and the load path resolves the
-                //    duplicate deterministically (pickDurableWinner) - never nothing.
+                //    the freshly inserted row again and keep memory untouched (the live
+                //    object was never flipped, so there is nothing to revert). A
+                //    rollback that also fails leaves both rows behind, and the load path
+                //    resolves the duplicate deterministically (pickDurableWinner) -
+                //    never nothing.
                 if (oldRowDeletedDurably(id, previousStatus, status)) {
-                    stateLock.writeLock().lock();
-                    try {
-                        stateVersion++;
-                    } finally {
-                        stateLock.writeLock().unlock();
-                    }
+                    publishStatus(plan, status, newUpdateTime);
                     LOG.warn("SPM status update of baseline {} committed despite an ambiguous"
                             + " persist error; keeping the new-status row", id, e);
                     return true;
@@ -741,17 +744,22 @@ public class BaselineManager {
                     LOG.error("SPM failed to roll back baseline {} after a failed status update",
                             id, repairFailure);
                 }
-                plan.setStatus(previousStatus);
-                plan.setUpdateTime(previousUpdateTime);
                 throw e;
             }
-            stateLock.writeLock().lock();
-            try {
-                stateVersion++;
-            } finally {
-                stateLock.writeLock().unlock();
-            }
+            publishStatus(plan, status, newUpdateTime);
             return true;
+        }
+    }
+
+    /** Publishes a CONFIRMED status flip on the live object under the state lock. */
+    private void publishStatus(BaselinePlan plan, BaselineStatus status, long updateTime) {
+        stateLock.writeLock().lock();
+        try {
+            plan.setStatus(status);
+            plan.setUpdateTime(updateTime);
+            stateVersion++;
+        } finally {
+            stateLock.writeLock().unlock();
         }
     }
 

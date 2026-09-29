@@ -78,6 +78,7 @@ import org.apache.doris.qe.GlobalVariable;
 import com.google.common.annotations.VisibleForTesting;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -1721,6 +1722,77 @@ public final class SPMPlanTreeSupport {
             return "";
         }
         TreeSet<String> entries = new TreeSet<>();
+        collectBindSideFingerprintEntries(ctx, plan, entries);
+        return joinFingerprintEntries(entries);
+    }
+
+    /**
+     * CREATE-time fingerprint: the bind-side entries UNION the tables of the OPTIMIZED
+     * physical plan.
+     *
+     * Two defects are fixed by taking the plan side from the optimized plan's OWN
+     * relations:
+     *
+     * - the fingerprint must describe the SAME metadata snapshot that produced the
+     *   frozen output slots: SPMOptimizer.optimize returns AFTER planWithLock released
+     *   the table locks, so re-resolving the tables here could hash a NEWER schema (an
+     *   ALTER TABLE t ADD COLUMN x committing in between) than the frozen planSql was
+     *   built against - the replay guard would then accept the stale baseline and
+     *   silently omit x. The optimized plan's catalog relations hold the under-lock
+     *   TableIf objects, so hashing THEM pins the frozen slots and the fingerprint to
+     *   one snapshot;
+     * - tables used only by the stored PLAN text (bind over t, plan over u) were
+     *   missing entirely: after u is dropped, a matching t query still passed the
+     *   guard, rewrote to frozen SQL over the missing u and failed with
+     *   enable_spm_fallback=false although the original query was valid. The physical
+     *   walk adds every plan-side table, so a dropped u now skips the stale baseline.
+     *
+     * @param ctx           the creating session
+     * @param bindPlan      the parsed (unbound) bind tree
+     * @param optimizedPlan the SPM-optimized physical plan the frozen SQL came from
+     * @return the fingerprint (possibly empty, never null)
+     */
+    public static String schemaFingerprintForCreate(ConnectContext ctx, Plan bindPlan,
+            Plan optimizedPlan) {
+        if (bindPlan == null || ctx == null || ctx.getStatementContext() == null) {
+            return "";
+        }
+        TreeSet<String> entries = new TreeSet<>();
+        collectBindSideFingerprintEntries(ctx, bindPlan, entries);
+        collectPhysicalTableEntries(optimizedPlan, entries);
+        return joinFingerprintEntries(entries);
+    }
+
+    /**
+     * REPLAY-time revalidation of a frozen baseline (see
+     * {@link org.apache.doris.nereids.spm.SPMPlanner#verifyReplayMetadata}): the stored
+     * fingerprint recomputed from the metadata the REPLAYED plan was actually planned
+     * with - the planned physical plan's catalog relations - plus the baseline's bind
+     * tree resolved in this context. The pre-match guard runs BEFORE the query planner
+     * takes its metadata locks, so an ALTER TABLE committing in between could otherwise
+     * drift between validation and planning.
+     *
+     * @param ctx         the replaying session
+     * @param bindPlan    the baseline's parameterized bind tree (may be null)
+     * @param plannedPlan the replayed plan after planning (may be null)
+     * @return the fingerprint (possibly empty, never null)
+     */
+    public static String schemaFingerprintForReplay(ConnectContext ctx, Plan bindPlan,
+            Plan plannedPlan) {
+        if (ctx == null) {
+            return "";
+        }
+        TreeSet<String> entries = new TreeSet<>();
+        if (bindPlan != null && ctx.getStatementContext() != null) {
+            collectBindSideFingerprintEntries(ctx, bindPlan, entries);
+        }
+        collectPhysicalTableEntries(plannedPlan, entries);
+        return joinFingerprintEntries(entries);
+    }
+
+    /** Bind-side table + function entries (see the callers' contracts). */
+    private static void collectBindSideFingerprintEntries(ConnectContext ctx, Plan plan,
+            TreeSet<String> entries) {
         SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
             if (node instanceof UnboundRelation) {
                 UnboundRelation relation = (UnboundRelation) node;
@@ -1746,6 +1818,57 @@ public final class SPMPlanTreeSupport {
                 collectFunctionDependencies(ctx, expr, entries);
             }
         });
+    }
+
+    /** Tables of a planned physical tree, taken from each relation's OWN TableIf. */
+    private static void collectPhysicalTableEntries(Plan plan, TreeSet<String> entries) {
+        if (plan == null) {
+            return;
+        }
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
+            if (node instanceof org.apache.doris.nereids.trees.plans.physical
+                    .PhysicalCatalogRelation) {
+                entries.add(describeTableForFingerprint(
+                        ((org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation)
+                                node).getTable()));
+            }
+        });
+    }
+
+    /**
+     * Whether every entry of the CURRENT bind-side fingerprint is still present in the
+     * STORED one. The stored fingerprint is the bind side UNION the plan side of the
+     * frozen plan ({@link #schemaFingerprintForCreate}), and the pre-match guard runs
+     * BEFORE the query is planned - the plan side cannot be recomputed there (it is
+     * revalidated after planning, see
+     * {@link org.apache.doris.nereids.spm.SPMPlanner#verifyReplayMetadata}). Membership
+     * is still fail-closed for the bind side: a DROP + CREATE (new table id) or an ALTER
+     * (new schema hash) replaces an entry instead of extending the fingerprint, so the
+     * new entry is no longer contained.
+     *
+     * @param stored  the fingerprint persisted with the baseline (may be null/empty)
+     * @param current the bind-side fingerprint of the current query (may be null/empty)
+     * @return whether the current bind side is contained (an empty current side always is)
+     */
+    public static boolean schemaFingerprintBindSideContained(String stored, String current) {
+        if (current == null || current.isEmpty()) {
+            return true;
+        }
+        if (stored == null || stored.isEmpty()) {
+            return false;
+        }
+        java.util.Set<String> storedEntries =
+                new TreeSet<>(Arrays.asList(stored.split(";")));
+        for (String entry : current.split(";")) {
+            if (!entry.isEmpty() && !storedEntries.contains(entry)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Join of fingerprint entries (';'-separated, order-independent). */
+    private static String joinFingerprintEntries(TreeSet<String> entries) {
         if (entries.isEmpty()) {
             return "";
         }

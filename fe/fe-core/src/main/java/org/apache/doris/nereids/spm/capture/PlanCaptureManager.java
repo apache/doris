@@ -501,13 +501,14 @@ public class PlanCaptureManager extends MasterDaemon {
             // first-wins: the entry must stay reachable from the page it was FIRST
             // queued on even after later pages advance the scan cursor past its row
             failedCaptureAnchors.putIfAbsent(retryKey, currentPageAnchor());
-            if (failedCaptureAttempts.size() > MAX_TRACKED_QUERY_IDS) {
-                evictOldest(failedCaptureAttempts, MAX_TRACKED_QUERY_IDS / 10);
-            }
-            if (failedCaptureQueue.size() > MAX_TRACKED_QUERY_IDS) {
-                evictOldest(failedCaptureQueue, MAX_TRACKED_QUERY_IDS / 10);
-                evictOldest(failedCaptureAnchors, MAX_TRACKED_QUERY_IDS / 10);
-            }
+            // NO queue / attempt eviction: dropping the oldest failures before their
+            // bounded retries are spent made them unreachable while the leader kept
+            // running - their audit rows are behind the live cursor (and may be older
+            // than the overlap window), so nothing would ever retry them even without
+            // handoff / checkpoint truncation. Retention is bounded by construction:
+            // every entry leaves after MAX_CAPTURE_ATTEMPTS attempts or on a terminal
+            // result, and one cycle can add at most one page, so both maps never exceed
+            // ~MAX_CAPTURE_ATTEMPTS pages and their entries are removed together.
         }
     }
 
@@ -533,7 +534,16 @@ public class PlanCaptureManager extends MasterDaemon {
         String identity = candidate.getStmt() + '\u0001' + candidate.getQueryTimeMs()
                 + '\u0001' + candidate.getScanRows() + '\u0001' + candidate.getReturnRows()
                 + '\u0001' + candidate.getSqlHash() + '\u0001' + candidate.getDb()
-                + '\u0001' + candidate.getCatalog();
+                + '\u0001' + candidate.getCatalog()
+                // the ORIGINATING parser mode takes part: AuditLogScanner.toBatch keeps
+                // same-text default / PIPES_AS_CONCAT executions separate (a || b has
+                // different semantics), so the retry key must separate them as well -
+                // otherwise the first capture consumes the key and the second row is
+                // skipped as "already processed", or two failures overwrite each other
+                + '\u0001' + candidate.getSqlMode()
+                // plus the raw audit digest where available (the structural
+                // discriminator the scanner used)
+                + '\u0001' + (candidate.getSqlDigest() == null ? "" : candidate.getSqlDigest());
         return "spm-retry:" + Long.toHexString(SPMUtils.hashOf(identity));
     }
 
@@ -557,7 +567,12 @@ public class PlanCaptureManager extends MasterDaemon {
             if (scannedQueryIds.contains(retryKey)) {
                 continue; // already retried by this cycle's page
             }
-            failedCaptureQueue.remove(retryKey);
+            // NO remove-before-retry: LinkedHashMap#put on an EXISTING key keeps its
+            // original position, while remove+re-add moved the retried entry BEHIND
+            // entries queued by newer pages. persistCheckpoint assumes the FIRST queue
+            // entry carries the EARLIEST anchor, so reordering made a later page's
+            // pre-page cursor get persisted while encodeRetryQueue dropped the older
+            // entries that anchor belonged to - unrecoverable on handoff.
             handleCandidate(entry.getValue());
             if (processedQueryIds.containsKey(retryKey)) {
                 // consumed elsewhere (e.g. by the page): never replay it again
