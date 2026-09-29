@@ -20,6 +20,7 @@ package org.apache.doris.service.arrowflight;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
@@ -603,6 +604,88 @@ public class DorisFlightSqlSchemaTest extends TestWithFeService {
         // PLAN PROCESS currently has no Flight result serialization, unlike ordinary EXPLAIN.
         Assertions.assertEquals(FlightStatusCode.UNIMPLEMENTED, Assertions.assertThrows(
                 FlightRuntimeException.class, () -> schema("EXPLAIN PLAN PROCESS SELECT 1")).status().code());
+    }
+
+    @Test
+    void preparedNamespaceTransitionIsReusable() throws Exception {
+        String database = connectContext.getDatabase();
+        try {
+            for (String query : Arrays.asList("USE information_schema",
+                    "USE information_schema; SELECT TABLE_NAME FROM tables WHERE 1=0")) {
+                connectContext.setDatabase(database);
+                Schema expected = schema(query);
+                ActionCreatePreparedStatementResult result = prepare(query);
+                CommandPreparedStatementQuery command = CommandPreparedStatementQuery.newBuilder()
+                        .setPreparedStatementHandle(result.getPreparedStatementHandle()).build();
+                try (MockedConstruction<FlightSqlConnectProcessor> processors = Mockito.mockConstruction(
+                        FlightSqlConnectProcessor.class, (processor, context) -> {
+                            Mockito.doAnswer(invocation -> {
+                                connectContext.setDatabase("information_schema");
+                                connectContext.setReturnResultFromLocal(false);
+                                return null;
+                            }).when(processor).handleQuery(Mockito.anyString());
+                            Mockito.when(processor.getArrowSchema()).thenReturn(expected);
+                        })) {
+                    for (int i = 0; i < 2; ++i) {
+                        Assertions.assertEquals(expected, producer.getFlightInfoPreparedStatement(command,
+                                callContext, FlightDescriptor.command(new byte[0])).getSchema());
+                        Assertions.assertEquals(expected, producer.getSchemaPreparedStatement(command,
+                                callContext, FlightDescriptor.command(new byte[0])).getSchema());
+                    }
+                } finally {
+                    String handle = result.getPreparedStatementHandle().toStringUtf8();
+                    connectContext.removePreparedQuery(handle.substring(handle.indexOf(':') + 1));
+                }
+            }
+        } finally {
+            connectContext.setDatabase(database);
+        }
+    }
+
+    @Test
+    void executionSchemaDriftExpiresHandleAndCleansResults() throws Exception {
+        Schema changed = new Schema(Arrays.asList(Field.nullable("id", new ArrowType.Int(64, true)),
+                Field.nullable("new_column", new ArrowType.Utf8())));
+        StmtExecutor previous = connectContext.getExecutor();
+        try {
+            for (boolean remote : Arrays.asList(true, false)) {
+                ActionCreatePreparedStatementResult result = prepare("SELECT id FROM schema_input");
+                CommandPreparedStatementQuery command = CommandPreparedStatementQuery.newBuilder()
+                        .setPreparedStatementHandle(result.getPreparedStatementHandle()).build();
+                StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+                try (MockedConstruction<FlightSqlConnectProcessor> processors = Mockito.mockConstruction(
+                        FlightSqlConnectProcessor.class, (processor, context) -> {
+                            // Simulate replanning after another session changes the table, after schema reanalysis.
+                            Mockito.doAnswer(invocation -> {
+                                connectContext.setReturnResultFromLocal(!remote);
+                                connectContext.setExecutor(executor);
+                                connectContext.addFlightSqlDeferredExecutor(executor);
+                                return null;
+                            }).when(processor).handleQuery(Mockito.anyString());
+                            Mockito.when(processor.getArrowSchema()).thenReturn(changed);
+                        })) {
+                    FlightRuntimeException error = Assertions.assertThrows(FlightRuntimeException.class,
+                            () -> producer.getFlightInfoPreparedStatement(command, callContext,
+                                    FlightDescriptor.command(new byte[0])));
+                    Assertions.assertEquals(FlightStatusCode.NOT_FOUND, error.status().code());
+                    Mockito.verify(executor).cancel(Mockito.any(Status.class));
+                    Mockito.verify(executor).finalizeArrowFlightQuery();
+                    Assertions.assertEquals(0, connectContext.getFlightSqlChannel().resultNum());
+                    Assertions.assertTrue(connectContext.getFlightSqlEndpointsLocations().isEmpty());
+                    String handle = result.getPreparedStatementHandle().toStringUtf8();
+                    Assertions.assertNull(connectContext.getPreparedQuery(handle.substring(handle.indexOf(':') + 1)));
+                    connectContext.closeFlightSqlDeferredExecutors();
+                    Mockito.verify(executor, Mockito.times(1)).finalizeArrowFlightQuery();
+                } finally {
+                    connectContext.closeFlightSqlDeferredExecutors();
+                    connectContext.getFlightSqlChannel().reset();
+                    String handle = result.getPreparedStatementHandle().toStringUtf8();
+                    connectContext.removePreparedQuery(handle.substring(handle.indexOf(':') + 1));
+                }
+            }
+        } finally {
+            connectContext.setExecutor(previous);
+        }
     }
 
 }

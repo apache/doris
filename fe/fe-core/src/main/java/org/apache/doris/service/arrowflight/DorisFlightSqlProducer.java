@@ -20,6 +20,7 @@
 
 package org.apache.doris.service.arrowflight;
 
+import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.MysqlCommand;
@@ -329,8 +330,30 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             final CallContext context, final FlightDescriptor descriptor) {
         ConnectContext connection = flightSessionsManager.getConnectContext(context.peerIdentity());
         synchronized (connection) {
-            return executeQueryStatement(context.peerIdentity(), connection,
-                    preparedQuery(connection, context, command).getLeft(), descriptor);
+            Pair<String, Schema> prepared = preparedQuery(connection, context, command);
+            FlightInfo info = executeQueryStatement(context.peerIdentity(), connection, prepared.getLeft(), descriptor);
+            String id = command.getPreparedStatementHandle().toStringUtf8()
+                    .substring(context.peerIdentity().length() + 1);
+            // Another session's DDL can change the result after reanalysis but before execution
+            // acquires table locks. Reject the actual schema before publishing a DoGet ticket.
+            if (!prepared.getRight().equals(info.getSchema())) {
+                connection.removePreparedQuery(id);
+                try {
+                    connection.cancelQuery(Status.CANCELLED);
+                } catch (Exception e) {
+                    LOG.warn("Failed to cancel Flight query after prepared schema changed", e);
+                } finally {
+                    connection.closeFlightSqlDeferredExecutors();
+                    connection.getFlightSqlChannel().reset();
+                    connection.clearFlightSqlEndpointsLocations();
+                }
+                throw CallStatus.NOT_FOUND.withDescription("Prepared statement schema changed; prepare again")
+                        .toRuntimeException();
+            }
+            // A successful USE/SWITCH in this statement may change its own namespace. Rebind
+            // only this handle; unrelated handles must still reject an external namespace change.
+            connection.addPreparedQuery(id, prepared.getLeft(), prepared.getRight());
+            return info;
         }
     }
 

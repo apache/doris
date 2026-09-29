@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DescribeCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.commands.HelpCommand;
 import org.apache.doris.nereids.trees.plans.commands.KillCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
@@ -54,6 +55,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowPartitionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPythonPackagesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowQueryStatsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowSnapshotCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.TransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
@@ -241,7 +243,11 @@ final class FlightSqlQuerySchema {
             throw CallStatus.UNIMPLEMENTED.withDescription("Command schema requires execution-time metadata")
                     .toRuntimeException();
         }
-        if (command instanceof ShowTableCommand) {
+        if (command instanceof HelpCommand) {
+            return ((HelpCommand) command).getMetaData(context);
+        } else if (command instanceof ShowSnapshotCommand) {
+            return ((ShowSnapshotCommand) command).getMetaData(context);
+        } else if (command instanceof ShowTableCommand) {
             ((ShowTableCommand) command).validate(context);
         } else if (command instanceof ShowCreateTableCommand) {
             return ((ShowCreateTableCommand) command).getMetaData(context);

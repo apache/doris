@@ -201,6 +201,47 @@ suite("test_schema_only", "arrow_flight_sql") {
                     }
                 }
 
+                // Executing an explicit namespace change must not invalidate that same handle.
+                ["USE mysql", "USE mysql; SHOW VARIABLES LIKE 'query_timeout'"].each { query ->
+                    client.execute("USE information_schema", options)
+                    def changing = client.prepare(query, options)
+                    try {
+                        def expected = changing.getResultSetSchema()
+                        2.times {
+                            def info = changing.execute(options)
+                            assertEquals(expected, info.getSchema())
+                            assertEquals(expected, changing.fetchSchema(options).getSchema())
+                            flight.getStream(info.getEndpoints()[0].getTicket(), options).withCloseable { stream ->
+                                while (stream.next()) {
+                                    assertEquals(expected, stream.getRoot().getSchema())
+                                }
+                            }
+                        }
+                    } finally {
+                        changing.close(options)
+                    }
+                }
+                def help = client.prepare("HELP 'schema_only_unknown_help_topic'", options)
+                try {
+                    def expected = help.getResultSetSchema()
+                    assertEquals(["name", "is_it_category"], expected.getFields()*.getName())
+                    assertEquals(expected, help.fetchSchema(options).getSchema())
+                    def info = help.execute(options)
+                    assertEquals(expected, info.getSchema())
+                    flight.getStream(info.getEndpoints()[0].getTicket(), options).withCloseable { stream ->
+                        while (stream.next()) {
+                            assertEquals(expected, stream.getRoot().getSchema())
+                        }
+                    }
+                } finally {
+                    help.close(options)
+                }
+                assertEquals(["Snapshot", "Timestamp", "Status"],
+                        prepareSchema("SHOW SNAPSHOT ON schema_repository").getFields()*.getName())
+                assertEquals(["Snapshot", "Timestamp", "Database", "Details", "Status"],
+                        prepareSchema("SHOW SNAPSHOT ON schema_repository WHERE SNAPSHOT='s' AND TIMESTAMP='t'")
+                                .getFields()*.getName())
+
                 client.execute("USE information_schema", options)
                 def prepared = client.prepare("SELECT TABLE_NAME FROM tables WHERE 1=0", options)
                 try {
