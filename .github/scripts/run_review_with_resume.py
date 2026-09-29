@@ -32,6 +32,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from submit_review import RUN_FILE, RESULT_FILE, SUBMISSION_FILE, verify_completion, write_json
+
 # Six same-session capacity retries, each after a fixed five-minute wait.
 RETRY_DELAYS = (300,) * 6
 CAPACITY_MESSAGE = "Selected model is at capacity. Please try a different model."
@@ -353,6 +355,12 @@ def run_review(args, reaper=None):
     goal_prompt = (context / "codex_goal_prompt.txt").read_text()
     deadline = time.monotonic() + args.budget_seconds
     started_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    run = {
+        "repository": args.repository, "pr_number": args.pr_number,
+        "head_sha": args.head_sha, "base_sha": args.base_sha,
+        "started_at": started_at, "token": str(uuid.uuid4()), "deadline": deadline,
+    }
+    write_json(context / RUN_FILE, run)
     thread_id = None
     model = args.model
     fallback_model = getattr(args, "fallback_model", None)
@@ -458,9 +466,7 @@ def run_review(args, reaper=None):
                 )
                 model = fallback_model
                 continue
-            if message is not None and (
-                message != CAPACITY_MESSAGE or capacity_retry == len(RETRY_DELAYS)
-            ):
+            if message is not None and message != CAPACITY_MESSAGE:
                 return fail(message)
             current_id = session_id(events)
             if thread_id and current_id != thread_id:
@@ -468,8 +474,24 @@ def run_review(args, reaper=None):
                     "Codex resumed a different session; refusing further attempts"
                 )
             thread_id = current_id
-            if message is None:
+            if message is None or (context / SUBMISSION_FILE).exists():
+                # Final submission declares all review work complete. Only an
+                # exact GitHub readback can recover a subsequent capacity error;
+                # another run's review or a partially posted review cannot pass.
+                result = verify_completion(context, run, remaining)
+                result["recovered_after_capacity"] = message == CAPACITY_MESSAGE
+                write_json(context / RESULT_FILE, result)
+                with aggregate.open("a") as handle:
+                    handle.write(json.dumps({"type": "review.completed", **result}) + "\n")
+                print(
+                    f"Verified final review {result['review_id']}: "
+                    f"P0={result['p0']}, P1={result['p1']}, "
+                    f"recovered_after_capacity={result['recovered_after_capacity']}",
+                    file=sys.stderr, flush=True,
+                )
                 return 0
+            if capacity_retry == len(RETRY_DELAYS):
+                return fail(message)
             require_rollout(Path(os.environ["CODEX_HOME"]), thread_id, args.cwd)
             # Check parser support without authenticating or starting a model request.
             subprocess.run(
