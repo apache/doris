@@ -42,6 +42,7 @@ import org.apache.arrow.flight.Criteria;
 import org.apache.arrow.flight.FlightDescriptor;
 import org.apache.arrow.flight.FlightEndpoint;
 import org.apache.arrow.flight.FlightInfo;
+import org.apache.arrow.flight.FlightRuntimeException;
 import org.apache.arrow.flight.FlightStream;
 import org.apache.arrow.flight.Location;
 import org.apache.arrow.flight.PutResult;
@@ -86,7 +87,6 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.Channels;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
@@ -329,7 +329,35 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public SchemaResult getSchemaStatement(final CommandStatementQuery command, final CallContext context,
             final FlightDescriptor descriptor) {
-        throw CallStatus.UNIMPLEMENTED.withDescription("getSchemaStatement unimplemented").toRuntimeException();
+        return new SchemaResult(analyzeQuerySchema(
+                flightSessionsManager.getConnectContext(context.peerIdentity()), command.getQuery()));
+    }
+
+    @Override
+    public SchemaResult getSchemaPreparedStatement(final CommandPreparedStatementQuery command,
+            final CallContext context, final FlightDescriptor descriptor) {
+        String prefix = context.peerIdentity() + ":";
+        String handle = command.getPreparedStatementHandle().toStringUtf8();
+        if (!handle.startsWith(prefix)) {
+            throw CallStatus.INVALID_ARGUMENT.withDescription("Invalid prepared statement handle").toRuntimeException();
+        }
+        ConnectContext connection = flightSessionsManager.getConnectContext(context.peerIdentity());
+        String query = connection.getPreparedQuery(handle.substring(prefix.length()));
+        if (query == null) {
+            throw CallStatus.NOT_FOUND.withDescription("Prepared statement not found").toRuntimeException();
+        }
+        return new SchemaResult(analyzeQuerySchema(connection, query));
+    }
+
+    private Schema analyzeQuerySchema(ConnectContext context, String query) {
+        try {
+            return FlightSqlQuerySchema.analyze(context, query);
+        } catch (FlightRuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw CallStatus.INVALID_ARGUMENT.withDescription("Cannot determine query schema: " + e.getMessage())
+                    .withCause(e).toRuntimeException();
+        }
     }
 
     @Override
@@ -355,51 +383,30 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public void createPreparedStatement(final ActionCreatePreparedStatementRequest request, final CallContext context,
             final StreamListener<Result> listener) {
-        // TODO can only execute complete SQL, not support SQL parameters.
-        // For Python: the Python code will try to create a prepared statement (this is to fit DBAPI, IIRC) and
-        // if the server raises any error except for NotImplemented it will fail. (If it gets NotImplemented,
-        // it will ignore and execute without a prepared statement.) see: https://github.com/apache/arrow/issues/38786
         executorService.submit(() -> {
-            ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
+            ConnectContext connectContext = null;
+            String preparedStatementId = null;
             try {
-                connectContext.setCommand(MysqlCommand.COM_QUERY);
-                final String query = request.getQuery();
-                String preparedStatementId = UUID.randomUUID().toString();
-                final ByteString handle = ByteString.copyFromUtf8(context.peerIdentity() + ":" + preparedStatementId);
+                connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
+                String query = request.getQuery();
+                // ADBC ExecuteSchema reads this dataset schema directly without calling GetSchema.
+                // Analyze before registering a handle so failed preparation does not retain a query.
+                Schema schema = analyzeQuerySchema(connectContext, query);
+                preparedStatementId = UUID.randomUUID().toString();
+                ByteString handle = ByteString.copyFromUtf8(context.peerIdentity() + ":" + preparedStatementId);
+                Result result = new Result(Any.pack(buildCreatePreparedStatementResult(handle,
+                        new Schema(Collections.emptyList()), schema)).toByteArray());
                 connectContext.addPreparedQuery(preparedStatementId, query);
-
-                // Close the temporary VectorSchemaRoot after extracting its Schema, otherwise the
-                // off-heap buffers backing its vectors are leaked on every prepare (FE direct memory leak).
-                final Schema parameterSchema;
-                try (VectorSchemaRoot emptyVectorSchemaRoot =
-                        new VectorSchemaRoot(new ArrayList<>(), new ArrayList<>())) {
-                    parameterSchema = emptyVectorSchemaRoot.getSchema();
+                listener.onNext(result);
+                listener.onCompleted();
+            } catch (Throwable e) {
+                if (connectContext != null && preparedStatementId != null) {
+                    connectContext.removePreparedQuery(preparedStatementId);
                 }
-                // TODO FE does not have the ability to convert root fragment output expr into arrow schema.
-                // However, the metaData schema returned by createPreparedStatement is usually not used by the client,
-                // but it cannot be empty, otherwise it will be mistaken by the client as an updata statement.
-                // see: https://github.com/apache/arrow/issues/38911
-                final Schema metaData;
-                try (VectorSchemaRoot metaSchemaRoot = connectContext.getFlightSqlChannel()
-                        .createOneOneSchemaRoot("ResultMeta", "UNIMPLEMENTED")) {
-                    metaData = metaSchemaRoot.getSchema();
-                }
-                listener.onNext(new Result(
-                        Any.pack(buildCreatePreparedStatementResult(handle, parameterSchema, metaData)).toByteArray()));
-            } catch (Exception e) {
-                String errMsg = "create prepared statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(
-                        e) + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
-                        + connectContext.getState().getErrorMessage();
-                LOG.error(errMsg, e);
-                listener.onError(CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException());
-                return;
-            } catch (final Throwable t) {
-                listener.onError(CallStatus.INTERNAL.withDescription("Unknown error: " + t).toRuntimeException());
-                return;
-            } finally {
-                connectContext.setCommand(MysqlCommand.COM_SLEEP);
+                listener.onError(e instanceof FlightRuntimeException ? e
+                        : CallStatus.INTERNAL.withDescription("Create prepared statement failed: " + e.getMessage())
+                                .withCause(e).toRuntimeException());
             }
-            listener.onCompleted();
         });
     }
 
