@@ -74,6 +74,37 @@ Status LanceTableReader::fetch_schema(const TFileRangeDesc& range,
     return convert_arrow_schema_to_doris(schema, column_names, column_types);
 }
 
+namespace {
+// A dataset URI without its query string or a password in its user information, either of which
+// may carry credentials, for errors and profiles. A user part without a password stays: Azure
+// URIs name the container there (abfss://container@account...).
+std::string display_uri(const std::string& uri) {
+    std::string display = uri.substr(0, uri.find('?'));
+    const auto authority = display.find("://");
+    if (authority != std::string::npos) {
+        const auto start = authority + 3;
+        const auto at = display.find('@', start);
+        const auto colon = display.find(':', start);
+        if (at != std::string::npos && at < display.find('/', start) && colon < at) {
+            display.erase(start, at + 1 - start);
+        }
+    }
+    return display;
+}
+
+// A Lance version of 0 opens the latest version, which would silently leave the snapshot FE
+// planned. Search splits and row-id fetches always carry FE's pinned version.
+Status require_fixed_version(const TFileRangeDesc& range, std::string_view what) {
+    const auto& params = range.table_format_params.lance_params;
+    if (!params.__isset.version || params.version <= 0) {
+        return Status::InvalidArgument(
+                "Lance {} requires a fixed positive dataset version, but got {}", what,
+                params.__isset.version ? std::to_string(params.version) : std::string("none"));
+    }
+    return Status::OK();
+}
+} // namespace
+
 Status LanceTableReader::init(TableReadOptions&& options) {
     RETURN_IF_ERROR(TableReader::init(std::move(options)));
     DORIS_CHECK(_runtime_state != nullptr);
@@ -161,6 +192,9 @@ Status LanceTableReader::prepare_split(const SplitReadOptions& options) {
                 "Lance global row id requested without global row id context");
     }
 
+    if (_search_kind != SearchKind::NORMAL) {
+        RETURN_IF_ERROR(require_fixed_version(options.current_range, "search split"));
+    }
     RETURN_IF_ERROR(_ensure_dataset_open(options.current_range));
     RETURN_IF_ERROR(_open_scanner(options.current_range));
     return Status::OK();
@@ -209,7 +243,7 @@ Status LanceTableReader::get_block(Block* block, bool* eos) {
                 break;
             }
             if (scan_status != 0 || raw_batch == nullptr) {
-                return lance_error("read next Lance batch");
+                return lance_error("read next Lance batch at " + _snapshot_description());
             }
 
             std::unique_ptr<LanceBatch, LanceBatchDeleter> batch(raw_batch);
@@ -261,6 +295,8 @@ Status LanceTableReader::read_by_row_ids(const TFileRangeDesc& range,
                                                     TUnit::UNIT, LANCE_READER_PROFILE, 1);
     SCOPED_TIMER(_row_id_fetch_total_time);
 
+    // Row IDs mean something only within the snapshot phase one read.
+    RETURN_IF_ERROR(require_fixed_version(range, "row-id fetch"));
     // Phase-two row fetch does not execute FTS, so a reader created only for take_rows must not
     // collect query-specific global statistics.
     RETURN_IF_ERROR(_ensure_dataset_open(range, false));
@@ -283,15 +319,15 @@ Status LanceTableReader::read_by_row_ids(const TFileRangeDesc& range,
         if (stream.release != nullptr) {
             stream.release(&stream);
         }
-        return lance_error("take Lance rows by row id");
+        return lance_error("take Lance rows by row id at " + _snapshot_description());
     }
     auto imported_reader = arrow::ImportRecordBatchReader(&stream);
     if (!imported_reader.ok()) {
         if (stream.release != nullptr) {
             stream.release(&stream);
         }
-        return Status::InternalError("import Lance take-rows stream failed: {}",
-                                     imported_reader.status().message());
+        return Status::InternalError("import Lance take-rows stream at {} failed: {}",
+                                     _snapshot_description(), imported_reader.status().message());
     }
 
     size_t fetched_rows = 0;
@@ -305,8 +341,8 @@ Status LanceTableReader::read_by_row_ids(const TFileRangeDesc& range,
             read_status = batch_reader->ReadNext(&record_batch);
         }
         if (!read_status.ok()) {
-            return Status::InternalError("read Lance take-rows batch failed: {}",
-                                         read_status.message());
+            return Status::InternalError("read Lance take-rows batch at {} failed: {}",
+                                         _snapshot_description(), read_status.message());
         }
         if (record_batch == nullptr) {
             break;
@@ -321,8 +357,9 @@ Status LanceTableReader::read_by_row_ids(const TFileRangeDesc& range,
         COUNTER_UPDATE(fetch_rows, rows);
     }
     if (fetched_rows != row_ids.size()) {
-        return Status::InternalError("Lance row-id fetch returned {} rows for {} requested row ids",
-                                     fetched_rows, row_ids.size());
+        return Status::InternalError(
+                "Lance row-id fetch at {} returned {} rows for {} requested row ids",
+                _snapshot_description(), fetched_rows, row_ids.size());
     }
     return Status::OK();
 }
@@ -593,13 +630,64 @@ Status LanceTableReader::_open_dataset(const DatasetKey& key) {
     {
         SCOPED_TIMER(_dataset_open_time);
         LanceDataset* raw_dataset = nullptr;
-        RETURN_IF_ERROR(LanceSessionManager::instance().open_dataset(
+        Status status = LanceSessionManager::instance().open_dataset(
                 key.uri.c_str(), key.storage_options.empty() ? nullptr : storage_option_ptrs.data(),
-                static_cast<uint64_t>(key.version), &raw_dataset));
+                static_cast<uint64_t>(key.version), &raw_dataset);
+        if (!status.ok()) {
+            return status.prepend(fmt::format("Lance dataset version {} at {}: ", key.version,
+                                              display_uri(key.uri)));
+        }
         dataset.reset(raw_dataset);
     }
+
+    // EXPLAIN plans a moving selector separately, so only the profile shows what this execution
+    // read. The version is the one opened, which version 0 (the latest) resolves.
+    _opened_version = static_cast<int64_t>(lance_dataset_version(dataset.get()));
+    _scanner_profile->add_info_string("LanceDatasetVersion", std::to_string(_opened_version));
+    _scanner_profile->add_info_string("LanceDatasetUri", display_uri(key.uri));
     _dataset = dataset.release();
     return Status::OK();
+}
+
+Status LanceTableReader::_check_fragment_ids(const std::vector<uint64_t>& fragment_ids) const {
+    if (fragment_ids.empty()) {
+        return Status::OK();
+    }
+    if (!_dataset_fragment_ids.has_value()) {
+        // A count of 0 is also lance-c's error value; a failed listing then leaves the list empty,
+        // so every fragment id FE sends is still rejected rather than skipped.
+        const uint64_t fragment_count = lance_dataset_fragment_count(_dataset);
+        std::vector<uint64_t> ids(fragment_count);
+        if (fragment_count > 0 && lance_dataset_fragment_ids(_dataset, ids.data()) != 0) {
+            return lance_error("list fragments of " + _snapshot_description());
+        }
+        std::sort(ids.begin(), ids.end());
+        _dataset_fragment_ids = std::move(ids);
+    }
+    std::vector<uint64_t> missing;
+    for (uint64_t id : fragment_ids) {
+        if (!std::binary_search(_dataset_fragment_ids->begin(), _dataset_fragment_ids->end(), id)) {
+            missing.emplace_back(id);
+        }
+    }
+    if (!missing.empty()) {
+        return Status::InternalError(
+                "Lance split references fragment ids [{}] that {} does not contain",
+                fmt::join(missing, ", "), _snapshot_description());
+    }
+    return Status::OK();
+}
+
+std::string LanceTableReader::_snapshot_description() const {
+    if (!_opened_dataset_key.has_value()) {
+        return "Lance dataset";
+    }
+    // Version 0 asks for the latest version; name the one that was opened. No lance-c call here:
+    // callers build this message before lance_error() reads the thread's last error, which a
+    // successful lance-c call clears.
+    const auto version = _opened_version > 0 ? _opened_version : _opened_dataset_key->version;
+    return fmt::format("Lance dataset version {} at {}", version,
+                       display_uri(_opened_dataset_key->uri));
 }
 
 Status LanceTableReader::_prepare_fts_query_context() {
@@ -632,7 +720,7 @@ Status LanceTableReader::_prepare_fts_query_context() {
                 coverage_mode);
     }
     if (_fts_query_context == nullptr) {
-        return lance_error("prepare Lance FTS query context");
+        return lance_error("prepare Lance FTS query context at " + _snapshot_description());
     }
     return Status::OK();
 }
@@ -923,6 +1011,7 @@ Status LanceTableReader::_configure_normal_scan(LanceScanner* scanner,
     DORIS_CHECK(scanner != nullptr);
     std::vector<uint64_t> fragment_ids;
     RETURN_IF_ERROR(parse_fragment_ids(lance_params, &fragment_ids));
+    RETURN_IF_ERROR(_check_fragment_ids(fragment_ids));
     if (!fragment_ids.empty() &&
         lance_scanner_set_fragment_ids(scanner, fragment_ids.data(), fragment_ids.size()) != 0) {
         return lance_error("set Lance scanner fragment ids");
@@ -965,6 +1054,7 @@ Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
     DORIS_CHECK(_scan_params->__isset.lance_scan_params);
     std::vector<uint64_t> fragment_ids;
     RETURN_IF_ERROR(parse_fragment_ids(lance_params, &fragment_ids));
+    RETURN_IF_ERROR(_check_fragment_ids(fragment_ids));
     if (!fragment_ids.empty() &&
         lance_scanner_set_fragment_ids(scanner, fragment_ids.data(), fragment_ids.size()) != 0) {
         return lance_error("set Lance vector scanner fragment ids");
@@ -1133,6 +1223,7 @@ Status LanceTableReader::_configure_full_text_search(LanceScanner* scanner,
     // prepared FTS context; the segment UUID is the execution boundary.
     std::vector<uint64_t> fragment_ids;
     RETURN_IF_ERROR(parse_fragment_ids(lance_params, &fragment_ids));
+    RETURN_IF_ERROR(_check_fragment_ids(fragment_ids));
     std::vector<uint8_t> segment_uuids;
     size_t segment_count = 0;
     RETURN_IF_ERROR(parse_index_segment_uuids(lance_params, &segment_uuids, &segment_count));
@@ -1251,6 +1342,8 @@ void LanceTableReader::_close_dataset() {
         _dataset = nullptr;
     }
     _dataset_schema.reset();
+    _dataset_fragment_ids.reset();
+    _opened_version = 0;
     _record_batch_converter.reset_schema();
 }
 

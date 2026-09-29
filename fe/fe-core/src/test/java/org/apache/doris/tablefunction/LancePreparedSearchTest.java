@@ -23,10 +23,12 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.lance.LanceExternalTable;
+import org.apache.doris.datasource.lance.metadata.LanceRefSelector;
 import org.apache.doris.datasource.lance.metadata.LanceTableAccess;
 import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -224,6 +226,88 @@ public class LancePreparedSearchTest {
         }
     }
 
+    /**
+     * A constant selector is re-resolved by every EXECUTE: a tag moved between two executions
+     * selects its new version, and the selector itself is the same each time.
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void testExecuteResolvesConstantSelectorAgain(boolean useIndex) {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = MemoTestUtils.createConnectContext();
+        AtomicLong version = new AtomicLong(42);
+        LanceExternalTable table = mockTable(version);
+        try (MockedStatic<LanceExternalSearchTableValuedFunction> lookup = Mockito.mockStatic(
+                LanceExternalSearchTableValuedFunction.class, Mockito.CALLS_REAL_METHODS)) {
+            lookup.when(() -> LanceExternalSearchTableValuedFunction.findLanceExternalTable(
+                    Mockito.any(TableName.class))).thenReturn(table);
+            Pair<LogicalPlan, StatementContext> parsed = new NereidsParser().parseMultiple(
+                    "select id, _distance from vector_search('table'='catalog.db.items', "
+                            + "'column'='embedding', 'use_index'='" + useIndex + "', 'tag'='release', "
+                            + "'query_vector'=?)").get(0);
+            StatementContext prepare = MemoTestUtils.createStatementContext(context, "");
+            prepare.setPrepareStage(true);
+            analyze(parsed.first, prepare);
+            // Each analysis resolves the selector exactly once; a second resolution within one
+            // execution could select a different version.
+            verifyResolvedOnceWithTag(table, "release");
+            Placeholder vector = parsed.second.getPlaceholders().get(0);
+            for (int i = 0; i < 2; i++) {
+                version.set(42 + i);
+                StatementContext execute = MemoTestUtils.createStatementContext(context, "");
+                execute.getIdToPlaceholderRealExpr().put(vector.getPlaceholderId(), new StringLiteral("[1,2]"));
+                Assertions.assertEquals(42 + i, analyze(parsed.first, execute).getMetadata().getVersion());
+                verifyResolvedOnceWithTag(table, "release");
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"version", "timestamp", "tag", "branch"})
+    public void testSelectorMustBeConstantInPreparedStatement(String selector) {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = MemoTestUtils.createConnectContext();
+        context.setStatementContext(MemoTestUtils.createStatementContext(context, ""));
+        try {
+            Exception exception = Assertions.assertThrows(Exception.class,
+                    () -> new NereidsParser().parseMultiple(
+                            "select * from vector_search('table'='catalog.db.items', 'column'='embedding', "
+                                    + "'query_vector'='[1,2]', '" + selector + "'=?)"));
+            Assertions.assertTrue(exception.getMessage().contains(
+                    "vector_search property '" + selector + "' must be constant in a prepared statement"),
+                    exception.getMessage());
+            // Before this was rejected, full_text_search received the placeholder as the text "?".
+            for (String property : new String[] {"'" + selector + "'=?", "'top_k'=?", "?='x'"}) {
+                exception = Assertions.assertThrows(Exception.class,
+                        () -> new NereidsParser().parseMultiple(
+                                "select * from full_text_search('table'='catalog.db.items', 'column'='body', "
+                                        + "'query'='lance', " + property + ")"));
+                Assertions.assertTrue(exception.getMessage().contains(
+                        "full_text_search properties must be constant in a prepared statement"),
+                        exception.getMessage());
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    private static void verifyResolvedOnceWithTag(LanceExternalTable table, String tag) {
+        org.mockito.ArgumentCaptor<LanceRefSelector> selector =
+                org.mockito.ArgumentCaptor.forClass(LanceRefSelector.class);
+        // loadBasicMetadata delegates to loadMetadataForSearch in mockTable, so both modes count here.
+        Mockito.verify(table, Mockito.times(1)).loadMetadataForSearch(selector.capture());
+        Assertions.assertEquals(tag, selector.getValue().getTag().orElse(null));
+        Mockito.clearInvocations(table);
+    }
+
     private LanceExternalTable mockTable(AtomicLong version) {
         return mockTable(version, false);
     }
@@ -240,12 +324,120 @@ public class LancePreparedSearchTest {
                             vector.getChildren())));
         }
         Schema schema = new Schema(Arrays.asList(Field.nullable("id", new ArrowType.Int(64, true)), vector));
-        Mockito.when(table.loadMetadataForSearch()).thenAnswer(invocation -> LanceTableMetadata.createSnapshotWithIndexes(
-                new LanceTableAccess("s3://bucket/items.lance", Collections.emptyMap()),
-                version.get(), schema, Collections.emptyList(),
-                ImmutableMap.of("id", 0, "embedding", 1), Collections.emptyList()));
-        Mockito.when(table.loadBasicMetadata()).thenAnswer(invocation -> table.loadMetadataForSearch());
+        Mockito.when(table.loadMetadataForSearch(Mockito.any(LanceRefSelector.class))).thenAnswer(
+                invocation -> LanceTableMetadata.createSnapshotWithIndexes(
+                        new LanceTableAccess("s3://bucket/items.lance", Collections.emptyMap()),
+                        version.get(), schema, Collections.emptyList(),
+                        ImmutableMap.of("id", 0, "embedding", 1), Collections.emptyList()));
+        Mockito.when(table.loadBasicMetadata(Mockito.any(LanceRefSelector.class))).thenAnswer(
+                invocation -> table.loadMetadataForSearch(invocation.getArgument(0)));
         return table;
+    }
+
+    /** Both search functions accept the selector properties and hand the table what they select. */
+    @org.junit.jupiter.api.Test
+    public void testBothSearchFunctionsPassTheirSelectorToTheTable() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = MemoTestUtils.createConnectContext();
+        LanceExternalTable table = mockSearchTable();
+        String vector = "vector_search('table'='catalog.db.items', 'column'='embedding', 'query_vector'='[1,2]', ";
+        String text = "full_text_search('table'='catalog.db.items', 'column'='body', 'query'='lance', ";
+        try (MockedStatic<LanceExternalSearchTableValuedFunction> lookup = Mockito.mockStatic(
+                LanceExternalSearchTableValuedFunction.class, Mockito.CALLS_REAL_METHODS)) {
+            lookup.when(() -> LanceExternalSearchTableValuedFunction.findLanceExternalTable(
+                    Mockito.any(TableName.class))).thenReturn(table);
+            for (String useIndex : new String[] {"true", "false"}) {
+                String prefix = vector + "'use_index'='" + useIndex + "', ";
+                LanceRefSelector selector = selectorOf(table, prefix + "'VERSION'='3', 'Branch'='dev')", context);
+                Assertions.assertEquals("dev", selector.getBranch().orElse(null));
+                Assertions.assertEquals("3", selector.getSnapshot().get().getValue());
+                selector = selectorOf(table, prefix + "'tag'='rel')", context);
+                Assertions.assertEquals("rel", selector.getTag().orElse(null));
+            }
+            LanceRefSelector selector = selectorOf(table,
+                    text + "'timestamp'='2026-09-20 12:00:00', 'branch'='main')", context);
+            Assertions.assertFalse(selector.getBranch().isPresent());
+            Assertions.assertEquals(org.apache.doris.analysis.TableSnapshot.VersionType.TIME,
+                    selector.getSnapshot().get().getType());
+            selector = selectorOf(table, text + "'version'='2', 'branch'='dev')", context);
+            Assertions.assertEquals("dev", selector.getBranch().orElse(null));
+            Assertions.assertEquals("2", selector.getSnapshot().get().getValue());
+            Assertions.assertEquals("rel", selectorOf(table, text + "'tag'='rel')", context).getTag().orElse(null));
+            Assertions.assertSame(LanceRefSelector.latest(), selectorOf(table, text + "'top_k'='3')", context));
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    /**
+     * A search resolves its snapshot when it is bound, so a statement containing one must never be
+     * answered from the SQL cache: a cached result would skip resolving a moving selector again.
+     */
+    @org.junit.jupiter.api.Test
+    public void testSearchStatementsBypassSqlCache() {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = MemoTestUtils.createConnectContext();
+        context.getSessionVariable().setEnableSqlCache(true);
+        LanceExternalTable table = mockSearchTable();
+        try (MockedStatic<LanceExternalSearchTableValuedFunction> lookup = Mockito.mockStatic(
+                LanceExternalSearchTableValuedFunction.class, Mockito.CALLS_REAL_METHODS)) {
+            lookup.when(() -> LanceExternalSearchTableValuedFunction.findLanceExternalTable(
+                    Mockito.any(TableName.class))).thenReturn(table);
+            for (String tvf : new String[] {
+                    "vector_search('table'='catalog.db.items', 'column'='embedding', 'query_vector'='[1,2]', "
+                            + "'tag'='rel')",
+                    "full_text_search('table'='catalog.db.items', 'column'='body', 'query'='lance', "
+                            + "'tag'='rel')"}) {
+                String sql = "select * from " + tvf;
+                StatementContext statement = MemoTestUtils.createStatementContext(context, sql);
+                SqlCacheContext sqlCache = statement.getSqlCacheContext().orElseThrow(
+                        () -> new IllegalStateException("SQL cache is not enabled for " + sql));
+                Assertions.assertFalse(sqlCache.isCannotProcessExpression(), sql);
+                LogicalPlan plan = new NereidsParser().parseMultiple(sql).get(0).first;
+                CascadesContext.initContext(statement, plan, PhysicalProperties.ANY).newAnalyzer().analyze();
+                Assertions.assertTrue(sqlCache.isCannotProcessExpression(), sql);
+            }
+        } finally {
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    /** A table with a vector and a text column whose metadata is version 3 for every selector. */
+    private static LanceExternalTable mockSearchTable() {
+        Field item = Field.nullable("item", new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE));
+        Field embedding = new Field("embedding", org.apache.arrow.vector.types.pojo.FieldType.nullable(
+                new ArrowType.FixedSizeList(2)), Collections.singletonList(item));
+        Schema schema = new Schema(Arrays.asList(Field.nullable("id", new ArrowType.Int(64, true)),
+                embedding, Field.nullable("body", ArrowType.Utf8.INSTANCE)));
+        LanceExternalTable table = Mockito.mock(LanceExternalTable.class);
+        Mockito.when(table.loadMetadataForSearch(Mockito.any(LanceRefSelector.class))).thenAnswer(
+                invocation -> LanceTableMetadata.createSnapshotWithIndexes(
+                        new LanceTableAccess("s3://bucket/items.lance", Collections.emptyMap()), 3, schema,
+                        Collections.emptyList(), ImmutableMap.of("id", 0, "embedding", 1, "body", 2),
+                        Collections.emptyList()));
+        Mockito.when(table.loadBasicMetadata(Mockito.any(LanceRefSelector.class))).thenAnswer(
+                invocation -> table.loadMetadataForSearch(invocation.getArgument(0)));
+        return table;
+    }
+
+    private LanceRefSelector selectorOf(LanceExternalTable table, String tvf, ConnectContext context) {
+        Mockito.clearInvocations(table);
+        LogicalPlan plan = new NereidsParser().parseMultiple("select * from " + tvf).get(0).first;
+        CascadesContext cascades = CascadesContext.initContext(
+                MemoTestUtils.createStatementContext(context, ""), plan, PhysicalProperties.ANY);
+        cascades.newAnalyzer().analyze();
+        org.mockito.ArgumentCaptor<LanceRefSelector> selectors =
+                org.mockito.ArgumentCaptor.forClass(LanceRefSelector.class);
+        Mockito.verify(table, Mockito.atLeast(0)).loadMetadataForSearch(selectors.capture());
+        Mockito.verify(table, Mockito.atLeast(0)).loadBasicMetadata(selectors.capture());
+        Assertions.assertFalse(selectors.getAllValues().isEmpty(), tvf);
+        return selectors.getAllValues().get(0);
     }
 
     private VectorSearchTableValuedFunction analyze(LogicalPlan plan, StatementContext statement) {

@@ -18,6 +18,7 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -29,7 +30,9 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.lance.LanceExternalTable;
+import org.apache.doris.datasource.lance.metadata.LanceRefSelector;
 import org.apache.doris.datasource.lance.metadata.LanceSchemaHelper;
+import org.apache.doris.datasource.lance.metadata.LanceSnapshotResolver;
 import org.apache.doris.datasource.lance.metadata.LanceTableMetadata;
 import org.apache.doris.datasource.lance.source.LanceScanNode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -54,6 +57,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.TreeMap;
@@ -67,6 +71,10 @@ abstract class LanceExternalSearchTableValuedFunction extends TableValuedFunctio
     protected static final String TOP_K = "top_k";
     protected static final String OFFSET = "offset";
     protected static final String FILTER = "filter";
+    protected static final String VERSION = "version";
+    protected static final String TIMESTAMP = "timestamp";
+    protected static final String TAG = "tag";
+    protected static final String BRANCH = "branch";
 
     private static final String FULLY_QUALIFIED_TABLE_NAME_ERROR =
             "'table' must be a fully qualified catalog.database.table name";
@@ -74,6 +82,7 @@ abstract class LanceExternalSearchTableValuedFunction extends TableValuedFunctio
     /** A trailing @tag/@branch/... or FOR VERSION/TIME AS OF on the 'table' argument. */
     private static final Pattern SELECTOR_SUFFIX = Pattern.compile(
             "(?i)(@\\s*(tag|branch|incr|options)\\b|\\sfor\\s+(version|time)\\b)");
+    private static final Pattern POSITIVE_INTEGER = Pattern.compile("[0-9]+");
 
     private final String displayName;
     private final TableName sourceTableName;
@@ -165,11 +174,12 @@ abstract class LanceExternalSearchTableValuedFunction extends TableValuedFunctio
             String displayName, String searchDescription, boolean loadIndexMetadata)
             throws AnalysisException {
         TableName sourceTableName = parseTableName(required(params, TABLE, functionName));
+        LanceRefSelector selector = parseSelector(params);
         LanceExternalTable sourceTable = findLanceExternalTable(sourceTableName);
         LanceTableMetadata metadata;
         try {
             metadata = loadIndexMetadata
-                    ? sourceTable.loadMetadataForSearch() : sourceTable.loadBasicMetadata();
+                    ? sourceTable.loadMetadataForSearch(selector) : sourceTable.loadBasicMetadata(selector);
         } catch (RuntimeException e) {
             throw new AnalysisException("Failed to load Lance metadata for " + searchDescription
                     + " on " + sourceTableName + ": " + e.getMessage(), e);
@@ -262,14 +272,83 @@ abstract class LanceExternalSearchTableValuedFunction extends TableValuedFunctio
     }
 
     /**
-     * The search TVFs always read the latest version of the main chain. A name that only fails to
-     * parse because it carries a selector gets a message saying so; a backquoted name containing
-     * '@' or ' for ' parses and is never affected.
+     * The snapshot the 'version', 'timestamp', 'tag' and 'branch' properties select, under the
+     * rules of FOR VERSION AS OF, FOR TIME AS OF, @tag and @branch on a Lance table: a tag
+     * determines both its branch and its version, so it stands alone, and a version or a time
+     * selects within a branch, the main chain by default. Unlike FOR VERSION AS OF, 'version' does
+     * not take a tag name, which 'tag' names without ambiguity. No selector property selects the
+     * latest version of the main chain. Errors name the properties, and a selector the catalog
+     * cannot resolve later fails rather than falling back to the latest version.
+     */
+    static LanceRefSelector parseSelector(Map<String, String> params) throws AnalysisException {
+        Optional<String> version = selectorProperty(params, VERSION);
+        Optional<String> timestamp = selectorProperty(params, TIMESTAMP);
+        Optional<String> tag = selectorProperty(params, TAG);
+        Optional<String> branch = selectorProperty(params, BRANCH);
+        if (version.isPresent() && timestamp.isPresent()) {
+            throw new AnalysisException("'" + VERSION + "' and '" + TIMESTAMP + "' are mutually exclusive");
+        }
+        if (tag.isPresent()) {
+            for (String other : new String[] {VERSION, TIMESTAMP, BRANCH}) {
+                if (params.containsKey(other)) {
+                    throw new AnalysisException("'" + TAG + "' and '" + other + "' are mutually exclusive;"
+                            + " a tag already determines its branch and version");
+                }
+            }
+            return LanceRefSelector.tag(tag.get());
+        }
+        Optional<TableSnapshot> snapshot = Optional.empty();
+        if (version.isPresent()) {
+            snapshot = Optional.of(TableSnapshot.versionOf(String.valueOf(parseVersion(version.get()))));
+        } else if (timestamp.isPresent()) {
+            if (!LanceSnapshotResolver.parseTimestamp(timestamp.get()).isPresent()) {
+                throw new AnalysisException("'" + TIMESTAMP + "' must be " + LanceSnapshotResolver.TIMESTAMP_FORMATS
+                        + " in the session time zone, but was '" + timestamp.get() + "'");
+            }
+            snapshot = Optional.of(TableSnapshot.timeOf(timestamp.get()));
+        }
+        return branch.isPresent()
+                ? LanceRefSelector.branch(branch.get(), snapshot) : LanceRefSelector.snapshot(snapshot);
+    }
+
+    /** A selector property's trimmed value. An empty one is an error, not an absent selector. */
+    private static Optional<String> selectorProperty(Map<String, String> params, String key)
+            throws AnalysisException {
+        String value = params.get(key);
+        if (value == null) {
+            return Optional.empty();
+        }
+        if (value.trim().isEmpty()) {
+            throw new AnalysisException("'" + key + "' must not be empty");
+        }
+        return Optional.of(value.trim());
+    }
+
+    private static long parseVersion(String value) throws AnalysisException {
+        String error = "'" + VERSION + "' must be a positive integer, but was '" + value + "'";
+        if (!POSITIVE_INTEGER.matcher(value).matches()) {
+            throw new AnalysisException(error);
+        }
+        long version;
+        try {
+            version = Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("'" + VERSION + "' " + value + " is out of range");
+        }
+        if (version <= 0) {
+            throw new AnalysisException(error);
+        }
+        return version;
+    }
+
+    /**
+     * A name that only fails to parse because it carries a selector gets a message pointing to the
+     * selector properties; a backquoted name containing '@' or ' for ' parses and is never affected.
      */
     private static String tableNameError(String value) {
         return SELECTOR_SUFFIX.matcher(value).find()
                 ? "'table' of a Lance search function cannot select a version, tag or branch;"
-                        + " it always searches the latest version"
+                        + " use the 'version', 'timestamp', 'tag' or 'branch' property"
                 : FULLY_QUALIFIED_TABLE_NAME_ERROR;
     }
 

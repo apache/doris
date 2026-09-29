@@ -448,6 +448,18 @@ Status get_index_segment_uuids(const std::filesystem::path& dataset_uri, const c
     return Status::OK();
 }
 
+// A split over `fragment_ids` searching the segments of `index_name`, as FE plans an indexed split;
+// BE searches a vector index only through the segments FE names.
+TFileRangeDesc make_indexed_lance_range(const std::filesystem::path& dataset_uri,
+                                        const LanceFixtureInfo& fixture,
+                                        std::vector<int64_t> fragment_ids, const char* index_name) {
+    auto range = make_lance_range(dataset_uri, fixture.version, std::move(fragment_ids));
+    std::vector<std::string> segment_uuids;
+    EXPECT_TRUE(get_index_segment_uuids(dataset_uri, index_name, &segment_uuids).ok());
+    range.table_format_params.lance_params.__set_index_segment_uuids(std::move(segment_uuids));
+    return range;
+}
+
 TFileRangeDesc make_full_text_search_range(const std::filesystem::path& dataset_uri,
                                            const LanceFixtureInfo& fixture,
                                            const char* index_name) {
@@ -880,7 +892,16 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorScoresFiltersOffsetsAndIndexed
                 }
                 LanceTableReader reader;
                 ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
-                ASSERT_TRUE(prepare_fixture(&reader, uri, fixture, fixture.fragment_ids).ok());
+                // BE searches an index only through the segments FE planned; the index covers
+                // fragment 0 and fragment 1 is searched flat in the same split.
+                auto range = make_lance_range(uri, fixture.version, fixture.fragment_ids);
+                if (indexed) {
+                    std::vector<std::string> segments;
+                    ASSERT_TRUE(get_index_segment_uuids(uri, (column + "_idx").c_str(), &segments)
+                                        .ok());
+                    range.table_format_params.lance_params.__set_index_segment_uuids(segments);
+                }
+                ASSERT_TRUE(prepare_range(&reader, range).ok());
                 Block block;
                 add_output_columns(&block, columns);
                 auto rows = read_vector_search_rows(&reader, &block);
@@ -1058,6 +1079,171 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorSegmentTopKMatchesIndependentG
     }
 }
 
+TEST(LanceTableReaderSnapshotTest, RejectsFragmentIdsMissingFromTheSnapshot) {
+    // lance-c silently skips a fragment id its snapshot lacks, which would drop rows.
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/all_types.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    const Columns search_columns {projected_column("row_id", TYPE_BIGINT, false),
+                                  projected_column("_distance", TYPE_FLOAT, true)};
+    const Columns scan_columns {projected_column("row_id", TYPE_BIGINT, false)};
+    for (const bool search : {true, false}) {
+        SCOPED_TRACE(search ? "vector search" : "normal scan");
+        RuntimeProfile profile("lance_missing_fragment");
+        auto scan_params = search ? make_float32_vector_search_params({0.0F, 0.0F, 0.0F}, 2, 0)
+                                  : TFileScanRangeParams {};
+        LanceTableReader reader;
+        ASSERT_TRUE(init_reader(&reader, search ? search_columns : scan_columns, &state, &profile,
+                                &scan_params)
+                            .ok());
+        const auto status =
+                prepare_fixture(&reader, dataset_uri, fixture, {fixture.fragment_ids[0], 999});
+        ASSERT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find(
+                          "references fragment ids [999] that Lance dataset version " +
+                          std::to_string(fixture.version) + " at " + dataset_uri.string() +
+                          " does not contain"),
+                  std::string::npos)
+                << status.to_string();
+        EXPECT_TRUE(reader.close().ok());
+    }
+
+    // Full-text search installs no fragment filter, but its fragment ids still describe the
+    // planned coverage of this snapshot.
+    const std::filesystem::path fts_uri = "./be/test/format_v2/table/lance/data/fts_indexed.lance";
+    LanceFixtureInfo fts_fixture;
+    ASSERT_TRUE(get_fixture_info(fts_uri, &fts_fixture).ok());
+    RuntimeProfile fts_profile("lance_missing_fragment_fts");
+    auto fts_params = make_full_text_search_params("lance", 2, 0);
+    const Columns fts_columns {projected_column("row_id", TYPE_BIGINT, false),
+                               projected_column("_score", TYPE_FLOAT, true)};
+    LanceTableReader fts_reader;
+    ASSERT_TRUE(init_reader(&fts_reader, fts_columns, &state, &fts_profile, &fts_params).ok());
+    auto fts_range = make_full_text_search_range(fts_uri, fts_fixture, "body_fts");
+    fts_range.table_format_params.lance_params.fragment_ids.push_back(999);
+    const auto fts_status = prepare_range(&fts_reader, fts_range);
+    ASSERT_FALSE(fts_status.ok());
+    EXPECT_NE(fts_status.to_string().find("references fragment ids [999]"), std::string::npos)
+            << fts_status.to_string();
+    EXPECT_TRUE(fts_reader.close().ok());
+}
+
+TEST(LanceTableReaderSnapshotTest, RejectsSearchSplitsAndRowIdFetchesWithoutFixedVersion) {
+    // Version 0 opens the latest version, which is not the snapshot FE planned.
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/all_types.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false),
+                           projected_column("_distance", TYPE_FLOAT, true)};
+    for (const int64_t version : {int64_t {0}, int64_t {-1}, int64_t {-2}}) {
+        // -2 stands for a version FE never set.
+        const bool unset = version == -2;
+        RuntimeProfile profile("lance_unpinned_search");
+        auto scan_params = make_float32_vector_search_params({0.0F, 0.0F, 0.0F}, 2, 0);
+        LanceTableReader reader;
+        ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+        auto range = make_lance_range(dataset_uri, version, fixture.fragment_ids);
+        if (unset) {
+            range.table_format_params.lance_params.__isset.version = false;
+        }
+        const auto status = prepare_range(&reader, range);
+        ASSERT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find(std::string("Lance search split requires a fixed "
+                                                      "positive dataset version, but got ") +
+                                          (unset ? std::string("none") : std::to_string(version))),
+                  std::string::npos)
+                << status.to_string();
+        EXPECT_TRUE(reader.close().ok());
+    }
+
+    RuntimeProfile fetch_profile("lance_unpinned_fetch");
+    TFileScanRangeParams scan_params;
+    const Columns payload_columns {projected_column("row_id", TYPE_BIGINT, false)};
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, payload_columns, &state, &fetch_profile, &scan_params).ok());
+    Block block;
+    add_output_columns(&block, payload_columns);
+    const auto status = reader.read_by_row_ids(
+            make_lance_range(dataset_uri, 0, fixture.fragment_ids), {0}, &block);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find(
+                      "Lance row-id fetch requires a fixed positive dataset version, but got 0"),
+              std::string::npos)
+            << status.to_string();
+    EXPECT_TRUE(reader.close().ok());
+}
+
+TEST(LanceTableReaderSnapshotTest, ProfileShowsTheSnapshotRead) {
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/all_types.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_snapshot_profile");
+    auto scan_params = make_float32_vector_search_params({0.0F, 0.0F, 0.0F}, 2, 0);
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false),
+                           projected_column("_distance", TYPE_FLOAT, true)};
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+    // A query string may carry credentials, so the profile leaves it out.
+    auto range = make_lance_range(dataset_uri, fixture.version, fixture.fragment_ids);
+    ASSERT_TRUE(prepare_range(&reader, range).ok());
+    const auto* version = profile.get_info_string("LanceDatasetVersion");
+    ASSERT_NE(nullptr, version);
+    EXPECT_EQ(std::to_string(fixture.version), *version);
+    const auto* uri = profile.get_info_string("LanceDatasetUri");
+    ASSERT_NE(nullptr, uri);
+    EXPECT_EQ(dataset_uri.string(), *uri);
+    EXPECT_TRUE(reader.close().ok());
+
+    // A scan of version 0 opens the latest version, and the profile shows which one that was.
+    RuntimeProfile latest_profile("lance_snapshot_profile_latest");
+    TFileScanRangeParams normal_params;
+    const Columns normal_columns {projected_column("row_id", TYPE_BIGINT, false)};
+    LanceTableReader latest_reader;
+    ASSERT_TRUE(init_reader(&latest_reader, normal_columns, &state, &latest_profile, &normal_params)
+                        .ok());
+    ASSERT_TRUE(prepare_range(&latest_reader, make_latest_lance_range(dataset_uri)).ok());
+    const auto* latest_version = latest_profile.get_info_string("LanceDatasetVersion");
+    ASSERT_NE(nullptr, latest_version);
+    EXPECT_EQ(std::to_string(fixture.version), *latest_version);
+    EXPECT_TRUE(latest_reader.close().ok());
+}
+
+TEST(LanceTableReaderSnapshotTest, OpenErrorsNameTheVersionWithoutTheQueryString) {
+    const std::filesystem::path dataset_uri =
+            "./be/test/format_v2/table/lance/data/all_types.lance";
+    LanceFixtureInfo fixture;
+    ASSERT_TRUE(get_fixture_info(dataset_uri, &fixture).ok());
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    RuntimeProfile profile("lance_open_error");
+    auto scan_params = make_float32_vector_search_params({0.0F, 0.0F, 0.0F}, 2, 0);
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false),
+                           projected_column("_distance", TYPE_FLOAT, true)};
+    LanceTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+    // The query string stands for credentials a URI may carry; Doris's own prefix leaves it out.
+    // What lance-c reports after the prefix is its own message.
+    auto range = make_lance_range(dataset_uri, 999, fixture.fragment_ids);
+    range.table_format_params.lance_params.__set_dataset_uri(dataset_uri.string() +
+                                                             "?secret=hidden");
+    const auto status = prepare_range(&reader, range);
+    ASSERT_FALSE(status.ok());
+    EXPECT_NE(
+            status.to_string().find("Lance dataset version 999 at " + dataset_uri.string() + ": "),
+            std::string::npos)
+            << status.to_string();
+    EXPECT_TRUE(reader.close().ok());
+}
+
 TEST(LanceTableReaderVectorSearchTest, MultiVectorTopOnePreservesPrecisionAndBatchIndependence) {
     const std::filesystem::path uri = "./be/test/format_v2/table/lance/data/multivector.lance";
     LanceFixtureInfo fixture;
@@ -1093,7 +1279,12 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorTopOnePreservesPrecisionAndBat
             RuntimeProfile profile("multi_vector_top_one");
             LanceTableReader reader;
             ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
-            ASSERT_TRUE(prepare_fixture(&reader, uri, fixture, fixture.fragment_ids).ok());
+            ASSERT_TRUE(prepare_range(&reader, indexed ? make_indexed_lance_range(
+                                                                 uri, fixture, fixture.fragment_ids,
+                                                                 "batch_vectors_idx")
+                                                       : make_lance_range(uri, fixture.version,
+                                                                          fixture.fragment_ids))
+                                .ok());
             Block block;
             add_output_columns(&block, columns);
             auto rows = read_vector_search_rows(&reader, &block);
@@ -1102,6 +1293,7 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorTopOnePreservesPrecisionAndBat
             EXPECT_NEAR(indexed ? 2.0F - std::sqrt(2.0F) : 1e-8F, rows[0].second,
                         indexed ? 1e-6F : 1e-13F);
             EXPECT_TRUE(reader.close().ok());
+            EXPECT_EQ(indexed, profile.get_counter("LanceIVFPartitionsSearched")->value() > 0);
         }
     }
 }
@@ -1136,7 +1328,12 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorCosineMasksUndefinedRows) {
             RuntimeProfile profile("multi_vector_cosine_zero_norm");
             LanceTableReader reader;
             ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &params).ok());
-            ASSERT_TRUE(prepare_fixture(&reader, uri, fixture, fixture.fragment_ids).ok());
+            ASSERT_TRUE(prepare_range(&reader, indexed ? make_indexed_lance_range(
+                                                                 uri, fixture, fixture.fragment_ids,
+                                                                 "vectors_idx")
+                                                       : make_lance_range(uri, fixture.version,
+                                                                          fixture.fragment_ids))
+                                .ok());
             Block block;
             add_output_columns(&block, columns);
             auto rows = read_vector_search_rows(&reader, &block);
@@ -1147,6 +1344,7 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorCosineMasksUndefinedRows) {
                                : std::vector<std::pair<int64_t, float>> {{2, 1}, {3, 1}};
             EXPECT_EQ(expected, rows);
             EXPECT_TRUE(reader.close().ok());
+            EXPECT_EQ(indexed, profile.get_counter("LanceIVFPartitionsSearched")->value() > 0);
         }
     }
 }
@@ -1220,7 +1418,8 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorRejectsActualNullAndNonFiniteE
             bool eos = false;
             auto status = reader.get_block(&block, &eos);
             EXPECT_FALSE(status.ok());
-            EXPECT_NE(status.to_string().find("finite, non-null elements"), std::string::npos);
+            EXPECT_NE(status.to_string().find("finite, non-null elements"), std::string::npos)
+                    << status.to_string();
             EXPECT_TRUE(reader.close().ok());
         }
     }
