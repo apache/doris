@@ -614,7 +614,7 @@ public class PipelineCoordinator {
                     } catch (Exception e) {
                         throw new SourceRecordProcessingException(
                                 formatSourceRecordFailure(
-                                        "Failed to deserialize source record", element, e),
+                                        "Failed to deserialize source record", element, e, false),
                                 e);
                     }
 
@@ -634,7 +634,7 @@ public class PipelineCoordinator {
                         } catch (Exception e) {
                             throw new SourceRecordProcessingException(
                                     formatSourceRecordFailure(
-                                            "Failed to execute Doris DDL", element, e),
+                                            "Failed to execute Doris DDL", element, e, true),
                                     e);
                         }
                         hasExecuteDDL = true;
@@ -825,7 +825,8 @@ public class PipelineCoordinator {
         return value.getStruct(Envelope.FieldName.SOURCE).getString("table");
     }
 
-    static String formatSourceRecordFailure(String action, SourceRecord record, Throwable failure) {
+    static String formatSourceRecordFailure(
+            String action, SourceRecord record, Throwable failure, boolean includeSourceOffset) {
         try {
             StringBuilder message = new StringBuilder(action);
             String reason = ExceptionUtils.getMessage(failure);
@@ -844,7 +845,11 @@ public class PipelineCoordinator {
                     message.append(". Source table: ").append(table);
                 }
             }
-            if (record.sourceOffset() != null && !record.sourceOffset().isEmpty()) {
+            // Deserialization can fail before buffered rows are flushed. Its offset must not
+            // be exposed as a recovery position that could skip those rows.
+            if (includeSourceOffset
+                    && record.sourceOffset() != null
+                    && !record.sourceOffset().isEmpty()) {
                 String sourceOffset = objectMapper.valueToTree(record.sourceOffset()).toString();
                 message.append(". Source offset: ").append(sourceOffset);
             }
