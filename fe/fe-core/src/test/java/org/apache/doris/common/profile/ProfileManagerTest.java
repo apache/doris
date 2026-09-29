@@ -471,7 +471,7 @@ class ProfileManagerTest {
         // Clean profile
         profileManager.cleanProfile();
         // Make sure map is cleaned.
-        Assertions.assertTrue(profileManager.queryIdToProfileMap.isEmpty());
+        Assertions.assertTrue(profileManager.profileIdToProfileMap.isEmpty());
         Assertions.assertTrue(profileManager.queryIdToExecutionProfiles.isEmpty());
     }
 
@@ -534,7 +534,7 @@ class ProfileManagerTest {
 
             profileManager.loadProfilesFromStorageIfFirstTime(true);
             Assertions.assertEquals(ProfileLoadStatus.LOADED, profileManager.profileLoadStatus.get());
-            Assertions.assertEquals(30, profileManager.queryIdToProfileMap.size());
+            Assertions.assertEquals(30, profileManager.profileIdToProfileMap.size());
             Assertions.assertEquals(0, profileManager.queryIdToExecutionProfiles.size());
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
@@ -606,7 +606,7 @@ class ProfileManagerTest {
         File[] files = tempDir.listFiles();
         assert files != null;
         Assertions.assertEquals(30, files.length);
-        Assertions.assertEquals(30, profileManager.queryIdToProfileMap.size());
+        Assertions.assertEquals(30, profileManager.profileIdToProfileMap.size());
         Assertions.assertEquals(0, profileManager.queryIdToExecutionProfiles.size());
     }
 
@@ -690,7 +690,7 @@ class ProfileManagerTest {
             profileManager.deleteOutdatedProfilesFromStorage();
 
             // Verify correct profiles were deleted
-            Assertions.assertEquals(10, profileManager.queryIdToProfileMap.size());
+            Assertions.assertEquals(10, profileManager.profileIdToProfileMap.size());
             for (int j = 0; j < spyProfiles.size(); j++) {
                 Mockito.verify(spyProfiles.get(j), Mockito.times(j < 20 ? 1 : 0)).deleteFromStorage();
             }
@@ -800,7 +800,7 @@ class ProfileManagerTest {
         profileManager.loadProfilesFromStorageIfFirstTime(true);
 
         // Verify all profiles are loaded
-        Assertions.assertEquals(numProfiles, profileManager.queryIdToProfileMap.size());
+        Assertions.assertEquals(numProfiles, profileManager.profileIdToProfileMap.size());
     }
 
     @Test
@@ -938,11 +938,11 @@ class ProfileManagerTest {
         profileManager.deleteOutdatedProfilesFromMemory(0);
 
         // Verify memory profile count is within limit
-        Assertions.assertEquals(Config.max_query_profile_num, profileManager.queryIdToProfileMap.size());
+        Assertions.assertEquals(Config.max_query_profile_num, profileManager.profileIdToProfileMap.size());
 
         // Verify newest profiles are kept
         for (String profileId : profilesToKeep) {
-            Assertions.assertTrue(profileManager.queryIdToProfileMap.containsKey(profileId));
+            Assertions.assertTrue(profileManager.profileIdToProfileMap.containsKey(profileId));
         }
     }
 
@@ -964,13 +964,13 @@ class ProfileManagerTest {
             profileManager.pushProfile(profile);
         }
         // Verify profile count
-        Assertions.assertEquals(3, profileManager.queryIdToProfileMap.size());
+        Assertions.assertEquals(3, profileManager.profileIdToProfileMap.size());
 
         // Try to delete outdated profiles
         profileManager.deleteOutdatedProfilesFromMemory(0);
 
         // Verify no profiles were deleted
-        Assertions.assertEquals(3, profileManager.queryIdToProfileMap.size());
+        Assertions.assertEquals(3, profileManager.profileIdToProfileMap.size());
 
         for (int i = 3; i < 5; i++) {
             Profile profile = profiles.get(i);
@@ -980,17 +980,17 @@ class ProfileManagerTest {
         for (int i = 0; i < 5; i++) {
             Profile profile = profiles.get(i);
             if (i <= 1) {
-                Assertions.assertFalse(profileManager.queryIdToProfileMap.containsKey(profile.getId()));
+                Assertions.assertFalse(profileManager.profileIdToProfileMap.containsKey(profile.getId()));
             } else {
-                Assertions.assertTrue(profileManager.queryIdToProfileMap.containsKey(profile.getId()));
+                Assertions.assertTrue(profileManager.profileIdToProfileMap.containsKey(profile.getId()));
             }
         }
 
         profiles.clear();
 
-        Assertions.assertEquals(3, profileManager.queryIdToProfileMap.size());
+        Assertions.assertEquals(3, profileManager.profileIdToProfileMap.size());
         for (Profile profile : profiles) {
-            Assertions.assertTrue(profileManager.queryIdToProfileMap.containsKey(profile.getId()));
+            Assertions.assertTrue(profileManager.profileIdToProfileMap.containsKey(profile.getId()));
         }
     }
 
@@ -1023,10 +1023,10 @@ class ProfileManagerTest {
 
         // Verify unfinished profile was not deleted
         for (Profile profile : profileUnfinished) {
-            Assertions.assertTrue(profileManager.queryIdToProfileMap.containsKey(profile.getId()));
+            Assertions.assertTrue(profileManager.profileIdToProfileMap.containsKey(profile.getId()));
         }
 
-        Assertions.assertEquals(5, profileManager.queryIdToProfileMap.size());
+        Assertions.assertEquals(5, profileManager.profileIdToProfileMap.size());
 
         profileFinished.clear();
         for (int i = 0; i < 5; i++) {
@@ -1041,7 +1041,7 @@ class ProfileManagerTest {
 
         // Verify unfinished profile was not deleted
         for (Profile profile : profileUnfinished) {
-            Assertions.assertTrue(profileManager.queryIdToProfileMap.containsKey(profile.getId()));
+            Assertions.assertTrue(profileManager.profileIdToProfileMap.containsKey(profile.getId()));
         }
     }
 
