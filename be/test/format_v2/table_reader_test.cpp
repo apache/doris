@@ -144,7 +144,8 @@ TEST(LocalColumnIndexTest, MergeUnionsPartialChildrenAndFullProjectionDominates)
     full_source.children.back().timestamp_is_adjusted_to_utc = true;
     ASSERT_TRUE(merge_local_column_index(&target, full_source).ok());
     ASSERT_TRUE(target.project_all_children);
-    ASSERT_EQ(std::vector<int32_t>({1, 2, 3, 4}), projection_ids(target.children));
+    // The full projection makes selection-only children redundant, but child 4 carries semantics.
+    ASSERT_EQ(std::vector<int32_t>({4}), projection_ids(target.children));
     ASSERT_TRUE(target.children.back().timestamp_is_adjusted_to_utc.has_value());
     EXPECT_TRUE(*target.children.back().timestamp_is_adjusted_to_utc);
 

@@ -2374,14 +2374,16 @@ TEST_F(NewParquetReaderTest, ReadsStructPredicateChildBeforeDeferredRootOutput) 
 }
 
 // Scenario: a Paimon ROW<crow1 TIMESTAMP, crow2 TIMESTAMP_LTZ> stored as INT96. INT96 alone
-// cannot separate the two logical types, so both children arrive as TIMESTAMPTZ and only the
+// cannot separate the two logical types, so both children arrive as DATETIMEV2 and only the
 // per-child semantic on the projection says which one really is. The reader must honour it on
 // every child the projection names, including on a projection that selects the whole struct --
 // that is the form a filter-only nested path leaves behind once it is merged with the output
 // projection of the same root, and the form the file block column is built from.
 TEST_F(NewParquetReaderTest, WholeStructInt96HonoursPerChildTimestampSemantics) {
     write_struct_int96_timestamp_parquet_file(_file_path);
-    auto reader = create_reader(0, -1, nullptr, /*enable_mapping_timestamp_tz=*/true);
+    // Paimon keeps INT96 wall-clock values; an absent override would use the session timezone.
+    auto reader = create_reader(0, -1, nullptr, /*enable_mapping_timestamp_tz=*/true, nullptr,
+                                std::nullopt, false, false, {}, 0, std::string {});
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     state.set_timezone("Asia/Shanghai");
     ASSERT_TRUE(reader->init(&state).ok());
@@ -2390,8 +2392,8 @@ TEST_F(NewParquetReaderTest, WholeStructInt96HonoursPerChildTimestampSemantics) 
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     ASSERT_EQ(schema.size(), 1);
     ASSERT_EQ(schema[0].children.size(), 2);
-    EXPECT_EQ(remove_nullable(schema[0].children[0].type)->get_primitive_type(), TYPE_TIMESTAMPTZ);
-    EXPECT_EQ(remove_nullable(schema[0].children[1].type)->get_primitive_type(), TYPE_TIMESTAMPTZ);
+    EXPECT_EQ(remove_nullable(schema[0].children[0].type)->get_primitive_type(), TYPE_DATETIMEV2);
+    EXPECT_EQ(remove_nullable(schema[0].children[1].type)->get_primitive_type(), TYPE_DATETIMEV2);
 
     auto projection =
             format::LocalColumnIndex::top_level(format::LocalColumnId(schema[0].local_id));
