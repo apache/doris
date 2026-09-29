@@ -58,9 +58,9 @@ public:
     virtual Status init();
     const std::shared_ptr<arrow::Schema>& arrow_schema() const { return _arrow_schema; }
 
-    Status convert_to_arrow(const Block& block, arrow::MemoryPool* pool,
-                            std::shared_ptr<arrow::RecordBatch>* result, size_t start_row = 0,
-                            size_t end_row = 0) const;
+    virtual Status convert_to_arrow(const Block& block, arrow::MemoryPool* pool,
+                                    std::shared_ptr<arrow::RecordBatch>* result,
+                                    size_t start_row = 0, size_t end_row = 0) const;
 
     virtual Status convert_from_arrow(const std::shared_ptr<arrow::RecordBatch>& batch,
                                       const DataTypes& types, Block* block) const;
@@ -115,6 +115,10 @@ private:
 class ArrowFlightArrowBlockConvertor final : public DorisArrowBlockConvertor {
 public:
     using DorisArrowBlockConvertor::DorisArrowBlockConvertor;
+
+    Status convert_to_arrow(const Block& block, arrow::MemoryPool* pool,
+                            std::shared_ptr<arrow::RecordBatch>* result, size_t start_row = 0,
+                            size_t end_row = 0) const override;
 };
 
 class PythonArrowBlockConvertor final : public DorisArrowBlockConvertor {
