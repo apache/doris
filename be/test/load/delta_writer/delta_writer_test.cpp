@@ -913,7 +913,9 @@ TEST_F(TestDeltaWriter, LocalPublishRetainsWorkloadGroup) {
                 req.tuple_desc = tuple_desc;
                 req.slots = &tuple_desc->slots();
                 req.table_schema_param = std::make_shared<OlapTableSchemaParam>();
-                DeltaWriter writer(*engine_ref, req, &profile, UniqueId(req.load_id));
+                // Each load needs its own parent for the tablet-named writer profile.
+                RuntimeProfile load_profile("LoadChannels");
+                DeltaWriter writer(*engine_ref, req, &load_profile, UniqueId(req.load_id));
                 for (int i = 0; i < segments; ++i) {
                     Block block;
                     for (const auto* slot : tuple_desc->slots()) {
