@@ -153,6 +153,28 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
         INSERT INTO paimon.${dbName}.t_nested_evo VALUES (3, struct(30, 'z', 33));
     """
 
+    def originalSparkTimeZone = spark_paimon("SET spark.sql.session.timeZone")[0][1]
+    try {
+        spark_paimon "SET spark.sql.session.timeZone=Asia/Shanghai"
+        ["parquet", "orc"].each { format ->
+            // Legacy ORC LTZ encodes the writer JVM zone and requires the reader JVM
+            // to match it. Modern encoding keeps this routing test independent of host zones.
+            spark_paimon_multi """
+                DROP TABLE IF EXISTS paimon.${dbName}.t_ltz_${format};
+                CREATE TABLE paimon.${dbName}.t_ltz_${format} (id INT, ts_tz TIMESTAMP_LTZ)
+                    USING paimon TBLPROPERTIES (
+                        'bucket'='-1', 'file.format'='${format}',
+                        'orc.timestamp-ltz.legacy.type'='false');
+                INSERT INTO paimon.${dbName}.t_ltz_${format} VALUES
+                    (1, TIMESTAMP_LTZ '2025-01-01 00:00:00'),
+                    (2, TIMESTAMP_LTZ '2025-06-01 12:34:56.789'),
+                    (3, TIMESTAMP_LTZ '2025-12-31 23:59:59.999999'), (4, NULL);
+            """
+        }
+    } finally {
+        spark_paimon "SET spark.sql.session.timeZone=${originalSparkTimeZone}"
+    }
+
     // The s3.region property is required: paimon-rust's S3 client rejects a
     // missing region, while the JNI reader falls back to the SDK default.
     sql """drop catalog if exists ${catalogName}"""
@@ -462,67 +484,35 @@ suite("test_paimon_rust_reader_eq_for_null", "p0,external,paimon") {
                     "oversized IN filters must remain residual")
         }
 
-        // ---- TIMESTAMP_LTZ materializes as session-local civil times ----
-        // The rust reader must use the session timezone like the JNI reader,
-        // not a fixed default. The preinstalled tables were written by Spark
-        // with session timezone Asia/Shanghai, so '2025-01-01 00:00:00' wall
-        // time is the UTC instant 2024-12-31 16:00:00.
-        // The parquet preinstalled table is the true JNI/rust differential:
-        // the pinned paimon-rust crate reads ORC TIMESTAMP_LTZ values shifted
-        // by the writer's timezone (an upstream crate limitation), so the FE
-        // canUseRust gate in PaimonScanNode keeps ORC schemas containing LTZ
-        // columns on JNI. The ORC twin below therefore exercises that gate:
-        // with the rust reader enabled, its logical DataSplits (this suite runs
-        // with force_jni_scanner=true, so raw conversion is bypassed) must
-        // fall back to the JNI reader — verified through the profile — and
-        // return the same session-local civil times as the parquet
-        // differential.
-        sql """set time_zone='+00:00'"""
-        sql """set enable_paimon_rust_reader=false"""
-        def jniLtzUtc = sql """select * from paimon_test_timestamp_tz.test_ice_timestamp_tz_parquet order by id"""
-        sql """set enable_paimon_rust_reader=true"""
-        def rustLtzUtc = sql """select * from paimon_test_timestamp_tz.test_ice_timestamp_tz_parquet order by id"""
-        assertEquals(jniLtzUtc.toString(), rustLtzUtc.toString())
-        assertTrue(rustLtzUtc.toString().contains("2024-12-31T16:00"),
-                "rust reader must materialize LTZ in the session timezone")
-
-        sql """set time_zone='+08:00'"""
-        sql """set enable_paimon_rust_reader=false"""
-        def jniLtzSh = sql """select * from paimon_test_timestamp_tz.test_ice_timestamp_tz_parquet order by id"""
-        sql """set enable_paimon_rust_reader=true"""
-        def rustLtzSh = sql """select * from paimon_test_timestamp_tz.test_ice_timestamp_tz_parquet order by id"""
-        assertEquals(jniLtzSh.toString(), rustLtzSh.toString())
-        assertTrue(rustLtzSh.toString().contains("2025-01-01T00:00"))
-
-        // ---- ORC TIMESTAMP_LTZ rides the JNI fallback when rust is enabled ----
-        // The ORC twin holds the same rows as the parquet table above. Without
-        // the FE gate, a rust-enabled scan of it would decode LTZ instants
-        // shifted by the writer timezone and diverge from the parquet
-        // differential; with the gate, the split opens the JNI reader and the
-        // results match — in both session timezones. The profile of the
-        // rust-enabled leg must not carry the rust reader's timer: that is
-        // the gate verified end to end.
-        sql """set time_zone='+00:00'"""
-        sql """set enable_paimon_rust_reader=false"""
-        def jniOrcLtzUtc = sql """select * from paimon_test_timestamp_tz.test_ice_timestamp_tz_orc order by id"""
-        sql """set enable_paimon_rust_reader=true"""
-        def rustOrcLtzUtc = sql """select * from paimon_test_timestamp_tz.test_ice_timestamp_tz_orc order by id"""
-        assertEquals(jniOrcLtzUtc.toString(), rustOrcLtzUtc.toString())
-        assertEquals(jniLtzUtc.toString(), rustOrcLtzUtc.toString(),
-                "ORC twin must match the parquet differential in UTC")
-        assertTrue(rustOrcLtzUtc.toString().contains("2024-12-31T16:00"),
-                "gated ORC LTZ scan must materialize LTZ in the session timezone")
-        def rustOrcProfile = profileTextOf(
-                """select * from paimon_test_timestamp_tz.test_ice_timestamp_tz_orc order by id""")
-        assertFalse(rustOrcProfile.contains("PaimonRustReader"),
-                "ORC LTZ scan must fall back to the JNI reader when rust is enabled")
-
-        sql """set time_zone='+08:00'"""
-        sql """set enable_paimon_rust_reader=true"""
-        def rustOrcLtzSh = sql """select * from paimon_test_timestamp_tz.test_ice_timestamp_tz_orc order by id"""
-        assertEquals(jniLtzSh.toString(), rustOrcLtzSh.toString(),
-                "ORC twin must match the parquet differential in Asia/Shanghai")
-        assertTrue(rustOrcLtzSh.toString().contains("2025-01-01T00:00"))
+        // LTZ now maps to TIMESTAMPTZ. Compare SQL strings, including the offset and
+        // microseconds, instead of depending on a JDBC temporal object's toString format.
+        def ltzExpected = [
+            "+00:00": [[1, "2024-12-31 16:00:00.000000+00:00"],
+                       [2, "2025-06-01 04:34:56.789000+00:00"],
+                       [3, "2025-12-31 15:59:59.999999+00:00"], [4, null]],
+            "+08:00": [[1, "2025-01-01 00:00:00.000000+08:00"],
+                       [2, "2025-06-01 12:34:56.789000+08:00"],
+                       [3, "2025-12-31 23:59:59.999999+08:00"], [4, null]]
+        ]
+        ltzExpected.each { zone, expected ->
+            sql "set time_zone='${zone}'"
+            ["parquet", "orc"].each { format ->
+                String query = """select id, cast(ts_tz as string)
+                    from t_ltz_${format} order by id"""
+                sql "set enable_paimon_rust_reader=false"
+                def baseline = sql(query)
+                assertEquals(expected.toString(), baseline.toString(), "JNI ${format} ${zone}")
+                sql "set enable_paimon_rust_reader=true"
+                def actual = sql(query)
+                assertEquals(expected.toString(), actual.toString(), "Rust-enabled ${format} ${zone}")
+                assertEquals(baseline.toString(), actual.toString())
+                // Forced logical splits must exercise Rust for Parquet and JNI for ORC:
+                // the ORC LTZ compatibility gate conservatively covers both encodings.
+                def profile = profileTextOf(query)
+                assertEquals(format == "parquet", profile.contains("PaimonRustReader"),
+                        "LTZ reader routing for ${format} ${zone}")
+            }
+        }
 
         // ---- NTZ keeps wall-clock semantics under any session timezone ----
         // t_frac_ts is Spark TIMESTAMP_NTZ -> Paimon TIMESTAMP (wall clock,

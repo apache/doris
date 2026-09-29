@@ -132,8 +132,9 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
 
         createPk("nested_values", "v STRUCT<a:INT,b:INT>, arr ARRAY<STRUCT<a:INT,b:INT>>, "
                 + "m MAP<INT,STRUCT<a:INT,b:INT>>", "")
+        // Bracket array literals accept constants only; nested expressions need the array constructor.
         sql """INSERT INTO nested_values VALUES (1, named_struct('a',11,'b',22),
-            [named_struct('a',33,'b',44)], map(1,named_struct('a',55,'b',66)))"""
+            array(named_struct('a',33,'b',44)), map(1,named_struct('a',55,'b',66)))"""
         check("select id from nested_values", [[1]], true)
         // Distinct siblings expose ordinal decoding of a pruned second child.
         check("select struct_element(v,'b') from nested_values", [[22]], false)
@@ -182,6 +183,11 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
             def name = "single_file_merge_${index}"
             createPk(name, "v INT", ", 'merge-engine'='${engine}'")
             sql "INSERT INTO ${name} VALUES (1,11)"
+            if (engine == "first-row") {
+                // Paimon hides first-row level-0 files until compaction has deduplicated them.
+                spark_paimon """CALL paimon.sys.compact(
+                    table => '${database}.${name}', compact_strategy => 'full')"""
+            }
             check("select id,v from ${name} order by id", [[1,11]], true)
         }
 
@@ -198,8 +204,9 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
                 def name = "partial_default_${decimal}_${override}"
                 def type = decimal ? "DECIMAL(2,0)" : "TINYINT"
                 def first = decimal ? 99 : 127
-                def extra = ", 'merge-engine'='partial-update', 'fields.seq.sequence-group'='v', "
-                        + "'fields.default-aggregate-function'='sum'"
+                // Keep the trailing operator so Groovy continues the assignment across lines.
+                def extra = ", 'merge-engine'='partial-update', 'fields.seq.sequence-group'='v', " +
+                        "'fields.default-aggregate-function'='sum'"
                 if (override) {
                     extra += ", 'fields.v.aggregate-function'='max'"
                 }
@@ -218,8 +225,8 @@ suite("test_paimon_rust_reader_compatibility", "p0,external,paimon") {
 
         ["aggregation", "partial-update"].eachWithIndex { engine, index ->
             def name = "unused_default_${index}"
-            def extra = ", 'merge-engine'='${engine}', 'fields.default-aggregate-function'='collect', "
-                    + "'fields.v.aggregate-function'='max'"
+            def extra = ", 'merge-engine'='${engine}', 'fields.default-aggregate-function'='collect', " +
+                    "'fields.v.aggregate-function'='max'"
             boolean partial = engine == "partial-update"
             if (partial) {
                 extra += ", 'fields.seq.sequence-group'='v'"
