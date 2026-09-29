@@ -24,6 +24,7 @@
 
 #include "common/status.h"
 #include "core/block/block.h"
+#include "core/custom_allocator.h"
 #include "exprs/aggregate/aggregate_function.h"
 
 namespace doris {
@@ -45,7 +46,7 @@ struct AnalyticSpillBatch {
     std::vector<Block> blocks;
     SpillFileSPtr data_file;
 
-    std::vector<int64_t> peer_group_ends;
+    DorisVector<int64_t> peer_group_ends;
     SpillFileSPtr peer_group_file;
 
     std::vector<int64_t> partition_ends;
@@ -107,7 +108,7 @@ private:
     // Small Blocks appended after the first spill, written once they reach the spill buffer size.
     MutableBlock _write_buffer;
 
-    std::vector<int64_t> _peer_group_ends;
+    DorisVector<int64_t> _peer_group_ends;
     SpillFileSPtr _peer_group_file;
     SpillFileWriterSPtr _peer_group_writer;
 };
