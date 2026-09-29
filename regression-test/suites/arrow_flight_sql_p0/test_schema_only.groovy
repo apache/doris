@@ -79,6 +79,7 @@ suite("test_schema_only", "arrow_flight_sql") {
                         ["SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME FROM information_schema.tables WHERE 1=0",
                          ["TABLE_CATALOG", "TABLE_SCHEMA", "TABLE_NAME"],
                          [new ArrowType.Utf8(), new ArrowType.Utf8(), new ArrowType.Utf8()]],
+                        ["SELECT group_concat_state('x') AS state", ["state"], [new ArrowType.Utf8()]],
                         [showTimeout, ["Variable_name", "Value", "Default_Value", "Changed"],
                          [new ArrowType.Utf8(), new ArrowType.Utf8(), new ArrowType.Utf8(), new ArrowType.Utf8()]]
                 ]
@@ -131,6 +132,49 @@ suite("test_schema_only", "arrow_flight_sql") {
                         assertEquals(originalTimeout, readTimeout())
                     }
                 }
+
+                assertEquals(6, prepareSchema("SHOW FRONTEND CONFIG").getFields().size())
+                assertEquals(prepareSchema("SHOW PROC '/'"), client.getExecuteSchema("SHOW PROC '/'", options).getSchema())
+                ["SHOW PYTHON PACKAGES IN '3.11'", "SHOW QUERY STATS"].each { query ->
+                    [true, false].each { preparedRoute ->
+                        FlightRuntimeException failure = null
+                        try {
+                            if (preparedRoute) {
+                                prepareSchema(query)
+                            } else {
+                                client.getExecuteSchema(query, options)
+                            }
+                        } catch (FlightRuntimeException e) {
+                            failure = e
+                        }
+                        assertTrue(failure != null)
+                        assertEquals(FlightStatusCode.UNIMPLEMENTED, failure.status().code())
+                    }
+                }
+
+                client.execute("USE information_schema", options)
+                def prepared = client.prepare("SELECT TABLE_NAME FROM tables WHERE 1=0", options)
+                try {
+                    client.execute("USE mysql", options)
+                    // A prepared header must not silently describe a different database's table.
+                    [true, false].each { schemaRoute ->
+                        FlightRuntimeException failure = null
+                        try {
+                            if (schemaRoute) {
+                                prepared.fetchSchema(options)
+                            } else {
+                                prepared.execute(options)
+                            }
+                        } catch (FlightRuntimeException e) {
+                            failure = e
+                        }
+                        assertTrue(failure != null)
+                        assertEquals(FlightStatusCode.NOT_FOUND, failure.status().code())
+                    }
+                } finally {
+                    prepared.close(options)
+                }
+
             } finally {
                 client.closeSession(new CloseSessionRequest(), options)
             }

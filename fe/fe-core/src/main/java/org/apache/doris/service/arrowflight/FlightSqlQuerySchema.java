@@ -18,6 +18,7 @@
 package org.apache.doris.service.arrowflight;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MapType;
@@ -27,17 +28,26 @@ import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.es.EsExternalCatalog;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.parser.SqlDialectHelper;
 import org.apache.doris.nereids.rules.rewrite.CheckPrivileges;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PrepareCommandPlanner;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.DescribeCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowDataCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowPartitionsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowPythonPackagesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowQueryStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.SwitchCommand;
 import org.apache.doris.nereids.trees.plans.commands.use.UseCommand;
@@ -58,6 +68,7 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -84,7 +95,10 @@ final class FlightSqlQuerySchema {
                 context.setState(new QueryState());
                 context.setExecutor(null);
                 context.setStatementContext(null);
-                statements = new NereidsParser().parseSQL(query, context.getSessionVariable());
+                // Match execution's HTTP/plugin conversion before the dialect parser sees the SQL.
+                String converted = SqlDialectHelper.convertSqlByDialect(query, context.getSessionVariable());
+                statements = new NereidsParser().parseSQL(converted, context.getSessionVariable());
+                Map<String, String> scopedDatabases = new HashMap<>();
                 if (statements.isEmpty()) {
                     throw CallStatus.UNIMPLEMENTED.withDescription(
                             "Schema discovery requires a statement").toRuntimeException();
@@ -97,7 +111,7 @@ final class FlightSqlQuerySchema {
                                 "Schema discovery only supports USE or SWITCH before the result statement")
                                 .toRuntimeException();
                     }
-                    resolveNamespace(context, prefix);
+                    resolveNamespace(context, prefix, scopedDatabases);
                 }
                 LogicalPlanAdapter statement = (LogicalPlanAdapter) statements.get(statements.size() - 1);
                 StatementContext statementContext = statement.getStatementContext();
@@ -110,12 +124,8 @@ final class FlightSqlQuerySchema {
                 List<Field> fields = new ArrayList<>();
                 Plan plan = statement.getLogicalPlan();
                 if (plan instanceof Command) {
-                    resolveNamespace(context, plan);
-                    if (plan instanceof ShowTableCommand) {
-                        // SHOW TABLES labels include the database normally resolved when the command runs.
-                        ((ShowTableCommand) plan).validate(context);
-                    }
-                    ResultSetMetaData metadata = ((Command) plan).getResultSetMetaData();
+                    resolveNamespace(context, plan, scopedDatabases);
+                    ResultSetMetaData metadata = commandMetadata(context, (Command) plan);
                     if (metadata == null) {
                         throw CallStatus.UNIMPLEMENTED.withDescription("Command result metadata is unavailable")
                                 .toRuntimeException();
@@ -126,18 +136,20 @@ final class FlightSqlQuerySchema {
                     }
                     if (fields.isEmpty()) {
                         switch (((Command) plan).stmtType()) {
-                            case SHOW:
-                            case EXPLAIN:
-                            case CALL:
-                            case EXECUTE:
-                            case PREPARE:
+                            case SET:
+                            case USE:
+                            case SWITCH:
+                            case CREATE:
+                            case ALTER:
+                            case DROP:
+                            case TRUNCATE:
+                                // Only known no-row command categories have the protocol OK schema.
+                                fields.add(Field.nullable("StatusResult", new ArrowType.Utf8()));
+                                break;
+                            default:
                                 throw CallStatus.UNIMPLEMENTED.withDescription(
                                         "Result metadata is unavailable without executing this command")
                                         .toRuntimeException();
-                            default:
-                                // Commands without rows use this actual protocol result in executeQueryStatement.
-                                // Keeping it nonempty also prevents JDBC from selecting the unsupported update RPC.
-                                fields.add(Field.nullable("StatusResult", new ArrowType.Utf8()));
                         }
                     }
                 } else {
@@ -191,7 +203,27 @@ final class FlightSqlQuerySchema {
         }
     }
 
-    private static void resolveNamespace(ConnectContext context, Plan plan) throws Exception {
+    private static ResultSetMetaData commandMetadata(ConnectContext context, Command command) throws Exception {
+        // These getters depend on execution-time state or remote responses. Do not advertise a
+        // guessed schema, or run the command merely to discover it.
+        if (command instanceof ShowPythonPackagesCommand || command instanceof DescribeCommand
+                || command instanceof ShowDataCommand || command instanceof ShowPartitionsCommand
+                || command instanceof ShowQueryStatsCommand) {
+            throw CallStatus.UNIMPLEMENTED.withDescription("Command schema requires execution-time metadata")
+                    .toRuntimeException();
+        }
+        if (command instanceof ShowTableCommand) {
+            ((ShowTableCommand) command).validate(context);
+        } else if (command instanceof ShowCreateTableCommand) {
+            return ((ShowCreateTableCommand) command).getMetaData(context);
+        } else if (command instanceof ShowProcCommand) {
+            return ((ShowProcCommand) command).getMetaData(context);
+        }
+        return command.getResultSetMetaData();
+    }
+
+    private static void resolveNamespace(ConnectContext context, Plan plan, Map<String, String> scopedDatabases)
+            throws Exception {
         if (plan instanceof UseCommand) {
             UseCommand use = (UseCommand) plan;
             String catalog = use.getCatalogName() == null ? context.getDefaultCatalog() : use.getCatalogName();
@@ -201,6 +233,9 @@ final class FlightSqlQuerySchema {
                 throw CallStatus.UNAUTHORIZED.withDescription("Database access denied").toRuntimeException();
             }
             catalogObject.getDbOrAnalysisException(use.getDatabaseName());
+            if (use.getCatalogName() != null && !context.getDatabase().isEmpty()) {
+                scopedDatabases.put(context.getDefaultCatalog(), context.getDatabase());
+            }
             context.changeDefaultCatalog(catalog);
             context.setDatabase(use.getDatabaseName());
         } else if (plan instanceof SwitchCommand) {
@@ -209,11 +244,27 @@ final class FlightSqlQuerySchema {
                     .checkCtlPriv(context, catalog, PrivPredicate.SHOW)) {
                 throw CallStatus.UNAUTHORIZED.withDescription("Catalog access denied").toRuntimeException();
             }
+            // Mirror Env.changeCatalog, keeping remembered databases local to this analysis.
+            if (!context.getDatabase().isEmpty()) {
+                scopedDatabases.put(context.getDefaultCatalog(), context.getDatabase());
+            }
+            String database = scopedDatabases.getOrDefault(catalog, context.getLastDBOfCatalog(catalog));
             context.changeDefaultCatalog(catalog);
+            if (database != null && !database.isEmpty()) {
+                context.setDatabase(database);
+            }
+            if (context.getCatalog(catalog) instanceof EsExternalCatalog) {
+                context.setDatabase(EsExternalCatalog.DEFAULT_DB);
+            }
         }
     }
 
     private static Field field(String name, Type type, boolean nullable, boolean topLevel, String timezone) {
+        // group_concat uses IAggregateFunction's string serialization, unlike fixed-size states
+        // such as sum/count. Match that BE wire type instead of treating every AGG_STATE as Null.
+        if (type instanceof AggStateType && "group_concat".equals(((AggStateType) type).getFunctionName())) {
+            type = Type.STRING;
+        }
         PrimitiveType primitive = type.getPrimitiveType();
         int precision = type instanceof ScalarType ? ((ScalarType) type).getScalarPrecision() : 0;
         int scale = type instanceof ScalarType ? ((ScalarType) type).getScalarScale() : 0;

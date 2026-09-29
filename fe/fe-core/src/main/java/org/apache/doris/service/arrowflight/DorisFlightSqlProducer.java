@@ -186,6 +186,14 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
 
     private FlightInfo executeQueryStatement(String peerIdentity, ConnectContext connectContext, String query,
             final FlightDescriptor descriptor) {
+        // Schema discovery temporarily installs session state; execution must not mutate that clone.
+        synchronized (connectContext) {
+            return executeQueryStatementLocked(peerIdentity, connectContext, query, descriptor);
+        }
+    }
+
+    private FlightInfo executeQueryStatementLocked(String peerIdentity, ConnectContext connectContext, String query,
+            final FlightDescriptor descriptor) {
         try {
             Preconditions.checkState(null != connectContext);
             Preconditions.checkState(!query.isEmpty());
@@ -318,12 +326,11 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public FlightInfo getFlightInfoPreparedStatement(final CommandPreparedStatementQuery command,
             final CallContext context, final FlightDescriptor descriptor) {
-        String[] handleParts = command.getPreparedStatementHandle().toStringUtf8().split(":");
-        String executedPeerIdentity = handleParts[0];
-        String preparedStatementId = handleParts[1];
-        ConnectContext connectContext = flightSessionsManager.getConnectContext(executedPeerIdentity);
-        return executeQueryStatement(executedPeerIdentity, connectContext,
-                connectContext.getPreparedQuery(preparedStatementId), descriptor);
+        ConnectContext connection = flightSessionsManager.getConnectContext(context.peerIdentity());
+        synchronized (connection) {
+            return executeQueryStatement(context.peerIdentity(), connection,
+                    preparedQuery(connection, context, command), descriptor);
+        }
     }
 
     @Override
@@ -336,17 +343,26 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     @Override
     public SchemaResult getSchemaPreparedStatement(final CommandPreparedStatementQuery command,
             final CallContext context, final FlightDescriptor descriptor) {
+        ConnectContext connection = flightSessionsManager.getConnectContext(context.peerIdentity());
+        synchronized (connection) {
+            return new SchemaResult(analyzeQuerySchema(connection, preparedQuery(connection, context, command)));
+        }
+    }
+
+    private String preparedQuery(ConnectContext connection, CallContext context,
+            CommandPreparedStatementQuery command) {
         String prefix = context.peerIdentity() + ":";
         String handle = command.getPreparedStatementHandle().toStringUtf8();
         if (!handle.startsWith(prefix)) {
             throw CallStatus.INVALID_ARGUMENT.withDescription("Invalid prepared statement handle").toRuntimeException();
         }
-        ConnectContext connection = flightSessionsManager.getConnectContext(context.peerIdentity());
         String query = connection.getPreparedQuery(handle.substring(prefix.length()));
         if (query == null) {
-            throw CallStatus.NOT_FOUND.withDescription("Prepared statement not found").toRuntimeException();
+            throw CallStatus.NOT_FOUND
+                    .withDescription("Prepared statement expired; prepare again in the current namespace")
+                    .toRuntimeException();
         }
-        return new SchemaResult(analyzeQuerySchema(connection, query));
+        return query;
     }
 
     private Schema analyzeQuerySchema(ConnectContext context, String query) {
@@ -388,17 +404,19 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             String preparedStatementId = null;
             try {
                 connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
-                String query = request.getQuery();
-                // ADBC ExecuteSchema reads this dataset schema directly without calling GetSchema.
-                // Analyze before registering a handle so failed preparation does not retain a query.
-                Schema schema = analyzeQuerySchema(connectContext, query);
-                preparedStatementId = UUID.randomUUID().toString();
-                ByteString handle = ByteString.copyFromUtf8(context.peerIdentity() + ":" + preparedStatementId);
-                Result result = new Result(Any.pack(buildCreatePreparedStatementResult(handle,
-                        new Schema(Collections.emptyList()), schema)).toByteArray());
-                connectContext.addPreparedQuery(preparedStatementId, query);
-                listener.onNext(result);
-                listener.onCompleted();
+                synchronized (connectContext) {
+                    String query = request.getQuery();
+                    // ADBC ExecuteSchema reads this dataset schema directly without calling GetSchema.
+                    // Analyze before registering a handle so failed preparation does not retain a query.
+                    Schema schema = analyzeQuerySchema(connectContext, query);
+                    preparedStatementId = UUID.randomUUID().toString();
+                    ByteString handle = ByteString.copyFromUtf8(context.peerIdentity() + ":" + preparedStatementId);
+                    Result result = new Result(Any.pack(buildCreatePreparedStatementResult(handle,
+                            new Schema(Collections.emptyList()), schema)).toByteArray());
+                    connectContext.addPreparedQuery(preparedStatementId, query);
+                    listener.onNext(result);
+                    listener.onCompleted();
+                }
             } catch (Throwable e) {
                 if (connectContext != null && preparedStatementId != null) {
                     connectContext.removePreparedQuery(preparedStatementId);

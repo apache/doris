@@ -18,8 +18,12 @@
 package org.apache.doris.service.arrowflight;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.parser.SqlDialectHelper;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
@@ -48,24 +52,45 @@ import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.io.ByteArrayInputStream;
 import java.nio.channels.Channels;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
-class DorisFlightSqlSchemaTest extends TestWithFeService {
+public class DorisFlightSqlSchemaTest extends TestWithFeService {
     private DorisFlightSqlProducer producer;
     private CallContext callContext;
+    private boolean previousUnitTest;
+
+    public static class SchemaCatalogProvider implements TestExternalCatalog.TestCatalogProvider {
+        @Override
+        public Map<String, Map<String, List<Column>>> getMetadata() {
+            return Collections.singletonMap("db1", Collections.emptyMap());
+        }
+    }
 
     @Override
     protected void runBeforeAll() throws Exception {
+        previousUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = true;
         createDatabase("schema_test");
         connectContext.setDatabase("schema_test");
         createTable("CREATE TABLE schema_input (id BIGINT NOT NULL, name VARCHAR(20)) "
                 + "DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ('replication_num' = '1')");
+        createCatalog("CREATE CATALOG schema_catalog PROPERTIES ('type'='test', "
+                + "'catalog_provider.class'='" + SchemaCatalogProvider.class.getName() + "')");
         connectContext = Mockito.spy(connectContext);
         Mockito.doReturn(new FlightSqlChannel()).when(connectContext).getFlightSqlChannel();
         FlightSessionsManager sessions = Mockito.mock(FlightSessionsManager.class);
@@ -77,6 +102,7 @@ class DorisFlightSqlSchemaTest extends TestWithFeService {
 
     @Override
     protected void runAfterAll() throws Exception {
+        FeConstants.runningUnitTest = previousUnitTest;
         producer.close();
         connectContext.getFlightSqlChannel().close();
     }
@@ -286,5 +312,147 @@ class DorisFlightSqlSchemaTest extends TestWithFeService {
     @Test
     void showTableLabelsUseResolvedDatabase() {
         Assertions.assertEquals("Tables_in_schema_test", schema("SHOW TABLES").getFields().get(0).getName());
+    }
+
+    @Test
+    void schemaConvertsDialectBeforeParsing() {
+        String query = "dialect_only_query";
+        try (MockedStatic<SqlDialectHelper> converter = Mockito.mockStatic(SqlDialectHelper.class)) {
+            converter.when(() -> SqlDialectHelper.convertSqlByDialect(Mockito.eq(query), Mockito.any()))
+                    .thenReturn("SELECT id FROM schema_input");
+            Assertions.assertEquals("id", schema(query).getFields().get(0).getName());
+            converter.verify(() -> SqlDialectHelper.convertSqlByDialect(Mockito.eq(query), Mockito.any()));
+        }
+    }
+
+    @Test
+    void switchUsesRememberedDatabaseWithoutChangingSession() throws Exception {
+        String database = connectContext.getDatabase();
+        String remembered = connectContext.getLastDBOfCatalog("internal");
+        try {
+            connectContext.addLastDBOfCatalog("internal", "information_schema");
+            Assertions.assertEquals("id", preparedSchema(
+                    "USE schema_catalog.db1; SWITCH internal; SELECT id FROM schema_input")
+                    .getFields().get(0).getName());
+            connectContext.addLastDBOfCatalog("internal", "schema_test");
+            connectContext.changeDefaultCatalog("schema_catalog");
+            connectContext.setDatabase("db1");
+            Assertions.assertEquals("id", preparedSchema("SWITCH internal; SELECT id FROM schema_input")
+                    .getFields().get(0).getName());
+            Assertions.assertEquals("schema_catalog", connectContext.getDefaultCatalog());
+            Assertions.assertEquals("db1", connectContext.getDatabase());
+            Assertions.assertEquals("schema_test", connectContext.getLastDBOfCatalog("internal"));
+        } finally {
+            connectContext.changeDefaultCatalog("internal");
+            connectContext.setDatabase(database);
+            connectContext.addLastDBOfCatalog("internal", remembered == null ? "" : remembered);
+        }
+    }
+
+    @Test
+    void commandsWithUnknownOrDynamicMetadataAreNotOkResults() {
+        for (String query : Arrays.asList("SHOW PYTHON PACKAGES IN '3.11'", "DESC schema_input ALL",
+                "SHOW DATA FROM schema_input", "SHOW PARTITIONS FROM schema_input", "SHOW QUERY STATS",
+                "COPY INTO schema_input FROM @~", "WARM UP CLUSTER target WITH CLUSTER source")) {
+            FlightRuntimeException error = Assertions.assertThrows(FlightRuntimeException.class,
+                    () -> schema(query), query);
+            Assertions.assertEquals(FlightStatusCode.UNIMPLEMENTED, error.status().code(), query);
+            java.util.concurrent.ExecutionException prepareError = Assertions.assertThrows(
+                    java.util.concurrent.ExecutionException.class, () -> prepare(query), query);
+            Assertions.assertEquals(FlightStatusCode.UNIMPLEMENTED,
+                    ((FlightRuntimeException) prepareError.getCause()).status().code(), query);
+        }
+        Assertions.assertEquals(6, schema("SHOW FRONTEND CONFIG").getFields().size());
+    }
+
+    @Test
+    void dynamicShowCreateAndProcCanBePrepared() throws Exception {
+        Assertions.assertEquals(Arrays.asList("Table", "Create Table"),
+                preparedSchema("SHOW CREATE TABLE schema_input").getFields().stream()
+                        .map(Field::getName).collect(Collectors.toList()));
+        Assertions.assertEquals(schema("SHOW PROC '/'"), preparedSchema("SHOW PROC '/'"));
+        Assertions.assertFalse(schema("SHOW PROC '/'").getFields().isEmpty());
+    }
+
+    @Test
+    void aggregateStateUsesSerializedStringType() throws Exception {
+        String query = "SELECT group_concat_state('x') AS s";
+        Assertions.assertEquals(new ArrowType.Utf8(), schema(query).getFields().get(0).getType());
+        Assertions.assertEquals(schema(query), preparedSchema(query));
+    }
+
+    @Test
+    void preparedHandleCannotChangeNamespace() throws Exception {
+        ActionCreatePreparedStatementResult result = prepare("SELECT id FROM schema_input");
+        CommandPreparedStatementQuery command = CommandPreparedStatementQuery.newBuilder()
+                .setPreparedStatementHandle(result.getPreparedStatementHandle()).build();
+        String database = connectContext.getDatabase();
+        connectContext.setDatabase("information_schema");
+        try {
+            FlightRuntimeException error = Assertions.assertThrows(FlightRuntimeException.class,
+                    () -> producer.getSchemaPreparedStatement(command, callContext, FlightDescriptor.command(new byte[0])));
+            Assertions.assertEquals(FlightStatusCode.NOT_FOUND, error.status().code());
+            error = Assertions.assertThrows(FlightRuntimeException.class,
+                    () -> producer.getFlightInfoPreparedStatement(command, callContext,
+                            FlightDescriptor.command(new byte[0])));
+            Assertions.assertEquals(FlightStatusCode.NOT_FOUND, error.status().code());
+        } finally {
+            connectContext.setDatabase(database);
+            String handle = result.getPreparedStatementHandle().toStringUtf8();
+            connectContext.removePreparedQuery(handle.substring(handle.indexOf(':') + 1));
+        }
+    }
+
+    @Test
+    void executionCannotMutateSchemaAnalysisSessionClone() throws Exception {
+        SessionVariable original = connectContext.getSessionVariable();
+        int timeout = original.getQueryTimeoutS();
+        CountDownLatch cloned = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch executing = new CountDownLatch(1);
+        ExecutorService workers = Executors.newFixedThreadPool(2);
+        Mockito.doAnswer(invocation -> {
+            invocation.callRealMethod();
+            if (invocation.getArgument(0) != original) {
+                cloned.countDown();
+                Assertions.assertTrue(release.await(10, java.util.concurrent.TimeUnit.SECONDS));
+            }
+            return null;
+        }).when(connectContext).setSessionVariable(Mockito.any());
+        try {
+            Future<?> analysis = workers.submit(() -> schema("SELECT 1"));
+            Assertions.assertTrue(cloned.await(10, java.util.concurrent.TimeUnit.SECONDS));
+            Future<?> execution = workers.submit(() -> {
+                try (MockedConstruction<FlightSqlConnectProcessor> processors = Mockito.mockConstruction(
+                        FlightSqlConnectProcessor.class, (processor, context) -> {
+                            Mockito.doAnswer(invocation -> {
+                                connectContext.getSessionVariable().setQueryTimeoutS(17);
+                                connectContext.setReturnResultFromLocal(true);
+                                return null;
+                            }).when(processor).handleQuery(Mockito.anyString());
+                        })) {
+                    executing.countDown();
+                    producer.getFlightInfoStatement(CommandStatementQuery.newBuilder()
+                            .setQuery("SET query_timeout=17").build(), callContext,
+                            FlightDescriptor.command(new byte[0]));
+                }
+            });
+            Assertions.assertTrue(executing.await(10, java.util.concurrent.TimeUnit.SECONDS));
+            // Execution must wait until schema analysis restores the real session variables.
+            Assertions.assertThrows(TimeoutException.class,
+                    () -> execution.get(200, java.util.concurrent.TimeUnit.MILLISECONDS));
+            release.countDown();
+            analysis.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            execution.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            Assertions.assertSame(original, connectContext.getSessionVariable());
+            Assertions.assertEquals(17, original.getQueryTimeoutS());
+        } finally {
+            release.countDown();
+            workers.shutdown();
+            Assertions.assertTrue(workers.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS));
+            Mockito.doCallRealMethod().when(connectContext).setSessionVariable(Mockito.any());
+            original.setQueryTimeoutS(timeout);
+            connectContext.getFlightSqlChannel().reset();
+        }
     }
 }

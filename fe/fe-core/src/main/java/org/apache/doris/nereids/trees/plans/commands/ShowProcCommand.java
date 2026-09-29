@@ -74,6 +74,15 @@ public class ShowProcCommand extends ShowCommand {
         return ShowResultSetMetaData.builder().build();
     }
 
+    /** Resolve a proc node's header with the same privilege checks as SHOW PROC. */
+    public ShowResultSetMetaData getMetaData(ConnectContext ctx) throws AnalysisException {
+        // PROC headers belong to the resolved node and require the same privilege as reading it.
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN_OR_NODE)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+        }
+        return getMetaData(ProcService.getInstance().open(path));
+    }
+
     private ShowResultSet handleShowProc(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkGlobalPriv(ctx, PrivPredicate.ADMIN_OR_NODE)) {
