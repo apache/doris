@@ -1469,49 +1469,11 @@ DECLARE_mInt32(snii_prx_zstd_level_direct_load);
 // Bigger blocks -> better per-block zstd on the dict region, larger cold
 // fetch+decompress unit per dict-block miss. Write side only.
 DECLARE_mInt32(snii_target_dict_block_bytes);
-// PROCESS-WIDE share for SNII index-build RAM, as a PERCENT of the process
-// memory limit -- the index-build analogue of
-// load_process_max_memory_limit_percent. The per-writer
-// inverted_index_ram_buffer_size is a reclaimable-buffer spill threshold, not a
-// hard cap on persistent vocabulary bytes: a concurrent load keeps (tablets x
-// concurrency) writers alive at once, none of which may reach that threshold,
-// while their SUM can still be large. Once live SNII index-build memory
-// (ingestion plus index-merge compaction) crosses this share, the writers
-// holding the largest reclaimable posting arenas are asked to spill early
-// (async-safe advisory requests, honored on each writer's own thread; output
-// stays byte-identical). Read at every decision, so a change takes effect
-// immediately for writers that are already running.
-//
-// 0 disables SNII's own share trigger; the process-level backstops (system
-// available memory below its warning water mark, process usage above the soft
-// limit) still apply.
-//
-// FLOORED AGAINST inverted_index_ram_buffer_size: the share is never less than
-// four writers' worth of the per-writer spill threshold. A smaller share would
-// put a small BE permanently over it as soon as two writers exist -- unrelievable
-// back-pressure rather than a limit -- because the per-writer threshold is what
-// one writer may hold before it spills on its own.
+// Maximum process-memory share for SNII index builds. Above this share, writers with reclaimable posting arenas receive spill requests; zero disables the share trigger but keeps process-pressure backstops.
 DECLARE_mInt32(snii_index_build_max_memory_limit_percent);
-// G09 forced-spill floor: minimum reclaimable posting-arena bytes a SNII
-// writer must hold before a process-wide forced-spill request is honored, and
-// before the global limiter selects it as a spill victim. A forced spill
-// reclaims ONLY the posting arena -- the persistent vocab / pair-map
-// structures survive it -- so honoring below a real floor degenerates into a
-// storm of tiny runs whenever the memory over the share is dominated by
-// persistent bytes (each run then costs a file, a sort and a merge-fd for
-// near-zero memory relief). THIS FLOOR, not any judgement about whether the
-// overage is reachable, is what bounds forced spilling: it caps the cost at one
-// >= floor-sized run per floor of arena growth per writer. Forced spilling
-// therefore reclaims SPILLABLE memory only, never persistent memory.
-// Default 64 MiB.
+// Minimum reclaimable posting-arena size for a forced spill. Requests below this floor remain pending until the arena grows enough.
 DECLARE_mInt64(snii_forced_spill_min_arena_bytes);
-// G09 run-file cap: maximum spill-run files one SNII writer may accumulate;
-// on the next spill past the cap, the existing runs are merge-compacted into
-// a single run first (term stream unchanged). Bounds the final k-way merge's
-// fan-in and, decisively, its simultaneously-open file descriptors -- every
-// run of a buffer is reopened and held open for the whole merge, so unbounded
-// run counts across ~100 concurrent writers can exhaust the BE nofile rlimit
-// ("Too many open files" at run reopen). 0 disables the cap. Default 64.
+// Maximum spill runs held by one SNII writer. Runs are merged when this cap is exceeded to bound merge fan-in and open file descriptors; zero disables the cap.
 DECLARE_mInt32(snii_spill_max_run_files_per_buffer);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);

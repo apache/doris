@@ -29,41 +29,12 @@
 
 namespace doris::snii::writer {
 
-// On-disk SPIMI "run" codec for the spill / k-way-merge out-of-core build path.
+// Private spill-run format, ordered by vocabulary term and decoded one term at a time:
 //
-// A RUN is a self-describing file holding a sequence of terms keyed by TERM-ID,
-// each followed by its postings, in this exact wire layout. The file is produced
-// and consumed by THIS module only (a private temp file -- the on-disk INDEX is
-// unaffected), so the format is chosen for cheap I/O: docids, freqs and positions
-// are ALL RAW fixed-width little-endian u32 BLOCKS (bulk memcpy on both ends,
-// ~10x cheaper than per-value varint -- which cost ~1.5s of encode CPU over the
-// 5M build's ~60M docids and compressed those streams poorly anyway). Decode
-// still validates every length against the file size.
+//   record := term_id VInt, shape VInt, n_docs VInt, docids u32[n_docs],
+//             optional freqs u32[n_docs], optional n_pos VInt and positions u32[n_pos]
 //
-//   run := record*                       (term-ids ordered by vocab string,
-//                                          strictly ascending within a run)
-//   record :=
-//     VInt term_id                       (index into the shared vocabulary)
-//     VInt shape                         (0=docs-only-statless, 1=docs+freq,
-//                                          2=positioned)
-//     VInt n_docs
-//     u32  docid * n_docs                (RAW LE absolute ascending docids)
-//     shape=1: u32 freq * n_docs         (RAW LE, each >= 1)
-//     shape=2: u32 freq * n_docs, VInt n_pos, u32 position * n_pos
-//                                        (n_pos == sum(freqs))
-//
-// Shape 0 is the CommonGrams docs-only set representation. It writes neither
-// synthetic all-one frequencies nor n_pos; run files are private temporaries,
-// so this does not change the persisted SNII index format.
-//
-// Decode is fully STREAMED: a RunReader reads a small fixed buffer at a time and
-// materializes only the CURRENT term's postings, never the whole run. The k-way
-// merge keeps one heap slot per run (each holding only its current term-id +
-// that term's postings), so peak memory is bounded by the widest single term
-// summed across the runs that contain it -- not by total postings. The merge
-// orders runs by a PRECOMPUTED integer string-rank (term-id -> its lexicographic
-// rank over the shared dense vocabulary): an integer compare that reproduces the
-// exact lexicographic order without touching a vocab string in the inner loops.
+// Shape 0 stores doc IDs only, shape 1 adds frequencies, and shape 2 adds positions. Fixed-width arrays are little-endian; the reader validates lengths against the file.
 
 // Writes a sorted sequence of terms (by id) to one run file. Term-ids must be
 // handed to write_term in vocab-string ascending order (the spill caller sorts
@@ -213,18 +184,9 @@ Status merge_run_sources(const std::vector<std::string>& run_paths,
                          const std::vector<uint32_t>& string_rank, bool has_positions,
                          const StreamedTermConsumer& fn, MemoryReporter* memory_reporter = nullptr);
 
-// G09 run-file cap support: k-way merges `run_paths` into ONE new run file at
-// `out_path`, keyed and ordered exactly like merge_run_sources (heap on
-// string_rank[term_id]; per-term postings concatenated across runs in run
-// order, boundary docs coalesced -- the same concat the final merge applies,
-// so compact-then-merge emits the identical term stream as merging the
-// originals). Positions are fully materialized for each term because the run
-// codec serializes positions_flat.
-// Every record's term-id must index string_rank (else Corruption). On error
-// `out_path` may hold a partial file the caller must delete; the input runs
-// are never modified. Opens run_paths.size() read fds + 1 write fd for the
-// call's duration -- the caller (SpimiTermBuffer::compact_runs) bounds that
-// fan-in with its run-count cap.
+// Merges run_paths into out_path in string-rank order, coalescing boundary
+// documents. On error, the caller must remove any partial out_path; input
+// runs are unchanged.
 Status compact_runs(const std::vector<std::string>& run_paths,
                     const std::vector<uint32_t>& string_rank, bool has_positions,
                     const std::string& out_path, MemoryReporter* memory_reporter = nullptr);

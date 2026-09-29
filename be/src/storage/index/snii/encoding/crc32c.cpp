@@ -17,17 +17,7 @@
 
 #include "storage/index/snii/encoding/crc32c.h"
 
-// T21 test-seam implementation. Production crc32c()/crc32c_extend() (in the header)
-// delegate to the bundled Google crc32c thirdparty, which already runs a
-// runtime-dispatched, hardware-accelerated and interleaved CRC32C. The reference
-// sub-paths defined here -- portable slice-by-8, serial SSE4.2 hardware, and the
-// 3-way interleaved SSE4.2 hardware algorithm T21 specifies -- exist ONLY so that
-// unit tests can prove, byte-for-byte across all sizes and alignments, that the
-// production path equals the canonical CRC32C (same bit-reflected Castagnoli
-// polynomial) and that the hardware path is engaged. All of them are compiled out
-// of release builds by the BE_TEST gate, so production pays nothing: no extra code,
-// no static slice-by-8 table, no startup CPUID probe. Every function here is a pure
-// function with no shared mutable state, so it is trivially thread-safe.
+// Test-only CRC32C reference paths for comparing portable and hardware results with the production implementation.
 #ifdef BE_TEST
 
 #include <array>

@@ -42,49 +42,7 @@
 #include "storage/index/snii/writer/spimi_term_buffer.h"
 #include "storage/index/snii/writer/term_posting_source.h"
 
-// LogicalIndexWriter -- builds the per-logical-index section bytes (interleaved
-// posting region + DICT block region) plus the SampledTermIndex and DICT block
-// directory metadata for ONE logical index. It owns the in-memory section bytes,
-// runtime statistics, and references needed by the container orchestrator
-// (SniiCompoundWriter) to resolve absolute offsets and emit the Core/STI/DBD
-// metadata group.
-//
-// This module deliberately produces ONLY relative bytes/structures: it has no
-// knowledge of the absolute file position where the sections will land. The
-// orchestrator stitches the absolute offsets in afterward (append-only, no
-// seek-back). See snii_compound_writer.h for the precise offset contract.
-//
-// POSTING REGION (single interleaved sink): the former separate .frq POD and .prx
-// POD are merged into ONE posting region. For each pod_ref term, in term order, the
-// writer appends its prx span FIRST then its frq span, contiguously:
-//   posting region = concat over pod_ref terms of [prx span][frq span].
-// The prx span is empty when !has_prx (docs-only / keyword tier). INLINE terms
-// append NOTHING to the posting region.
-//
-// Per-term encoding policy (v1):
-//   df >= kSlimDfThreshold (512), or a lower-df term whose positions cannot fit
-//     one configured reader-safe PRX window: WINDOWED pod_ref. The term's [prx
-//     windows] are appended to the posting region first, then its
-//     [prelude][dd-block][freq-block] frq span. The DictEntry records frq/prx
-//     off_delta+len relative to frq_base/prx_base (see below).
-//   Other df < kSlimDfThreshold terms: SLIM. The postings are encoded as a
-//     single .frq window (and .prx window). If the encoded .frq bytes are small
-//     (<= kDefaultInlineThreshold), they are stored INLINE inside the DictEntry
-//     (kind=inline); otherwise the term's [prx][frq] spans are appended to the
-//     posting region as a slim pod_ref (kind=pod_ref, enc=slim, no prelude).
-//
-// frq_base / prx_base convention (DOCUMENTED CONTRACT):
-//   For each DICT block, frq_base == prx_base == the running byte offset into THIS
-//   index's posting region at the moment the block opens (the posting-region size
-//   when the block's first POD-backed entry is appended). A windowed/slim pod_ref
-//   entry then sets frq_off_delta = (offset of its frq span within the posting
-//   region) - frq_base, so the reader computes the absolute file offset as
-//     section_refs.posting_region.offset + frq_base + frq_off_delta.
-//   prx_base / prx_off_delta follow the identical rule against the SAME region.
-//   Because [prx][frq] are written contiguously per term, a writer-side property
-//   holds when has_prx: frq_off_delta == prx_off_delta + prx_len. The reader does
-//   NOT rely on it -- each delta is resolved independently.
-//   Inline entries carry no off_delta (bytes live in the entry).
+// Builds one logical index's posting region, DICT blocks, and metadata using offsets relative to that region. POD-backed terms append [prx][frq] spans in term order; inline terms keep their bytes in DICT entries. The container writer resolves absolute file offsets.
 namespace doris::snii::writer {
 
 class SniiStreamedIndexSession;
@@ -109,7 +67,7 @@ struct SniiIndexInput {
     // Streaming merge sessions declare norms up front but supply them only before finish,
     // after rebuilding them alongside postings. The writer validates their size at finalize.
     bool write_norms = false;
-    // G16-h: zstd levels for the dict-block whole-block compression and the
+    // Zstd levels for the dict-block whole-block compression and the
     // .prx window auto mode (both default 3 == the historical constants).
     // Higher levels trade import CPU for size; decode speed is unaffected.
     int dict_block_zstd_level = 3;
@@ -397,7 +355,7 @@ private:
     void finish_high_df_digest(format::HighDfTerms* out) const;
 
     uint32_t target_dict_block_bytes_;
-    // G16-h: zstd levels (dict whole-block / prx auto mode), from SniiIndexInput.
+    // Zstd levels (dict whole-block / prx auto mode), from SniiIndexInput.
     int dict_block_zstd_level_ = 3;
     int prx_zstd_level_ = 3;
     format::PrxWindowLimits prx_window_limits_ = format::kReaderPrxWindowLimits;

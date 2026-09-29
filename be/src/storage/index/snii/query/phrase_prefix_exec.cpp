@@ -325,25 +325,7 @@ uint32_t prefix_leading_prefilter_min_df(const LogicalIndexReader& idx,
             segment_relative, kMinPrefixLeadingPrefilterMinDf, kMaxPrefixLeadingPrefilterMinDf));
 }
 
-// Merged multi-tail verification for ONE resident-capped group of prefix
-// expansions (`tails`, already truncated by max_expansions upstream). This
-// replaces the per-tail verify-then-union loop: instead of re-planning + TWO
-// remote rounds (docid, then prx) + a separate doc-walk PER tail and unioning N
-// result lists, it plans every tail into ONE shared round1 fetch, intersects
-// each tail with `expected_docids` in memory (no I/O), builds every surviving
-// tail's position source in ONE batched PRX round, then sweeps the group's tail
-// cursors over the ascending `expected` docs a SINGLE time -- marking a doc as
-// soon as ANY tail has a position adjacent to a leading match.
-//
-// The marked set is byte-identical to the per-tail path's
-//   UNION_{tail in group} { d : d in tail INTERSECT expected AND
-//                               contains_any_position(expected, doc_d, pos_tail(d)) }
-// because each tail's PosSource is still built from its OWN final-candidate
-// docids (the shared-candidate argument is ignored for final-candidate sources),
-// so pos_tail(d) and the per-doc position test are unchanged. Only the I/O rounds
-// (2N -> 2) and the N separate unions (-> in-place flags) collapse. Bigram
-// postings are NEVER consulted: every tail is verified against its unigram
-// positions here.
+// Verifies a group of prefix tails with shared doc-ID and position reads. Each tail keeps its own candidate position source, and a document matches when any tail follows the leading position.
 
 Status collect_merged_tail_matches(const LogicalIndexReader& idx,
                                    std::vector<ResolvedQueryTerm> tails,

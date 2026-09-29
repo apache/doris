@@ -26,34 +26,7 @@
 
 namespace doris::snii::writer {
 
-// SEGMENTED BYTE ARENA with per-term SLICED runs (a ByteBlockPool, after Lucene).
-//
-// WHY: the SPIMI accumulator's bulk memory is the per-term posting bytes. Backing
-// each term with its own std::vector<uint8_t> pays two taxes that dominate peak
-// RSS at scale: (1) geometric-growth doubling slack (~1.17x of the live payload),
-// and (2) a 24-32 B vector/struct header per term (hundreds of thousands of
-// terms). This pool removes both: all term bytes live in a few large fixed-size
-// blocks (so slack is ~one block, amortized to ~1.05x), and a term needs only two
-// 32-bit cursors of live state (chain head for reads + write head for appends).
-//
-// HOW (slices): a term's bytes are not stored contiguously. They live in a chain
-// of SLICES of geometrically growing payload capacity (the kSliceSizes schedule:
-// 4, 8, 16, ... bytes of payload). Each slice is laid out as
-//   [ payload bytes ... ][ 4-byte forward pointer ]
-// The forward pointer holds the absolute offset of the next slice's first payload
-// byte (0 while the slice is still the tail of the chain). When a slice's payload
-// region fills, the writer allocates a larger slice, stores its head into the old
-// slice's 4 pointer bytes, and keeps appending. A reader walks the chain by
-// reading payload bytes until a slice boundary, then following the pointer.
-//
-// Both writer and reader recompute each slice's capacity from the chain's slice
-// INDEX (0, 1, 2, ...) via the deterministic schedule, so neither needs to store
-// per-slice sizes. The writer carries the current slice's end offset in its
-// SliceWriter handle; the reader recomputes capacities as it advances.
-//
-// Offsets are GLOBAL absolute byte indices into the logical concatenation of all
-// blocks: offset = block_index * kBlockSize + byte_in_block. kBlockSize is a power
-// of two, so offset -> (block, byte) is a shift/mask.
+// Stores per-term posting bytes in a shared segmented arena. Each term's slices form a forward-linked chain; slice capacity follows kSliceSizes, and offsets address the arena's fixed-size blocks.
 class CompactPostingPool {
 public:
     // Block size (power of two). 32 KiB blocks keep per-block tail waste tiny (it

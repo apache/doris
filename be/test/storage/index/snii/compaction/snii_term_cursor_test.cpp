@@ -15,21 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// T2.3 unit tests: SniiSegmentTermCursor (pull-model full-dictionary scan),
-// TermMergeFrontier (k-way merge by term) and SequentialRegionReader (chunked
-// posting-region read-ahead). The load-bearing assertions, per the design:
-//   - interleaved dictionaries merge into ONE strictly increasing term order,
-//     equal terms aggregated across sources in ascending source order;
-//   - reserved phrase-bigram / sentinel terms (full 0x1F marker) abort
-//     the scan with a distinct error, while user terms merely starting with a
-//     raw 0x1F byte pass through (marker classification, not prefix-byte);
-//   - all three posting encodings (inline / slim pod_ref / windowed pod_ref)
-//     are passed through UNINTERPRETED -- the cursor yields exactly the
-//     DictEntry lookup() yields;
-//   - read-ahead honors chunk boundaries, clamps to the region end, and falls
-//     back to exact reads for oversized/backward windows without disturbing
-//     the buffered forward stream;
-//   - empty and single-source inputs degenerate cleanly.
+// Checks dictionary merge order, hidden-term rejection, locator pass-through, and sequential read-ahead boundaries.
 
 #include <gtest/gtest.h>
 

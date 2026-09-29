@@ -28,13 +28,9 @@
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_sink.h"
 
-// bkd_index -- the HOT sub-file of the SNII-native BKD index (design 5.1).
+// bkd_index is one framed section with this payload:
 //
-// One SectionFramer section (type kBkdIndexSectionType), so the checksum and the
-// length envelope come from the framer and nothing here hand-rolls a crc. Payload:
-//
-//   --- header ---
-//   magic            fixed32   kBkdIndexMagic
+//   magic            fixed32
 //   format_version   varint32
 //   flags            varint32
 //   bytes_per_dim    varint32
@@ -43,51 +39,20 @@
 //   doc_count        varint32
 //   leaf_count       varint32
 //   points_per_leaf  varint32
-//   --- present only when leaf_count > 0 ---
 //   min_value        bytes[bytes_per_dim]
 //   max_value        bytes[bytes_per_dim]
-//   split_values     bytes[(leaf_count - 1) * bytes_per_dim]   ascending inside min/max
-//   leaf_offsets     delta-varint64[leaf_count]                strictly increasing
+//   split_values     bytes[(leaf_count - 1) * bytes_per_dim]
+//   leaf_offsets     delta-varint64[leaf_count]
 //   leaf_counts      varint32[leaf_count]
 //
-// leaf_count == 0 is the EMPTY index (design 5.3): header only, and bkd_data has
-// length 0. It is a legal state, never corruption -- unlike the old
-// implementation's implicit `indexFP == 0` sentinel over an unchecked bkd_meta.
-//
-// There is no internal node tree. In one dimension an inner node only routes a
-// value to a leaf, which is exactly what an ordered array of split values does:
-// leaf i covers [split_value(i - 1), split_value(i)). The old recursive packed
-// tree existed to carry a split DIMENSION and an FP delta per level; with
-// multi-dimensional support out of scope it collapses to a binary-searchable
-// fixed-width array (design 5.1).
+// The arrays are absent when leaf_count is zero; that case has no bkd_data.
 namespace doris::snii::bkd {
 
-// Serializes the bkd_index payload and APPENDS the framed section to `sink`
-// (`sink` is not cleared).
-//
-// Every argument is a BUILD-TIME INVARIANT -- the builder produced all of it in
-// this same run -- so violations are programming errors and trip DORIS_CHECK
-// rather than returning a Status (design 8). Untrusted bytes only ever enter
-// through BkdIndexBlockReader::open.
-//
-//   min_value / max_value : exactly bytes_per_dim bytes, empty iff leaf_count == 0
-//   split_values          : (leaf_count - 1) * bytes_per_dim bytes, with
-//                           min_value <= splits... <= max_value
-//   leaves                : leaf_count entries, offsets strictly increasing,
-//                           counts summing to header.point_count
+// Appends a framed bkd_index section to sink. The builder must supply sorted bounds, strictly increasing leaf offsets, and counts that sum to point_count.
 void encode_bkd_index_block(const BkdIndexHeader& header, Slice min_value, Slice max_value,
                             Slice split_values, std::span<const LeafRef> leaves, ByteSink* sink);
 
-// Decoded bkd_index. Immutable once open() returns, owns its arrays, and holds no
-// cursor -- so one instance can serve concurrent queries with no locking and no
-// per-query copy (design 9), unlike the packed index the old reader deep-copied on
-// every query.
-//
-// open() runs the ENTIRE structural validation up front (design 8.2): after it
-// succeeds the invariants hold by construction and the query hot path may index
-// the arrays without re-checking. Disk bytes are NOT invariants, so every one of
-// those checks is a Status, never a DORIS_CHECK -- asserting on them would turn a
-// recoverable index downgrade into a node crash.
+// Owns a validated, immutable bkd_index for concurrent queries. open() reports malformed disk bytes through Status.
 class BkdIndexBlockReader {
 public:
     BkdIndexBlockReader() = default;
@@ -109,8 +74,7 @@ public:
 
     const BkdIndexHeader& header() const { return header_; }
     uint32_t leaf_count() const { return header_.leaf_count; }
-    // The empty index (design 5.3). Callers must branch on this before asking for
-    // bounds, split values or leaves -- an empty index has none.
+    // An empty index has no bounds, splits, or leaves.
     bool empty() const { return header_.leaf_count == 0; }
 
     // Smallest / largest indexed value, as unsigned big-endian sortable bytes.

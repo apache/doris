@@ -19,52 +19,7 @@
 
 #include <cstdint>
 
-// Deterministic op-count seam for the phrase-query hot path (T24/G01). The
-// counters let the phrase UTs assert routing/complexity directly:
-//   - expected_docids_build : how many times the multi-tail phrase-prefix branch
-//                             materializes the expected-docid vector for a query.
-//                             Hoisted out of the per-tail loop, so == 1 per query
-//                             (was == tail_hits when rebuilt inside the loop).
-//   - anchor_iterations     : total sparsest-anchor outer-enumeration size summed
-//                             over candidate docs (== docs x min_span). Anchoring
-//                             on the shortest per-doc span instead of the hardcoded
-//                             phrase-position-0 span shrinks this when the leading
-//                             exact term is high-frequency.
-//   - monotonic_position_scans
-//                           : number of non-anchor spans whose phrase-position
-//                             lookup uses a forward-only scan instead of one
-//                             binary search per anchor position.
-//   - prefix_expected_doc_visits
-//                           : total expected-doc iterations performed by the
-//                             multi-tail phrase-prefix verification and result
-//                             materialization path.
-//   - count_fastpath_hits   : count-only (G02) answers produced from dict-entry
-//                             df alone for a single term, with NO posting decode
-//                             (count_query.cpp).
-//   - resolved_term_entry_copies / moves
-//                           : DictEntry ownership transfers performed by the two
-//                             plan_resolved_terms overloads.
-//   - resolved_term_payload_pointer_reuses
-//                           : non-empty inline FRQ/PRX vectors whose data pointer
-//                             survives an entry move into TermPlan.
-//   - phrase_position_epoch_cache_hits / misses
-//                           : same-document PhrasePositionLoader lookups served
-//                             from the plan span cache vs loaded from its cursor.
-//
-// The seam is active only under SNII_QUERY_TEST_COUNTERS, which is auto-enabled by
-// the library-wide BE_TEST define (be/CMakeLists.txt `if (MAKE_TEST)`) used to
-// build doris_be_test. Because BE_TEST is applied to the whole BE tree, both the
-// phrase_query.cpp increments AND the test translation unit that reads them observe
-// the SAME process-wide singleton (the inline function below has one instance
-// across every including TU). In a release build BE_TEST is undefined, the struct
-// and singleton do not exist, and SNII_QUERY_COUNT/SNII_QUERY_ADD expand to
-// ((void)0): zero overhead and NO global mutable state on the production query
-// path.
-//
-// CONCURRENCY: the singleton is intentionally unsynchronized. It is a
-// single-threaded, test-only seam -- one phrase query at a time -- and is never
-// touched on the production path. Do NOT read or write it from concurrent tests.
-// Reset it between test cases with `query_test_counters() = {}`.
+// Test-only operation counters for phrase-query and count-query paths. Reset them between tests and use them only from one test thread; release builds compile them out.
 #if defined(BE_TEST) && !defined(SNII_QUERY_TEST_COUNTERS)
 #define SNII_QUERY_TEST_COUNTERS
 #endif

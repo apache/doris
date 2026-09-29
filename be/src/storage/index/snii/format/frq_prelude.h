@@ -24,61 +24,19 @@
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_sink.h"
 
-// FrqPrelude: a TWO-LEVEL (super-block -> window) skippable directory that
-// precedes a windowed .frq posting whose payload is laid out as:
-//   windowed .frq payload = [prelude][dd-block]
-//     dd-block   = dd_region_0 ++ dd_region_1 ++ ... ++ dd_region_{N-1}
-// Windows are NOT self-describing: each window's full codec metadata (region
-// offsets, on-disk/uncompressed lengths, modes, crcs) lives in the prelude rows.
-// The complete posting is therefore one contiguous range.
+// Two-level directory for a windowed .frq posting, followed by one contiguous dd-block.
 //
-// On-disk layout (strict; all multi-byte fixed fields little-endian, VInt =
-// LEB128 via snii/encoding):
-//   header:
-//     u8   flags        # bit0 has_prx
-//     VInt N            # number of .frq windows
-//     VInt G            # windows per super-block (group_size; >=1)
-//     VInt n_super      # = ceil(N / G); 0 when N==0
-//     VInt sbdir_len    # byte length of the super_block_dir region
-//     u32  crc32c       # covers header + super_block_dir (NOT the window blocks)
-//   super_block_dir[n_super]:  # small, resident: one row per super-block
-//     VInt sb_last_docid_delta # cumulative across super-blocks => absolute last
-//                              #   docid of the super-block's last window
-//     VInt sb_block_off        # byte offset of this super-block's window block,
-//                              #   measured from the start of the window_dir region
-//     VInt sb_block_len        # byte length of this super-block's window block
-//   window_dir: n_super self-contained blocks, each holding <=G window rows.
-//     per window row (dd_off/prx_off are NOT stored;
-//     the reader derives them as running prefix sums of the disk/prx lengths):
-//       VInt last_docid_delta  # cumulative WITHIN the block => absolute last docid
-//                              #   (previous window's absolute last docid = win_base;
-//                              #    first window of first block: win_base = 0)
-//       VInt doc_count         # number of docs in the window (frq_pod needs it)
-//       u8   win_mode          # bit0 dd_zstd
-//       VInt dd_disk_len       # dd_region on-disk byte length
-//      [VInt dd_uncomp_len]    # dd_region plaintext length; present ONLY when
-//                              #   win_mode & kDdZstd. A raw region's uncomp_len
-//                              #   == dd_disk_len (derived, not stored).
-//       u32  crc_dd            # crc32c of the dd_region on-disk bytes
-//       VInt prx_len           # .prx payload byte length (present iff has_prx)
+//   header: flags, window_count, group_size, super_count, super_dir_len, crc32c
+//   super row: last_docid_delta, window_block_offset, window_block_length
+//   window row: last_docid_delta, doc_count, mode, dd_disk_len,
+//               optional dd_uncomp_len, crc_dd, optional prx_len
 //
-// The reader reconstructs each window's dd_off and prx_off as the running prefix
-// sums of dd_disk_len / prx_len over all windows,
-// chained across super-blocks; WindowMeta still exposes those offsets, now derived.
-//
-// Reconstructing win_base / absolute last_docid (READER CONTRACT) is unchanged:
-// the writer chains absolute last docids across windows; each row stores the delta
-// of its absolute last docid from the previous window, and sb_last_docid seeds
-// each block, so super-block binary search then in-block window binary search
-// locate the window covering any docid without decoding the .frq blocks.
-//
-// The trailing crc32c covers only header + super_block_dir; every region carries
-// its own crc_dd in the row.
+// Fields use LEB128 except flags/mode (u8) and CRCs (little-endian u32). The reader derives dd and prx offsets by summing lengths across windows; the header CRC covers the header and super directory.
 namespace doris::snii::format {
 
 namespace frq_prelude_flags {
 inline constexpr uint8_t kHasPrx = 1u << 0;
-// Reserved extension point (T18): kSlimRows = 1u << 2 would gate the trimmed
+// Reserved extension point: kSlimRows = 1u << 2 would gate the trimmed
 // window-row layout (no stored dd_off/prx_off, conditional uncomp_len)
 // as a distinct on-disk path. It is NOT emitted today: the trim folds into the
 // single pre-launch v1 encoding (writer/reader symmetric, no dual decode path).

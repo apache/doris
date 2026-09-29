@@ -27,19 +27,7 @@
 #include "storage/index/snii/writer/spimi_term_buffer.h"
 #include "storage/index/snii/writer/term_posting_test_utils.h"
 
-// G09 run-file FD hygiene: a SPIMI buffer's spill runs are ALL (re)opened
-// simultaneously -- one fd each, held for the whole k-way merge -- so an
-// unbounded run count across ~100 concurrent writers exhausted the BE nofile
-// rlimit in the conc=16 wikipedia field failure ('Too many open files' at run
-// reopen). The cap (set_max_run_files / config
-// snii_spill_max_run_files_per_buffer) merge-compacts the accumulated runs
-// into ONE before a new spill would exceed it. These tests pin:
-//   * the cap is HONORED: the tracked run count never exceeds it, and the
-//     compaction seam records each collapse;
-//   * compaction is INVISIBLE in the output: a capped buffer drains the
-//     byte-identical term stream (terms, docids, freqs, positions) of an
-//     uncapped control fed the same tokens;
-//   * cap 0 disables compaction entirely (pre-cap behavior).
+// Checks that run compaction respects the cap without changing the drained postings. A zero cap disables run compaction.
 using doris::Status;
 using doris::snii::writer::SpimiTermBuffer;
 using doris::snii::writer::StreamedTermPostings;

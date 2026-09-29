@@ -895,18 +895,7 @@ TEST(SniiSpillRunCodec, MergeRunSourcesRejectsUnconsumedSource) {
     EXPECT_TRUE(status.is<doris::ErrorCode::INVALID_ARGUMENT>()) << status;
 }
 
-// ===========================================================================
-// SniiSpillMergeTest -- T15: MergeRuns keyed on the integer string_rank array.
-//
-// MergeRuns now takes a precomputed `string_rank` (term-id -> lexicographic rank)
-// and keys its heap/gather on that dense 4 B integer array instead of comparing
-// vocab strings inline. These cases prove (a) the key is the integer rank array
-// (FM-04: a deliberately NON-lexicographic rank permutation drives the emit
-// order), (b) output stays byte-identical when the rank is the lexicographic one
-// (FM-01..FM-03, FM-09), (c) the wide-term streamed path is unaffected (FM-05),
-// (d) the error/boundary paths (FM-06..FM-08), and (e) end-to-end spill ==
-// in-memory through SpimiTermBuffer's production wiring (FM-10).
-// ===========================================================================
+// Checks rank-ordered spill merges, byte-equivalent output, error paths, and the SpimiTermBuffer integration.
 
 namespace {
 
@@ -933,15 +922,8 @@ Status CollectMerge(const std::vector<std::string>& paths, const std::vector<std
 
 } // namespace
 
-// FM-04 (KEY PROOF): the heap/gather key is the integer string_rank ARRAY, not the
-// vocab strings. The vocab sorts lexicographically as a(id1) < b(id0) < c(id2), but
-// we pass a DIFFERENT permutation (id0->0, id2->1, id1->2), so the rank order is
-// b(id0), c(id2), a(id1) -- matching neither the vocab string order (a,b,c) nor the
-// numeric id order. The two runs hold DISJOINT-but-overlapping term sets so the heap
-// must actually interleave them; the emitted order must follow the rank array. The
-// OLD vocab-string comparator, fed these rank-sorted runs, would instead emit
-// b,a,c, so this sequence equality FAILS on the un-optimized code and PASSES once
-// the comparator keys on string_rank.
+// The emitted order follows string_rank rather than term IDs or vocabulary
+// strings; overlapping runs force the merge heap to use that ordering.
 TEST(SniiSpillMergeTest, MergeRunsOrdersByStringRankInteger) {
     const std::vector<std::string> vocab = {"b", "a", "c"};
     const std::vector<uint32_t> rank = {0, 2, 1}; // id0->0, id1->2, id2->1
@@ -968,7 +950,7 @@ TEST(SniiSpillMergeTest, MergeRunsOrdersByStringRankInteger) {
     EXPECT_EQ(merged[2].docids, (std::vector<uint32_t> {2}));
 }
 
-// FM-01: lexicographic rank reproduces dictionary order; an id present in several
+// Lexicographic rank reproduces dictionary order; an id present in several
 // runs concatenates in run order (docids stay ascending). No positions.
 TEST(SniiSpillMergeTest, MergeByLexRankConcatenatesNoPositions) {
     const std::vector<std::string> vocab = {"banana", "apple", "cherry"}; // ids 0,1,2
@@ -992,7 +974,7 @@ TEST(SniiSpillMergeTest, MergeByLexRankConcatenatesNoPositions) {
     EXPECT_EQ(merged[2].docids, (std::vector<uint32_t> {3, 9}));
 }
 
-// FM-02: same shape with positions -- positions_flat materializes correctly per term
+// Same shape with positions -- positions_flat materializes correctly per term
 // (document order, partitioned by freqs).
 TEST(SniiSpillMergeTest, MergeByLexRankWithPositions) {
     const std::vector<std::string> vocab = {"banana", "apple", "cherry"};
@@ -1015,7 +997,7 @@ TEST(SniiSpillMergeTest, MergeByLexRankWithPositions) {
     EXPECT_EQ(merged[2].positions_flat, (std::vector<uint32_t> {6}));
 }
 
-// FM-03: a doc split across a spill boundary (last doc of run0 == first doc of run1)
+// A doc split across a spill boundary (last doc of run0 == first doc of run1)
 // coalesces into one entry (freqs summed, positions spliced in run order). The merge
 // key is the integer rank, but the concat boundary path is unchanged.
 TEST(SniiSpillMergeTest, MergeCoalescesBoundaryDoc) {
@@ -1035,7 +1017,7 @@ TEST(SniiSpillMergeTest, MergeCoalescesBoundaryDoc) {
     EXPECT_EQ(merged[0].positions_flat, (std::vector<uint32_t> {1, 2, 3, 8, 9})); // doc4: 2,3,8
 }
 
-// FM-05: a wide term split across runs fills writer-owned source windows with
+// A wide term split across runs fills writer-owned source windows with
 // byte-identical docids, freqs, and positions.
 TEST(SniiSpillMergeTest, MergeWideTermStreamsMatchesMaterialized) {
     const std::vector<std::string> vocab = {"wide"};
@@ -1085,7 +1067,7 @@ TEST(SniiSpillMergeTest, MergeWideTermStreamsMatchesMaterialized) {
     EXPECT_EQ(materialized.freqs[static_cast<size_t>(it - materialized.docids.begin())], 3U);
 }
 
-// FM-06: a single run passes through unchanged; an empty run and an empty run-set
+// A single run passes through unchanged; an empty run and an empty run-set
 // both emit nothing and return OK (degenerate inputs).
 TEST(SniiSpillMergeTest, MergeSingleRunAndEmptyInputs) {
     const std::vector<std::string> vocab = {"a", "b"};
@@ -1118,7 +1100,7 @@ TEST(SniiSpillMergeTest, MergeSingleRunAndEmptyInputs) {
     EXPECT_EQ(calls, 0);
 }
 
-// FM-07: a run term-id >= vocab.size() is rejected as Corruption -- the
+// A run term-id >= vocab.size() is rejected as Corruption -- the
 // current_id() < vocab.size() guards remain, so string_rank[term_id] is never
 // indexed out of range.
 TEST(SniiSpillMergeTest, MergeOutOfRangeTermIdIsCorruption) {
@@ -1133,8 +1115,7 @@ TEST(SniiSpillMergeTest, MergeOutOfRangeTermIdIsCorruption) {
     EXPECT_TRUE(s.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << s;
 }
 
-// FM-08: string_rank sized differently from vocab is an InternalError, rejected at the
-// entry guard before any run is opened or any term emitted (the T15 guard).
+// Reject a rank whose size differs from the vocabulary before opening a run.
 TEST(SniiSpillMergeTest, MergeRankVocabSizeMismatchIsInternal) {
     const std::vector<std::string> vocab = {"a", "b", "c"};
     const std::vector<uint32_t> rank = {0, 1}; // size 2 != vocab size 3
@@ -1147,10 +1128,8 @@ TEST(SniiSpillMergeTest, MergeRankVocabSizeMismatchIsInternal) {
     EXPECT_EQ(calls, 0); // rejected before emitting anything
 }
 
-// FM-09 (equivalence baseline): a richer scenario -- multiple terms across multiple
-// runs, positions, and a boundary-doc overlap -- compared field-by-field against the
-// hand-computed expected merged stream. With the lexicographic rank this pins the
-// byte-identical output (== the old vocab-string-keyed semantics).
+// Compare merged terms, positions, and a boundary-document overlap with the
+// expected stream in string-rank order.
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
 TEST(SniiSpillMergeTest, MergeProducesByteIdenticalOutput) {
     const std::vector<std::string> vocab = {"delta", "alpha", "charlie"}; // ids 0,1,2
@@ -1185,7 +1164,7 @@ TEST(SniiSpillMergeTest, MergeProducesByteIdenticalOutput) {
     EXPECT_EQ(merged[2].positions_flat, (std::vector<uint32_t> {9, 0, 0}));
 }
 
-// FM-10 (end-to-end): a borrowed-vocab SpimiTermBuffer fed the SAME tokens produces
+// A borrowed-vocab SpimiTermBuffer fed the SAME tokens produces
 // byte-identical merged postings whether it stays in memory (threshold 0) or spills
 // to many runs (tiny threshold) and goes through the rank-keyed k-way merge. This
 // drives the production wiring (SpimiTermBuffer::merge_runs -> ensure_string_rank ->

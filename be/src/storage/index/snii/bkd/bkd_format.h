@@ -137,15 +137,7 @@ inline constexpr uint32_t kPointDocIdBytes = 4;
 // million rows.
 inline constexpr uint32_t kDefaultPointsPerLeaf = 128;
 
-// Hard ceiling on the recorded points_per_leaf, enforced at open. This is not a
-// tuning knob: points_per_leaf is the ONLY quantity that bounds a leaf's count,
-// and a leaf's count is what sizes the doc id vector during leaf decode. Left
-// unbounded, a self-consistent but hostile bkd_index (inflate point_count and
-// the leaf counts together and the sum identity still holds) would drive an
-// arbitrarily large allocation from a ~25-byte leaf block, and the resulting
-// bad_alloc would escape a module that has no catch anywhere -- turning a
-// recoverable downgrade into a node crash, which is exactly what design 8
-// exists to prevent. 1 Mi points caps one leaf's doc id vector at 4 MiB.
+// Reject leaf sizes above this limit before allocating decode buffers. A leaf can encode many points in very few bytes, so its byte length cannot bound that allocation.
 inline constexpr uint32_t kMaxPointsPerLeaf = 1U << 20;
 
 // Resident point-buffer ceiling before a run is sorted and spilled. Bounds

@@ -144,21 +144,9 @@ public:
     // streams via visit_prefix_range.
     Status decode_all(std::vector<DictEntry>* out) const;
 
-    // Streams the entries of this block whose term lies in [prefix, prefix+) in
-    // lexicographic order, materializing only the bodies a caller keeps (T07):
-    //   1) anchor-jump to the anchor segment containing prefix (segments whose
-    //      terms are all < prefix are skipped without any decode); an empty
-    //      prefix or one before the first anchor starts at anchor 0;
-    //   2) within range, decode each entry's term key only; term < prefix skips
-    //      the body and continues; a term that leaves the prefix range sets
-    //      *prefix_exhausted=true and ends the scan (sorted order guarantees no
-    //      further matches here or in later blocks);
-    //   3) accept_key(term)==false skips the body (lets callers push a key-only
-    //      predicate down so a non-match never pays for its body);
-    //   4) only accepted entries have their body decoded and are handed to
-    //      on_hit, which may request an early stop via *stop.
-    // accept_key may be empty (treated as accept-all). prefix_exhausted is set
-    // false on entry and true only when a term past the range is seen.
+    // Streams matching terms in lexicographic order, decoding bodies only for
+    // keys accepted by accept_key. It starts at the relevant anchor and stops
+    // when a term leaves the prefix range or on_hit requests a stop.
     Status visit_prefix_range(std::string_view prefix,
                               const std::function<bool(std::string_view term)>& accept_key,
                               const std::function<Status(DictEntry&& entry, bool* stop)>& on_hit,

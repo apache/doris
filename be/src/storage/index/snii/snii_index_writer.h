@@ -194,7 +194,7 @@ private:
     // (and through it the SNII index-build observation tracker). Re-charged on
     // growth in add_nulls / add_array_nulls, released in finish() / close_on_error() --
     // without it a large interleaved-null segment accumulates untracked RSS the
-    // G09 limiter cannot see.
+    // Limiter cannot see.
     int64_t _null_docids_charged_bytes = 0;
     int64_t _encoded_norms_charged_bytes = 0;
     int64_t _gram_buffers_charged_bytes = 0;
