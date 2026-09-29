@@ -158,6 +158,6 @@ public class LoadContext {
     }
 
     public List<TErrorTabletInfo> getErrorTabletInfos() {
-        return errorTabletInfos;
+        return Utils.fastToImmutableList(errorTabletInfos);
     }
 }

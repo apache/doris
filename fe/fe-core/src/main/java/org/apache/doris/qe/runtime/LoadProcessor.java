@@ -162,9 +162,25 @@ public class LoadProcessor extends AbstractJobProcessor {
         return latch.get().await(timeout, unit);
     }
 
+    private void updateLoadDiagnostics(TReportExecStatusParams params) {
+        if (params.isSetTrackingUrl()) {
+            loadContext.updateTrackingUrl(params.getTrackingUrl());
+        }
+        if (params.isSetFirstErrorMsg()) {
+            loadContext.updateFirstErrorMsg(params.getFirstErrorMsg());
+        }
+    }
 
     @Override
-    protected void doProcessReportExecStatus(TReportExecStatusParams params, SingleFragmentPipelineTask fragmentTask) {
+    protected void doProcessReportExecStatus(TReportExecStatusParams params,
+            SingleFragmentPipelineTask fragmentTask, Runnable updateStatus) {
+        boolean accepted = fragmentTask.processReportExecStatus(params, () -> acceptFinalReport(params, updateStatus));
+        if (!accepted) {
+            if (!params.isDone() && !new Status(params.status).ok()) {
+                updateLoadDiagnostics(params);
+            }
+            updateStatus.run();
+        }
         if (params.isSetLoadedRows() && jobId != -1) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("doProcessReportExecStatus: forwarding load progress to LoadManager, "
@@ -189,7 +205,7 @@ public class LoadProcessor extends AbstractJobProcessor {
             }
         }
 
-        if (!fragmentTask.processReportExecStatus(params, () -> acceptFinalReport(params))) {
+        if (!accepted) {
             if ((params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas()
                     || params.isSetMcCommitDatas()) && !fragmentTask.isDone()) {
                 throw new IllegalStateException("External-file report was not a completed fragment report");
@@ -219,7 +235,7 @@ public class LoadProcessor extends AbstractJobProcessor {
         }
     }
 
-    private void acceptFinalReport(TReportExecStatusParams params) {
+    private void acceptFinalReport(TReportExecStatusParams params, Runnable updateStatus) {
         LoadContext loadContext = coordinatorContext.asLoadProcessor().loadContext;
         if (params.isSetDeltaUrls()) {
             loadContext.updateDeltaUrls(params.getDeltaUrls());
@@ -227,12 +243,7 @@ public class LoadProcessor extends AbstractJobProcessor {
         if (params.isSetLoadCounters()) {
             loadContext.updateLoadCounters(params.getLoadCounters());
         }
-        if (params.isSetTrackingUrl()) {
-            loadContext.updateTrackingUrl(params.getTrackingUrl());
-        }
-        if (params.isSetFirstErrorMsg()) {
-            loadContext.updateFirstErrorMsg(params.getFirstErrorMsg());
-        }
+        updateLoadDiagnostics(params);
         if (params.isSetTxnId()) {
             loadContext.updateTransactionId(params.getTxnId());
         }
@@ -248,6 +259,9 @@ public class LoadProcessor extends AbstractJobProcessor {
         if (params.isSetErrorTabletInfos()) {
             loadContext.updateErrorTabletInfos(params.getErrorTabletInfos());
         }
+        // Cancellation may release load waiters, so publish this report's complete load result first.
+        // External commit data is accepted afterward so it cannot delay publishing a failure status.
+        updateStatus.run();
         long txnId = loadContext.getTransactionId();
         if (params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas() || params.isSetMcCommitDatas()) {
             Transaction txn = Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId);
