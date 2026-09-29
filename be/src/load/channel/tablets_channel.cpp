@@ -42,6 +42,7 @@
 #include "common/metrics/doris_metrics.h"
 #include "common/metrics/metrics.h"
 #include "core/block/block.h"
+#include "load/channel/eos_completion.h"
 #include "load/channel/load_channel.h"
 #include "load/delta_writer/delta_writer.h"
 #include "storage/storage_engine.h"
@@ -63,6 +64,7 @@ std::atomic<uint64_t> BaseTabletsChannel::_s_tablet_writer_count;
 BaseTabletsChannel::BaseTabletsChannel(const TabletsChannelKey& key, const UniqueId& load_id,
                                        bool is_high_priority, RuntimeProfile* profile)
         : _key(key),
+          _eos_completion(std::make_shared<EosCompletion>()),
           _state(kInitialized),
           _load_id(load_id),
           _closed_senders(64),

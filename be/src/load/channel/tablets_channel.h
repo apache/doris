@@ -80,6 +80,7 @@ class BaseDeltaWriter;
 class MemTableWriter;
 class OlapTableSchemaParam;
 class LoadChannel;
+class EosCompletion;
 struct WriteRequest;
 
 // Write channel for a particular (load, index).
@@ -109,6 +110,8 @@ public:
 
     // no-op when this channel has been closed or cancelled
     virtual Status cancel();
+
+    const std::shared_ptr<EosCompletion>& eos_completion() const { return _eos_completion; }
 
     void refresh_profile();
 
@@ -153,6 +156,7 @@ protected:
 
     // id of this load channel
     TabletsChannelKey _key;
+    std::shared_ptr<EosCompletion> _eos_completion;
 
     // protect _state change. open and close. when add_batch finished, lock to change _next_seqs also
     std::mutex _lock;
