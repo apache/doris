@@ -1053,6 +1053,8 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathReplaysPeerGroupsFromSidecarFile) {
     // The first replay of a batch reserves the reader buffer and one deserialized Block.
     const auto spill_buffer_bytes = static_cast<size_t>(state->spill_buffer_size_bytes());
     EXPECT_EQ(source_local_state->_spill_replay_reserve_bytes(state.get()), 2 * spill_buffer_bytes);
+    EXPECT_GE(source->get_reserve_mem_size(state.get()),
+              2 * spill_buffer_bytes + state->minimum_operator_memory_required_bytes());
     expect_next_spill_block(source.get(), state.get(),
                             order_block_with_double_result({1, 1, 2}, {0.4, 0.4, 0.8}));
     ASSERT_NE(source_local_state->_peer_group_reader, nullptr);
@@ -1105,6 +1107,93 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathFlushesPeerGroupsAtSpillBufferSize) {
                       static_cast<double>(output_rows + 1) / static_cast<double>(rows));
             ++output_rows;
         }
+    }
+    EXPECT_EQ(output_rows, rows);
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillPathKeepsSealedBatchBelowSinkLimitInMemory) {
+    ScopedSpillFileManager spill_file_manager;
+    ASSERT_TRUE(spill_file_manager.init().ok());
+
+    Initialize(4096);
+    // A sealed batch is only spilled when it reaches spill_analytic_sink_mem_limit_bytes
+    // (64MB by default), not when it exceeds the much smaller min_revocable_mem.
+    state->_query_options.__set_min_revocable_mem(1024 * 1024);
+    create_operator(false, 1, "sum", {std::make_shared<DataTypeInt64>()},
+                    std::make_shared<DataTypeInt64>());
+    sink->_agg_expr_ctxs.resize(1);
+    sink->_agg_expr_ctxs[0] =
+            MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>());
+    sink->_partition_by_eq_expr_ctxs =
+            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+    sink->_enable_spill_analytic = true;
+    sink->_window_spill_strategies = {WindowSpillStrategy::PARTITION_REDUCE};
+    sink->_window_spill_peer_functions = {WindowSpillPeerFunction::NONE};
+    create_local_state();
+
+    constexpr size_t rows = 200000;
+    std::vector<int64_t> keys(rows, 1);
+    keys.back() = 2;
+    std::vector<int64_t> values(rows, 1);
+    Block input = ColumnHelper::create_block<DataTypeInt64>(keys, values);
+    auto status = sink->sink(state.get(), &input, false);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    {
+        LockGuard lock(sink_local_state->_shared_state->buffer_mutex);
+        ASSERT_EQ(sink_local_state->_shared_state->spill_batches.size(), 1);
+        const auto& batch = sink_local_state->_shared_state->spill_batches.front();
+        EXPECT_EQ(batch->rows, rows - 1);
+        EXPECT_EQ(batch->data_file, nullptr);
+        size_t batch_bytes = 0;
+        for (const auto& block : batch->blocks) {
+            batch_bytes += block.allocated_bytes();
+        }
+        EXPECT_GT(batch_bytes, state->spill_min_revocable_mem());
+    }
+    EXPECT_EQ(spill_write_block_count(sink_local_state), 0);
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillPathSpillsAtAnalyticSinkMemLimit) {
+    ScopedSpillFileManager spill_file_manager;
+    ASSERT_TRUE(spill_file_manager.init().ok());
+
+    Initialize(4096);
+    state->_query_options.__set_spill_analytic_sink_mem_limit_bytes(1024 * 1024);
+    prepare_spilled_full_partition_sum();
+
+    // About 1.6MB of rows in the open partition reach the 1MB proactive limit without any
+    // forced spill or revoke.
+    constexpr int64_t rows = 200000;
+    std::vector<int64_t> values(rows);
+    std::iota(values.begin(), values.end(), 0);
+    Block input = ColumnHelper::create_block<DataTypeInt64>(values);
+    auto status = sink->sink(state.get(), &input, false);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_TRUE(sink_local_state->_batch_store->is_spilled());
+    EXPECT_GT(spill_write_block_count(sink_local_state), 0);
+    const auto* spill_mode = sink_local_state->custom_profile()->get_info_string("WindowSpillMode");
+    ASSERT_NE(spill_mode, nullptr);
+    EXPECT_EQ(*spill_mode, "Spilled");
+
+    Block eos_block = ColumnHelper::create_block<DataTypeInt64>({});
+    status = sink->sink(state.get(), &eos_block, true);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const int64_t expected_sum = rows * (rows - 1) / 2;
+    int64_t output_rows = 0;
+    bool eos = false;
+    while (!eos) {
+        Block output;
+        status = source->get_block(state.get(), &output, &eos);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        if (eos) {
+            break;
+        }
+        const auto& sum = assert_cast<const ColumnInt64&>(*output.get_by_position(1).column);
+        for (size_t i = 0; i < output.rows(); ++i) {
+            ASSERT_EQ(sum.get_data()[i], expected_sum);
+        }
+        output_rows += output.rows();
     }
     EXPECT_EQ(output_rows, rows);
 }

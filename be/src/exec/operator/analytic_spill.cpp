@@ -36,14 +36,9 @@ AnalyticSpillBatchStore::AnalyticSpillBatchStore(RuntimeProfile* profile, int no
                                                  bool has_peer_groups)
         : _profile(profile), _node_id(node_id), _has_peer_groups(has_peer_groups) {}
 
-AnalyticSpillBatchStore::~AnalyticSpillBatchStore() {
-    if (_peer_group_writer) {
-        (void)_peer_group_writer->close();
-    }
-    if (_data_writer) {
-        (void)_data_writer->close();
-    }
-}
+// A writer still open here belongs to a failed or cancelled query. ~SpillFileWriter closes it and
+// logs a close failure; the writers are destroyed before the SpillFiles they write to.
+AnalyticSpillBatchStore::~AnalyticSpillBatchStore() = default;
 
 Status AnalyticSpillBatchStore::_create_writer(RuntimeState* state, const char* label,
                                                SpillFileSPtr& file, SpillFileWriterSPtr& writer) {
