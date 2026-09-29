@@ -20,12 +20,13 @@
 #include "storage/index/inverted/query_v2/query.h"
 #include "storage/index/inverted/query_v2/term_query/term_weight.h"
 #include "storage/index/inverted/similarity/bm25_similarity.h"
+#include "storage/index/inverted/util/string_helper.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
 class TermQuery : public Query {
 public:
-    TermQuery(IndexQueryContextPtr context, std::wstring field, std::wstring term)
+    TermQuery(IndexQueryContextPtr context, std::wstring field, std::string term)
             : _context(std::move(context)), _field(std::move(field)), _term(std::move(term)) {}
     ~TermQuery() override = default;
 
@@ -33,15 +34,14 @@ public:
         SimilarityPtr bm25_similarity;
         if (enable_scoring) {
             bm25_similarity = std::make_shared<BM25Similarity>();
-            bm25_similarity->for_one_term(_context, _field, _term);
+            bm25_similarity->for_one_term(_context, _field, StringHelper::to_wstring(_term));
         } else {
             // Unscored terms share one constant similarity instead of each filling a score table.
             static const SimilarityPtr unscored_similarity =
                     std::make_shared<BM25Similarity>(1.0F, 1.0F);
             bm25_similarity = unscored_similarity;
         }
-        return std::make_shared<TermWeight>(std::move(_context), std::move(_field),
-                                            std::move(_term), std::move(bm25_similarity),
+        return std::make_shared<TermWeight>(std::move(_field), _term, std::move(bm25_similarity),
                                             enable_scoring);
     }
 
@@ -49,7 +49,7 @@ private:
     IndexQueryContextPtr _context;
 
     std::wstring _field;
-    std::wstring _term;
+    std::string _term;
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

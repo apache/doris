@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "storage/index/index_query_context.h"
 #include "storage/index/inverted/query_v2/nullable_scorer.h"
 #include "storage/index/inverted/query_v2/phrase_query/phrase_scorer.h"
 #include "storage/index/inverted/query_v2/scorer.h"
@@ -30,12 +29,11 @@ constexpr uint32_t LOADED_POSTINGS_DOC_FREQ_THRESHOLD = 100;
 
 class PhraseWeight : public Weight {
 public:
-    PhraseWeight(IndexQueryContextPtr context, std::wstring field, std::vector<TermInfo> term_infos,
+    PhraseWeight(std::wstring field, std::vector<TermInfo> term_infos,
                  index_query::PhraseQueryOptions options,
                  index_query::ScoringContextPtr<float> similarity, bool enable_scoring,
                  bool nullable)
-            : _context(std::move(context)),
-              _field(std::move(field)),
+            : _field(std::move(field)),
               _term_infos(std::move(term_infos)),
               _options(options),
               _similarity(std::move(similarity)),
@@ -54,8 +52,8 @@ public:
 
 private:
     ScorerPtr phrase_scorer(const QueryExecutionContext& ctx, const std::string& binding_key) {
-        auto reader = lookup_reader(_field, ctx, binding_key);
-        if (!reader) {
+        auto source = lookup_source(_field, ctx, binding_key);
+        if (!source) {
             throw Exception(ErrorCode::NOT_FOUND, "Reader not found for field '{}'",
                             StringHelper::to_string(_field));
         }
@@ -63,9 +61,8 @@ private:
         std::vector<std::pair<size_t, SegmentPostingsPtr>> term_postings_list;
         for (const auto& term_info : _term_infos) {
             size_t offset = term_info.position;
-            auto posting =
-                    create_position_posting(reader.get(), _field, term_info.get_single_term(),
-                                            _enable_scoring, _similarity, _context->io_ctx);
+            auto posting = open_postings(*source, term_info.get_single_term(),
+                                         /*positions=*/true, _enable_scoring, _similarity);
             if (posting) {
                 term_postings_list.emplace_back(offset, std::move(posting));
             } else {
@@ -76,8 +73,6 @@ private:
         return PhraseScorer<SegmentPostingsPtr>::create(term_postings_list, _similarity, _options,
                                                         num_docs);
     }
-
-    IndexQueryContextPtr _context;
 
     std::wstring _field;
     std::vector<TermInfo> _term_infos;

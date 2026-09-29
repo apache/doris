@@ -19,6 +19,7 @@
 
 #include <cstdint>
 #include <span>
+#include <vector>
 
 #include "common/status.h"
 #include "storage/index/query/spi/position_cursor.h"
@@ -87,6 +88,14 @@ public:
     virtual Status open_positions(uint32_t ordinal, PositionCursor** out) {
         *out = nullptr;
         return Status::NotSupported("This posting type does not support positions");
+    }
+    // The positions of the document at `ordinal`, each plus `offset`, appended to `output`:
+    // the open and the drain as one call, which an adapter may fuse.
+    virtual Status append_positions(uint32_t ordinal, uint32_t offset,
+                                    std::vector<uint32_t>& output) {
+        PositionCursor* positions = nullptr;
+        RETURN_IF_ERROR(open_positions(ordinal, &positions));
+        return positions->append_remaining_positions(offset, output);
     }
 };
 

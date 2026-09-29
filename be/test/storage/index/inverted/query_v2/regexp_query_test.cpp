@@ -27,6 +27,7 @@
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/query_v2/expand_query/expand_query.h"
+#include "storage/index/inverted/spi/clucene_index_source.h"
 #include "storage/index/inverted/util/string_helper.h"
 
 CL_NS_USE(search)
@@ -196,8 +197,8 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_execution) {
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -231,8 +232,8 @@ TEST_F(RegexpQueryV2Test, test_regexp_alternating_multibyte_characters) {
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
     auto scorer = weight->scorer(exec_ctx);
     roaring::Roaring result;
     for (uint32_t doc = scorer->doc(); doc != query_v2::TERMINATED; doc = scorer->advance()) {
@@ -271,8 +272,8 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_different_patterns) {
 
         query_v2::QueryExecutionContext exec_ctx;
         exec_ctx.segment_num_rows = reader_holder->maxDoc();
-        exec_ctx.readers = {reader_holder};
-        exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+        exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+        exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
         auto scorer = weight->scorer(exec_ctx);
         ASSERT_NE(scorer, nullptr) << "Scorer should not be null for pattern: " << pattern;
@@ -311,8 +312,8 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_no_matches) {
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -349,11 +350,11 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_with_binding_key) {
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
 
     std::string binding_key = "content#0";
-    exec_ctx.reader_bindings[binding_key] = reader_holder;
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.source_bindings[binding_key] = clucene_index_source(reader_holder, field, nullptr);
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx, binding_key);
     ASSERT_NE(scorer, nullptr);
@@ -410,8 +411,8 @@ TEST_F(RegexpQueryV2Test, test_regexp_query_complex_pattern) {
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -468,8 +469,8 @@ TEST_F(RegexpQueryV2Test, test_whole_term_match) {
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -504,8 +505,8 @@ TEST_F(RegexpQueryV2Test, test_whole_term_match_already_anchored) {
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -540,8 +541,8 @@ TEST_F(RegexpQueryV2Test, test_whole_term_match_anchored_start) {
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -576,8 +577,8 @@ TEST_F(RegexpQueryV2Test, test_whole_term_match_anchored_end) {
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);
@@ -612,8 +613,8 @@ TEST_F(RegexpQueryV2Test, test_whole_term_match_any_term) {
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
     ASSERT_NE(scorer, nullptr);

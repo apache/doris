@@ -17,134 +17,84 @@
 
 #pragma once
 
-#include "storage/index/inverted/query_v2/weight.h"
+#include <cstdint>
+#include <memory>
+#include <roaring/roaring.hh>
+#include <string>
+#include <vector>
 
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wshadow-field"
-#pragma clang diagnostic ignored "-Woverloaded-virtual"
-#pragma clang diagnostic ignored "-Winconsistent-missing-override"
-#pragma clang diagnostic ignored "-Wreorder-ctor"
-#pragma clang diagnostic ignored "-Wshorten-64-to-32"
-#elif defined(__GNUC__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Woverloaded-virtual"
-#endif
-#include "CLucene.h"
-#include "CLucene/index/MultiReader.h"
-#include "CLucene/index/_MultiSegmentReader.h"
-#ifdef __clang__
-#pragma clang diagnostic pop
-#elif defined(__GNUC__)
-#pragma GCC diagnostic pop
-#endif
+#include "common/exception.h"
+#include "common/logging.h"
+#include "storage/index/inverted/query_v2/weight.h"
+#include "storage/index/query/spi/index_source.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-inline std::shared_ptr<lucene::index::IndexReader> non_owning_reader(
-        lucene::index::IndexReader* reader) {
-    return {reader, [](lucene::index::IndexReader*) {}};
-}
-
-inline const lucene::util::ArrayBase<lucene::index::IndexReader*>* sub_readers(
-        lucene::index::IndexReader* reader) {
-    if (auto* multi_segment_reader = dynamic_cast<lucene::index::MultiSegmentReader*>(reader)) {
-        return multi_segment_reader->getSubReaders();
-    }
-    if (auto* multi_reader = dynamic_cast<lucene::index::MultiReader*>(reader)) {
-        return multi_reader->getSubReaders();
-    }
-    return nullptr;
-}
-
-inline const int32_t* segment_starts(lucene::index::IndexReader* reader) {
-    if (auto* multi_segment_reader = dynamic_cast<lucene::index::MultiSegmentReader*>(reader)) {
-        return multi_segment_reader->getStarts();
-    }
-    return nullptr;
-}
-
-inline uint32_t segment_base(lucene::index::IndexReader* reader, size_t segment_index) {
-    const auto* starts = segment_starts(reader);
-    if (starts != nullptr) {
-        return static_cast<uint32_t>(starts[segment_index]);
-    }
-
-    const auto* segments = sub_readers(reader);
-    DCHECK(segments != nullptr);
-    uint32_t base = 0;
-    for (size_t i = 0; i < segment_index; ++i) {
-        base += (*segments)[i]->maxDoc();
-    }
-    return base;
-}
-
-inline std::shared_ptr<lucene::index::IndexReader> find_segmented_reader(
-        const QueryExecutionContext& context, const std::string& binding_key) {
+// The split source that drives the segment walk: the binding's, else the first split one among
+// the sources, the bindings and the fields; null when no source is split by segment.
+inline index_query::IndexSourcePtr find_segmented_source(const QueryExecutionContext& context,
+                                                         const std::string& binding_key) {
     if (!binding_key.empty()) {
-        if (auto it = context.reader_bindings.find(binding_key);
-            it != context.reader_bindings.end()) {
-            return sub_readers(it->second.get()) != nullptr ? it->second : nullptr;
+        if (auto it = context.source_bindings.find(binding_key);
+            it != context.source_bindings.end()) {
+            return it->second->segments().empty() ? nullptr : it->second;
         }
     }
 
-    for (const auto& reader : context.readers) {
-        if (sub_readers(reader.get()) != nullptr) {
-            return reader;
+    for (const auto& source : context.sources) {
+        if (!source->segments().empty()) {
+            return source;
         }
     }
-    for (const auto& [_, reader] : context.reader_bindings) {
-        if (sub_readers(reader.get()) != nullptr) {
-            return reader;
+    for (const auto& [_, source] : context.source_bindings) {
+        if (!source->segments().empty()) {
+            return source;
         }
     }
-    for (const auto& [_, reader] : context.field_reader_bindings) {
-        if (sub_readers(reader.get()) != nullptr) {
-            return reader;
+    for (const auto& [_, source] : context.field_sources) {
+        if (!source->segments().empty()) {
+            return source;
         }
     }
     return nullptr;
 }
 
-inline void validate_segment_topology(
-        const std::shared_ptr<lucene::index::IndexReader>& reader,
-        const std::shared_ptr<lucene::index::IndexReader>& driver_reader) {
-    const auto* segments = sub_readers(reader.get());
-    if (segments == nullptr) {
+// A split source must be split like the driver: the same segments, bases and sizes.
+inline void validate_segment_topology(const index_query::IndexSourcePtr& source,
+                                      const std::vector<index_query::IndexSegment>& driver) {
+    const auto segments = source->segments();
+    if (segments.empty()) {
         return;
     }
-
-    const auto* driver_segments = sub_readers(driver_reader.get());
-    DCHECK(driver_segments != nullptr);
-    DCHECK_EQ(segments->length, driver_segments->length);
-    for (size_t i = 0; i < driver_segments->length; ++i) {
-        DCHECK_EQ(segment_base(reader.get(), i), segment_base(driver_reader.get(), i));
-        DCHECK_EQ((*segments)[i]->maxDoc(), (*driver_segments)[i]->maxDoc());
+    DCHECK_EQ(segments.size(), driver.size());
+    for (size_t i = 0; i < driver.size(); ++i) {
+        DCHECK_EQ(segments[i].doc_base, driver[i].doc_base);
+        DCHECK_EQ(segments[i].source->doc_count(), driver[i].source->doc_count());
     }
 }
 
-inline void validate_segment_topologies(
-        const QueryExecutionContext& context,
-        const std::shared_ptr<lucene::index::IndexReader>& driver_reader) {
-    for (const auto& reader : context.readers) {
-        validate_segment_topology(reader, driver_reader);
+inline void validate_segment_topologies(const QueryExecutionContext& context,
+                                        const std::vector<index_query::IndexSegment>& driver) {
+    for (const auto& source : context.sources) {
+        validate_segment_topology(source, driver);
     }
-    for (const auto& [_, reader] : context.reader_bindings) {
-        validate_segment_topology(reader, driver_reader);
+    for (const auto& [_, source] : context.source_bindings) {
+        validate_segment_topology(source, driver);
     }
-    for (const auto& [_, reader] : context.field_reader_bindings) {
-        validate_segment_topology(reader, driver_reader);
+    for (const auto& [_, source] : context.field_sources) {
+        validate_segment_topology(source, driver);
     }
 }
 
-inline std::shared_ptr<lucene::index::IndexReader> reader_for_segment(
-        const std::shared_ptr<lucene::index::IndexReader>& reader, size_t segment_index) {
-    const auto* segments = sub_readers(reader.get());
-    if (segments != nullptr) {
-        DCHECK_LT(segment_index, segments->length);
-        return non_owning_reader((*segments)[segment_index]);
+// The part of `source` for one segment, or the source itself when it is not split.
+inline index_query::IndexSourcePtr source_for_segment(const index_query::IndexSourcePtr& source,
+                                                      size_t segment_index) {
+    const auto segments = source->segments();
+    if (segments.empty()) {
+        return source;
     }
-    return reader;
+    DCHECK_LT(segment_index, segments.size());
+    return segments[segment_index].source;
 }
 
 class SegmentNullBitmapResolver final : public NullBitmapResolver {
@@ -186,22 +136,22 @@ inline QueryExecutionContext create_segment_context(const QueryExecutionContext&
                                                     const std::string& binding_key) {
     QueryExecutionContext seg_ctx;
 
-    for (const auto& reader : original_ctx.readers) {
-        seg_ctx.readers.push_back(reader_for_segment(reader, segment_index));
+    for (const auto& source : original_ctx.sources) {
+        seg_ctx.sources.push_back(source_for_segment(source, segment_index));
     }
 
     seg_ctx.segment_num_rows = segment_num_rows;
 
-    for (const auto& [key, reader] : original_ctx.reader_bindings) {
-        seg_ctx.reader_bindings[key] = reader_for_segment(reader, segment_index);
+    for (const auto& [key, source] : original_ctx.source_bindings) {
+        seg_ctx.source_bindings[key] = source_for_segment(source, segment_index);
     }
-    for (const auto& [field, reader] : original_ctx.field_reader_bindings) {
-        seg_ctx.field_reader_bindings[field] = reader_for_segment(reader, segment_index);
+    for (const auto& [field, source] : original_ctx.field_sources) {
+        seg_ctx.field_sources[field] = source_for_segment(source, segment_index);
     }
 
-    if (!binding_key.empty() && !seg_ctx.readers.empty() &&
-        seg_ctx.reader_bindings.find(binding_key) == seg_ctx.reader_bindings.end()) {
-        seg_ctx.reader_bindings[binding_key] = seg_ctx.readers.front();
+    if (!binding_key.empty() && !seg_ctx.sources.empty() &&
+        !seg_ctx.source_bindings.contains(binding_key)) {
+        seg_ctx.source_bindings[binding_key] = seg_ctx.sources.front();
     }
 
     seg_ctx.binding_fields = original_ctx.binding_fields;
@@ -217,9 +167,9 @@ inline QueryExecutionContext create_segment_context(const QueryExecutionContext&
 template <typename SegmentCallback>
 void for_each_index_segment(const QueryExecutionContext& context, const std::string& binding_key,
                             SegmentCallback&& callback) {
-    auto segmented_reader = find_segmented_reader(context, binding_key);
-    if (!segmented_reader) {
-        // No reader available (e.g., AllQuery/MatchAllDocsQuery which doesn't resolve fields).
+    auto driver = find_segmented_source(context, binding_key);
+    if (!driver) {
+        // No source available (e.g., AllQuery/MatchAllDocsQuery which doesn't resolve fields).
         // Fall back to using the original context directly, as AllScorer only needs segment_num_rows.
         if (context.segment_num_rows > 0) {
             callback(context, 0);
@@ -227,17 +177,12 @@ void for_each_index_segment(const QueryExecutionContext& context, const std::str
         return;
     }
 
-    const auto* sub_readers = query_v2::sub_readers(segmented_reader.get());
-    if (!sub_readers || sub_readers->length == 0) {
-        return;
-    }
-
-    validate_segment_topologies(context, segmented_reader);
-    for (size_t i = 0; i < sub_readers->length; ++i) {
-        auto seg_base = segment_base(segmented_reader.get(), i);
+    const auto segments = driver->segments();
+    validate_segment_topologies(context, segments);
+    for (size_t i = 0; i < segments.size(); ++i) {
         QueryExecutionContext seg_ctx = create_segment_context(
-                context, i, (*sub_readers)[i]->maxDoc(), seg_base, binding_key);
-        callback(seg_ctx, seg_base);
+                context, i, segments[i].source->doc_count(), segments[i].doc_base, binding_key);
+        callback(seg_ctx, segments[i].doc_base);
     }
 }
 

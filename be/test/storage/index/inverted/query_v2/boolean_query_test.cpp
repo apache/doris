@@ -31,6 +31,7 @@
 #include "storage/index/inverted/query_v2/boolean_query/boolean_query_builder.h"
 #include "storage/index/inverted/query_v2/boolean_query/operator.h"
 #include "storage/index/inverted/query_v2/term_query/term_query.h"
+#include "storage/index/inverted/spi/clucene_index_source.h"
 #include "storage/index/inverted/util/string_helper.h"
 
 CL_NS_USE(search)
@@ -155,8 +156,7 @@ static Status boolean_query_search(
     {
         query_v2::OperatorBooleanQueryBuilder builder_child(query_v2::OperatorType::OP_AND);
         for (const auto& term : terms.first) {
-            std::wstring t = StringHelper::to_wstring(term);
-            auto clause = std::make_shared<query_v2::TermQuery>(context, field, t);
+            auto clause = std::make_shared<query_v2::TermQuery>(context, field, term);
             builder_child.add(clause, binding_key);
         }
         auto boolean_query = builder_child.build();
@@ -165,8 +165,7 @@ static Status boolean_query_search(
     {
         query_v2::OperatorBooleanQueryBuilder builder_child(query_v2::OperatorType::OP_OR);
         for (const auto& term : terms.second) {
-            std::wstring t = StringHelper::to_wstring(term);
-            auto clause = std::make_shared<query_v2::TermQuery>(context, field, t);
+            auto clause = std::make_shared<query_v2::TermQuery>(context, field, term);
             builder_child.add(clause, binding_key);
         }
         auto boolean_query = builder_child.build();
@@ -176,9 +175,9 @@ static Status boolean_query_search(
     auto weight = boolean_query->weight(false);
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader->maxDoc();
-    exec_ctx.readers = {reader};
-    exec_ctx.reader_bindings.emplace(binding_key, reader);
-    exec_ctx.field_reader_bindings.emplace(field, reader);
+    exec_ctx.sources = {clucene_index_source(reader, field, nullptr)};
+    exec_ctx.source_bindings.emplace(binding_key, clucene_index_source(reader, field, nullptr));
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
 
@@ -302,17 +301,16 @@ TEST_F(BooleanQueryTest, test_boolean_query_not_operation) {
             std::string("name1") + "#" + std::to_string(static_cast<int>(query_type));
 
     query_v2::OperatorBooleanQueryBuilder builder(query_v2::OperatorType::OP_NOT);
-    builder.add(std::make_shared<query_v2::TermQuery>(context, field,
-                                                      StringHelper::to_wstring("apple")),
-                binding_key);
+    builder.add(std::make_shared<query_v2::TermQuery>(context, field, "apple"), binding_key);
     auto query = builder.build();
 
     auto weight = query->weight(false);
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.reader_bindings.emplace(binding_key, reader_holder);
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.source_bindings.emplace(binding_key,
+                                     clucene_index_source(reader_holder, field, nullptr));
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
 
@@ -343,13 +341,10 @@ TEST_F(BooleanQueryTest, test_boolean_query_or_with_not_operation) {
     auto query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
     std::string include_key =
             std::string("name1") + "#" + std::to_string(static_cast<int>(query_type));
-    builder.add(std::make_shared<query_v2::TermQuery>(context, field,
-                                                      StringHelper::to_wstring("apple")),
-                include_key);
+    builder.add(std::make_shared<query_v2::TermQuery>(context, field, "apple"), include_key);
     {
         query_v2::OperatorBooleanQueryBuilder not_builder(query_v2::OperatorType::OP_NOT);
-        not_builder.add(std::make_shared<query_v2::TermQuery>(context, field,
-                                                              StringHelper::to_wstring("banana")),
+        not_builder.add(std::make_shared<query_v2::TermQuery>(context, field, "banana"),
                         include_key);
         builder.add(not_builder.build(), include_key);
     }
@@ -358,9 +353,9 @@ TEST_F(BooleanQueryTest, test_boolean_query_or_with_not_operation) {
     auto weight = query->weight(false);
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.reader_bindings[include_key] = reader_holder;
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.source_bindings[include_key] = clucene_index_source(reader_holder, field, nullptr);
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
 
@@ -409,15 +404,13 @@ TEST_F(BooleanQueryTest, test_boolean_query_scoring_or) {
             std::string("name1") + "#" + std::to_string(static_cast<int>(query_type));
     {
         query_v2::OperatorBooleanQueryBuilder builder_child(query_v2::OperatorType::OP_AND);
-        auto clause = std::make_shared<query_v2::TermQuery>(context, field,
-                                                            StringHelper::to_wstring("apple"));
+        auto clause = std::make_shared<query_v2::TermQuery>(context, field, "apple");
         builder_child.add(clause, binding_key);
         builder.add(builder_child.build(), binding_key);
     }
     {
         query_v2::OperatorBooleanQueryBuilder builder_child(query_v2::OperatorType::OP_OR);
-        auto clause = std::make_shared<query_v2::TermQuery>(context, field,
-                                                            StringHelper::to_wstring("kiwi"));
+        auto clause = std::make_shared<query_v2::TermQuery>(context, field, "kiwi");
         builder_child.add(clause, binding_key);
         builder.add(builder_child.build(), binding_key);
     }
@@ -426,9 +419,9 @@ TEST_F(BooleanQueryTest, test_boolean_query_scoring_or) {
     auto weight = boolean_query->weight(true);
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader_holder->maxDoc();
-    exec_ctx.readers = {reader_holder};
-    exec_ctx.reader_bindings[binding_key] = reader_holder;
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources = {clucene_index_source(reader_holder, field, nullptr)};
+    exec_ctx.source_bindings[binding_key] = clucene_index_source(reader_holder, field, nullptr);
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     auto scorer = weight->scorer(exec_ctx);
 
@@ -474,14 +467,15 @@ TEST_F(BooleanQueryTest, test_boolean_query_cross_fields_with_composite_reader) 
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = std::max(ir1_holder->maxDoc(), ir2_holder->maxDoc());
-    exec_ctx.readers = {ir1_holder, ir2_holder};
+    exec_ctx.sources = {clucene_index_source(ir1_holder, wfield1, nullptr),
+                        clucene_index_source(ir2_holder, wfield2, nullptr)};
     auto query_type = segment_v2::InvertedIndexQueryType::EQUAL_QUERY;
     std::string binding1 = field_name1 + "#" + std::to_string(static_cast<int>(query_type));
     std::string binding2 = field_name2 + "#" + std::to_string(static_cast<int>(query_type));
-    exec_ctx.reader_bindings[binding1] = ir1_holder;
-    exec_ctx.reader_bindings[binding2] = ir2_holder;
-    exec_ctx.field_reader_bindings.emplace(wfield1, ir1_holder);
-    exec_ctx.field_reader_bindings.emplace(wfield2, ir2_holder);
+    exec_ctx.source_bindings[binding1] = clucene_index_source(ir1_holder, wfield1, nullptr);
+    exec_ctx.source_bindings[binding2] = clucene_index_source(ir2_holder, wfield2, nullptr);
+    exec_ctx.field_sources.emplace(wfield1, clucene_index_source(ir1_holder, wfield1, nullptr));
+    exec_ctx.field_sources.emplace(wfield2, clucene_index_source(ir2_holder, wfield2, nullptr));
 
     auto context = std::make_shared<IndexQueryContext>();
     context->collection_statistics = std::make_shared<CollectionStatistics>();
@@ -489,12 +483,8 @@ TEST_F(BooleanQueryTest, test_boolean_query_cross_fields_with_composite_reader) 
 
     {
         query_v2::OperatorBooleanQueryBuilder b(query_v2::OperatorType::OP_AND);
-        b.add(std::make_shared<query_v2::TermQuery>(context, wfield1,
-                                                    StringHelper::to_wstring("apple")),
-              binding1);
-        b.add(std::make_shared<query_v2::TermQuery>(context, wfield2,
-                                                    StringHelper::to_wstring("banana")),
-              binding2);
+        b.add(std::make_shared<query_v2::TermQuery>(context, wfield1, "apple"), binding1);
+        b.add(std::make_shared<query_v2::TermQuery>(context, wfield2, "banana"), binding2);
         auto q = b.build();
         auto w = q->weight(false);
         auto s = w->scorer(exec_ctx);
@@ -510,12 +500,8 @@ TEST_F(BooleanQueryTest, test_boolean_query_cross_fields_with_composite_reader) 
 
     {
         query_v2::OperatorBooleanQueryBuilder b(query_v2::OperatorType::OP_OR);
-        b.add(std::make_shared<query_v2::TermQuery>(context, wfield1,
-                                                    StringHelper::to_wstring("apple")),
-              binding1);
-        b.add(std::make_shared<query_v2::TermQuery>(context, wfield2,
-                                                    StringHelper::to_wstring("banana")),
-              binding2);
+        b.add(std::make_shared<query_v2::TermQuery>(context, wfield1, "apple"), binding1);
+        b.add(std::make_shared<query_v2::TermQuery>(context, wfield2, "banana"), binding2);
         auto q = b.build();
         auto w = q->weight(false);
         auto s = w->scorer(exec_ctx);
@@ -554,8 +540,8 @@ TEST_F(BooleanQueryTest, test_boolean_query_bitmap_and_term) {
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = static_cast<uint32_t>(reader_holder->numDocs());
-    exec_ctx.readers.push_back(reader_holder);
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources.push_back(clucene_index_source(reader_holder, field, nullptr));
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     roaring::Roaring bm;
     for (uint32_t d = 0; d < static_cast<uint32_t>(reader->numDocs()); ++d) {
@@ -565,8 +551,7 @@ TEST_F(BooleanQueryTest, test_boolean_query_bitmap_and_term) {
     }
 
     query_v2::OperatorBooleanQueryBuilder builder(query_v2::OperatorType::OP_AND);
-    builder.add(std::make_shared<query_v2::TermQuery>(context, field,
-                                                      StringHelper::to_wstring("apple")));
+    builder.add(std::make_shared<query_v2::TermQuery>(context, field, "apple"));
     builder.add(std::make_shared<query_v2::BitSetQuery>(bm));
     auto q = builder.build();
 
@@ -605,8 +590,8 @@ TEST_F(BooleanQueryTest, test_boolean_query_bitmap_or_term) {
 
     query_v2::QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = static_cast<uint32_t>(reader_holder->numDocs());
-    exec_ctx.readers.push_back(reader_holder);
-    exec_ctx.field_reader_bindings.emplace(field, reader_holder);
+    exec_ctx.sources.push_back(clucene_index_source(reader_holder, field, nullptr));
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader_holder, field, nullptr));
 
     roaring::Roaring bm;
     for (uint32_t d = 0; d < static_cast<uint32_t>(reader->numDocs()); ++d) {
@@ -616,8 +601,7 @@ TEST_F(BooleanQueryTest, test_boolean_query_bitmap_or_term) {
     }
 
     query_v2::OperatorBooleanQueryBuilder builder(query_v2::OperatorType::OP_OR);
-    builder.add(std::make_shared<query_v2::TermQuery>(context, field,
-                                                      StringHelper::to_wstring("apple")));
+    builder.add(std::make_shared<query_v2::TermQuery>(context, field, "apple"));
     builder.add(std::make_shared<query_v2::BitSetQuery>(bm));
     auto q = builder.build();
 

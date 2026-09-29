@@ -1,0 +1,176 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "storage/index/snii/reader/snii_index_source.h"
+
+#include <gtest/gtest.h>
+
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "storage/index/query/exec/block_doc_set.h"
+#include "storage/index/query/term_pattern.h"
+#include "storage/index/snii/query/internal/docid_posting_reader.h"
+#include "storage/index/snii/writer/snii_compound_writer.h"
+#include "storage/index/snii_query_test_util.h"
+
+namespace doris::snii::reader {
+namespace {
+
+using snii_test::assert_ok;
+using snii_test::make_term;
+using snii_test::MemoryFile;
+
+class SniiIndexSourceTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        assert_ok(snii_test::build_reader(&_file, &_segment, &_index));
+        _source = std::make_unique<SniiIndexSource>(_index);
+    }
+
+    std::vector<uint32_t> oracle(const std::string& term) const {
+        bool found = false;
+        format::DictEntry entry;
+        uint64_t frq_base = 0;
+        uint64_t prx_base = 0;
+        EXPECT_TRUE(_index.lookup(term, &found, &entry, &frq_base, &prx_base).ok());
+        EXPECT_TRUE(found) << term;
+        std::vector<uint32_t> docids;
+        EXPECT_TRUE(query::internal::read_docid_posting(_index, entry, frq_base, prx_base, &docids)
+                            .ok());
+        return docids;
+    }
+
+    std::unique_ptr<index_query::PostingsCursor> open(const std::string& term, bool positions,
+                                                      bool scoring) const {
+        std::unique_ptr<index_query::PostingsCursor> cursor;
+        EXPECT_TRUE(_source->open_term(term, positions, scoring, &cursor).ok());
+        return cursor;
+    }
+
+    std::vector<uint32_t> list(const std::string& term) const {
+        auto cursor = open(term, false, false);
+        EXPECT_NE(cursor, nullptr) << term;
+        std::vector<uint32_t> docs;
+        index_query::BlockDocSet set(*cursor);
+        while (!set.exhausted()) {
+            docs.push_back(set.doc());
+            set.advance();
+        }
+        return docs;
+    }
+
+    std::vector<std::string> expand(index_query::TermPatternKind kind, const std::string& text,
+                                    int32_t max_expansions) const {
+        index_query::TermPattern pattern;
+        EXPECT_TRUE(index_query::TermPattern::create(kind, text, &pattern).ok());
+        std::vector<std::string> terms;
+        EXPECT_TRUE(_source->expand_terms(pattern, max_expansions, &terms).ok());
+        return terms;
+    }
+
+    MemoryFile _file;
+    SniiSegmentReader _segment;
+    LogicalIndexReader _index;
+    std::unique_ptr<SniiIndexSource> _source;
+};
+
+TEST_F(SniiIndexSourceTest, CountsTheDocuments) {
+    EXPECT_EQ(_source->doc_count(), 9000U);
+    EXPECT_TRUE(_source->segments().empty());
+    EXPECT_TRUE(_source->is_live(0));
+}
+
+TEST_F(SniiIndexSourceTest, OpensPresentTermsAndNotAbsentOnes) {
+    for (const char* name : {"needle", "123", "failed", "sparse_left"}) {
+        EXPECT_EQ(list(name), oracle(name)) << name;
+    }
+    EXPECT_EQ(open("absent", false, false), nullptr);
+}
+
+TEST_F(SniiIndexSourceTest, PreparedTermsOpenLikeUnpreparedOnes) {
+    const std::vector<std::string> terms = {"needle", "absent", "failed", "needle"};
+    assert_ok(_source->prepare_terms(terms));
+    EXPECT_EQ(list("needle"), oracle("needle"));
+    EXPECT_EQ(list("failed"), oracle("failed"));
+    EXPECT_EQ(open("absent", false, false), nullptr);
+    EXPECT_EQ(list("sparse_right"), oracle("sparse_right"));
+}
+
+TEST_F(SniiIndexSourceTest, ExpandsTermsInDictionaryOrder) {
+    using index_query::TermPatternKind;
+    EXPECT_EQ(expand(TermPatternKind::kPrefix, "ord", 0),
+              (std::vector<std::string> {"order", "ordinal"}));
+    EXPECT_EQ(expand(TermPatternKind::kPrefix, "ord", 1), (std::vector<std::string> {"order"}));
+    EXPECT_EQ(expand(TermPatternKind::kSuffix, "ed", 0), (std::vector<std::string> {"failed"}));
+    EXPECT_EQ(expand(TermPatternKind::kContains, "ar", 0),
+              (std::vector<std::string> {"sparse_left", "sparse_right"}));
+    EXPECT_TRUE(expand(TermPatternKind::kPrefix, "zzz", 0).empty());
+}
+
+TEST_F(SniiIndexSourceTest, ScoredPostingsCarryFrequenciesAndPositions) {
+    auto cursor = open("repeat", true, true);
+    ASSERT_NE(cursor, nullptr);
+    index_query::PostingsBlock block;
+    bool eof = false;
+    assert_ok(cursor->next_block(&block, &eof));
+    ASSERT_FALSE(eof);
+    ASSERT_EQ(block.freqs.size(), block.size());
+    // The corpus has no norms section, so every norm reads as 1.
+    EXPECT_TRUE(block.norms.empty());
+    EXPECT_EQ(block.freq_at(0), 3U);
+    EXPECT_EQ(block.norm_at(0), 1U);
+    index_query::PositionCursor* positions = nullptr;
+    assert_ok(cursor->open_positions(0, &positions));
+    std::vector<uint32_t> out;
+    assert_ok(positions->append_remaining_positions(0, out));
+    EXPECT_EQ(out, (std::vector<uint32_t> {0, 1, 2}));
+}
+
+TEST_F(SniiIndexSourceTest, PositionsNeedAPositionedIndex) {
+    MemoryFile file;
+    writer::SniiIndexInput input;
+    input.index_id = 3;
+    input.index_suffix = "tag";
+    input.config = format::IndexConfig::kDocsOnly;
+    input.doc_count = 10;
+    input.terms = {
+            make_term("only", {{.docid = 2, .positions = {0}}, {.docid = 7, .positions = {0}}})};
+    writer::SniiCompoundWriter compound_writer(&file);
+    assert_ok(compound_writer.add_logical_index(input));
+    assert_ok(compound_writer.finish());
+    SniiSegmentReader segment;
+    LogicalIndexReader index;
+    assert_ok(SniiSegmentReader::open(&file, &segment));
+    assert_ok(segment.open_index(3, "tag", &index));
+    SniiIndexSource source(index);
+
+    std::unique_ptr<index_query::PostingsCursor> cursor;
+    EXPECT_TRUE(source.open_term("only", /*positions=*/true, false, &cursor)
+                        .is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+    assert_ok(source.open_term("only", false, false, &cursor));
+    ASSERT_NE(cursor, nullptr);
+    index_query::BlockDocSet set(*cursor);
+    EXPECT_EQ(set.doc(), 2U);
+    EXPECT_TRUE(set.advance());
+    EXPECT_EQ(set.doc(), 7U);
+    EXPECT_FALSE(set.advance());
+}
+
+} // namespace
+} // namespace doris::snii::reader

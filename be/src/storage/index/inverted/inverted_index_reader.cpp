@@ -62,12 +62,12 @@
 #include "storage/index/inverted/query_v2/boolean_query/boolean_query_builder.h"
 #include "storage/index/inverted/query_v2/boolean_query/operator.h"
 #include "storage/index/inverted/query_v2/collect/doc_set_collector.h"
-#include "storage/index/inverted/query_v2/collect/multi_segment_util.h"
 #include "storage/index/inverted/query_v2/expand_query/expand_query.h"
 #include "storage/index/inverted/query_v2/phrase_prefix_query/phrase_prefix_query.h"
 #include "storage/index/inverted/query_v2/phrase_query/multi_phrase_query.h"
 #include "storage/index/inverted/query_v2/phrase_query/phrase_query.h"
 #include "storage/index/inverted/query_v2/term_query/term_query.h"
+#include "storage/index/inverted/spi/clucene_index_source.h"
 #include "storage/index/inverted/util/string_helper.h"
 #include "storage/index/query/docid_set_ops.h"
 #include "storage/index/query/logical/search_lowering.h"
@@ -361,8 +361,7 @@ namespace query_v2 = inverted_index::query_v2;
 
 query_v2::QueryPtr term_query(const IndexQueryContextPtr& context, const std::wstring& field,
                               const std::string& term) {
-    return std::make_shared<query_v2::TermQuery>(context, field,
-                                                 inverted_index::StringHelper::to_wstring(term));
+    return std::make_shared<query_v2::TermQuery>(context, field, term);
 }
 
 // One term is queried as itself; several form the boolean the set asks for. SEARCH counts a
@@ -443,7 +442,8 @@ Status run_clucene_leaf(const IndexQueryContextPtr& context, const std::wstring&
         SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_exec_timer);
         query_v2::QueryExecutionContext exec_ctx;
         exec_ctx.segment_num_rows = reader->maxDoc();
-        exec_ctx.field_reader_bindings.emplace(field, query_v2::non_owning_reader(reader));
+        exec_ctx.field_sources.emplace(
+                field, clucene_index_source(non_owning_reader(reader), field, context->io_ctx));
         query_v2::collect_multi_segment_doc_set(weight, exec_ctx, "", result,
                                                 context->collection_similarity, scoring);
     } catch (const CLuceneError& e) {

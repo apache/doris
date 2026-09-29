@@ -4006,7 +4006,7 @@ TEST_F(FunctionSearchTest, TestSearcherCacheHandlesLifetime) {
     // (We can't directly access _searcher_cache_handles, but we can verify
     // that binding_cache is empty)
     EXPECT_TRUE(resolver.binding_cache().empty());
-    EXPECT_TRUE(resolver.readers().empty());
+    EXPECT_TRUE(resolver.sources().empty());
 }
 // NESTED clause tests moved to function_search_nested_test.cpp
 

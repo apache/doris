@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "CLucene/index/DocRange.h"
+#include "storage/index/inverted/spi/clucene_postings_cursor.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
@@ -230,7 +231,9 @@ TEST_F(SegmentPostingsTest, PositionReadFailuresBecomeDorisErrors) {
             _CLTHROWA(CL_ERR_IO, "Injected CLucene position read failure");
         }
     };
-    SegmentPostings postings(TermPositionsPtr(new FailingPositions()), false, nullptr);
+    SegmentPostings postings(
+            std::make_unique<ClucenePostingsCursor>(TermPositionsPtr(new FailingPositions())),
+            false, nullptr);
     std::vector<uint32_t> output;
     try {
         postings.append_positions_with_offset(0, output);
@@ -363,11 +366,11 @@ TEST_F(SegmentPostingsTest, BulkOpenFailurePreservesTheRemainingPositionState) {
     ASSERT_TRUE(available);
     EXPECT_EQ(position, 10);
     std::vector<uint32_t> output {999};
-    EXPECT_EQ(source.append_positions_with_offset(2, 100, output).code(),
-              ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
+    EXPECT_EQ(source.open_positions(2, &positions).code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
     EXPECT_EQ(output, (std::vector<uint32_t> {999}));
     EXPECT_EQ(reader->skipped, 2);
-    ASSERT_TRUE(source.append_positions_with_offset(2, 100, output).ok());
+    ASSERT_TRUE(source.open_positions(2, &positions).ok());
+    ASSERT_TRUE(positions->append_remaining_positions(100, output).ok());
     EXPECT_EQ(output, (std::vector<uint32_t> {999, 140, 141}));
     EXPECT_EQ(reader->skipped, 4);
 }
@@ -435,7 +438,8 @@ void expect_posting(const SegmentPostings& postings, uint32_t actual_doc, uint32
 TEST_F(SegmentPostingsTest, TraversalAndScoresSurviveBlockRefillsAndSeeks) {
     for (bool scoring : {false, true}) {
         auto* reader = new ChunkedTermDocs();
-        SegmentPostings postings(TermDocsPtr(reader), scoring, nullptr);
+        SegmentPostings postings(std::make_unique<ClucenePostingsCursor>(TermDocsPtr(reader)),
+                                 scoring, nullptr);
         expect_posting(postings, postings.doc(), 1, 2, 11, scoring);
         expect_posting(postings, postings.advance(), 3, 3, 12, scoring);
         expect_posting(postings, postings.advance(), 8, 4, 13, scoring);
@@ -450,7 +454,8 @@ TEST_F(SegmentPostingsTest, TraversalAndScoresSurviveBlockRefillsAndSeeks) {
 TEST_F(SegmentPostingsTest, SeekSkipsUnneededBlocks) {
     for (bool scoring : {false, true}) {
         auto* reader = new ChunkedTermDocs();
-        SegmentPostings postings(TermDocsPtr(reader), scoring, nullptr);
+        SegmentPostings postings(std::make_unique<ClucenePostingsCursor>(TermDocsPtr(reader)),
+                                 scoring, nullptr);
         expect_posting(postings, postings.seek(22), 30, 7, 16, scoring);
         EXPECT_EQ(reader->blocks_read, 2);
     }
@@ -476,7 +481,7 @@ TEST_F(SegmentPostingsTest, test_postings_positions_with_offset) {
 
 TEST_F(SegmentPostingsTest, test_segment_postings_base_constructor_next_true) {
     TermDocsPtr ptr(new MockTermDocs({1, 3, 5}, {2, 4, 6}, {1, 1, 1}, 3));
-    SegmentPostings base(std::move(ptr), true, nullptr);
+    SegmentPostings base(std::make_unique<ClucenePostingsCursor>(std::move(ptr)), true, nullptr);
 
     EXPECT_EQ(base.doc(), 1);
     EXPECT_EQ(base.size_hint(), 3);
@@ -486,21 +491,21 @@ TEST_F(SegmentPostingsTest, test_segment_postings_base_constructor_next_true) {
 
 TEST_F(SegmentPostingsTest, test_segment_postings_base_constructor_next_false) {
     TermDocsPtr ptr(new MockTermDocs({}, {}, {}, 0));
-    SegmentPostings base(std::move(ptr), true, nullptr);
+    SegmentPostings base(std::make_unique<ClucenePostingsCursor>(std::move(ptr)), true, nullptr);
 
     EXPECT_EQ(base.doc(), TERMINATED);
 }
 
 TEST_F(SegmentPostingsTest, test_segment_postings_base_constructor_doc_terminate) {
     TermDocsPtr ptr(new MockTermDocs({TERMINATED}, {1}, {1}, 1));
-    SegmentPostings base(std::move(ptr), true, nullptr);
+    SegmentPostings base(std::make_unique<ClucenePostingsCursor>(std::move(ptr)), true, nullptr);
 
     EXPECT_EQ(base.doc(), TERMINATED);
 }
 
 TEST_F(SegmentPostingsTest, test_segment_postings_base_advance_success) {
     TermDocsPtr ptr(new MockTermDocs({1, 3, 5}, {2, 4, 6}, {1, 1, 1}, 3));
-    SegmentPostings base(std::move(ptr), true, nullptr);
+    SegmentPostings base(std::make_unique<ClucenePostingsCursor>(std::move(ptr)), true, nullptr);
 
     EXPECT_EQ(base.doc(), 1);
     EXPECT_EQ(base.advance(), 3);
@@ -509,14 +514,14 @@ TEST_F(SegmentPostingsTest, test_segment_postings_base_advance_success) {
 
 TEST_F(SegmentPostingsTest, test_segment_postings_base_advance_end) {
     TermDocsPtr ptr(new MockTermDocs({1}, {2}, {1}, 1));
-    SegmentPostings base(std::move(ptr), true, nullptr);
+    SegmentPostings base(std::make_unique<ClucenePostingsCursor>(std::move(ptr)), true, nullptr);
 
     EXPECT_EQ(base.advance(), TERMINATED);
 }
 
 TEST_F(SegmentPostingsTest, test_segment_postings_base_seek_target_le_doc) {
     TermDocsPtr ptr(new MockTermDocs({1, 3, 5}, {2, 4, 6}, {1, 1, 1}, 3));
-    SegmentPostings base(std::move(ptr), true, nullptr);
+    SegmentPostings base(std::make_unique<ClucenePostingsCursor>(std::move(ptr)), true, nullptr);
 
     EXPECT_EQ(base.seek(0), 1);
     EXPECT_EQ(base.seek(1), 1);
@@ -524,21 +529,21 @@ TEST_F(SegmentPostingsTest, test_segment_postings_base_seek_target_le_doc) {
 
 TEST_F(SegmentPostingsTest, test_segment_postings_base_seek_in_block_success) {
     TermDocsPtr ptr(new MockTermDocs({1, 3, 5, 7}, {2, 4, 6, 8}, {1, 1, 1, 1}, 4));
-    SegmentPostings base(std::move(ptr), true, nullptr);
+    SegmentPostings base(std::make_unique<ClucenePostingsCursor>(std::move(ptr)), true, nullptr);
 
     EXPECT_EQ(base.seek(5), 5);
 }
 
 TEST_F(SegmentPostingsTest, test_segment_postings_base_seek_fail) {
     TermDocsPtr ptr(new MockTermDocs({1, 3, 5}, {2, 4, 6}, {1, 1, 1}, 3));
-    SegmentPostings base(std::move(ptr), true, nullptr);
+    SegmentPostings base(std::make_unique<ClucenePostingsCursor>(std::move(ptr)), true, nullptr);
 
     EXPECT_EQ(base.seek(10), TERMINATED);
 }
 
 TEST_F(SegmentPostingsTest, test_segment_postings_base_append_positions_exception) {
     TermDocsPtr ptr(new MockTermDocs({1}, {2}, {1}, 1));
-    SegmentPostings base(std::move(ptr), true, nullptr);
+    SegmentPostings base(std::make_unique<ClucenePostingsCursor>(std::move(ptr)), true, nullptr);
 
     std::vector<uint32_t> output;
     EXPECT_THROW(base.append_positions_with_offset(0, output), Exception);
@@ -546,7 +551,8 @@ TEST_F(SegmentPostingsTest, test_segment_postings_base_append_positions_exceptio
 
 TEST_F(SegmentPostingsTest, test_segment_postings_termdocs) {
     TermDocsPtr ptr(new MockTermDocs({1, 3}, {2, 4}, {1, 1}, 2));
-    SegmentPostings postings(std::move(ptr), true, nullptr);
+    SegmentPostings postings(std::make_unique<ClucenePostingsCursor>(std::move(ptr)), true,
+                             nullptr);
 
     EXPECT_EQ(postings.doc(), 1);
     EXPECT_EQ(postings.size_hint(), 2);
@@ -555,14 +561,16 @@ TEST_F(SegmentPostingsTest, test_segment_postings_termdocs) {
 TEST_F(SegmentPostingsTest, test_segment_postings_termpositions) {
     TermPositionsPtr ptr(
             new MockTermPositions({1, 3}, {2, 3}, {1, 1}, {{10, 20}, {30, 40, 50}}, 2));
-    SegmentPostings postings(std::move(ptr), true, nullptr);
+    SegmentPostings postings(std::make_unique<ClucenePostingsCursor>(std::move(ptr)), true,
+                             nullptr);
     EXPECT_EQ(postings.freq(), 2);
 }
 
 TEST_F(SegmentPostingsTest, test_segment_postings_termpositions_append_positions) {
     TermPositionsPtr ptr(
             new MockTermPositions({1, 3}, {2, 3}, {1, 1}, {{10, 20}, {30, 40, 50}}, 2));
-    SegmentPostings postings(std::move(ptr), true, nullptr);
+    SegmentPostings postings(std::make_unique<ClucenePostingsCursor>(std::move(ptr)), true,
+                             nullptr);
 
     std::vector<uint32_t> output = {999};
     postings.append_positions_with_offset(100, output);
@@ -575,7 +583,8 @@ TEST_F(SegmentPostingsTest, test_segment_postings_termpositions_append_positions
 
 TEST_F(SegmentPostingsTest, test_no_score_segment_posting) {
     TermDocsPtr ptr(new MockTermDocs({1, 3}, {5, 7}, {10, 20}, 2));
-    SegmentPostings posting(std::move(ptr), false, nullptr);
+    SegmentPostings posting(std::make_unique<ClucenePostingsCursor>(std::move(ptr)), false,
+                            nullptr);
 
     EXPECT_EQ(posting.doc(), 1);
     EXPECT_EQ(posting.freq(), 1);

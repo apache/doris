@@ -40,6 +40,7 @@
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/index/inverted/query_v2/query.h"
 #include "storage/index/inverted/query_v2/weight.h"
+#include "storage/index/query/spi/index_source.h"
 #include "storage/olap_common.h"
 #include "storage/segment/column_reader.h"
 
@@ -110,18 +111,14 @@ public:
         return _variant_subcolumn_fields.count(field_name) > 0;
     }
 
-    const std::vector<std::shared_ptr<lucene::index::IndexReader>>& readers() const {
-        return _readers;
+    const std::vector<index_query::IndexSourcePtr>& sources() const { return _sources; }
+
+    const std::unordered_map<std::string, index_query::IndexSourcePtr>& source_bindings() const {
+        return _binding_sources;
     }
 
-    const std::unordered_map<std::string, std::shared_ptr<lucene::index::IndexReader>>&
-    reader_bindings() const {
-        return _binding_readers;
-    }
-
-    const std::unordered_map<std::wstring, std::shared_ptr<lucene::index::IndexReader>>&
-    field_readers() const {
-        return _field_readers;
+    const std::unordered_map<std::wstring, index_query::IndexSourcePtr>& field_sources() const {
+        return _field_sources;
     }
 
     const std::unordered_map<std::string, FieldReaderBinding>& binding_cache() const {
@@ -167,9 +164,9 @@ private:
     std::unordered_map<std::string, const TSearchFieldBinding*> _field_binding_map;
     std::unordered_set<std::string> _variant_subcolumn_fields;
     std::unordered_map<std::string, FieldReaderBinding> _cache;
-    std::vector<std::shared_ptr<lucene::index::IndexReader>> _readers;
-    std::unordered_map<std::string, std::shared_ptr<lucene::index::IndexReader>> _binding_readers;
-    std::unordered_map<std::wstring, std::shared_ptr<lucene::index::IndexReader>> _field_readers;
+    std::vector<index_query::IndexSourcePtr> _sources;
+    std::unordered_map<std::string, index_query::IndexSourcePtr> _binding_sources;
+    std::unordered_map<std::wstring, index_query::IndexSourcePtr> _field_sources;
     std::vector<segment_v2::InvertedIndexCacheHandle> _searcher_cache_handles;
     SearchLeafQueryMapper _leaf_query_mapper;
 };

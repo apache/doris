@@ -169,12 +169,56 @@ public:
     }
 
     Status append_remaining_positions(uint32_t offset, std::vector<uint32_t>& output) override {
-        return _append_positions<false>(0, offset, output);
+        DORIS_CHECK(_position_open);
+        ErrorContext error_context;
+        uint32_t position = _position;
+        uint32_t remaining = _position_remaining;
+        try {
+            for (; remaining != 0; --remaining) {
+                position += static_cast<uint32_t>(_raw_positions->nextDeltaPosition());
+                output.push_back(position + offset);
+            }
+        } catch (CLuceneError& error) {
+            error_context.eptr = std::current_exception();
+            error_context.err_msg = error.what();
+        }
+        FINALLY({
+            _position = position;
+            _position_remaining = remaining;
+        });
+        return Status::OK();
     }
 
-    Status append_positions_with_offset(uint32_t ordinal, uint32_t offset,
-                                        std::vector<uint32_t>& output) {
-        return _append_positions<true>(ordinal, offset, output);
+    // The open and the drain in one CLucene error frame.
+    Status append_positions(uint32_t ordinal, uint32_t offset,
+                            std::vector<uint32_t>& output) override {
+        if (_raw_positions == nullptr) {
+            return Status::NotSupported("This posting type does not support position information");
+        }
+        ErrorContext error_context;
+        uint32_t position = 0;
+        uint32_t remaining = 0;
+        bool opened = false;
+        try {
+            _open_positions(ordinal);
+            position = _position;
+            remaining = _position_remaining;
+            opened = true;
+            for (; remaining != 0; --remaining) {
+                position += static_cast<uint32_t>(_raw_positions->nextDeltaPosition());
+                output.push_back(position + offset);
+            }
+        } catch (CLuceneError& error) {
+            error_context.eptr = std::current_exception();
+            error_context.err_msg = error.what();
+        }
+        FINALLY({
+            if (opened) {
+                _position = position;
+                _position_remaining = remaining;
+            }
+        });
+        return Status::OK();
     }
 
 private:
@@ -205,45 +249,6 @@ private:
         _position = 0;
         _position_open = true;
         _prox_cursor = ordinal + 1;
-    }
-
-    template <bool OpenNewDocument>
-    Status _append_positions(uint32_t ordinal, uint32_t offset, std::vector<uint32_t>& output) {
-        if constexpr (OpenNewDocument) {
-            if (_raw_positions == nullptr) {
-                return Status::NotSupported(
-                        "This posting type does not support position information");
-            }
-        } else {
-            DORIS_CHECK(_position_open);
-        }
-        ErrorContext error_context;
-        uint32_t position = _position;
-        uint32_t remaining = _position_remaining;
-        bool opened = !OpenNewDocument;
-        auto* source = _raw_positions;
-        try {
-            if constexpr (OpenNewDocument) {
-                _open_positions(ordinal);
-                position = _position;
-                remaining = _position_remaining;
-                opened = true;
-            }
-            for (; remaining != 0; --remaining) {
-                position += static_cast<uint32_t>(source->nextDeltaPosition());
-                output.push_back(position + offset);
-            }
-        } catch (CLuceneError& error) {
-            error_context.eptr = std::current_exception();
-            error_context.err_msg = error.what();
-        }
-        FINALLY({
-            if (opened) {
-                _position = position;
-                _position_remaining = remaining;
-            }
-        });
-        return Status::OK();
     }
 
     uint32_t _read_next_position() {

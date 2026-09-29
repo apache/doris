@@ -33,6 +33,7 @@
 #include "storage/index/inverted/query_v2/phrase_query/phrase_weight.h"
 #include "storage/index/inverted/query_v2/term_query/term_weight.h"
 #include "storage/index/inverted/similarity/bm25_similarity.h"
+#include "storage/index/inverted/spi/clucene_index_source.h"
 #include "testutil/benchmark_control.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
@@ -77,9 +78,9 @@ WeightPtr phrase_weight(size_t field, bool scoring) {
     terms[1].term = field == 3 ? "alpha" : "beta";
     terms[1].position = 1;
     SimilarityPtr similarity = scoring ? std::make_shared<BM25Similarity>(2.0F, 32.0F) : nullptr;
-    return std::make_shared<PhraseWeight>(std::make_shared<IndexQueryContext>(), kFields[field],
-                                          std::move(terms), index_query::PhraseQueryOptions {},
-                                          std::move(similarity), scoring, false);
+    return std::make_shared<PhraseWeight>(kFields[field], std::move(terms),
+                                          index_query::PhraseQueryOptions {}, std::move(similarity),
+                                          scoring, false);
 }
 
 uint64_t phrase_hash_row(uint64_t hash, uint32_t doc, float score) {
@@ -126,13 +127,14 @@ public:
                                    reader->close();
                                    _CLDELETE(reader);
                                }};
-            _context.field_reader_bindings.emplace(kFields[field], _readers[field]);
+            _context.field_sources.emplace(
+                    kFields[field], clucene_index_source(_readers[field], kFields[field], nullptr));
         }
         _context.segment_num_rows = kRows;
     }
 
     void TearDown() override {
-        _context.field_reader_bindings.clear();
+        _context.field_sources.clear();
         for (auto& reader : _readers) {
             reader.reset();
         }
@@ -190,12 +192,12 @@ protected:
     std::vector<TermScorerPtr> wand_terms(size_t field, size_t count, uint32_t first) const {
         std::vector<TermScorerPtr> scorers;
         for (size_t clause = 0; clause < count; ++clause) {
-            const auto* term = field == 3 ? L"omega" : L"beta";
+            const auto* term = field == 3 ? "omega" : "beta";
             if (clause == 0) {
-                term = L"alpha";
+                term = "alpha";
             }
-            TermWeight weight(std::make_shared<IndexQueryContext>(), kFields[field], term,
-                              std::make_shared<BM25Similarity>(2.0F, 32.0F), true);
+            TermWeight weight(kFields[field], term, std::make_shared<BM25Similarity>(2.0F, 32.0F),
+                              true);
             auto scorer = std::dynamic_pointer_cast<TermScorer>(weight.scorer(_context, {}));
             DORIS_CHECK(scorer != nullptr);
             if (scorer->doc() < first) {
@@ -402,7 +404,7 @@ TEST_F(PhrasePostingsBench, WandKeepsHighFrequencyWinnersAfterOtherTermsAreExhau
                 index->close();
                 _CLDELETE(index);
             }};
-    _context.field_reader_bindings[kFields[0]] = reader;
+    _context.field_sources[kFields[0]] = clucene_index_source(reader, kFields[0], nullptr);
     _context.segment_num_rows = documents.size();
 
     const auto full_scan = full_scan_terms(0, 2, 0);

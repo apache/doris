@@ -18,6 +18,8 @@
 #include "exprs/function/variant_inverted_index_search.h"
 
 #include <CLucene/config/repl_wchar.h>
+
+#include "storage/index/inverted/spi/clucene_index_source.h"
 // clang-format off
 #include "exprs/function/clucene_leaf_compiler.h"
 #include "exprs/function/native_leaf_compiler.h"
@@ -311,9 +313,10 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     resolved.lucene_reader = reader_holder;
     resolved.leaf_compiler =
             std::make_shared<CluceneLeafCompiler>(resolved.stored_field_wstr, binding_key);
-    _binding_readers[binding_key] = reader_holder;
-    _field_readers[resolved.stored_field_wstr] = reader_holder;
-    _readers.emplace_back(reader_holder);
+    auto source = clucene_index_source(reader_holder, resolved.stored_field_wstr, _context->io_ctx);
+    _binding_sources[binding_key] = source;
+    _field_sources[resolved.stored_field_wstr] = source;
+    _sources.emplace_back(std::move(source));
     _cache.emplace(binding_key, resolved);
     if (is_variant_sub) {
         bool index_file_exists = false;
@@ -374,9 +377,9 @@ segment_v2::IndexIterator* VariantSearchNullBitmapAdapter::iterator_for(
 void populate_variant_search_binding_context(const FieldReaderResolver& resolver,
                                              query_v2::QueryExecutionContext* exec_ctx) {
     DCHECK(exec_ctx != nullptr);
-    exec_ctx->readers = resolver.readers();
-    exec_ctx->reader_bindings = resolver.reader_bindings();
-    exec_ctx->field_reader_bindings = resolver.field_readers();
+    exec_ctx->sources = resolver.sources();
+    exec_ctx->source_bindings = resolver.source_bindings();
+    exec_ctx->field_sources = resolver.field_sources();
     for (const auto& [binding_key, binding] : resolver.binding_cache()) {
         if (binding_key.empty()) {
             continue;

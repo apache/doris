@@ -17,32 +17,21 @@
 
 #pragma once
 
+#include <algorithm>
 #include <memory>
 #include <utility>
 #include <vector>
 
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Woverloaded-virtual"
-#elif defined(__GNUC__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Woverloaded-virtual"
-#endif
-#include "CLucene.h" // IWYU pragma: keep
-#ifdef __clang__
-#pragma clang diagnostic pop
-#elif defined(__GNUC__)
-#pragma GCC diagnostic pop
-#endif
 #include "storage/index/inverted/query_v2/scorer.h"
+#include "storage/index/query/spi/index_source.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
+// Every document of [0, max_doc) that all the sources still hold.
 class MatchAllDocsScorer : public Scorer {
 public:
-    MatchAllDocsScorer(uint32_t max_doc,
-                       const std::vector<std::shared_ptr<lucene::index::IndexReader>>& readers)
-            : _max_doc(max_doc), _readers(readers) {
+    MatchAllDocsScorer(uint32_t max_doc, const std::vector<index_query::IndexSourcePtr>& sources)
+            : _max_doc(max_doc), _sources(sources) {
         if (_max_doc == 0) {
             _doc = TERMINATED;
         } else {
@@ -96,16 +85,13 @@ private:
     }
 
     [[nodiscard]] bool _is_live(uint32_t doc) const {
-        for (const auto& reader : _readers) {
-            if (reader != nullptr && reader->isDeleted(static_cast<int32_t>(doc))) {
-                return false;
-            }
-        }
-        return true;
+        return std::ranges::all_of(_sources, [doc](const index_query::IndexSourcePtr& source) {
+            return source == nullptr || source->is_live(doc);
+        });
     }
 
     uint32_t _max_doc;
-    std::vector<std::shared_ptr<lucene::index::IndexReader>> _readers;
+    std::vector<index_query::IndexSourcePtr> _sources;
     uint32_t _doc = TERMINATED;
 };
 

@@ -34,6 +34,8 @@
 #include "storage/index/inverted/query_v2/null_bitmap_fetcher.h"
 #include "storage/index/inverted/query_v2/term_query/term_weight.h"
 #include "storage/index/inverted/similarity/bm25_similarity.h"
+#include "storage/index/inverted/spi/clucene_index_source.h"
+#include "storage/index/inverted/util/string_helper.h"
 #include "testutil/benchmark_control.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
@@ -42,8 +44,8 @@ namespace {
 constexpr uint32_t kPostingRows = 32768;
 constexpr std::array kPostingFields {L"whole", L"shared", L"left", L"right"};
 constexpr std::array kNullDivisors {0U, 11U, 11U, 13U};
-constexpr std::array kDenseTerms {L"densea", L"denseb", L"densec", L"densed"};
-constexpr std::array kSparseTerms {L"sparsea", L"sparseb", L"sparsec", L"sparsed"};
+constexpr std::array kDenseTerms {"densea", "denseb", "densec", "densed"};
+constexpr std::array kSparseTerms {"sparsea", "sparseb", "sparsec", "sparsed"};
 constexpr const char* kPostingDirectory = "./ut_dir/boolean_postings_bench";
 
 bool posting_is_null(uint32_t field, uint32_t doc) {
@@ -115,16 +117,16 @@ private:
 
 class PostingBenchTerm final : public Query {
 public:
-    PostingBenchTerm(std::wstring field, std::wstring term)
+    PostingBenchTerm(std::wstring field, std::string term)
             : _field(std::move(field)), _term(std::move(term)) {}
     WeightPtr weight(bool scoring) override {
-        return std::make_shared<TermWeight>(std::make_shared<IndexQueryContext>(), _field, _term,
+        return std::make_shared<TermWeight>(_field, _term,
                                             std::make_shared<BM25Similarity>(2.0F, 8.0F), scoring);
     }
 
 private:
     std::wstring _field;
-    std::wstring _term;
+    std::string _term;
 };
 
 struct PostingSpec {
@@ -410,10 +412,10 @@ protected:
         }
         for (uint32_t clause = 0; clause < kDenseTerms.size(); ++clause) {
             if (posting_matches(clause, row, false)) {
-                result += std::wstring(L" ") + kDenseTerms[clause];
+                result += std::wstring(L" ") + StringHelper::to_wstring(kDenseTerms[clause]);
             }
             if (posting_matches(clause, row, true)) {
-                result += std::wstring(L" ") + kSparseTerms[clause];
+                result += std::wstring(L" ") + StringHelper::to_wstring(kSparseTerms[clause]);
             }
         }
         return result;
@@ -424,7 +426,9 @@ protected:
         QueryExecutionContext context;
         context.segment_num_rows = kPostingRows;
         for (uint32_t field = 0; field < kPostingFields.size(); ++field) {
-            context.field_reader_bindings.emplace(kPostingFields[field], _readers[field]);
+            context.field_sources.emplace(
+                    kPostingFields[field],
+                    clucene_index_source(_readers[field], kPostingFields[field], nullptr));
         }
         context.null_resolver = &resolver;
         for (const auto& spec : kPostingSpecs) {
@@ -446,7 +450,9 @@ TEST_F(BooleanPostingsBench, PhysicalFieldsPreserveCompleteTruthAndScores) {
     QueryExecutionContext context;
     context.segment_num_rows = kPostingRows;
     for (uint32_t field = 0; field < kPostingFields.size(); ++field) {
-        context.field_reader_bindings.emplace(kPostingFields[field], _readers[field]);
+        context.field_sources.emplace(
+                kPostingFields[field],
+                clucene_index_source(_readers[field], kPostingFields[field], nullptr));
     }
     context.null_resolver = &resolver;
     for (const auto& spec : kPostingSpecs) {

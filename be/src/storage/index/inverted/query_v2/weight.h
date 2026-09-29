@@ -20,20 +20,15 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
+#include "common/exception.h"
 #include "storage/index/inverted/query_v2/scorer.h"
 #include "storage/index/inverted/query_v2/segment_postings.h"
-#include "storage/index/inverted/util/string_helper.h"
-
-namespace lucene::index {
-class IndexReader;
-}
-
-namespace doris::io {
-struct IOContext;
-} // namespace doris::io
+#include "storage/index/query/spi/index_source.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
@@ -45,10 +40,10 @@ struct FieldBindingContext {
 
 struct QueryExecutionContext {
     uint32_t segment_num_rows = 0;
-    std::vector<std::shared_ptr<lucene::index::IndexReader>> readers;
-    std::unordered_map<std::string, std::shared_ptr<lucene::index::IndexReader>> reader_bindings;
-    std::unordered_map<std::wstring, std::shared_ptr<lucene::index::IndexReader>>
-            field_reader_bindings;
+    // The index sources a query reads: every bound one, by binding key, and by stored field.
+    std::vector<index_query::IndexSourcePtr> sources;
+    std::unordered_map<std::string, index_query::IndexSourcePtr> source_bindings;
+    std::unordered_map<std::wstring, index_query::IndexSourcePtr> field_sources;
     std::unordered_map<std::string, FieldBindingContext> binding_fields;
     const NullBitmapResolver* null_resolver = nullptr;
     std::shared_ptr<const NullBitmapResolver> null_resolver_owner;
@@ -120,58 +115,34 @@ protected:
         return std::string(fallback.begin(), fallback.end());
     }
 
-    std::shared_ptr<lucene::index::IndexReader> lookup_reader(
-            const std::wstring& field, const QueryExecutionContext& ctx,
-            const std::string& binding_key) const {
+    // The source bound to `binding_key`, else the one bound to `field`, else the first.
+    index_query::IndexSourcePtr lookup_source(const std::wstring& field,
+                                              const QueryExecutionContext& ctx,
+                                              const std::string& binding_key) const {
         if (!binding_key.empty()) {
-            if (auto it = ctx.reader_bindings.find(binding_key); it != ctx.reader_bindings.end()) {
+            if (auto it = ctx.source_bindings.find(binding_key); it != ctx.source_bindings.end()) {
                 return it->second;
             }
         }
-        if (auto it = ctx.field_reader_bindings.find(field);
-            it != ctx.field_reader_bindings.end()) {
+        if (auto it = ctx.field_sources.find(field); it != ctx.field_sources.end()) {
             return it->second;
         }
-        if (!ctx.readers.empty()) {
-            return ctx.readers.front();
+        if (!ctx.sources.empty()) {
+            return ctx.sources.front();
         }
         return nullptr;
     }
 
-    SegmentPostingsPtr create_term_posting(lucene::index::IndexReader* reader,
-                                           const std::wstring& field, const std::string& term,
-                                           bool enable_scoring,
-                                           const index_query::ScoringContextPtr<float>& similarity,
-                                           const io::IOContext* io_ctx) const {
-        return create_term_posting(reader, field, StringHelper::to_wstring(term), enable_scoring,
-                                   similarity, io_ctx);
-    }
-
-    SegmentPostingsPtr create_term_posting(lucene::index::IndexReader* reader,
-                                           const std::wstring& field, const std::wstring& term,
-                                           bool enable_scoring,
-                                           const index_query::ScoringContextPtr<float>& similarity,
-                                           const io::IOContext* io_ctx) const {
-        auto t = make_term_ptr(field.c_str(), term.c_str());
-        auto iter = make_term_doc_ptr(reader, t.get(), enable_scoring, io_ctx);
-        return iter ? make_segment_postings(std::move(iter), enable_scoring, similarity) : nullptr;
-    }
-
-    SegmentPostingsPtr create_position_posting(
-            lucene::index::IndexReader* reader, const std::wstring& field, const std::string& term,
-            bool enable_scoring, const index_query::ScoringContextPtr<float>& similarity,
-            const io::IOContext* io_ctx) const {
-        return create_position_posting(reader, field, StringHelper::to_wstring(term),
-                                       enable_scoring, similarity, io_ctx);
-    }
-
-    SegmentPostingsPtr create_position_posting(
-            lucene::index::IndexReader* reader, const std::wstring& field, const std::wstring& term,
-            bool enable_scoring, const index_query::ScoringContextPtr<float>& similarity,
-            const io::IOContext* io_ctx) const {
-        auto t = make_term_ptr(field.c_str(), term.c_str());
-        auto iter = make_term_positions_ptr(reader, t.get(), enable_scoring, io_ctx);
-        return iter ? make_segment_postings(std::move(iter), enable_scoring, similarity) : nullptr;
+    // The postings of a UTF-8 term on `source`, or null when the source lacks the term.
+    SegmentPostingsPtr open_postings(
+            index_query::IndexSource& source, std::string_view term, bool positions,
+            bool enable_scoring, const index_query::ScoringContextPtr<float>& similarity) const {
+        std::unique_ptr<index_query::PostingsCursor> cursor;
+        THROW_IF_ERROR(source.open_term(term, positions, enable_scoring, &cursor));
+        if (cursor == nullptr) {
+            return nullptr;
+        }
+        return make_segment_postings(std::move(cursor), enable_scoring, similarity);
     }
 };
 

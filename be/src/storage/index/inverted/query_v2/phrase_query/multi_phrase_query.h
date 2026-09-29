@@ -57,8 +57,8 @@ public:
             bm25_similarity->for_terms(_context, _field, all_terms);
         }
 
-        return std::make_shared<MultiPhraseWeight>(_context, _field, _term_infos, _options,
-                                                   bm25_similarity, enable_scoring, _nullable);
+        return std::make_shared<MultiPhraseWeight>(_field, _term_infos, _options, bm25_similarity,
+                                                   enable_scoring, _nullable);
     }
 
 private:

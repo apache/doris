@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <string>
 #include <variant>
 
 #include "storage/index/inverted/query_v2/segment_postings.h"
@@ -29,14 +30,14 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 
 using TermOrEmptyScorer = std::variant<EmptyScorerPtr, TermScorerPtr>;
 
+// One UTF-8 term on one field.
 class TermWeight : public Weight {
 public:
     using Weight::for_each_pruning;
 
-    TermWeight(IndexQueryContextPtr context, std::wstring field, std::wstring term,
+    TermWeight(std::wstring field, std::string term,
                index_query::ScoringContextPtr<float> similarity, bool enable_scoring)
-            : _context(std::move(context)),
-              _field(std::move(field)),
+            : _field(std::move(field)),
               _term(std::move(term)),
               _similarity(std::move(similarity)),
               _enable_scoring(enable_scoring) {}
@@ -65,25 +66,22 @@ public:
 private:
     TermOrEmptyScorer specialized_scorer(const QueryExecutionContext& ctx,
                                          const std::string& binding_key) {
-        auto reader = lookup_reader(_field, ctx, binding_key);
+        auto source = lookup_source(_field, ctx, binding_key);
         auto logical_field = logical_field_or_fallback(ctx, binding_key, _field);
-        if (!reader) {
+        if (!source) {
             return std::make_shared<EmptyScorer>();
         }
 
-        SegmentPostingsPtr segment_postings;
-        segment_postings = create_term_posting(reader.get(), _field, _term, _enable_scoring,
-                                               _similarity, _context->io_ctx);
+        SegmentPostingsPtr segment_postings =
+                open_postings(*source, _term, /*positions=*/false, _enable_scoring, _similarity);
         if (segment_postings) {
             return std::make_shared<TermScorer>(segment_postings, _similarity, logical_field);
         }
         return std::make_shared<EmptyScorer>();
     }
 
-    IndexQueryContextPtr _context;
-
     std::wstring _field;
-    std::wstring _term;
+    std::string _term;
     index_query::ScoringContextPtr<float> _similarity;
     bool _enable_scoring = false;
 };

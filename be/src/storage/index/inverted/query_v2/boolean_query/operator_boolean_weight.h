@@ -61,7 +61,7 @@ public:
                 if (max_doc == 0) {
                     return make_empty();
                 }
-                base_scorer = std::make_shared<MatchAllDocsScorer>(max_doc, context.readers);
+                base_scorer = std::make_shared<MatchAllDocsScorer>(max_doc, context.sources);
             } else {
                 base_scorer = intersection_scorer_build(std::move(include_scorers),
                                                         !_is_do_nothing_combiner(),
@@ -80,7 +80,7 @@ public:
             if (max_doc == 0) {
                 return make_empty();
             }
-            auto match_all = std::make_shared<MatchAllDocsScorer>(max_doc, context.readers);
+            auto match_all = std::make_shared<MatchAllDocsScorer>(max_doc, context.sources);
             if (_sub_weights.empty()) {
                 return match_all;
             }

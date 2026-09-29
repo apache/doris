@@ -17,21 +17,13 @@
 
 #pragma once
 
-#include <cstdint>
 #include <string>
-#include <vector>
 
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/query_v2/weight.h"
 #include "storage/index/query/term_pattern.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
-
-// The terms of `field` that `pattern` matches, in dictionary order, at most `max_expansions` of
-// them when it is positive.
-std::vector<std::string> expand_terms(lucene::index::IndexReader* reader, const std::wstring& field,
-                                      index_query::TermPattern& pattern, int32_t max_expansions,
-                                      const io::IOContext* io_ctx);
 
 // Every document that holds a term the pattern expands to, with a constant score.
 class ExpandWeight : public Weight {

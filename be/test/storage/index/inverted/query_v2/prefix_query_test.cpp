@@ -27,6 +27,7 @@
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/query_v2/expand_query/expand_query.h"
+#include "storage/index/inverted/spi/clucene_index_source.h"
 #include "storage/index/inverted/util/string_helper.h"
 
 CL_NS_USE(store)
@@ -133,7 +134,11 @@ static std::vector<std::string> expand_pattern(lucene::index::IndexReader* reade
                                                const std::string& text, int32_t max_expansions) {
     index_query::TermPattern pattern;
     EXPECT_TRUE(index_query::TermPattern::create(kind, text, &pattern).ok());
-    return expand_terms(reader, field, pattern, max_expansions, nullptr);
+    std::vector<std::string> terms;
+    EXPECT_TRUE(clucene_index_source(non_owning_reader(reader), field, nullptr)
+                        ->expand_terms(pattern, max_expansions, &terms)
+                        .ok());
+    return terms;
 }
 
 static std::vector<std::string> expand_prefix(lucene::index::IndexReader* reader,
@@ -255,7 +260,7 @@ TEST_F(PrefixQueryV2Test, contains_ignores_the_session_limit) {
     std::wstring field = StringHelper::to_wstring("content");
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader->maxDoc();
-    exec_ctx.field_reader_bindings.emplace(field, reader);
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
 
     ExpandWeight contains(ctx, field, index_query::TermPatternKind::kContains, "an");
     EXPECT_EQ(collect_docs(contains.scorer(exec_ctx, "")), (std::vector<uint32_t> {3, 4, 5}));
@@ -279,8 +284,8 @@ TEST_F(PrefixQueryV2Test, scorer_basic) {
 
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader->maxDoc();
-    exec_ctx.readers = {reader};
-    exec_ctx.field_reader_bindings.emplace(field, reader);
+    exec_ctx.sources = {clucene_index_source(reader, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
 
     auto scorer = w.scorer(exec_ctx, "");
     ASSERT_NE(scorer, nullptr);
@@ -306,8 +311,8 @@ TEST_F(PrefixQueryV2Test, scorer_nullable) {
 
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader->maxDoc();
-    exec_ctx.readers = {reader};
-    exec_ctx.field_reader_bindings.emplace(field, reader);
+    exec_ctx.sources = {clucene_index_source(reader, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
     // null_resolver is nullptr → make_nullable_scorer will just return inner scorer
 
     auto scorer = w.scorer(exec_ctx, "");
@@ -331,8 +336,8 @@ TEST_F(PrefixQueryV2Test, scorer_no_match_returns_empty) {
 
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader->maxDoc();
-    exec_ctx.readers = {reader};
-    exec_ctx.field_reader_bindings.emplace(field, reader);
+    exec_ctx.sources = {clucene_index_source(reader, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
 
     auto scorer = w.scorer(exec_ctx, "");
     ASSERT_NE(scorer, nullptr);
@@ -368,7 +373,7 @@ TEST_F(PrefixQueryV2Test, scorer_with_binding_key) {
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader->maxDoc();
     std::string binding_key = "content#0";
-    exec_ctx.reader_bindings[binding_key] = reader;
+    exec_ctx.source_bindings[binding_key] = clucene_index_source(reader, field, nullptr);
 
     auto scorer = w.scorer(exec_ctx, binding_key);
     ASSERT_NE(scorer, nullptr);
@@ -393,8 +398,8 @@ TEST_F(PrefixQueryV2Test, end_to_end) {
 
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader->maxDoc();
-    exec_ctx.readers = {reader};
-    exec_ctx.field_reader_bindings.emplace(field, reader);
+    exec_ctx.sources = {clucene_index_source(reader, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
 
     auto scorer = w->scorer(exec_ctx, "");
     auto docs = collect_docs(scorer);

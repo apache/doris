@@ -33,6 +33,7 @@
 #include "storage/index/inverted/query_v2/collect/multi_segment_util.h"
 #include "storage/index/inverted/query_v2/collect/top_k_collector.h"
 #include "storage/index/inverted/query_v2/term_query/term_query.h"
+#include "storage/index/inverted/spi/clucene_index_source.h"
 #include "storage/index/inverted/util/string_helper.h"
 
 CL_NS_USE(index)
@@ -158,13 +159,13 @@ TEST_F(MultiSegmentCollectorTest, CollectDocSetWithMultiReader) {
 
     auto index_query_context = std::make_shared<IndexQueryContext>();
     auto field = StringHelper::to_wstring("title");
-    TermQuery query(index_query_context, field, StringHelper::to_wstring("fleabag"));
+    TermQuery query(index_query_context, field, "fleabag");
     auto weight = query.weight(false);
 
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader->maxDoc();
-    exec_ctx.readers = {reader};
-    exec_ctx.field_reader_bindings.emplace(field, reader);
+    exec_ctx.sources = {clucene_index_source(reader, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
 
     auto roaring = std::make_shared<roaring::Roaring>();
     ASSERT_NO_THROW(collect_multi_segment_doc_set(weight, exec_ctx, "", roaring, nullptr, false));
@@ -189,13 +190,12 @@ TEST_F(MultiSegmentCollectorTest, DeletedDocumentsDoNotShrinkTheLocalDocIdDomain
     const auto field = StringHelper::to_wstring("title");
     OperatorBooleanQueryBuilder builder(OperatorType::OP_AND);
     builder.add(std::make_shared<AllQuery>());
-    builder.add(std::make_shared<TermQuery>(std::make_shared<IndexQueryContext>(), field,
-                                            StringHelper::to_wstring("other")));
+    builder.add(std::make_shared<TermQuery>(std::make_shared<IndexQueryContext>(), field, "other"));
     const auto weight = builder.build()->weight(false);
     QueryExecutionContext context;
     context.segment_num_rows = reader->maxDoc();
-    context.readers = {reader};
-    context.field_reader_bindings.emplace(field, reader);
+    context.sources = {clucene_index_source(reader, field, nullptr)};
+    context.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
 
     auto actual = std::make_shared<roaring::Roaring>();
     collect_multi_segment_doc_set(weight, context, "", actual, nullptr, false);
@@ -212,8 +212,8 @@ TEST_F(MultiSegmentCollectorTest, GlobalNullRowsAreSlicedIntoEachLocalDocIdDomai
     SegmentDomainNullResolver resolver;
     QueryExecutionContext context;
     context.segment_num_rows = reader->maxDoc();
-    context.readers = {reader};
-    context.field_reader_bindings.emplace(L"title", reader);
+    context.sources = {clucene_index_source(reader, L"title", nullptr)};
+    context.field_sources.emplace(L"title", clucene_index_source(reader, L"title", nullptr));
     context.null_resolver = &resolver;
     auto weight = std::make_shared<AllWeight>(L"title", true, false);
 
@@ -271,13 +271,13 @@ TEST_F(MultiSegmentCollectorTest, CollectTopKExcludesDeletedDocs) {
 
     auto index_query_context = std::make_shared<IndexQueryContext>();
     auto field = StringHelper::to_wstring("title");
-    TermQuery query(index_query_context, field, StringHelper::to_wstring("fleabag"));
+    TermQuery query(index_query_context, field, "fleabag");
     auto weight = query.weight(false);
 
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = reader->maxDoc();
-    exec_ctx.readers = {reader};
-    exec_ctx.field_reader_bindings.emplace(field, reader);
+    exec_ctx.sources = {clucene_index_source(reader, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
 
     auto mutable_deleted_docs = std::make_shared<roaring::Roaring>();
     mutable_deleted_docs->add(0);
@@ -308,19 +308,17 @@ TEST_F(MultiSegmentCollectorTest, CollectDocSetWithSegmentedFieldBinding) {
     auto* multi_segment_directory = FSDirectory::getDirectory(multi_segment_dir.c_str());
     auto field_reader =
             make_shared_reader(lucene::index::IndexReader::open(multi_segment_directory, true));
-    const auto* field_segments = sub_readers(field_reader.get());
-    ASSERT_NE(field_segments, nullptr);
-    ASSERT_GT(field_segments->length, 1);
+    ASSERT_GT(clucene_index_source(field_reader, L"title", nullptr)->segments().size(), 1);
 
     auto index_query_context = std::make_shared<IndexQueryContext>();
     auto field = StringHelper::to_wstring("title");
-    TermQuery query(index_query_context, field, StringHelper::to_wstring("fleabag"));
+    TermQuery query(index_query_context, field, "fleabag");
     auto weight = query.weight(false);
 
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = field_reader->maxDoc();
-    exec_ctx.readers = {leading_reader};
-    exec_ctx.field_reader_bindings.emplace(field, field_reader);
+    exec_ctx.sources = {clucene_index_source(leading_reader, field, nullptr)};
+    exec_ctx.field_sources.emplace(field, clucene_index_source(field_reader, field, nullptr));
 
     auto roaring = std::make_shared<roaring::Roaring>();
     ASSERT_NO_THROW(collect_multi_segment_doc_set(weight, exec_ctx, "", roaring, nullptr, false));
@@ -346,14 +344,15 @@ TEST_F(MultiSegmentCollectorTest, CollectDocSetWithSingleReaderBinding) {
 
     auto index_query_context = std::make_shared<IndexQueryContext>();
     auto field = StringHelper::to_wstring("title");
-    TermQuery query(index_query_context, field, StringHelper::to_wstring("fleabag"));
+    TermQuery query(index_query_context, field, "fleabag");
     auto weight = query.weight(false);
 
     QueryExecutionContext exec_ctx;
     exec_ctx.segment_num_rows = bound_reader->maxDoc();
-    exec_ctx.readers = {bound_reader};
-    exec_ctx.reader_bindings.emplace("bound-title", bound_reader);
-    exec_ctx.field_reader_bindings.emplace(field, field_reader);
+    exec_ctx.sources = {clucene_index_source(bound_reader, field, nullptr)};
+    exec_ctx.source_bindings.emplace("bound-title",
+                                     clucene_index_source(bound_reader, field, nullptr));
+    exec_ctx.field_sources.emplace(field, clucene_index_source(field_reader, field, nullptr));
 
     auto roaring = std::make_shared<roaring::Roaring>();
     ASSERT_NO_THROW(collect_multi_segment_doc_set(weight, exec_ctx, "bound-title", roaring, nullptr,

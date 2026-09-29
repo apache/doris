@@ -24,6 +24,7 @@
 
 #include "CLucene/index/DocRange.h"
 #include "storage/index/inverted/query_v2/segment_postings.h"
+#include "storage/index/inverted/spi/clucene_postings_cursor.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
@@ -107,7 +108,8 @@ static SegmentPostingsPtr make_pos_postings(std::vector<uint32_t> docs, std::vec
     int32_t df = static_cast<int32_t>(docs.size());
     TermPositionsPtr ptr(new MockTermPositionsForUnion(std::move(docs), std::move(freqs),
                                                        std::move(norms), std::move(positions), df));
-    return std::make_shared<SegmentPostings>(std::move(ptr), true, nullptr);
+    return std::make_shared<SegmentPostings>(
+            std::make_unique<ClucenePostingsCursor>(std::move(ptr)), true, nullptr);
 }
 
 class UnionPostingsTest : public testing::Test {};
