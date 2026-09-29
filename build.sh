@@ -65,8 +65,6 @@ Usage: $0 <options>
      --be-java-extensions       build Backend java extensions. Default ON.
      --be-cdc-client            build Cdc Client for backend. Default ON.
      --be-extension-ignore      build be-java-extensions package, choose which modules to ignore. Multiple modules separated by commas.
-     --enable-dynamic-arch      enable dynamic CPU detection in OpenBLAS. Default ON.
-     --disable-dynamic-arch     disable dynamic CPU detection in OpenBLAS.
      --exclude-obs-dependencies exclude all Huawei Cloud OBS (com.huaweicloud) dependencies and the
                                 fe-filesystem-obs module; nothing from Huawei is resolved, compiled,
                                 or bundled. Use when repo.huaweicloud.com is unreachable or forbidden.
@@ -82,7 +80,6 @@ Usage: $0 <options>
 
   Environment variables:
     USE_AVX2                    If the CPU does not support AVX2 instruction set, please set USE_AVX2=0. Default is ON.
-    ENABLE_DYNAMIC_ARCH         If set ENABLE_DYNAMIC_ARCH=ON, it will enable dynamic CPU detection in OpenBLAS. Default is ON. Can also use --enable-dynamic-arch flag.
     ARM_MARCH                   Specify the ARM architecture instruction set. Default is armv8-a+crc.
     STRIP_DEBUG_INFO            If set STRIP_DEBUG_INFO=ON, the debug information in the compiled binaries will be stored separately in the 'be/lib/debug_info' directory. Default is OFF.
     DORIS_DEV_DEBUG_INFO        Debug info level for the BE: 'line-tables' compiles with -gline-tables-only for faster dev builds (clang only; keeps line tables for stack traces, drops variable-level DWARF), 'full' is the full debug info. Default is 'full' here; run-be-ut.sh defaults to 'line-tables'.
@@ -119,8 +116,6 @@ Usage: $0 <options>
     USE_AVX2=0 $0 --be                      build Backend and not using AVX2 instruction.
     USE_AVX2=0 STRIP_DEBUG_INFO=ON $0       build all and not using AVX2 instruction, and strip the debug info for Backend
     ARM_MARCH=armv8-a+crc+simd $0 --be      build Backend with specified ARM architecture instruction set
-    $0 --be --disable-dynamic-arch          build Backend with DYNAMIC_ARCH disabled in OpenBLAS
-    ENABLE_DYNAMIC_ARCH=OFF $0 --be         build Backend with DYNAMIC_ARCH disabled via environment variable
   "
     exit 1
 }
@@ -273,8 +268,6 @@ if ! OPTS="$(getopt \
     -l 'be-java-extensions' \
     -l 'be-cdc-client' \
     -l 'be-extension-ignore:' \
-    -l 'enable-dynamic-arch' \
-    -l 'disable-dynamic-arch' \
     -l 'exclude-obs-dependencies' \
     -l 'exclude-cos-dependencies' \
     -l 'clean' \
@@ -303,7 +296,6 @@ BUILD_BE_CDC_CLIENT=0
 BUILD_OBS_DEPENDENCIES=1
 BUILD_COS_DEPENDENCIES=1
 BUILD_HIVE_UDF=0
-ENABLE_DYNAMIC_ARCH='ON'
 CLEAN=0
 COMPILE_BENCH=0
 HELP=0
@@ -401,14 +393,6 @@ else
             BUILD_COS_DEPENDENCIES=0
             shift
             ;;
-        --enable-dynamic-arch)
-            ENABLE_DYNAMIC_ARCH='ON'
-            shift
-            ;;
-        --disable-dynamic-arch)
-            ENABLE_DYNAMIC_ARCH='OFF'
-            shift
-            ;;           
         --clean)
             CLEAN=1
             shift
@@ -940,10 +924,8 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
     if [[ "${COMPILE_BENCH}" -eq 1 ]]; then
         compile_bench_phase_begin "contrib_submodules"
     fi
-    update_submodule "contrib/datasketches-cpp" "datasketches-cpp" "https://github.com/apache/datasketches-cpp/archive/refs/heads/master.tar.gz"
     update_submodule "contrib/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
     update_submodule "contrib/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
-    update_submodule "contrib/openblas" "openblas" "https://github.com/apache/doris-thirdparty/archive/refs/heads/openblas.tar.gz"
     update_submodule "contrib/faiss" "faiss" "https://github.com/apache/doris-thirdparty/archive/refs/heads/faiss.tar.gz"
     if [[ "${COMPILE_BENCH}" -eq 1 ]]; then
         compile_bench_phase_end
@@ -1020,7 +1002,6 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DENABLE_CLANG_COVERAGE="${DENABLE_CLANG_COVERAGE}" \
         -DDORIS_JAVA_HOME="${JAVA_HOME}" \
         -DBUILD_AZURE="${BUILD_AZURE}" \
-        -DENABLE_DYNAMIC_ARCH="${ENABLE_DYNAMIC_ARCH}" \
         -DFAISS_ENABLE_GPU="${FAISS_ENABLE_GPU:-OFF}" \
         "${BE_EXTRA_CMAKE_ARGS[@]}" \
         "${COMPILE_BENCH_CMAKE_ARGS[@]}" \
@@ -1081,7 +1062,6 @@ if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
         -DBUILD_AZURE="${BUILD_AZURE}" \
         -DBUILD_CHECK_META="${BUILD_CHECK_META:-OFF}" \
-        -DENABLE_DYNAMIC_ARCH="${ENABLE_DYNAMIC_ARCH}" \
         "${CLOUD_EXTRA_CMAKE_ARGS[@]}" \
         "${DORIS_HOME}/cloud/"
     "${BUILD_SYSTEM}" -j "${PARALLEL}"

@@ -26,7 +26,7 @@ Sweep scope: all first-party TUs -- standalone be/src entries AND unity
 batches (CMake unity .cxx live under the build dir and would be silently
 skipped by a be/src path filter; each batch textually includes its member
 .cpp files, so checking the batch checks the members). Third-party contrib
-(openblas/faiss/clucene/orc) and generated sources are excluded.
+(faiss/clucene/orc) and generated sources are excluded.
 
 --no-pch strips the PCH preamble (-include-pch / forced cmake_pch.hxx
 include) so every TU is checked against its NATURAL include closure. This is

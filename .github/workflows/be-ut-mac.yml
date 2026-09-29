@@ -108,7 +108,7 @@ jobs:
           export JAVA_HOME="${JAVA_HOME%\/}"
 
           # AppleClang ships no OpenMP runtime, so CMake's find_package(OpenMP)
-          # (e.g. in contrib/openblas) fails with "Could NOT find OpenMP_C" and
+          # (e.g. in contrib/faiss) fails with "Could NOT find OpenMP" and
           # "'omp.h' file not found". Point the compiler/linker at Homebrew's
           # libomp. be/CMakeLists.txt resets CMAKE_C_FLAGS/CMAKE_CXX_FLAGS, so
           # EXTRA_CXX_FLAGS is also needed to pass the include path to the BE build.

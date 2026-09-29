@@ -85,8 +85,8 @@ Benchmark numbers are only comparable when every run does the same cold work:
 
 ## What the report contains
 
-- **Phases**: gensrc, contrib submodules, datasketches install, cmake
-  configure, build — with durations and share of total wall time.
+- **Phases**: gensrc, contrib submodules, cmake configure, build — with
+  durations and share of total wall time.
 - **Build summary**: TU count, sum of per-TU wall/cpu time, effective
   parallelism, slowest TU, most memory-hungry TU, link times with peak RSS.
 - **Top N slowest translation units** with wall/user/sys/maxrss per file.

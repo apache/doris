@@ -201,3 +201,6 @@ add_thirdparty(icudata LIB64)
 
 
 add_thirdparty(pugixml LIB64)
+
+# Only faiss uses it: contrib/faiss links the target named openblas when one exists.
+add_thirdparty(openblas LIB64 NOTADD)
