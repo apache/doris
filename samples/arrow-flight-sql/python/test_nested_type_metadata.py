@@ -47,16 +47,20 @@ class NestedTypeMetadataTest(unittest.TestCase):
     def assert_logical_type(self, field, name):
         self.assertEqual((field.metadata or {}).get(b"doris_type"), name.encode())
 
+    def query(self, sql):
+        self.cursor.execute(sql)
+        table = self.cursor.fetch_arrow_table()
+        table.validate(full=True)
+        return table
+
     def test_largeint_metadata_and_full_range(self):
-        self.cursor.execute("""
+        table = self.query("""
             SELECT CAST('170141183460469231731687303715884105727' AS LARGEINT) AS scalar_value,
                    named_struct('number', CAST(17 AS LARGEINT), 'text', '17') AS struct_value,
                    array(CAST('-170141183460469231731687303715884105728' AS LARGEINT),
                          CAST(NULL AS LARGEINT)) AS array_value,
                    map(CAST(17 AS LARGEINT), CAST(19 AS LARGEINT)) AS map_value
         """)
-        table = self.cursor.fetch_arrow_table()
-        table.validate(full=True)
         self.assert_logical_type(table.schema.field("scalar_value"), "LARGEINT")
         structure = table.schema.field("struct_value").type
         self.assert_logical_type(structure.field("number"), "LARGEINT")
@@ -73,18 +77,30 @@ class NestedTypeMetadataTest(unittest.TestCase):
         self.assertEqual(row["struct_value"], {"number": "17", "text": "17"})
         self.assertEqual(row["map_value"], [("17", "19")])
 
-    def test_other_logical_types(self):
-        self.cursor.execute("""
-            SELECT array(CAST('192.0.2.1' AS IPV4)) AS ip4,
-                   named_struct('address', CAST('2001:db8::1' AS IPV6)) AS ip6,
-                   map('k', CAST('{"n":1}' AS JSON)) AS json_value,
-                   array(CAST('{"n":1}' AS VARIANT)) AS variant_value
+    def test_ipv4_metadata(self):
+        table = self.query("""
+            SELECT array(CAST('192.0.2.1' AS IPV4)) AS ip4
         """)
-        table = self.cursor.fetch_arrow_table()
-        table.validate(full=True)
         self.assert_logical_type(table.schema.field("ip4").type.value_field, "IPV4")
+
+    def test_ipv6_metadata(self):
+        table = self.query("""
+            SELECT named_struct('address', CAST('2001:db8::1' AS IPV6)) AS ip6
+        """)
         self.assert_logical_type(table.schema.field("ip6").type.field("address"), "IPV6")
-        self.assert_logical_type(table.schema.field("json_value").type.item_field, "JSON")
+
+    def test_json_metadata(self):
+        # ARRAY/MAP constructors reject JSON; ARRAY_REPEAT preserves its element type.
+        table = self.query("""
+            SELECT array_repeat(CAST('{"n":1}' AS JSON), 1) AS json_value
+        """)
+        self.assert_logical_type(table.schema.field("json_value").type.value_field, "JSON")
+
+    def test_variant_metadata(self):
+        # ARRAY rejects legacy VARIANT; ARRAY_REPEAT also supports the default mode.
+        table = self.query("""
+            SELECT array_repeat(CAST('{"n":1}' AS VARIANT), 1) AS variant_value
+        """)
         self.assert_logical_type(table.schema.field("variant_value").type.value_field, "VARIANT")
 
 
