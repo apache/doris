@@ -273,7 +273,10 @@ stateDiagram-v2
 一个已 spill partition 首期对应一个逻辑 `SpillFile`。`SpillFileWriter` 可以在物理文件达到
 阈值后自动生成多个 part，因此不会产生单个无限大的物理文件。writer 在 partition 中途
 revoke 后保持打开；后续输入按 `spill_buffer_size_bytes` 聚合成小批次继续写入，在 partition
-结束时统一 close。
+结束时统一 close。小 Block 先合并进写缓冲区，达到 `spill_buffer_size_bytes` 才序列化写盘；
+本身已达到该大小的 Block 先刷出缓冲区再直接写入，以保持行序。revoke 和 seal 时会强制刷出
+缓冲区，缓冲区计入 revocable memory。落盘后不再按主动阈值重复触发 spill，否则每次追加都会
+刷出缓冲区。由于读回的 Block 可能远大于 `batch_size`，Source 重放时按 `batch_size` 切片输出。
 
 一个 batch 对应一个逻辑 `SpillFile`，其中可以包含多个 partition。超过主动阈值、被内存
 仲裁器 revoke，或 seal 时仍大于 `spill_min_revocable_mem` 的 batch 会落盘，避免发布后失去

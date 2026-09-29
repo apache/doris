@@ -61,7 +61,8 @@ struct AnalyticSpillBatch {
 
 /// Owns the input rows of one analytic batch: zero or more finished partitions followed by the
 /// partition that is still receiving rows. Before the first revoke it retains ordinary Blocks.
-/// Once spilled, the writer stays open and all later Blocks are written directly until seal().
+/// Once spilled, the writer stays open until seal(); later small Blocks are coalesced up to the
+/// spill buffer size before being written, and large Blocks are written directly.
 class AnalyticSpillBatchStore {
 public:
     AnalyticSpillBatchStore(RuntimeProfile* profile, int node_id, bool has_peer_groups);
@@ -86,6 +87,8 @@ public:
 private:
     Status _create_writer(RuntimeState* state, const char* label, SpillFileSPtr& file,
                           SpillFileWriterSPtr& writer);
+    Status _write_data_block(RuntimeState* state, Block block);
+    Status _flush_write_buffer(RuntimeState* state);
     Status _ensure_peer_group_writer(RuntimeState* state);
     Status _flush_peer_group_ends(RuntimeState* state);
     void _release_blocks();
@@ -101,6 +104,8 @@ private:
     std::vector<Block> _blocks;
     SpillFileSPtr _data_file;
     SpillFileWriterSPtr _data_writer;
+    // Small Blocks appended after the first spill, written once they reach the spill buffer size.
+    MutableBlock _write_buffer;
 
     std::vector<int64_t> _peer_group_ends;
     SpillFileSPtr _peer_group_file;

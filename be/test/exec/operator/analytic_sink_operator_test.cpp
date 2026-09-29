@@ -234,6 +234,7 @@ struct AnalyticSinkOperatorTest : public ::testing::Test {
     ObjectPool pool;
     char buffer[100];
     void check_cume_dist_peer_groups_inside_batch(bool force_spill);
+    void prepare_spilled_full_partition_sum();
 
     std::vector<int64_t> _data_vals;
 };
@@ -907,6 +908,106 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathRevokeMemorySpillsOpenPartition) {
     };
     expect_next_spill_block(source.get(), state.get(), expected_block({1, 2}));
     expect_next_spill_block(source.get(), state.get(), expected_block({3, 4, 5}));
+    expect_spill_source_eos(source.get(), state.get());
+}
+
+void AnalyticSinkOperatorTest::prepare_spilled_full_partition_sum() {
+    create_operator(false, 1, "sum", {std::make_shared<DataTypeInt64>()},
+                    std::make_shared<DataTypeInt64>());
+    sink->_agg_expr_ctxs.resize(1);
+    sink->_agg_expr_ctxs[0] =
+            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+    sink->_enable_spill_analytic = true;
+    sink->_window_spill_strategies = {WindowSpillStrategy::PARTITION_REDUCE};
+    sink->_window_spill_peer_functions = {WindowSpillPeerFunction::NONE};
+    create_local_state();
+}
+
+namespace {
+
+void sink_small_blocks(AnalyticSinkOperatorX* sink, RuntimeState* state, int64_t first_value,
+                       size_t block_count) {
+    for (size_t i = 0; i < block_count; ++i) {
+        const auto base = first_value + static_cast<int64_t>(i * 3);
+        Block block = ColumnHelper::create_block<DataTypeInt64>({base, base + 1, base + 2});
+        auto status = sink->sink(state, &block, false);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+    }
+}
+
+Block values_with_sum(int64_t first_value, size_t rows, int64_t sum) {
+    std::vector<int64_t> values(rows);
+    for (size_t i = 0; i < rows; ++i) {
+        values[i] = first_value + static_cast<int64_t>(i);
+    }
+    auto block = ColumnHelper::create_block<DataTypeInt64>(values);
+    block.insert({ColumnHelper::create_column<DataTypeInt64>(std::vector<int64_t>(rows, sum)),
+                  std::make_shared<DataTypeInt64>(), "sum"});
+    return block;
+}
+
+int64_t spill_write_block_count(AnalyticSinkLocalState* local_state) {
+    return local_state->custom_profile()->get_counter("SpillWriteBlockCount")->value();
+}
+
+} // namespace
+
+TEST_F(AnalyticSinkOperatorTest, SpillPathCoalescesSmallBlocksAndSlicesReplay) {
+    ScopedSpillFileManager spill_file_manager;
+    ASSERT_TRUE(spill_file_manager.init().ok());
+
+    Initialize(8);
+    state->_query_options.__set_enable_force_spill(true);
+    prepare_spilled_full_partition_sum();
+
+    // The first Block triggers the spill and is written on its own. The next nine small Blocks
+    // are coalesced and written as one Block when the batch is sealed.
+    sink_small_blocks(sink.get(), state.get(), 0, 10);
+    ASSERT_TRUE(sink_local_state->_batch_store->is_spilled());
+    EXPECT_EQ(spill_write_block_count(sink_local_state), 1);
+    EXPECT_GT(sink_local_state->_batch_store->revocable_mem_size(), 0);
+    Block eos_block = ColumnHelper::create_block<DataTypeInt64>({});
+    auto status = sink->sink(state.get(), &eos_block, true);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ(spill_write_block_count(sink_local_state), 2);
+
+    // The 27-row coalesced Block is replayed in batch-size slices.
+    expect_next_spill_block(source.get(), state.get(), values_with_sum(0, 3, 435));
+    expect_next_spill_block(source.get(), state.get(), values_with_sum(3, 8, 435));
+    expect_next_spill_block(source.get(), state.get(), values_with_sum(11, 8, 435));
+    expect_next_spill_block(source.get(), state.get(), values_with_sum(19, 8, 435));
+    expect_next_spill_block(source.get(), state.get(), values_with_sum(27, 3, 435));
+    expect_spill_source_eos(source.get(), state.get());
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillPathRevokeMemoryFlushesCoalescedBlocks) {
+    ScopedSpillFileManager spill_file_manager;
+    ASSERT_TRUE(spill_file_manager.init().ok());
+
+    Initialize(8);
+    state->_query_options.__set_enable_force_spill(true);
+    prepare_spilled_full_partition_sum();
+
+    sink_small_blocks(sink.get(), state.get(), 0, 5);
+    EXPECT_EQ(spill_write_block_count(sink_local_state), 1);
+    ASSERT_GT(sink_local_state->_batch_store->revocable_mem_size(), 0);
+
+    auto status = sink->revoke_memory(state.get());
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ(sink_local_state->_batch_store->revocable_mem_size(), 0);
+    EXPECT_EQ(spill_write_block_count(sink_local_state), 2);
+
+    sink_small_blocks(sink.get(), state.get(), 15, 5);
+    Block eos_block = ColumnHelper::create_block<DataTypeInt64>({});
+    status = sink->sink(state.get(), &eos_block, true);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_EQ(spill_write_block_count(sink_local_state), 3);
+
+    expect_next_spill_block(source.get(), state.get(), values_with_sum(0, 3, 435));
+    expect_next_spill_block(source.get(), state.get(), values_with_sum(3, 8, 435));
+    expect_next_spill_block(source.get(), state.get(), values_with_sum(11, 4, 435));
+    expect_next_spill_block(source.get(), state.get(), values_with_sum(15, 8, 435));
+    expect_next_spill_block(source.get(), state.get(), values_with_sum(23, 7, 435));
     expect_spill_source_eos(source.get(), state.get());
 }
 
