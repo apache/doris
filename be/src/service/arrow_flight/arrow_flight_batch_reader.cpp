@@ -172,10 +172,16 @@ arrow::Status ArrowFlightBatchLocalReader::ReadNextImpl(std::shared_ptr<arrow::R
     RETURN_ARROW_STATUS_IF_ERROR(
             ExecEnv::GetInstance()->result_mgr()->find_buffer(tid, arrow_buffer));
     std::shared_ptr<Block> result;
-    auto st = arrow_buffer->get_arrow_batch(&result, [this] { return is_cancelled(); });
-    st.prepend("ArrowFlightBatchLocalReader fetch arrow data failed");
-    ARROW_RETURN_NOT_OK(to_arrow_status(st));
-    if (result == nullptr) {
+    bool eos = false;
+    while (!result && !eos) {
+        if (is_cancelled()) {
+            return arrow::Status::Cancelled("Arrow Flight fetch cancelled");
+        }
+        auto st = arrow_buffer->get_arrow_batch(&result, &eos);
+        st.prepend("ArrowFlightBatchLocalReader fetch arrow data failed");
+        ARROW_RETURN_NOT_OK(to_arrow_status(st));
+    }
+    if (eos) {
         // eof, normal path end
         return arrow::Status::OK();
     }
@@ -183,8 +189,8 @@ arrow::Status ArrowFlightBatchLocalReader::ReadNextImpl(std::shared_ptr<arrow::R
     {
         // convert one batch
         SCOPED_ATOMIC_TIMER(&_convert_arrow_batch_timer);
-        st = ArrowFlightArrowBlockConvertor(_schema, _timezone_obj)
-                     .convert_to_arrow(*result, arrow::default_memory_pool(), out);
+        auto st = ArrowFlightArrowBlockConvertor(_schema, _timezone_obj)
+                          .convert_to_arrow(*result, arrow::default_memory_pool(), out);
         st.prepend("ArrowFlightBatchLocalReader convert block to arrow batch failed");
         ARROW_RETURN_NOT_OK(to_arrow_status(st));
     }

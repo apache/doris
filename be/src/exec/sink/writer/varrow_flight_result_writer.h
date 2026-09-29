@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <functional>
-
 #include "common/status.h"
 #include "exec/sink/writer/result_writer.h"
 #include "exprs/vexpr_fwd.h"
@@ -75,8 +73,8 @@ public:
         _compressed_bytes_counter = ADD_COUNTER(&_profile, "CompressedBytes", TUnit::BYTES);
     }
     ~ArrowFlightResultBlockBuffer() override = default;
-    Status get_arrow_batch(std::shared_ptr<Block>* result,
-                           const std::function<bool()>& is_cancelled = {});
+    // A timed wait may return OK with no block and eos=false; the caller must retry.
+    Status get_arrow_batch(std::shared_ptr<Block>* result, bool* eos);
     void cancel_query(const Status& reason);
     void get_timezone(cctz::time_zone& timezone_obj) { timezone_obj = _timezone_obj; }
     Status get_schema(std::shared_ptr<arrow::Schema>* arrow_schema);

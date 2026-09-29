@@ -82,7 +82,8 @@ TEST_F(ArrowFlightCancelTest, EarlyCloseReleasesBackpressuredBuffer) {
     EXPECT_TRUE(_dep->ready());
     EXPECT_TRUE(_state.get_query_ctx()->is_cancelled());
     std::shared_ptr<Block> block;
-    EXPECT_FALSE(_buffer->get_arrow_batch(&block).ok());
+    bool eos = false;
+    EXPECT_FALSE(_buffer->get_arrow_batch(&block, &eos).ok());
     EXPECT_TRUE(reader->Close().ok());
 }
 
@@ -108,7 +109,9 @@ TEST_F(ArrowFlightCancelTest, NormalEofIsNotCancellation) {
     EXPECT_EQ(batch, nullptr);
     EXPECT_TRUE(reader->Close().ok());
     std::shared_ptr<Block> block;
-    EXPECT_TRUE(_buffer->get_arrow_batch(&block).ok());
+    bool eos = false;
+    EXPECT_TRUE(_buffer->get_arrow_batch(&block, &eos).ok());
+    EXPECT_TRUE(eos);
     EXPECT_FALSE(_state.get_query_ctx()->is_cancelled());
 }
 
@@ -117,7 +120,7 @@ TEST_F(ArrowFlightCancelTest, CancellationInterruptsEmptyBufferWait) {
     std::promise<void> checked;
     std::atomic<int> checks = 0;
     auto result = ArrowFlightBatchLocalReader::Create(_statement, [&] {
-        if (checks.fetch_add(1) == 1) {
+        if (checks.fetch_add(1) == 3) {
             checked.set_value();
         }
         return cancelled.load();
@@ -139,6 +142,57 @@ TEST_F(ArrowFlightCancelTest, CancellationInterruptsEmptyBufferWait) {
     EXPECT_FALSE(fetch.get().ok());
     EXPECT_FALSE(registered());
     EXPECT_TRUE(_state.get_query_ctx()->is_cancelled());
+}
+
+TEST_F(ArrowFlightCancelTest, EmptyBufferReadReturnsForRetry) {
+    auto fetch = std::async(std::launch::async, [&] {
+        auto block = std::make_shared<Block>();
+        bool eos = true;
+        auto status = _buffer->get_arrow_batch(&block, &eos);
+        EXPECT_EQ(block, nullptr);
+        EXPECT_FALSE(eos);
+        return status;
+    });
+    const auto ready = fetch.wait_for(std::chrono::seconds(2));
+    // Bound the test even if an empty buffer incorrectly waits until query completion.
+    if (ready != std::future_status::ready) {
+        _buffer->cancel(Status::Cancelled("test cleanup"));
+    }
+    EXPECT_EQ(ready, std::future_status::ready);
+    EXPECT_TRUE(fetch.get().ok());
+}
+
+TEST_F(ArrowFlightCancelTest, EmptyWaitsDoNotFinishReader) {
+    std::promise<void> retried;
+    std::atomic<int> checks = 0;
+    auto result = ArrowFlightBatchLocalReader::Create(_statement, [&] {
+        if (checks.fetch_add(1) == 3) {
+            retried.set_value();
+        }
+        return false;
+    });
+    ASSERT_TRUE(result.ok()) << result.status();
+    auto reader = *result;
+    std::shared_ptr<arrow::RecordBatch> batch;
+    auto fetch = std::async(std::launch::async, [&] { return reader->ReadNext(&batch); });
+    EXPECT_EQ(retried.get_future().wait_for(std::chrono::seconds(2)), std::future_status::ready);
+    EXPECT_EQ(fetch.wait_for(std::chrono::seconds(0)), std::future_status::timeout);
+    auto block = std::make_shared<Block>(ColumnHelper::create_block<DataTypeInt64>({1, 2}));
+    EXPECT_TRUE(_buffer->add_batch(&_state, block).ok());
+    bool fully_closed = false;
+    EXPECT_TRUE(_buffer->close(_state.fragment_instance_id(), Status::OK(), 2, fully_closed).ok());
+    const auto ready = fetch.wait_for(std::chrono::seconds(2));
+    if (ready != std::future_status::ready) {
+        _buffer->cancel(Status::Cancelled("test cleanup"));
+    }
+    EXPECT_EQ(ready, std::future_status::ready);
+    ASSERT_TRUE(fetch.get().ok());
+    ASSERT_NE(batch, nullptr);
+    EXPECT_EQ(batch->num_rows(), 2);
+    ASSERT_TRUE(reader->ReadNext(&batch).ok());
+    EXPECT_EQ(batch, nullptr);
+    EXPECT_TRUE(reader->Close().ok());
+    EXPECT_FALSE(_state.get_query_ctx()->is_cancelled());
 }
 
 TEST_F(ArrowFlightCancelTest, ConversionFailureCancelsQuery) {
