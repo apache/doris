@@ -167,6 +167,21 @@ Status AnalyticLocalState::_next_replay_rows(RuntimeState* state, Block* block, 
     return Status::OK();
 }
 
+size_t AnalyticLocalState::_spill_replay_reserve_bytes(RuntimeState* state) const {
+    if (!_shared_state->spill_enabled.load() || _replay_block_position < _replay_block.rows()) {
+        return 0;
+    }
+    // The next call reads a new Block. A spilled record holds Blocks coalesced up to about the
+    // spill buffer size and is deserialized into a new Block. Opening the reader of the next
+    // batch additionally allocates the buffer for its largest serialized record, and it is not
+    // known yet whether that batch was spilled.
+    const auto spill_buffer_bytes = static_cast<size_t>(state->spill_buffer_size_bytes());
+    if (_current_batch && _batch_output_position < _current_batch->rows) {
+        return _current_batch->data_file ? spill_buffer_bytes : 0;
+    }
+    return 2 * spill_buffer_bytes;
+}
+
 Status AnalyticLocalState::_next_peer_group_end(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
     _peer_group_start = _peer_group_end;
@@ -436,6 +451,12 @@ Status AnalyticSourceOperatorX::get_block_impl(RuntimeState* state, Block* outpu
         COUNTER_UPDATE(local_state._filtered_rows_counter, output_rows - return_rows);
     }
     return Status::OK();
+}
+
+size_t AnalyticSourceOperatorX::get_reserve_mem_size(RuntimeState* state) {
+    auto& local_state = get_local_state(state);
+    return OperatorX<AnalyticLocalState>::get_reserve_mem_size(state) +
+           local_state._spill_replay_reserve_bytes(state);
 }
 
 } // namespace doris

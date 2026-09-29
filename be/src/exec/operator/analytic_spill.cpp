@@ -133,7 +133,7 @@ void AnalyticSpillBatchStore::_release_blocks() {
 }
 
 void AnalyticSpillBatchStore::_release_peer_group_buffer() {
-    std::vector<int64_t>().swap(_peer_group_ends);
+    DorisVector<int64_t>().swap(_peer_group_ends);
 }
 
 Status AnalyticSpillBatchStore::spill(RuntimeState* state) {

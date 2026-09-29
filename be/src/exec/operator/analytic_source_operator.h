@@ -44,6 +44,7 @@ public:
 private:
     friend class AnalyticSourceOperatorX;
     Status _get_spill_block(RuntimeState* state, Block* block, bool* eos);
+    size_t _spill_replay_reserve_bytes(RuntimeState* state) const;
     Status _open_spill_batch(RuntimeState* state, std::shared_ptr<AnalyticSpillBatch> batch);
     Status _read_batch_block(RuntimeState* state, Block* block, bool* batch_eos);
     Status _next_replay_rows(RuntimeState* state, Block* block, bool* batch_eos);
@@ -99,6 +100,8 @@ public:
     Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
+
+    size_t get_reserve_mem_size(RuntimeState* state) override;
 
 private:
     friend class AnalyticLocalState;
