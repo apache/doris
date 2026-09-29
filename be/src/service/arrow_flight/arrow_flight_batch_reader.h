@@ -20,6 +20,7 @@
 #include <cctz/time_zone.h>
 #include <gen_cpp/Types_types.h>
 
+#include <functional>
 #include <memory>
 #include <utility>
 
@@ -48,10 +49,20 @@ class ArrowFlightBatchReaderBase : public arrow::RecordBatchReader {
 public:
     // RecordBatchReader force override
     [[nodiscard]] std::shared_ptr<arrow::Schema> schema() const override;
+    arrow::Status Close() override;
+    arrow::Status ReadNext(std::shared_ptr<arrow::RecordBatch>* out) override;
 
 protected:
     ArrowFlightBatchReaderBase(const std::shared_ptr<QueryStatement>& statement);
     ~ArrowFlightBatchReaderBase() override;
+    virtual arrow::Status ReadNextImpl(std::shared_ptr<arrow::RecordBatch>* out) = 0;
+    bool is_cancelled() const;
+    void close(const Status& reason);
+    std::function<bool()> _is_cancelled;
+    std::function<void(const Status&)> _cancel_query;
+    std::atomic<bool> _closed {false};
+    std::atomic<bool> _eof {false};
+
     arrow::Status _return_invalid_status(const std::string& msg);
 
     std::shared_ptr<QueryStatement> _statement;
@@ -67,34 +78,33 @@ protected:
 class ArrowFlightBatchLocalReader : public ArrowFlightBatchReaderBase {
 public:
     static arrow::Result<std::shared_ptr<ArrowFlightBatchLocalReader>> Create(
-            const std::shared_ptr<QueryStatement>& statement);
-
-    arrow::Status ReadNext(std::shared_ptr<arrow::RecordBatch>* out) override;
+            const std::shared_ptr<QueryStatement>& statement,
+            std::function<bool()> is_cancelled = {});
 
 private:
     ArrowFlightBatchLocalReader(const std::shared_ptr<QueryStatement>& statement,
                                 const std::shared_ptr<arrow::Schema>& schema,
                                 const std::shared_ptr<MemTrackerLimiter>& mem_tracker);
 
-    arrow::Status ReadNextImpl(std::shared_ptr<arrow::RecordBatch>* out);
+    arrow::Status ReadNextImpl(std::shared_ptr<arrow::RecordBatch>* out) override;
 };
 
 class ArrowFlightBatchRemoteReader : public ArrowFlightBatchReaderBase {
 public:
     static arrow::Result<std::shared_ptr<ArrowFlightBatchRemoteReader>> Create(
-            const std::shared_ptr<QueryStatement>& statement);
+            const std::shared_ptr<QueryStatement>& statement,
+            std::function<bool()> is_cancelled = {});
 
     // create arrow RecordBatchReader must initialize the schema.
     // so when creating arrow RecordBatchReader, fetch result data once,
     // which will return Block and some necessary information, and extract arrow schema from Block.
     arrow::Status init_schema();
-    arrow::Status ReadNext(std::shared_ptr<arrow::RecordBatch>* out) override;
 
 private:
     ArrowFlightBatchRemoteReader(const std::shared_ptr<QueryStatement>& statement,
                                  const std::shared_ptr<PBackendService_Stub>& stub);
 
-    arrow::Status ReadNextImpl(std::shared_ptr<arrow::RecordBatch>* out);
+    arrow::Status ReadNextImpl(std::shared_ptr<arrow::RecordBatch>* out) override;
     arrow::Status _fetch_schema();
     arrow::Status _fetch_data();
 

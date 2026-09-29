@@ -71,6 +71,8 @@ public:
     // cancel
     bool cancel(const TUniqueId& unique_id, const Status& reason);
 
+    void cancel_arrow_flight_query(const TUniqueId& buffer_id, const Status& reason);
+
     // cancel one query at a future time.
     void cancel_at_time(time_t cancel_time, const TUniqueId& unique_id);
 

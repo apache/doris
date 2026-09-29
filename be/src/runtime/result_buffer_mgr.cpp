@@ -141,6 +141,23 @@ bool ResultBufferMgr::cancel(const TUniqueId& unique_id, const Status& reason) {
     return exist;
 }
 
+void ResultBufferMgr::cancel_arrow_flight_query(const TUniqueId& buffer_id, const Status& reason) {
+    std::shared_ptr<ArrowFlightResultBlockBuffer> buffer;
+    {
+        std::unique_lock<std::shared_mutex> lock(_buffer_map_lock);
+        auto it = _buffer_map.find(buffer_id);
+        if (it == _buffer_map.end()) {
+            return;
+        }
+        buffer = std::dynamic_pointer_cast<ArrowFlightResultBlockBuffer>(it->second);
+        if (!buffer) {
+            return;
+        }
+        _buffer_map.erase(it);
+    }
+    buffer->cancel_query(reason);
+}
+
 void ResultBufferMgr::cancel_at_time(time_t cancel_time, const TUniqueId& unique_id) {
     std::lock_guard<std::mutex> l(_timeout_lock);
     auto iter = _timeout_map.find(cancel_time);

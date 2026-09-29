@@ -694,12 +694,21 @@ void PInternalService::fetch_arrow_data(google::protobuf::RpcController* control
                                         PFetchArrowDataResult* result,
                                         google::protobuf::Closure* done) {
     bool ret = _arrow_flight_work_pool.try_offer([request, result, done]() {
-        auto ctx = GetArrowResultBatchCtx::create_shared(result, done);
         TUniqueId unique_id = UniqueId(request->finst_id()).to_thrift(); // query_id or instance_id
+        if (request->cancel()) {
+            brpc::ClosureGuard guard(done);
+            ExecEnv::GetInstance()->result_mgr()->cancel_arrow_flight_query(
+                    unique_id, Status::Cancelled("Arrow Flight result stream closed before EOF"));
+            Status::OK().to_protobuf(result->mutable_status());
+            return;
+        }
+        auto ctx = GetArrowResultBatchCtx::create_shared(result, done);
         std::shared_ptr<ArrowFlightResultBlockBuffer> arrow_buffer;
         auto st = ExecEnv::GetInstance()->result_mgr()->find_buffer(unique_id, arrow_buffer);
         if (!st.ok()) {
             LOG(WARNING) << "Result buffer not found! Query ID: " << print_id(unique_id);
+            // A cancellation can remove the buffer before an already queued fetch runs.
+            ctx->on_failure(st);
             return;
         }
         if (st = arrow_buffer->get_batch(ctx); !st.ok()) {
