@@ -22,7 +22,7 @@
 namespace doris {
 
 EosCompletion::~EosCompletion() {
-    complete(Status::Cancelled("Load channel destroyed before EOS close completed"));
+    complete(Status::Cancelled("Load channel destroyed before all EOS senders arrived"));
 }
 
 void EosCompletion::add_waiter(Callback callback) {
@@ -43,7 +43,7 @@ void EosCompletion::complete(const Status& status) {
     {
         std::lock_guard lock(_mutex);
         if (_status.has_value()) {
-            // Final close can race cancellation or load-channel expiration.
+            // Sender arrival can race cancellation or load-channel expiration.
             return;
         }
         _status = status;

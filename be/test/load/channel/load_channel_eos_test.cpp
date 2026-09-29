@@ -21,22 +21,23 @@
 #include <atomic>
 #include <chrono>
 #include <ctime>
-#include <functional>
 #include <memory>
+#include <string>
 #include <thread>
 #include <utility>
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablets_channel.h"
+#include "cpp/sync_point.h"
 #include "load/channel/eos_completion.h"
 #include "load/channel/load_channel.h"
 #include "load/channel/load_channel_mgr.h"
 #include "load/channel/tablets_channel.h"
-#include "load/delta_writer/delta_writer.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "storage/storage_engine.h"
 #include "util/countdown_latch.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -91,6 +92,11 @@ protected:
         return request;
     }
 
+    const char* before_flush_sync_point() const {
+        return GetParam() ? "CloudTabletsChannel::close.before_flush"
+                          : "TabletsChannel::close.before_flush";
+    }
+
     FragmentMgr* _previous_fragment_mgr = nullptr;
     std::unique_ptr<FragmentMgr> _fragment_mgr;
     std::unique_ptr<StorageEngine> _engine;
@@ -104,7 +110,7 @@ TEST_P(LoadChannelEosTest, SingleWorkerProcessesOneHundredSendersAndDuplicateEos
     CountDownLatch processed(1);
     std::thread worker([&] {
         // Retry sender zero before any other sender. It must not decrement the
-        // remaining count twice, and both RPCs must wait for final close.
+        // remaining count twice, and both RPCs must wait for all senders to arrive.
         for (int i = 0; i <= 100; ++i) {
             int sender = i == 0 ? 0 : i - 1;
             PTabletWriterAddBlockResult response;
@@ -145,8 +151,21 @@ TEST_P(LoadChannelEosTest, NonWaitingLastSenderReleasesEarlierWaiter) {
         ++replies;
     });
     EXPECT_EQ(replies, 0);
+    bool reached_close = false;
+    auto* sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            before_flush_sync_point(),
+            [&](auto&&) {
+                reached_close = true;
+                EXPECT_EQ(replies, 1);
+            },
+            &guard);
+    sp->enable_processing();
+    Defer disable_sync_points {[&] { sp->disable_processing(); }};
     std::shared_ptr<EosCompletion> last;
     EXPECT_TRUE(_load->add_batch(eos(1, false), &response, &last).ok());
+    EXPECT_TRUE(reached_close);
     EXPECT_EQ(last, nullptr);
     EXPECT_EQ(replies, 1);
 }
@@ -191,102 +210,167 @@ TEST_P(LoadChannelEosTest, TimeoutCleanerReleasesPendingRpc) {
     manager.stop();
 }
 
-// Control final-close completion independently of the kFinished state, which
-// both storage implementations set before flushing/committing writers.
-class ControlledCloseChannel : public BaseTabletsChannel {
-public:
-    explicit ControlledCloseChannel(std::function<Status()> finalize)
-            : BaseTabletsChannel(TabletsChannelKey(PUniqueId(), 10), UniqueId(1, 2), true, nullptr),
-              _finalize(std::move(finalize)) {}
-
-    std::unique_ptr<BaseDeltaWriter> create_delta_writer(const WriteRequest&) override {
-        return nullptr;
-    }
-    Status add_batch(const PTabletWriterAddBlockRequest&, PTabletWriterAddBlockResult*) override {
-        return Status::OK();
-    }
-    Status close(LoadChannel*, const PTabletWriterAddBlockRequest& request,
-                 PTabletWriterAddBlockResult*, bool* finished) override {
-        if (request.sender_id() == 0) {
-            return Status::OK();
-        }
-        *finished = true;
-        _state = kFinished;
-        return _finalize();
-    }
-
-private:
-    std::function<Status()> _finalize;
-};
-
-TEST_P(LoadChannelEosTest, FinishedStateDoesNotReleaseBarrierBeforeCloseReturns) {
+// Exercise the real local/cloud close paths. Hold the final closer immediately
+// before writer flushing, after sender accounting and barrier publication.
+TEST_P(LoadChannelEosTest, ArrivalReleasesWaitersBeforeFinalCloseFailure) {
+    auto channel = make_channel(3);
     CountDownLatch closing(1);
     CountDownLatch finish_close(1);
-    auto channel = std::make_shared<ControlledCloseChannel>([&] {
-        closing.count_down();
-        finish_close.wait();
-        return Status::InternalError("final flush failed");
-    });
-    _load->_tablets_channels.emplace(10, channel);
+    auto* sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            before_flush_sync_point(),
+            [&](auto&& args) {
+                closing.count_down();
+                finish_close.wait();
+                auto* ret = try_any_cast_ret<Status>(args);
+                ret->first = Status::InternalError("final flush failed");
+                ret->second = true;
+            },
+            &guard);
+    sp->enable_processing();
+    Defer disable_sync_points {[&] { sp->disable_processing(); }};
+
     PTabletWriterAddBlockResult first_response;
+    PTabletWriterAddBlockResult second_response;
     std::shared_ptr<EosCompletion> first;
+    std::shared_ptr<EosCompletion> second;
     ASSERT_TRUE(_load->add_batch(eos(0), &first_response, &first).ok());
+    ASSERT_TRUE(_load->add_batch(eos(1), &second_response, &second).ok());
     std::atomic<int> replies {0};
-    first->add_waiter([&](const Status& status) {
-        EXPECT_NE(status.to_string().find("final flush failed"), std::string::npos);
+    auto reply = [&](const Status& status) {
+        EXPECT_TRUE(status.ok());
         ++replies;
-    });
+    };
+    first->add_waiter(reply);
+    std::atomic<bool> final_rpc_returned {false};
     std::thread finalizer([&] {
         PTabletWriterAddBlockResult response;
         std::shared_ptr<EosCompletion> last;
-        auto status = _load->add_batch(eos(1), &response, &last);
+        auto status = _load->add_batch(eos(2), &response, &last);
         EXPECT_FALSE(status.ok());
+        EXPECT_NE(status.to_string().find("final flush failed"), std::string::npos);
+        // The service returns this error directly instead of registering the
+        // final RPC on the already successful arrival barrier.
+        final_rpc_returned = true;
     });
-    closing.wait();
-    EXPECT_TRUE(channel->is_finished());
-    EXPECT_EQ(replies.load(), 0);
+    bool reached_close = closing.wait_for(std::chrono::seconds(10));
+    EXPECT_TRUE(reached_close);
+    if (reached_close) {
+        EXPECT_TRUE(channel->is_finished());
+        EXPECT_FALSE(_load->is_finished());
+        EXPECT_FALSE(final_rpc_returned.load());
+        EXPECT_EQ(replies.load(), 1);
+        // A sender may finish its response writes after the last EOS arrived.
+        second->add_waiter(reply);
+        EXPECT_EQ(replies.load(), 2);
+    }
     finish_close.count_down();
     finalizer.join();
-    EXPECT_EQ(replies.load(), 1);
+    EXPECT_TRUE(final_rpc_returned.load());
+    EXPECT_TRUE(_load->cancel().ok());
+    // Neither the later close failure nor cancellation can revoke arrival.
+    first->add_waiter(reply);
+    EXPECT_EQ(replies.load(), 3);
 }
 
-TEST_P(LoadChannelEosTest, CancelDuringFinalCloseDoesNotTouchItsResponse) {
-    CountDownLatch closing(1);
-    CountDownLatch finish_close(1);
-    auto channel = std::make_shared<ControlledCloseChannel>([&] {
-        closing.count_down();
-        finish_close.wait();
-        return Status::OK();
-    });
-    _load->_tablets_channels.emplace(10, channel);
-    PTabletWriterAddBlockResult first_response;
+TEST_P(LoadChannelEosTest, FinalRpcKeepsItsResponseUntilCloseReturns) {
+    auto channel = make_channel(2);
+    auto first_response = std::make_unique<PTabletWriterAddBlockResult>();
     std::shared_ptr<EosCompletion> first;
-    ASSERT_TRUE(_load->add_batch(eos(0), &first_response, &first).ok());
-    std::atomic<int> replies {0};
+    ASSERT_TRUE(_load->add_batch(eos(0), first_response.get(), &first).ok());
+    int replies = 0;
     first->add_waiter([&](const Status& status) {
-        EXPECT_TRUE(status.is<ErrorCode::CANCELLED>());
+        EXPECT_TRUE(status.ok());
+        first_response.reset();
         ++replies;
     });
-    std::thread finalizer([&] {
-        auto response = std::make_unique<PTabletWriterAddBlockResult>();
-        std::shared_ptr<EosCompletion> last;
-        EXPECT_TRUE(_load->add_batch(eos(1), response.get(), &last).ok());
-        // Same ownership boundary as the service: finish all synchronous writes
-        // before registering a callback which can destroy the RPC inline.
-        response->set_execution_time_us(123);
-        last->add_waiter([&](const Status& status) {
-            EXPECT_TRUE(status.is<ErrorCode::CANCELLED>());
-            EXPECT_EQ(response->execution_time_us(), 123);
-            response.reset();
+
+    bool reached_close = false;
+    auto* sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            before_flush_sync_point(),
+            [&](auto&& args) {
+                reached_close = true;
+                EXPECT_EQ(replies, 1);
+                EXPECT_EQ(first_response, nullptr);
+                EXPECT_FALSE(_load->is_finished());
+                // Model tablet results written by the final closer after all
+                // earlier RPCs have already been released.
+                auto* response = try_any_cast<PTabletWriterAddBlockResult*>(args[0]);
+                auto* tablet = response->add_tablet_vec();
+                tablet->set_tablet_id(123);
+                tablet->set_schema_hash(0);
+                tablet->set_received_rows(456);
+                tablet->set_num_rows_filtered(7);
+            },
+            &guard);
+    sp->enable_processing();
+    Defer disable_sync_points {[&] { sp->disable_processing(); }};
+
+    auto response = std::make_unique<PTabletWriterAddBlockResult>();
+    std::shared_ptr<EosCompletion> last;
+    ASSERT_TRUE(_load->add_batch(eos(1), response.get(), &last).ok());
+    EXPECT_TRUE(reached_close);
+    EXPECT_TRUE(_load->is_finished());
+    // Same ownership boundary as the service: finish synchronous writes before
+    // registering the final callback, which can destroy the response inline.
+    response->set_execution_time_us(123);
+    last->add_waiter([&](const Status& status) {
+        EXPECT_TRUE(status.ok());
+        EXPECT_EQ(response->execution_time_us(), 123);
+        ASSERT_EQ(response->tablet_vec_size(), 1);
+        EXPECT_EQ(response->tablet_vec(0).tablet_id(), 123);
+        EXPECT_EQ(response->tablet_vec(0).received_rows(), 456);
+        EXPECT_EQ(response->tablet_vec(0).num_rows_filtered(), 7);
+        response.reset();
+        ++replies;
+    });
+    EXPECT_EQ(response, nullptr);
+    EXPECT_EQ(replies, 2);
+}
+
+TEST_P(LoadChannelEosTest, ArrivalCallbacksCanReenterCloseAndCancel) {
+    auto channel = make_channel(2);
+    PTabletWriterAddBlockResult response;
+    std::shared_ptr<EosCompletion> first;
+    ASSERT_TRUE(_load->add_batch(eos(0), &response, &first).ok());
+    int replies = 0;
+    first->add_waiter([&](const Status& status) {
+        EXPECT_TRUE(status.ok());
+        EXPECT_FALSE(_load->is_finished());
+        ++replies;
+        // Re-enter both load/channel locks and register an inline waiter. The
+        // final closer must already be elected, but must not hold either lock.
+        PTabletWriterAddBlockResult duplicate_response;
+        std::shared_ptr<EosCompletion> duplicate;
+        EXPECT_TRUE(_load->add_batch(eos(0), &duplicate_response, &duplicate).ok());
+        EXPECT_EQ(channel->_num_remaining_senders, 0);
+        duplicate->add_waiter([&](const Status& duplicate_status) {
+            EXPECT_TRUE(duplicate_status.ok());
             ++replies;
         });
+        EXPECT_TRUE(_load->cancel().ok());
     });
-    closing.wait();
-    EXPECT_TRUE(_load->cancel().ok());
-    EXPECT_EQ(replies.load(), 1);
-    finish_close.count_down();
-    finalizer.join();
-    EXPECT_EQ(replies.load(), 2);
+    int final_closes = 0;
+    auto* sp = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            before_flush_sync_point(), [&](auto&&) { ++final_closes; }, &guard);
+    sp->enable_processing();
+    Defer disable_sync_points {[&] { sp->disable_processing(); }};
+
+    std::shared_ptr<EosCompletion> last;
+    EXPECT_TRUE(_load->add_batch(eos(1), &response, &last).ok());
+    last->add_waiter([&](const Status& status) {
+        EXPECT_TRUE(status.ok());
+        ++replies;
+    });
+    EXPECT_EQ(replies, 3);
+    EXPECT_EQ(final_closes, 1);
+    EXPECT_TRUE(_load->is_cancelled());
+    EXPECT_TRUE(_load->is_finished());
 }
 
 INSTANTIATE_TEST_SUITE_P(LocalAndCloud, LoadChannelEosTest, testing::Bool());

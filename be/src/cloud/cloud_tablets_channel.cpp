@@ -23,6 +23,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
+#include "cpp/sync_point.h"
 #include "load/channel/tablets_channel.h"
 #include "load/delta_writer/delta_writer.h"
 #include "storage/tablet_info.h"
@@ -166,7 +167,7 @@ Status CloudTabletsChannel::_init_writers_by_partition_ids(
 Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockRequest& req,
                                   PTabletWriterAddBlockResult* res, bool* finished) {
     // FIXME(plat1ko): Too many duplicate code with `TabletsChannel`
-    std::lock_guard l(_lock);
+    std::unique_lock l(_lock);
     if (_state == kFinished) {
         return _close_status;
     }
@@ -196,7 +197,8 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
 
     auto* tablet_errors = res->mutable_tablet_errors();
     auto* tablet_vec = res->mutable_tablet_vec();
-    _state = kFinished;
+    _notify_all_senders_closed(l);
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudTabletsChannel::close.before_flush", Status::OK(), res);
 
     // All senders are closed
     // 1. close all delta writers. under _lock.

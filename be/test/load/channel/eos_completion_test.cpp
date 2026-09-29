@@ -44,7 +44,7 @@ TEST(EosCompletionTest, MoreSendersThanWorkers) {
     EXPECT_EQ(replies, 100);
 }
 
-TEST(EosCompletionTest, CloseFailureAndLateRegistration) {
+TEST(EosCompletionTest, FailureAndLateRegistration) {
     EosCompletion completion;
     int replies = 0;
     auto callback = [&](const Status& status) {
@@ -54,9 +54,24 @@ TEST(EosCompletionTest, CloseFailureAndLateRegistration) {
     };
     completion.add_waiter(callback);
     completion.complete(Status::InternalError("flush failed"));
-    // Models an EOS task finishing its response/profile writes after close.
+    // Models an EOS task finishing its response/profile writes after failure.
     completion.add_waiter(callback);
     completion.complete(Status::OK());
+    EXPECT_EQ(replies, 2);
+}
+
+TEST(EosCompletionTest, ArrivalSuccessSurvivesLaterCloseFailure) {
+    EosCompletion completion;
+    int replies = 0;
+    auto reply = [&](const Status& status) {
+        EXPECT_TRUE(status.ok());
+        ++replies;
+    };
+    completion.add_waiter(reply);
+    completion.complete(Status::OK());
+    completion.complete(Status::InternalError("final flush failed"));
+    completion.complete(Status::Cancelled("late cancellation"));
+    completion.add_waiter(reply);
     EXPECT_EQ(replies, 2);
 }
 
@@ -100,7 +115,7 @@ TEST(EosCompletionTest, CallbacksRunOutsideLock) {
     EXPECT_EQ(replies, 2);
 }
 
-TEST(EosCompletionTest, ConcurrentRegistrationCloseAndCancellationCompleteOnce) {
+TEST(EosCompletionTest, ConcurrentRegistrationArrivalAndCancellationCompleteOnce) {
     EosCompletion completion;
     CountDownLatch start(1);
     std::atomic<int> replies {0};

@@ -42,6 +42,7 @@
 #include "common/metrics/doris_metrics.h"
 #include "common/metrics/metrics.h"
 #include "core/block/block.h"
+#include "cpp/sync_point.h"
 #include "load/channel/eos_completion.h"
 #include "load/channel/load_channel.h"
 #include "load/delta_writer/delta_writer.h"
@@ -340,13 +341,26 @@ std::unique_ptr<BaseDeltaWriter> TabletsChannel::create_delta_writer(const Write
                                          _profile, _load_id);
 }
 
+void BaseTabletsChannel::_notify_all_senders_closed(std::unique_lock<std::mutex>& lock) {
+    DCHECK_EQ(_num_remaining_senders, 0);
+    // All senders have reached EOS, so no sender can incrementally open another
+    // channel. Preserve the old barrier: earlier RPCs may return before this
+    // final sender finishes flushing/committing, and incremental channels can
+    // close in parallel. Mark finished before unlocking so duplicate EOS and
+    // cancellation cannot start another close or cancel the writers here.
+    _state = kFinished;
+    lock.unlock();
+    _eos_completion->complete(Status::OK());
+    lock.lock();
+}
+
 Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockRequest& req,
                              PTabletWriterAddBlockResult* res, bool* finished) {
     int sender_id = req.sender_id();
     int64_t backend_id = req.backend_id();
     const auto& partition_ids = req.partition_ids();
     auto* tablet_errors = res->mutable_tablet_errors();
-    std::lock_guard<std::mutex> l(_lock);
+    std::unique_lock<std::mutex> l(_lock);
     if (_state == kFinished) {
         return _close_status;
     }
@@ -372,7 +386,9 @@ Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockReq
         return Status::OK();
     }
 
-    _state = kFinished;
+    _notify_all_senders_closed(l);
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("TabletsChannel::close.before_flush", Status::OK(), res);
+
     // All senders are closed
     // 1. close all delta writers
     std::set<DeltaWriter*> need_wait_writers;

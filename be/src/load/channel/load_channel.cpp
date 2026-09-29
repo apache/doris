@@ -236,11 +236,9 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
     bool finished = false;
     auto index_id = request.index_id();
 
-    auto status = channel->close(this, request, response, &finished);
-    if (!status.ok()) {
-        channel->eos_completion()->complete(status);
-        return status;
-    }
+    // close() publishes sender arrival before flushing. Final flush/commit
+    // errors belong to this RPC and cannot revoke earlier EOS responses.
+    RETURN_IF_ERROR(channel->close(this, request, response, &finished));
 
     if (finished) {
         std::lock_guard<std::mutex> l(_lock);
@@ -253,12 +251,6 @@ Status LoadChannel::_handle_eos(BaseTabletsChannel* channel,
         }
         LOG(INFO) << "txn " << _txn_id << " closed tablets_channel " << index_id;
         _finished_channel_ids.emplace(index_id);
-    }
-    if (finished) {
-        // close() has finished flushing/committing writers, and the channel is
-        // removed from the load. Never use is_finished(): it is set BEFORE close
-        // does its actual work. Callbacks must run outside all channel locks.
-        channel->eos_completion()->complete(Status::OK());
     }
     return Status::OK();
 }

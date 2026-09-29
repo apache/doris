@@ -54,7 +54,8 @@ public:
     Status open(const PTabletWriterOpenRequest& request);
 
     // This batch must belong to one index in one transaction. For hang_wait EOS,
-    // return the barrier in eos_completion. The caller must register its RPC
+    // return the sender-arrival barrier in eos_completion. Final flush/commit
+    // stays synchronous on the last sender. The caller must register its RPC
     // completion only after all synchronous request/response access has ended.
     Status add_batch(const PTabletWriterAddBlockRequest& request,
                      PTabletWriterAddBlockResult* response,

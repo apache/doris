@@ -26,10 +26,11 @@
 
 namespace doris {
 
-// One-shot completion for the EOS barrier of one tablets channel. Sender accounting
-// and final close remain in TabletsChannel/CloudTabletsChannel. This object only
-// owns RPC callbacks, never a channel or request, so pending RPCs cannot keep a
-// cancelled/expired load channel alive.
+// One-shot arrival barrier for all senders of one tablets channel. Success means
+// all senders reached EOS, not that the final flush/commit completed. Sender
+// accounting and final close remain in TabletsChannel/CloudTabletsChannel. This
+// object only owns RPC callbacks, never a channel or request, so pending RPCs
+// cannot keep a cancelled/expired load channel alive.
 class EosCompletion {
 public:
     using Callback = std::function<void(const Status&)>;
@@ -37,7 +38,7 @@ public:
     ~EosCompletion();
 
     // Register only after all synchronous access to the RPC objects has ended.
-    // May invoke callback inline if close or cancellation has already completed.
+    // May invoke callback inline if all senders arrived or cancellation already won.
     void add_waiter(Callback callback);
 
     // The first terminal result wins. Invoke callbacks outside the mutex.

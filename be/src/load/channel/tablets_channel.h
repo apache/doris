@@ -104,6 +104,7 @@ public:
     // Mark sender with 'sender_id' as closed.
     // If all senders are closed, close this channel, set '*finished' to true, update 'tablet_vec'
     // to include all tablets written in this channel.
+    // Release the EOS arrival barrier before final flushing/committing, outside _lock.
     // no-op when this channel has been closed or cancelled
     virtual Status close(LoadChannel* parent, const PTabletWriterAddBlockRequest& req,
                          PTabletWriterAddBlockResult* res, bool* finished) = 0;
@@ -125,6 +126,10 @@ public:
     bool is_finished() const { return _state == kFinished; }
 
 protected:
+    // Called by the final sender under _lock. Publish arrival before flushing,
+    // releasing the channel lock while invoking RPC callbacks.
+    void _notify_all_senders_closed(std::unique_lock<std::mutex>& lock);
+
     Status _init_adaptive_random_bucket_state(const PTabletWriterOpenRequest& request);
     Status _write_block_data(const PTabletWriterAddBlockRequest& request, int64_t cur_seq,
                              std::unordered_map<int64_t, TabletAddRowsPayload>& tablet_to_rows,
