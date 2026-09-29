@@ -18,7 +18,7 @@
 #pragma once
 
 #include "storage/compaction/collection_similarity.h"
-#include "storage/compaction/collection_statistics.h"
+#include "storage/index/inverted/similarity/collection_statistics.h"
 
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
@@ -33,6 +33,64 @@ struct IndexQueryContext {
 
     size_t query_limit = 0;
     bool is_asc = false;
+
+    // G02 count-only fast-path handshake. Set by SegmentIterator ONLY while it
+    // evaluates the single pushed-down MATCH predicate of a COUNT_ON_INDEX scan
+    // whose row space is provably unfiltered (no deletes, no other conjuncts,
+    // full row bitmap, no row-id consumers -- see count_on_index_fastpath.h),
+    // and reset immediately after. When set, an index reader MAY answer the
+    // query with a bitmap whose CARDINALITY equals the match count without the
+    // row ids being real (SNII returns [0, df) straight from dict-entry df,
+    // skipping the posting decode). Readers must never cache such a bitmap
+    // under a key a row-accurate query could hit.
+    bool count_on_index_fastpath = false;
+
+    // Candidate-pushdown handshake. Set by SegmentIterator ONLY while it
+    // evaluates pushed-down conjuncts and the current candidate row bitmap is
+    // small enough (config::inverted_index_candidate_pushdown_ratio), reset
+    // right after. When set, an index query MAY restrict doc-list intersection
+    // and verification to this candidate set (a CLucene PhraseQuery joins it
+    // into its leapfrog; an SNII phrase restricts its docid intersection to
+    // it). A bitmap produced under a non-null candidate is PARTIAL and must
+    // never be inserted into the query cache or shared with other scanners;
+    // cache lookups stay valid (a cached full-segment bitmap intersected later
+    // is still correct). The pointee is owned by the caller and outlives the
+    // evaluation.
+    const roaring::Roaring* candidate_rows = nullptr;
+
+    // ---- Reply direction: fields a READER writes and the CALLER reads back ----
+    //
+    // A caller that hands a reader a COPY of this context rather than the context itself must
+    // fold the copy back with merge_reader_outputs(), or the reader's reply is dropped in
+    // silence: nothing fails to compile, no test goes red, the query simply takes the wrong plan.
+    // FunctionSearch's SNII leaf builder is such a caller -- it copies the context so the reader
+    // publishes its BM25 into a throwaway CollectionSimilarity instead of the query's own.
+    //
+    // Every field added below this line must also be merged in merge_reader_outputs().
+
+    // G03 reply direction of the same handshake. Set by a reader iff it DID
+    // answer with such a fabricated count bitmap (never on a query-cache hit,
+    // a single-flight shared result, or any row-accurate decode). Read and
+    // reset by SegmentIterator right after the index apply; a true value is
+    // the precondition for the count-emission shortcut that materializes the
+    // remaining count as default rows without iterating the row bitmap.
+    bool count_on_index_fastpath_hit = false;
+
+    // Reply direction of the candidate handshake. Set by a query iff it DID
+    // join candidate_rows into its evaluation (a multi-term phrase on CLucene
+    // or SNII), i.e. its result bitmap is partial; reset by the reader before
+    // each search.
+    // Only such a partial result must stay out of the query cache -- a query
+    // that never consumes the candidate (MATCH_ANY/ALL, term, regexp, single
+    // term phrase) still computes the full-segment bitmap and stays cacheable.
+    bool candidate_rows_consumed = false;
+
+    // Folds the reply-direction fields a reader wrote on a copy of this context back into it.
+    // Latching (never clearing) is what makes this safe to call for each of several readers.
+    void merge_reader_outputs(const IndexQueryContext& reader_context) {
+        count_on_index_fastpath_hit |= reader_context.count_on_index_fastpath_hit;
+        candidate_rows_consumed |= reader_context.candidate_rows_consumed;
+    }
 };
 using IndexQueryContextPtr = std::shared_ptr<IndexQueryContext>;
 

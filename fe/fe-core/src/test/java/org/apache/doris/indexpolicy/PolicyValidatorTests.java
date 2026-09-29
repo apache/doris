@@ -64,6 +64,19 @@ public class PolicyValidatorTests {
         Assertions.assertTrue(exception.getMessage().contains("does not support parameter"));
     }
 
+    @Test
+    public void testAsciiFoldingValidatorAcceptsPreserveOriginal() throws Exception {
+        AsciiFoldingTokenFilterValidator validator = new AsciiFoldingTokenFilterValidator();
+        validator.validate(ImmutableMap.of("type", "asciifolding", "preserve_original", "true"));
+        validator.validate(ImmutableMap.of("type", "asciifolding", "preserve_original", "false"));
+    }
+
+    private static IndexPolicy roundTrip(IndexPolicy policy) throws Exception {
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        policy.write(new DataOutputStream(bytes));
+        return IndexPolicy.read(new DataInputStream(new ByteArrayInputStream(bytes.toByteArray())));
+    }
+
     // @ParameterizedTest
     // @ValueSource(strings = {"yes", "no", "1", "0"})
     // public void testAsciiFoldingValidator_InvalidBooleanValue(String value) {

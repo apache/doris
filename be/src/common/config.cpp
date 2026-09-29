@@ -24,12 +24,15 @@
 // IWYU pragma: no_include <bthread/errno.h>
 #include <lz4/lz4hc.h>
 
+#include <atomic>
 #include <cerrno> // IWYU pragma: keep
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <fstream> // IWYU pragma: keep
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -1343,6 +1346,17 @@ DEFINE_Bool(enable_inverted_index_cache_check_timestamp, "true");
 DEFINE_mBool(enable_inverted_index_correct_term_write, "true");
 DEFINE_Int32(inverted_index_fd_number_limit_percent, "20"); // 20%
 DEFINE_Int32(inverted_index_query_cache_shards, "256");
+DEFINE_mDouble(inverted_index_candidate_pushdown_ratio, "0.3");
+DEFINE_Validator(inverted_index_candidate_pushdown_ratio,
+                 [](const double v) -> bool { return std::isfinite(v) && v <= 1.0; });
+static std::atomic<double> published_inverted_index_candidate_pushdown_ratio {0.0};
+DEFINE_ON_UPDATE(inverted_index_candidate_pushdown_ratio, [](double, double value) {
+    published_inverted_index_candidate_pushdown_ratio.store(value);
+});
+
+double get_inverted_index_candidate_pushdown_ratio() {
+    return published_inverted_index_candidate_pushdown_ratio.load();
+}
 
 // inverted index match bitmap cache size
 DEFINE_String(inverted_index_query_cache_limit, "10%");
@@ -1355,6 +1369,43 @@ DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
 // -1 indicates not working.
 // Normally we should not change this, it's useful for testing.
 DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
+// Zstd levels for SNII DICT blocks and .prx windows. These affect writes; each segment records its compression mode.
+DEFINE_mInt32(snii_dict_block_zstd_level, "3");
+DEFINE_mInt32(snii_prx_zstd_level, "3");
+// Zstd level for direct-load .prx regions. Compaction rewrites them using snii_prx_zstd_level.
+DEFINE_mInt32(snii_prx_zstd_level_direct_load, "3");
+// G16-d: target SNII dict block size in bytes; 0 uses the format default
+// (64 KiB). Larger blocks compress better under the per-block zstd (the dict
+// is the dominant physical section on high-cardinality corpora) at the cost
+// of a larger fetch+decompress unit per cold dict-block miss. Write side
+// only; the block size is self-described by the on-disk directory.
+DEFINE_mInt32(snii_target_dict_block_bytes, "0");
+// SNII's index-build share of the process memory limit, as a percent -- the
+// index-build analogue of load_process_max_memory_limit_percent. Once live SNII
+// index-build memory crosses this share, the largest reclaimable posting arenas
+// are asked to spill early. Derived from the process limit rather than an
+// absolute number so it scales with the BE. Only the RECLAIMABLE population
+// counts against it: index-merge compaction charges the same observation
+// tracker but registers no spillable writer, so its bytes are excluded from the
+// comparison (its own hard reservation cap bounds them instead).
+//
+// 0 disables SNII's OWN share trigger; the process-level backstops (system
+// available memory below its warning water mark, process usage above the soft
+// limit) still apply. The share is deliberately well below those backstops so
+// SNII sheds its own memory before the global valve -- the global valve trips
+// late by design and would be a worse trigger than none. The derived share is
+// floored at four times inverted_index_ram_buffer_size so a small BE is not
+// permanently over it the moment two writers exist.
+DEFINE_mInt32(snii_index_build_max_memory_limit_percent, "10");
+// Minimum reclaimable posting-arena bytes before a G09 forced spill is honored
+// (and before a writer is eligible as a spill victim): forced spills reclaim
+// ONLY the arena, so smaller triggers cut tiny runs for near-zero relief.
+// Default 64 MiB.
+DEFINE_mInt64(snii_forced_spill_min_arena_bytes, "67108864");
+// Max spill-run files one SNII writer accumulates before its runs are
+// merge-compacted into one (bounds the k-way merge fan-in and its open fds;
+// every run is held open for the whole merge). 0 = uncapped. Default 64.
+DEFINE_mInt32(snii_spill_max_run_files_per_buffer, "64");
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 DEFINE_Int32(inverted_index_read_buffer_size, "4096");
@@ -2213,6 +2264,8 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         SET_FIELD(it.second, std::vector<double>, fill_conf_map, set_to_default);
         SET_FIELD(it.second, std::vector<std::string>, fill_conf_map, set_to_default);
     }
+    published_inverted_index_candidate_pushdown_ratio.store(
+            inverted_index_candidate_pushdown_ratio);
 
     if (config::is_cloud_mode()) {
         auto st = config::set_config("enable_file_cache", "true", true, true);
@@ -2243,13 +2296,17 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
                                                                          (FIELD).name, new_value); \
             }                                                                                      \
         }                                                                                          \
+        if (PERSIST) {                                                                             \
+            Status persist_status = persist_config(std::string((FIELD).name), VALUE);              \
+            if (!persist_status.ok()) {                                                            \
+                ref_conf_value = old_value;                                                        \
+                return persist_status;                                                             \
+            }                                                                                      \
+        }                                                                                          \
         if (full_conf_map != nullptr) {                                                            \
             std::ostringstream oss;                                                                \
             oss << new_value;                                                                      \
             (*full_conf_map)[(FIELD).name] = oss.str();                                            \
-        }                                                                                          \
-        if (PERSIST) {                                                                             \
-            RETURN_IF_ERROR(persist_config(std::string((FIELD).name), VALUE));                     \
         }                                                                                          \
         if (RegisterConfUpdateCallback::_s_field_update_callback != nullptr) {                     \
             auto callback_it =                                                                     \
@@ -2268,7 +2325,7 @@ Status persist_config(const std::string& field, const std::string& value) {
     // lock to make sure only one thread can modify the be_custom.conf
     std::lock_guard<std::mutex> l(custom_conf_lock);
 
-    static const std::string conffile = config::custom_config_dir + "/be_custom.conf";
+    const std::string conffile = config::custom_config_dir + "/be_custom.conf";
 
     Properties tmp_props;
     if (!tmp_props.load(conffile.c_str(), false)) {
@@ -2292,16 +2349,14 @@ Status set_config(const std::string& field, const std::string& value, bool need_
                 "'{}' is not support to modify", field);
     }
 
+    // Keep the value, config map, and callback in the same update order.
+    std::lock_guard<std::mutex> lock(mutable_string_config_lock);
     UPDATE_FIELD(it->second, value, bool, need_persist);
     UPDATE_FIELD(it->second, value, int16_t, need_persist);
     UPDATE_FIELD(it->second, value, int32_t, need_persist);
     UPDATE_FIELD(it->second, value, int64_t, need_persist);
     UPDATE_FIELD(it->second, value, double, need_persist);
-    {
-        // add lock to ensure thread safe
-        std::lock_guard<std::mutex> lock(mutable_string_config_lock);
-        UPDATE_FIELD(it->second, value, std::string, need_persist);
-    }
+    UPDATE_FIELD(it->second, value, std::string, need_persist);
 
     // The other types are not thread safe to change dynamically.
     return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR, false>(

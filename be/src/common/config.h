@@ -1365,9 +1365,19 @@ DECLARE_Bool(enable_inverted_index_cache_check_timestamp);
 DECLARE_mBool(enable_inverted_index_correct_term_write);
 DECLARE_Int32(inverted_index_fd_number_limit_percent); // 50%
 DECLARE_Int32(inverted_index_query_cache_shards);
+// When the candidate row bitmap of a segment scan is smaller than
+// num_rows * this ratio, it is pushed down into inverted index queries so
+// doc-list intersection and verification run only over the candidates
+// (see IndexQueryContext::candidate_rows). <= 0 disables the pushdown.
+DECLARE_mDouble(inverted_index_candidate_pushdown_ratio);
+double get_inverted_index_candidate_pushdown_ratio();
 
 // inverted index match bitmap cache size
 DECLARE_String(inverted_index_query_cache_limit);
+
+// Build-only CommonGrams kill switch. Logical index writers snapshot it at construction; changing
+// it affects only writers created after the transition and never changes query/cache semantics.
+// Release-calibrated query-planner coefficients. Both remain mutable for controlled recalibration.
 
 // condition cache limit
 DECLARE_Int16(condition_cache_limit);
@@ -1375,6 +1385,25 @@ DECLARE_Int16(condition_cache_limit);
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
 DECLARE_mInt32(inverted_index_max_buffered_docs);
+// G16-h: zstd levels for SNII dict blocks / prx windows. Default 3 (the
+// all-level-3 evaluation showed level 9 buys <=6.3% index size for 17-24%
+// import CPU; see the DEFINEs in config.cpp).
+DECLARE_mInt32(snii_dict_block_zstd_level);
+DECLARE_mInt32(snii_prx_zstd_level);
+// Patch C: prx zstd level for DIRECT-LOAD segments only (default 3, cheaper
+// import); compaction rewrites at snii_prx_zstd_level so settled segments are
+// unaffected. Full contract at the DEFINE in config.cpp.
+DECLARE_mInt32(snii_prx_zstd_level_direct_load);
+// G16-d: target SNII dict block size in bytes; 0 = format default (64 KiB).
+// Bigger blocks -> better per-block zstd on the dict region, larger cold
+// fetch+decompress unit per dict-block miss. Write side only.
+DECLARE_mInt32(snii_target_dict_block_bytes);
+// Maximum process-memory share for SNII index builds. Above this share, writers with reclaimable posting arenas receive spill requests; zero disables the share trigger but keeps process-pressure backstops.
+DECLARE_mInt32(snii_index_build_max_memory_limit_percent);
+// Minimum reclaimable posting-arena size for a forced spill. Requests below this floor remain pending until the arena grows enough.
+DECLARE_mInt64(snii_forced_spill_min_arena_bytes);
+// Maximum spill runs held by one SNII writer. Runs are merged when this cap is exceeded to bound merge fan-in and open file descriptors; zero disables the cap.
+DECLARE_mInt32(snii_spill_max_run_files_per_buffer);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 DECLARE_Int32(inverted_index_read_buffer_size);

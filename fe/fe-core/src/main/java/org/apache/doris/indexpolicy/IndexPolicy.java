@@ -58,7 +58,6 @@ public class IndexPolicy implements Writable, GsonPostProcessable {
     public static final String PROP_TOKENIZER = "tokenizer";
     public static final String PROP_TOKEN_FILTER = "token_filter";
     public static final String PROP_CHAR_FILTER = "char_filter";
-
     public static final Set<String> BUILTIN_TOKENIZERS = ImmutableSet.of(
             "empty", "ngram", "edge_ngram", "keyword", "standard", "char_group", "basic", "icu", "pinyin",
             "ik_smart", "ik_max_word");
@@ -125,12 +124,17 @@ public class IndexPolicy implements Writable, GsonPostProcessable {
                 GsonUtils.GSON.toJson(this.properties));
     }
 
+    // Token filter types removed from BE but possibly retained in older images or edit logs.
+    // Load these policies so FE can start, but reject analyzers that reference them.
+    public static final Set<String> LEGACY_UNSUPPORTED_TOKEN_FILTER_TYPES =
+            ImmutableSet.of("common_grams");
+
     public boolean isInvalid() {
         if (properties == null) {
             return false;
         }
         if (type == IndexPolicyTypeEnum.TOKEN_FILTER
-                && "common_grams".equals(properties.get(PROP_TYPE))) {
+                && LEGACY_UNSUPPORTED_TOKEN_FILTER_TYPES.contains(properties.get(PROP_TYPE))) {
             return true;
         }
         if (type == IndexPolicyTypeEnum.TOKENIZER

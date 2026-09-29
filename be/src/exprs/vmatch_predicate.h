@@ -57,7 +57,7 @@ public:
     const std::string& expr_name() const override;
     const std::string& function_name() const;
     [[nodiscard]] const std::string& get_analyzer_key() const override;
-    [[nodiscard]] const InvertedIndexAnalyzerCtx* query_analyzer_ctx() const {
+    [[nodiscard]] const InvertedIndexAnalyzerCtx* query_analyzer_ctx() const override {
         return _analyzer_ctx.get();
     }
 

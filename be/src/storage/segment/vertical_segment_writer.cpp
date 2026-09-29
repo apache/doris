@@ -238,8 +238,20 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         tablet_schema->skip_write_index_on_load()) {
         skip_inverted_index = true;
     }
+    // Let SNII select the direct-load PRX zstd level.
+    opts.is_direct_load = _opts.write_type == DataWriteType::TYPE_DIRECT;
     if (!skip_inverted_index) {
         auto inverted_indexs = tablet_schema->inverted_indexs(column);
+        // SNII splits index compaction per (column, index): indexes in the set
+        // are produced by the postings merge, every sibling on the column still
+        // raw-builds here. V2/V3 skip whole columns above instead.
+        if (_opts.rowset_ctx != nullptr &&
+            !_opts.rowset_ctx->snii_indexes_to_do_compaction.empty()) {
+            std::erase_if(inverted_indexs, [&](const TabletIndex* index_meta) {
+                return _opts.rowset_ctx->snii_indexes_to_do_compaction.contains(
+                        {column.unique_id(), index_meta->index_id()});
+            });
+        }
         if (!inverted_indexs.empty()) {
             opts.inverted_indexes = inverted_indexs;
             opts.need_inverted_index = true;
@@ -1328,7 +1340,33 @@ uint64_t VerticalSegmentWriter::_estimated_remaining_size() {
     return size;
 }
 
+void VerticalSegmentWriter::_abandon_index_staging() {
+    // No clear() here: abandon_snii_staging() empties the staging directories
+    // themselves, so it does not matter whether the column writers -- which hold
+    // the same directories -- are still alive.
+    if (_index_file_writer != nullptr) {
+        _index_file_writer->abandon_snii_staging();
+    }
+}
+
+// A failure below can land AFTER the ANN and BKD indexes have already been built
+// into their staging files. The caller then returns before close_inverted_index(),
+// so the seal that would have consumed them never runs, and the rowset writer
+// keeps this segment's IndexFileWriter -- with its staging files and their open
+// descriptors -- until the whole load or compaction unwinds. Drop them here.
+//
+// ONLY on failure. On the success path close_inverted_index() is what consumes
+// the staging, so dropping it here would silently seal a container with no ANN
+// or BKD index in it.
 Status VerticalSegmentWriter::finalize_columns_index(uint64_t* index_size) {
+    Status status = _finalize_columns_index_impl(index_size);
+    if (!status.ok()) {
+        _abandon_index_staging();
+    }
+    return status;
+}
+
+Status VerticalSegmentWriter::_finalize_columns_index_impl(uint64_t* index_size) {
     uint64_t index_start = _file_writer->bytes_appended();
     // Record the common index range for cloud index-only file-cache preload.
     // This VerticalSegmentWriter path is used when cloud load, compaction, or schema change flushes
@@ -1383,8 +1421,21 @@ Status VerticalSegmentWriter::finalize_footer(uint64_t* segment_file_size,
     return Status::OK();
 }
 
+// Wrapped for the same reason as finalize_columns_index(): a footer or file-close
+// failure lands after the indexes have staged, and the caller returns before
+// close_inverted_index(). An inner failure has already abandoned the staging, so
+// the second call is a no-op.
 Status VerticalSegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size,
                                        SegmentIndexFileCacheInfo* index_file_cache_info) {
+    Status status = _finalize_impl(segment_file_size, index_size, index_file_cache_info);
+    if (!status.ok()) {
+        _abandon_index_staging();
+    }
+    return status;
+}
+
+Status VerticalSegmentWriter::_finalize_impl(uint64_t* segment_file_size, uint64_t* index_size,
+                                             SegmentIndexFileCacheInfo* index_file_cache_info) {
     MonotonicStopWatch timer;
     timer.start();
     // check disk capacity

@@ -19,6 +19,7 @@
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -32,6 +33,8 @@ class Analyzer;
 } // namespace lucene
 
 namespace doris {
+
+class TabletIndex;
 
 enum class InvertedIndexParserType {
     PARSER_UNKNOWN = 0,
@@ -154,6 +157,8 @@ std::string get_parser_phrase_support_string_from_properties(
 // Whether this index writes BM25 norms, which it does unless "norms" = "false" says otherwise.
 // Norms cost one byte per row of the segment, including rows that have no value for the field.
 bool get_index_norms_from_properties(const std::map<std::string, std::string>& properties);
+
+bool should_write_index_norms(const TabletIndex& index_meta);
 
 CharFilterMap get_parser_char_filter_map_from_properties(
         const std::map<std::string, std::string>& properties);

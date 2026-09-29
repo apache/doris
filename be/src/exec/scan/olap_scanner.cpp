@@ -56,6 +56,7 @@
 #include "service/backend_options.h"
 #include "storage/id_manager.h"
 #include "storage/index/inverted/inverted_index_profile.h"
+#include "storage/index/inverted/similarity/collection_statistics.h"
 #include "storage/iterator/block_reader.h"
 #include "storage/olap_common.h"
 #include "storage/olap_tuple.h"
@@ -153,7 +154,10 @@ static bool has_file_cache_statistics(const io::FileCacheStatistics& stats) {
            stats.inverted_index_bytes_read_from_remote != 0 ||
            stats.inverted_index_bytes_read_from_peer != 0 ||
            stats.inverted_index_local_io_timer != 0 || stats.inverted_index_remote_io_timer != 0 ||
-           stats.inverted_index_peer_io_timer != 0 || stats.inverted_index_io_timer != 0;
+           stats.inverted_index_peer_io_timer != 0 || stats.inverted_index_io_timer != 0 ||
+           stats.inverted_index_request_bytes != 0 || stats.inverted_index_read_bytes != 0 ||
+           stats.inverted_index_range_read_count != 0 ||
+           stats.inverted_index_serial_read_rounds != 0;
 }
 
 io::IOContext build_score_runtime_collection_io_context(RuntimeState* state, ReaderType reader_type,
@@ -798,6 +802,10 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.inverted_index_query_cache_hit);
     COUNTER_UPDATE(local_state->_inverted_index_query_cache_miss_counter,
                    stats.inverted_index_query_cache_miss);
+    COUNTER_UPDATE(local_state->_inverted_index_query_cache_lookup_counter,
+                   stats.inverted_index_query_cache_lookup);
+    COUNTER_UPDATE(local_state->_inverted_index_query_cache_insert_counter,
+                   stats.inverted_index_query_cache_insert);
     COUNTER_UPDATE(local_state->_inverted_index_query_timer, stats.inverted_index_query_timer);
     COUNTER_UPDATE(local_state->_inverted_index_query_null_bitmap_timer,
                    stats.inverted_index_query_null_bitmap_timer);
@@ -817,9 +825,13 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.inverted_index_searcher_cache_miss);
     COUNTER_UPDATE(local_state->_inverted_index_downgrade_count_counter,
                    stats.inverted_index_downgrade_count);
+    COUNTER_UPDATE(local_state->_inverted_index_conjuncts_short_circuited_counter,
+                   stats.inverted_index_conjuncts_short_circuited);
     COUNTER_UPDATE(local_state->_inverted_index_analyzer_timer,
                    stats.inverted_index_analyzer_timer);
     COUNTER_UPDATE(local_state->_inverted_index_lookup_timer, stats.inverted_index_lookup_timer);
+    local_state->_snii_prx_profile_counters.update(stats);
+    local_state->_snii_phrase_profile_counters.update(stats);
     COUNTER_UPDATE(local_state->_variant_scan_sparse_column_timer,
                    stats.variant_scan_sparse_column_timer_ns);
     COUNTER_UPDATE(local_state->_variant_scan_sparse_column_bytes,

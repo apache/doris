@@ -22,8 +22,8 @@
 #include <memory>
 
 #include "common/be_mock_util.h"
-#include "storage/compaction/collection_statistics.h"
 #include "storage/index/index_query_context.h"
+#include "storage/index/inverted/similarity/collection_statistics.h"
 
 using namespace doris;
 using namespace doris::segment_v2;

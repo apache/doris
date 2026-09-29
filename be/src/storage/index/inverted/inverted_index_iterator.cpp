@@ -109,6 +109,11 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
 
     // Note: analyzer_ctx is now passed via i_param->analyzer_ctx
     auto execute_query = [&]() {
+        if (i_param->null_bitmap_cache_handle != nullptr) {
+            return reader->query_with_null_bitmap(
+                    _context, i_param->column_name, i_param->query_value, i_param->query_type,
+                    i_param->roaring, i_param->null_bitmap_cache_handle, i_param->analyzer_ctx);
+        }
         return reader->query(_context, i_param->column_name, i_param->query_value,
                              i_param->query_type, i_param->roaring, i_param->analyzer_ctx);
     };
@@ -130,14 +135,12 @@ Status InvertedIndexIterator::read_from_index(const IndexParam& param) {
 }
 
 Status InvertedIndexIterator::read_null_bitmap(InvertedIndexQueryCacheHandle* cache_handle) {
-    // For null bitmap, use any available reader (empty = auto-select)
-    auto reader = DORIS_TRY(select_best_reader(""));
+    auto reader = DORIS_TRY(select_any_reader());
     return reader->read_null_bitmap(_context, cache_handle, nullptr);
 }
 
 Result<bool> InvertedIndexIterator::has_null() {
-    // For has_null check, use any available reader (empty = auto-select)
-    auto reader = DORIS_TRY(select_best_reader(""));
+    auto reader = DORIS_TRY(select_any_reader());
     return reader->has_null();
 }
 

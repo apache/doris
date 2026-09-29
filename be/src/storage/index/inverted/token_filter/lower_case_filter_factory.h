@@ -34,6 +34,10 @@ public:
         token_filter->initialize();
         return token_filter;
     }
+
+    PositionCapability position_capability() const override {
+        return PositionCapability::kAlwaysUnitIncrement;
+    }
 };
 
 } // namespace doris::segment_v2::inverted_index

@@ -1,0 +1,44 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+# sample=english_phrase doc_count=20 lower_case=true parser=english support_phrase=true
+5	hello	0	0,10,18,19	0	4,5,6,11
+5	hello%20world	0	0,10,18,19	0	4,5,6,11
+5	nonexistent	0		0	4,5,6,11
+5	the	0	2	0	4,5,6,11
+5	重复	0		0	4,5,6,11
+5	%1fhidden	0	12	0	4,5,6,11
+5	prefix	0	14	0	4,5,6,11
+5	tok	0	16	0	4,5,6,11
+5		0		0	4,5,6,11
+6	hello%20world	0	0,10,19	0	4,5,6,11
+6	again%20and	0	10	0	4,5,6,11
+6	alpha%20beta%20gamma	0	15	0	4,5,6,11
+6	hello%20nonexistent	0		0	4,5,6,11
+7	hello%20world	0	0,10	0	4,5,6,11
+7	world%20hello	0	0,19	0	4,5,6,11
+7	again%20and%20again	0	10	0	4,5,6,11
+7	alpha%20beta	0	15	0	4,5,6,11
+7	重复%20词元	0		0	4,5,6,11
+7	brown%20fox	0	2	0	4,5,6,11
+7	hello	0	0,10,18,19	0	4,5,6,11
+8	hello%20wor	0	0,10	0	4,5,6,11
+8	prefix%20pre	0	14	0	4,5,6,11
+8	alpha%20be	0	15	0	4,5,6,11
+8	again%20ag	0		0	4,5,6,11
+8	sing	0	8	0	4,5,6,11
+0	single	0	8	0	4,5,6,11
+0	hello%20world%20hello%20doris	0	0,3,10,18,19	0	4,5,6,11
