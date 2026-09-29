@@ -34,11 +34,32 @@ constexpr int64_t ARROW_FLAG_MAP_KEYS_SORTED = 4;
 
 // P1c fail-closed caps, evaluated on the cheap manifest-side fragment count before
 // the expensive per-fragment statistics scan, plus a wall-clock sub-budget on that
-// scan itself. The two fragment caps are mutable ONLY through
-// force_recompute_fragment_caps_for_test so unit tests can reach the rejection
-// with small values; production never touches them.
+// scan itself.
+#ifdef BE_TEST
+// In unit-test builds the two fragment caps are mutable through
+// force_recompute_fragment_caps_for_test so tests can reach the rejection with
+// small values. Production binaries carry no mutable globals: the accessors
+// below resolve to the header constants directly.
 uint64_t g_max_stats_fragments = RECOMPUTE_MAX_STATS_FRAGMENTS;
 uint64_t g_max_stats_fragment_field_product = RECOMPUTE_MAX_STATS_FRAGMENT_FIELD_PRODUCT;
+#endif
+
+uint64_t max_stats_fragments_cap() {
+#ifdef BE_TEST
+    return g_max_stats_fragments;
+#else
+    return RECOMPUTE_MAX_STATS_FRAGMENTS;
+#endif
+}
+
+uint64_t max_stats_fragment_field_product_cap() {
+#ifdef BE_TEST
+    return g_max_stats_fragment_field_product;
+#else
+    return RECOMPUTE_MAX_STATS_FRAGMENT_FIELD_PRODUCT;
+#endif
+}
+
 constexpr int64_t MAX_RECOMPUTE_WALL_CLOCK_SECONDS = 60;
 
 // Maps a failed lance FFI call to a contract status: the typed code makes it a
@@ -341,7 +362,9 @@ ContractStatus parse_schema_contract(const std::string& json, SchemaContract* ou
         return ContractStatus::UNSUPPORTED;
     }
     rapidjson::Document doc;
-    doc.Parse(json.data(), json.size());
+    // Iterative parse: the payload is FE-controlled wire data; the default
+    // recursive descent would let a deeply nested document blow the stack.
+    doc.Parse<rapidjson::kParseIterativeFlag>(json.data(), json.size());
     if (doc.HasParseError() || !doc.IsObject()) {
         return ContractStatus::UNSUPPORTED;
     }
@@ -443,10 +466,10 @@ ContractStatus recompute_contract(LanceDataset* dataset, const std::string& colu
     uint64_t fragment_count = lance_dataset_fragment_count(dataset);
     uint64_t top_level_count = static_cast<uint64_t>(root.n_children);
     // fragments * top_level_fields > 32768, evaluated overflow-safely.
-    if (fragment_count > g_max_stats_fragments ||
-        top_level_count > g_max_stats_fragment_field_product ||
-        (top_level_count != 0 &&
-         fragment_count > g_max_stats_fragment_field_product / top_level_count)) {
+    const uint64_t max_stats_fragments = max_stats_fragments_cap();
+    const uint64_t max_field_product = max_stats_fragment_field_product_cap();
+    if (fragment_count > max_stats_fragments || top_level_count > max_field_product ||
+        (top_level_count != 0 && fragment_count > max_field_product / top_level_count)) {
         return ContractStatus::UNSUPPORTED;
     }
 
@@ -625,10 +648,12 @@ bool vector_index_shape_supported(const ContractField& field, uint32_t num_sub_v
            *field.fsd % static_cast<int32_t>(num_sub_vectors) == 0;
 }
 
+#ifdef BE_TEST
 void force_recompute_fragment_caps_for_test(uint64_t max_stats_fragments,
                                             uint64_t max_stats_fragment_field_product) {
     g_max_stats_fragments = max_stats_fragments;
     g_max_stats_fragment_field_product = max_stats_fragment_field_product;
 }
+#endif
 
 } // namespace doris::lance

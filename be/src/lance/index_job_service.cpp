@@ -24,6 +24,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <utility>
@@ -69,6 +70,12 @@ bool encode_compact(const TLanceIndexJobDispatch& dispatch, std::vector<uint8_t>
         return false;
     }
     return true;
+}
+
+int64_t epoch_millis_now() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::system_clock::now().time_since_epoch())
+            .count();
 }
 
 // Payload validation runs BEFORE enqueue; a failure here is a definitive
@@ -195,7 +202,40 @@ void LanceIndexJobService::submit_lance_index_job(TStatus& _return,
         return;
     }
 
-    // Guards 4 (invocation dedup) and 5 (bounded try_put) live inside the
+    // Guard 4 (D3, handler half of the double-check): the deadline budget rail.
+    // Same formula as the supervisor's dequeue rail, reading the same configs:
+    // available = remaining - report_margin - term_grace, clamped by the
+    // wall-clock ceiling, must exceed the shared minimum executable budget. A
+    // dispatch that is already (near-)expired on arrival fails fast here —
+    // synchronously and without occupying a queue slot — instead of riding the
+    // queue to the asynchronous NEVER_LAUNCHED envelope. The supervisor
+    // re-evaluates at dequeue (queue wait consumes budget), so nothing hinges
+    // on this check passing later. Ordering note: this rail sits before the
+    // supervisor's dedup check — safe because a same-invocation redelivery is
+    // an RPC-layer duplicate that lands within milliseconds of the first send
+    // (a fresh FE dispatch attempt always mints a new invocation id), so a
+    // redelivery can never arrive with an exhausted budget.
+    const int64_t remaining_ms = dispatch.deadline_ms - epoch_millis_now();
+    const int64_t available_s = remaining_ms / 1000 -
+                                config::lance_index_worker_report_margin_seconds -
+                                config::lance_index_worker_term_grace_seconds;
+    const int64_t handler_wall_s =
+            std::min<int64_t>(config::lance_index_worker_wallclock_limit_seconds, available_s);
+    if (handler_wall_s <= MIN_EXECUTABLE_BUDGET_SECONDS) {
+        LOG(WARNING) << "rejecting lance index dispatch: insufficient deadline budget on "
+                        "arrival: job_id="
+                     << dispatch.job_id << " invocation_id=" << dispatch.invocation_id
+                     << " mutation_type=" << to_string(dispatch.mutation_type)
+                     << " remaining_ms=" << remaining_ms;
+        Status::Cancelled(
+                "lance index dispatch deadline budget is already exhausted on arrival "
+                "(remaining budget does not cover the report margin, the termination grace "
+                "and the minimum executable budget); rejecting submission")
+                .to_thrift(&_return);
+        return;
+    }
+
+    // Guards 5 (invocation dedup) and 6 (bounded try_put) live inside the
     // supervisor. The gauge slot is reserved BEFORE submit so the terminal
     // callback can never observe a negative balance: an accepted dispatch is
     // visible to the executor threads the moment try_put succeeds inside
@@ -259,6 +299,15 @@ void LanceIndexJobService::_report_with_retry(
 }
 
 void LanceIndexJobService::_report_result(const TLanceIndexJobReport& report) {
+    if (_stopping.load()) {
+        // Stopping-drop: the RPC is skipped by design, but the invocation's
+        // gauge slot is still released so the queue/inflight feeders never
+        // overcount past a shutdown drain.
+        LOG(INFO) << "lance service stopping; dropping result report: job_id=" << report.job_id
+                  << " invocation_id=" << report.invocation_id;
+        _outstanding.fetch_sub(1);
+        return;
+    }
     _report_with_retry("result", report.job_id, report.invocation_id,
                        [&report](MasterServerClient* client, TStatus* status) {
                            return client->report_lance_index_job(report, status);
@@ -266,6 +315,12 @@ void LanceIndexJobService::_report_result(const TLanceIndexJobReport& report) {
 }
 
 void LanceIndexJobService::_report_termination(const TLanceIndexJobTerminationReport& report) {
+    if (_stopping.load()) {
+        LOG(INFO) << "lance service stopping; dropping termination report: job_id="
+                  << report.job_id << " invocation_id=" << report.invocation_id;
+        _outstanding.fetch_sub(1);
+        return;
+    }
     _report_with_retry("termination", report.job_id, report.invocation_id,
                        [&report](MasterServerClient* client, TStatus* status) {
                            return client->report_lance_index_job_termination(report, status);

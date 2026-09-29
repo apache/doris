@@ -28,6 +28,7 @@
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <optional>
@@ -36,6 +37,7 @@
 #include <vector>
 
 #ifdef __linux__
+#include <signal.h>
 #include <sys/prctl.h>
 #endif
 #include <sys/resource.h>
@@ -64,6 +66,7 @@ constexpr const char* DIAG_UNTYPED_OPEN_FAILURE = "lance worker: untyped open fa
 constexpr const char* DIAG_UNTYPED_RECOMPUTE_FAILURE = "lance worker: untyped recompute failure\n";
 constexpr const char* DIAG_UNKNOWN_NATIVE_CODE = "lance worker: unmapped native error code\n";
 constexpr const char* DIAG_RESULT_WRITE_FAILED = "lance worker: result write failed\n";
+constexpr const char* DIAG_PARENT_GUARD = "lance worker: parent-death guard tripped\n";
 
 // Bounded best-effort diagnostic write. Never carries dynamic content.
 void diag(int fd, const char* message) {
@@ -245,7 +248,10 @@ struct VectorIndexArguments {
 bool validate_and_map_properties(const std::string& json, int32_t max_num_partitions,
                                  int32_t max_num_sub_vectors, VectorIndexArguments* out) {
     rapidjson::Document doc;
-    doc.Parse(json.data(), json.size());
+    // Iterative parse: the JSON arrives on the dispatch frame and is therefore
+    // FE-controlled; rapidjson's default recursive descent would blow the
+    // worker's stack on a deeply nested payload (~500KB of '[' fits the frame).
+    doc.Parse<rapidjson::kParseIterativeFlag>(json.data(), json.size());
     if (doc.HasParseError() || !doc.IsObject()) {
         return false;
     }
@@ -514,6 +520,35 @@ int run_index_worker(const IndexWorkerParams& params) {
     // entering this process must never reach a core file.
 #ifdef __linux__
     prctl(PR_SET_DUMPABLE, 0, 0, 0, 0);
+    // Re-arm the parent-death signal at the exec-side entry (the contract's
+    // second guarantee, cpp_interface_contract §3: the supervisor arms it
+    // post-fork/pre-exec, the worker main re-arms it here). A plain self-exec
+    // preserves the setting across execve, but an execve into a binary with
+    // file capabilities clears it — the same deployment shape the DUMPABLE
+    // re-set above exists for — so without this re-arm the BE-loss backstop
+    // would silently lapse. The getppid recheck closes the arm-after-death
+    // race: a worker whose supervisor died before the re-arm has already been
+    // reparented, and exits instead of running free. The expected supervisor
+    // pid rides the supervisor's controlled env whitelist (never inherited
+    // from the operator environment); an absent value (the in-process unit
+    // tests) skips the recheck.
+    prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0);
+    if (const char* expected_ppid = std::getenv(WORKER_EXPECTED_PPID_ENV)) {
+        int64_t expected = 0;
+        bool well_formed = *expected_ppid != '\0';
+        for (const char* p = expected_ppid; well_formed && *p != '\0'; ++p) {
+            if (*p < '0' || *p > '9' || expected > (INT64_MAX - 9) / 10) {
+                well_formed = false;
+            } else {
+                expected = expected * 10 + (*p - '0');
+            }
+        }
+        if (!well_formed || expected <= 0 || expected > static_cast<int64_t>(INT32_MAX) ||
+            ::getppid() != static_cast<pid_t>(expected)) {
+            diag(params.diag_fd, DIAG_PARENT_GUARD);
+            return 1;
+        }
+    }
 #endif
 
     // Step 2: the bounded dispatch frame. Without a decoded dispatch there is no
@@ -722,6 +757,13 @@ int run_index_worker(const IndexWorkerParams& params) {
     // agreed contract (the contract holds exactly one field here: the comparison
     // above pins equality with the single-field recompute).
     if (is_build) {
+        // Defensive: recompute_contract's OK path always produces exactly one
+        // field, so front() is safe after the equality gate; refuse the
+        // invariant instead of relying on it if that ever changes.
+        if (recomputed_contract.flds.empty()) {
+            diag(params.diag_fd, DIAG_UNTYPED_RECOMPUTE_FAILURE);
+            return 1;
+        }
         if (!vector_index_shape_supported(recomputed_contract.flds.front(),
                                           arguments.num_sub_vectors)) {
             return reject_pre_invocation(

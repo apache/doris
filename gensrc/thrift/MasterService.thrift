@@ -193,10 +193,14 @@ enum TLanceIndexCompletionReason {
 
 // Possible-live termination proof carried by the result envelope or the termination
 // report. CHILD_REAPED proves the exact child process forked for the invocation was
-// reaped; NEVER_LAUNCHED proves the invocation never forked/launched a worker (a
-// synchronous rejection before enqueue, a pre-send validation failure, or a supervisor
-// rejection before fork). BE_PROCESS_EPOCH_GONE is derived FE-side from heartbeat
-// epochs and never appears on the wire.
+// reaped; NEVER_LAUNCHED proves the invocation never exec'd the worker program — a
+// supervisor rejection before fork of an accepted dispatch, or a forked child killed
+// before its barrier release (the release byte is written only after the cgroup
+// membership read-back, so a launch failure provably precedes execve). The FE-side
+// proven-never-enqueued evidence (a clean pre-enqueue error status, a client borrow
+// failure, or an UNKNOWN_METHOD answer) never appears on the wire either: the FE
+// derives its own internal proof from it. BE_PROCESS_EPOCH_GONE is likewise derived
+// FE-side from heartbeat epochs and never appears on the wire.
 enum TLanceIndexTerminationProof {
     NONE = 1,
     CHILD_REAPED = 2,

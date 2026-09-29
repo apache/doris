@@ -131,12 +131,15 @@ std::optional<std::string> canonical_type_for_format(const char* raw_format, int
 inline constexpr uint64_t RECOMPUTE_MAX_STATS_FRAGMENTS = 4096;
 inline constexpr uint64_t RECOMPUTE_MAX_STATS_FRAGMENT_FIELD_PRODUCT = 32768;
 
+#ifdef BE_TEST
 // Overrides the fail-closed fragment caps of recompute_contract so unit tests can
 // exercise the cap rejection with small values instead of building >4096-fragment
 // datasets (the force_*_timeouts_for_test precedent). Values are set verbatim;
 // restore the production defaults afterwards by passing the constants above. Not
 // thread-safe by design: tests set it before any recompute call and reset it after.
+// BE_TEST-gated: production binaries carry no mutable cap globals at all.
 void force_recompute_fragment_caps_for_test(uint64_t max_stats_fragments,
                                             uint64_t max_stats_fragment_field_product);
+#endif
 
 } // namespace doris::lance

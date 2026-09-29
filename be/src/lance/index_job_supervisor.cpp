@@ -37,6 +37,7 @@
 #include <vector>
 
 #ifdef __linux__
+#include <dirent.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <pthread.h>
@@ -101,10 +102,6 @@ constexpr size_t SANITIZED_MESSAGE_MAX_BYTES = 900;
 // collapsing every message into a false positive; the first-line defense
 // (static categories + numeric identity only) is what protects them.
 constexpr size_t SECRET_SUBSTRING_MIN_BYTES = 4;
-
-// D3: an invocation whose computed wall-clock budget is at or below this is
-// rejected (never forked) instead of being launched into certain expiry.
-constexpr int64_t MIN_EXECUTABLE_BUDGET_SECONDS = 5;
 
 // D15: dedup entries survive completion and are retained until the FE deadline
 // plus this grace, so a late redelivery of the same invocation_id can never
@@ -716,6 +713,11 @@ Status build_child_env(std::vector<std::string>* storage, std::vector<char*>* en
         }
     }
     storage->push_back("LD_LIBRARY_PATH=" + ld_library_path);
+    // The supervisor's own pid, so the worker's exec-side PR_SET_PDEATHSIG
+    // re-arm can recheck getppid() exactly (file-capabilities execve clears
+    // the pre-exec arm; see run_index_worker). Fully controlled, never
+    // inherited.
+    storage->push_back(fmt::format("{}={}", WORKER_EXPECTED_PPID_ENV, ::getpid()));
     for (const char* name : {"LANG", "LC_ALL", "TZ"}) {
         if (const char* value = std::getenv(name)) {
             const size_t len = std::strlen(value);
@@ -787,10 +789,32 @@ void reap_child_bounded(int pidfd, pid_t pid, int64_t timeout_ms, ReapEvidence* 
             evidence->wait_echild = true;
         }
     } else {
-        // No pidfd (early launch failure): kill(pid, 0) ESRCH + waitpid. The
-        // child was already SIGKILLed by the caller.
+        // No pidfd (early launch failure): the child was already SIGKILLed by
+        // the caller. Poll waitpid(WNOHANG) directly — kill(pid, 0) alone keeps
+        // succeeding on a zombie, so a kill-only loop would spin the whole
+        // timeout on every preflight and every pre-pidfd launch failure.
         for (;;) {
-            if (::kill(pid, 0) != 0 && errno == ESRCH) {
+            int status = 0;
+            pid_t reaped;
+            do {
+                reaped = ::waitpid(pid, &status, WNOHANG);
+            } while (reaped < 0 && errno == EINTR);
+            if (reaped == pid) {
+                evidence->reaped_exact = true;
+                evidence->pidfd_terminated = true;
+                if (WIFEXITED(status)) {
+                    evidence->wait_kind = CLD_EXITED;
+                    evidence->wait_status = WEXITSTATUS(status);
+                } else if (WIFSIGNALED(status)) {
+                    evidence->wait_kind = CLD_KILLED;
+                    evidence->wait_status = WTERMSIG(status);
+                }
+                break;
+            }
+            if (reaped < 0 && errno == ECHILD) {
+                // Someone else (the CDC reaper) consumed the status; a reaped
+                // child is provably terminated.
+                evidence->wait_echild = true;
                 evidence->pidfd_terminated = true;
                 break;
             }
@@ -798,23 +822,6 @@ void reap_child_bounded(int pidfd, pid_t pid, int64_t timeout_ms, ReapEvidence* 
                 break;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        }
-        int status = 0;
-        pid_t reaped;
-        do {
-            reaped = ::waitpid(pid, &status, WNOHANG);
-        } while (reaped < 0 && errno == EINTR);
-        if (reaped == pid) {
-            evidence->reaped_exact = true;
-            if (WIFEXITED(status)) {
-                evidence->wait_kind = CLD_EXITED;
-                evidence->wait_status = WEXITSTATUS(status);
-            } else if (WIFSIGNALED(status)) {
-                evidence->wait_kind = CLD_KILLED;
-                evidence->wait_status = WTERMSIG(status);
-            }
-        } else if (reaped < 0 && errno == ECHILD) {
-            evidence->wait_echild = true;
         }
     }
 }
@@ -998,6 +1005,30 @@ bool identity_matches(const TLanceIndexJobReport& report, const TLanceIndexJobDi
            report.be_process_epoch == dispatch.be_process_epoch;
 }
 
+// Wire-domain membership of TLanceIndexJobResultCode (the thrift-compact decode
+// of an i32 enum field performs no membership check). The real worker only ever
+// emits codes from wire_result_code_for_native_error, so a complete
+// identity-matched frame with an out-of-domain code means a corrupted or
+// drifted worker: the frame is a protocol violation, never a trusted result.
+bool is_known_wire_result_code(TLanceIndexJobResultCode::type code) {
+    switch (code) {
+    case TLanceIndexJobResultCode::PRE_INVOCATION_STALE_ADMISSION:
+    case TLanceIndexJobResultCode::PRE_INVOCATION_UNSUPPORTED_SCHEMA_CONTRACT:
+    case TLanceIndexJobResultCode::PRE_INVOCATION_CREDENTIAL_EXPIRED:
+    case TLanceIndexJobResultCode::PRE_INVOCATION_RESOURCE_REJECTED:
+    case TLanceIndexJobResultCode::NATIVE_OK:
+    case TLanceIndexJobResultCode::NATIVE_COMMIT_CONFLICT:
+    case TLanceIndexJobResultCode::NATIVE_NOT_FOUND:
+    case TLanceIndexJobResultCode::NATIVE_INVALID_ARGUMENT:
+    case TLanceIndexJobResultCode::NATIVE_NOT_SUPPORTED:
+    case TLanceIndexJobResultCode::NATIVE_INDEX:
+    case TLanceIndexJobResultCode::NATIVE_IO:
+    case TLanceIndexJobResultCode::NATIVE_INTERNAL:
+        return true;
+    }
+    return false;
+}
+
 // ---------------------------------------------------------------------------
 // Preflight probes (D2 layer 3): dummy-child migration under a fork barrier,
 // proving the whole delegation chain before the first real invocation.
@@ -1032,18 +1063,32 @@ Status probe_dummy_migration(const std::string& cgroup_dir, const std::string& c
         ::_exit(0);
     }
     barrier.close_read();
+    // Capability probe (kernel >= 5.9): the supervisor's reaping evidence rests
+    // on pidfd_open (5.3) AND waitid(P_PIDFD) (5.9). Probing both here — instead
+    // of discovering an EINVAL at the first real invocation — keeps the
+    // no-soft-fallback rule honest: an unsupported kernel fails the preflight
+    // and rejects every submission.
+    const int pidfd = static_cast<int>(::syscall(SYS_pidfd_open, child, 0));
     Status status = Status::OK();
-    const int migrate_err = write_file(cgroup_dir + "/cgroup.procs", std::to_string(child));
-    if (migrate_err != 0) {
+    if (pidfd < 0) {
         status = Status::CgroupError(
-                "preflight step 'migrate' failed writing cgroup.procs in {}: {} (class: "
-                "no-delegation or nsdelegate common-ancestor)",
-                cgroup_dir, std::strerror(migrate_err));
-    } else {
-        std::string actual_rel;
-        if (!read_proc_cgroup_v2_path(child, &actual_rel) || actual_rel != cgroup_rel) {
+                "preflight step 'pidfd' failed: pidfd_open is unavailable (kernel >= 5.3 "
+                "required): {}",
+                std::strerror(errno));
+    }
+    if (status.ok()) {
+        const int migrate_err = write_file(cgroup_dir + "/cgroup.procs", std::to_string(child));
+        if (migrate_err != 0) {
             status = Status::CgroupError(
-                    "preflight step 'membership' read-back mismatch in {}", cgroup_dir);
+                    "preflight step 'migrate' failed writing cgroup.procs in {}: {} (class: "
+                    "no-delegation or nsdelegate common-ancestor)",
+                    cgroup_dir, std::strerror(migrate_err));
+        } else {
+            std::string actual_rel;
+            if (!read_proc_cgroup_v2_path(child, &actual_rel) || actual_rel != cgroup_rel) {
+                status = Status::CgroupError(
+                        "preflight step 'membership' read-back mismatch in {}", cgroup_dir);
+            }
         }
     }
     if (!status.ok()) {
@@ -1051,12 +1096,50 @@ Status probe_dummy_migration(const std::string& cgroup_dir, const std::string& c
     }
     barrier.close_write(); // EOF releases the dummy child
     ReapEvidence evidence;
-    reap_child_bounded(-1, child, 5000, &evidence);
+    reap_child_bounded(pidfd, child, 5000, &evidence);
+    if (pidfd >= 0) {
+        ::close(pidfd);
+    }
+    if (status.ok() && !evidence.reaped_exact && !evidence.wait_echild) {
+        // The EOF-released dummy child is dead (the pidfd poll observed it), so
+        // reaching here without reaped_exact/ECHILD means the waitid(P_PIDFD)
+        // call itself failed — EINVAL on kernels before 5.9.
+        status = Status::CgroupError(
+                "preflight step 'reap' failed: waitid(P_PIDFD) is unsupported on this kernel "
+                "(kernel >= 5.9 required for termination proofs)");
+    }
     return status;
 }
 
+// Best-effort reclaim of EMPTY probe leftovers of this pid (a BE SIGKILLed
+// mid-probe cannot remove its own probe group). Never touches other pids'
+// groups; a populated or busy leftover is left in place — the probe below runs
+// under a fresh unique name, so a stubborn leftover is noise, not a failure.
+void reclaim_preflight_leftovers(const std::string& parent, const std::string& base_name) {
+    DIR* dir = ::opendir(parent.c_str());
+    if (dir == nullptr) {
+        return;
+    }
+    while (const struct dirent* entry = ::readdir(dir)) {
+        const std::string name = entry->d_name;
+        if (name.compare(0, base_name.size(), base_name) == 0) {
+            ::rmdir((parent + "/" + name).c_str()); // empty leftovers only
+        }
+    }
+    ::closedir(dir);
+}
+
 Status preflight_group_probe(const std::string& parent) {
-    const std::string dir = parent + "/lance-preflight-" + std::to_string(::getpid());
+    // Unique per probe (pid + monotonic nanos): a pid-recycled or restarting BE
+    // can never collide with its own leftover, and a stale same-pid leftover is
+    // reclaimed above rather than misread as a delegation failure.
+    const std::string base = "lance-preflight-" + std::to_string(::getpid());
+    reclaim_preflight_leftovers(parent, base);
+    const int64_t unique =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch())
+                    .count();
+    const std::string dir = parent + "/" + base + "-" + std::to_string(unique);
     if (::mkdir(dir.c_str(), 0755) != 0) {
         return Status::CgroupError("preflight step 'mkdir' failed on {}: {}", dir,
                                    std::strerror(errno));
@@ -1203,6 +1286,14 @@ Supervision supervise_child(const TLanceIndexJobDispatch& dispatch, const std::s
             sup.failure_category = "result identity mismatch";
             return;
         }
+        if (!is_known_wire_result_code(decoded.result_code)) {
+            // Out-of-domain result code (corrupted/drifted worker): not a
+            // trusted result, and NOT a pre-FFI violation either — the frame
+            // arrived past a valid handshake, so a mutation may have committed;
+            // the termination-proof discipline converges it.
+            sup.failure_category = "result code outside the wire domain";
+            return;
+        }
         sup.report = std::move(decoded);
         sup.got_result = true;
     };
@@ -1220,7 +1311,11 @@ Supervision supervise_child(const TLanceIndexJobDispatch& dispatch, const std::s
         nfds_t nfds = 0;
         fds[nfds] = {launch->pidfd, POLLIN, 0};
         ++nfds;
-        const bool want_stdin = stdin_open && phase == Phase::WRITE_DISPATCH;
+        // stdin is a write-side concern of its own: an out-of-order worker may
+        // complete its handshake (phase already READ_RESULT) while a large
+        // dispatch frame is still draining, so the write must NOT be gated on
+        // the read-side phase — stdin_open alone tracks it.
+        const bool want_stdin = stdin_open;
         if (want_stdin) {
             fds[nfds] = {launch->stdin_write_fd, POLLOUT, 0};
             ++nfds;
@@ -1272,7 +1367,13 @@ Supervision supervise_child(const TLanceIndexJobDispatch& dispatch, const std::s
                 ::close(launch->stdin_write_fd);
                 launch->stdin_write_fd = -1;
                 stdin_open = false;
-                phase = Phase::READ_HANDSHAKE;
+                // Never regress the phase: an out-of-order worker may have
+                // already completed its handshake (a large dispatch frame can
+                // still be draining here), and its result frame must keep the
+                // result-side parsing and bounds.
+                if (phase == Phase::WRITE_DISPATCH) {
+                    phase = Phase::READ_HANDSHAKE;
+                }
             }
         }
 
@@ -1473,8 +1574,15 @@ Status IndexJobSupervisor::resolve_cgroup_parent(const std::string& configured_p
                                    failure_class, detail);
     };
     if (!configured_parent.empty()) {
-        if (configured_parent.compare(0, std::strlen(CGROUP_ROOT), CGROUP_ROOT) != 0 ||
-            configured_parent.find("..") != std::string::npos) {
+        // Prefix check with a path-boundary: "/sys/fs/cgroup-anything" shares
+        // the prefix but is not under the cgroup root.
+        const size_t root_len = std::strlen(CGROUP_ROOT);
+        const bool under_root =
+                configured_parent == CGROUP_ROOT ||
+                (configured_parent.size() > root_len &&
+                 configured_parent.compare(0, root_len, CGROUP_ROOT) == 0 &&
+                 configured_parent[root_len] == '/');
+        if (!under_root || configured_parent.find("..") != std::string::npos) {
             return reject("invalid-config",
                           "lance_index_worker_cgroup_parent must be an absolute path under "
                           "/sys/fs/cgroup without '..'");
@@ -1628,9 +1736,14 @@ Status IndexJobSupervisor::submit(const TLanceIndexJobDispatch& dispatch) {
             return Status::AlreadyExist("lance index invocation {} is already accepted",
                                         invocation_id);
         }
-        // Retained until deadline + grace, NOT removed at completion (D15).
+        // Retained until deadline + grace, NOT removed at completion (D15). The
+        // addition saturates: a pathological deadline_ms near INT64_MAX must not
+        // wrap the retention into the past (that would let a late redelivery of
+        // the same invocation_id re-execute external side effects).
         _dedup_erase_after_ms[invocation_id] =
-                dispatch.deadline_ms + DEDUP_RETAIN_AFTER_DEADLINE_MS;
+                dispatch.deadline_ms > INT64_MAX - DEDUP_RETAIN_AFTER_DEADLINE_MS
+                        ? INT64_MAX
+                        : dispatch.deadline_ms + DEDUP_RETAIN_AFTER_DEADLINE_MS;
     }
     Status status = _ensure_started();
     if (!status.ok() || !_queue->try_put(dispatch)) {
@@ -1640,6 +1753,11 @@ Status IndexJobSupervisor::submit(const TLanceIndexJobDispatch& dispatch) {
         }
         if (!status.ok()) {
             return status;
+        }
+        if (_stopping.load()) {
+            // try_put failed because stop() shut the queue down between the
+            // entry check and here — say so instead of crying "queue full".
+            return Status::Cancelled("lance index job supervisor is stopping");
         }
         return Status::TooManyTasks("lance index job queue is full (capacity {})",
                                     _queue->get_capacity());
@@ -1719,6 +1837,16 @@ void IndexJobSupervisor::_executor_loop() {
         if (!_queue->blocking_get(&dispatch)) {
             return;
         }
+        if (_stopping.load()) {
+            // stop() owns the lifecycle now: a drained dispatch must never start
+            // a new worker past the kill snapshot (a late-launched child would
+            // escape stop()'s in-flight signal set). It provably never exec'd,
+            // so it still earns the full NEVER_LAUNCHED envelope; the report
+            // callback (dropped RPC-side while stopping) releases the
+            // invocation's accounting slot either way.
+            _report_never_launched(dispatch, "supervisor is stopping");
+            continue;
+        }
         _execute(dispatch);
     }
 }
@@ -1737,11 +1865,9 @@ void IndexJobSupervisor::_unregister_inflight_child(pid_t pid) {
 }
 
 void IndexJobSupervisor::_invoke_result_callback(const TLanceIndexJobReport& report) {
-    if (_stopping.load()) {
-        LOG(INFO) << "lance supervisor stopping; dropping result report: job_id="
-                  << report.job_id << " invocation_id=" << report.invocation_id;
-        return;
-    }
+    // Terminal reports are delivered to the bound callback even while stopping:
+    // the callback owner (LanceIndexJobService) decides to drop the RPC, and it
+    // can only release the invocation's accounting slot if it sees the report.
     ReportResultFn fn;
     {
         std::lock_guard<std::mutex> lock(_callback_mutex);
@@ -1757,11 +1883,6 @@ void IndexJobSupervisor::_invoke_result_callback(const TLanceIndexJobReport& rep
 
 void IndexJobSupervisor::_invoke_termination_callback(
         const TLanceIndexJobTerminationReport& report) {
-    if (_stopping.load()) {
-        LOG(INFO) << "lance supervisor stopping; dropping termination report: job_id="
-                  << report.job_id << " invocation_id=" << report.invocation_id;
-        return;
-    }
     ReportTerminationFn fn;
     {
         std::lock_guard<std::mutex> lock(_callback_mutex);

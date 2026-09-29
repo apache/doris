@@ -25,6 +25,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -34,10 +35,24 @@
 #include <vector>
 
 #include <fcntl.h>
+#include <poll.h>
 #include <signal.h>
+#include <sys/prctl.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+// Kernel 5.3/5.9 era constants the CI glibc 2.28 headers predate (same spellings
+// as index_job_supervisor.cpp).
+#ifndef SYS_pidfd_open
+#define SYS_pidfd_open 434
+#endif
+#ifdef P_PIDFD
+static constexpr idtype_t kPidfdIdtype = P_PIDFD;
+#else
+static constexpr idtype_t kPidfdIdtype = static_cast<idtype_t>(3);
+#endif
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -439,6 +454,69 @@ TEST_F(LanceIndexSupervisorTest, PreFfiViolationsRejectedWithProof) {
 }
 
 // ---------------------------------------------------------------------------
+// Result-code wire domain (review M8): a complete, identity-matched frame whose
+// result_code is outside the known wire domain (TLanceIndexJobResultCode 1..12)
+// is a protocol violation — never a trusted result, and never classified as a
+// pre-FFI rejection (the frame arrived past a valid handshake, so a mutation may
+// have committed). The supervisor drops it and converges via the termination
+// proof on the evidence.
+// ---------------------------------------------------------------------------
+
+TEST_F(LanceIndexSupervisorTest, ResultCodeOutsideWireDomainDropped) {
+    REQUIRE_DELEGATED_PARENT(parent);
+    int64_t job_id = 9450;
+    for (const char* bad_code : {"99", "0", "-3"}) {
+        IndexJobSupervisor supervisor;
+        ReportRecorder recorder;
+        wire_callbacks(&supervisor, &recorder);
+        const auto dispatch =
+                make_dispatch("badcode", epoch_millis() + 3600 * 1000, job_id++);
+        supervisor.force_worker_exec_for_test(
+                fake_worker_path(),
+                persona_args("happy", dispatch, {"code=" + std::string(bad_code)}));
+        preflight_and_submit(&supervisor, parent, dispatch);
+
+        ASSERT_TRUE(recorder.wait_terminations(1)) << "code " << bad_code;
+        EXPECT_EQ(recorder.first_termination().proof, TLanceIndexTerminationProof::CHILD_REAPED)
+                << "code " << bad_code;
+        EXPECT_EQ(recorder.result_count(), 0U)
+                << "an out-of-domain result code was forwarded as a trusted result: code "
+                << bad_code;
+        supervisor.stop();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Out-of-order worker (review M4): the handshake lands while a >64KiB dispatch
+// frame is still draining into stdin. Closing stdin must not regress the phase
+// back to READ_HANDSHAKE — the result frame keeps the result-side parsing and
+// bounds, and the identity-matched result is accepted.
+// ---------------------------------------------------------------------------
+
+TEST_F(LanceIndexSupervisorTest, OutOfOrderHandshakeKeepsResultPhase) {
+    REQUIRE_DELEGATED_PARENT(parent);
+    IndexJobSupervisor supervisor;
+    ReportRecorder recorder;
+    wire_callbacks(&supervisor, &recorder);
+    auto dispatch = make_dispatch("earlyhs", epoch_millis() + 3600 * 1000, 9460);
+    // The dispatch frame must exceed the 64 KiB pipe buffer so the supervisor's
+    // stdin write is still in flight when the handshake arrives.
+    dispatch.dataset_uri = "s3://bucket/" + std::string(150 * 1024, 'x');
+    supervisor.force_worker_exec_for_test(fake_worker_path(),
+                                          persona_args("early_handshake", dispatch));
+    preflight_and_submit(&supervisor, parent, dispatch);
+
+    ASSERT_TRUE(recorder.wait_results(1));
+    const TLanceIndexJobReport report = recorder.first_result();
+    EXPECT_EQ(report.result_code, TLanceIndexJobResultCode::NATIVE_OK)
+            << "the result frame was misparsed after the stdin-close phase regression";
+    ASSERT_TRUE(report.__isset.termination_proof);
+    EXPECT_EQ(report.termination_proof, TLanceIndexTerminationProof::CHILD_REAPED);
+    EXPECT_EQ(recorder.termination_count(), 0U);
+    supervisor.stop();
+}
+
+// ---------------------------------------------------------------------------
 // Silent deaths (no complete frame): never a trusted result; a termination
 // proof only, with CHILD_REAPED when the dual evidence (exact reap +
 // populated=0) holds.
@@ -570,9 +648,15 @@ TEST_F(LanceIndexSupervisorTest, ForkBarrierKillsBeforeExec) {
     supervisor.force_worker_exec_for_test(fake_worker_path(),
                                           persona_args("mark_hang", dispatch, {"mark=" + mark}));
     supervisor.force_cgroup_migration_failure_for_test();
+    const int64_t started = steady_millis();
     preflight_and_submit(&supervisor, parent, dispatch);
 
     ASSERT_TRUE(recorder.wait_results(1));
+    // The launch-failure kill+reap path is bounded by the child's actual death,
+    // never by a fixed timeout spin (review M1: a kill(pid,0)-only loop would
+    // burn the whole 5s reap bound on a zombie).
+    EXPECT_LT(steady_millis() - started, 4000)
+            << "the launch-failure reap regressed to a full-timeout spin";
     const TLanceIndexJobReport report = recorder.first_result();
     EXPECT_EQ(report.result_code, TLanceIndexJobResultCode::PRE_INVOCATION_RESOURCE_REJECTED);
     ASSERT_TRUE(report.__isset.termination_proof);
@@ -647,6 +731,31 @@ TEST_F(LanceIndexSupervisorTest, DedupRetainedAfterCompletion) {
     supervisor.stop();
 }
 
+// D15 dedup retention arithmetic (review M3): a pathological deadline_ms near
+// INT64_MAX must saturate the retention timestamp instead of wrapping it into
+// the past (a wrap would purge the entry immediately and let a late redelivery
+// re-execute external side effects). No delegation needed: the dedup rail sits
+// in submit() before any cgroup work.
+TEST_F(LanceIndexSupervisorTest, DedupRetentionSaturatesAtDeadlineMax) {
+    IndexJobSupervisor supervisor;
+    ReportRecorder recorder;
+    wire_callbacks(&supervisor, &recorder);
+    supervisor._isolation_verified.store(true);
+    // Keep the dequeue path hermetic: the invocation cgroup lands in the test
+    // dir, the limit write/read-back fails there (no cgroupfs), and the
+    // invocation is rejected pre-fork with the NEVER_LAUNCHED envelope.
+    supervisor._cgroup_parent_abs = test_dir_;
+    const auto dispatch = make_dispatch("dedup-max", INT64_MAX - 1, 9920);
+    ASSERT_TRUE(supervisor.submit(dispatch).ok());
+    // The saturated entry is retained: the redelivery is a dedup hit, not a new
+    // execution.
+    const Status status = supervisor.submit(dispatch);
+    EXPECT_TRUE(status.is<ErrorCode::ALREADY_EXIST>()) << status.to_string();
+    supervisor.stop();
+    EXPECT_EQ(recorder.result_count() + recorder.termination_count(), 1U)
+            << "the invocation reported exactly once (the redelivery never executed)";
+}
+
 // ---------------------------------------------------------------------------
 // Bounded queue: with max_inflight=1 and capacity 2, one hanging in-flight
 // worker + two queued submissions saturate the supervisor; the fourth submit
@@ -659,10 +768,11 @@ TEST_F(LanceIndexSupervisorTest, QueueFullRejectsFourth) {
     ReportRecorder recorder;
     wire_callbacks(&supervisor, &recorder);
     // Note for stop(): BlockingQueue::blocking_get DRAINS queued items after
-    // shutdown, so the executor would dequeue the queued dispatches while
-    // stop() joins. Their deadlines are near-past on purpose: at dequeue the
-    // D3 budget rail (forced margins) rejects them as NEVER_LAUNCHED without
-    // forking, keeping stop() bounded.
+    // shutdown, but the executor drops them without executing (the _stopping
+    // drain guard): no forks past the kill snapshot, and each drained dispatch
+    // still earns its NEVER_LAUNCHED envelope. Their deadlines are near-past so
+    // that even a regression of the drain guard is caught by the budget rail
+    // instead of hanging the join.
     supervisor.force_budgets_for_test(/*wallclock_seconds=*/30, /*term_grace_seconds=*/1,
                                       /*report_margin_seconds=*/0);
     const auto hanging = make_dispatch("queue-hang", epoch_millis() + 3600 * 1000, 9951);
@@ -679,11 +789,69 @@ TEST_F(LanceIndexSupervisorTest, QueueFullRejectsFourth) {
     EXPECT_TRUE(status.is<ErrorCode::TOO_MANY_TASKS>()) << status.to_string();
     EXPECT_EQ(supervisor.queue_depth_for_test(), 2U);
     // stop() best-effort TERM/KILLs the hanging worker (its termination report
-    // is dropped because the supervisor is stopping — by design), and the
-    // drained queue entries expire on the budget rail: no forks, fast join.
+    // still rides to the callback — the callback owner drops the RPC while
+    // stopping), and the drained queue entries are dropped without launching.
     const int64_t stop_started = steady_millis();
     supervisor.stop();
     EXPECT_LT(steady_millis() - stop_started, 20000) << "stop() hung on queue drain";
+}
+
+// ---------------------------------------------------------------------------
+// stop() discipline (review M2 + NIT batch): a dispatch still queued when stop()
+// begins must NEVER launch a new worker past the kill snapshot. It provably
+// never exec'd, so the drain emits the full NEVER_LAUNCHED envelope (whose
+// callback delivery releases the invocation's accounting slot service-side);
+// the in-flight worker is TERM/KILLed and its termination report is delivered
+// rather than silently dropped at the supervisor seam.
+// ---------------------------------------------------------------------------
+
+TEST_F(LanceIndexSupervisorTest, StopDoesNotLaunchQueuedDispatches) {
+    REQUIRE_DELEGATED_PARENT(parent);
+    IndexJobSupervisor supervisor;
+    ReportRecorder recorder;
+    wire_callbacks(&supervisor, &recorder);
+    // Bound the failure mode: if the drain guard regressed and the queued
+    // dispatch really launched during stop(), its 30s wall budget still
+    // terminates it, so the test fails the 20s stop bound instead of hanging.
+    supervisor.force_budgets_for_test(/*wallclock_seconds=*/30, /*term_grace_seconds=*/1,
+                                      /*report_margin_seconds=*/0);
+    const auto hanging = make_dispatch("stop-hang", epoch_millis() + 3600 * 1000, 9955);
+    const std::string hang_mark = test_dir_ + "/stop-hang.pid";
+    supervisor.force_worker_exec_for_test(
+            fake_worker_path(), persona_args("mark_hang", hanging, {"mark=" + hang_mark}));
+    preflight_and_submit(&supervisor, parent, hanging);
+    // Wait for the worker to provably exec (its marker carries its pid), so it
+    // is registered in the in-flight set before stop() snapshots it.
+    ASSERT_TRUE(wait_until([&] { return ::access(hang_mark.c_str(), F_OK) == 0; }, 15000))
+            << "the in-flight worker never exec'd";
+
+    const auto queued = make_dispatch("stop-queued", epoch_millis() + 3600 * 1000, 9956);
+    const std::string queued_cgroup_dir = invocation_cgroup_dir(parent, queued);
+    ASSERT_TRUE(supervisor.submit(queued).ok());
+    EXPECT_EQ(supervisor.queue_depth_for_test(), 1U);
+
+    const int64_t stop_started = steady_millis();
+    supervisor.stop();
+    EXPECT_LT(steady_millis() - stop_started, 20000) << "stop() hung on the queued dispatch";
+
+    // The queued dispatch never launched: its invocation cgroup was never even
+    // created, and its terminal report is the NEVER_LAUNCHED envelope with the
+    // stopping category.
+    EXPECT_EQ(::access(queued_cgroup_dir.c_str(), F_OK), -1)
+            << "a queued dispatch launched a worker during stop()";
+    ASSERT_TRUE(recorder.wait_results(1));
+    const TLanceIndexJobReport report = recorder.first_result();
+    EXPECT_EQ(report.invocation_id, queued.invocation_id);
+    EXPECT_EQ(report.result_code, TLanceIndexJobResultCode::PRE_INVOCATION_RESOURCE_REJECTED);
+    ASSERT_TRUE(report.__isset.termination_proof);
+    EXPECT_EQ(report.termination_proof, TLanceIndexTerminationProof::NEVER_LAUNCHED);
+    ASSERT_TRUE(report.__isset.sanitized_message);
+    EXPECT_EQ(report.sanitized_message,
+              IndexJobSupervisor::sanitize_message("supervisor is stopping", queued));
+    // The in-flight hanging worker was terminated and its report delivered.
+    ASSERT_TRUE(recorder.wait_terminations(1));
+    EXPECT_EQ(recorder.first_termination().invocation_id, hanging.invocation_id);
+    EXPECT_EQ(recorder.first_termination().proof, TLanceIndexTerminationProof::CHILD_REAPED);
 }
 
 // ---------------------------------------------------------------------------
@@ -721,6 +889,39 @@ TEST_F(LanceIndexSupervisorTest, ResolveCgroupParentRejectsInvalidConfig) {
     EXPECT_FALSE(IndexJobSupervisor::resolve_cgroup_parent(
                          "/sys/fs/cgroup/lance-ut-definitely-missing-dir", &resolved)
                          .ok());
+    // Prefix-boundary shapes: a path that merely SHARES the /sys/fs/cgroup
+    // prefix is not under the cgroup root (review N2).
+    EXPECT_FALSE(
+            IndexJobSupervisor::resolve_cgroup_parent("/sys/fs/cgroup-anything", &resolved).ok());
+    EXPECT_FALSE(IndexJobSupervisor::resolve_cgroup_parent("/sys/fs/cgroupx", &resolved).ok());
+}
+
+// The supervisor's termination proofs rest on pidfd_open (kernel 5.3) and
+// waitid(P_PIDFD) (kernel 5.9); the preflight probes both and fails closed on
+// older kernels (review M6). This pins that the UT host itself satisfies the
+// minimum — no cgroup delegation needed for the bare primitive.
+TEST_F(LanceIndexSupervisorTest, PidfdWaitidCapabilityProbePassesOnThisHost) {
+    const pid_t child = ::fork();
+    ASSERT_NE(child, -1) << strerror(errno);
+    if (child == 0) {
+        ::_exit(0);
+    }
+    const int pidfd = static_cast<int>(::syscall(SYS_pidfd_open, child, 0));
+    ASSERT_GE(pidfd, 0) << "pidfd_open unsupported on this host: " << strerror(errno);
+    siginfo_t info;
+    std::memset(&info, 0, sizeof(info));
+    // Blocking WEXITED wait on the pidfd: the child has already _exit(0)'d or is
+    // about to; this can only hang if the kernel mis-delivers, which is exactly
+    // what the probe exists to catch.
+    const int rc = ::waitid(kPidfdIdtype, static_cast<id_t>(pidfd), &info, WEXITED);
+    const int wait_errno = errno;
+    ::close(pidfd);
+    ASSERT_EQ(rc, 0) << "waitid(P_PIDFD) unsupported on this host (kernel >= 5.9 "
+                        "required): "
+                     << strerror(wait_errno);
+    EXPECT_EQ(info.si_pid, child);
+    EXPECT_EQ(info.si_code, CLD_EXITED);
+    EXPECT_EQ(info.si_status, 0);
 }
 
 // Auto-resolution reflects the environment: inside a delegated scope (the
@@ -758,6 +959,52 @@ TEST_F(LanceIndexSupervisorTest, PreflightAutoResolveReflectsEnvironment) {
         LOG(INFO) << "lance preflight auto-resolve correctly classified this environment: "
                   << resolve_status.to_string();
     }
+}
+
+// ---------------------------------------------------------------------------
+// Preflight probe hygiene (reviews M1/M5): the dummy-child reap is bounded by
+// the child's actual death (no full-timeout spin — that regressed every BE
+// startup by 5s), and an empty stale probe group left by a SIGKILLed BE of the
+// same pid is reclaimed instead of failing the probe as a delegation error.
+// ---------------------------------------------------------------------------
+
+TEST_F(LanceIndexSupervisorTest, PreflightReapIsBoundedByChildDeath) {
+    REQUIRE_DELEGATED_PARENT(parent);
+    config::lance_index_worker_cgroup_parent = parent;
+    IndexJobSupervisor supervisor;
+    const int64_t started = steady_millis();
+    const Status status = supervisor.preflight();
+    const int64_t elapsed = steady_millis() - started;
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_TRUE(supervisor.isolation_verified());
+    // The pre-F2 dummy reap spun the full 5000ms timeout on the zombie child;
+    // the whole probe (mkdir, limit write/read-back, migration, reap, rmdir)
+    // completes in well under a second now. 4000ms separates the two cleanly.
+    EXPECT_LT(elapsed, 4000) << "preflight regressed to the full-timeout reap spin";
+    supervisor.stop();
+}
+
+TEST_F(LanceIndexSupervisorTest, PreflightReclaimsStaleProbeLeftover) {
+    REQUIRE_DELEGATED_PARENT(parent);
+    // Plant an empty leftover probe group with this pid's prefix (a BE SIGKILLed
+    // mid-probe cannot remove its own probe group). The preflight must reclaim
+    // it and succeed — a stale leftover is not a delegation failure.
+    const std::string leftover =
+            parent + "/lance-preflight-" + std::to_string(getpid()) + "-stale";
+    ASSERT_EQ(::mkdir(leftover.c_str(), 0755), 0) << strerror(errno);
+    config::lance_index_worker_cgroup_parent = parent;
+    IndexJobSupervisor supervisor;
+    const Status status = supervisor.preflight();
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_TRUE(supervisor.isolation_verified());
+    EXPECT_EQ(::access(leftover.c_str(), F_OK), -1)
+            << "the stale probe group was not reclaimed: " << leftover;
+    // And the probe's own uniquely-named group was removed at the end.
+    for (const auto& entry : std::filesystem::directory_iterator(parent)) {
+        EXPECT_EQ(entry.path().filename().string().find("lance-preflight-"), std::string::npos)
+                << "preflight probe leaked " << entry.path();
+    }
+    supervisor.stop();
 }
 
 // ---------------------------------------------------------------------------
@@ -1002,6 +1249,124 @@ TEST_F(LanceIndexSupervisorTest, RealSurvivingDescendantNoFabricatedProof) {
     sweep_cgroup_dir(cgroup_dir, 20000);
     EXPECT_EQ(::access(cgroup_dir.c_str(), F_OK), -1)
             << "leftover invocation cgroup never drained: " << cgroup_dir;
+}
+
+// BE loss (plan §8.1 fault row, amendment G11): a SIGKILLed supervisor process
+// must take its in-flight worker down through the worker-side PDEATHSIG arm —
+// no stop(), no cleanup, exactly like a real crash. The harness forks a child
+// that plays the BE role (supervisor + hanging fake worker); the test SIGKILLs
+// that child and polls the worker pid (read from the marker the worker writes
+// at exec) until kill(pid,0) reports ESRCH. A worker that outlives its
+// supervisor is a boundary failure.
+TEST_F(LanceIndexSupervisorTest, RealBeLossKillsWorkerViaPdeathsig) {
+    REQUIRE_DELEGATED_PARENT(parent);
+    const std::string mark = test_dir_ + "/beloss-worker.pid";
+    int sync_pipe[2];
+    ASSERT_EQ(::pipe(sync_pipe), 0) << strerror(errno);
+
+    const auto dispatch = make_dispatch("beloss", epoch_millis() + 3600 * 1000, 9990);
+    created_cgroup_dirs_.push_back(invocation_cgroup_dir(parent, dispatch));
+
+    const pid_t be_child = ::fork();
+    ASSERT_NE(be_child, -1) << strerror(errno);
+    if (be_child == 0) {
+        // The "BE" process. Arm its own parent-death guard first so a crashed
+        // test process takes this subtree down too, then run a supervisor with
+        // one hanging worker until the SIGKILL lands.
+        ::close(sync_pipe[0]);
+        ::prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0);
+        if (::getppid() == 1) {
+            ::_exit(2); // the test process is already gone
+        }
+        config::lance_index_worker_cgroup_parent = parent;
+        IndexJobSupervisor supervisor;
+        ReportRecorder sink;
+        wire_callbacks(&supervisor, &sink);
+        if (!supervisor.preflight().ok()) {
+            ::_exit(3);
+        }
+        supervisor.force_worker_exec_for_test(
+                fake_worker_path(), persona_args("mark_hang", dispatch, {"mark=" + mark}));
+        if (!supervisor.submit(dispatch).ok()) {
+            ::_exit(4);
+        }
+        // Announce once the worker has exec'd (its marker file exists; the pid
+        // content is re-polled by the parent).
+        for (int i = 0; i < 750 && ::access(mark.c_str(), F_OK) != 0; ++i) {
+            ::usleep(20000);
+        }
+        const uint8_t ready = 0x42;
+        if (::write(sync_pipe[1], &ready, 1) != 1) {
+            ::_exit(5);
+        }
+        for (;;) {
+            ::pause();
+        }
+    }
+    ::close(sync_pipe[1]);
+    // Reap-and-kill guard: every exit path of this test takes the subtree down
+    // and reaps the supervising child.
+    struct BeChildGuard {
+        pid_t pid;
+        ~BeChildGuard() {
+            if (pid > 0) {
+                ::kill(pid, SIGKILL);
+                int status = 0;
+                while (::waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+                }
+            }
+        }
+    } guard {be_child};
+
+    // Bounded wait for the worker-up announcement.
+    uint8_t ready = 0;
+    ssize_t got = -1;
+    ASSERT_TRUE(wait_until(
+            [&] {
+                struct pollfd pfd {sync_pipe[0], POLLIN, 0};
+                if (::poll(&pfd, 1, 100) <= 0) {
+                    return false;
+                }
+                got = ::read(sync_pipe[0], &ready, 1);
+                return true;
+            },
+            30000))
+            << "the supervising child never announced its worker";
+    ::close(sync_pipe[0]);
+    ASSERT_EQ(got, 1);
+    ASSERT_EQ(ready, 0x42);
+
+    // The worker pid from the marker (content lags the file's creation).
+    pid_t worker_pid = -1;
+    ASSERT_TRUE(wait_until(
+            [&] {
+                std::ifstream in(mark);
+                long value = -1;
+                if (!(in >> value)) {
+                    return false;
+                }
+                worker_pid = static_cast<pid_t>(value);
+                return worker_pid > 1;
+            },
+            10000))
+            << "the worker never wrote its pid marker";
+    ASSERT_EQ(::kill(worker_pid, 0), 0) << "the worker is not alive before the BE loss";
+
+    // The BE loss itself: SIGKILL, then reap the supervising child.
+    ASSERT_EQ(::kill(be_child, SIGKILL), 0);
+    int status = 0;
+    while (::waitpid(be_child, &status, 0) < 0 && errno == EINTR) {
+    }
+    guard.pid = -1;
+    ASSERT_TRUE(WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL);
+
+    // The worker must die on its PDEATHSIG arm within a bounded window (the
+    // delivery is immediate; the poll budget is generous for loaded runners).
+    const bool worker_dead = wait_until(
+            [&] { return ::kill(worker_pid, 0) != 0 && errno == ESRCH; }, 15000);
+    EXPECT_TRUE(worker_dead) << "worker pid " << worker_pid
+                             << " outlived its SIGKILLed supervisor; the PDEATHSIG backstop "
+                                "failed";
 }
 
 } // namespace doris::lance

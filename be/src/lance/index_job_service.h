@@ -52,15 +52,23 @@ namespace lance {
 //   2. isolation not verified (preflight) -> synchronous ERROR (CgroupError)
 //   3. D4 payload limits violated         -> synchronous ERROR (InvalidArgument,
 //                                            never enqueued)
-//   4. duplicate invocation_id            -> OK (idempotent; the first enqueue
+//   4. deadline budget already exhausted  -> synchronous ERROR (Cancelled; D3
+//      handler half — the supervisor re-checks at dequeue and answers with the
+//      full NEVER_LAUNCHED envelope there)
+//   5. duplicate invocation_id            -> OK (idempotent; the first enqueue
 //                                            owns execution and the report)
-//   5. bounded queue full                 -> synchronous ERROR (TooManyTasks)
+//   6. bounded queue full                 -> synchronous ERROR (TooManyTasks;
+//                                            Cancelled when the supervisor is
+//                                            stopping)
 //
 // Callback seam (D14): the supervisor's report callbacks are bound to
 // MasterServerClient with the finish_task discipline (3 attempts, sleep(1)
 // between, success/failure counters), invoked synchronously on the supervisor
 // executor thread. With lance_index_worker_max_inflight=1 the bounded stall
 // is acceptable and is budgeted in lance_index_worker_report_margin_seconds.
+// The supervisor delivers terminal reports even while stopping: the service
+// then drops the RPC but still releases the invocation's _outstanding slot,
+// so the gauges never overcount past a shutdown drain.
 //
 // Credentials discipline: request-level logs carry only job_id /
 // invocation_id / mutation_type. storage_options keys/values and any
