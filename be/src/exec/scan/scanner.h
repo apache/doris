@@ -169,6 +169,10 @@ public:
 
     void update_wait_worker_timer() { _scanner_wait_worker_timer += _watch.elapsed_time(); }
 
+    // Credit wait time spent before start_wait_worker_timer() could be called, e.g. while the
+    // ThreadPool Context runnable that admits this scanner was queued for a worker.
+    void add_wait_worker_time(int64_t wait_ns) { _scanner_wait_worker_timer += wait_ns; }
+
     int64_t get_scanner_wait_worker_timer() const { return _scanner_wait_worker_timer; }
 
     void update_scan_cpu_timer();
