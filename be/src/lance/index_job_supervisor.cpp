@@ -55,6 +55,7 @@
 #include "common/logging.h"
 #include "lance/index_worker.h"
 #include "util/blocking_queue.hpp"
+#include "util/debug_points.h"
 
 // Kernel 5.3/5.9 era syscall numbers and constants that the CI glibc 2.28
 // headers predate. The numbers live in the arch-independent syscall table.
@@ -683,6 +684,32 @@ bool validated_dir(const std::string& dir) {
     return ::stat(dir.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
 }
 
+// Controlled-environment variable carrying the worker fault-injection debug
+// points into the exec'd worker (comma-separated names; re-registered by
+// run_index_worker in index_worker.cpp — keep the two spellings in sync). The
+// exec'd image starts with a default-off debug-point gate and an empty
+// registry, so without this handoff the worker-side points could never fire
+// outside unit tests.
+constexpr const char* WORKER_DEBUG_POINTS_ENV = "DORIS_LANCE_WORKER_DEBUG_POINTS";
+
+// Snapshots the supervisor's active worker-fault debug points into the
+// controlled environment. Names only, from a fixed allowlist; the value is
+// derived solely from this process's own registry, never operator-inherited.
+void snapshot_worker_debug_points(std::vector<std::string>* storage) {
+    std::string handoff;
+    for (const char* point_name : {"LanceIndexWorker.hang", "LanceIndexWorker.skip_report"}) {
+        if (DebugPoints::instance()->get_debug_point(point_name) != nullptr) {
+            if (!handoff.empty()) {
+                handoff.push_back(',');
+            }
+            handoff += point_name;
+        }
+    }
+    if (!handoff.empty()) {
+        storage->push_back(fmt::format("{}={}", WORKER_DEBUG_POINTS_ENV, handoff));
+    }
+}
+
 // Builds the controlled environment whitelist (D1/D4): LD_LIBRARY_PATH is
 // derived ONLY from the resolved doris_be install lib dir plus an optional
 // validated $JAVA_HOME/lib/server; LANG/LC_ALL/TZ pass through when sane;
@@ -732,6 +759,7 @@ Status build_child_env(std::vector<std::string>* storage, std::vector<char*>* en
         }
     }
     storage->push_back("RUST_BACKTRACE=0");
+    snapshot_worker_debug_points(storage);
     envp->reserve(storage->size() + 1);
     for (std::string& entry : *storage) {
         envp->push_back(entry.data());
@@ -1852,6 +1880,14 @@ void IndexJobSupervisor::_executor_loop() {
             _report_never_launched(dispatch, "supervisor is stopping");
             continue;
         }
+        // Fault-injection point: reject right after dequeue, before any
+        // cgroup/fork work, with the full async-rejection envelope (D6 path 3:
+        // PRE_INVOCATION_RESOURCE_REJECTED + NEVER_LAUNCHED through the shared
+        // rejection path — the invocation provably never exec'd).
+        DBUG_EXECUTE_IF("LanceIndexSupervisor.reject_after_enqueue", {
+            _report_never_launched(dispatch, "debug point rejection");
+            continue;
+        });
         _execute(dispatch);
     }
 }

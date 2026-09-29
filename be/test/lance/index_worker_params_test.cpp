@@ -17,7 +17,17 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <functional>
+#include <memory>
+
+#include <poll.h>
+
 #include "lance/lance_test_util.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 
 // LanceIndexWorkerParamsTest: drives run_index_worker in-process over pipe
 // trios and pins the full-path envelope contract — dispatch frame bounds, the
@@ -606,6 +616,275 @@ TEST_F(LanceIndexWorkerParamsTest, NativeErrorCodeMappingTable) {
     EXPECT_EQ(map(static_cast<LanceErrorCode>(9)), std::nullopt);
     EXPECT_EQ(map(static_cast<LanceErrorCode>(100)), std::nullopt);
     EXPECT_EQ(map(static_cast<LanceErrorCode>(-1)), std::nullopt);
+}
+
+// ---------------------------------------------------------------------------
+// Fault-injection debug points (PR4B). "LanceIndexWorker.hang" sits after the
+// dispatch is fully read and validated, before the first lance FFI call; these
+// cases observe the block in-process (handshake out, then silence) and release
+// it by removing the point (the DBUG_BLOCK poll). The post-FFI
+// "LanceIndexWorker.skip_report" point cannot be reached hermetically
+// in-process (no non-local object store survives across FFI calls — see the
+// reach note at the top of this file); its chain is covered supervisor-side in
+// LanceIndexSupervisorTest with the fake worker honoring the handoff env.
+// ---------------------------------------------------------------------------
+
+int64_t steady_now_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::steady_clock::now().time_since_epoch())
+            .count();
+}
+
+bool wait_pred(const std::function<bool()>& pred, int64_t deadline_ms) {
+    const int64_t deadline = steady_now_ms() + deadline_ms;
+    while (steady_now_ms() < deadline) {
+        if (pred()) {
+            return true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    return pred();
+}
+
+// Runs run_index_worker on a dedicated thread so a test can observe the hang
+// point and release it. The thread state is heap-shared so the (move-only)
+// handle can be returned by value safely.
+struct AsyncWorkerRun {
+    int result_read_fd = -1;
+    int diag_read_fd = -1;
+    std::thread worker_thread;
+    std::thread writer_thread;
+    std::shared_ptr<std::atomic<bool>> exited = std::make_shared<std::atomic<bool>>(false);
+    std::shared_ptr<std::atomic<int>> exit_code = std::make_shared<std::atomic<int>>(-1);
+};
+
+AsyncWorkerRun start_async_worker(const TLanceIndexJobDispatch& dispatch) {
+    int dispatch_pipe[2];
+    int result_pipe[2];
+    int diag_pipe[2];
+    if (::pipe(dispatch_pipe) != 0 || ::pipe(result_pipe) != 0 || ::pipe(diag_pipe) != 0) {
+        throw std::runtime_error("pipe() failed");
+    }
+    AsyncWorkerRun run;
+    run.result_read_fd = result_pipe[0];
+    run.diag_read_fd = diag_pipe[0];
+    const int result_write_fd = result_pipe[1];
+    const int diag_write_fd = diag_pipe[1];
+    const std::vector<uint8_t> bytes = dispatch_frame_bytes(dispatch);
+    run.writer_thread = std::thread([bytes, fd = dispatch_pipe[1]]() {
+        const uint8_t* next = bytes.data();
+        size_t left = bytes.size();
+        while (left > 0) {
+            ssize_t count = ::write(fd, next, left);
+            if (count < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                break; // EPIPE: the worker exited early; nothing more to feed
+            }
+            next += count;
+            left -= static_cast<size_t>(count);
+        }
+        ::close(fd);
+    });
+    run.worker_thread = std::thread([dispatch_fd = dispatch_pipe[0], result_write_fd,
+                                     diag_write_fd, exited = run.exited,
+                                     exit_code = run.exit_code]() {
+        IndexWorkerParams params;
+        params.dispatch_fd = dispatch_fd;
+        params.result_fd = result_write_fd;
+        params.diag_fd = diag_write_fd;
+        const int code = run_index_worker(params);
+        ::close(dispatch_fd);
+        ::close(result_write_fd);
+        ::close(diag_write_fd);
+        exit_code->store(code);
+        exited->store(true);
+    });
+    return run;
+}
+
+// Joins the threads and drains the (already EOF-terminated) pipes. Any frame
+// bytes the test already consumed from result_read_fd are excluded by design.
+WorkerRunResult finish_async_worker(AsyncWorkerRun& run) {
+    run.worker_thread.join();
+    run.writer_thread.join();
+    WorkerRunResult result;
+    result.exit_code = run.exit_code->load();
+    result.result_stream = read_all_bytes(run.result_read_fd);
+    result.diag_stream = read_all_bytes(run.diag_read_fd);
+    ::close(run.result_read_fd);
+    ::close(run.diag_read_fd);
+    return result;
+}
+
+// Reads exactly one length-prefixed frame within the timeout (nullopt on
+// timeout or EOF). Used to observe the handshake arriving while the worker is
+// blocked on the hang point.
+std::optional<std::vector<uint8_t>> read_frame_within(int fd, int64_t timeout_ms) {
+    const int64_t deadline = steady_now_ms() + timeout_ms;
+    auto read_exactly = [fd, deadline](uint8_t* out, size_t size) -> bool {
+        size_t got = 0;
+        while (got < size) {
+            const int64_t left = deadline - steady_now_ms();
+            if (left <= 0) {
+                return false;
+            }
+            struct pollfd pfd {fd, POLLIN, 0};
+            const int ready = ::poll(&pfd, 1, static_cast<int>(std::min<int64_t>(left, 200)));
+            if (ready < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                return false;
+            }
+            if (ready == 0) {
+                continue;
+            }
+            const ssize_t count = ::read(fd, out + got, size - got);
+            if (count == 0) {
+                return false; // EOF
+            }
+            if (count < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                return false;
+            }
+            got += static_cast<size_t>(count);
+        }
+        return true;
+    };
+    uint8_t header[4];
+    if (!read_exactly(header, sizeof(header))) {
+        return std::nullopt;
+    }
+    const uint32_t length = (static_cast<uint32_t>(header[0]) << 24) |
+                            (static_cast<uint32_t>(header[1]) << 16) |
+                            (static_cast<uint32_t>(header[2]) << 8) |
+                            static_cast<uint32_t>(header[3]);
+    if (length == 0 || length > 8 * 1024) {
+        return std::nullopt;
+    }
+    std::vector<uint8_t> payload(length);
+    if (!read_exactly(payload.data(), payload.size())) {
+        return std::nullopt;
+    }
+    return payload;
+}
+
+// True when the pipe signals readability or hangup within the timeout (used to
+// assert that NOTHING arrives while the worker is blocked).
+bool pipe_signals_within(int fd, int64_t timeout_ms) {
+    struct pollfd pfd {fd, static_cast<short>(POLLIN | POLLHUP | POLLERR), 0};
+    int ready;
+    do {
+        ready = ::poll(&pfd, 1, static_cast<int>(timeout_ms));
+    } while (ready < 0 && errno == EINTR);
+    return ready > 0;
+}
+
+TEST_F(LanceIndexWorkerParamsTest, DebugPointHangBlocksBeforeFfiUntilRemoved) {
+    const bool saved_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add("LanceIndexWorker.hang");
+    Defer defer([saved_debug_points] {
+        DebugPoints::instance()->remove("LanceIndexWorker.hang");
+        config::enable_debug_points = saved_debug_points;
+    });
+
+    // A dispatch that passes every pre-FFI rail and fails the pinned open with
+    // a typed NOT_FOUND (memory:// holds no cross-call state — see
+    // OpenFailuresNeverClassifyAsCredentialExpired).
+    TLanceIndexJobDispatch dispatch = make_dispatch();
+    dispatch.dataset_uri = "memory://probe/hang-" + std::to_string(::getpid());
+    AsyncWorkerRun run = start_async_worker(dispatch);
+
+    // The block sits after the handshake: the first frame arrives, then
+    // silence — the FFI has not run yet, so no result frame can exist.
+    const std::optional<std::vector<uint8_t>> handshake =
+            read_frame_within(run.result_read_fd, 10000);
+    ASSERT_TRUE(handshake.has_value()) << "the handshake must precede the hang point";
+    TLanceIndexWorkerHandshake decoded_handshake;
+    ASSERT_TRUE(thrift_compact_decode(*handshake, &decoded_handshake));
+    EXPECT_EQ(decoded_handshake.protocol_magic, HANDSHAKE_PROTOCOL_MAGIC);
+    EXPECT_FALSE(pipe_signals_within(run.result_read_fd, 500))
+            << "a worker hung before the FFI must not emit a result frame";
+    EXPECT_FALSE(run.exited->load());
+
+    // Releasing the point unblocks the worker (the DBUG_BLOCK poll); the typed
+    // open failure then completes with the trusted RESOURCE_REJECTED envelope.
+    DebugPoints::instance()->remove("LanceIndexWorker.hang");
+    ASSERT_TRUE(wait_pred([&] { return run.exited->load(); }, 20000));
+    WorkerRunResult result = finish_async_worker(run);
+    EXPECT_EQ(result.exit_code, 0);
+    const std::vector<std::vector<uint8_t>> frames = result.frames();
+    ASSERT_EQ(frames.size(), 1U) << "only the post-FFI rejection frame remains";
+    TLanceIndexJobReport report;
+    ASSERT_TRUE(thrift_compact_decode(frames.front(), &report));
+    EXPECT_EQ(report.result_code, RESOURCE_REJECTED);
+    EXPECT_EQ(report.job_id, dispatch.job_id);
+    EXPECT_EQ(report.invocation_id, dispatch.invocation_id);
+    EXPECT_EQ(report.sanitized_message, "resource rejected");
+    EXPECT_TRUE(result.diag_stream.empty());
+
+    // The point sits after validation: a dispatch whose properties exceed the
+    // admitted bounds is rejected with the UNSUPPORTED envelope without ever
+    // blocking. Async so a placement regression releases cleanly instead of
+    // hanging the test binary.
+    DebugPoints::instance()->add("LanceIndexWorker.hang");
+    TLanceIndexJobDispatch invalid = make_dispatch();
+    invalid.__set_properties_json(
+            R"({"index_type":"IVF_PQ","num_partitions":"99999","num_sub_vectors":"2"})");
+    AsyncWorkerRun invalid_run = start_async_worker(invalid);
+    if (!wait_pred([&] { return invalid_run.exited->load(); }, 10000)) {
+        DebugPoints::instance()->remove("LanceIndexWorker.hang"); // release for cleanup
+        finish_async_worker(invalid_run);
+        FAIL() << "the hang point fired before dispatch validation completed";
+    }
+    WorkerRunResult invalid_result = finish_async_worker(invalid_run);
+    EXPECT_EQ(invalid_result.exit_code, 0);
+    WorkerFrames invalid_frames = decode_worker_frames(invalid_result);
+    EXPECT_EQ(invalid_frames.frame_count, 2U);
+    ASSERT_TRUE(invalid_frames.report.has_value());
+    EXPECT_EQ(invalid_frames.report->result_code, UNSUPPORTED);
+}
+
+TEST_F(LanceIndexWorkerParamsTest, DebugPointHangReachesWorkerThroughControlledEnv) {
+    // The exec'd worker starts with a default-off gate and an empty registry;
+    // the supervisor's controlled environment is the handoff channel (the
+    // build_child_env snapshot). Drive the worker entry exactly as the exec'd
+    // process would: gate off, point present only in the env.
+    const bool saved_debug_points = config::enable_debug_points;
+    config::enable_debug_points = false;
+    ASSERT_EQ(::setenv("DORIS_LANCE_WORKER_DEBUG_POINTS", "LanceIndexWorker.hang", 1), 0);
+    Defer defer([saved_debug_points] {
+        ::unsetenv("DORIS_LANCE_WORKER_DEBUG_POINTS");
+        DebugPoints::instance()->remove("LanceIndexWorker.hang");
+        config::enable_debug_points = saved_debug_points;
+    });
+
+    TLanceIndexJobDispatch dispatch = make_dispatch();
+    dispatch.dataset_uri = "memory://probe/hang-env-" + std::to_string(::getpid());
+    AsyncWorkerRun run = start_async_worker(dispatch);
+
+    const std::optional<std::vector<uint8_t>> handshake =
+            read_frame_within(run.result_read_fd, 10000);
+    ASSERT_TRUE(handshake.has_value());
+    EXPECT_FALSE(pipe_signals_within(run.result_read_fd, 500));
+    EXPECT_FALSE(run.exited->load()) << "the env-handed point must block the worker";
+
+    DebugPoints::instance()->remove("LanceIndexWorker.hang");
+    ASSERT_TRUE(wait_pred([&] { return run.exited->load(); }, 20000));
+    WorkerRunResult result = finish_async_worker(run);
+    EXPECT_EQ(result.exit_code, 0);
+    const std::vector<std::vector<uint8_t>> frames = result.frames();
+    ASSERT_EQ(frames.size(), 1U);
+    TLanceIndexJobReport report;
+    ASSERT_TRUE(thrift_compact_decode(frames.front(), &report));
+    EXPECT_EQ(report.result_code, RESOURCE_REJECTED);
+    // The worker entry re-enabled the gate itself (join() synchronizes).
+    EXPECT_TRUE(config::enable_debug_points);
 }
 
 } // namespace

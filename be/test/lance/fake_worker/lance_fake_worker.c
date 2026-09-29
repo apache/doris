@@ -296,6 +296,23 @@ static void write_result(int64_t job_id, int64_t revision, const char* invocatio
 
 /* ------------------------------ personas ------------------------------ */
 
+/* Exact token membership in a comma-separated list. */
+static int env_list_has(const char* list, const char* name) {
+    const size_t name_len = strlen(name);
+    const char* p = list;
+    for (;;) {
+        const char* comma = strchr(p, ',');
+        const size_t token_len = comma != NULL ? (size_t)(comma - p) : strlen(p);
+        if (token_len == name_len && strncmp(p, name, name_len) == 0) {
+            return 1;
+        }
+        if (comma == NULL) {
+            return 0;
+        }
+        p = comma + 1;
+    }
+}
+
 static void* sleeper_thread(void* unused) {
     (void)unused;
     for (;;) {
@@ -344,6 +361,37 @@ int main(int argc, char** argv) {
             orphan_sleep_seconds = strtol(value, NULL, 10);
         } else if (key_len == 3 && strncmp(argv[i], "mib", 3) == 0) {
             bomb_mib_cap = strtol(value, NULL, 10);
+        }
+    }
+
+    /* Worker fault-injection handoff: the supervisor snapshots the active
+     * LanceIndexWorker.* debug points into the controlled environment
+     * (DORIS_LANCE_WORKER_DEBUG_POINTS; be/src/lance/index_job_supervisor.cpp)
+     * and the real worker library re-registers them at entry
+     * (be/src/lance/index_worker.cpp). The fake honors the same channel so the
+     * supervisor-side tests drive the whole chain across a real exec. The
+     * behaviors replay the points' observable wire shapes at their real
+     * placements: both sit after the handshake, so the supervisor validates
+     * confinement first and then converges on its own (deadline or silence). */
+    {
+        const char* dbg_points = getenv("DORIS_LANCE_WORKER_DEBUG_POINTS");
+        if (dbg_points != NULL) {
+            if (env_list_has(dbg_points, "LanceIndexWorker.hang")) {
+                /* Post-validation/pre-FFI hang: handshake, then nothing until
+                 * the supervisor's wall-clock deadline TERM->KILLs us. */
+                drain_stdin();
+                write_handshake(0, 0);
+                for (;;) {
+                    pause();
+                }
+            }
+            if (env_list_has(dbg_points, "LanceIndexWorker.skip_report")) {
+                /* Post-FFI silence: handshake, then exit 0 with no result
+                 * frame (a complete-exec-but-silent child). */
+                drain_stdin();
+                write_handshake(0, 0);
+                return 0;
+            }
         }
     }
 

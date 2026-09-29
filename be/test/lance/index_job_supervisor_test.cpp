@@ -56,6 +56,8 @@ static constexpr idtype_t kPidfdIdtype = static_cast<idtype_t>(3);
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 
 // LanceIndexSupervisorTest: drives the real supervisor end-to-end against a
 // tiny protocol-speaking fake worker executable (lance/fake_worker/
@@ -1461,6 +1463,153 @@ TEST_F(LanceIndexSupervisorTest, RealBeLossKillsWorkerViaPdeathsig) {
     EXPECT_TRUE(worker_dead) << "worker pid " << worker_pid
                              << " outlived its SIGKILLed supervisor; the PDEATHSIG backstop "
                                 "failed";
+}
+
+// ---------------------------------------------------------------------------
+// Fault-injection debug points (PR4B). The supervisor-side point fires in this
+// process; the two worker-side points are snapshotted into the exec'd child's
+// controlled environment (DORIS_LANCE_WORKER_DEBUG_POINTS) and the fake worker
+// replays their observable wire behavior, so these cases drive the whole chain
+// across a real fork+exec. Every case restores the process-wide gate and the
+// point registry (debug_points_test.cpp / wal_manager_test.cpp precedent).
+// ---------------------------------------------------------------------------
+
+// LanceIndexSupervisor.reject_after_enqueue: a dequeued dispatch is rejected
+// before any cgroup/fork work with the full async-rejection envelope (D6 path
+// 3). No delegation needed: the point sits ahead of all cgroup work.
+TEST_F(LanceIndexSupervisorTest, DebugPointRejectAfterEnqueueNeverLaunched) {
+    const bool saved_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add("LanceIndexSupervisor.reject_after_enqueue");
+    Defer defer([saved_debug_points] {
+        DebugPoints::instance()->remove("LanceIndexSupervisor.reject_after_enqueue");
+        config::enable_debug_points = saved_debug_points;
+    });
+
+    IndexJobSupervisor supervisor;
+    ReportRecorder recorder;
+    wire_callbacks(&supervisor, &recorder);
+    supervisor._isolation_verified.store(true);
+    // Keep the post-point path hermetic: if the point ever stops firing, the
+    // invocation lands in the test dir where the cgroup limit write fails (no
+    // cgroupfs) and the rejection category differs from the debug one.
+    supervisor._cgroup_parent_abs = test_dir_;
+    const auto dispatch = make_dispatch("dbg-reject", epoch_millis() + 3600 * 1000, 10011);
+    const std::string mark = test_dir_ + "/reject-execed.marker";
+    supervisor.force_worker_exec_for_test(fake_worker_path(),
+                                          persona_args("mark_hang", dispatch, {"mark=" + mark}));
+    ASSERT_TRUE(supervisor.submit(dispatch).ok());
+
+    ASSERT_TRUE(recorder.wait_results(1));
+    const TLanceIndexJobReport report = recorder.first_result();
+    EXPECT_EQ(report.job_id, dispatch.job_id);
+    EXPECT_EQ(report.invocation_id, dispatch.invocation_id);
+    EXPECT_EQ(report.result_code, TLanceIndexJobResultCode::PRE_INVOCATION_RESOURCE_REJECTED);
+    ASSERT_TRUE(report.__isset.termination_proof);
+    EXPECT_EQ(report.termination_proof, TLanceIndexTerminationProof::NEVER_LAUNCHED);
+    ASSERT_TRUE(report.__isset.sanitized_message);
+    EXPECT_EQ(report.sanitized_message,
+              IndexJobSupervisor::sanitize_message("debug point rejection", dispatch));
+    // No fork happened: the marker never appeared and inflight never rose.
+    EXPECT_EQ(::access(mark.c_str(), F_OK), -1) << "a debug-rejected invocation forked";
+    EXPECT_EQ(supervisor.inflight_count_for_test(), 0);
+    EXPECT_EQ(recorder.termination_count(), 0U);
+
+    // With the point removed the executor returns to the normal path: the next
+    // dispatch reaches the (hermetic, failing) cgroup setup instead of the
+    // debug short-circuit — still no fork, but a different rejection category.
+    DebugPoints::instance()->remove("LanceIndexSupervisor.reject_after_enqueue");
+    const auto second = make_dispatch("dbg-reject-off", epoch_millis() + 3600 * 1000, 10012);
+    ASSERT_TRUE(supervisor.submit(second).ok());
+    ASSERT_TRUE(recorder.wait_results(2));
+    {
+        std::lock_guard<std::mutex> lock(recorder.mu);
+        EXPECT_EQ(recorder.results.at(1).sanitized_message,
+                  IndexJobSupervisor::sanitize_message("cgroup limit setup failed", second));
+    }
+    EXPECT_EQ(::access(mark.c_str(), F_OK), -1);
+    EXPECT_EQ(supervisor.inflight_count_for_test(), 0);
+    supervisor.stop();
+}
+
+// LanceIndexWorker.hang: the point rides the controlled env into the exec'd
+// (fake) worker, which completes the handshake and then hangs; the forced
+// wall-clock budget expires and the TERM->KILL escalation produces the
+// CHILD_REAPED termination proof (the e2e UNKNOWN convergence shape).
+TEST_F(LanceIndexSupervisorTest, DebugPointWorkerHangHitsDeadlineTermination) {
+    REQUIRE_DELEGATED_PARENT(parent);
+    const bool saved_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add("LanceIndexWorker.hang");
+    Defer defer([saved_debug_points] {
+        DebugPoints::instance()->remove("LanceIndexWorker.hang");
+        config::enable_debug_points = saved_debug_points;
+    });
+
+    IndexJobSupervisor supervisor;
+    ReportRecorder recorder;
+    wire_callbacks(&supervisor, &recorder);
+    supervisor.force_budgets_for_test(/*wallclock_seconds=*/6, /*term_grace_seconds=*/2,
+                                      /*report_margin_seconds=*/0);
+    const auto dispatch = make_dispatch("dbg-hang", epoch_millis() + 3600 * 1000, 10021);
+    // The happy persona would complete immediately; the env handoff is what
+    // makes the worker hang (proving the point rode across the exec).
+    supervisor.force_worker_exec_for_test(fake_worker_path(), persona_args("happy", dispatch));
+    const int64_t started = steady_millis();
+    preflight_and_submit(&supervisor, parent, dispatch);
+
+    ASSERT_TRUE(recorder.wait_terminations(1));
+    const int64_t elapsed = steady_millis() - started;
+    EXPECT_EQ(recorder.first_termination().proof, TLanceIndexTerminationProof::CHILD_REAPED);
+    EXPECT_EQ(recorder.result_count(), 0U);
+    // The handshake passed and the hang held until the 6s wall deadline.
+    EXPECT_GE(elapsed, 5500) << "the wall-clock deadline fired early";
+    EXPECT_LT(elapsed, 25000);
+
+    // The handoff is a per-launch snapshot: once the point is removed the next
+    // invocation runs the same persona to a clean completion.
+    DebugPoints::instance()->remove("LanceIndexWorker.hang");
+    const auto second = make_dispatch("dbg-hang-off", epoch_millis() + 3600 * 1000, 10022);
+    ASSERT_TRUE(supervisor.submit(second).ok());
+    ASSERT_TRUE(recorder.wait_results(1));
+    EXPECT_EQ(recorder.first_result().result_code, TLanceIndexJobResultCode::NATIVE_OK);
+    supervisor.stop();
+}
+
+// LanceIndexWorker.skip_report: the worker completes execution but never
+// writes the result frame (handshake, then a clean silent exit 0). No trusted
+// result exists; only the termination proof rides out (FE converges UNKNOWN).
+TEST_F(LanceIndexSupervisorTest, DebugPointWorkerSkipReportYieldsProofOnly) {
+    REQUIRE_DELEGATED_PARENT(parent);
+    const bool saved_debug_points = config::enable_debug_points;
+    config::enable_debug_points = true;
+    DebugPoints::instance()->add("LanceIndexWorker.skip_report");
+    Defer defer([saved_debug_points] {
+        DebugPoints::instance()->remove("LanceIndexWorker.skip_report");
+        config::enable_debug_points = saved_debug_points;
+    });
+
+    IndexJobSupervisor supervisor;
+    ReportRecorder recorder;
+    wire_callbacks(&supervisor, &recorder);
+    const auto dispatch = make_dispatch("dbg-skip", epoch_millis() + 3600 * 1000, 10031);
+    supervisor.force_worker_exec_for_test(fake_worker_path(), persona_args("happy", dispatch));
+    preflight_and_submit(&supervisor, parent, dispatch);
+
+    ASSERT_TRUE(recorder.wait_terminations(1));
+    EXPECT_EQ(recorder.first_termination().proof, TLanceIndexTerminationProof::CHILD_REAPED);
+    EXPECT_EQ(recorder.first_termination().invocation_id, dispatch.invocation_id);
+    EXPECT_EQ(recorder.result_count(), 0U)
+            << "a silent-exit worker must never produce a trusted result";
+
+    // Same per-launch snapshot discipline: removing the point restores the
+    // happy path for the next invocation.
+    DebugPoints::instance()->remove("LanceIndexWorker.skip_report");
+    const auto second = make_dispatch("dbg-skip-off", epoch_millis() + 3600 * 1000, 10032);
+    ASSERT_TRUE(supervisor.submit(second).ok());
+    ASSERT_TRUE(recorder.wait_results(1));
+    EXPECT_EQ(recorder.first_result().result_code, TLanceIndexJobResultCode::NATIVE_OK);
+    supervisor.stop();
 }
 
 } // namespace doris::lance
