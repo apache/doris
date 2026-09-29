@@ -271,7 +271,7 @@ jobs:
             'openjdk@17'
             'maven'
             'node'
-            'llvm@22'
+            'llvm@20'
           )
 
           # Install packages except cmake
@@ -289,6 +289,20 @@ jobs:
           export MACOSX_DEPLOYMENT_TARGET=12.0
           export CMAKE_POLICY_VERSION_MINIMUM=3.10
           export CUSTOM_CMAKE="/usr/local/bin/cmake"
+
+          # env.sh now names llvm@22 for macOS (the first compiler-rt whose ASAN
+          # runtime survives macOS 26.4+), which is what a developer wants. This job
+          # is not a developer: it publishes the macOS thirdparty prebuilt, and that
+          # artifact's compiler has to stay pinned rather than be inherited from
+          # env.sh. llvm@22 cannot build unixODBC 2.3.7 -- SQLBrowseConnectW.c:424
+          # passes SQLSMALLINT* where int* is expected, and clang 22 promotes
+          # -Wincompatible-pointer-types from warning to error -- and the rest of
+          # the library set is untested against it. Because env.sh leaves a pre-set
+          # DORIS_CLANG_HOME alone, pinning it here keeps this artifact built by
+          # llvm@20 exactly as before. Nothing in this build invokes a bare `clang`
+          # (every compiler invocation comes from CC/CXX), so DORIS_CLANG_HOME is
+          # the whole override.
+          export DORIS_CLANG_HOME="$(brew --prefix llvm@20)"
 
           df -h
           echo $TMPDIR
@@ -368,7 +382,7 @@ jobs:
             'openjdk@17'
             'maven'
             'node'
-            'llvm@22'
+            'llvm@20'
           )
 
           # Install packages except cmake
@@ -386,6 +400,20 @@ jobs:
           export MACOSX_DEPLOYMENT_TARGET=12.0
           export CMAKE_POLICY_VERSION_MINIMUM=3.10
           export CUSTOM_CMAKE="/usr/local/bin/cmake"
+
+          # env.sh now names llvm@22 for macOS (the first compiler-rt whose ASAN
+          # runtime survives macOS 26.4+), which is what a developer wants. This job
+          # is not a developer: it publishes the macOS thirdparty prebuilt, and that
+          # artifact's compiler has to stay pinned rather than be inherited from
+          # env.sh. llvm@22 cannot build unixODBC 2.3.7 -- SQLBrowseConnectW.c:424
+          # passes SQLSMALLINT* where int* is expected, and clang 22 promotes
+          # -Wincompatible-pointer-types from warning to error -- and the rest of
+          # the library set is untested against it. Because env.sh leaves a pre-set
+          # DORIS_CLANG_HOME alone, pinning it here keeps this artifact built by
+          # llvm@20 exactly as before. Nothing in this build invokes a bare `clang`
+          # (every compiler invocation comes from CC/CXX), so DORIS_CLANG_HOME is
+          # the whole override.
+          export DORIS_CLANG_HOME="$(brew --prefix llvm@20)"
 
           df -h
           echo $TMPDIR
