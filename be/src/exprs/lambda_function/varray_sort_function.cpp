@@ -34,6 +34,8 @@
 #include "core/column/column_vector.h"
 #include "core/custom_allocator.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/primitive_type.h"
 #include "exec/common/util.hpp"
 #include "exprs/lambda_function/lambda_execution_context.h"
 #include "exprs/lambda_function/lambda_function.h"
@@ -95,6 +97,16 @@ public:
 
         DCHECK_EQ(children.size(), 2);
 
+        // The comparator returns -1, 0 or 1, and only its sign is used. FE rejects a non-integer
+        // comparator, but an older FE does not check it.
+        const auto& comparator_type = children[0]->get_child(0)->data_type();
+        const auto comparator_result_type = remove_nullable(comparator_type)->get_primitive_type();
+        if (!is_int(comparator_result_type)) {
+            return Status::InvalidArgument(
+                    "array_sort comparator must return -1, 0 or 1, but it returns {}",
+                    comparator_type->get_name());
+        }
+
         // 1. get data, we need to obtain this actual data and type.
         ColumnPtr column_ptr;
         RETURN_IF_ERROR(
@@ -145,11 +157,11 @@ public:
 
         /**
          *  suppose the data_type is nullable(int). The first two rows are the parameter columns, and the
-         *  last row is the result column(type: tinyint). every column's size is 1. the lambda_block is 
+         *  last row is the result column(an integer type). every column's size is 1. the lambda_block is
          *  row  data  nullmap    type
          *   0    10      0    nullable(int)
          *   1    20      1    nullable(int)
-         *   2   1/-1/0  ...     tinyint
+         *   2   1/-1/0  ...     integer
          *  The size of a column is always 1; we only need to use it to store the specific values ​​in the array for comparison.
         */
         Block lambda_block;
@@ -222,12 +234,11 @@ public:
                         ColumnPtr raw_res_col = lambda_block.get_by_position(lambda_res_id).column;
                         ColumnPtr full_res_col = raw_res_col->convert_to_full_column_if_const();
 
-                        // only -1, 0, 1
-                        long cmp =
-                                assert_cast<const ColumnInt8*>(full_res_col.get())->get_data()[0];
+                        bool is_less = _is_negative_comparator_result(*full_res_col,
+                                                                      comparator_result_type);
                         lambda_block.erase_tail(lambda_result_base);
 
-                        return cmp < 0;
+                        return is_less;
                     };
 
                     // The comparator is user SQL and may violate strict weak ordering, or
@@ -263,6 +274,33 @@ public:
     }
 
 private:
+    // Returns whether the comparator result in the first row is negative.
+    static bool _is_negative_comparator_result(const IColumn& column, PrimitiveType type) {
+        const IColumn* values = &column;
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(&column)) {
+            if (nullable->is_null_at(0)) {
+                throw Exception(Status::InvalidArgument(
+                        "array_sort comparator returns NULL, but it must return -1, 0 or 1"));
+            }
+            values = &nullable->get_nested_column();
+        }
+        switch (type) {
+        case TYPE_TINYINT:
+            return assert_cast<const ColumnInt8&>(*values).get_element(0) < 0;
+        case TYPE_SMALLINT:
+            return assert_cast<const ColumnInt16&>(*values).get_element(0) < 0;
+        case TYPE_INT:
+            return assert_cast<const ColumnInt32&>(*values).get_element(0) < 0;
+        case TYPE_BIGINT:
+            return assert_cast<const ColumnInt64&>(*values).get_element(0) < 0;
+        case TYPE_LARGEINT:
+            return assert_cast<const ColumnInt128&>(*values).get_element(0) < 0;
+        default:
+            DORIS_CHECK(false) << "array_sort comparator must return -1, 0 or 1";
+            return false;
+        }
+    }
+
     Status _set_comparator_argument_gap(const VExprSPtr& expr,
                                         const std::vector<std::string>* argument_names) const {
         if (expr->is_column_ref()) {
