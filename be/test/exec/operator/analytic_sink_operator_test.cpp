@@ -21,6 +21,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <numeric>
 #include <string>
 #include <unordered_map>
 
@@ -235,6 +236,7 @@ struct AnalyticSinkOperatorTest : public ::testing::Test {
     char buffer[100];
     void check_cume_dist_peer_groups_inside_batch(bool force_spill);
     void prepare_spilled_full_partition_sum();
+    void prepare_cume_dist_without_partition();
 
     std::vector<int64_t> _data_vals;
 };
@@ -674,6 +676,14 @@ Block int64_block_with_double_result(const std::vector<int64_t>& keys,
     return block;
 }
 
+Block order_block_with_double_result(const std::vector<int64_t>& order_values,
+                                     const std::vector<double>& results) {
+    auto block = ColumnHelper::create_block<DataTypeInt64>(order_values);
+    block.insert({ColumnHelper::create_column<DataTypeFloat64>(results),
+                  std::make_shared<DataTypeFloat64>(), "result"});
+    return block;
+}
+
 } // namespace
 
 TEST_F(AnalyticSinkOperatorTest, SpillPathBatchesSmallPartitionsIntoOneOutputBlock) {
@@ -1009,6 +1019,94 @@ TEST_F(AnalyticSinkOperatorTest, SpillPathRevokeMemoryFlushesCoalescedBlocks) {
     expect_next_spill_block(source.get(), state.get(), values_with_sum(15, 8, 435));
     expect_next_spill_block(source.get(), state.get(), values_with_sum(23, 7, 435));
     expect_spill_source_eos(source.get(), state.get());
+}
+
+void AnalyticSinkOperatorTest::prepare_cume_dist_without_partition() {
+    create_operator(true, 1, "cume_dist", {}, std::make_shared<DataTypeFloat64>());
+    sink->_agg_expr_ctxs.resize(1);
+    sink->_order_by_eq_expr_ctxs =
+            MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
+    sink->_enable_spill_analytic = true;
+    sink->_window_spill_strategies = {WindowSpillStrategy::PEER_GROUP};
+    sink->_window_spill_peer_functions = {WindowSpillPeerFunction::CUME_DIST};
+    create_local_state();
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillPathReplaysPeerGroupsFromSidecarFile) {
+    ScopedSpillFileManager spill_file_manager;
+    ASSERT_TRUE(spill_file_manager.init().ok());
+
+    Initialize(8);
+    prepare_cume_dist_without_partition();
+
+    // Peer group ends collected before the revoke go to the sidecar file, the rest at seal.
+    Block first = ColumnHelper::create_block<DataTypeInt64>({1, 1, 2});
+    auto status = sink->sink(state.get(), &first, false);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    status = sink->revoke_memory(state.get());
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_TRUE(sink_local_state->_batch_store->has_spilled_peer_groups());
+    Block second = ColumnHelper::create_block<DataTypeInt64>({2, 4});
+    status = sink->sink(state.get(), &second, true);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    // The first replay of a batch reserves the reader buffer and one deserialized Block.
+    const auto spill_buffer_bytes = static_cast<size_t>(state->spill_buffer_size_bytes());
+    EXPECT_EQ(source_local_state->_spill_replay_reserve_bytes(state.get()), 2 * spill_buffer_bytes);
+    expect_next_spill_block(source.get(), state.get(),
+                            order_block_with_double_result({1, 1, 2}, {0.4, 0.4, 0.8}));
+    ASSERT_NE(source_local_state->_peer_group_reader, nullptr);
+    EXPECT_EQ(source_local_state->_spill_replay_reserve_bytes(state.get()), spill_buffer_bytes);
+    expect_next_spill_block(source.get(), state.get(),
+                            order_block_with_double_result({2, 4}, {0.8, 1.0}));
+    EXPECT_EQ(source_local_state->_spill_replay_reserve_bytes(state.get()), 2 * spill_buffer_bytes);
+    expect_spill_source_eos(source.get(), state.get());
+}
+
+TEST_F(AnalyticSinkOperatorTest, SpillPathFlushesPeerGroupsAtSpillBufferSize) {
+    ScopedSpillFileManager spill_file_manager;
+    ASSERT_TRUE(spill_file_manager.init().ok());
+
+    Initialize(4096);
+    state->_query_options.__set_spill_buffer_size_bytes(1024 * 1024);
+    prepare_cume_dist_without_partition();
+
+    // Every row starts a peer group, so the peer group ends exceed the 1MB buffer
+    // (131072 entries) and are flushed to the sidecar file before the batch is sealed.
+    constexpr int64_t rows = 200000;
+    std::vector<int64_t> order_values(rows);
+    std::iota(order_values.begin(), order_values.end(), 0);
+    Block input = ColumnHelper::create_block<DataTypeInt64>(order_values);
+    auto status = sink->sink(state.get(), &input, false);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    EXPECT_TRUE(sink_local_state->_batch_store->has_spilled_peer_groups());
+    EXPECT_FALSE(sink_local_state->_batch_store->is_spilled());
+    Block eos_block = ColumnHelper::create_block<DataTypeInt64>({});
+    status = sink->sink(state.get(), &eos_block, true);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    int64_t output_rows = 0;
+    bool eos = false;
+    while (!eos) {
+        Block output;
+        status = source->get_block(state.get(), &output, &eos);
+        ASSERT_TRUE(status.ok()) << status.to_string();
+        if (eos) {
+            break;
+        }
+        ASSERT_NE(source_local_state->_peer_group_reader, nullptr);
+        ASSERT_LE(output.rows(), 4096);
+        const auto& order = assert_cast<const ColumnInt64&>(*output.get_by_position(0).column);
+        const auto& cume_dist =
+                assert_cast<const ColumnFloat64&>(*output.get_by_position(1).column);
+        for (size_t i = 0; i < output.rows(); ++i) {
+            ASSERT_EQ(order.get_data()[i], output_rows);
+            ASSERT_EQ(cume_dist.get_data()[i],
+                      static_cast<double>(output_rows + 1) / static_cast<double>(rows));
+            ++output_rows;
+        }
+    }
+    EXPECT_EQ(output_rows, rows);
 }
 
 TEST_F(AnalyticSinkOperatorTest, AggFunction2) {
