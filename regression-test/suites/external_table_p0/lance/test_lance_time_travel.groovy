@@ -185,7 +185,7 @@ suite("test_lance_time_travel", "p0,external") {
         }
         test {
             sql """SELECT count(*) FROM ${table} FOR TIME AS OF '2026-09-19 13:06:07'"""
-            exception "Lance dataset has no version at or before '2026-09-19 13:06:07'"
+            exception "Lance table default.time_travel has no version at or before '2026-09-19 13:06:07'"
         }
         test {
             sql """SELECT count(*) FROM ${table} FOR TIME AS OF 'not-a-time'"""

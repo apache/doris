@@ -92,36 +92,60 @@ public class LanceSnapshotTest {
     public void testTimeSelectorComparesCommitTimesAcrossTheHistory() {
         // Commit times that go back: version 2 reports an earlier time than version 1.
         Assertions.assertEquals(1, LanceSnapshotResolver.versionAtOrBefore(
-                Arrays.asList(version(1, 100), version(2, 90), version(3, 200)), null, id -> null, 150, "150"));
-        // Version 3 of 1..4 (times 10/40/20/50) is still staged, so the listing lacks it.
-        List<Long> checkedOut = new ArrayList<>();
-        Assertions.assertEquals(3, LanceSnapshotResolver.versionAtOrBefore(
-                Arrays.asList(version(1, 10), version(2, 40), version(4, 50)), recorded(1, 2, 3, 4),
-                id -> {
-                    checkedOut.add(id);
-                    return id == 3 ? version(3, 20) : null;
-                }, 30, "30"));
-        Assertions.assertEquals(Collections.singletonList(3L), checkedOut);
-        // Every listed version is after the time; a staged one inside the listed range is not.
+                Arrays.asList(version(1, 100), version(2, 90), version(3, 200)), null, 150, "150"));
+        // A managed chain selects among the versions the namespace records, not every one storage lists:
+        // storage's version 3 is not published yet.
         Assertions.assertEquals(2, LanceSnapshotResolver.versionAtOrBefore(
-                Arrays.asList(version(1, 50), version(3, 60)), recorded(1, 2, 3),
-                id -> id == 2 ? version(2, 10) : null, 20, "20"));
+                Arrays.asList(version(1, 10), version(2, 20), version(3, 30)), recorded(1, 2), 100, "100"));
+        // A version the namespace no longer records was removed, whether or not storage still holds
+        // its manifest: nothing older is a candidate.
+        LanceSnapshotResolver.HistoryRemovedException dropped = Assertions.assertThrows(
+                LanceSnapshotResolver.HistoryRemovedException.class, () -> LanceSnapshotResolver.versionAtOrBefore(
+                        Arrays.asList(version(1, 10), version(2, 20), version(3, 30)), recorded(1, 3), 25, "25"));
+        Assertions.assertEquals(2, dropped.getVersion());
+        LanceSnapshotResolver.HistoryRemovedException gap = Assertions.assertThrows(
+                LanceSnapshotResolver.HistoryRemovedException.class, () -> LanceSnapshotResolver.versionAtOrBefore(
+                        Arrays.asList(version(1, 10), version(2, 20), version(8, 80), version(9, 90)),
+                        recorded(1, 2, 8, 9), 50, "50"));
+        Assertions.assertEquals(7, gap.getVersion());
+        Assertions.assertEquals(9, LanceSnapshotResolver.versionAtOrBefore(
+                Arrays.asList(version(1, 10), version(2, 20), version(8, 80), version(9, 90)),
+                recorded(1, 2, 8, 9), 95, "95"));
+        // A branch's chain starts where it was forked; the versions before are not a gap.
+        Assertions.assertEquals(3, LanceSnapshotResolver.versionAtOrBefore(
+                Arrays.asList(version(2, 20), version(3, 30)), recorded(2, 3), 35, "35"));
+        // The newest recorded version has no manifest yet: its commit time is unknown.
+        LanceSnapshotResolver.HistoryRemovedException pending = Assertions.assertThrows(
+                LanceSnapshotResolver.HistoryRemovedException.class, () -> LanceSnapshotResolver.versionAtOrBefore(
+                        Arrays.asList(version(1, 10), version(2, 20), version(3, 30)), recorded(1, 2, 3, 4), 100,
+                        "100"));
+        Assertions.assertEquals(4, pending.getVersion());
+        // A recorded version storage lacks was removed: nothing older is a candidate.
+        LanceSnapshotResolver.HistoryRemovedException recordedRemoved = Assertions.assertThrows(
+                LanceSnapshotResolver.HistoryRemovedException.class, () -> LanceSnapshotResolver.versionAtOrBefore(
+                        Arrays.asList(version(1, 10), version(3, 30)), recorded(1, 2, 3), 20, "20"));
+        Assertions.assertEquals(2, recordedRemoved.getVersion());
         // Cleanup removed version 2: nothing from before it is a candidate, even version 1.
         LanceSnapshotResolver.HistoryRemovedException removed = Assertions.assertThrows(
                 LanceSnapshotResolver.HistoryRemovedException.class, () -> LanceSnapshotResolver.versionAtOrBefore(
-                        Arrays.asList(version(1, 10), version(3, 30)), null, id -> null, 20, "20"));
+                        Arrays.asList(version(1, 10), version(3, 30)), null, 20, "20"));
         Assertions.assertEquals(2, removed.getVersion());
         Assertions.assertEquals(3, LanceSnapshotResolver.versionAtOrBefore(
-                Arrays.asList(version(1, 10), version(3, 30)), null, id -> null, 30, "30"));
+                Arrays.asList(version(1, 10), version(3, 30)), null, 30, "30"));
     }
 
-    private enum State { LISTED, STAGED, REMOVED, UNRECORDED }
+    /**
+     * How a version appears: listed in storage and recorded (for a managed chain), removed from
+     * storage but still recorded, listed but not recorded, or neither.
+     */
+    private enum State { LISTED, REMOVED, UNRECORDED, DROPPED }
 
     /**
      * Checks the selection against a direct reading of its rule on random histories: times that
-     * repeat, go back, and fall inside a requested millisecond, staged, removed, and unrecorded
-     * versions, on storage and managed chains. Commit times are in microseconds, requested times
-     * in milliseconds.
+     * repeat, go back, and fall inside a requested millisecond, removed, unrecorded and dropped
+     * versions, on storage and managed chains, including a managed chain whose newest recorded
+     * version storage lacks or whose newest listed version the namespace does not record. Commit
+     * times are in microseconds, requested times in milliseconds.
      */
     @Test
     public void testTimeSelectorMatchesItsRuleOnRandomHistories() {
@@ -134,8 +158,9 @@ public class LanceSnapshotTest {
             for (int id = 1; id <= count; id++) {
                 times[id] = random.nextInt(10) * 1000L + random.nextInt(3) * 500L;
                 State[] choices = managed ? State.values() : new State[] {State.LISTED, State.REMOVED};
-                // The newest version is the open dataset, so it is always there.
-                states[id] = id == count ? State.LISTED : choices[random.nextInt(choices.length)];
+                // The newest storage version is the open dataset, so it is always there; a managed
+                // chain's records can end before or after it.
+                states[id] = id == count && !managed ? State.LISTED : choices[random.nextInt(choices.length)];
             }
             long timestamp = random.nextInt(11) - 1;
 
@@ -145,24 +170,36 @@ public class LanceSnapshotTest {
                 if (states[id] == State.LISTED || states[id] == State.UNRECORDED) {
                     listed.add(versionAtMicros(id, times[id]));
                 }
-                if (managed && states[id] != State.UNRECORDED) {
+                if (managed && (states[id] == State.LISTED || states[id] == State.REMOVED)) {
                     recorded.add((long) id);
                 }
             }
             Collections.shuffle(listed, random);
 
-            // The rule: the newest removed version cuts the history (for storage, only one the
-            // listing shows a gap for), and the latest commit at or before the time wins.
+            // The rule: the newest removed version cuts the history, and the latest commit at or
+            // before the time wins. For storage, a removed version is one the listing shows a gap
+            // for; for a managed chain, any number between its oldest and newest recorded version
+            // that is not both recorded and listed.
             Long removed = null;
-            int oldestListed = count;
-            for (int id = count; id >= 1; id--) {
-                if (states[id] == State.LISTED) {
-                    oldestListed = id;
+            if (managed) {
+                long newest = recorded.isEmpty() ? 0 : recorded.last();
+                long oldest = recorded.isEmpty() ? 1 : recorded.first();
+                for (long id = newest; id >= oldest && removed == null; id--) {
+                    if (states[(int) id] != State.LISTED) {
+                        removed = id;
+                    }
                 }
-            }
-            for (int id = count; id >= 1 && removed == null; id--) {
-                if (states[id] == State.REMOVED && (managed || id > oldestListed)) {
-                    removed = (long) id;
+            } else {
+                int oldestListed = count;
+                for (int id = count; id >= 1; id--) {
+                    if (states[id] == State.LISTED) {
+                        oldestListed = id;
+                    }
+                }
+                for (int id = count; id >= 1 && removed == null; id--) {
+                    if (states[id] == State.REMOVED && id > oldestListed) {
+                        removed = (long) id;
+                    }
                 }
             }
             Long expected = null;
@@ -170,23 +207,18 @@ public class LanceSnapshotTest {
                 if (id < 1) {
                     break;
                 }
-                boolean candidate = managed ? states[id] == State.LISTED || states[id] == State.STAGED
-                        : states[id] == State.LISTED;
+                boolean candidate = states[id] == State.LISTED;
                 if (candidate && times[id] <= timestamp * 1000
                         && (expected == null || times[id] > times[expected.intValue()])) {
                     expected = (long) id;
                 }
             }
 
-            final Long cut = removed;
             String context = "round " + round + (managed ? " managed" : " storage") + " times "
                     + Arrays.toString(times) + " states " + Arrays.toString(states) + " at " + timestamp;
             try {
-                long actual = LanceSnapshotResolver.versionAtOrBefore(listed, recorded, id -> {
-                    Assertions.assertTrue(managed && states[(int) id] != State.LISTED
-                            && states[(int) id] != State.UNRECORDED && (cut == null || id >= cut), context);
-                    return states[(int) id] == State.STAGED ? versionAtMicros(id, times[(int) id]) : null;
-                }, timestamp, String.valueOf(timestamp));
+                long actual = LanceSnapshotResolver.versionAtOrBefore(listed, recorded, timestamp,
+                        String.valueOf(timestamp));
                 Assertions.assertEquals(expected, Long.valueOf(actual), context);
             } catch (LanceSnapshotResolver.HistoryRemovedException e) {
                 Assertions.assertNull(expected, context);

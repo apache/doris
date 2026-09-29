@@ -10,7 +10,10 @@ all_types_unprefixed
 time_travel
 time_travel_managed
 time_travel_managed_lagging
+time_travel_managed_misrecorded
 time_travel_managed_partial
+time_travel_managed_pending
+time_travel_managed_staged
 time_travel_managed_unprefixed
 time_travel_managed_untimed
 

@@ -238,27 +238,6 @@ public class LanceStorageOptionsTest {
         }
     }
 
-    /**
-     * What the SDK's own describe of a managed table vends is normalized the same way before the
-     * SDK sees it, so its values replace the merged ones key for key. A vended alias would leave
-     * the canonical key missing, and Lance fills a missing canonical key from the FE environment.
-     */
-    @Test
-    public void testVendedOptionsNormalizeOntoTheMergedSpelling() {
-        Map<String, String> vended = new HashMap<>();
-        vended.put("access_key_id", "vended-ak");
-        vended.put("secret_access_key", "vended-sk");
-        vended.put("endpoint", "https://storage-b");
-        Map<String, String> merged =
-                LanceStorageOptions.fromDorisAndVendedStorageOptions(S3_URI, minioCatalog(), vended);
-
-        Map<String, String> normalized = LanceStorageOptions.normalizeVendedStorageOptions(S3_URI, vended);
-
-        Assertions.assertEquals(3, normalized.size());
-        normalized.forEach((key, value) -> Assertions.assertEquals(merged.get(key), value, key));
-        Assertions.assertEquals("https://storage-b", normalized.get("aws_endpoint"));
-    }
-
     /** Every accepted spelling has to collapse, or the race just moves to the ones missed. */
     @Test
     public void testEveryS3AliasCollapsesOntoOneEntry() {

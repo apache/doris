@@ -27,16 +27,15 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Expiry;
 import com.github.benmanes.caffeine.cache.Ticker;
-import org.apache.arrow.memory.BufferAllocator;
 import org.apache.commons.lang3.StringUtils;
-import org.lance.Dataset;
-import org.lance.ReadOptions;
-import org.lance.Session;
 import org.lance.namespace.LanceNamespace;
 import org.lance.namespace.errors.NamespaceNotFoundException;
 import org.lance.namespace.errors.TableNotFoundException;
+import org.lance.namespace.errors.TableVersionNotFoundException;
 import org.lance.namespace.model.DescribeTableRequest;
 import org.lance.namespace.model.DescribeTableResponse;
+import org.lance.namespace.model.DescribeTableVersionRequest;
+import org.lance.namespace.model.DescribeTableVersionResponse;
 import org.lance.namespace.model.ListNamespacesRequest;
 import org.lance.namespace.model.ListNamespacesResponse;
 import org.lance.namespace.model.ListTableVersionsRequest;
@@ -51,14 +50,12 @@ import java.net.URISyntaxException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -77,6 +74,12 @@ final class LanceNamespaceClient {
     private final String rootDatabase;
     private final List<String> parentNamespace;
     private final List<StorageProperties> storageProperties;
+    /**
+     * Serializes the catalog's namespace requests, as it always has. The version requests of a
+     * managed read, made on every such read, do not take it: the REST and Directory namespaces
+     * are safe to call concurrently (lance-jni calls them through a shared reference on its
+     * multi-threaded runtime).
+     */
     private final Object namespaceLock = new Object();
     private final long tableAccessTtlNanos;
     private final Ticker ticker;
@@ -247,12 +250,11 @@ final class LanceNamespaceClient {
         }
 
         LanceTableAccess access;
-        if (Boolean.TRUE.equals(table.getManagedVersioning())) {
-            // The namespace, not the dataset directory, records which manifest each version has.
-            // The FE opens the dataset through the namespace so the SDK resolves the version there
-            // and finalizes a still-staged manifest to its canonical path; the BE then opens the
-            // same version by URI, which is all lance-c supports. The SDK opens `location` and
-            // ignores `table_uri`, so both readers must agree on it.
+        boolean managed = Boolean.TRUE.equals(table.getManagedVersioning());
+        if (managed) {
+            // The namespace decides which versions exist; the FE and the BE both read one of them
+            // by URI, which is all lance-c supports. The manifest paths the namespace records are
+            // object-store paths under `location`, so `table_uri` must name the same place.
             if (StringUtils.isBlank(table.getLocation())) {
                 throw new RuntimeException("Lance namespace returned no location for managed table " + tableId);
             }
@@ -261,11 +263,15 @@ final class LanceNamespaceClient {
                 throw new RuntimeException("Lance namespace returned a table_uri that differs from location for "
                         + "managed table " + tableId);
             }
-            access = managedAccess(datasetUri, table.getStorageOptions(), tableId);
+            access = LanceTableAccess.managedByNamespace(datasetUri,
+                    storageOptions(datasetUri, table.getStorageOptions()), tableId);
         } else {
             access = new LanceTableAccess(datasetUri, storageOptions(datasetUri, table.getStorageOptions()));
         }
-        return new CachedTableAccess(access, tableAccessTtlNanos(datasetUri, table.getStorageOptions()));
+        // A managed access is not cached: the version list the read asks for next is the
+        // namespace's current one, and must be checked against the location the namespace
+        // reports now, not against one it reported before moving the table.
+        return new CachedTableAccess(access, managed ? 0 : tableAccessTtlNanos(datasetUri, table.getStorageOptions()));
     }
 
     /**
@@ -277,93 +283,22 @@ final class LanceNamespaceClient {
         return LanceStorageOptions.fromDorisAndVendedStorageOptions(datasetUri, storageProperties, vendedOptions);
     }
 
-    LanceTableAccess managedAccess(String datasetUri, Map<String, String> vendedOptions,
-            List<String> tableId) {
-        Map<String, String> vended = LanceStorageOptions.normalizeVendedStorageOptions(datasetUri, vendedOptions);
-        return LanceTableAccess.managedByNamespace(datasetUri, storageOptions(datasetUri, vended), vended, tableId);
-    }
-
-    /**
-     * The access that reads what the SDK opened for a managed table. The SDK describes the table
-     * again and opens the location and vended options of that describe, so if the namespace
-     * changed either since {@code access} was resolved, the BE must be handed the new ones: the
-     * FE plans the dataset the SDK opened, and the BE has to open the same one. A cached access
-     * is left as it is and expires with its TTL; until then every read derives the new one again.
-     *
-     * @param openedOptions the options the SDK opened with, as {@code Dataset.getInitialStorageOptions()}
-     *     reports them: the options it was handed with its describe's vended options, normalized by
-     *     {@link LanceSdkNamespace}, put on top
-     */
-    LanceTableAccess accessOpenedBySdk(LanceTableAccess access, String openedUri, Map<String, String> openedOptions) {
-        Map<String, String> opened = openedOptions == null ? Collections.emptyMap() : openedOptions;
-        boolean sameUri = StringUtils.removeEnd(openedUri, "/")
-                .equals(StringUtils.removeEnd(access.getDatasetUri(), "/"));
-        if (sameUri && opened.equals(access.getStorageOptions())) {
-            return access;
-        }
-        // Every entry that differs from what the SDK was handed came from its describe. What the
-        // namespace vended the first time and not again stays, as it does for the SDK.
-        Map<String, String> vended = new HashMap<>(access.getVendedStorageOptions());
-        opened.forEach((key, value) -> {
-            if (!value.equals(access.getStorageOptions().get(key))) {
-                vended.put(key, value);
-            }
-        });
-        return managedAccess(sameUri ? access.getDatasetUri() : openedUri, vended, access.getNamespaceTableId());
-    }
-
-    /**
-     * Whether the SDK opened {@code openedUri} with exactly the options {@code access} hands it, so
-     * the FE read what the BE will. It did not when the namespace changed a value an option is
-     * inferred from, or moved the table to another store: the SDK then still holds the old
-     * inferred option or vocabulary next to the new one.
-     */
-    static boolean opensAs(LanceTableAccess access, String openedUri, Map<String, String> openedOptions) {
-        Map<String, String> opened = openedOptions == null ? Collections.emptyMap() : openedOptions;
-        return StringUtils.removeEnd(openedUri, "/").equals(StringUtils.removeEnd(access.getDatasetUri(), "/"))
-                && opened.equals(access.getStorageOptions());
-    }
-
-    /** The namespace to hand the SDK for one open of the managed table {@code access} addresses. */
-    LanceSdkNamespace sdkNamespace(LanceTableAccess access) {
-        return new LanceSdkNamespace(namespace, access.getStorageOptions());
-    }
-
-    /**
-     * Opens a namespace-managed dataset through {@code sdkNamespace}, which wraps this client's
-     * namespace. The SDK describes the table and resolves versions through it, outside
-     * {@code namespaceLock}, so the open is not serialized with the requests this class issues
-     * itself. The REST and Directory namespaces are safe to call concurrently.
-     *
-     * <p>The session is passed to the builder explicitly: when the SDK opens through a namespace
-     * client it rebuilds the read options and drops the session they carry, so the one inside
-     * {@code readOptions} is ignored on this path.
-     */
-    Dataset openManagedDataset(BufferAllocator allocator, LanceTableAccess access, ReadOptions readOptions,
-            Session session, LanceSdkNamespace sdkNamespace) {
-        return Dataset.open().allocator(allocator).namespaceClient(sdkNamespace)
-                .tableId(access.getNamespaceTableId()).readOptions(readOptions).session(session).build();
-    }
-
     /**
      * Every version the namespace records for a managed chain. No page size is requested: Lance's
      * Directory namespace applies a limit without returning a page token, which would silently
      * truncate the history, while a namespace that pages on its own still returns one.
      */
-    List<TableVersion> listManagedVersions(LanceTableAccess access) {
+    List<TableVersion> listManagedVersions(LanceTableAccess access, Optional<String> branch) {
         List<TableVersion> result = new ArrayList<>();
         String pageToken = null;
         Set<String> consumedTokens = new HashSet<>();
         do {
             ListTableVersionsRequest request = new ListTableVersionsRequest().id(access.getNamespaceTableId());
-            access.getBranch().ifPresent(request::branch);
+            branch.ifPresent(request::branch);
             if (pageToken != null) {
                 request.pageToken(pageToken);
             }
-            ListTableVersionsResponse response;
-            synchronized (namespaceLock) {
-                response = namespace.listTableVersions(request);
-            }
+            ListTableVersionsResponse response = namespace.listTableVersions(request);
             if (response.getVersions() != null) {
                 result.addAll(response.getVersions());
             }
@@ -378,20 +313,34 @@ final class LanceNamespaceClient {
     /**
      * The newest version the namespace records for a managed chain, asked for the way the Lance
      * SDK asks when it opens the latest version: newest first, one entry. Empty when the chain
-     * records no version, where the SDK would fall back to the newest manifest in storage.
+     * records no version.
      */
-    OptionalLong latestManagedVersion(LanceTableAccess access, Optional<String> branch) {
+    Optional<TableVersion> latestManagedVersion(LanceTableAccess access, Optional<String> branch) {
         ListTableVersionsRequest request = new ListTableVersionsRequest().id(access.getNamespaceTableId())
                 .descending(true).limit(1);
         branch.ifPresent(request::branch);
-        ListTableVersionsResponse response;
-        synchronized (namespaceLock) {
-            response = namespace.listTableVersions(request);
-        }
+        ListTableVersionsResponse response = namespace.listTableVersions(request);
         // The maximum rather than the first entry, in case a namespace ignores the limit.
-        return response.getVersions() == null ? OptionalLong.empty()
-                : response.getVersions().stream().map(TableVersion::getVersion).filter(Objects::nonNull)
-                        .mapToLong(Long::longValue).max();
+        return response.getVersions() == null ? Optional.empty()
+                : response.getVersions().stream().filter(version -> version.getVersion() != null)
+                        .max(Comparator.comparingLong(TableVersion::getVersion));
+    }
+
+    /**
+     * What the namespace records for one version of a managed chain.
+     *
+     * @throws TableVersionNotFoundException if the namespace does not record it
+     */
+    TableVersion describeManagedVersion(LanceTableAccess access, Optional<String> branch, long version) {
+        DescribeTableVersionRequest request = new DescribeTableVersionRequest().id(access.getNamespaceTableId())
+                .version(version);
+        branch.ifPresent(request::branch);
+        DescribeTableVersionResponse response = namespace.describeTableVersion(request);
+        if (response.getVersion() == null || !Long.valueOf(version).equals(response.getVersion().getVersion())) {
+            throw new IllegalStateException("Lance namespace described another version than " + version
+                    + " of table " + access.getNamespaceTableId());
+        }
+        return response.getVersion();
     }
 
     private long tableAccessTtlNanos(String datasetUri, Map<String, String> vendedOptions) {

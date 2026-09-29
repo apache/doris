@@ -27,7 +27,6 @@ import java.util.List;
 import java.util.NavigableMap;
 import java.util.NavigableSet;
 import java.util.TreeMap;
-import java.util.function.LongFunction;
 import java.util.regex.Pattern;
 
 /** Resolves Doris time-travel selectors to immutable Lance version IDs. */
@@ -125,16 +124,16 @@ public final class LanceSnapshotResolver {
      *
      * @param listed the chain's versions a storage listing shows
      * @param recorded the versions a namespace records for a managed chain, which are the chain;
-     *     null when the chain is what storage holds, whose commits Lance numbers consecutively,
-     *     so a number the listing skips is a removed version
-     * @param checkout checks out a recorded version the listing does not show, such as one whose
-     *     manifest is still staged; null if it no longer exists. Only called for recorded
-     *     versions newer than the newest removed one.
+     *     null when the chain is what storage holds. Lance numbers a chain's commits consecutively,
+     *     under a namespace too (DirectoryNamespace accepts only the next version), so a number the
+     *     listing skips is a removed version, and on a managed chain so is a number between its
+     *     oldest and newest recorded version that the namespace lacks, and a recorded version the
+     *     listing lacks
      * @throws HistoryRemovedException if no candidate qualifies and a removed version cut the history
      * @throws NoVersionAtOrBeforeException if no candidate qualifies otherwise
      */
     public static long versionAtOrBefore(Collection<Version> listed, NavigableSet<Long> recorded,
-            LongFunction<Version> checkout, long timestampMillis, String requestedText) {
+            long timestampMillis, String requestedText) {
         NavigableMap<Long, Version> byId = new TreeMap<>();
         for (Version version : listed) {
             if (recorded == null || recorded.contains(version.getId())) {
@@ -153,9 +152,9 @@ public final class LanceSnapshotResolver {
                 history.add(version);
                 expected = version.getId() - 1;
             }
-        } else {
-            for (long id : recorded.descendingSet()) {
-                Version version = byId.containsKey(id) ? byId.get(id) : checkout.apply(id);
+        } else if (!recorded.isEmpty()) {
+            for (long id = recorded.last(); id >= recorded.first(); id--) {
+                Version version = recorded.contains(id) ? byId.get(id) : null;
                 if (version == null) {
                     removed = id;
                     break;

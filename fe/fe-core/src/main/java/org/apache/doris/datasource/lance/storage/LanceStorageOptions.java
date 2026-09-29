@@ -68,25 +68,6 @@ public final class LanceStorageOptions {
         return buildStorageOptions(datasetUri, storageProperties, vendedOptions);
     }
 
-    /**
-     * What a namespace vended for one table, validated and in the vocabulary of the provider Lance
-     * routes {@code datasetUri} to: the spelling {@link #fromDorisAndVendedStorageOptions} merges
-     * it in. Empty for null or empty input.
-     *
-     * <p>Also applied to the describe the Lance SDK issues itself when it opens a managed table,
-     * so the options it opens with carry one spelling per option, the same one the BE receives.
-     */
-    public static Map<String, String> normalizeVendedStorageOptions(String datasetUri,
-            Map<String, String> vendedOptions) {
-        if (vendedOptions == null || vendedOptions.isEmpty()) {
-            return new HashMap<>();
-        }
-        vendedOptions.forEach(LanceStorageOptions::validateVendedOption);
-        // Safe to validate before normalizing: normalization only renames a key to a provider
-        // constant or passes it through, so it cannot introduce a NUL missed above.
-        return LanceStorageProvider.forDataset(datasetUri).normalizeVendedStorageOptions(vendedOptions);
-    }
-
     private static Map<String, String> buildStorageOptions(String datasetUri,
             List<StorageProperties> storageProperties, Map<String, String> vendedOptions) {
         LanceStorageProvider provider = LanceStorageProvider.forDataset(datasetUri);
@@ -94,7 +75,14 @@ public final class LanceStorageOptions {
                 provider.normalizeDorisStorageOptions(storageProperties));
         result.forEach((key, value) -> rejectUntransportable(key, value,
                 "Doris storage configuration"));
-        result.putAll(normalizeVendedStorageOptions(datasetUri, vendedOptions));
+        Map<String, String> normalizedVended = new HashMap<>();
+        if (vendedOptions != null && !vendedOptions.isEmpty()) {
+            vendedOptions.forEach(LanceStorageOptions::validateVendedOption);
+            // Safe to validate before normalizing: normalization only renames a key to a provider
+            // constant or passes it through, so it cannot introduce a NUL missed above.
+            normalizedVended = provider.normalizeVendedStorageOptions(vendedOptions);
+        }
+        result.putAll(normalizedVended);
         provider.inferStorageOptions(result).forEach(result::putIfAbsent);
         result.forEach((key, value) -> rejectUntransportable(key, value,
                 "Lance storage configuration"));
