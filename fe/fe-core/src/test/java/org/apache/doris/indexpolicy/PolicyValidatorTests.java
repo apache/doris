@@ -144,6 +144,193 @@ public class PolicyValidatorTests {
         validator.validate(props); // Should not throw
     }
 
+    @Test
+    public void testNGramValidator_GramModeSparse() throws DdlException {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "ngram");
+        props.put("mode", "sparse");
+        props.put("min_gram", "3");
+        props.put("max_gram", "16");
+        props.put("density", "0.25");
+        props.put("lower_case", "true");
+        validator.validate(props);
+    }
+
+    @Test
+    public void testNGramValidator_GramModeRejectsBadValues() {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> bad = new HashMap<>();
+        bad.put("type", "ngram");
+        bad.put("mode", "fuzzy");
+        DdlException e1 = Assertions.assertThrows(DdlException.class, () -> validator.validate(bad));
+        Assertions.assertTrue(e1.getMessage().contains("mode must be one of"));
+
+        Map<String, String> noMode = new HashMap<>();
+        noMode.put("type", "ngram");
+        noMode.put("density", "0.25");
+        DdlException e2 = Assertions.assertThrows(DdlException.class, () -> validator.validate(noMode));
+        Assertions.assertTrue(e2.getMessage().contains("requires mode"));
+
+        Map<String, String> badDensity = new HashMap<>();
+        badDensity.put("type", "ngram");
+        badDensity.put("mode", "sparse");
+        badDensity.put("density", "1.5");
+        Assertions.assertTrue(Assertions.assertThrows(DdlException.class, () -> validator.validate(badDensity))
+                .getMessage().contains("density must be"));
+
+        Map<String, String> tokenChars = new HashMap<>();
+        tokenChars.put("type", "ngram");
+        tokenChars.put("mode", "dense");
+        tokenChars.put("token_chars", "letter");
+        Assertions.assertTrue(Assertions.assertThrows(DdlException.class, () -> validator.validate(tokenChars))
+                .getMessage().contains("token_chars cannot be used"));
+
+        Map<String, String> wideGap = new HashMap<>();
+        wideGap.put("type", "ngram");
+        wideGap.put("mode", "sparse");
+        wideGap.put("min_gram", "3");
+        wideGap.put("max_gram", "24");
+        Assertions.assertDoesNotThrow(() -> validator.validate(wideGap));
+    }
+
+    @Test
+    public void testNGramValidator_GramModeRejectsEmptyMode() {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> emptyMode = new HashMap<>();
+        emptyMode.put("type", "ngram");
+        emptyMode.put("mode", "");
+        DdlException e = Assertions.assertThrows(DdlException.class, () -> validator.validate(emptyMode));
+        Assertions.assertTrue(e.getMessage().contains("mode must be one of"), e.getMessage());
+        Assertions.assertTrue(e.getMessage().contains("got: '' (empty)"), e.getMessage());
+    }
+
+    private static Map<String, String> sparseGramProps() {
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "ngram");
+        props.put("mode", "sparse");
+        return props;
+    }
+
+    private static String assertGramPropRejected(Map<String, String> props) {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        return Assertions.assertThrows(DdlException.class, () -> validator.validate(props)).getMessage();
+    }
+
+    @Test
+    public void testNGramValidator_GramModeValueDomainsMirrorBe() {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+
+        Map<String, String> maxGramTooBig = sparseGramProps();
+        maxGramTooBig.put("max_gram", "257");
+        String maxGramMessage = assertGramPropRejected(maxGramTooBig);
+        Assertions.assertTrue(maxGramMessage.contains("max_gram must be an integer in [1, 256]"), maxGramMessage);
+
+        Map<String, String> minGramTooBig = sparseGramProps();
+        minGramTooBig.put("min_gram", "65");
+        String minGramMessage = assertGramPropRejected(minGramTooBig);
+        Assertions.assertTrue(minGramMessage.contains("min_gram must be an integer in [1, 64]"), minGramMessage);
+
+        Map<String, String> gramAtBound = sparseGramProps();
+        gramAtBound.put("min_gram", "64");
+        gramAtBound.put("max_gram", "256");
+        Assertions.assertDoesNotThrow(() -> validator.validate(gramAtBound));
+
+        Map<String, String> densityTooSmall = sparseGramProps();
+        densityTooSmall.put("density", "0.0005");
+        String densityMessage = assertGramPropRejected(densityTooSmall);
+        Assertions.assertTrue(densityMessage.contains("density must be in [0.001, 1]"), densityMessage);
+
+        Map<String, String> densityAtBound = sparseGramProps();
+        densityAtBound.put("density", "0.001");
+        Assertions.assertDoesNotThrow(() -> validator.validate(densityAtBound));
+
+        Map<String, String> stopGramDf = sparseGramProps();
+        stopGramDf.put("stop_gram_df", "0.10");
+        String stopGramDfMessage = assertGramPropRejected(stopGramDf);
+        Assertions.assertTrue(stopGramDfMessage.contains("stop_gram_df"), stopGramDfMessage);
+
+        Map<String, String> badLowerCase = sparseGramProps();
+        badLowerCase.put("lower_case", "yes");
+        String lowerCaseMessage = assertGramPropRejected(badLowerCase);
+        Assertions.assertTrue(lowerCaseMessage.contains("lower_case must be true or false"), lowerCaseMessage);
+
+        Map<String, String> inverted = sparseGramProps();
+        inverted.put("min_gram", "5");
+        inverted.put("max_gram", "4");
+        String invertedMessage = assertGramPropRejected(inverted);
+        Assertions.assertTrue(invertedMessage.contains("min_gram (5) must be <= max_gram (4)"), invertedMessage);
+    }
+
+    @Test
+    public void testNGramValidator_GramIntegerPropsRejectNonAsciiDigits() {
+        Map<String, String> fullWidthMin = sparseGramProps();
+        fullWidthMin.put("min_gram", "３");
+        String minMessage = assertGramPropRejected(fullWidthMin);
+        Assertions.assertTrue(minMessage.contains("min_gram must be an integer in [1, 64]"), minMessage);
+
+        Map<String, String> fullWidthMax = sparseGramProps();
+        fullWidthMax.put("max_gram", "１６");
+        String maxMessage = assertGramPropRejected(fullWidthMax);
+        Assertions.assertTrue(maxMessage.contains("max_gram must be an integer in [1, 256]"), maxMessage);
+
+        Map<String, String> arabicIndic = sparseGramProps();
+        arabicIndic.put("min_gram", "٣");
+        String arabicMessage = assertGramPropRejected(arabicIndic);
+        Assertions.assertTrue(arabicMessage.contains("min_gram must be an integer in [1, 64]"), arabicMessage);
+
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        Map<String, String> ascii = sparseGramProps();
+        ascii.put("min_gram", "3");
+        ascii.put("max_gram", "+16");
+        Assertions.assertDoesNotThrow(() -> validator.validate(ascii));
+    }
+
+    @Test
+    public void testNGramValidator_GramModeRejectsUntrimmedAndMixedCase() {
+        Map<String, String> padded = new HashMap<>();
+        padded.put("type", "ngram");
+        padded.put("mode", " Sparse ");
+        String message = assertGramPropRejected(padded);
+        Assertions.assertTrue(message.contains("mode must be one of"), message);
+        Assertions.assertTrue(message.contains("got: ' Sparse '"), message);
+
+        Map<String, String> upper = new HashMap<>();
+        upper.put("type", "ngram");
+        upper.put("mode", "SPARSE");
+        String upperMessage = assertGramPropRejected(upper);
+        Assertions.assertTrue(upperMessage.contains("mode must be one of"), upperMessage);
+    }
+
+    @Test
+    public void testNGramValidator_GramDecimalPropertiesHavePortableSyntax() {
+        NGramTokenizerValidator validator = new NGramTokenizerValidator();
+        for (String key : new String[] {"density"}) {
+            for (String value : new String[] {"0.25f", "0.25D", "0.25 ", " 0.25", "0.25\t",
+                    "0x1p-2", "NaN", "Infinity", "", ".", "1e", "０.２５"}) {
+                Map<String, String> props = sparseGramProps();
+                props.put(key, value);
+                Assertions.assertThrows(DdlException.class, () -> validator.validate(props),
+                        key + "=" + value);
+            }
+            for (String value : new String[] {"0.25", ".25", "1.", "+0.25", "2.5e-1", "0.001", "1"}) {
+                Map<String, String> props = sparseGramProps();
+                props.put(key, value);
+                Assertions.assertDoesNotThrow(() -> validator.validate(props), key + "=" + value);
+            }
+        }
+    }
+
+    @Test
+    public void testGramPolicyRemainsValidAfterReplay() throws Exception {
+        Map<String, String> props = sparseGramProps();
+        props.put("min_gram", "3");
+        props.put("max_gram", "16");
+        IndexPolicy replayed = roundTrip(new IndexPolicy(
+                3, "gram_without_marker", IndexPolicyTypeEnum.TOKENIZER, props));
+        Assertions.assertFalse(replayed.isInvalid());
+    }
+
     // StandardTokenizerValidator Tests
     @Test
     public void testStandardTokenizerValidator_ValidProperties() throws Exception {

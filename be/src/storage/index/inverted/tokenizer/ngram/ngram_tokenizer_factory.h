@@ -17,8 +17,13 @@
 
 #pragma once
 
+#include <optional>
+
+#include "common/status.h"
+#include "storage/index/inverted/gram/gram_scheme.h"
 #include "storage/index/inverted/setting.h"
 #include "storage/index/inverted/tokenizer/ngram/char_matcher.h"
+#include "storage/index/inverted/tokenizer/ngram/gram_tokenizer.h"
 #include "storage/index/inverted/tokenizer/ngram/ngram_tokenizer.h"
 #include "storage/index/inverted/tokenizer/tokenizer_factory.h"
 
@@ -32,6 +37,9 @@ public:
     void initialize(const Settings& settings) override;
 
     TokenizerPtr create() override {
+        if (_gram_scheme.has_value()) {
+            return std::make_shared<GramTokenizer>(*_gram_scheme);
+        }
         if (_matcher == nullptr) {
             return std::make_shared<NGramTokenizer>(_min_gram, _max_gram);
         } else {
@@ -54,8 +62,15 @@ public:
         return PositionCapability::kAlwaysUnitIncrement;
     }
 
+    // Return a gram scheme only when the ngram tokenizer has a mode property.
+    std::optional<gram::GramScheme> gram_scheme() const { return _gram_scheme; }
+
     static void initialize_matchers();
     static CharMatcherPtr parse_token_chars(const Settings& settings);
+
+    // Parse the gram scheme shared by tokenizer creation and analyzer detection.
+    // Without mode, return no scheme for legacy ngram tokenization.
+    static Status parse_gram_scheme(const Settings& settings, std::optional<gram::GramScheme>* out);
 
 private:
     static std::unordered_map<std::string, CharMatcherPtr> MATCHERS;
@@ -63,6 +78,7 @@ private:
     int32_t _min_gram = 0;
     int32_t _max_gram = 0;
     CharMatcherPtr _matcher;
+    std::optional<gram::GramScheme> _gram_scheme; // set when "mode" is present: create() goes gram
 };
 
 }; // namespace doris::segment_v2::inverted_index

@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
@@ -191,6 +192,16 @@ public class IndexDef {
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    public void applyPropertiesTo(Index index) {
+        if (index == null || properties == null || properties.isEmpty()) {
+            return;
+        }
+        Map<String, String> merged = index.getProperties() == null
+                ? new HashMap<>() : new HashMap<>(index.getProperties());
+        merged.putAll(properties);
+        index.setProperties(merged);
     }
 
     public String getComment() {

@@ -24,6 +24,7 @@
 #include "runtime/exec_env.h"
 #include "storage/index/inverted/analysis_factory_mgr.h"
 #include "storage/index/inverted/token_stream.h"
+#include "storage/index/inverted/tokenizer/ngram/ngram_tokenizer_factory.h"
 
 namespace doris::segment_v2::inverted_index {
 namespace {} // namespace
@@ -103,7 +104,20 @@ CustomAnalyzerPtr CustomAnalyzer::build_custom_analyzer(
 CustomAnalyzerProvider::CustomAnalyzerProvider(
         ImmutableCustomAnalyzerConfigPtr config,
         std::map<std::string, std::string> /*outer_char_filter_map*/)
-        : _config(std::move(config)), _analyzer(CustomAnalyzer::build_custom_analyzer(_config)) {}
+        : _config(std::move(config)), _analyzer(CustomAnalyzer::build_custom_analyzer(_config)) {
+    // Use the ngram tokenizer's parsed scheme when mode is set and no filters are present.
+    // Filters would change the indexed terms, so filtered analyzers cannot use gram queries.
+    const bool has_filters = !_config->get_char_filter_configs().empty() ||
+                             !_config->get_token_filter_configs().empty();
+    if (const auto& tokenizer_config = _config->get_tokenizer_config();
+        !has_filters && tokenizer_config != nullptr && tokenizer_config->get_name() == "ngram") {
+        if (Status st = NGramTokenizerFactory::parse_gram_scheme(tokenizer_config->get_params(),
+                                                                 &_gram_scheme);
+            !st.ok()) {
+            _gram_scheme.reset();
+        }
+    }
+}
 void CustomAnalyzer::Builder::with_tokenizer(const std::string& name, const Settings& params) {
     _tokenizer = AnalysisFactoryMgr::instance().create<TokenizerFactory>(name, params);
 }

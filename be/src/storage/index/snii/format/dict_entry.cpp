@@ -38,6 +38,11 @@ std::atomic<uint64_t>& body_decode_atomic() {
 // chain.
 uint8_t pack_flags(const DictEntry& e) {
     uint8_t f = 0;
+    // A dropped posting has no locator, so kind/enc/has_sb describe nothing and are left
+    // clear rather than carrying whatever the caller happened to leave in the struct.
+    if (e.posting_dropped) {
+        return dict_flags::kPostingDropped;
+    }
     if (e.kind == DictEntryKind::kInline) {
         f |= dict_flags::kKind;
     }
@@ -52,6 +57,7 @@ uint8_t pack_flags(const DictEntry& e) {
 }
 
 void apply_flags(uint8_t f, DictEntry* e) {
+    e->posting_dropped = (f & dict_flags::kPostingDropped) != 0;
     e->kind = (f & dict_flags::kKind) ? DictEntryKind::kInline : DictEntryKind::kPodRef;
     e->enc = (f & dict_flags::kEnc) ? DictEntryEnc::kWindowed : DictEntryEnc::kSlim;
     e->has_sb = (f & dict_flags::kHasSb) != 0;
@@ -133,6 +139,11 @@ void write_body(const DictEntry& e, std::string_view prev, IndexTier tier, ByteS
     write_term_key(e, prev, sink);
     sink->put_u8(pack_flags(e));
     sink->put_varint32(e.df);
+    // A dropped posting ends the body after df: there is no locator to write, and that
+    // omission is the saving the flag exists for.
+    if (e.posting_dropped) {
+        return;
+    }
     if (e.kind == DictEntryKind::kInline) {
         write_inline(e, tier, sink);
     } else {
@@ -292,7 +303,11 @@ Status decode_dict_entry_rest(ByteSource* src, IndexTier tier, size_t body_start
     RETURN_IF_ERROR(src->get_u8(&flags));
     apply_flags(flags, out);
     RETURN_IF_ERROR(src->get_varint32(&out->df));
-    RETURN_IF_ERROR(read_locator(src, tier, out));
+    // A dropped posting wrote no locator, so there is nothing left to read; the body
+    // length check below still holds it to the bytes the writer produced.
+    if (!out->posting_dropped) {
+        RETURN_IF_ERROR(read_locator(src, tier, out));
+    }
 
     // The body must consume exactly entry_len bytes; otherwise the structure is
     // inconsistent with the tier.
