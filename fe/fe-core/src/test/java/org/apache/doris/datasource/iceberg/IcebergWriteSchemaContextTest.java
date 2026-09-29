@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
@@ -26,11 +25,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
-import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
@@ -43,8 +38,6 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertUtils;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TExpr;
-import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -81,6 +74,29 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 public class IcebergWriteSchemaContextTest {
+
+    @Test
+    public void testReadAndWriteBindingsPreserveNestedTypesWithLegacyFlags() {
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "payload", Types.FixedType.ofLength(4)),
+                Types.NestedField.optional(2, "events", Types.ListType.ofOptional(
+                        3, Types.TimestampType.withZone())),
+                defaultField(4, "binary_default", Types.BinaryType.get(), null,
+                        Literal.of(ByteBuffer.wrap(new byte[] {0, (byte) 0xff})), false));
+        IcebergWriteSchemaContext context = IcebergWriteSchemaContext.forSchema(schema, 3, false, false);
+        Assertions.assertTrue(context.getColumns().get(0).getType().isVarbinaryType());
+        Assertions.assertEquals(4, context.getColumns().get(0).getType().getLength());
+        org.apache.doris.catalog.ArrayType events =
+                (org.apache.doris.catalog.ArrayType) context.getColumns().get(1).getType();
+        Assertions.assertTrue(events.getItemType().isTimeStampTz());
+        Assertions.assertArrayEquals(new byte[] {0, (byte) 0xff},
+                (byte[]) ((VarBinaryLiteral) context.resolveWriteDefault(context.getColumns().get(2))).getValue());
+        // Legacy false properties cannot change either the read or write logical types.
+        Assertions.assertTrue(IcebergUtils.icebergTypeToDorisType(
+                Types.FixedType.ofLength(4), false, false).isVarbinaryType());
+        Assertions.assertTrue(IcebergUtils.icebergTypeToDorisType(
+                Types.TimestampType.withZone(), false, false).isTimeStampTz());
+    }
 
     @Test
     public void testPrimitiveWriteDefaultsUseTypedValues() {
@@ -181,7 +197,7 @@ public class IcebergWriteSchemaContextTest {
     }
 
     @Test
-    public void testLegacyTimestamptzWriteDefaultUsesSessionLocalWallTime() {
+    public void testTimestamptzWriteDefaultPreservesInstantWithoutFlag() {
         long instantMicros = DateTimeUtil.isoTimestamptzToMicros(
                 "2025-01-18T01:02:03.654321+00:00");
         Types.NestedField field = defaultField(
@@ -193,7 +209,7 @@ public class IcebergWriteSchemaContextTest {
         try {
             IcebergWriteSchemaContext writeContext = IcebergWriteSchemaContext.forSchema(
                     new Schema(field), 3, false, false);
-            Assertions.assertEquals("2025-01-18 09:02:03.654321",
+            Assertions.assertEquals("2025-01-18 01:02:03.654321+00:00",
                     stringValue(writeContext.resolveWriteDefault(
                             writeContext.getColumns().get(0))));
         } finally {
@@ -202,20 +218,23 @@ public class IcebergWriteSchemaContextTest {
     }
 
     @Test
-    public void testLegacyBinaryDefaultsDecodeRawBytesOnBackend() {
+    public void testBinaryDefaultsIgnoreRemovedMappingFlag() {
         byte[] bytes = new byte[] {(byte) 0x80, 0x00, (byte) 0xff};
         DataType binaryTarget = DataType.fromCatalogType(IcebergUtils.icebergTypeToDorisType(
                 Types.BinaryType.get(), false, false));
         Expression binary = IcebergWriteSchemaContext.toDorisExpression(
                 Types.BinaryType.get(), ByteBuffer.wrap(bytes), binaryTarget, false, false);
-        assertUnhexBytes(binary, "8000FF");
+        Assertions.assertArrayEquals(bytes, (byte[]) ((VarBinaryLiteral) binary).getValue());
 
         DataType uuidTarget = DataType.fromCatalogType(IcebergUtils.icebergTypeToDorisType(
                 Types.UUIDType.get(), false, false));
         Expression uuid = IcebergWriteSchemaContext.toDorisExpression(
                 Types.UUIDType.get(), UUID.fromString("123e4567-e89b-12d3-a456-426614174000"),
                 uuidTarget, false, false);
-        assertUnhexBytes(uuid, "123E4567E89B12D3A456426614174000");
+        UUID uuidValue = UUID.fromString("123e4567-e89b-12d3-a456-426614174000");
+        byte[] uuidBytes = ByteBuffer.allocate(16).putLong(uuidValue.getMostSignificantBits())
+                .putLong(uuidValue.getLeastSignificantBits()).array();
+        Assertions.assertArrayEquals(uuidBytes, (byte[]) ((VarBinaryLiteral) uuid).getValue());
     }
 
     @Test
@@ -351,7 +370,7 @@ public class IcebergWriteSchemaContextTest {
     }
 
     @Test
-    public void testComplexLegacyBinaryWriteDefaultKeepsRawLiteralBytes() {
+    public void testComplexBinaryDefaultIgnoresRemovedMappingFlag() {
         byte[] bytes = new byte[] {(byte) 0x80, 0x00, (byte) 0xff};
         Types.StructType structType = Types.StructType.of(
                 Types.NestedField.required(101, "payload", Types.BinaryType.get()));
@@ -363,19 +382,9 @@ public class IcebergWriteSchemaContextTest {
                 structType, value, targetType, false, false);
 
         Assertions.assertEquals(targetType, expression.getDataType());
-        Assertions.assertTrue(expression.anyMatch(node -> node instanceof Cast));
-        Assertions.assertTrue(expression.anyMatch(node -> node instanceof Unhex));
-        Unhex unhex = expression.collect(Unhex.class::isInstance).stream()
-                .map(Unhex.class::cast).findFirst().orElseThrow(AssertionError::new);
-        assertUnhexBytes(unhex, "8000FF");
-        Expr legacyExpression = ExpressionTranslator.translate(
-                expression, new PlanTranslatorContext());
-        Assertions.assertEquals(targetType.toCatalogDataType(), legacyExpression.getType());
-        TExpr thriftExpression = legacyExpression.treeToThrift();
-        Assertions.assertTrue(thriftExpression.nodes.stream()
-                .anyMatch(node -> node.node_type == TExprNodeType.FUNCTION_CALL));
-        Assertions.assertFalse(thriftExpression.nodes.stream()
-                .anyMatch(node -> node.node_type == TExprNodeType.VARBINARY_LITERAL));
+        Assertions.assertTrue(expression instanceof StructLiteral);
+        VarBinaryLiteral payload = (VarBinaryLiteral) ((StructLiteral) expression).getValue().get(0);
+        Assertions.assertArrayEquals(bytes, (byte[]) payload.getValue());
     }
 
     @Test
@@ -809,7 +818,7 @@ public class IcebergWriteSchemaContextTest {
     }
 
     @Test
-    public void testCreateUsesMappingOptionsFromRetainedGeneration() {
+    public void testWriterTypesIgnoreReadMappingFromRetainedGeneration() {
         Schema schema = new Schema(50, ImmutableList.of(
                 Types.NestedField.optional(1, "binary_col", Types.BinaryType.get()),
                 Types.NestedField.optional(2, "timestamptz_col", Types.TimestampType.withZone())));
@@ -833,7 +842,7 @@ public class IcebergWriteSchemaContextTest {
 
         Assertions.assertEquals(org.apache.doris.catalog.PrimitiveType.VARBINARY,
                 context.getColumns().get(0).getType().getPrimitiveType());
-        Assertions.assertEquals(org.apache.doris.catalog.PrimitiveType.DATETIMEV2,
+        Assertions.assertEquals(org.apache.doris.catalog.PrimitiveType.TIMESTAMPTZ,
                 context.getColumns().get(1).getType().getPrimitiveType());
         Mockito.verify(catalog, Mockito.never()).getEnableMappingVarbinary();
         Mockito.verify(catalog, Mockito.never()).getEnableMappingTimestampTz();
@@ -881,12 +890,6 @@ public class IcebergWriteSchemaContextTest {
 
     private static String stringValue(Expression expression) {
         return ((org.apache.doris.nereids.trees.expressions.literal.Literal) expression).getStringValue();
-    }
-
-    private static void assertUnhexBytes(Expression expression, String expectedHex) {
-        Expression rawBytes = expression instanceof Cast ? expression.child(0) : expression;
-        Assertions.assertTrue(rawBytes instanceof Unhex);
-        Assertions.assertEquals(expectedHex, ((StringLiteral) rawBytes.child(0)).getValue());
     }
 
     private static final class ArrayStructLike implements StructLike {

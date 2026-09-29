@@ -64,7 +64,44 @@ void add_search_binding_diagnostic(const std::shared_ptr<IndexQueryContext>& con
     }
 }
 
+InvertedIndexAnalyzerCtxSPtr build_analyzer_context_unsafe(
+        const std::map<std::string, std::string>& properties, const std::string& analyzer_key) {
+    InvertedIndexAnalyzerConfig config;
+    config.analyzer_name = get_analyzer_name_from_properties(properties);
+    config.parser_type = get_inverted_index_parser_type_from_string(
+            get_parser_string_from_properties(properties));
+    config.parser_mode = get_parser_mode_string_from_properties(properties);
+    config.lower_case = get_parser_lowercase_from_properties(properties);
+    config.stop_words = get_parser_stopwords_from_properties(properties);
+    config.char_filter_map = get_parser_char_filter_map_from_properties(properties);
+
+    auto analyzer_context = std::make_shared<InvertedIndexAnalyzerCtx>();
+    analyzer_context->analyzer_key = analyzer_key;
+    analyzer_context->analyzer_name = config.analyzer_name;
+    analyzer_context->parser_type = config.parser_type;
+    analyzer_context->char_filter_map = config.char_filter_map;
+    if (analyzer_context->requires_analysis()) {
+        analyzer_context->analyzer_provider =
+                inverted_index::InvertedIndexAnalyzer::create_analyzer_provider(&config);
+    }
+    return analyzer_context;
+}
+
 } // namespace
+
+// Replayed components can collide across policy families, so building the provider throws.
+Result<InvertedIndexAnalyzerCtxSPtr> build_search_analyzer_context(
+        const std::map<std::string, std::string>& properties, const std::string& analyzer_key) {
+    try {
+        return build_analyzer_context_unsafe(properties, analyzer_key);
+    } catch (const CLuceneError& error) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Build search analyzer failed: {}", error.what()));
+    } catch (const Exception& error) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Build search analyzer failed: {}", error.what()));
+    }
+}
 
 FieldReaderResolver::FieldReaderResolver(
         const std::unordered_map<std::string, IndexFieldNameAndTypePair>& data_type_with_names,

@@ -386,8 +386,14 @@ public abstract class DataType {
                 dataType = VariantType.INSTANCE;
                 break;
             case "varbinary":
-                // NOTICE, Maybe. not supported create table, and varbinary do not have len now
-                dataType = VarBinaryType.INSTANCE;
+                // Keep declared byte limits in table schemas and nested binary leaves.
+                if (types.size() == 1 || (types.size() == 2 && types.get(1).equals("*"))) {
+                    dataType = VarBinaryType.INSTANCE;
+                } else if (types.size() == 2) {
+                    dataType = VarBinaryType.createVarBinaryType(Integer.parseInt(types.get(1)));
+                } else {
+                    throw new AnalysisException("Nereids do not support type: " + type);
+                }
                 break;
             default:
                 throw new AnalysisException("Nereids do not support type: " + type);

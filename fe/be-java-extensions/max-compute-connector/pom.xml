@@ -98,13 +98,14 @@ under the License.
             <plugin>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
+                    <!-- A second argLine overrides Arrow's JVM access flags; keep both agents here. -->
                     <argLine>
                         --add-opens=java.base/java.nio=ALL-UNNAMED -Dio.netty.tryReflectionSetAccessible=true @{argLine}
+                        -javaagent:${settings.localRepository}/org/jmockit/jmockit/${jmockit.version}/jmockit-${jmockit.version}.jar
                     </argLine>
                     <forkCount>${fe_ut_parallel}</forkCount>
                     <reuseForks>false</reuseForks>
                     <useFile>false</useFile>
-                    <argLine>-javaagent:${settings.localRepository}/org/jmockit/jmockit/${jmockit.version}/jmockit-${jmockit.version}.jar</argLine>
                 </configuration>
             </plugin>
         </plugins>

@@ -75,6 +75,38 @@ import java.util.Objects;
 
 public class TrinoConnectorPredicateTest {
 
+    @Test
+    public void testTimestampDomainsPreserveUtcAndFraction() throws Exception {
+        java.lang.reflect.Method convert = TrinoConnectorPredicateConverter.class.getDeclaredMethod(
+                "convertLiteralToDomainValues", Class.class, LiteralExpr.class);
+        convert.setAccessible(true);
+        TrinoConnectorPredicateConverter converter = new TrinoConnectorPredicateConverter(
+                ImmutableMap.of(), ImmutableMap.of());
+        for (String text : ImmutableList.of("2020-01-02T04:01:00.111333", "1969-12-31T23:59:59.999999")) {
+            java.time.LocalDateTime utc = java.time.LocalDateTime.parse(text);
+            long millis = utc.toInstant(java.time.ZoneOffset.UTC).toEpochMilli();
+            DateLiteral zoned = new DateLiteral(utc, org.apache.doris.catalog.ScalarType.createTimeStampTzType(6));
+            LongTimestampWithTimeZone actual = (LongTimestampWithTimeZone) convert.invoke(converter,
+                    TimestampWithTimeZoneType.TIMESTAMP_TZ_MICROS.getClass(), zoned);
+            Assert.assertEquals(millis, actual.getEpochMillis());
+            Assert.assertEquals((utc.getNano() % 1_000_000) * 1000, actual.getPicosOfMilli());
+            long packed = (long) convert.invoke(converter,
+                    TimestampWithTimeZoneType.TIMESTAMP_TZ_MILLIS.getClass(),
+                    new DateLiteral(utc.withNano(utc.getNano() / 1_000_000 * 1_000_000),
+                            org.apache.doris.catalog.ScalarType.createTimeStampTzType(3)));
+            Assert.assertEquals(millis, io.trino.spi.type.DateTimeEncoding.unpackMillisUtc(packed));
+            try {
+                convert.invoke(converter, TimestampWithTimeZoneType.TIMESTAMP_TZ_MILLIS.getClass(), zoned);
+                Assert.fail("A non-representable range endpoint must remain a residual predicate");
+            } catch (java.lang.reflect.InvocationTargetException e) {
+                Assert.assertTrue(e.getCause() instanceof AnalysisException);
+            }
+            DateLiteral local = new DateLiteral(utc, org.apache.doris.catalog.ScalarType.createDatetimeV2Type(6));
+            Assert.assertEquals(millis * 1000 + utc.getNano() / 1000 % 1000,
+                    convert.invoke(converter, TimestampType.TIMESTAMP_MICROS.getClass(), local));
+        }
+    }
+
     private static final ImmutableMap<String, ColumnHandle> trinoConnectorColumnHandleMap =
              new ImmutableMap.Builder()
                      .put("c_bool", new MockColumnHandle("c_bool"))
