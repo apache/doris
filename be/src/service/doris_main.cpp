@@ -73,6 +73,7 @@
 #include "common/signal_handler.h"
 #include "common/status.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "lance/index_worker.h"
 #include "runtime/exec_env.h"
 #include "runtime/user_function_cache.h"
 #include "service/arrow_flight/flight_sql_service.h"
@@ -334,6 +335,14 @@ struct Checker {
 }
 
 int main(int argc, char** argv) {
+    // Lance index worker subcommand (D1; internal — launched only by the in-BE
+    // supervisor via /proc/self/exe). This branch runs before ANY BE global
+    // state: no failure signal handler, no glog files, no config load, no JVM.
+    // The worker library self-sets PR_SET_DUMPABLE at its entry, before
+    // reading the dispatch; stderr is the only diagnostic channel.
+    if (argc > 1 && strcmp(argv[1], "--lance-worker") == 0) {
+        return doris::lance::run_index_worker(doris::lance::IndexWorkerParams {});
+    }
     doris::signal::InstallFailureSignalHandler();
     // create StackTraceCache Instance, at the beginning, other static destructors may use.
     StackTrace::createCache();
@@ -754,4 +763,6 @@ static void help(const char* progname) {
     printf("Options:\n");
     printf("  -v, --version      output version information, then exit\n");
     printf("  -?, --help         show this help, then exit\n");
+    printf("  --lance-worker     run the isolated Lance index worker (internal;\n");
+    printf("                     launched by the in-BE supervisor only)\n");
 }

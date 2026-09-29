@@ -54,6 +54,7 @@
 #include "format/arrow/arrow_row_batch.h"
 #include "io/fs/connectivity/storage_connectivity_tester.h"
 #include "io/fs/local_file_system.h"
+#include "lance/index_job_service.h"
 #include "load/routine_load/routine_load_task_executor.h"
 #include "load/stream_load/stream_load_context.h"
 #include "load/stream_load/stream_load_recorder.h"
@@ -692,6 +693,15 @@ BackendService::~BackendService() = default;
 Status BackendService::start_thrift_dependencies() {
     _agent_server->start_workers(_engine, _exec_env);
 
+    // Lance index worker consumer: construct the service, wire its report
+    // callbacks and metrics, and run the isolation preflight. A preflight
+    // failure is non-fatal (logged precisely by the supervisor): isolation
+    // stays unverified and every dispatch is synchronously rejected. This must
+    // run before the thrift server is constructed so no dispatch can arrive
+    // unwired; it must also precede the ingest-binlog early return below.
+    _lance_index_job_service = std::make_unique<lance::LanceIndexJobService>(_exec_env);
+    RETURN_IF_ERROR(_lance_index_job_service->start());
+
     auto thread_num = config::ingest_binlog_work_pool_size;
     if (thread_num < 0) {
         LOG(INFO) << fmt::format("ingest binlog thread pool size is {}, so we will in sync mode",
@@ -708,6 +718,28 @@ Status BackendService::start_thrift_dependencies() {
                               .build(&_ingest_binlog_workers));
     LOG(INFO) << fmt::format("ingest binlog thread pool size is {}, in async mode", thread_num);
     return Status::OK();
+}
+
+void BackendService::submit_lance_index_job(TStatus& _return,
+                                            const TLanceIndexJobDispatch& dispatch) {
+    // One-line forward (this class just forwards RPCs to actual handlers).
+    // The service is constructed in start_thrift_dependencies() before the
+    // thrift server accepts connections; a null service means startup failed
+    // before that point, which is still a definitive NOT-enqueued answer.
+    if (_lance_index_job_service == nullptr) {
+        Status::InternalError("lance index job service is not started").to_thrift(&_return);
+        return;
+    }
+    _lance_index_job_service->submit_lance_index_job(_return, dispatch);
+}
+
+void BackendService::stop_works() {
+    BaseBackendService::stop_works();
+    // Symmetric best-effort stop (correctness never depends on it: the
+    // worker-side PDEATHSIG arm is the real BE-loss backstop).
+    if (_lance_index_job_service != nullptr) {
+        _lance_index_job_service->stop();
+    }
 }
 
 void BackendService::get_tablet_stat(TTabletStatResult& result) {

@@ -77,6 +77,9 @@ DEFINE_ENGINE_COUNTER_METRIC(clone_requests_total, clone, total);
 DEFINE_ENGINE_COUNTER_METRIC(clone_requests_failed, clone, failed);
 DEFINE_ENGINE_COUNTER_METRIC(finish_task_requests_total, finish_task, total);
 DEFINE_ENGINE_COUNTER_METRIC(finish_task_requests_failed, finish_task, failed);
+DEFINE_ENGINE_COUNTER_METRIC(lance_index_job_report_requests_total, lance_index_job_report, total);
+DEFINE_ENGINE_COUNTER_METRIC(lance_index_job_report_requests_failed, lance_index_job_report,
+                             failed);
 DEFINE_ENGINE_COUNTER_METRIC(base_compaction_request_total, base_compaction, total);
 DEFINE_ENGINE_COUNTER_METRIC(base_compaction_request_failed, base_compaction, failed);
 DEFINE_ENGINE_COUNTER_METRIC(cumulative_compaction_request_total, cumulative_compaction, total);
@@ -307,6 +310,8 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, clone_requests_failed);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, finish_task_requests_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, finish_task_requests_failed);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, lance_index_job_report_requests_total);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, lance_index_job_report_requests_failed);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, base_compaction_request_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, base_compaction_request_failed);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_request_total);
