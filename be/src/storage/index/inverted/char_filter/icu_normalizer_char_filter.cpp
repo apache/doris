@@ -17,8 +17,12 @@
 
 #include "storage/index/inverted/char_filter/icu_normalizer_char_filter.h"
 
+#include <unicode/bytestream.h>
 #include <unicode/normalizer2.h>
-#include <unicode/unistr.h>
+#include <unicode/stringpiece.h>
+
+#include <algorithm>
+#include <iterator>
 
 #include "common/exception.h"
 #include "common/logging.h"
@@ -59,33 +63,68 @@ void ICUNormalizerCharFilter::fill() {
     input.resize(_reader->size());
     _reader->readCopy(input.data(), 0, static_cast<int32_t>(input.size()));
     normalize_text(input, _buf);
+    _source_length = static_cast<int32_t>(input.size());
+    _offset_cursor = _edits.getFineIterator();
     _transformed_input.init(_buf.data(), static_cast<int32_t>(_buf.size()), false);
 }
 
 void ICUNormalizerCharFilter::normalize_text(const std::string& input, std::string& output) {
     output.clear();
+    _edits.reset();
     if (input.empty()) {
         return;
     }
 
     UErrorCode status = U_ZERO_ERROR;
-    icu::UnicodeString src16 = icu::UnicodeString::fromUTF8(input);
-    UNormalizationCheckResult quick_result = _normalizer->quickCheck(src16, status);
-    if (U_SUCCESS(status) && quick_result == UNORM_YES) {
-        output = input;
-        return;
-    }
-
-    icu::UnicodeString result16;
-    status = U_ZERO_ERROR;
-    _normalizer->normalize(src16, result16, status);
+    icu::StringByteSink<std::string> sink(&output);
+    _normalizer->normalizeUTF8(0, icu::StringPiece(input), sink, &_edits, status);
     if (U_FAILURE(status)) {
         LOG(WARNING) << "ICU normalize failed: " << u_errorName(status) << ", using original text";
         output = input;
+        _edits.reset();
+        _edits.addUnchanged(static_cast<int32_t>(input.size()));
         return;
     }
+}
 
-    result16.toUTF8String(output);
+int32_t ICUNormalizerCharFilter::correct_offset(int32_t current_offset) const {
+    if (current_offset < 0) {
+        return DorisCharFilter::correct_offset(current_offset);
+    }
+    const auto destination_length = static_cast<int32_t>(_buf.size());
+    if (current_offset >= destination_length) {
+        return DorisCharFilter::correct_offset(_source_length +
+                                               (current_offset - destination_length));
+    }
+
+    // Offsets at the start of an edit map to its source start, offsets inside an edit map to
+    // its source end, and unchanged text keeps its relative position.
+    UErrorCode status = U_ZERO_ERROR;
+    const int32_t source_offset =
+            _offset_cursor.sourceIndexFromDestinationIndex(current_offset, status);
+    if (U_FAILURE(status)) {
+        return DorisCharFilter::correct_offset(current_offset);
+    }
+    return DorisCharFilter::correct_offset(source_offset);
+}
+
+int32_t ICUNormalizerCharFilter::correct_start_offset(int32_t current_offset) const {
+    const auto destination_length = static_cast<int32_t>(_buf.size());
+    if (current_offset < 0 || current_offset >= destination_length) {
+        return DorisCharFilter::correct_start_offset(correct_offset(current_offset));
+    }
+
+    // Inside a changed edit the term starts with output of that whole edit, so it maps to the
+    // edit's source start; elsewhere this matches correct_offset().
+    UErrorCode status = U_ZERO_ERROR;
+    if (!_offset_cursor.findDestinationIndex(current_offset, status) || U_FAILURE(status)) {
+        return correct_offset(current_offset);
+    }
+    int32_t source_offset = _offset_cursor.sourceIndex();
+    if (!_offset_cursor.hasChange()) {
+        source_offset += current_offset - _offset_cursor.destinationIndex();
+    }
+    return DorisCharFilter::correct_start_offset(source_offset);
 }
 
 } // namespace doris::segment_v2::inverted_index

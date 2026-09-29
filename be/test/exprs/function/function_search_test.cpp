@@ -27,6 +27,8 @@
 #include <unordered_map>
 #include <utility>
 
+#include "common/exception.h"
+#include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
@@ -122,9 +124,11 @@ public:
 
     DummyInvertedIndexReader(const TabletIndex* index_meta,
                              std::shared_ptr<segment_v2::IndexFileReader> index_file_reader,
-                             segment_v2::InvertedIndexReaderType reader_type)
+                             segment_v2::InvertedIndexReaderType reader_type,
+                             bool throw_on_query = false)
             : segment_v2::InvertedIndexReader(index_meta, std::move(index_file_reader)),
-              _reader_type(reader_type) {}
+              _reader_type(reader_type),
+              _throw_on_query(throw_on_query) {}
 
     Status new_iterator(std::unique_ptr<segment_v2::IndexIterator>* /*iterator*/) override {
         return Status::OK();
@@ -135,6 +139,10 @@ public:
                  segment_v2::InvertedIndexQueryType /*query_type*/,
                  std::shared_ptr<roaring::Roaring>& /*bit_map*/,
                  const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/ = nullptr) override {
+        if (_throw_on_query) {
+            throw Exception(ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                            "token stream failed on first use");
+        }
         return Status::OK();
     }
 
@@ -149,6 +157,7 @@ public:
 
 private:
     segment_v2::InvertedIndexReaderType _reader_type = segment_v2::InvertedIndexReaderType::BKD;
+    bool _throw_on_query = false;
 };
 
 static TabletIndex make_test_inverted_index(
@@ -2583,6 +2592,45 @@ TEST_F(FunctionSearchTest, TestSearcherCacheHandlesLifetime) {
     // that binding_cache is empty)
     EXPECT_TRUE(resolver.binding_cache().empty());
     EXPECT_TRUE(resolver.readers().empty());
+}
+
+TEST_F(FunctionSearchTest, SearchConvertsExceptionInsideSearchToStatus) {
+    auto index_meta = make_test_inverted_index(41);
+    auto index_file_reader = std::make_shared<segment_v2::IndexFileReader>(
+            nullptr, "/tmp/search_exception_idx", InvertedIndexStorageFormatPB::V2);
+    auto reader = std::make_shared<DummyInvertedIndexReader>(
+            &index_meta, index_file_reader, segment_v2::InvertedIndexReaderType::BKD, true);
+    segment_v2::InvertedIndexIterator iterator;
+    iterator.set_context(std::make_shared<IndexQueryContext>());
+    iterator.add_reader(segment_v2::InvertedIndexReaderType::BKD, reader);
+
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
+    data_type_with_names.emplace(
+            "var.level",
+            IndexFieldNameAndTypePair {"1.var.level", std::make_shared<DataTypeInt32>()});
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    iterators["var.level"] = &iterator;
+
+    TSearchParam search_param;
+    search_param.original_dsl = "var.level:7";
+    search_param.root.clause_type = "TERM";
+    search_param.root.field_name = "var.level";
+    search_param.root.value = "7";
+    search_param.root.__isset.field_name = true;
+    search_param.root.__isset.value = true;
+    TSearchFieldBinding binding;
+    binding.field_name = "var.level";
+    binding.is_variant_subcolumn = true;
+    binding.__isset.is_variant_subcolumn = true;
+    search_param.field_bindings = {binding};
+
+    InvertedIndexResultBitmap result;
+    Status status;
+    ASSERT_NO_THROW(status = function_search->evaluate_inverted_index_with_search_param(
+                            search_param, data_type_with_names, iterators, 10, result, false));
+    EXPECT_FALSE(status.ok()) << status;
+    EXPECT_NE(status.to_string().find("token stream failed on first use"), std::string::npos)
+            << status;
 }
 // NESTED clause tests moved to function_search_nested_test.cpp
 
