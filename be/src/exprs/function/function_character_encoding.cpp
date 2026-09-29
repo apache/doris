@@ -163,6 +163,7 @@ public:
                 check_and_get_column<ColumnNullable>(character_set_column.get());
         const IColumn* input_nested =
                 input_nullable ? &input_nullable->get_nested_column() : input_column.get();
+        const auto* input_values = get_input_values(input_nested);
         const IColumn* character_set_nested = character_set_nullable
                                                       ? &character_set_nullable->get_nested_column()
                                                       : character_set_column.get();
@@ -192,6 +193,8 @@ public:
             RETURN_IF_ERROR(
                     parse_character_set(character_sets.get_data_at(0), constant_character_set));
         }
+        const bool copy_bytes = Encode && (constant_character_set == CharacterSet::US_ASCII ||
+                                           constant_character_set == CharacterSet::UTF_8);
 
         for (size_t row = 0; row < input_rows_count; ++row) {
             const size_t input_index = index_check_const(row, input_is_const);
@@ -204,13 +207,10 @@ public:
                 continue;
             }
 
-            const StringRef input = input_nested->get_data_at(input_index);
+            const StringRef input = input_values->get_data_at(input_index);
             if constexpr (Encode) {
-                scratch.clear();
-                RETURN_IF_ERROR(
-                        convert_input(input, constant_character_set, utf16_scratch, scratch));
-                result_column->insert_data(reinterpret_cast<const char*>(scratch.data()),
-                                           scratch.size());
+                RETURN_IF_ERROR(append_encoded(input, constant_character_set, copy_bytes,
+                                               *result_column, scratch, utf16_scratch));
             } else {
                 // Write straight into the result column, including when the buffer grows.
                 auto& chars = result_column->get_chars();
@@ -231,6 +231,45 @@ public:
 
 private:
     using ResultColumn = std::conditional_t<Encode, ColumnVarbinary, ColumnString>;
+
+    static const auto* get_input_values(const IColumn* input_nested) {
+        if constexpr (Encode) {
+            return &assert_cast<const ColumnString&>(*input_nested);
+        } else {
+            return input_nested;
+        }
+    }
+
+    static Status insert_validated_bytes(StringRef input, CharacterSet character_set,
+                                         ColumnVarbinary& output) {
+        const std::string_view character_set_name = charset_name(character_set);
+        if (input.size > static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
+            return reject_too_large(character_set_name);
+        }
+        if (input.size != 0) {
+            const simdutf::result validation =
+                    character_set == CharacterSet::US_ASCII
+                            ? simdutf::validate_ascii_with_errors(input.data, input.size)
+                            : simdutf::validate_utf8_with_errors(input.data, input.size);
+            if (validation.error != simdutf::SUCCESS) {
+                return conversion_error(character_set_name, validation.error);
+            }
+        }
+        output.insert_data(input.data, input.size);
+        return Status::OK();
+    }
+
+    static Status append_encoded(StringRef input, CharacterSet character_set, bool copy_bytes,
+                                 ColumnVarbinary& output, ColumnString::Chars& scratch,
+                                 std::vector<char16_t>& utf16_scratch) {
+        if (copy_bytes) {
+            return insert_validated_bytes(input, character_set, output);
+        }
+        scratch.clear();
+        RETURN_IF_ERROR(convert_input(input, character_set, utf16_scratch, scratch));
+        output.insert_data(reinterpret_cast<const char*>(scratch.data()), scratch.size());
+        return Status::OK();
+    }
 
     static typename ResultColumn::MutablePtr create_result_column() {
         return ResultColumn::create();

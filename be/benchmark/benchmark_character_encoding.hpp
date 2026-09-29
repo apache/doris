@@ -65,12 +65,16 @@ CharacterEncodingData make_character_encoding_data(size_t length) {
         input.assign(length - 7, 'A');
         input += "中😀";
         expected = input;
-    } else {
+    } else if constexpr (Scenario == 3) {
         charset = "UTF-16BE";
         for (size_t i = 0; i < length / 2; ++i) {
             input += "N-"; // The UTF-16BE byte pair for 中.
             expected += "中";
         }
+    } else {
+        charset = "US-ASCII";
+        input.assign(length, 'A');
+        expected = input;
     }
     return data;
 }
@@ -81,7 +85,7 @@ CharacterEncodingData make_character_encoding_data(size_t length) {
 template <bool Encode, int Scenario>
 void BM_character_encoding(benchmark::State& state) {
     const size_t length = state.range(0);
-    const size_t rows = std::min<size_t>(4096, (1 << 20) / length);
+    const size_t rows = std::max<size_t>(1, std::min<size_t>(4096, (1 << 20) / length));
     const auto [input, expected, charset] = make_character_encoding_data<Scenario>(length);
     DataTypePtr string_type = std::make_shared<DataTypeString>();
     DataTypePtr binary_type = std::make_shared<DataTypeVarbinary>();
@@ -168,6 +172,9 @@ BENCHMARK_TEMPLATE(BM_character_encoding, false, 2)
 BENCHMARK_TEMPLATE(BM_character_encoding, false, 3)
         ->Name("decode_utf16be_cjk")
         ->ArgsProduct({{16, 64, 1024, 65536}});
+BENCHMARK_TEMPLATE(BM_character_encoding, true, 4)
+        ->Name("encode_ascii")
+        ->ArgsProduct({{15, 63, 1023, 65535, 1 << 22}});
 
 } // namespace
 } // namespace doris

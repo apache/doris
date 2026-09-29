@@ -48,8 +48,12 @@ TEST(function_character_encoding_test, encode_supported_charsets) {
     // The UTF-16 byte pairs 0x4E2D and 0x2D4E are "N-" and "-N" as raw bytes.
     DataSet data_set = {
             {{std::string("A"), std::string("US-ASCII")}, VARBINARY("A")},
+            {{std::string(""), std::string("US-ASCII")}, VARBINARY("")},
+            {{std::string("A\0B", 3), std::string("US-ASCII")},
+             VARBINARY(std::string_view("A\0B", 3))},
             {{std::string("é"), std::string("ISO-8859-1")}, VARBINARY("\xE9")},
             {{std::string("中"), std::string("UTF-8")}, VARBINARY("\xE4\xB8\xAD")},
+            {{std::string(""), std::string("UTF-8")}, VARBINARY("")},
             {{std::string("中"), std::string("UTF-16BE")}, VARBINARY("N-")},
             {{std::string("中"), std::string("UTF-16LE")}, VARBINARY("-N")},
             {{std::string("中"), std::string("UTF-16")}, VARBINARY("\xFE\xFF\x4E\x2D")},
@@ -126,6 +130,20 @@ TEST(function_character_encoding_test, rejects_invalid_conversions) {
 
         Status status =
                 check_function<DataTypeString, true>("decode", input_types, data_set, -1, -1, true);
+        ASSERT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
+        EXPECT_NE(status.to_string().find("Character conversion using 'UTF-8' failed"),
+                  std::string::npos);
+    }
+
+    {
+        InputTypeSet input_types = {PrimitiveType::TYPE_VARCHAR,
+                                    Consted {PrimitiveType::TYPE_VARCHAR}};
+        DataSet data_set = {
+                {{std::string("\xE4\xB8", 2), std::string("UTF-8")}, VARBINARY("")},
+        };
+
+        Status status = check_function<DataTypeVarbinary, true>("encode", input_types, data_set, -1,
+                                                                -1, true);
         ASSERT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>()) << status;
         EXPECT_NE(status.to_string().find("Character conversion using 'UTF-8' failed"),
                   std::string::npos);
