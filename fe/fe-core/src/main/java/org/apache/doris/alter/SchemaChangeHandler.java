@@ -2837,6 +2837,9 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
 
+        // checkColumn may add gram defaults after alterIndex is created.
+        indexDef.applyPropertiesTo(alterIndex);
+
         // the column name in CreateIndexClause is not check case sensitivity,
         // when send index description to BE, there maybe cannot find column by name,
         // so here update column name in CreateIndexClause after checkColumn for indexDef,

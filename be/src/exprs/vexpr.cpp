@@ -918,6 +918,21 @@ ColumnPtr VExpr::get_result_from_const(size_t count) const {
 
 Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
                                        uint32_t segment_num_rows) {
+    if (function->index_result_is_approximate()) {
+        if (context->approx_index_result_consumer() != this || get_num_children() != 2) {
+            return Status::OK();
+        }
+        // Keep operand roles intact before the child loop separates iterators from literals.
+        const auto& value = get_child(0);
+        const bool indexed_value =
+                value->is_slot_ref() ||
+                (value->node_type() == TExprNodeType::CAST_EXPR && value->get_num_children() == 1 &&
+                 value->get_child(0)->is_slot_ref());
+        if (!indexed_value || !get_child(1)->is_literal()) {
+            return Status::OK();
+        }
+    }
+
     // Pre-allocate vectors based on an estimated or known size
     std::vector<segment_v2::IndexIterator*> iterators;
     std::vector<IndexFieldNameAndTypePair> data_type_with_names;
@@ -1037,9 +1052,19 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
         return res;
     }
     if (!result_bitmap.is_empty()) {
-        index_context->set_index_result_for_expr(this, result_bitmap);
-        for (int column_id : column_ids) {
-            index_context->set_true_for_index_status(this, column_id);
+        if (result_bitmap.approximate()) {
+            // Approximate (superset) result: it goes only into the approximate map -- not into
+            // the exact result map (fast_execute would otherwise pass the candidate bitmap off
+            // as the function result), and it does not set the column's index status to true
+            // (the column would otherwise be judged not to need its data read, leaving nothing
+            // for the expression to re-verify against). The expression stays in the push-down
+            // list and is re-verified by the row-level path.
+            index_context->set_approx_index_result_for_expr(this, result_bitmap);
+        } else {
+            index_context->set_index_result_for_expr(this, result_bitmap);
+            for (int column_id : column_ids) {
+                index_context->set_true_for_index_status(this, column_id);
+            }
         }
     }
     return Status::OK();

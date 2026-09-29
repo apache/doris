@@ -66,6 +66,9 @@ message SniiLogicalIndexMetadataPB {
     // change the bytes of every pure-text directory.
     optional uint32 kind = 6;
     repeated SniiNamedBlobPB files = 7; // blob kinds only
+    // Set when an inverted index drops postings. Omit it when false so unchanged
+    // directories keep their wire bytes; rewrites use it to preserve the feature.
+    optional bool dropped_postings = 8;
 }
 
 message SniiBlobRefPB {
@@ -80,6 +83,22 @@ message SniiCoreMetadataPB {
     // Preserve these wire slots so readers can reject unsupported CommonGrams segments.
     optional bytes legacy_common_grams = 4;
     optional uint32 legacy_common_grams_posting_policy = 5;
+    // Stores the resolved scheme of a gram-family index. Omit it for other
+    // indexes to preserve their wire bytes.
+    optional SniiGramSchemePB gram_scheme = 6;
+    // Summarizes high-frequency terms for the query cost gate.
+    optional SniiHighDfTermsPB high_df_terms = 7;
+}
+
+// Stores high-frequency terms by hash and document frequency. The digest bounds
+// candidate counts without reading dictionary blocks.
+message SniiHighDfTermsPB {
+    // Sorted by bsbf_hash for binary search.
+    repeated fixed64 term_hash = 1 [packed = true];
+    // Document frequencies, parallel to term_hash.
+    repeated uint32 df = 2 [packed = true];
+    // Upper bound for terms absent from this digest.
+    optional uint32 df_ceiling = 3;
 }
 
 // Preserve existing wire tags when adding statistics.
@@ -103,4 +122,14 @@ message SniiSectionRefsPB {
     optional SniiRegionRefPB null_bitmap = 3;
     optional SniiRegionRefPB bsbf = 4;
     optional SniiRegionRefPB norms = 5;
+}
+// Stores the gram scheme used to write the index, so readers can split query
+// patterns the same way. Auto mode is resolved before serialization.
+message SniiGramSchemePB {
+    optional uint32 mode = 1;              // on-disk encoding of GramMode: 1 = dense, 2 = sparse
+    optional uint32 min_len = 2;
+    optional uint32 max_len = 3;
+    optional uint32 density_permille = 4;
+    optional bool lower_case = 5;
+    optional uint32 hash_version = 6;
 }
