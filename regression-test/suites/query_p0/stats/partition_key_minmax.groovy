@@ -42,8 +42,8 @@ suite("partition_key_minmax") {
         check { explainString ->
             explainString.readLines().any { line ->
                 line.contains("a#0 ->")
-                        && (line.contains("min=5.000000(5), max=30.000000(30)")
-                            || line.contains("min=5.000000(5), max=22.000000(22)"))
+                        && (line.contains("min=5.00000(5), max=30.0000(30)")
+                            || line.contains("min=5.00000(5), max=22.0000(22)"))
             }
         }
     }
@@ -75,7 +75,7 @@ suite("partition_key_minmax") {
         check { explainString ->
             explainString.readLines().any { line ->
                 line.contains("id#0 ->")
-                        && line.contains("min=3.000000(3), max=3.000000(3)")
+                        && line.contains("min=3.00000(3), max=3.00000(3)")
             }
         }
     }

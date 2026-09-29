@@ -280,7 +280,13 @@ public class ColumnStatistic {
     @Override
     public String toString() {
         return isUnKnown ? "unknown(" + count + ")"
-                : String.format("ndv=%.4f, min=%f(%s), max=%f(%s), count=%.4f, numNulls=%.4f, "
+                // min/max use %.6g rather than %f: their magnitude routinely exceeds a double's
+                // real precision (e.g. the byte-packed encoding used for string columns), and
+                // printing digits beyond that precision is implementation-defined - JDK 19
+                // changed the algorithm and started printing different trailing digits for the
+                // same bit pattern. %.6g caps significant digits well inside double's guaranteed
+                // precision, so the same double formats identically on every JDK.
+                : String.format("ndv=%.4f, min=%.6g(%s), max=%.6g(%s), count=%.4f, numNulls=%.4f, "
                                 + "avgSizeByte=%f, hotValues=(%s)",
                 ndv, minValue, minExpr, maxValue, maxExpr, count, numNulls, avgSizeByte, getStringHotValues());
     }

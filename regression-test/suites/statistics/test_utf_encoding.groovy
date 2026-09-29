@@ -45,8 +45,8 @@ suite("test_utf_encoding") {
     assertEquals("\'预计负债\'", result[0][8])
     explain {
         sql """memo plan select * from t1;"""
-        contains("min=64379158486625512.000000(一般风险准备)")
-        contains("max=65762361296724456.000000(预计负债)")
+        contains("min=6.43792e+16(一般风险准备)")
+        contains("max=6.57624e+16(预计负债)")
     }
 
     sql """drop database if exists test_utf_encoding"""
