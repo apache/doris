@@ -162,6 +162,11 @@ TEST_F(BlockCompressionTest, parquet_gzip) {
     EXPECT_TRUE(codec->decompress(Slice(), &empty_slice).ok());
     EXPECT_EQ(0, empty_slice.size);
 
+    // An empty page must not satisfy a header that declares uncompressed bytes.
+    std::string dict_output(4, '\0');
+    Slice dict_slice(dict_output);
+    EXPECT_FALSE(codec->decompress(Slice(), &dict_slice).ok());
+
     for (size_t size : {1, 10, 1000, 65536, 1000000, 8 * 1024 * 1024}) {
         SCOPED_TRACE(size);
         // Repeat a short random string so that both literals and matches are exercised.
@@ -179,6 +184,11 @@ TEST_F(BlockCompressionTest, parquet_gzip) {
 
         Slice short_output(restored.data(), size - 1);
         EXPECT_FALSE(codec->decompress(Slice(compressed), &short_output).ok());
+
+        // The page expands to fewer bytes than the header declares.
+        std::string larger(size + 1, '\0');
+        Slice long_output(larger);
+        EXPECT_FALSE(codec->decompress(Slice(compressed), &long_output).ok());
 
         for (size_t len : {size_t {1}, size_t {10}, compressed.size() / 2, compressed.size() - 4,
                            compressed.size() - 1}) {
