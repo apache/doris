@@ -25,13 +25,13 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Futures;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
-import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -50,8 +50,9 @@ public class FlightSqlQueryCancellationTest {
     @Test
     public void cancelReachesAllBackendsWithoutLiveCoordinatorOrResultFragment() throws Exception {
         FlightSqlQueryCancellation routes = new FlightSqlQueryCancellation(() -> 0L);
+        // Use Guava collection factories because FE tests compile against the Java 8 API.
         // The selected endpoint and its coordinator have finished; only routing metadata survives.
-        routes.register(QUERY, List.of(FIRST, SECOND), List.of(FINISHED_BE, ACTIVE_BE), 120);
+        routes.register(QUERY, ImmutableList.of(FIRST, SECOND), ImmutableList.of(FINISHED_BE, ACTIVE_BE), 120);
         BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
         Mockito.when(proxy.cancelPipelineXPlanFragmentAsync(Mockito.any(), Mockito.eq(QUERY), Mockito.any()))
                 .thenReturn(Futures.immediateFuture(response(TStatusCode.OK)));
@@ -69,7 +70,7 @@ public class FlightSqlQueryCancellationTest {
     @Test
     public void applicationErrorKeepsRouteForRetry() throws Exception {
         FlightSqlQueryCancellation routes = new FlightSqlQueryCancellation(() -> 0L);
-        routes.register(QUERY, List.of(FIRST), List.of(ACTIVE_BE), 120);
+        routes.register(QUERY, ImmutableList.of(FIRST), ImmutableList.of(ACTIVE_BE), 120);
         BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
         Mockito.when(proxy.cancelPipelineXPlanFragmentAsync(Mockito.any(), Mockito.eq(QUERY), Mockito.any()))
                 .thenReturn(Futures.immediateFuture(response(TStatusCode.CANCELLED)),
@@ -85,7 +86,7 @@ public class FlightSqlQueryCancellationTest {
     public void routesExpireAfterExecutionTimeout() {
         AtomicLong clock = new AtomicLong();
         FlightSqlQueryCancellation routes = new FlightSqlQueryCancellation(clock::get);
-        routes.register(QUERY, List.of(FIRST, SECOND), List.of(ACTIVE_BE), 120);
+        routes.register(QUERY, ImmutableList.of(FIRST, SECOND), ImmutableList.of(ACTIVE_BE), 120);
         clock.set(TimeUnit.SECONDS.toNanos(126));
         Assert.assertEquals(TStatusCode.NOT_FOUND, routes.cancel(FIRST).getStatusCode());
         Assert.assertEquals(TStatusCode.NOT_FOUND, routes.cancel(SECOND).getStatusCode());
@@ -95,7 +96,7 @@ public class FlightSqlQueryCancellationTest {
     public void channelCleanupRemovesItsRoutes() {
         FlightSqlChannel channel = new FlightSqlChannel();
         try {
-            channel.registerRemoteQuery(QUERY, List.of(FIRST, SECOND), List.of(ACTIVE_BE), 120);
+            channel.registerRemoteQuery(QUERY, ImmutableList.of(FIRST, SECOND), ImmutableList.of(ACTIVE_BE), 120);
             channel.reset();
             Assert.assertEquals(TStatusCode.NOT_FOUND,
                     FlightSqlQueryCancellation.INSTANCE.cancel(FIRST).getStatusCode());
