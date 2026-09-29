@@ -20,6 +20,7 @@ org.apache.doris.connector.spi.Connector#preCreateValidation(org.apache.doris.co
 org.apache.doris.connector.spi.Connector#schemaCacheTtlSecondOverride():java.util.OptionalLong
 org.apache.doris.connector.spi.Connector#testConnection(org.apache.doris.connector.spi.ConnectorSession):org.apache.doris.connector.spi.ConnectorTestResult
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_COLUMN_AUTO_ANALYZE
+org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_CONNECTOR_PARTITION_PRUNING
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_METADATA_PRELOAD
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_MVCC_SNAPSHOT
 org.apache.doris.connector.spi.ConnectorCapability#enum:SUPPORTS_NESTED_COLUMN_PRUNE

@@ -53,6 +53,12 @@ import java.util.Map;
  */
 public class PluginDrivenMvccSnapshot implements MvccSnapshot {
 
+    public enum PartitionViewState {
+        DEFERRED,
+        MATERIALIZED,
+        UNAVAILABLE
+    }
+
     private final ConnectorMvccSnapshot connectorSnapshot;
     private final Map<String, PartitionItem> nameToPartitionItem;
     private final Map<String, Long> nameToLastModifiedMillis;
@@ -62,6 +68,7 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
     private final boolean snapshotIdFreshness;   // true => getPartitionSnapshot wraps a snapshot id, else a timestamp
     private final long newestUpdateMonotonicMarker;   // range-view table newest-update-time (dictionary refresh marker)
     private final long newestUpdateWallClockMillis;   // range-view newest-update wall-clock millis (SqlCache gate)
+    private final PartitionViewState partitionViewState;
 
     /**
      * @param connectorSnapshot        the scalar snapshot pin (snapshot id used for reads)
@@ -88,7 +95,21 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
             Map<String, Long> nameToLastModifiedMillis,
             SchemaCacheValue pinnedSchema) {
         // Legacy (Paimon-style) path: partitionType null => caller computes LIST/UNPARTITIONED; timestamp freshness.
-        this(connectorSnapshot, nameToPartitionItem, nameToLastModifiedMillis, pinnedSchema, null, false, 0L);
+        this(connectorSnapshot, nameToPartitionItem, nameToLastModifiedMillis, pinnedSchema,
+                null, false, 0L, 0L, PartitionViewState.MATERIALIZED);
+    }
+
+    /** Creates a lightweight latest/fence pin whose partition view must be materialized on demand. */
+    public static PluginDrivenMvccSnapshot deferred(ConnectorMvccSnapshot connectorSnapshot) {
+        return new PluginDrivenMvccSnapshot(connectorSnapshot, Collections.emptyMap(), Collections.emptyMap(),
+                null, null, false, 0L, 0L, PartitionViewState.DEFERRED);
+    }
+
+    /** Creates a historical pin whose connector cannot provide a snapshot-consistent partition view. */
+    public static PluginDrivenMvccSnapshot unavailable(ConnectorMvccSnapshot connectorSnapshot,
+            SchemaCacheValue pinnedSchema) {
+        return new PluginDrivenMvccSnapshot(connectorSnapshot, Collections.emptyMap(), Collections.emptyMap(),
+                pinnedSchema, null, false, 0L, 0L, PartitionViewState.UNAVAILABLE);
     }
 
     /**
@@ -129,6 +150,20 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
             boolean snapshotIdFreshness,
             long newestUpdateMonotonicMarker,
             long newestUpdateWallClockMillis) {
+        this(connectorSnapshot, nameToPartitionItem, nameToFreshnessValue, pinnedSchema, partitionType,
+                snapshotIdFreshness, newestUpdateMonotonicMarker, newestUpdateWallClockMillis,
+                PartitionViewState.MATERIALIZED);
+    }
+
+    private PluginDrivenMvccSnapshot(ConnectorMvccSnapshot connectorSnapshot,
+            Map<String, PartitionItem> nameToPartitionItem,
+            Map<String, Long> nameToFreshnessValue,
+            SchemaCacheValue pinnedSchema,
+            PartitionType partitionType,
+            boolean snapshotIdFreshness,
+            long newestUpdateMonotonicMarker,
+            long newestUpdateWallClockMillis,
+            PartitionViewState partitionViewState) {
         this.connectorSnapshot = connectorSnapshot;
         this.nameToPartitionItem = nameToPartitionItem == null
                 ? Collections.emptyMap()
@@ -141,6 +176,7 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
         this.snapshotIdFreshness = snapshotIdFreshness;
         this.newestUpdateMonotonicMarker = newestUpdateMonotonicMarker;
         this.newestUpdateWallClockMillis = newestUpdateWallClockMillis;
+        this.partitionViewState = partitionViewState;
     }
 
     public ConnectorMvccSnapshot getConnectorSnapshot() {
@@ -167,6 +203,19 @@ public class PluginDrivenMvccSnapshot implements MvccSnapshot {
 
     public Map<String, Long> getNameToLastModifiedMillis() {
         return nameToLastModifiedMillis;
+    }
+
+    /** Whether the partition view is materialized, even when it is authoritatively empty. */
+    public boolean isPartitionViewMaterialized() {
+        return partitionViewState == PartitionViewState.MATERIALIZED;
+    }
+
+    public boolean isPartitionViewDeferred() {
+        return partitionViewState == PartitionViewState.DEFERRED;
+    }
+
+    public boolean isPartitionViewUnavailable() {
+        return partitionViewState == PartitionViewState.UNAVAILABLE;
     }
 
     /**

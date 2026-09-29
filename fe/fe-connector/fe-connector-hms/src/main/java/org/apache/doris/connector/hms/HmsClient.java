@@ -153,6 +153,22 @@ public interface HmsClient extends Closeable {
     }
 
     /**
+     * Lists partitions matching an HMS filter expression.
+     *
+     * <p>This optional operation is used by selective scan planning to avoid enumerating every partition name
+     * before FE-side pruning. Implementations that do not support the metastore filter dialect keep the default
+     * and callers fall back to {@link #listPartitionNames(String, String, int)}.</p>
+     *
+     * @param dbName database name
+     * @param tableName table name
+     * @param filter HMS {@code get_partitions_by_filter} expression
+     * @return matching partition metadata
+     */
+    default List<HmsPartitionInfo> listPartitionsByFilter(String dbName, String tableName, String filter) {
+        throw new UnsupportedOperationException("listPartitionsByFilter is not supported by this client");
+    }
+
+    /**
      * Get partition metadata by partition names.
      *
      * @param dbName    database name

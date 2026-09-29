@@ -21,10 +21,14 @@ import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.spi.Connector;
 import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.connector.spi.ConnectorColumn;
+import org.apache.doris.connector.spi.ConnectorMetadata;
+import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorTableSchema;
 import org.apache.doris.connector.spi.ConnectorType;
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
@@ -36,6 +40,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -68,6 +73,13 @@ public class HiveConnectorMetadataSchemaTest {
         HiveTableHandle handle = new HiveTableHandle.Builder(
                 tableInfo.getDbName(), tableInfo.getTableName(), HiveTableType.HIVE).build();
         return metadata.getTableSchema(null, handle);
+    }
+
+    private HiveTableHandle tableHandleOf(HmsTableInfo tableInfo) {
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                new FakeHmsClient(tableInfo), HiveTestProperties.minimal(), new FakeConnectorContext());
+        return (HiveTableHandle) metadata.getTableHandle(
+                null, tableInfo.getDbName(), tableInfo.getTableName()).orElseThrow();
     }
 
     private static ConnectorColumn col(String name, String typeName) {
@@ -122,6 +134,15 @@ public class HiveConnectorMetadataSchemaTest {
         ConnectorTableSchema schema = schemaOf(partitionedTable().build());
         Assertions.assertEquals("year,region",
                 schema.getProperties().get(ConnectorTableSchema.PARTITION_COLUMNS_KEY));
+    }
+
+    @Test
+    public void testTableHandlePreservesNativeHivePartitionTypes() {
+        HmsTableInfo tableInfo = partitionedTable()
+                .partitionKeyHiveTypes(Map.of("year", "int", "region", "binary"))
+                .build();
+
+        Assertions.assertEquals("binary", tableHandleOf(tableInfo).getPartitionKeyHiveTypes().get("region"));
     }
 
     @Test
@@ -224,6 +245,48 @@ public class HiveConnectorMetadataSchemaTest {
                 .build();
         ConnectorTableSchema schema = schemaOf(tableInfo);
         Assertions.assertFalse(schema.getProperties().containsKey(ConnectorTableSchema.PARTITION_COLUMNS_KEY));
+    }
+
+    @Test
+    public void testConnectorPartitionPruningCapabilityMatchesPlainHivePartitioning() {
+        Assertions.assertTrue(hasCapability(schemaOf(partitionedTable().build()),
+                ConnectorCapability.SUPPORTS_CONNECTOR_PARTITION_PRUNING));
+        Assertions.assertFalse(hasCapability(schemaOf(unpartitionedTable(PARQUET_INPUT_FORMAT).build()),
+                ConnectorCapability.SUPPORTS_CONNECTOR_PARTITION_PRUNING));
+    }
+
+    @Test
+    public void testDelegatedSiblingDoesNotInheritConnectorPartitionPruningCapability() {
+        ConnectorTableSchema siblingSchema = new ConnectorTableSchema(
+                "delegated", Collections.emptyList(), "iceberg", Collections.emptyMap());
+        ConnectorMetadata siblingMetadata = new ConnectorMetadata() {
+            @Override
+            public ConnectorTableSchema getTableSchema(ConnectorSession session, ConnectorTableHandle handle) {
+                return siblingSchema;
+            }
+        };
+        Connector sibling = new Connector() {
+            @Override
+            public ConnectorMetadata getMetadata(ConnectorSession session) {
+                return siblingMetadata;
+            }
+
+            @Override
+            public Set<ConnectorCapability> getCapabilities() {
+                return Collections.singleton(ConnectorCapability.SUPPORTS_CONNECTOR_PARTITION_PRUNING);
+            }
+        };
+        ConnectorTableHandle foreignHandle = new ConnectorTableHandle() {
+        };
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                null, HiveTestProperties.minimal(), new FakeConnectorContext(),
+                () -> sibling, () -> sibling,
+                handle -> new SiblingOwner(sibling, SiblingOwner.ICEBERG_LABEL));
+
+        ConnectorTableSchema delegated = metadata.getTableSchema(new TestConnectorSession(), foreignHandle);
+
+        Assertions.assertFalse(hasCapability(delegated,
+                ConnectorCapability.SUPPORTS_CONNECTOR_PARTITION_PRUNING));
     }
 
     @Test
@@ -431,7 +494,7 @@ public class HiveConnectorMetadataSchemaTest {
 
         @Override
         public boolean tableExists(String dbName, String tableName) {
-            throw new UnsupportedOperationException();
+            return true;
         }
 
         @Override
@@ -452,6 +515,48 @@ public class HiveConnectorMetadataSchemaTest {
 
         @Override
         public void close() {
+        }
+    }
+
+    private static final class TestConnectorSession implements ConnectorSession {
+        @Override
+        public String getQueryId() {
+            return "query";
+        }
+
+        @Override
+        public String getUser() {
+            return "user";
+        }
+
+        @Override
+        public String getTimeZone() {
+            return "UTC";
+        }
+
+        @Override
+        public String getLocale() {
+            return "en_US";
+        }
+
+        @Override
+        public long getCatalogId() {
+            return 1L;
+        }
+
+        @Override
+        public String getCatalogName() {
+            return "catalog";
+        }
+
+        @Override
+        public <T> T getProperty(String name, Class<T> type) {
+            return null;
+        }
+
+        @Override
+        public Map<String, String> getCatalogProperties() {
+            return Collections.emptyMap();
         }
     }
 }

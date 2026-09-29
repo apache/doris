@@ -17,13 +17,25 @@
 
 package org.apache.doris.nereids;
 
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.datasource.ExternalTable;
+
+import java.util.Map;
+import java.util.Optional;
 
 /** Tracks how a single external table is referenced before metadata preload happens. */
 public class ExternalTablePreloadInfo {
     private final ExternalTable table;
     private boolean hasLatestOnlyRelation;
     private boolean hasNonLatestRelation;
+    private boolean hasUnfilteredLatestRelation;
+    /**
+     * The scan-path partition view materialized by the pre-lock preload pass, or {@code null} when that pass
+     * did not run (or did not warm one). An {@link Optional#empty()} value is meaningful and different from
+     * {@code null}: the connector view is UNAVAILABLE (unrepresentable partition), which every scan-path
+     * consumer must read as "scan every partition".
+     */
+    private Optional<Map<String, PartitionItem>> scanPartitionView;
 
     public ExternalTablePreloadInfo(ExternalTable table) {
         this.table = table;
@@ -41,6 +53,10 @@ public class ExternalTablePreloadInfo {
         hasNonLatestRelation = true;
     }
 
+    public void markUnfilteredLatestRelation() {
+        hasUnfilteredLatestRelation = true;
+    }
+
     public boolean hasLatestOnlyRelation() {
         return hasLatestOnlyRelation;
     }
@@ -52,5 +68,36 @@ public class ExternalTablePreloadInfo {
     public boolean shouldPreloadLatestSnapshot() {
         // A historical alias has independent scan state and must not cancel the latest alias warmup.
         return hasLatestOnlyRelation;
+    }
+
+    /**
+     * Whether at least one latest relation had no initial LogicalFilter. The pre-lock full-view warmup is
+     * only useful for such a scan; a selectively filtered relation must let connector pruning avoid it.
+     */
+    public boolean shouldPreloadUnfilteredScanPartitionView() {
+        return hasUnfilteredLatestRelation;
+    }
+
+    /** Whether the pre-lock preload pass materialized this table's scan partition view. */
+    public boolean hasScanPartitionView() {
+        return scanPartitionView != null;
+    }
+
+    /**
+     * The scan-path partition view materialized before the internal table locks were taken, so a lock-sensitive
+     * consumer reuses it instead of paying connector I/O under the lock. Only valid when
+     * {@link #hasScanPartitionView()} is true.
+     */
+    public Optional<Map<String, PartitionItem>> getScanPartitionView() {
+        return scanPartitionView;
+    }
+
+    public void setScanPartitionView(Optional<Map<String, PartitionItem>> scanPartitionView) {
+        this.scanPartitionView = scanPartitionView;
+    }
+
+    /** Drops the recorded view so a later execution of a reused statement does not read a stale one. */
+    public void clearScanPartitionView() {
+        this.scanPartitionView = null;
     }
 }

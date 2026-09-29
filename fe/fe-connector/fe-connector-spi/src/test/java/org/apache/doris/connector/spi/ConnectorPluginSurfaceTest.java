@@ -87,8 +87,10 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // This PR changes the connector SPI surface once, from major 10 to major 11.
-        Assertions.assertEquals("11.0", version.getProperty("api.version"));
+        // Master and this PR independently changed the connector SPI from major 10 to major 11.
+        // Their merged surface requires major 12 so a plugin cannot claim compatibility with an API-11 FE
+        // that contains only one of the two additions.
+        Assertions.assertEquals("12.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */
