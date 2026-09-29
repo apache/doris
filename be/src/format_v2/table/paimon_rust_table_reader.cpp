@@ -434,7 +434,13 @@ Status PaimonRustTableReader::_open_split_reader(const TFileRangeDesc& range) {
     }
 
     // 4. Build the read pipeline: read_builder -> case-insensitive -> projection.
-    paimon_result_read_builder rb_res = paimon_table_new_read_builder(_handles->table.get());
+    // Bound the Rust Arrow allocation itself: wide rows must respect the scanner's
+    // adaptive probe size before they are materialized into a Doris block.
+    const auto batch_size = std::to_string(
+            _batch_size > 0 ? _batch_size : std::max(1, _runtime_state->batch_size()));
+    const paimon_option batch_option {"read.batch-size", batch_size.c_str()};
+    paimon_result_read_builder rb_res =
+            paimon_table_new_read_builder_with_options(_handles->table.get(), &batch_option, 1);
     if (rb_res.error != nullptr) {
         return Status::InternalError("paimon-rust new read builder failed: {}",
                                      consume_error(rb_res.error));

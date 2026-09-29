@@ -20,6 +20,9 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <string>
@@ -28,6 +31,7 @@
 #include "cctz/time_zone.h"
 #include "core/block/block.h"
 #include "core/column/column_const.h"
+#include "core/column/column_nullable.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
@@ -155,6 +159,80 @@ TEST_F(PaimonRustTableReaderTest, ValidatesRustSplit) {
 
     // A complete range validates cleanly.
     EXPECT_TRUE(reader.TEST_validate_rust_split(make_rust_range()).ok());
+}
+
+TEST_F(PaimonRustTableReaderTest, AdaptiveBatchSizeBoundsWideStringReads) {
+    const auto fixture = std::filesystem::path(__FILE__).parent_path() /
+                         "../../exec/test_data/paimon_rust_batch_size";
+    const auto read_file = [](const std::filesystem::path& path) {
+        std::ifstream input(path, std::ios::binary);
+        return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+    };
+    auto split = read_file(fixture / "split.bin");
+    const auto placeholder = split.find("__BUCKET__");
+    ASSERT_NE(placeholder, std::string::npos);
+    ASSERT_GE(placeholder, 2);
+    const auto bucket = std::filesystem::canonical(fixture / "bucket-0").string();
+    ASSERT_LT(bucket.size(), 65536);
+    // The Java DataSplit fixture uses a neutral bucket path, encoded with writeUTF.
+    const std::string length = {static_cast<char>(bucket.size() >> 8),
+                                static_cast<char>(bucket.size() & 0xff)};
+    split.replace(placeholder - 2, 2 + std::string("__BUCKET__").size(), length + bucket);
+    std::string encoded;
+    base64_encode(split, &encoded);
+    SplitReadOptions options;
+    options.current_range = make_rust_range();
+    options.current_split_format = FileFormat::JNI;
+    options.all_runtime_filters_applied = true;
+    auto& params = options.current_range.table_format_params.paimon_params;
+    params.__set_paimon_table(std::filesystem::canonical(fixture).string());
+    params.__set_paimon_table_schema_json(read_file(fixture / "schema/schema-0"));
+    params.__set_paimon_split(encoded);
+
+    const auto value_column = make_column("v", std::make_shared<DataTypeString>());
+    PaimonRustTableReader reader;
+    ASSERT_TRUE(reader.init({.projected_columns = {_projected_column, value_column},
+                             .conjuncts = {},
+                             .format = FileFormat::JNI,
+                             .scan_params = nullptr,
+                             .io_ctx = nullptr,
+                             .runtime_state = _runtime_state.get(),
+                             .scanner_profile = nullptr})
+                        .ok());
+    // Wide values must be bounded before Arrow decoding, including when reusing a table handle.
+    for (const size_t requested : {0, 32, 7}) {
+        if (requested != 0) {
+            reader.set_batch_size(requested);
+        }
+        const size_t expected = requested == 0 ? 3 : requested;
+        auto status = reader.prepare_split(options);
+        ASSERT_TRUE(status.ok()) << status;
+        Block block({ColumnWithTypeAndName(_projected_column.type->create_column(),
+                                           _projected_column.type, "k"),
+                     ColumnWithTypeAndName(value_column.type->create_column(), value_column.type,
+                                           "v")});
+        size_t total = 0;
+        bool eos = false;
+        while (!eos) {
+            status = reader.get_block(&block, &eos);
+            ASSERT_TRUE(status.ok()) << status;
+            ASSERT_LE(block.rows(), expected);
+            const auto& keys = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+            const auto& values =
+                    assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+            for (size_t row = 0; row < block.rows(); ++row) {
+                ASSERT_FALSE(keys.is_null_at(row));
+                ASSERT_FALSE(values.is_null_at(row));
+                EXPECT_EQ(keys.get_nested_column().get_int(row), total + row);
+                EXPECT_EQ(values.get_nested_column().get_data_at(row).to_string(),
+                          std::string(128 * 1024, 'x'));
+            }
+            total += block.rows();
+        }
+        EXPECT_EQ(total, 65);
+        ASSERT_TRUE(reader.abort_split().ok());
+    }
+    ASSERT_TRUE(reader.close().ok());
 }
 
 TEST_F(PaimonRustTableReaderTest, TableLevelCountEmitsSyntheticRows) {

@@ -62,13 +62,12 @@ public:
     ~PaimonRustTableReader() override;
 
     Status init(format::TableReadOptions&& options) override;
+    // Each split's Rust read builder applies the batch size stored by the base class
+    // before opening the Arrow reader.
     Status prepare_split(const format::SplitReadOptions& options) override;
     Status get_block(Block* block, bool* eos) override;
     Status abort_split() override;
     Status close() override;
-    // paimon_table_read_to_arrow has no batch-size control and the arrow reader
-    // emits batches at its own granularity, so the base behavior (store the
-    // value, no reader to forward to) is the intended one.
 
 #ifdef BE_TEST
     Status TEST_validate_rust_split(const TFileRangeDesc& range) const {

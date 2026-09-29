@@ -118,6 +118,7 @@ public class Profile {
     // 2. or profile is loaded from storage
     private String profileStoragePath = "";
     private volatile String storageProfileCompletionState;
+    private volatile boolean executionProfilesReleased;
     // isQueryFinished means the coordinator or stmt executor is finished.
     // does not mean the profile report has finished, since the report is async.
     // finish of collection of profile is marked by isCompleted of ExecutionProfiles.
@@ -559,6 +560,9 @@ public class Profile {
     }
 
     public void releaseMemory() {
+        // The manager also releases reports after a failed spill. An empty list then means
+        // lost reports, not successful collection; retain that distinction across retries.
+        executionProfilesReleased = true;
         this.executionProfiles.clear();
         this.changedSessionVarCache = "";
         this.physicalPlan = null;
@@ -636,6 +640,10 @@ public class Profile {
             return SummaryProfile.PROFILE_COMPLETION_STATE_UNKNOWN;
         }
 
+        if (executionProfilesReleased) {
+            return SummaryProfile.PROFILE_COMPLETION_STATE_INCOMPLETE;
+        }
+
         if (!isQueryFinished) {
             return SummaryProfile.PROFILE_COMPLETION_STATE_RUNNING;
         }
@@ -650,6 +658,9 @@ public class Profile {
     }
 
     private String getProfileCompletionStateForStorage() {
+        if (executionProfilesReleased) {
+            return SummaryProfile.PROFILE_COMPLETION_STATE_INCOMPLETE;
+        }
         if (!isQueryFinished) {
             return SummaryProfile.PROFILE_COMPLETION_STATE_RUNNING;
         }
