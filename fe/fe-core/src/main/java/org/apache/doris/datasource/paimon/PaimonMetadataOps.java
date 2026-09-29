@@ -213,13 +213,9 @@ public class PaimonMetadataOps implements ExternalMetadataOps {
     @Override
     public void afterDropDbNoOp(String dbName) {
         try {
-            // A no-op IF EXISTS drop can still leave a retained canonical database object when a
-            // case-insensitive (mode 2) name mapping was lost before the statement. Retire the legacy
-            // database objects so a same-name recreation cannot reuse the stale incarnation. The SDK
-            // catalog is intentionally not flushed because the remote metastore was not mutated.
-            dorisCatalog.retireAllDatabaseObjectsWithoutEngineInvalidation();
+            dorisCatalog.retireCachedDatabaseForNoOp(dbName);
         } catch (Exception e) {
-            LOG.warn("Failed to retire legacy database objects after no-op drop of {}: {}",
+            LOG.warn("Failed to retire cached database after no-op drop of {}: {}",
                     dbName, e.getMessage(), e);
         }
     }

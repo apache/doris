@@ -167,6 +167,11 @@ public class MaxComputeMetadataOps implements ExternalMetadataOps {
         dorisCatalog.unregisterDatabase(dbName);
     }
 
+    @Override
+    public void afterDropDbNoOp(String dbName) {
+        dorisCatalog.retireCachedDatabaseForNoOp(dbName);
+    }
+
     // ==================== Create Table ====================
 
     @Override

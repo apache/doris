@@ -320,6 +320,18 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return false;
     }
 
+    /** HMS notifications are unfiltered; excluded targets must not change this catalog's caches. */
+    public boolean isPartitionEventTargetExcluded(String dbName, String tableName) {
+        if (!isDatabaseAllowedByFilterIgnoringCase(dbName)) {
+            return true;
+        }
+        return getIncludeTableMap().entrySet().stream()
+                .filter(entry -> entry.getKey().equalsIgnoreCase(dbName))
+                .findFirst()
+                .map(entry -> entry.getValue().stream().noneMatch(name -> name.equalsIgnoreCase(tableName)))
+                .orElse(false);
+    }
+
     @Override
     public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         try {

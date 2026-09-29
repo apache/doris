@@ -179,6 +179,11 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
+    public void afterDropDbNoOp(String dbName) {
+        catalog.retireCachedDatabaseForNoOp(dbName);
+    }
+
+    @Override
     public boolean createTableImpl(CreateTableInfo createTableInfo) throws UserException {
         String dbName = createTableInfo.getDbName();
         String tblName = createTableInfo.getTableName();

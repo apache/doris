@@ -113,13 +113,11 @@ public interface ExternalMetadataOps {
 
     /**
      * Cleanup hook for a drop that did not mutate the remote metastore (for example
-     * {@code DROP DATABASE IF EXISTS} on a database that does not exist). The default preserves the
-     * pre-existing local cleanup for connectors whose {@code afterDropDb} only unregisters the
-     * database, so a retained incarnation is still retired. Paimon overrides it to do targeted
-     * retirement without its broad engine-cache flush.
+     * {@code DROP DATABASE IF EXISTS} on a database that does not exist). Remote state did not
+     * change, so a connector must opt in to any cache-only cleanup. Calling
+     * {@code afterDropDb} here could turn an absent name into catalog-wide invalidation.
      */
     default void afterDropDbNoOp(String dbName) {
-        afterDropDb(dbName);
     }
 
     /**

@@ -336,6 +336,11 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     @Override
+    public void afterDropDbNoOp(String dbName) {
+        dorisCatalog.retireCachedDatabaseForNoOp(dbName);
+    }
+
+    @Override
     public boolean createTableImpl(CreateTableInfo createTableInfo) throws UserException {
         try {
             return executeCatalogOperation(() -> performCreateTable(createTableInfo));

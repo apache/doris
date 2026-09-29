@@ -1206,8 +1206,8 @@ public abstract class ExternalCatalog
             replayDropDb(resolvedDbName);
         } else if (getLowerCaseDatabaseNames() == 2) {
             // An old name-only record cannot distinguish a historical DROP from an alias that
-            // targeted a case-only replacement. Retire both possibilities conservatively.
-            retireUnresolvedDatabaseGeneration();
+            // targeted a case-only replacement. The dropped name must not remain visible either.
+            retireUnresolvedDatabaseGeneration(true);
         } else {
             replayDropDb(dbName);
         }
@@ -1334,8 +1334,21 @@ public abstract class ExternalCatalog
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(getId());
             return;
         }
-        String localDbName = identity.get().first;
-        long dbId = identity.get().second;
+        unregisterDatabase(identity.get().first, identity.get().second);
+    }
+
+    /** A no-op remote DROP may retire matching resident history, but never unrelated databases. */
+    public void retireCachedDatabaseForNoOp(String dbName) {
+        if (!isInitialized() || metaCache == null) {
+            return;
+        }
+        for (Pair<String, Long> identity : metaCache.getCachedIdentitiesMatching(
+                dbName, getLowerCaseDatabaseNames() != 0)) {
+            unregisterDatabase(identity.first, identity.second);
+        }
+    }
+
+    private void unregisterDatabase(String localDbName, long dbId) {
         // A cold database has no removal callback. Fence its deterministic table IDs before
         // removing the name slot, so a same-name replacement cannot use an old completed count.
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(getId(), dbId);
@@ -1397,7 +1410,16 @@ public abstract class ExternalCatalog
      * incarnation, engine entries, or row counts.
      */
     public void retireUnresolvedDatabaseGeneration() {
+        retireUnresolvedDatabaseGeneration(false);
+    }
+
+    private void retireUnresolvedDatabaseGeneration(boolean invalidateNames) {
         try {
+            if (invalidateNames && metaCache != null) {
+                // A name refresh can expose a new incarnation before the object generation swaps.
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(getId());
+                metaCache.invalidateNames();
+            }
             retireAllDatabaseObjectsWithoutEngineInvalidation();
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(getId());
         } catch (Exception e) {

@@ -61,6 +61,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class CatalogMgrTest {
 
@@ -724,7 +725,102 @@ public class CatalogMgrTest {
         Mockito.verify(metadataOps).afterDropTable("Foo", "t");
         Mockito.verify(metadataOps).afterDropDb("Foo");
         Mockito.verify(metaCache, Mockito.times(2)).invalidateObjects();
+        Mockito.verify(metaCache).invalidateNames();
         Mockito.verify(cacheMgr, Mockito.times(2)).invalidateCatalog(catalogId);
+    }
+
+    @Test
+    void testLegacyModeTwoDatabaseDropRefreshesPopulatedNames() {
+        long catalogId = 94L;
+        TestingUnregisterCatalog catalog = new TestingUnregisterCatalog(catalogId,
+                ImmutableMap.of(ExternalCatalog.LOWER_CASE_DATABASE_NAMES, "2"));
+        AtomicReference<List<Pair<String, String>>> remoteNames = new AtomicReference<>(
+                Collections.singletonList(Pair.of("Foo", "Foo")));
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache = new MetaCache<>(
+                "databaseCache", executor, OptionalLong.empty(), OptionalLong.empty(), 10,
+                ignored -> remoteNames.get(), ignored -> Optional.empty(), (key, value, cause) -> { });
+        catalog.installMetaCache(metaCache);
+        Env env = Mockito.mock(Env.class);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertEquals(Collections.singletonList("Foo"), catalog.getDbNames());
+            remoteNames.set(Collections.emptyList());
+
+            catalog.replayDropDb("Foo", null);
+
+            Assertions.assertTrue(catalog.getDbNames().isEmpty());
+            Mockito.verify(cacheMgr).invalidateCatalog(catalogId);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void testNoOpDatabaseDropKeepsUnrelatedCachedDatabase() {
+        long catalogId = 95L;
+        TestingUnregisterCatalog catalog = new TestingUnregisterCatalog(catalogId,
+                ImmutableMap.of(ExternalCatalog.LOWER_CASE_DATABASE_NAMES, "2"));
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache = new MetaCache<>(
+                "databaseCache", executor, OptionalLong.empty(), OptionalLong.empty(), 10,
+                ignored -> Collections.emptyList(), ignored -> Optional.empty(), (key, value, cause) -> { });
+        long oldId = Util.genIdByName("testing_catalog", "Foo");
+        long unrelatedId = Util.genIdByName("testing_catalog", "sales");
+        ExternalDatabase<?> oldDb = Mockito.mock(ExternalDatabase.class);
+        ExternalDatabase<?> unrelatedDb = Mockito.mock(ExternalDatabase.class);
+        metaCache.addObjForTest(oldId, "Foo", oldDb);
+        metaCache.addObjForTest(unrelatedId, "sales", unrelatedDb);
+        catalog.installMetaCache(metaCache);
+        Env env = Mockito.mock(Env.class);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            catalog.retireCachedDatabaseForNoOp("absent");
+            Assertions.assertSame(unrelatedDb, metaCache.tryGetMetaObj("sales").orElseThrow(AssertionError::new));
+            Mockito.verifyNoInteractions(cacheMgr);
+
+            // A lost mode-2 mapping still permits narrow retirement of a retained historical ID.
+            catalog.retireCachedDatabaseForNoOp("foo");
+            Assertions.assertFalse(metaCache.tryGetMetaObj("Foo").isPresent());
+            Assertions.assertSame(unrelatedDb, metaCache.tryGetMetaObj("sales").orElseThrow(AssertionError::new));
+            Mockito.verify(cacheMgr).invalidateDb(catalogId, oldId, "Foo");
+            Mockito.verify(cacheMgr, Mockito.never()).invalidateCatalog(catalogId);
+            Mockito.verify(cacheMgr, Mockito.never()).invalidateRowCountCache(catalogId, unrelatedId);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void testFilteredPartitionEventsLeaveOtherDatabaseCachesUntouched() throws Exception {
+        long catalogId = 96L;
+        HMSExternalCatalog catalog = new HMSExternalCatalog(catalogId, "hms", null,
+                ImmutableMap.of(ExternalCatalog.LOWER_CASE_DATABASE_NAMES, "2",
+                        ExternalCatalog.EXCLUDE_DATABASE_LIST, "archived",
+                        ExternalCatalog.INCLUDE_TABLE_LIST, "sales.hot"), "");
+        CatalogMgr catalogMgr = new CatalogMgr();
+        addNamedCatalog(catalogMgr, catalog);
+        Env env = Mockito.mock(Env.class);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            Assertions.assertFalse(catalog.isPartitionEventTargetExcluded("sales", "hot"));
+            for (String[] target : new String[][] {{"ARCHIVED", "t"}, {"sales", "cold"}}) {
+                catalogMgr.addExternalPartitions("hms", target[0], target[1],
+                        Collections.singletonList("p=1"), 1L, true);
+                catalogMgr.dropExternalPartitions("hms", target[0], target[1],
+                        Collections.singletonList("p=1"), 1L, true);
+                new RefreshManager().refreshPartitions("hms", target[0], target[1],
+                        Collections.singletonList("p=1"), 1L, true);
+            }
+            Mockito.verifyNoInteractions(cacheMgr);
+        }
     }
 
     @Test

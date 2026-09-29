@@ -106,4 +106,15 @@ public class HiveMetadataOpsTest {
         // An empty lookup can hide a resident canonical database object after a lost mode-2 mapping.
         Mockito.verify(catalog).invalidateColdDatabaseForReplay("db");
     }
+
+    @Test
+    public void testNoOpDropDatabaseUsesOnlyCachedIdentityCleanup() {
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        HiveMetadataOps metadataOps = new HiveMetadataOps(catalog, Mockito.mock(HMSCachedClient.class));
+
+        metadataOps.afterDropDbNoOp("absent");
+
+        Mockito.verify(catalog).retireCachedDatabaseForNoOp("absent");
+        Mockito.verify(catalog, Mockito.never()).unregisterDatabase("absent");
+    }
 }

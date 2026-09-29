@@ -558,6 +558,15 @@ public class MetaCache<T> {
         return Optional.ofNullable(withMetaObjLifecycleReadLock(() -> idToName.get(id)));
     }
 
+    /** Snapshot resident object identities matching a DROP alias under the catalog's name mode. */
+    public List<Pair<String, Long>> getCachedIdentitiesMatching(String name, boolean ignoreCase) {
+        return withMetaObjLifecycleReadLock(() -> idToName.entrySet().stream()
+                .filter(entry -> ignoreCase ? entry.getValue().equalsIgnoreCase(name)
+                        : entry.getValue().equals(name))
+                .map(entry -> Pair.of(entry.getValue(), entry.getKey()))
+                .collect(Collectors.toList()));
+    }
+
     public void updateCache(String remoteName, String localName, T obj, long id) {
         updateCache(remoteName, localName, obj, id, namesLoadEpochSupplier.getAsLong());
     }

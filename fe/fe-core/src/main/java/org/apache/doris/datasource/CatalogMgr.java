@@ -1107,6 +1107,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support ExternalCatalog");
         }
+        if (catalog instanceof HMSExternalCatalog
+                && ((HMSExternalCatalog) catalog).isPartitionEventTargetExcluded(dbName, tableName)) {
+            return;
+        }
         // Partition events are already committed remotely. Fence the row count by cached identity
         // before any database/table reload can fail and make the ignored-not-found path return.
         Env.getCurrentEnv().getExtMetaCacheMgr()
@@ -1164,6 +1168,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support ExternalCatalog");
+        }
+        if (catalog instanceof HMSExternalCatalog
+                && ((HMSExternalCatalog) catalog).isPartitionEventTargetExcluded(dbName, tableName)) {
+            return;
         }
         // Partition events are already committed remotely. Fence the row count by cached identity
         // before any database/table reload can fail and make the ignored-not-found path return.
