@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.FoldLiteralArguments;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
@@ -74,10 +75,20 @@ public class Sha2 extends ScalarFunction
 
     @Override
     public void checkLegalityAfterRewrite() {
-        if (!(child(1) instanceof IntegerLikeLiteral)) {
-            throw new AnalysisException("the second parameter of sha2 must be a literal but got: " + child(1).toSql());
+        Expression digestLength = getArgument(1);
+        if (!digestLength.isConstant()) {
+            throw new AnalysisException("the second parameter of sha2 must be a constant but got: "
+                    + digestLength.toSql());
         }
-        final int constParam = ((IntegerLikeLiteral) child(1)).getIntValue();
+        // a constant FE cannot fold is validated by BE when it is evaluated
+        if (!(digestLength instanceof Literal)) {
+            return;
+        }
+        if (!(digestLength instanceof IntegerLikeLiteral)) {
+            throw new AnalysisException("the second parameter of sha2 must be an integer but got: "
+                    + digestLength.toSql());
+        }
+        final int constParam = ((IntegerLikeLiteral) digestLength).getIntValue();
         if (!validDigest.contains(constParam)) {
             throw new AnalysisException("sha2 functions only support digest length of " + validDigest.toString());
         }

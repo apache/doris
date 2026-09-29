@@ -84,7 +84,7 @@ public class WidthBucket extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (!getArgument(3).isLiteral()) {
+        if (!getArgument(3).isConstant()) {
             throw new AnalysisException("The fourth argument of WidthBucket must be a constant.");
         }
     }

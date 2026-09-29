@@ -83,6 +83,10 @@ public class DateTrunc extends ScalarFunction
                 && LEGAL_TIME_UNIT.contains(((StringLikeLiteral) expression).getStringValue().toLowerCase());
     }
 
+    private static boolean isConstantString(Expression expression) {
+        return expression.isConstant() && expression.getDataType().isStringLikeType();
+    }
+
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         boolean firstArgIsStringLiteral =
@@ -90,6 +94,11 @@ public class DateTrunc extends ScalarFunction
         boolean secondArgIsStringLiteral =
                 getArgument(1).isConstant() && getArgument(1) instanceof StringLikeLiteral;
         if (!firstArgIsStringLiteral && !secondArgIsStringLiteral) {
+            // a time unit FE cannot fold is accepted beside a date argument, and BE validates it
+            if ((getArgument(0).getDataType().isDateLikeType() && isConstantString(getArgument(1)))
+                    || (getArgument(1).getDataType().isDateLikeType() && isConstantString(getArgument(0)))) {
+                return;
+            }
             throw new AnalysisException("the time unit parameter of "
                     + getName() + " function must be a string constant: " + toSql());
         } else if (firstArgIsStringLiteral && secondArgIsStringLiteral) {

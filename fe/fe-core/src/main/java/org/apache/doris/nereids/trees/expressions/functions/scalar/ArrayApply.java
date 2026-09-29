@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.FoldLiteralArguments;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -73,10 +74,12 @@ public class ArrayApply extends ScalarFunction
     public void checkLegalityBeforeTypeCoercion() {
         Expression arg1 = getArgument(1);
         Expression arg2 = getArgument(2);
-        if (!(arg1 instanceof StringLikeLiteral)) {
+        if (!arg1.isConstant() || (arg1 instanceof Literal && !(arg1 instanceof StringLikeLiteral))) {
             throw new AnalysisException(
                     "array_apply(arr, op, val): op support const value only.");
-        } else {
+        }
+        // an op FE cannot fold is validated by BE when it is evaluated
+        if (arg1 instanceof StringLikeLiteral) {
             String op = ((StringLikeLiteral) arg1).getStringValue();
             if (! "=".equals(op) && !">".equals(op) && !"<".equals(op)
                     && !">=".equals(op) && !"<=".equals(op) && !"!=".equals(op)) {

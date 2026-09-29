@@ -60,7 +60,7 @@ suite("test_query_sys", "query,p0") {
 
     test {
         sql "select random(random());"
-        exception "The param of rand function must be literal"
+        exception "The param of rand function must be constant"
     }
 
     sql """
@@ -75,7 +75,7 @@ suite("test_query_sys", "query,p0") {
     sql """ insert into test_random values('123,1233,4123,3131'); """
     test {
         sql "select random(1,array_size(split_by_string(fcst_emp,','))) from test_random;"
-        exception "The param of rand function must be literal"
+        exception "The param of rand function must be constant"
     }
 
     // `workload_group_resource_usage` will be refresh 30s after BE startup so sleep 30s to get a stable result

@@ -20,9 +20,10 @@ package org.apache.doris.nereids.trees.expressions.functions;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
 /**
- * Functions whose legality checks require some constant arguments to be literals.
+ * Functions whose legality checks validate the value of some constant arguments.
  * The analyzer folds these arguments on FE before checkLegalityBeforeTypeCoercion,
- * so a constant expression such as 1 + 1 is accepted like the literal it folds to.
+ * so a constant expression such as 1 + 1 is validated like the literal it folds to.
+ * A constant argument FE cannot fold is left to BE, unless FE needs its value to plan the function.
  */
 public interface FoldLiteralArguments {
     /** whether the argument at the given index must be folded to a literal before the legality checks */
