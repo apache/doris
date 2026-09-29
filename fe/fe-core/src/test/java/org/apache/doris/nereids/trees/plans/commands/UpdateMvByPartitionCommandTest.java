@@ -24,9 +24,11 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionItem;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.mtmv.MTMVPlanUtil;
@@ -61,6 +63,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
@@ -96,6 +99,22 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
                 + "distributed by random buckets 1\n"
                 + "properties('replication_num' = '1')\n"
                 + "as select id, name, value from test.ivm_base_uniq;");
+        createTable("create table test.pct_base (\n"
+                + "  k1 date,\n"
+                + "  value int\n"
+                + ") duplicate key(k1)\n"
+                + "partition by range(k1) (\n"
+                + "  partition p1 values [('2024-01-01'), ('2024-02-01')),\n"
+                + "  partition p2 values [('2024-02-01'), ('2024-03-01')),\n"
+                + "  partition p3 values [('2024-03-01'), ('2024-04-01'))\n"
+                + ")\ndistributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+        createMvByNereids("create materialized view test.pct_mv\n"
+                + "build immediate refresh complete on manual\n"
+                + "partition by (date_trunc(k1,'year'))\n"
+                + "distributed by random buckets 1\n"
+                + "properties('replication_num' = '1')\n"
+                + "as select k1, sum(value) as total from test.pct_base group by k1;");
     }
 
     @Test
@@ -274,7 +293,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         OriginStatement originStatement = statementContext.getOriginStatement();
         statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
         UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand.from(
-                mtmv, Sets.newHashSet(), ImmutableMap.of(), statementContext);
+                mtmv, Sets.newHashSet(), ImmutableMap.of(), statementContext, null);
         AtomicReference<StmtExecutor> executorRef = new AtomicReference<>();
         MTMVPlanUtil.executeCommand(
                 mtmv, command, statementContext, "refresh materialized view test.ivm_mv",
@@ -323,7 +342,7 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         MTMV mtmv = getMtmv("one_row_mv");
         StatementContext statementContext = createStatementCtx("refresh materialized view test.one_row_mv");
         UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand.from(
-                mtmv, Sets.newHashSet(), ImmutableMap.of(), statementContext);
+                mtmv, Sets.newHashSet(), ImmutableMap.of(), statementContext, null);
 
         TestNereidsPlanner planner = new TestNereidsPlanner(statementContext);
         PhysicalPlan physicalPlan = planner.planWithLock(command.getLogicalQuery(), PhysicalProperties.ANY);
@@ -339,7 +358,36 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
     private UpdateMvByPartitionCommand newRefreshCommand(MTMV mtmv) throws Exception {
         StatementContext statementContext = createStatementCtx("refresh materialized view test.ivm_mv");
         statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
-        return UpdateMvByPartitionCommand.from(mtmv, Sets.newHashSet(), ImmutableMap.of(), statementContext);
+        return UpdateMvByPartitionCommand.from(mtmv, Sets.newHashSet(), ImmutableMap.of(), statementContext,
+                null);
+    }
+
+    @Test
+    void testAReadIsScopedToTheBasePartitionsTheMvPartitionIsRecordedWith() throws Exception {
+        // The MV partition is a year, the base table's are months. What the refresh reads is the months
+        // the snapshot taken next to it will name, not the year it rolls them up into: a month left out
+        // is one no snapshot describes, and its rows would stay in the MV partition unaccounted for.
+        Map<TableIf, Set<Expression>> all = refreshPredicates(Sets.newHashSet("p1", "p2", "p3"));
+        Assertions.assertEquals(1, all.size());
+        Assertions.assertEquals(3, all.values().iterator().next().size());
+
+        Map<TableIf, Set<Expression>> windowed = refreshPredicates(Sets.newHashSet("p2"));
+        Assertions.assertEquals(1, windowed.size());
+        Set<Expression> predicates = windowed.values().iterator().next();
+        Assertions.assertEquals(1, predicates.size());
+        String sql = predicates.iterator().next().toSql();
+        Assertions.assertTrue(sql.contains("2024-02-01"), sql);
+        Assertions.assertTrue(sql.contains("2024-03-01"), sql);
+    }
+
+    @Test
+    void testABaseTableWithNoPartitionToReadIsReadAsNothing() throws Exception {
+        // Not scoped to nothing while being read in full: the MV partitions being refreshed take no row
+        // of this table, and reading it through their own key ranges would take rows of partitions no
+        // snapshot describes.
+        Map<TableIf, Set<Expression>> predicates = refreshPredicates(Sets.newHashSet());
+        Assertions.assertEquals(1, predicates.size());
+        Assertions.assertEquals("FALSE", predicates.values().iterator().next().iterator().next().toSql());
     }
 
     @Test
@@ -360,6 +408,22 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         Expression firstKey = UpdateMvByPartitionCommand.constructPredicates(Sets.newHashSet(item), slot, 0)
                 .iterator().next();
         Assertions.assertEquals("b IN (1)", firstKey.toSql());
+    }
+
+    private Map<TableIf, Set<Expression>> refreshPredicates(Set<String> readableBasePartitions)
+            throws Exception {
+        MTMV mtmv = getMtmv("pct_mv");
+        OlapTable base = getOlapTable("pct_base");
+        String mvPartitionName = mtmv.getPartitionNames().iterator().next();
+        StatementContext statementContext = createStatementCtx("refresh materialized view test.pct_mv");
+        UpdateMvByPartitionCommand.from(mtmv, Sets.newHashSet(mvPartitionName), ImmutableMap.of(base, "k1"),
+                statementContext, ImmutableMap.of(base, readableBasePartitions));
+        return statementContext.getMvRefreshPredicates().get();
+    }
+
+    private OlapTable getOlapTable(String tableName) throws Exception {
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
+        return (OlapTable) db.getTableOrAnalysisException(tableName);
     }
 
     private MTMV getMtmv(String mvName) throws Exception {
