@@ -32,6 +32,7 @@
 #include "storage/index/snii/encoding/crc32c.h"
 #include "storage/index/snii/io/file_writer.h"
 #include "storage/index/snii/writer/temp_dir.h"
+#include "util/debug_points.h"
 
 namespace doris::snii::writer {
 namespace {
@@ -113,6 +114,10 @@ Status PostingByteBuffer::open_spill() {
 }
 
 Status PostingByteBuffer::write_all(std::span<const uint8_t> bytes) {
+    DBUG_EXECUTE_IF("PostingByteBuffer::write_all.enospc", {
+        errno = ENOSPC;
+        return posting_io_error("write", path_);
+    });
     while (!bytes.empty()) {
         const ssize_t written = ::write(fd_, bytes.data(), bytes.size());
         if (written < 0 && errno == EINTR) {
@@ -204,16 +209,13 @@ Status PostingByteBuffer::read_at(uint64_t offset, std::span<uint8_t> destinatio
     if (offset > size_ || destination.size() > size_ - offset) {
         return truncated_posting_bytes();
     }
-    if (fd_ < 0) {
-        if (!destination.empty()) {
-            std::memcpy(destination.data(), buffer_.get() + offset, destination.size());
-        }
-        return Status::OK();
-    }
-    RETURN_IF_ERROR(flush());
-    while (!destination.empty()) {
-        const ssize_t count =
-                ::pread(fd_, destination.data(), destination.size(), static_cast<off_t>(offset));
+    // Bytes still in the resident buffer are served from it, so a read never
+    // writes and cleanup keeps working after a failed flush on a full volume.
+    const uint64_t flushed = size_ - buffered_;
+    while (!destination.empty() && offset < flushed) {
+        const auto wanted =
+                static_cast<size_t>(std::min<uint64_t>(destination.size(), flushed - offset));
+        const ssize_t count = ::pread(fd_, destination.data(), wanted, static_cast<off_t>(offset));
         if (count < 0 && errno == EINTR) {
             continue;
         }
@@ -228,6 +230,9 @@ Status PostingByteBuffer::read_at(uint64_t offset, std::span<uint8_t> destinatio
         }
         destination = destination.subspan(static_cast<size_t>(count));
         offset += static_cast<uint64_t>(count);
+    }
+    if (!destination.empty()) {
+        std::memcpy(destination.data(), buffer_.get() + (offset - flushed), destination.size());
     }
     return Status::OK();
 }

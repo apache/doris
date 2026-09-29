@@ -24,23 +24,48 @@
 #include <cstring>
 #include <fstream>
 #include <numeric>
+#include <set>
 #include <span>
+#include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/encoding/crc32c.h"
 #include "storage/index/snii/format/dict_block.h"
 #include "storage/index/snii/format/prx_frame.h"
+#include "storage/index/snii/staged_file_probe.h"
 #include "storage/index/snii/writer/encoded_spill_run.h"
 #include "storage/index/snii/writer/posting_byte_buffer.h"
 #include "storage/index/snii/writer/posting_prx_encoder.h"
 #include "storage/index/snii/writer/spill_run_codec.h"
 #include "storage/index/snii/writer/spimi_term_buffer.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 
 namespace doris::snii::writer {
 namespace {
 
 constexpr uint64_t kMiB = 1ULL << 20;
+
+// Every PostingByteBuffer write fails with ENOSPC while this is alive, like a
+// full temporary volume that keeps refusing retries.
+class FullTemporaryVolume {
+public:
+    FullTemporaryVolume() : old_enable_(config::enable_debug_points) {
+        config::enable_debug_points = true;
+        DebugPoints::instance()->add(kPoint);
+    }
+    ~FullTemporaryVolume() { release(); }
+    void release() {
+        DebugPoints::instance()->remove(kPoint);
+        config::enable_debug_points = old_enable_;
+    }
+
+private:
+    static constexpr const char* kPoint = "PostingByteBuffer::write_all.enospc";
+    bool old_enable_;
+};
 
 struct EncodedTemporaryFile {
     EncodedTemporaryFile() {
@@ -364,6 +389,36 @@ TEST(SniiBoundedPostingCodec, MultiPassMergeCoalescesBoundaryDocumentsInRunOrder
     }
 }
 
+// On a full temporary volume the manifest flush fails after earlier groups have
+// already written their merged runs. Unwinding must still remove those runs.
+TEST(SniiBoundedPostingCodec, FailedManifestFlushStillRemovesIntermediateRuns) {
+    constexpr uint32_t kRuns = 55;
+    std::array<EncodedTemporaryFile, kRuns> files;
+    std::vector<std::string> paths;
+    ASSERT_NO_FATAL_FAILURE(write_boundary_runs(files, &paths));
+    EncodedTemporaryFile output;
+    const std::set<std::string> before = snii_test::snii_temp_files("snii_merge_");
+    Defer sweep {[&]() {
+        for (const auto& path : snii_test::snii_temp_files("snii_merge_")) {
+            if (!before.contains(path)) {
+                std::remove(path.c_str());
+            }
+        }
+    }};
+    MemoryReporter reporter(nullptr, kMiB, MemoryReporter::CapPolicy::kHardLimit, kMiB);
+    Status compacted;
+    {
+        FullTemporaryVolume full;
+        compacted = compact_runs(paths, {0}, true, output.path, &reporter);
+    }
+    EXPECT_TRUE(compacted.is<ErrorCode::IO_ERROR>()) << compacted.to_string();
+    EXPECT_EQ(reporter.current_bytes(), 0);
+    EXPECT_EQ(snii_test::snii_temp_files("snii_merge_"), before);
+    for (const auto& path : paths) {
+        EXPECT_EQ(::access(path.c_str(), F_OK), 0);
+    }
+}
+
 TEST(SniiBoundedPostingCodec, OrdinaryPositionWindowsKeepResidentEncodingWithoutTemporaryIO) {
     const std::vector<uint32_t> docs(8192, 0);
     const std::vector<uint32_t> freqs(8192, 10);
@@ -453,6 +508,35 @@ TEST(SniiBoundedPostingCodec, ByteBufferReplaysAcrossBlocksAndReleasesItsCache) 
     EXPECT_GT(reporter.postings_read_bytes(), 0);
     EXPECT_EQ(reporter.current_bytes(), 0);
     EXPECT_EQ(reporter.postings_current_bytes(), 0);
+}
+
+// A read never has to write: the flushed prefix comes from the file and the
+// pending tail from the resident buffer, even after a flush has failed.
+TEST(SniiBoundedPostingCodec, ByteBufferReadsPendingBytesWithoutFlushing) {
+    PostingByteBuffer bytes(nullptr, /*buffer_bytes=*/8);
+    std::array<uint8_t, 20> pattern {};
+    for (size_t i = 0; i < pattern.size(); ++i) {
+        pattern[i] = static_cast<uint8_t>(i * 29 + 3);
+    }
+    ASSERT_TRUE(bytes.append(pattern).ok());
+    ASSERT_TRUE(bytes.spilled());
+    ASSERT_EQ(bytes.size(), pattern.size());
+
+    FullTemporaryVolume full;
+    std::array<uint8_t, 20> replay {};
+    const Status read = bytes.read_at(0, replay);
+    ASSERT_TRUE(read.ok()) << read.to_string();
+    EXPECT_EQ(replay, pattern);
+    std::array<uint8_t, 4> tail {};
+    ASSERT_TRUE(bytes.read_at(16, tail).ok());
+    EXPECT_TRUE(std::equal(tail.begin(), tail.end(), pattern.begin() + 16));
+    EXPECT_FALSE(bytes.spill_and_release_buffer().ok());
+
+    // Once the volume has space again the pending tail is written exactly once.
+    full.release();
+    ASSERT_TRUE(bytes.spill_and_release_buffer().ok());
+    ASSERT_TRUE(bytes.read_at(0, replay).ok());
+    EXPECT_EQ(replay, pattern);
 }
 
 TEST(SniiBoundedPostingCodec, SmallWindowsKeepTheExistingBytes) {

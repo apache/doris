@@ -84,7 +84,9 @@ The historical `snii_spill_max_run_files_per_buffer` setting can further limit f
 zero uses the workspace and descriptor bounds. It no longer causes repeated merging
 of an increasingly large ingestion prefix. Intermediate run names live in spillable
 manifests, and consumed intermediate files are removed only after the next output
-closes successfully. The original spool remains owned by its input buffer.
+closes successfully. Reading a manifest never flushes it, so cleanup still removes
+every recorded output after a failed flush on a full volume. The original spool
+remains owned by its input buffer.
 
 Production readers require the encoded header and seal, including for empty runs.
 The former raw-u32 RUN format is accepted only through explicit `allow_legacy=true`

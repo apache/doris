@@ -29,6 +29,7 @@
 #include <queue>
 #include <utility>
 
+#include "common/logging.h"
 #include "storage/index/snii/encoding/crc32c.h"
 #include "storage/index/snii/writer/encoded_spill_run.h"
 #include "storage/index/snii/writer/spill_run_codec.h"
@@ -259,18 +260,22 @@ public:
             uint64_t offset = 0;
             while (offset < manifest->size()) {
                 uint32_t length = 0;
-                if (!manifest->read_at(offset, {reinterpret_cast<uint8_t*>(&length), 4}).ok()) {
-                    break;
+                Status status = manifest->read_at(offset, {reinterpret_cast<uint8_t*>(&length), 4});
+                if (status.ok()) {
+                    status = length < path.size()
+                                     ? manifest->read_at(
+                                               offset + 4,
+                                               {reinterpret_cast<uint8_t*>(path.data()), length})
+                                     : invalid_run("invalid manifest path length");
                 }
-                offset += 4;
-                if (length >= path.size() ||
-                    !manifest->read_at(offset, {reinterpret_cast<uint8_t*>(path.data()), length})
-                             .ok()) {
+                if (!status.ok()) {
+                    LOG(WARNING) << "spill merge cleanup stopped, intermediate runs may remain: "
+                                 << status;
                     break;
                 }
                 path[length] = 0;
                 std::remove(path.data());
-                offset += length;
+                offset += 4 + length;
             }
         }
     }
