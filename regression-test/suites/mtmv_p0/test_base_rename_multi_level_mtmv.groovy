@@ -137,5 +137,6 @@ suite("test_base_rename_multi_level_mtmv","mtmv") {
     mv_rewrite_success_without_check_chosen(querySql, mvName2)
     mv_not_part_in(querySql, mvName1)
     mv_not_part_in(querySql, mvName3)
-    mv_rewrite_fail(querySql, mvName4)
+    // Its transitive dependency still names the renamed table, so candidate validation excludes mv4.
+    mv_not_part_in(querySql, mvName4)
 }

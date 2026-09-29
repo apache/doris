@@ -2384,6 +2384,9 @@ public class SchemaChangeHandler extends AlterHandler {
                             .forEach(entry -> sequenceMappingSettings.put(entry.getKey(), entry.getValue()));
                 }
             }
+            if (olapTable.hasRowTtl() && !sequenceMappingSettings.isEmpty()) {
+                throw new DdlException(PropertyAnalyzer.ROW_TTL_SEQUENCE_COLUMN_CONFLICT);
+            }
 
             for (AlterOp alterOp : alterOps) {
                 Map<String, String> properties = alterOp.getProperties();

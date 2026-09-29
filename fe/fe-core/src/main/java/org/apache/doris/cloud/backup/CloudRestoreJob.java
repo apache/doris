@@ -428,6 +428,8 @@ public class CloudRestoreJob extends RestoreJob {
                                     localTbl.getCompressionType(), localTbl.getStorageFormat(),
                                     localTbl.getStoragePolicy(),
                                     localTbl.isInMemory(), false, localTbl.getName(), localTbl.getTTLSeconds(),
+                                    localTbl.getRowTtlDurationMicros(),
+                                    localTbl.getRowTtlTimeZoneOffsetSeconds(),
                                     !indexMeta.isRowBinlogIndex() && localTbl.getEnableUniqueKeyMergeOnWrite(),
                                     localTbl.storeRowColumn(),
                                     localTbl.getBaseSchemaVersion(), localTbl.getBinlogConfig(),

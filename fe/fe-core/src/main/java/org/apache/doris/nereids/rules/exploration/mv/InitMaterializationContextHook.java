@@ -258,6 +258,11 @@ public class InitMaterializationContextHook implements PlannerHook {
             try {
                 if (indexId != baseIndexId) {
                     MaterializedIndexMeta meta = entry.getValue();
+                    if (olapTable.hasRowTtl() && meta.getSchema().stream().noneMatch(Column::isTtlColumn)) {
+                        LOG.warn("exclude materialized index {} from row ttl table {} because its schema lacks {}",
+                                indexName, olapTable.getQualifiedName(), Column.TTL_COL);
+                        continue;
+                    }
                     String createMvSql;
                     if (meta.getDefineStmt() != null) {
                         // get the original create mv sql

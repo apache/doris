@@ -23,10 +23,8 @@
 
 #include <string>
 
-namespace wide {
-template <size_t Bits, typename Signed>
-class integer;
-}
+// fmt/ranges.h requires a complete type when resolving the formatter instantiations below.
+#include "core/wide_integer.h"
 
 using Int128 = wide::integer<128, signed>;
 using UInt128 = wide::integer<128, unsigned>;
