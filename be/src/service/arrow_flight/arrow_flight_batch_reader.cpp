@@ -37,6 +37,7 @@
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
+#include "util/client_cache.h"
 
 namespace doris::flight {
 
@@ -95,8 +96,40 @@ bool ArrowFlightBatchReaderBase::is_cancelled() const {
 }
 
 void ArrowFlightBatchReaderBase::close(const Status& reason) {
-    if (!_closed.exchange(true) && !_eof.load() && _cancel_query) {
-        _cancel_query(reason);
+    if (_closed.exchange(true) || _eof.load()) {
+        return;
+    }
+    auto* env = ExecEnv::GetInstance();
+    if (_statement->result_addr.hostname == BackendOptions::get_localhost() &&
+        _statement->result_addr.port == config::brpc_port) {
+        env->result_mgr()->cancel_arrow_flight_query(_statement->query_id, reason);
+    }
+    // A result endpoint can outlive its local fragment. Find the owning FE by buffer ID,
+    // then use its query-wide cancellation route, including for older result BEs.
+    for (const auto& [address, info] : env->get_running_frontends()) {
+        Status status;
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            FrontendServiceConnection client(env->frontend_client_cache(), address, 2000, &status);
+            if (status.ok()) {
+                try {
+                    TStatus result;
+                    client->cancelFlightQuery(result, _statement->query_id);
+                    status = Status::create(result);
+                    if (status.ok()) {
+                        return;
+                    }
+                    if (result.status_code == TStatusCode::NOT_FOUND) {
+                        break;
+                    }
+                } catch (const apache::thrift::TException& e) {
+                    status = Status::RpcError("Flight cancellation failed: {}", e.what());
+                    // Discard a transport that may contain an incomplete response.
+                    static_cast<void>(client.reopen(1000));
+                }
+            }
+            LOG(WARNING) << "Failed to cancel Flight result " << print_id(_statement->query_id)
+                         << " through FE " << address << ": " << status;
+        }
     }
 }
 
@@ -140,9 +173,6 @@ ArrowFlightBatchLocalReader::ArrowFlightBatchLocalReader(
         : ArrowFlightBatchReaderBase(statement) {
     _schema = schema;
     _mem_tracker = mem_tracker;
-    _cancel_query = [id = statement->query_id](const Status& reason) {
-        ExecEnv::GetInstance()->result_mgr()->cancel_arrow_flight_query(id, reason);
-    };
 }
 
 arrow::Result<std::shared_ptr<ArrowFlightBatchLocalReader>> ArrowFlightBatchLocalReader::Create(
@@ -210,26 +240,6 @@ ArrowFlightBatchRemoteReader::ArrowFlightBatchRemoteReader(
     _mem_tracker = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::QUERY,
             fmt::format("ArrowFlightBatchRemoteReader#QueryId={}", print_id(_statement->query_id)));
-    _cancel_query = [stub, id = statement->query_id](const Status&) {
-        auto request = std::make_shared<PFetchArrowDataRequest>();
-        request->mutable_finst_id()->set_hi(id.hi);
-        request->mutable_finst_id()->set_lo(id.lo);
-        request->set_cancel(true);
-        auto callback = DummyBrpcCallback<PFetchArrowDataResult>::create_shared();
-        auto closure = AutoReleaseClosure<
-                PFetchArrowDataRequest,
-                DummyBrpcCallback<PFetchArrowDataResult>>::create_unique(request, callback);
-        // Bound teardown even if the result BE is unavailable.
-        callback->cntl_->set_timeout_ms(1000);
-        stub->fetch_arrow_data(closure->cntl_.get(), closure->request_.get(),
-                               closure->response_.get(), closure.get());
-        closure.release();
-        callback->join();
-        if (callback->cntl_->Failed()) {
-            LOG(WARNING) << "Failed to cancel Arrow Flight result " << print_id(id) << ": "
-                         << callback->cntl_->ErrorText();
-        }
-    };
 }
 
 arrow::Result<std::shared_ptr<ArrowFlightBatchRemoteReader>> ArrowFlightBatchRemoteReader::Create(

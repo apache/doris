@@ -334,7 +334,6 @@ message PFetchDataResult {
 
 message PFetchArrowDataRequest {
     optional PUniqueId finst_id = 1;
-    optional bool cancel = 2 [default = false];
 };
 
 message PFetchArrowDataResult {

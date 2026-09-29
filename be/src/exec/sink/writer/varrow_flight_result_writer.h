@@ -66,6 +66,7 @@ public:
               _arrow_schema(schema),
               _profile("ResultBlockBuffer " + print_id(_fragment_id)),
               _timezone_obj(state->timezone_obj()),
+              _query_id(state->query_id()),
               _query_ctx(state->get_query_ctx() ? state->get_query_ctx()->weak_from_this()
                                                 : std::weak_ptr<QueryContext> {}) {
         _serialize_batch_ns_timer = ADD_TIMER(&_profile, "SerializeBatchNsTime");
@@ -76,6 +77,7 @@ public:
     // A timed wait may return OK with no block and eos=false; the caller must retry.
     Status get_arrow_batch(std::shared_ptr<Block>* result, bool* eos);
     void cancel_query(const Status& reason);
+    const TUniqueId& query_id() const { return _query_id; }
     void get_timezone(cctz::time_zone& timezone_obj) { timezone_obj = _timezone_obj; }
     Status get_schema(std::shared_ptr<arrow::Schema>* arrow_schema);
 
@@ -88,6 +90,7 @@ private:
     RuntimeProfile::Counter* _uncompressed_bytes_counter = nullptr;
     RuntimeProfile::Counter* _compressed_bytes_counter = nullptr;
     cctz::time_zone _timezone_obj;
+    const TUniqueId _query_id;
     std::weak_ptr<QueryContext> _query_ctx;
 };
 

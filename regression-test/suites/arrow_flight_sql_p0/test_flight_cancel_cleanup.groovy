@@ -32,6 +32,8 @@ suite("test_flight_cancel_cleanup", "arrow_flight_sql") {
         it.Alive.toString().equalsIgnoreCase("true")
     }
     assertTrue(!backends.isEmpty())
+    def database = jdbc_sql("SELECT DATABASE()")[0][0]
+    def table = "${database}.flight_cancel_cleanup_source"
     def allocator = new RootAllocator(Long.MAX_VALUE)
     def feClient = FlightClient.builder(allocator,
             Location.forGrpcInsecure(frontend.Host.toString(), frontend.ArrowFlightSqlPort.toString().toInteger())).build()
@@ -58,14 +60,24 @@ suite("test_flight_cancel_cleanup", "arrow_flight_sql") {
         // The ticket is a query id in parallel mode, so inspect this query instead of global task counts.
         consume("SET enable_parallel_result_sink=true")
         consume("SET query_timeout=120")
+        jdbc_sql("DROP TABLE IF EXISTS ${table}")
+        jdbc_sql("CREATE TABLE ${table} (id BIGINT) DISTRIBUTED BY HASH(id) BUCKETS 8 " +
+                "PROPERTIES(\"replication_num\"=\"1\")")
+        jdbc_sql("INSERT INTO ${table} SELECT number FROM numbers(\"number\"=\"1024\")")
+        def tabletBackends = jdbc_sql_return_maparray("SHOW TABLETS FROM ${table}")
+                .collect { it.BackendId }.unique().size()
         [false, true].each { explicitCancel ->
-            def info = client.execute("SELECT number, repeat(cast(number as string), 4) AS payload " +
-                    "FROM numbers(\"number\"=\"1000000000\")", auth)
+            def info = client.execute("SELECT id, n FROM ${table} " +
+                    "LATERAL VIEW explode_numbers(100000000) expanded AS n", auth)
+            if (tabletBackends > 1) {
+                assertTrue(info.endpoints.size() > 1, "Expected distributed Flight result endpoints")
+            }
             def ids = info.endpoints.collect { endpoint ->
                 Any.parseFrom(endpoint.ticket.bytes).unpack(FlightSql.TicketStatementQuery.class)
                         .statementHandle.toStringUtf8().split("&")[0]
             }.unique()
-            info.endpoints.each { endpoint ->
+            // Abort only one endpoint; the cancellation must reach every participating BE.
+            [info.endpoints[0]].each { endpoint ->
                 FlightClient.builder(allocator, endpoint.locations[0]).build().withCloseable { beClient ->
                     beClient.getStream(endpoint.ticket, auth).withCloseable { stream ->
                         assertTrue(stream.next())
@@ -105,8 +117,12 @@ suite("test_flight_cancel_cleanup", "arrow_flight_sql") {
                 feClient.closeSession(new org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.CloseSessionRequest(), auth)
             }
         } finally {
-            client.close()
-            allocator.close()
+            try {
+                client.close()
+                allocator.close()
+            } finally {
+                jdbc_sql("DROP TABLE IF EXISTS ${table}")
+            }
         }
     }
 }

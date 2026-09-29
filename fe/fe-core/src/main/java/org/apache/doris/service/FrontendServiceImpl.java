@@ -141,6 +141,7 @@ import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.service.arrowflight.FlightSqlConnectProcessor;
+import org.apache.doris.service.arrowflight.FlightSqlQueryCancellation;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.ColStatsData;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -1090,6 +1091,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params) throws TException {
         return QeProcessorImpl.INSTANCE.reportExecStatus(params, getClientAddr());
+    }
+
+    @Override
+    public TStatus cancelFlightQuery(TUniqueId resultId) throws TException {
+        return FlightSqlQueryCancellation.INSTANCE.cancel(resultId);
     }
 
     @Override

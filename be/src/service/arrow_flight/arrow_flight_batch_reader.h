@@ -59,7 +59,6 @@ protected:
     bool is_cancelled() const;
     void close(const Status& reason);
     std::function<bool()> _is_cancelled;
-    std::function<void(const Status&)> _cancel_query;
     std::atomic<bool> _closed {false};
     std::atomic<bool> _eof {false};
 
