@@ -33,3 +33,13 @@ the same flag still defaults to `false`; BE 8040 is an internal port
 that operators are required to keep off end-user networks, so findings
 there are disclaimed rather than valid. See the security-testing
 baseline in §4.5a of `threat-model.md`.
+
+Also confirm `fe_meta_auth_token` is set, to the same value, on every
+FE of the cluster under test. It ships empty, and production
+deployments are required to set it. With it empty, the FE↔FE
+meta-service endpoints on 8030 (`/image`, `/info`, `/version`, `/put`,
+`/journal_id`, `/role`, `/check`) carry no authentication claim, and
+findings that depend on it being empty are disclaimed rather than
+valid. `ADMIN SHOW FRONTEND CONFIG LIKE 'fe_meta_auth_token'` shows
+`********` when it is set and an empty value when it is not. See §4.5a
+and §4.8 (13) of `threat-model.md`.

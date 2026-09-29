@@ -5,6 +5,8 @@
 > (Doris committer morningman). All technical `(inferred)` tags from
 > v0.1 have been resolved or consciously deferred. Amended 2026-07-29
 > with wave 5 (M19, FE `enable_all_http_auth` / HTTP auth posture).
+> Amended 2026-09-29 with wave 6 (M20, FE HTTP settings required in
+> production: `enable_all_http_auth` and `fe_meta_auth_token`).
 
 This document is the **security contract** for Apache Doris: what the
 project assumes, what it guarantees given those assumptions, what it
@@ -281,8 +283,9 @@ Operational assumptions:
 | `enable_python_udf_support` (BE) | **off** *(maintainer, M10)* | Intentional. Operator must opt in to actually run Python UDFs | Default deployment cannot execute Python UDFs even if FE accepts them |
 | `numFailedLogin` (per-user, `CREATE USER ... FAILED_LOGIN_ATTEMPTS N`) | **0 / DISABLED** *(maintainer, M11)* | (A) Off IS supported production posture; operator must enable per user | §4.10 (NEW) requires per-user enable for any account on a network-reachable client port |
 | `passwordLockSeconds` (per-user, `... PASSWORD_LOCK_TIME T`) | **0 / DISABLED** *(maintainer, M11)* | Same | Same |
-| `enable_all_http_auth` (FE, HTTP 8030) | **on**, **not runtime-mutable** *(maintainer, M19)* | On **IS** the supported production posture. Turning it off requires editing `fe.conf` and restarting — deliberately not an `ADMIN SET` command, so disabling authentication is a recorded on-disk decision. A migration aid for clusters upgrading from a release where it defaulted off, not a supported steady state | On: §4.8 (11) (**authentication**) applies unconditionally and a bypass is `VALID`; authorization is the separate, narrower §4.8 (12) with recorded gaps. Off: knob flipped toward the less-secure side → `OUT-OF-MODEL: non-default-build`. Note the effective value may come from `fe_custom.conf`, not `fe.conf` |
+| `enable_all_http_auth` (FE, HTTP 8030) | **on**, **not runtime-mutable** *(maintainer, M19)* | On **IS** the supported production posture, and production deployments **must** run with it on *(maintainer, M20)*. Turning it off requires editing `fe.conf` and restarting — deliberately not an `ADMIN SET` command, so disabling authentication is a recorded on-disk decision. A migration aid for clusters upgrading from a release where it defaulted off, not a supported steady state | On: §4.8 (11) (**authentication**) applies unconditionally and a bypass is `VALID`; authorization is the separate, narrower §4.8 (12) with recorded gaps. Off: knob flipped toward the less-secure side → `OUT-OF-MODEL: non-default-build`. Note the effective value may come from `fe_custom.conf`, not `fe.conf` |
 | `enable_all_http_auth` (BE, webserver 8040) | **off**, **not runtime-mutable** *(maintainer, M19)* | Unchanged in this release — only the FE default was flipped. BE 8040 is a Zone-2 port (§4.4) that operators are already required to keep off end-user networks, so the compatibility cost of flipping it was judged to outweigh the gain. Changing it requires editing `be.conf` and restarting (`DEFINE_Bool`, not `DEFINE_mBool`) | Off: BE 8040 handlers declared with the `NONE` privilege type answer without credentials → `BY-DESIGN: property-disclaimed` (§4.9), not `VALID` |
+| `fe_meta_auth_token` (FE, meta-service endpoints on HTTP 8030) | **empty**, **not runtime-mutable**, masked in config output *(maintainer, M20)* | Empty is a compatibility default, so that existing clusters and rolling upgrades keep working — **not** a supported production posture. Production deployments **must** set it to the same non-empty secret on every FE (§4.10 (13)). Changing it requires editing `fe.conf` and restarting | Set: §4.8 (13) applies, and a meta-service request accepted with an absent or wrong token is `VALID`. Empty: the meta-service endpoints carry no authentication claim → `BY-DESIGN: property-disclaimed` (§4.9) plus the §4.10 (13) obligation. Not `OUT-OF-MODEL: non-default-build`, because empty is the shipped default |
 | `auth_type` | native | LDAP / Kerberos / OIDC are non-default backends | Out of this row's scope (handled in family row 4) |
 | Cluster shape: `on-prem` vs `cloud/` | on-prem | Both shapes supported *(maintainer, Q2)* | Cloud adds Meta Service component (family row 3); cloud has additional tenant-boundary claim per §4.8 |
 
@@ -333,6 +336,38 @@ CONFIG`) and check `fe_custom.conf`. Operators upgrading should delete
 any stale entry from `fe_custom.conf` to pick up the new default; see
 §4.10.
 
+**FE HTTP settings required in production** *(maintainer, M20)*. Two
+FE settings are requirements for a production deployment, not tuning
+choices:
+
+1. **`enable_all_http_auth = true`**, as the *effective* value (see
+   the paragraph above). It ships on; production must keep it on.
+2. **`fe_meta_auth_token` set to a non-empty secret, identical on
+   every FE.** It ships empty; production must set it.
+
+A cluster missing either one is outside the supported production
+posture, and findings that depend on the missing setting are routed as
+the §4.5a table says.
+
+The second setting needs its own explanation, because port 8030
+carries two kinds of traffic. Besides the client REST surface, FE
+serves the FE↔FE **meta-service endpoints** — `/image`, `/info`,
+`/version`, `/put`, `/journal_id`, `/role` and `/check` — that
+followers, observers and a joining FE use to transfer the metadata
+image and to check cluster identity and membership. That is Zone-2
+traffic in nature, but it is served on a Zone-0 port, so the
+network-isolation assumption of §4.3 (2) cannot separate it from
+client traffic. These endpoints do not route through the FE auth path,
+and `enable_all_http_auth` does not gate them. With
+`fe_meta_auth_token` empty they fall back to the legacy node-host
+check, which is not a credential, and the model makes no
+authentication claim for them (§4.9). With the token set, every one of
+them also requires a matching `token` header, and the token is the
+credential (§4.8 (13)). This token is unrelated to the "cluster token"
+in the §4.6 rows for `/api/get_small_file`, `/api/bootstrap` and
+`/api/streaming/*`, which is the `token` stored in the FE
+`doris-meta/image/VERSION` file.
+
 **Security-testing baseline.** Security scans, penetration tests,
 fuzzing campaigns, and automated review agents MUST run against a
 cluster whose **effective** `enable_all_http_auth` is `true` on **FE**
@@ -345,6 +380,11 @@ off does not constitute coverage of the HTTP surface: every finding it
 produces is `OUT-OF-MODEL: non-default-build`, and the findings that
 actually matter — endpoints that skip authentication or skip the
 caller's privilege check *with the flag on* — go unfound.
+The same run MUST also have `fe_meta_auth_token` set on every FE
+*(maintainer, M20)*. A run with it empty does not cover the FE
+meta-service endpoints: what it finds there is disclaimed by §4.9, and
+the findings that matter — a meta-service endpoint that answers without
+the matching token *while the token is set* — go unfound.
 
 ---
 
@@ -368,6 +408,7 @@ caller's privilege check *with the flag on* — go unfound.
 | **FE HTTP 8030 `/api/get_small_file`, `/api/bootstrap`** | **cluster token (+ cluster id) instead of a user password** *(code-verified, M19)* | these are the FE endpoints that BE, the CDC client and a joining FE call with only the cluster token; the token is verified and is the credential, so `enable_all_http_auth` does not additionally demand a password on the token-bearing path. A leaked cluster token is a Zone-2 compromise (§4.5) | operator: treat the cluster token as a secret; do not expose 8030 to untrusted networks |
 | **FE HTTP 8030 `/api/streaming/commit_offset`, `/api/streaming/report_task_failure`** | **cluster token only — no user credential is accepted at all** *(code-verified, M19)* | `StreamingJobAction.checkAuth` requires a `token` header and verifies it against the cluster token; there is no password path. Same disposition as the row above: token absent or invalid → `VALID`; no user password while a valid token is presented → by design |
 | **FE HTTP 8030 `/api/{db}/{table}/_stream_load`** | **user password, or the cluster token on the token-bearing path** *(code-verified, M19)* | the token branch is a credential in the same sense as the rows above; the password branch is covered by §4.8 (11) |
+| **FE HTTP 8030 meta-service endpoints `/image`, `/info`, `/version`, `/put`, `/journal_id`, `/role`, `/check`** | **FE↔FE traffic on a client-facing port; `fe_meta_auth_token` is the credential** *(code-verified, M20)* | **untrusted** — reachable by every caller of 8030. Not routed through the FE auth path and not gated by `enable_all_http_auth`. Token set: a request without the matching `token` header must be rejected; accepted anyway → `VALID` (§4.8 (13)). Token empty (the shipped default): no authentication claim → `BY-DESIGN: property-disclaimed` (§4.9). This token is **not** the cluster token of the rows above | operator: set `fe_meta_auth_token` to the same secret on every FE (§4.10 (13)) and keep it secret — a leaked value is a Zone-2 compromise |
 | FE Arrow Flight 8070 | handshake | **untrusted** | memory safety |
 | FE Arrow Flight 8070 | result-stream consumption | mostly post-auth | RBAC |
 | **BE Arrow Flight 8050** | **handshake bytes (pre-auth)** *(maintainer, M7)* | **untrusted** | memory safety |
@@ -512,6 +553,12 @@ provenance.
     disclaimed under §4.9 and are governed by Zone-2 network
     isolation, not by this property.
 
+    **The FE meta-service endpoints are not in this property either.**
+    `/image`, `/info`, `/version`, `/put`, `/journal_id`, `/role` and
+    `/check` sit outside the `/api/**` and `/rest/v2/**` surface and do
+    not route through the FE auth path; their authentication is
+    property (13), not this one.
+
     *Violation symptom*: an in-scope endpoint answers a request that
     carries no credential of any accepted form, or accepts invalid
     credentials. *Severity*: **security-critical**. Reports of this
@@ -606,6 +653,32 @@ provenance.
     should be filed against the §4.14 follow-up rather than closed as
     noise.
 
+13. **Authentication of the FE meta-service endpoints when
+    `fe_meta_auth_token` is set** *(maintainer, M20)*. *Condition*:
+    `fe_meta_auth_token` is non-empty on the FE serving the request —
+    the production requirement of §4.5a. Scope: FE 8030 `/image`,
+    `/info`, `/version`, `/put`, `/journal_id`, `/role` and `/check`.
+    Each of them must reject a request that does not carry a `token`
+    header equal to the configured value, whatever else the request
+    presents. *Violation symptom*: one of these endpoints returns
+    metadata (image, storage or cluster identity, journal id, node
+    role) or acts on a request (`/put`) whose token is absent or wrong.
+    *Severity*: **security-critical**. Reports of this shape are
+    `VALID`.
+
+    *Excluded from this property*:
+    - (a) Clusters where `fe_meta_auth_token` is empty — the shipped
+      default. The model makes no authentication claim for these
+      endpoints then (§4.9); reports are
+      `BY-DESIGN: property-disclaimed`, and the operator owes §4.10
+      (13).
+    - (b) `/dump`, which is served next to these endpoints but is not
+      one of them: it takes a user credential and requires
+      `ADMIN_PRIV`, and the token does not gate it.
+    - (c) A caller that presents the valid token. The token is the
+      credential; a leaked token is a Zone-2 compromise (§4.3 (2)),
+      not a bypass of this property.
+
 **Resource properties** — *threshold*: **NONE**. Doris explicitly
 makes **no** quantitative or categorical resource guarantee on a
 post-auth single-user query *(maintainer, Q5)*. Operator must use
@@ -649,6 +722,16 @@ State plainly:
   the privilege check on part of the FE admin REST surface, stop
   checking credentials. Doris makes no security claim about a cluster
   running that way; see §4.5a and §4.10 (12).
+- **No authentication on the FE meta-service endpoints while
+  `fe_meta_auth_token` is empty** *(maintainer, M20)*. It ships empty
+  so that existing clusters and rolling upgrades keep working. In that
+  state `/image`, `/info`, `/version`, `/put`, `/journal_id`, `/role`
+  and `/check` on FE 8030 are protected only by the legacy node-host
+  check, which is not a credential, and `enable_all_http_auth` does
+  not cover them. Network isolation cannot stand in for the token,
+  because these endpoints share port 8030 with client traffic. This is
+  not a supported production posture: production deployments must set
+  the token (§4.5a, §4.10 (13)).
 - **No defense against query-DoS or query-OOM by an authenticated
   user** *(maintainer, Q5)*. Operator must use the §4.10 (3) knob
   set.
@@ -775,8 +858,10 @@ The operator MUST:
     via Iceberg REST catalog. If you must grant it more broadly,
     apply network egress controls at the FE host level.
 12. **Keep `enable_all_http_auth` on, and migrate HTTP callers onto
-    credentials** *(maintainer, M19)*. It ships on; do not turn it
-    off. When upgrading from a release where it defaulted off, the
+    credentials** *(maintainer, M19)*. It ships on, and production
+    deployments must run with its effective value `true`
+    *(maintainer, M20)*; do not turn it off. When upgrading from a
+    release where it defaulted off, the
     migration the operator owes:
     (a) enumerate everything that calls the FE 8030 `/api/**` and
     `/rest/v2/**` surface — monitoring and alerting agents, load
@@ -806,6 +891,20 @@ The operator MUST:
     config file and treat it as a temporary migration aid, not a
     resting state — it re-opens the §4.9 exposure and puts the
     cluster outside §4.8 (11).
+13. **Set `fe_meta_auth_token` on every FE in production**
+    *(maintainer, M20)*. It ships empty, which leaves the FE
+    meta-service endpoints on 8030 without authentication (§4.9).
+    (a) generate a random secret and put the **same** value in every
+    FE's `fe.conf`, then restart the FEs. The setting is not
+    runtime-mutable. An FE with the token set rejects meta-service
+    requests from any peer that does not send the same value, so those
+    calls fail until every FE runs with it;
+    (b) confirm it on each FE: `ADMIN SHOW FRONTEND CONFIG LIKE
+    'fe_meta_auth_token'` shows `********` when it is set and an empty
+    value when it is not. The secret itself is never displayed;
+    (c) treat it as a cluster secret: keep it out of tickets and
+    shared configuration, and replace it, on every FE, if a copy may
+    have leaked.
 
 ---
 
@@ -846,6 +945,11 @@ The operator MUST:
   finding it produces is `OUT-OF-MODEL: non-default-build`, and the
   real bypasses — endpoints that skip authn/authz with the flag on —
   go unfound. See the security-testing baseline in §4.5a.
+- **Running a production cluster with `fe_meta_auth_token` empty**
+  *(maintainer, M20)*. The FE meta-service endpoints on 8030 then have
+  no authentication. Keeping 8030 reachable only by authorized clients
+  (§4.10 (1)) does not close them, since those clients reach the same
+  port. See §4.10 (13).
 
 ---
 
@@ -939,6 +1043,17 @@ primary; cite externally only when closing a specific report**
   `fe.conf` and `fe_custom.conf`. The flag is not runtime-mutable, but
   `fe_custom.conf` is read after `fe.conf` and overwrites it, so
   `fe.conf` alone is **not** authoritative (§4.5a).
+- **"FE `/image` (or `/info`, `/version`, `/put`, `/journal_id`,
+  `/role`, `/check`) on port 8030 answers without user
+  credentials."** *(maintainer, M20)* — These are FE↔FE meta-service
+  endpoints; they never take user credentials, and
+  `fe_meta_auth_token` is their credential. With the token empty (the
+  shipped default) the report is `BY-DESIGN: property-disclaimed` per
+  §4.9, with the operator's obligation per §4.10 (13). With the token
+  set, a request accepted **without** the matching `token` header is
+  `VALID` per §4.8 (13). **Confirm which config was tested** — ask what
+  `ADMIN SHOW FRONTEND CONFIG LIKE 'fe_meta_auth_token'` showed on the
+  tested FE: `********` means set, an empty value means unset.
 
 ---
 
@@ -967,6 +1082,12 @@ periodic review). Triggers:
 - `enable_all_http_auth` BE default flips **on** (M19 extended to
   BE 8040): §4.8 (11) extends to every `HttpHandlerWithAuth` handler,
   the §4.9 BE disclaimer and the §4.11a BE non-finding both drop.
+- `fe_meta_auth_token` stops shipping empty — FE refuses to start
+  without it, or a token is generated when the cluster is created
+  (M20 hardened): §4.8 (13) becomes a default-config property, the
+  §4.9 meta-service disclaimer drops, the §4.11a meta-service entry
+  keeps only its token-set case, and §4.10 (13) becomes "keep it set"
+  rather than "set it".
 - Iceberg REST URL gains validation / localhost-blocking (M13):
   SSRF moves from §4.9 attack-class to §4.8 property; §4.11 misuse
   drops.
@@ -1039,6 +1160,13 @@ the body. Summary table:
 |---|---|---|
 | M19 | `enable_all_http_auth` (FE) | **FE default flipped to `true` on 2026-07-29, and the flag is not runtime-mutable** — it can only be changed on disk (`fe.conf`, or `fe_custom.conf` which overwrites it) with a restart, so the running posture is auditable from disk and cannot be silently dropped at runtime — but auditing it means reading **both** files, since a pre-flip release could have persisted `false` into `fe_custom.conf` (§4.5a). FE HTTP **authentication** is now a default-config property (§4.8 (11)); unauthenticated access to the FE 8030 `/api/**` and `/rest/v2/**` surface is `VALID`, not disclaimed. **Authorization is a separate, narrower property** (§4.8 (12)): the flip did not add a centralized privilege check, and `AddStoragePolicyAction`, `ESCatalogAction` and `ImportAction` remain password-only — a recorded open gap tracked in §4.14, not a claim this release makes. **Carve-outs**: FE `/metrics` and FE `/api/health` stay public by design and are not gated by the flag (§4.9, §4.8 (11) (b), code-verified); the cluster-token endpoints (including `/api/streaming/*`) authenticate by token, not password (§4.8 (11) (d)); and the **BE default is unchanged (off)** — BE 8040 stays governed by Zone-2 network isolation and its `NONE`-privilege handlers stay disclaimed (§4.9, §4.11a). Extending the flip to BE is tracked as a §4.12 trigger. Turning the FE flag off is a migration aid for upgrades (§4.10 (12)), lands findings in `OUT-OF-MODEL: non-default-build` (§4.5a), and is a misuse pattern as a resting state (§4.11) |
 
+**Wave 6 — RESOLVED 2026-09-29.** FE HTTP settings required in
+production:
+
+| ID | Topic | Outcome |
+|---|---|---|
+| M20 | Production FE HTTP settings (`enable_all_http_auth`, `fe_meta_auth_token`) | **Both are requirements for a production deployment** (§4.5a, §4.10 (12), §4.10 (13)). `enable_all_http_auth` already shipped on (M19); M20 states outright that production must run with its effective value `true`, instead of leaving that implied by the default. `fe_meta_auth_token` ships **empty** so that existing clusters and rolling upgrades keep working; production must set it to the same secret on every FE. The FE meta-service endpoints it guards (`/image`, `/info`, `/version`, `/put`, `/journal_id`, `/role`, `/check`) are FE↔FE traffic served on the Zone-0 port 8030, outside the FE auth path and not gated by `enable_all_http_auth`, so network isolation cannot substitute for the token. Token set: their authentication is a property (§4.8 (13)) and a bypass is `VALID`. Token empty: disclaimed (§4.9) → `BY-DESIGN: property-disclaimed` plus the §4.10 (13) obligation; not `OUT-OF-MODEL: non-default-build`, since empty is the default. The token is distinct from the cluster token in `doris-meta/image/VERSION` used by the §4.6 cluster-token rows. Security testing must run with both settings in place (§4.5a) |
+
 **Open follow-up items (not blocking v1.0 acceptance):**
 
 - Add `model-version` field to top of this doc per M15. Currently
@@ -1105,6 +1233,12 @@ the body. Summary table:
   `fe_custom.conf`, not just `fe.conf`: a persisted
   `enable_all_http_auth=false` written by an earlier mutable release
   survives the upgrade and silently keeps authentication off (§4.5a).
+- Per M20, `fe_meta_auth_token` still ships **empty**, so the
+  production requirement rests on the operator reading this document
+  or the deployment guide. The deployment and upgrade guides must
+  carry it, including the every-FE rollout and the check in §4.10
+  (13). Making the token mandatory, or generating it when the cluster
+  is created, is a §4.12 trigger.
 
 ---
 
@@ -1140,8 +1274,9 @@ Not yet produced in v1.0. Optional follow-up.
 - [x] Component families with distinct trust profiles modeled
       separately (FE / BE / cloud / brokers / catalogs / UDF code
       paths).
-- [x] §4.5a enumerates security-relevant knobs; both insecure-default
-      cases (TLS per Q7, lockout per M11) explicitly resolved.
+- [x] §4.5a enumerates security-relevant knobs; the insecure-default
+      cases (TLS per Q7, lockout per M11, FE meta-service token per
+      M20) explicitly resolved.
 - [x] §4.9 and §4.10 substantive; §4.9 names false-friends and
       well-known attack classes (now including SSRF per M13).
 - [x] §4.6 contains a per-parameter / per-endpoint trust table; BE
