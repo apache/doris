@@ -22,6 +22,9 @@ import org.apache.doris.connector.metastore.iceberg.glue.IcebergGlueMetaStorePro
 import org.apache.doris.connector.metastore.iceberg.jdbc.IcebergJdbcMetaStoreProperties;
 import org.apache.doris.connector.metastore.iceberg.rest.IcebergRestMetaStoreProperties;
 import org.apache.doris.connector.spi.DorisConnectorException;
+import org.apache.doris.filesystem.auth.GcpCredential;
+import org.apache.doris.filesystem.auth.GcsAuth;
+import org.apache.doris.filesystem.auth.GcsAuthResolver;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
@@ -419,6 +422,33 @@ public final class IcebergCatalogFactory {
                 // s3tables: bespoke instantiation. Preserve the skeleton's base+impl routing.
                 break;
         }
+        chosenS3.ifPresent(storage -> storage.toBackendProperties().ifPresent(backend -> {
+            Optional<GcsAuth> auth = GcsAuthResolver.resolve(backend.toMap());
+            if (auth.filter(GcsAuth::isAnonymous).isPresent()) {
+                opts.put(AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER,
+                        "software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider");
+            }
+            auth.flatMap(GcsAuth::getNativeCredential).ifPresent(credential -> {
+                // HadoopCatalog resolves its namespace filesystem independently of S3FileIO.
+                // Native GCS credentials configure fs.gs.*, so compatibility warehouse schemes
+                // must select that same filesystem before HadoopCatalog initializes.
+                String warehouse = opts.get(CatalogProperties.WAREHOUSE_LOCATION);
+                if (IcebergCatalogProperties.TYPE_HADOOP.equals(flavor) && warehouse != null) {
+                    if (warehouse.regionMatches(true, 0, "s3://", 0, 5)) {
+                        opts.put(CatalogProperties.WAREHOUSE_LOCATION, "gs://" + warehouse.substring(5));
+                    } else if (warehouse.regionMatches(true, 0, "s3a://", 0, 6)) {
+                        opts.put(CatalogProperties.WAREHOUSE_LOCATION, "gs://" + warehouse.substring(6));
+                    }
+                }
+                putS3FileIODialect(opts, storage);
+                opts.put("provider", "GCP");
+                opts.put(GcpCredential.CREDENTIAL_PROVIDER_TYPE, credential.getCredentialProviderType().name());
+                putIfNotBlank(opts, GcpCredential.IMPERSONATION_SERVICE_ACCOUNT,
+                        credential.getImpersonationServiceAccount());
+                opts.put(CatalogProperties.FILE_IO_IMPL, "org.apache.iceberg.aws.s3.S3FileIO");
+                opts.put(S3FileIOProperties.CLIENT_FACTORY, GcpS3FileIOAwsClientFactory.class.getName());
+            });
+        }));
         // The iceberg SDK forbids both "type" and "catalog-impl"; legacy buildIcebergCatalog removes "type".
         opts.remove(CatalogUtil.ICEBERG_CATALOG_TYPE);
         return opts;

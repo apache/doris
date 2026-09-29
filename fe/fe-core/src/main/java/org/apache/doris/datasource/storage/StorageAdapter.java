@@ -504,7 +504,8 @@ public final class StorageAdapter {
             // AWS_CREDENTIALS_PROVIDER_TYPE=ANONYMOUS exactly when both AK and SK are blank.
             aligned.remove("AWS_ROLE_ARN");
             aligned.remove("AWS_EXTERNAL_ID");
-            if (s3.hasStaticCredentials()) {
+            if (s3.hasStaticCredentials()
+                    || aligned.containsKey(org.apache.doris.filesystem.auth.GcpCredential.CREDENTIAL_PROVIDER_TYPE)) {
                 aligned.remove("AWS_CREDENTIALS_PROVIDER_TYPE");
             } else {
                 aligned.put("AWS_CREDENTIALS_PROVIDER_TYPE", AwsCredentialsProviderMode.ANONYMOUS.name());

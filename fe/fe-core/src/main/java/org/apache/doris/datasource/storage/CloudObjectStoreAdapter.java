@@ -21,12 +21,16 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.CredProviderTypePB;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
+import org.apache.doris.datasource.property.storage.auth.ObjCredentialFactory;
+import org.apache.doris.filesystem.auth.GcsAuth;
+import org.apache.doris.filesystem.auth.GcsAuthResolver;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * fe-core-only cloud meta-service glue: builds {@link Cloud.ObjectStoreInfoPB} from the
@@ -60,6 +64,10 @@ public final class CloudObjectStoreAdapter {
 
     /** Direct move of legacy {@code S3Properties.getObjStoreInfoPB}. */
     public static Cloud.ObjectStoreInfoPB.Builder getObjStoreInfoPB(Map<String, String> properties) {
+        Optional<GcsAuth> gcsAuth = GcsAuthResolver.resolve(properties);
+        if (gcsAuth.filter(GcsAuth::isAnonymous).isPresent()) {
+            throw new IllegalArgumentException("Anonymous GCS authentication is not supported for storage vaults.");
+        }
         Cloud.ObjectStoreInfoPB.Builder builder = Cloud.ObjectStoreInfoPB.newBuilder();
         if (properties.containsKey(ENDPOINT)) {
             builder.setEndpoint(properties.get(ENDPOINT));
@@ -115,6 +123,8 @@ public final class CloudObjectStoreAdapter {
             }
         }
 
+        ObjCredentialFactory.fromProperties(properties, gcsAuth)
+                .ifPresent(credential -> credential.applyTo(builder));
         return builder;
     }
 

@@ -35,6 +35,7 @@
 #include <mutex>
 #include <random>
 #include <string>
+#include <string_view>
 #include <thread>
 
 #include "common/config.h"
@@ -734,10 +735,28 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
     InstanceInfoPB instance;
     instance.add_storage_vault_names(vault.name());
     instance.add_resource_ids(vault.id());
+
+    constexpr char gcp_vault_name[] = "test_alter_gcp_vault";
+    StorageVaultPB gcp_vault;
+    gcp_vault.set_name(gcp_vault_name);
+    gcp_vault.set_id("3");
+    auto* gcp_obj_info = gcp_vault.mutable_obj_info();
+    gcp_obj_info->set_id("3");
+    gcp_obj_info->set_provider(ObjectStoreInfoPB::GCP);
+    gcp_obj_info->set_bucket("gcp-bucket");
+    gcp_obj_info->set_endpoint("storage.googleapis.com");
+    gcp_obj_info->set_region("us-east1");
+    gcp_obj_info->mutable_credential()->mutable_gcp_credential()->set_credential_provider_type(
+            GcpCredentialPB::COMPUTE_ENGINE);
+    gcp_obj_info->mutable_credential()->mutable_gcp_credential()->set_impersonation_service_account(
+            "original@my-project.iam.gserviceaccount.com");
+    instance.add_storage_vault_names(gcp_vault.name());
+    instance.add_resource_ids(gcp_vault.id());
     instance.set_instance_id("GetObjStoreInfoTestInstance");
     val = instance.SerializeAsString();
     txn->put(key, val);
     txn->put(storage_vault_key({instance.instance_id(), "2"}), vault.SerializeAsString());
+    txn->put(storage_vault_key({instance.instance_id(), "3"}), gcp_vault.SerializeAsString());
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
     txn = nullptr;
 
@@ -751,6 +770,173 @@ TEST(MetaServiceTest, AlterS3StorageVaultTest) {
         ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
         i.ParseFromString(val);
     };
+
+    auto get_test_vault = [&](std::string_view vault_id, StorageVaultPB& stored_vault) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(storage_vault_key({instance.instance_id(), vault_id}), &val),
+                  TxnErrorCode::TXN_OK);
+        ASSERT_TRUE(stored_vault.ParseFromString(val));
+    };
+
+    // A rejected credential update must not commit a rename that was applied
+    // earlier in the request.
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        req.mutable_vault()->set_name(vault_name);
+        req.mutable_vault()->set_alter_name("rename_must_not_commit");
+        req.mutable_vault()
+                ->mutable_obj_info()
+                ->mutable_credential()
+                ->mutable_gcp_credential()
+                ->set_credential_provider_type(GcpCredentialPB::DEFAULT);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
+
+        InstanceInfoPB stored_instance;
+        get_test_instance(stored_instance);
+        ASSERT_EQ(stored_instance.storage_vault_names(0), vault_name);
+        StorageVaultPB stored_vault;
+        get_test_vault("2", stored_vault);
+        ASSERT_EQ(stored_vault.name(), vault_name);
+    }
+
+    // A GCP-native vault cannot be changed to either AWS role or AWS
+    // credential-provider authentication while its provider remains GCP.
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        req.mutable_vault()->set_name(gcp_vault_name);
+        auto* update = req.mutable_vault()->mutable_obj_info();
+        update->set_role_arn("arn:aws:iam::123456789012:role/test-role");
+        update->set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
+        ASSERT_NE(res.status().msg().find("provider=S3"), std::string::npos);
+    }
+
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        req.mutable_vault()->set_name(gcp_vault_name);
+        req.mutable_vault()->mutable_obj_info()->set_cred_provider_type(
+                CredProviderTypePB::CONTAINER);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT) << res.status().msg();
+        ASSERT_NE(res.status().msg().find("provider=S3"), std::string::npos);
+
+        InstanceInfoPB stored_instance;
+        get_test_instance(stored_instance);
+        ASSERT_EQ(stored_instance.storage_vault_names(1), gcp_vault_name);
+        StorageVaultPB stored_vault;
+        get_test_vault("3", stored_vault);
+        ASSERT_TRUE(stored_vault.obj_info().has_credential());
+        ASSERT_TRUE(stored_vault.obj_info().credential().has_gcp_credential());
+        ASSERT_FALSE(stored_vault.obj_info().has_role_arn());
+        ASSERT_FALSE(stored_vault.obj_info().has_cred_provider_type());
+    }
+
+    // Verify partial GCP updates at the RPC and persistence boundary.
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        req.mutable_vault()->set_name(gcp_vault_name);
+        auto alter_gcp = [&]() {
+            brpc::Controller cntl;
+            AlterObjStoreInfoResponse res;
+            meta_service->alter_storage_vault(
+                    reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res,
+                    nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        };
+        auto* update = req.mutable_vault()->mutable_obj_info();
+        auto* patch = update->mutable_credential()->mutable_gcp_credential();
+        patch->set_impersonation_service_account("updated@my-project.iam.gserviceaccount.com");
+        alter_gcp();
+        StorageVaultPB stored;
+        get_test_vault("3", stored);
+        ASSERT_EQ(stored.obj_info().credential().gcp_credential().credential_provider_type(),
+                  GcpCredentialPB::COMPUTE_ENGINE);
+        ASSERT_EQ(stored.obj_info().credential().gcp_credential().impersonation_service_account(),
+                  "updated@my-project.iam.gserviceaccount.com");
+
+        patch->Clear();
+        patch->set_credential_provider_type(GcpCredentialPB::DEFAULT);
+        alter_gcp();
+        get_test_vault("3", stored);
+        ASSERT_EQ(stored.obj_info().credential().gcp_credential().credential_provider_type(),
+                  GcpCredentialPB::DEFAULT);
+        ASSERT_EQ(stored.obj_info().credential().gcp_credential().impersonation_service_account(),
+                  "updated@my-project.iam.gserviceaccount.com");
+
+        patch->set_credential_provider_type(GcpCredentialPB::COMPUTE_ENGINE);
+        alter_gcp();
+        patch->Clear();
+        patch->set_impersonation_service_account("");
+        alter_gcp();
+        get_test_vault("3", stored);
+        ASSERT_EQ(stored.obj_info().credential().gcp_credential().credential_provider_type(),
+                  GcpCredentialPB::COMPUTE_ENGINE);
+        ASSERT_FALSE(stored.obj_info()
+                             .credential()
+                             .gcp_credential()
+                             .has_impersonation_service_account());
+
+        // Rejected patches must preserve both the stored vault and its name.
+        const auto original = stored.SerializeAsString();
+        patch->set_impersonation_service_account("invalid-account");
+        req.mutable_vault()->set_alter_name("invalid_gcp_rename");
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+        get_test_vault("3", stored);
+        ASSERT_EQ(stored.SerializeAsString(), original);
+        InstanceInfoPB stored_instance;
+        get_test_instance(stored_instance);
+        ASSERT_EQ(stored_instance.storage_vault_names(1), gcp_vault_name);
+        req.mutable_vault()->clear_alter_name();
+
+        // Switching from encrypted static keys creates a new native credential.
+        update->Clear();
+        update->set_ak("gcp-ak");
+        update->set_sk("gcp-sk");
+        alter_gcp();
+        get_test_vault("3", stored);
+        ASSERT_FALSE(stored.obj_info().has_credential());
+        ASSERT_TRUE(stored.obj_info().has_encryption_info());
+        update->Clear();
+        update->mutable_credential()->mutable_gcp_credential()->set_impersonation_service_account(
+                "updated@my-project.iam.gserviceaccount.com");
+        alter_gcp();
+        get_test_vault("3", stored);
+        ASSERT_EQ(stored.obj_info().credential().gcp_credential().credential_provider_type(),
+                  GcpCredentialPB::DEFAULT);
+        ASSERT_EQ(stored.obj_info().credential().gcp_credential().impersonation_service_account(),
+                  "updated@my-project.iam.gserviceaccount.com");
+        ASSERT_FALSE(stored.obj_info().has_ak());
+        ASSERT_FALSE(stored.obj_info().has_sk());
+        ASSERT_FALSE(stored.obj_info().has_encryption_info());
+    }
 
     {
         AlterObjStoreInfoRequest req;
@@ -12593,6 +12779,87 @@ TEST(MetaServiceTest, AlterS3StorageVaultWithRoleArnTest) {
         ASSERT_TRUE(get_obj.obj_info().sk().empty());
         ASSERT_FALSE(get_obj.obj_info().has_encryption_info());
         ASSERT_EQ(get_obj.name(), new_vault_name) << get_obj.obj_info().ShortDebugString();
+    }
+
+    // Role, external ID, and credential provider are independent ALTER fields.
+    // Updating one must preserve the other two.
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        req.mutable_vault()->set_name("new_test_alter_s3_vault_111");
+        req.mutable_vault()->mutable_obj_info()->set_cred_provider_type(
+                CredProviderTypePB::CONTAINER);
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(storage_vault_key({"GetObjStoreInfoTestInstance", "2"}), &val),
+                  TxnErrorCode::TXN_OK);
+        StorageVaultPB stored_vault;
+        ASSERT_TRUE(stored_vault.ParseFromString(val));
+        ASSERT_EQ(stored_vault.obj_info().role_arn(), "arn:aws:iam::12311321:role/test-alter-role");
+        ASSERT_EQ(stored_vault.obj_info().external_id(), "external_id_123123");
+        ASSERT_EQ(stored_vault.obj_info().cred_provider_type(), CredProviderTypePB::CONTAINER);
+    }
+
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        req.mutable_vault()->set_name("new_test_alter_s3_vault_111");
+        req.mutable_vault()->mutable_obj_info()->set_role_arn(
+                "arn:aws:iam::12311321:role/replacement-role");
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(storage_vault_key({"GetObjStoreInfoTestInstance", "2"}), &val),
+                  TxnErrorCode::TXN_OK);
+        StorageVaultPB stored_vault;
+        ASSERT_TRUE(stored_vault.ParseFromString(val));
+        ASSERT_EQ(stored_vault.obj_info().role_arn(),
+                  "arn:aws:iam::12311321:role/replacement-role");
+        ASSERT_EQ(stored_vault.obj_info().external_id(), "external_id_123123");
+        ASSERT_EQ(stored_vault.obj_info().cred_provider_type(), CredProviderTypePB::CONTAINER);
+    }
+
+    {
+        AlterObjStoreInfoRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_op(AlterObjStoreInfoRequest::ALTER_S3_VAULT);
+        req.mutable_vault()->set_name("new_test_alter_s3_vault_111");
+        req.mutable_vault()->mutable_obj_info()->set_external_id("replacement-external-id");
+
+        brpc::Controller cntl;
+        AlterObjStoreInfoResponse res;
+        meta_service->alter_storage_vault(
+                reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string val;
+        ASSERT_EQ(txn->get(storage_vault_key({"GetObjStoreInfoTestInstance", "2"}), &val),
+                  TxnErrorCode::TXN_OK);
+        StorageVaultPB stored_vault;
+        ASSERT_TRUE(stored_vault.ParseFromString(val));
+        ASSERT_EQ(stored_vault.obj_info().role_arn(),
+                  "arn:aws:iam::12311321:role/replacement-role");
+        ASSERT_EQ(stored_vault.obj_info().external_id(), "replacement-external-id");
+        ASSERT_EQ(stored_vault.obj_info().cred_provider_type(), CredProviderTypePB::CONTAINER);
     }
 
     std::string cipher_sk = "JUkuTDctR+ckJtnPkLScWaQZRcOtWBhsLLpnCRxQLxr734qB8cs6gNLH6grE1FxO";
