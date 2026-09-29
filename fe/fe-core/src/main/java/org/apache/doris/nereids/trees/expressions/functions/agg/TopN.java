@@ -110,7 +110,9 @@ public class TopN extends NullableAggregateFunction
         if (topNCount.isNullLiteral()) {
             return;
         }
-        if (!(topNCount instanceof Literal) || ((Literal) topNCount).getDouble() <= 0) {
+        // a constant FE cannot fold is evaluated by BE
+        if (!topNCount.isConstant()
+                || (topNCount instanceof Literal && ((Literal) topNCount).getDouble() <= 0)) {
             throw new AnalysisException(
                     "topn requires second parameter must be a constant positive integer: "
                             + this.toSql());

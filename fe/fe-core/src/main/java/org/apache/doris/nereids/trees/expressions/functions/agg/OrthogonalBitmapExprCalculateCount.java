@@ -23,7 +23,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.FoldLiteralArguments;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
-import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -70,15 +69,15 @@ public class OrthogonalBitmapExprCalculateCount extends NotNullableAggregateFunc
 
     @Override
     public boolean needFoldToLiteral(int index) {
-        // the calculation expression
-        return index == 2;
+        // the calculation expression; any other type is cast to VARCHAR by the type coercion
+        return index == 2 && getArgument(2).getDataType() instanceof CharacterType;
     }
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (!(getArgument(2) instanceof StringLikeLiteral)) {
+        if (!getArgument(2).isConstant()) {
             throw new AnalysisException("The third argument of " + getName()
-                    + " must be a string literal: " + toSql());
+                    + " must be a string constant: " + toSql());
         }
     }
 

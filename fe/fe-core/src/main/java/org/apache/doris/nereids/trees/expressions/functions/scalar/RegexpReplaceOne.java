@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.FoldLiteralArguments;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -102,7 +101,7 @@ public class RegexpReplaceOne extends ScalarFunction
                 throw new AnalysisException(
                         "The fourth param of regexp_replace_one must be a string type: " + this.toSql());
             }
-            if (!(value instanceof Literal)) {
+            if (!value.isConstant()) {
                 throw new AnalysisException(
                         "The fourth param of regexp_replace_one must be a constant value: " + this.toSql());
             }

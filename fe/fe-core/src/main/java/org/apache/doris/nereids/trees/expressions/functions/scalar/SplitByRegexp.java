@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.functions.FoldLiteralArguments;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -86,8 +87,10 @@ public class SplitByRegexp extends ScalarFunction
         List<Expression> arguments = getArguments();
         if (arguments.size() == 3) {
             Expression thirdArgument = getArgument(2);
-            if (!thirdArgument.isConstant() || !(thirdArgument instanceof IntegerLikeLiteral)
-                    || (((IntegerLikeLiteral) thirdArgument).getIntValue() < 0)) {
+            // a constant FE cannot fold is passed to BE, which takes a negative limit as unlimited
+            if (!thirdArgument.isConstant() || (thirdArgument instanceof Literal
+                    && (!(thirdArgument instanceof IntegerLikeLiteral)
+                    || ((IntegerLikeLiteral) thirdArgument).getIntValue() < 0))) {
                 throw new AnalysisException("the third parameter of "
                         + getName() + " function must be a positive constant: " + toSql());
             }

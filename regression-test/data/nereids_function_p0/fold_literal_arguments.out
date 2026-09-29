@@ -72,12 +72,95 @@ true
 -- !orthogonal_bitmap_expr_calculate_count_string --
 2
 
+-- !orthogonal_bitmap_expr_calculate_numeric --
+2
+
 -- !topn --
 {"b":3,"a":2}
 
 -- !insert_values --
 1	ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
 2	bbc
+
+-- !sha2_be --
+ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+
+-- !split_by_regexp_be --
+["a", "b,c"]
+
+-- !regexp_replace_be --
+bbc
+
+-- !regexp_replace_one_be --
+bbc
+
+-- !tokenize_be --
+[{\n        "token": "hello"\n    }, {\n        "token": "world"\n    }]
+
+-- !rand_be --
+true	true
+
+-- !uniform_be --
+0	true
+1	true
+2	true
+
+-- !width_bucket_be --
+1	1
+2	2
+3	2
+4	3
+
+-- !array_apply_be --
+[2, 3]
+
+-- !date_trunc_be --
+1	2024-03-01T00:00	2024-01-01T00:00
+2	2024-04-01T00:00	2024-01-01T00:00
+3	2024-05-01T00:00	2024-01-01T00:00
+4	2024-06-01T00:00	2024-01-01T00:00
+
+-- !sequence_match_be --
+true
+
+-- !sequence_count_be --
+1
+
+-- !orthogonal_bitmap_expr_calculate_be --
+1,2
+
+-- !orthogonal_bitmap_expr_calculate_count_be --
+2
+
+-- !topn_be --
+{"b":3,"a":2}	["b", "a"]
+
+-- !topn_weighted_be --
+["x", "ab"]
+
+-- !split_by_regexp_negative_be --
+["a", "b", "c"]
+
+-- !tokenize_malformed_be --
+[{\n        "token": "hello world"\n    }]
+
+-- !sequence_invalid_pattern_be --
+false	0
+
+-- !topn_zero_be --
+{}	[]	[]
+
+-- !open_non_constant_be --
+true	true	true	bbc	2024-03-01T00:00
+
+-- !non_column_const_be --
+[2, 3]	true
+
+-- !date_trunc_open_non_constant_be --
+1	2024-03-01T00:00
+2	2024-04-01T00:00
+3	2024-05-01T00:00
+4	2024-06-01T00:00
 
 -- !topn_skip_fold --
 {"b":3,"a":2}

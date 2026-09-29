@@ -15,8 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Arguments that must be literals are folded during analysis,
-// so a foldable constant expression is accepted like the literal it evaluates to.
+// Constant arguments whose values are validated are folded during analysis,
+// so a foldable constant expression is accepted like the literal it evaluates to,
+// and a constant expression FE cannot fold is evaluated and validated by BE.
 suite("fold_literal_arguments") {
     sql "drop table if exists fold_literal_arguments_t"
     sql """
@@ -79,6 +80,9 @@ suite("fold_literal_arguments") {
     qt_orthogonal_bitmap_expr_calculate_count_string """select orthogonal_bitmap_expr_calculate_count(
             to_bitmap(k), cast(k as varchar), concat(cast('1' as string), cast('|2' as string)))
             from fold_literal_arguments_t"""
+    // a formula that is not a string is cast to VARCHAR
+    qt_orthogonal_bitmap_expr_calculate_numeric """select bitmap_to_string(orthogonal_bitmap_expr_calculate(
+            to_bitmap(k), cast(k as varchar), 1 + 1)) from fold_literal_arguments_t"""
     qt_topn """select topn(s, 1 + 1) from
             (select 'a' s union all select 'a' union all select 'b' union all select 'b' union all select 'b' union all select 'c') t"""
 
@@ -113,16 +117,80 @@ suite("fold_literal_arguments") {
     // a non-constant argument is still rejected
     test {
         sql "select sha2(s, k) from fold_literal_arguments_t"
-        exception "the second parameter of sha2 must be a literal"
-    }
-    test {
-        // a constant expression FE cannot fold (crc32 has no FE executor)
-        sql "select sha2('abc', 256 + crc32(''))"
-        exception "the second parameter of sha2 must be a literal"
+        exception "the second parameter of sha2 must be a constant"
     }
     test {
         sql "select orthogonal_bitmap_expr_calculate(to_bitmap(k), cast(k as varchar), s) from fold_literal_arguments_t"
-        exception "must be a string literal"
+        exception "must be a string constant"
+    }
+
+    // a constant expression FE cannot fold is evaluated by BE (crc32 and lpad have no FE executor, crc32('') is 0)
+    qt_sha2_be "select sha2('abc', 256 + crc32(''))"
+    qt_split_by_regexp_be "select split_by_regexp('a,b,c', ',', 2 + crc32(''))"
+    qt_regexp_replace_be "select regexp_replace('abc', 'a', 'b', lpad('', 0, ' '))"
+    qt_regexp_replace_one_be "select regexp_replace_one('abc', 'a', 'b', lpad('', 0, ' '))"
+    qt_tokenize_be """select tokenize('hello world', lpad('"parser"="english"', 18, ' '))"""
+    qt_rand_be "select rand(1 + crc32('')) = rand(1), random(1, 10 + crc32('')) between 1 and 10"
+    order_qt_uniform_be "select number, uniform(1, 10 + crc32(''), number) between 1 and 10 from numbers('number' = '3')"
+    order_qt_width_bucket_be "select k, width_bucket(v, 0, 10, 5 + crc32('')) from fold_literal_arguments_t"
+    qt_array_apply_be "select array_apply([1, 2, 3], lpad('=', 2, '>'), 2)"
+    order_qt_date_trunc_be "select k, date_trunc(dt, lpad('nth', 5, 'mo')), date_trunc(lpad('ar', 4, 'ye'), dt) from fold_literal_arguments_t"
+    qt_sequence_match_be "select sequence_match(lpad('(?2)', 8, '(?1)'), dt, k = 1, k = 2) from fold_literal_arguments_t"
+    qt_sequence_count_be "select sequence_count(lpad('(?2)', 8, '(?1)'), dt, k = 1, k = 2) from fold_literal_arguments_t"
+    qt_orthogonal_bitmap_expr_calculate_be """select bitmap_to_string(orthogonal_bitmap_expr_calculate(
+            to_bitmap(k), cast(k as varchar), lpad('|2', 3, '1'))) from fold_literal_arguments_t"""
+    qt_orthogonal_bitmap_expr_calculate_count_be """select orthogonal_bitmap_expr_calculate_count(
+            to_bitmap(k), cast(k as varchar), lpad('|2', 3, '1')) from fold_literal_arguments_t"""
+    qt_topn_be """select topn(s, 2 + crc32('')), topn_array(s, 2 + crc32('')) from
+            (select 'a' s union all select 'a' union all select 'b' union all select 'b' union all select 'b' union all select 'c') t"""
+    qt_topn_weighted_be "select topn_weighted(s, k, 2 + crc32('')) from fold_literal_arguments_t"
+
+    // values FE rejects as literals keep the BE semantics: a negative limit means no limit, malformed tokenize
+    // properties are ignored, an invalid sequence pattern matches nothing, and a non-positive topn count is empty
+    qt_split_by_regexp_negative_be "select split_by_regexp('a,b,c', ',', crc32('') - 1)"
+    qt_tokenize_malformed_be "select tokenize('hello world', lpad('x', 1, 'x'))"
+    qt_sequence_invalid_pattern_be """select sequence_match(lpad('(?9)', 4, '('), dt, k = 1, k = 2),
+            sequence_count(lpad('(?9)', 4, '('), dt, k = 1, k = 2) from fold_literal_arguments_t"""
+    qt_topn_zero_be """select topn(s, crc32('')), topn_array(s, crc32('')), topn_weighted(s, k, crc32(''))
+            from fold_literal_arguments_t"""
+
+    // BE validates the value it evaluates
+    test {
+        sql "select sha2('abc', 300 + crc32(''))"
+        exception "sha2's digest length only support"
+    }
+    test {
+        sql "select width_bucket(v, 0, 10, crc32('')) from fold_literal_arguments_t"
+        exception "must be a positive integer value"
+    }
+    test {
+        sql "select array_apply([1, 2, 3], lpad('>', 2, '>'), 2)"
+        exception "unsupported op"
+    }
+    test {
+        sql "select date_trunc(dt, lpad('x', 3, 'mo')) from fold_literal_arguments_t"
+        exception "Illegal second argument"
+    }
+    test {
+        // date_trunc is pushed into the IF branches, and FE does not fold the illegal time unit
+        sql "select date_trunc(cast('2024-03-15 10:00:00' as datetime), if(crc32('') = 0, 'xx', 'month'))"
+        exception "Illegal second argument"
+    }
+    // a constant BE does not evaluate in open, such as an arithmetic or IF expression, is read in execute
+    qt_open_non_constant_be """select rand(1 + crc32('')) = rand(1), random(1, 10 + crc32('')) between 1 and 10,
+            uniform(1, 10 + crc32(''), crc32('x')) between 1 and 10,
+            regexp_replace('abc', 'a', 'b', if(1 + crc32('') > 0, '', 'x')),
+            date_trunc(cast('2024-03-15 10:00:00' as datetime), if(1 + crc32('') > 0, 'month', 'x'))"""
+    // array_apply and uniform read an IF or size expression, which is not a ColumnConst, from the first row
+    qt_non_column_const_be """select array_apply([1, 2, 3], if(1 + crc32('') > 0, '>', '<'), if(1 + crc32('') > 0, 1, 2)),
+            uniform(1, size(array(crc32(''))) + 9, crc32('x')) between 1 and 10"""
+    order_qt_date_trunc_open_non_constant_be """select k, date_trunc(dt, if(1 + crc32('') > 0, 'month', 'x'))
+            from fold_literal_arguments_t"""
+
+    // FE needs the precision to derive the return type
+    test {
+        sql "select now(1 + crc32(''))"
+        exception "NOW precision argument must be a constant literal"
     }
 
     // without constant folding, the arguments are still literals when they reach the rewrite checks
