@@ -278,6 +278,122 @@ TEST_F(LanceIndexJobServiceTest, QueueFullRejectedAndDedupRolledBack) {
     EXPECT_EQ(service._supervisor.queue_depth_for_test(), 2U);
 }
 
+// Guard 4 (D3, handler half of the budget double-check): a dispatch whose
+// remaining deadline cannot cover the report margin + termination grace +
+// minimum executable budget is rejected SYNCHRONOUSLY (never enqueued), while
+// one with an ample budget is enqueued normally.
+TEST_F(LanceIndexJobServiceTest, DeadlineBudgetRailRejectsNearExpiredSynchronously) {
+    set_heartbeat();
+    LanceIndexJobService service(ExecEnv::GetInstance());
+    fake_started_queue(&service, 2);
+
+    // Near-expired: remaining(3s) - margin - grace is far below the minimum
+    // executable budget under any shipped config.
+    auto expired = make_dispatch("svc-budget-exhausted");
+    expired.deadline_ms = epoch_millis() + 3000;
+    TStatus status;
+    service.submit_lance_index_job(status, expired);
+    EXPECT_EQ(status.status_code, TStatusCode::CANCELLED) << joined_errors(status);
+    EXPECT_NE(joined_errors(status).find("deadline budget"), std::string::npos)
+            << joined_errors(status);
+    EXPECT_EQ(service._supervisor.queue_depth_for_test(), 0U)
+            << "a budget-exhausted dispatch must not occupy a queue slot";
+    EXPECT_EQ(service._outstanding.load(), 0);
+    // Nothing entered the dedup set either: a fresh-budget redelivery of the
+    // same invocation id is accepted on its own terms.
+    auto retry = make_dispatch("svc-budget-exhausted");
+    retry.deadline_ms = epoch_millis() + 3600 * 1000;
+    TStatus retry_status;
+    service.submit_lance_index_job(retry_status, retry);
+    EXPECT_EQ(retry_status.status_code, TStatusCode::OK) << joined_errors(retry_status);
+    EXPECT_EQ(service._supervisor.queue_depth_for_test(), 1U);
+    EXPECT_EQ(service._outstanding.load(), 1);
+
+    // Ample budget: enqueued normally.
+    const auto ample = make_dispatch("svc-budget-ample");
+    TStatus ok_status;
+    service.submit_lance_index_job(ok_status, ample);
+    EXPECT_EQ(ok_status.status_code, TStatusCode::OK) << joined_errors(ok_status);
+    EXPECT_EQ(service._supervisor.queue_depth_for_test(), 2U);
+    EXPECT_EQ(service._outstanding.load(), 2);
+}
+
+// The report retry discipline pins the finish_task precedent
+// (task_worker_pool.cpp): the loop consults ONLY the client-side Status of the
+// thrift call. The TStatus payload is deliberately NOT inspected — the only
+// non-OK value this channel can produce is NOT_MASTER, and a report aimed at a
+// stale master counts as delivered (the new master's transfer sweep converges
+// the job; the epoch sweep releases the slot). The direct _report_with_retry
+// seam (injected attempt function) pins both the NOT_MASTER-tolerance and the
+// plain-success branch without a live FE.
+TEST_F(LanceIndexJobServiceTest, ReportRetryIgnoresTStatusPayloadNotMasterTreatedAsDelivered) {
+    LanceIndexJobService service(ExecEnv::GetInstance());
+    // The retry loop calls the attempt only when the client singleton exists;
+    // our injected attempt never dereferences it, so a bare create on our own
+    // ClusterInfo suffices (no DNSCache needed — no real connection is made).
+    if (MasterServerClient::instance() == nullptr) {
+        MasterServerClient::create(&cluster_info_);
+    }
+
+    // Success branch: OK payload, exactly one attempt, slot released.
+    service._outstanding.store(1);
+    int attempts = 0;
+    service._report_with_retry("result", 31337, "svc-report-success",
+                               [&attempts](MasterServerClient*, TStatus* status) {
+                                   ++attempts;
+                                   status->status_code = TStatusCode::OK;
+                                   return Status::OK();
+                               });
+    EXPECT_EQ(attempts, 1);
+    EXPECT_EQ(service._outstanding.load(), 0);
+
+    // NOT_MASTER branch: non-OK payload with a successful thrift call is
+    // delivered — no retry, slot released.
+    service._outstanding.store(1);
+    attempts = 0;
+    service._report_with_retry("result", 31337, "svc-report-not-master",
+                               [&attempts](MasterServerClient*, TStatus* status) {
+                                   ++attempts;
+                                   status->status_code = TStatusCode::NOT_MASTER;
+                                   return Status::OK();
+                               });
+    EXPECT_EQ(attempts, 1)
+            << "a non-OK TStatus payload must not be retried (finish_task discipline)";
+    EXPECT_EQ(service._outstanding.load(), 0);
+}
+
+// The stopping-drop path (F13c): while the service is stopping, terminal
+// reports skip the RPC but still release the invocation's outstanding slot.
+TEST_F(LanceIndexJobServiceTest, StoppingDropReleasesOutstandingSlot) {
+    config::lance_index_isolation_preflight = false; // keep start() hermetic
+    LanceIndexJobService service(ExecEnv::GetInstance());
+    ASSERT_TRUE(service.start().ok());
+
+    TLanceIndexJobReport report;
+    report.job_id = 31337;
+    report.dispatch_revision = 1;
+    report.invocation_id = "svc-stopping-drop";
+    report.be_process_epoch = 42;
+    report.result_code = TLanceIndexJobResultCode::PRE_INVOCATION_RESOURCE_REJECTED;
+
+    service._outstanding.store(2);
+    service.stop(); // flips _stopping; the supervisor was never started
+    const int64_t started = steady_millis();
+    service._supervisor._report_result_fn(report);
+    EXPECT_EQ(service._outstanding.load(), 1)
+            << "a stopping-dropped result report still releases the gauge slot";
+    EXPECT_LT(steady_millis() - started, 1000) << "the dropped report attempted no RPC";
+
+    TLanceIndexJobTerminationReport termination;
+    termination.job_id = 31337;
+    termination.dispatch_revision = 1;
+    termination.invocation_id = "svc-stopping-drop";
+    termination.be_process_epoch = 42;
+    termination.proof = TLanceIndexTerminationProof::CHILD_REAPED;
+    service._supervisor._report_termination_fn(termination);
+    EXPECT_EQ(service._outstanding.load(), 0);
+}
+
 // Gauge feeders (D19): outstanding -> min/max accounting.
 TEST_F(LanceIndexJobServiceTest, GaugeMathFollowsOutstanding) {
     LanceIndexJobService service(ExecEnv::GetInstance());

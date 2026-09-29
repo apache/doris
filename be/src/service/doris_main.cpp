@@ -338,10 +338,13 @@ int main(int argc, char** argv) {
     // Lance index worker subcommand (D1; internal — launched only by the in-BE
     // supervisor via /proc/self/exe). This branch runs before ANY BE global
     // state: no failure signal handler, no glog files, no config load, no JVM.
-    // The worker library self-sets PR_SET_DUMPABLE at its entry, before
-    // reading the dispatch; stderr is the only diagnostic channel.
+    // The worker library self-sets PR_SET_DUMPABLE and re-arms PR_SET_PDEATHSIG
+    // at its entry, before reading the dispatch; stderr is the only diagnostic
+    // channel. ::_exit (never return): once the result frame is on the pipe the
+    // full binary's static destructors and atexit handlers must not run
+    // (plan §2 exit discipline).
     if (argc > 1 && strcmp(argv[1], "--lance-worker") == 0) {
-        return doris::lance::run_index_worker(doris::lance::IndexWorkerParams {});
+        ::_exit(doris::lance::run_index_worker(doris::lance::IndexWorkerParams {}));
     }
     doris::signal::InstallFailureSignalHandler();
     // create StackTraceCache Instance, at the beginning, other static destructors may use.

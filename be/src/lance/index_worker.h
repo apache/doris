@@ -32,6 +32,13 @@ namespace doris::lance {
 inline constexpr int64_t HANDSHAKE_PROTOCOL_MAGIC = 0x4C414E43450001LL;
 inline constexpr int32_t HANDSHAKE_PROTOCOL_VERSION = 1;
 
+// Name of the single controlled-environment entry through which the supervisor
+// hands the worker its own pid (built by build_child_env, never inherited from
+// the operator environment). The worker re-arms PR_SET_PDEATHSIG at its library
+// entry (an execve into a file-capabilities binary clears the setting) and
+// rechecks getppid() against this value to close the arm-after-death race.
+inline constexpr const char* WORKER_EXPECTED_PPID_ENV = "DORIS_LANCE_WORKER_PPID";
+
 // Pure library entry of the isolated one-shot index worker: reads one
 // length-prefixed thrift-compact TLanceIndexJobDispatch frame from dispatch_fd,
 // writes one handshake frame followed by at most one result frame
@@ -43,8 +50,11 @@ inline constexpr int32_t HANDSHAKE_PROTOCOL_VERSION = 1;
 //
 // The function touches no BE global state (no config, logging, metrics, or
 // ExecEnv): a bare main can exec it directly, and unit tests can drive it over
-// pipe pairs with tuned bounds. Its first action, before reading the dispatch, is
-// prctl(PR_SET_DUMPABLE, 0) so credentials in memory can never reach a core file.
+// pipe pairs with tuned bounds. Its first actions, before reading the dispatch,
+// are prctl(PR_SET_DUMPABLE, 0) (credentials in memory can never reach a core
+// file) and the exec-side PR_SET_PDEATHSIG re-arm + getppid recheck against
+// WORKER_EXPECTED_PPID_ENV (the parent-death backstop for deployment shapes
+// whose execve clears the setting).
 struct IndexWorkerParams {
     int dispatch_fd = 0;
     int result_fd = 1;

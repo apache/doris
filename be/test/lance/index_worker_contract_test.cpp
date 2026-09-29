@@ -277,6 +277,16 @@ TEST(LanceIndexWorkerContractTest, ParseSchemaContractMatrix) {
     // DROP legacy record: the empty payload is rejected safely, never skipped.
     EXPECT_EQ(parse_schema_contract("", &out), ContractStatus::UNSUPPORTED);
 
+    // Deep nesting (~400KB inside the frame cap): the iterative parser rejects
+    // it as a non-object payload — the default recursive descent would blow the
+    // stack on FE-controlled wire data (review M7).
+    {
+        const size_t depth = 200 * 1024;
+        std::string nested(depth, '[');
+        nested.append(depth, ']');
+        EXPECT_EQ(parse_schema_contract(nested, &out), ContractStatus::UNSUPPORTED);
+    }
+
     // Malformed payloads.
     EXPECT_EQ(parse_schema_contract("not json", &out), ContractStatus::UNSUPPORTED);
     EXPECT_EQ(parse_schema_contract("[1,2]", &out), ContractStatus::UNSUPPORTED);

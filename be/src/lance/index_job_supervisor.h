@@ -41,6 +41,13 @@ class BlockingQueue;
 
 namespace lance {
 
+// D3: an invocation whose computed wall-clock budget is at or below this is
+// rejected instead of being launched into certain expiry. Shared by the two
+// budget rails that must agree by construction: the service handler's
+// synchronous guard (submit_lance_index_job) and the supervisor's dequeue
+// guard (_execute).
+inline constexpr int64_t MIN_EXECUTABLE_BUDGET_SECONDS = 5;
+
 // Supervisor of the cgroup-isolated one-shot Lance index worker processes.
 //
 // Boundary model (plan D2/D3/D4, R3 §5.1 — no soft fallback anywhere):
@@ -59,7 +66,8 @@ namespace lance {
 //     else is at most a termination proof, and CHILD_REAPED is reported only
 //     when the exact child is provably reaped AND the invocation cgroup reads
 //     populated=0. NEVER_LAUNCHED is used only when the invocation provably
-//     never exec'd (pre-fork rejection or pre-barrier-release kill).
+//     never exec'd (pre-fork rejection, pre-barrier-release kill, or a queued
+//     dispatch drained during stop()).
 //
 // Credentials discipline: storage_options travel only inside the stdin
 // dispatch frame — never argv, never env, never logs. Request-level logs carry
@@ -99,9 +107,16 @@ public:
     Status submit(const TLanceIndexJobDispatch& dispatch);
 
     // Best-effort shutdown: signals in-flight workers (TERM then KILL) and
-    // joins the executor threads. Correctness never depends on this (D9): the
-    // worker-side PR_SET_PDEATHSIG arm + getppid recheck is the real BE-loss
-    // backstop, and the default doris_main exit path skips all stop() calls.
+    // joins the executor threads. Dispatches still queued when stop() begins
+    // are drained WITHOUT launching a worker (a late launch would escape the
+    // kill snapshot); each drained dispatch provably never exec'd and so still
+    // earns the full NEVER_LAUNCHED envelope ("supervisor is stopping").
+    // Terminal reports are delivered to the bound callbacks even while
+    // stopping — the callback owner decides whether to drop the RPC, and it can
+    // only release the invocation's accounting slot if it sees the report.
+    // Correctness never depends on this (D9): the worker-side PR_SET_PDEATHSIG
+    // arm + getppid recheck is the real BE-loss backstop, and the default
+    // doris_main exit path skips all stop() calls.
     void stop();
 
     // Resolves the writable delegated parent cgroup: the configured value when

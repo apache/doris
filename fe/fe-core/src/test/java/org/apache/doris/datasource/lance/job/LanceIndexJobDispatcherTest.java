@@ -973,6 +973,37 @@ public class LanceIndexJobDispatcherTest {
         Assertions.assertFalse(request.isSetPropertiesJson());
     }
 
+    @Test
+    public void legacyDropRecordDispatchesWithEmptyContractAndColumn() throws Exception {
+        // A DROP record journaled before DROP admissions persisted the schema contract has
+        // null "sc"/"cn" slots. Its dispatch must carry column_name="" and
+        // schema_contract_json="" — the FE-side wire premise for the new worker's safe
+        // rejection (BE side, parse_schema_contract("") -> UNSUPPORTED is pinned by
+        // DropContractSemantics). A regression in buildDispatch's null-to-empty mapping
+        // would otherwise be caught only against a hand-built frame.
+        manager.createJob(new LanceIndexJob(1L, "tester", CATALOG_ID, "db1", "tbl1",
+                LanceIndexFenceKey.PROVIDER_DIRECTORY, LOCATOR,
+                "IdxLegacyDrop", LanceIndexNameNormalizer.normalize("IdxLegacyDrop"),
+                LanceIndexJobMutationType.DROP, false, true, null, null, null, 7L, null),
+                100, 100, 100);
+        Assertions.assertNull(manager.getJob(1L).getSchemaContract());
+        Assertions.assertNull(manager.getJob(1L).getColumnName());
+
+        dispatcher.runAfterCatalogReady();
+
+        Assertions.assertEquals(1, dispatcher.sends.size());
+        TLanceIndexJobDispatch request = dispatcher.sends.get(0);
+        Assertions.assertEquals(TLanceIndexMutationType.DROP, request.getMutationType());
+        Assertions.assertEquals("", request.getColumnName());
+        Assertions.assertEquals("", request.getSchemaContractJson());
+        Assertions.assertEquals("", request.getIndexType());
+        Assertions.assertFalse(request.isSetPropertiesJson());
+        // The legacy record also predates the admitted-bound snapshot: fields 17/18 stay
+        // unset, same as the CREATE legacy shape.
+        Assertions.assertFalse(request.isSetMaxNumPartitions());
+        Assertions.assertFalse(request.isSetMaxNumSubVectors());
+    }
+
     // ------------------------------------------------------------------
     // Backpressure
     // ------------------------------------------------------------------

@@ -1254,9 +1254,11 @@ DEFINE_Validator(lance_index_worker_cpu_limit_multiplier,
 DEFINE_mInt64(lance_index_worker_term_grace_seconds, "10"); // SIGTERM grace before SIGKILL
 DEFINE_Validator(lance_index_worker_term_grace_seconds,
                  [](int64_t value) { return value >= 1 && value <= 600; });
-// Reserved tail of the FE deadline for the report path, frozen at 200s:
-// 3 x thrift_rpc_timeout_ms(60s) + 2 x sleep(1) + reaping (~5s).
-DEFINE_mInt64(lance_index_worker_report_margin_seconds, "200");
+// Reserved tail of the FE deadline for the report path, frozen at 400s. The
+// worst-case callback window is 3 attempts x (connect 3s + thrift_rpc_timeout_ms
+// 60s + one reopen-and-retry inside the client 60s) + 2 x sleep(1) between
+// attempts + reaping/cleanup (~10s) = 3x123 + 2 + 10 = 381s; 400 leaves margin.
+DEFINE_mInt64(lance_index_worker_report_margin_seconds, "400");
 DEFINE_Validator(lance_index_worker_report_margin_seconds, [](int64_t value) {
     return value >= 0;
 });
@@ -1267,7 +1269,9 @@ DEFINE_Int32(lance_index_worker_queue_size, "2"); // bounded submission queue
 DEFINE_Validator(lance_index_worker_queue_size,
                  [](int32_t value) { return value >= 1 && value <= 64; });
 // Startup probe switch. false only skips the probe: isolation stays unverified
-// and every submission is still rejected.
+// and every submission is still rejected. Minimum kernel: 5.9 (pidfd_open since
+// 5.3 plus waitid(P_PIDFD) since 5.9; the preflight probes both and fails
+// closed on older kernels).
 DEFINE_Bool(lance_index_isolation_preflight, "true");
 // Absolute path of the delegated parent cgroup for worker invocation groups.
 // Empty = auto-detect by walking /proc/self/cgroup upward for the first

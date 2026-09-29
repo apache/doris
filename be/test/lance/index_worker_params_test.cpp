@@ -419,6 +419,20 @@ TEST_F(LanceIndexWorkerParamsTest, PropertiesMappingMatrix) {
     }
 }
 
+// Deep nesting inside the frame cap: ~400KB of nested arrays as
+// properties_json must be a safe UNSUPPORTED rejection through the iterative
+// parser — rapidjson's default recursive descent would blow the worker's stack
+// on this FE-controlled payload (review M7), and the in-process driver turns a
+// crash into a test-binary SEGV, so this test fails loudly on a regression.
+TEST_F(LanceIndexWorkerParamsTest, DeeplyNestedPropertiesJsonRejectedNotCrash) {
+    TLanceIndexJobDispatch dispatch = make_dispatch();
+    const size_t depth = 200 * 1024;
+    std::string nested(depth, '[');
+    nested.append(depth, ']');
+    dispatch.__set_properties_json(nested);
+    run_and_assert_envelope(dispatch, UNSUPPORTED, nullptr);
+}
+
 // The admitted bounds snapshot (fields 17/18): absent or non-positive is a safe
 // rejection of a pre-snapshot record, never judged against a hard-coded bound.
 TEST_F(LanceIndexWorkerParamsTest, AdmittedBoundsSnapshotRequired) {

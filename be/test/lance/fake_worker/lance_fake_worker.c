@@ -353,6 +353,16 @@ int main(int argc, char** argv) {
         write_result(job_id, revision, invocation_id, epoch, code, message, NULL);
         return 0;
     }
+    if (strcmp(persona, "early_handshake") == 0) {
+        /* Out-of-order worker: the handshake is written BEFORE the dispatch is
+         * drained. With a dispatch frame larger than the pipe buffer the
+         * supervisor's stdin write is still in flight when the handshake
+         * arrives, exercising the no-phase-regression guard on stdin close. */
+        write_handshake(0, 0);
+        drain_stdin();
+        write_result(job_id, revision, invocation_id, epoch, code, message, NULL);
+        return 0;
+    }
     if (strcmp(persona, "identity_mismatch") == 0) {
         drain_stdin();
         write_handshake(0, 0);
@@ -502,11 +512,13 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (strcmp(persona, "mark_hang") == 0) {
-        /* The exec side effect the fork-barrier test looks for. */
+        /* The exec side effect the fork-barrier test looks for. The marker
+         * carries the worker's own pid so the BE-loss test can watch this
+         * process die after its supervisor is SIGKILLed. */
         if (mark_path != NULL) {
             FILE* mark = fopen(mark_path, "w");
             if (mark != NULL) {
-                (void)fputs("execed\n", mark);
+                (void)fprintf(mark, "%ld\n", (long)getpid());
                 (void)fclose(mark);
             }
         }
