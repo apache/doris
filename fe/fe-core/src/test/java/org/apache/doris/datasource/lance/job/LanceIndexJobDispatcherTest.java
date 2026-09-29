@@ -24,6 +24,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
@@ -41,11 +42,17 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 /**
  * Fault-matrix coverage for {@link LanceIndexJobDispatcher}. The two test seams
@@ -793,6 +800,45 @@ public class LanceIndexJobDispatcherTest {
         Assertions.assertFalse(manager.getJob(1L).toString().contains("aws_access_key_id"));
     }
 
+    /**
+     * Image-restart regression: {@code Env.loadLanceIndexJobManager} replaces the
+     * Env-owned manager with the object restored from the image, so the dispatcher
+     * must resolve its manager per round. A dispatcher that captured the pre-image
+     * instance would keep scanning it after the restart: the restored job would
+     * never advance, with no error logged. This pins the rebinding by flipping the
+     * Env-side reference to the image-restored manager between rounds.
+     */
+    @Test
+    public void imageRestartDrivesJobsInTheRestoredManager() throws Exception {
+        admit(1L, "IdxImage", LOCATOR);
+
+        // The image cycle, verbatim: serialize the live manager and restore it into
+        // a brand-new object, exactly what loadLanceIndexJobManager does on restart.
+        ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
+        manager.write(new DataOutputStream(byteStream));
+        LanceIndexJobManager restored = LanceIndexJobManager.read(
+                new DataInputStream(new ByteArrayInputStream(byteStream.toByteArray())));
+        Assertions.assertTrue(containsJob(restored.getJobsNeedingDispatch(10), 1L),
+                "the restored image must carry the PENDING job");
+
+        // The restored manager journals through the real base seam; route it to a mock.
+        Mockito.when(env.getEditLog()).thenReturn(Mockito.mock(EditLog.class));
+
+        // The Env field flips to the restored manager, as on the restart that loaded it.
+        AtomicReference<LanceIndexJobManager> envManager = new AtomicReference<>(manager);
+        TestDispatcher rebinding = new TestDispatcher(envManager::get, events);
+        envManager.set(restored);
+
+        rebinding.runAfterCatalogReady();
+
+        // The round drove the restored manager: its job went RUNNING and was sent,
+        // while the abandoned pre-image copy stayed PENDING and un-sent.
+        LanceIndexJob driven = restored.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, driven.getMutationState());
+        Assertions.assertEquals(1, rebinding.sends.size(), events.toString());
+        Assertions.assertEquals(LanceIndexJobMutationState.PENDING, manager.getJob(1L).getMutationState());
+    }
+
     // ------------------------------------------------------------------
     // Fixtures
     // ------------------------------------------------------------------
@@ -910,6 +956,11 @@ public class LanceIndexJobDispatcherTest {
 
         TestDispatcher(LanceIndexJobManager jobManager, List<String> events) {
             super(jobManager);
+            this.events = events;
+        }
+
+        TestDispatcher(Supplier<LanceIndexJobManager> jobManagerSupplier, List<String> events) {
+            super(jobManagerSupplier);
             this.events = events;
         }
 

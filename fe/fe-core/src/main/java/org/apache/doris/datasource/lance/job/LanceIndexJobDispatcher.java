@@ -43,6 +43,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 /**
  * Master-only daemon that drives the durable Lance index job records through
@@ -64,15 +65,26 @@ import java.util.UUID;
  * After a successful markRunning there is exactly one send; from that point a
  * job converges only through a matching result callback, the deadline sweep,
  * or the epoch sweep, never through a resend.
+ *
+ * <p>The manager is resolved from the supplier once per round rather than
+ * captured at construction: {@code Env.loadLanceIndexJobManager} replaces the
+ * Env-owned manager with a brand-new object on every image load, so a cached
+ * reference would keep scanning the abandoned pre-image manager after an FE
+ * restart while replay, admission and SHOW all move on to the restored one.
+ * Every phase of one round shares the single resolved instance.
  */
 public class LanceIndexJobDispatcher extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(LanceIndexJobDispatcher.class);
 
-    private final LanceIndexJobManager jobManager;
+    private final Supplier<LanceIndexJobManager> jobManagerSupplier;
 
     public LanceIndexJobDispatcher(LanceIndexJobManager jobManager) {
+        this(() -> jobManager);
+    }
+
+    public LanceIndexJobDispatcher(Supplier<LanceIndexJobManager> jobManagerSupplier) {
         super("lance index job dispatcher", dispatchIntervalMs());
-        this.jobManager = jobManager;
+        this.jobManagerSupplier = jobManagerSupplier;
     }
 
     /**
@@ -103,18 +115,18 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
         }
         setInterval(dispatchIntervalMs());
         try {
-            runOneRound();
+            runOneRound(jobManagerSupplier.get());
         } catch (Throwable t) {
             LOG.warn("Failed to process one round of the lance index job dispatcher", t);
         }
     }
 
-    private void runOneRound() {
+    private void runOneRound(LanceIndexJobManager jobManager) {
         long nowMs = System.currentTimeMillis();
-        sweepExpiredRunningJobs(nowMs);
-        sweepReplacedProcessEpochs();
-        driveRequiredRefreshes(nowMs);
-        dispatchPendingJobs();
+        sweepExpiredRunningJobs(jobManager, nowMs);
+        sweepReplacedProcessEpochs(jobManager);
+        driveRequiredRefreshes(jobManager, nowMs);
+        dispatchPendingJobs(jobManager);
     }
 
     /**
@@ -124,7 +136,7 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
      * only: it never proves termination, so the possible-live slot, the
      * same-name fence, and the unresolved quota all stay held.
      */
-    private void sweepExpiredRunningJobs(long nowMs) {
+    private void sweepExpiredRunningJobs(LanceIndexJobManager jobManager, long nowMs) {
         for (LanceIndexJob job : jobManager.getExpiredRunningJobs(nowMs)) {
             try {
                 boolean completed = jobManager.completeWithResult(job.getJobId(),
@@ -155,7 +167,7 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
      * change also proves nothing about the outcome, so the mutation state is
      * never touched here.
      */
-    private void sweepReplacedProcessEpochs() {
+    private void sweepReplacedProcessEpochs(LanceIndexJobManager jobManager) {
         for (LanceIndexJob job : jobManager.getJobsHoldingPossibleLiveSlot()) {
             try {
                 Backend backend = Env.getCurrentSystemInfo().getBackend(job.getBackendId());
@@ -188,7 +200,7 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
      * one attempt per retry interval, while a first REQUIRED refresh is never
      * delayed. UNKNOWN jobs never appear here; they owe no refresh.
      */
-    private void driveRequiredRefreshes(long nowMs) {
+    private void driveRequiredRefreshes(LanceIndexJobManager jobManager, long nowMs) {
         for (LanceIndexJob job : jobManager.getJobsNeedingRefresh()) {
             try {
                 if (job.getRefreshState() == LanceIndexJobRefreshState.RUNNING) {
@@ -205,21 +217,21 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
                     // A concurrent driver won the compare-and-set; nothing to do here.
                     continue;
                 }
-                driveOneRefresh(job);
+                driveOneRefresh(jobManager, job);
             } catch (Throwable t) {
                 LOG.warn("failed to drive the refresh of lance index job " + job.getJobId(), t);
             }
         }
     }
 
-    private void driveOneRefresh(LanceIndexJob job) {
+    private void driveOneRefresh(LanceIndexJobManager jobManager, LanceIndexJob job) {
         long refreshRevision = job.getRevision() + 1;
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(job.getCatalogId());
         if (catalog == null) {
             // Unreachable while the unresolved-job guard blocks catalog drops; kept as a
             // fail-closed fallback so the job still transitions and retries later.
             LOG.warn("catalog of lance index job {} is gone; marking its refresh FAILED", job.getJobId());
-            finishRefreshTransition(job.getJobId(), refreshRevision, false);
+            finishRefreshTransition(jobManager, job.getJobId(), refreshRevision, false);
             return;
         }
         try {
@@ -234,10 +246,10 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             // job would strand in refresh RUNNING until the next master transfer.
             LOG.warn("refresh of lance index job {} failed; keeping the fence for a retry",
                     job.getJobId(), t);
-            finishRefreshTransition(job.getJobId(), refreshRevision, false);
+            finishRefreshTransition(jobManager, job.getJobId(), refreshRevision, false);
             return;
         }
-        finishRefreshTransition(job.getJobId(), refreshRevision, true);
+        finishRefreshTransition(jobManager, job.getJobId(), refreshRevision, true);
     }
 
     /**
@@ -247,7 +259,8 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
      * state only the master-transfer sweep downgrades. Re-reading the revision and
      * retrying a few times converges it; a persistent loss is escalated.
      */
-    private void finishRefreshTransition(long jobId, long expectedRevision, boolean done) {
+    private void finishRefreshTransition(LanceIndexJobManager jobManager, long jobId, long expectedRevision,
+            boolean done) {
         long revision = expectedRevision;
         for (int attempt = 0; attempt < 3; attempt++) {
             boolean transitioned = done ? jobManager.markRefreshDone(jobId, revision)
@@ -274,23 +287,23 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
      * keeps waiting as PENDING: there is no dispatch-exhaustion terminal state
      * and no backoff beyond the daemon period.
      */
-    private void dispatchPendingJobs() {
+    private void dispatchPendingJobs(LanceIndexJobManager jobManager) {
         int maxPerRound = Math.max(1, Config.lance_index_job_max_dispatch_per_round);
-        Map<Long, Integer> inflightByBackend = countInflightByBackend();
+        Map<Long, Integer> inflightByBackend = countInflightByBackend(jobManager);
         int attempted = 0;
         for (LanceIndexJob job : jobManager.getJobsNeedingDispatch(maxPerRound)) {
             if (++attempted > maxPerRound) {
                 break;
             }
             try {
-                tryDispatch(job, inflightByBackend);
+                tryDispatch(jobManager, job, inflightByBackend);
             } catch (Throwable t) {
                 LOG.warn("failed to dispatch lance index job " + job.getJobId(), t);
             }
         }
     }
 
-    private Map<Long, Integer> countInflightByBackend() {
+    private Map<Long, Integer> countInflightByBackend(LanceIndexJobManager jobManager) {
         Map<Long, Integer> inflightByBackend = Maps.newHashMap();
         for (LanceIndexJob job : jobManager.getAllJobsSnapshot()) {
             if (job.getMutationState() == LanceIndexJobMutationState.RUNNING && job.getBackendId() != null) {
@@ -307,7 +320,8 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
      * one send attempt; after that only a matching callback, the deadline
      * sweep, or the epoch sweep can converge the job.
      */
-    private void tryDispatch(LanceIndexJob job, Map<Long, Integer> inflightByBackend) {
+    private void tryDispatch(LanceIndexJobManager jobManager, LanceIndexJob job,
+            Map<Long, Integer> inflightByBackend) {
         boolean localDataset = isLocalFileDataset(job.getNormalizedLocator());
         if (localDataset && !Config.enable_lance_index_local_file_mutation) {
             // Operator assertion is off: a local-filesystem mutation stays PENDING.
@@ -370,7 +384,7 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             // not fabricate NOT_COMMITTED. The job is already RUNNING without a send, and
             // the send may never happen, so converge it to UNKNOWN fail-closed.
             LOG.warn("failed to prepare the dispatch of lance index job {}: {}", job.getJobId(), e.getMessage());
-            completeNoTrusted(fresh, "dispatch preparation failed before send");
+            completeNoTrusted(jobManager, fresh, "dispatch preparation failed before send");
             return;
         }
         TStatus status;
@@ -379,7 +393,7 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
         } catch (Exception e) {
             // The request may have reached the backend, so its outcome cannot be trusted.
             LOG.warn("dispatch send of lance index job {} failed: {}", job.getJobId(), e.getMessage());
-            completeNoTrusted(fresh, "dispatch send failed; the result cannot be trusted");
+            completeNoTrusted(jobManager, fresh, "dispatch send failed; the result cannot be trusted");
             return;
         }
         if (status == null || status.getStatusCode() == null) {
@@ -387,7 +401,7 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             // rejection; only a complete error status proves the dispatch was not
             // enqueued.
             LOG.warn("dispatch send of lance index job {} returned no status", job.getJobId());
-            completeNoTrusted(fresh, "dispatch send returned no status");
+            completeNoTrusted(jobManager, fresh, "dispatch send returned no status");
             return;
         }
         if (status.getStatusCode() != TStatusCode.OK) {
@@ -395,7 +409,7 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             // this invocation is known never to have executed.
             LOG.warn("backend {} rejected the dispatch of lance index job {} before enqueueing",
                     backend.getId(), job.getJobId());
-            completePreInvocationRejected(fresh);
+            completePreInvocationRejected(jobManager, fresh);
         }
         // OK: enqueued exactly once. The result arrives through the report callback;
         // nothing more is done here, and the deadline sweep bounds the wait.
@@ -476,7 +490,7 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
                 ((LanceExternalCatalog) catalog).getCatalogProperty().getOrderedStoragePropertiesList());
     }
 
-    private void completeNoTrusted(LanceIndexJob job, String reason) {
+    private void completeNoTrusted(LanceIndexJobManager jobManager, LanceIndexJob job, String reason) {
         boolean completed = jobManager.completeWithResult(job.getJobId(),
                 dispatchRevisionOf(job), job.getInvocationId(), job.getBeProcessEpoch(),
                 new LanceIndexJobResult(LanceIndexJobResultCode.NO_TRUSTED_RESULT,
@@ -487,7 +501,7 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
         }
     }
 
-    private void completePreInvocationRejected(LanceIndexJob job) {
+    private void completePreInvocationRejected(LanceIndexJobManager jobManager, LanceIndexJob job) {
         boolean completed = jobManager.completeWithResult(job.getJobId(),
                 dispatchRevisionOf(job), job.getInvocationId(), job.getBeProcessEpoch(),
                 new LanceIndexJobResult(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED,
