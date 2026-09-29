@@ -395,6 +395,10 @@ public class LanceScanNode extends FileQueryScanNode {
             result.append(prefix).append("lanceCatalogType=")
                     .append(((LanceExternalCatalog) lanceTable.getCatalog()).getLanceCatalogType()).append("\n");
             result.append(prefix).append("lanceVersion=").append(scanPlan.version).append("\n");
+            result.append(prefix).append("lanceManagedVersioning=")
+                    .append(plannedMetadata.isManagedVersioning()).append("\n");
+            plannedMetadata.getBranch().ifPresent(branch ->
+                    result.append(prefix).append("lanceBranch=").append(branch).append("\n"));
             result.append(prefix).append("lanceFragments=").append(scanPlan.fragmentCount).append("\n");
             if (scanPlan.fragmentsPerSplit > 0) {
                 result.append(prefix).append("lanceFragmentGrouping=DEBUG\n");
