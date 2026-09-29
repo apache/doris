@@ -743,4 +743,13 @@ ColumnPtr remove_nullable(const ColumnPtr& column) {
     return column;
 }
 
+const IColumn& peel_nullable(const IColumn& column, size_t row_pos, const uint8_t** null_map) {
+    *null_map = nullptr;
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(&column)) {
+        *null_map = nullable->get_null_map_data().data() + row_pos;
+        return nullable->get_nested_column();
+    }
+    return column;
+}
+
 } // namespace doris

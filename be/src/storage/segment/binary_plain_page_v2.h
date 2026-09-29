@@ -26,6 +26,7 @@
 
 #pragma once
 
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "core/column/column_complex.h"
 #include "core/column/column_nullable.h"
@@ -34,6 +35,7 @@
 #include "storage/segment/options.h"
 #include "storage/segment/page_builder.h"
 #include "storage/segment/page_decoder.h"
+#include "storage/storage_layout.h"
 #include "storage/types.h"
 #include "util/coding.h"
 #include "util/faststring.h"
@@ -42,10 +44,11 @@ namespace doris {
 namespace segment_v2 {
 
 template <FieldType Type>
-class BinaryPlainPageV2Builder : public PageBuilderHelper<BinaryPlainPageV2Builder<Type>> {
+class BinaryPlainPageV2Builder
+        : public PageBuilderHelper<BinaryPlainPageV2Builder<Type>, StringPageBuilder> {
 public:
     using Self = BinaryPlainPageV2Builder<Type>;
-    friend class PageBuilderHelper<Self>;
+    friend class PageBuilderHelper<Self, StringPageBuilder>;
 
     Status init() override { return reset(); }
 
@@ -59,42 +62,17 @@ public:
         return ret;
     }
 
-    Status add(const uint8_t* vals, size_t* count) override {
+    Status add_slices(const Slice* values, size_t* count) override {
         DCHECK(!_finished);
         DCHECK_GT(*count, 0);
-        size_t i = 0;
+        return add_each_slice(*this, values, count,
+                              [&](const Slice& value) ALWAYS_INLINE { return _add_one(value); });
+    }
 
-        while (!is_page_full() && i < *count) {
-            const auto* src = reinterpret_cast<const Slice*>(vals);
-            if constexpr (Type == FieldType::OLAP_FIELD_TYPE_BITMAP) {
-                if (_options.need_check_bitmap) {
-                    RETURN_IF_ERROR(BitmapTypeCode::validate(*(src->data)));
-                }
-            }
-
-            // Store position for later retrieval
-            _positions.push_back(cast_set<uint32_t>(_buffer.size()));
-
-            // Write varuint length prefix
-            uint8_t length_buffer[5]; // Max varuint32 size
-            uint8_t* ptr = length_buffer;
-            ptr = encode_varint32(ptr, cast_set<uint32_t>(src->size));
-            size_t length_size = ptr - length_buffer;
-            RETURN_IF_CATCH_EXCEPTION(_buffer.append(length_buffer, length_size));
-
-            // Write the actual data
-            RETURN_IF_CATCH_EXCEPTION(_buffer.append(src->data, src->size));
-
-            _last_value_size = cast_set<uint32_t>(src->size);
-            _size_estimate += length_size + src->size;
-            _raw_data_size += src->size;
-
-            i++;
-            vals += sizeof(Slice);
-        }
-
-        *count = i;
-        return Status::OK();
+    Status add(const IColumn& column, size_t row_pos, size_t n, size_t* added) override {
+        DCHECK(!_finished);
+        auto add_one = [&](const Slice& value) ALWAYS_INLINE { return _add_one(value); };
+        return add_string_cells<Type>(*this, column, row_pos, n, _tmp_buffer, added, add_one);
     }
 
     Status finish(OwnedSlice* slice) override {
@@ -131,6 +109,35 @@ public:
     uint64_t get_raw_data_size() const override { return _raw_data_size; }
 
 private:
+    ALWAYS_INLINE Status _add_one(const Slice& value) {
+        if constexpr (Type == FieldType::OLAP_FIELD_TYPE_BITMAP) {
+            if (_options.need_check_bitmap) {
+                RETURN_IF_ERROR(BitmapTypeCode::validate(*(value.data)));
+            }
+        }
+
+        // Store position for later retrieval
+        _positions.push_back(cast_set<uint32_t>(_buffer.size()));
+
+        // Write varuint length prefix
+        uint8_t length_buffer[5]; // Max varuint32 size
+        uint8_t* ptr = encode_varint32(length_buffer, cast_set<uint32_t>(value.size));
+        size_t length_size = ptr - length_buffer;
+        RETURN_IF_CATCH_EXCEPTION(_buffer.append(length_buffer, length_size));
+
+        // Write the actual data
+        RETURN_IF_CATCH_EXCEPTION(_buffer.append(value.data, value.size));
+
+        _last_value_size = cast_set<uint32_t>(value.size);
+        _size_estimate += length_size + value.size;
+        _raw_data_size += value.size;
+        return Status::OK();
+    }
+
+    // Holds what a BITMAP / HLL / QUANTILE_STATE / AGG_STATE value converts to
+    // for storage; reused across rows so each one is not a fresh allocation.
+    PaddedPODArray<char> _tmp_buffer;
+
     BinaryPlainPageV2Builder(const PageBuilderOptions& options)
             : _size_estimate(0), _options(options) {}
 

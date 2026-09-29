@@ -49,7 +49,7 @@
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/index/inverted/inverted_index_writer.h"
 #include "storage/index/zone_map/zone_map_index.h"
-#include "storage/iterator/olap_data_convertor.h"
+#include "storage/segment/array_index_input_helper.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
 #include "storage/types.h"
@@ -181,27 +181,6 @@ public:
     }
 
     // create a TabletSchema with an array column (and a normal int column as key)
-    TabletSchemaSPtr create_schema_with_array(KeysType keys_type = DUP_KEYS) {
-        TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
-        TabletSchemaPB tablet_schema_pb;
-        tablet_schema_pb.set_keys_type(keys_type);
-
-        tablet_schema->init_from_pb(tablet_schema_pb);
-        TabletColumn array;
-        array.set_name("arr1");
-        array.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
-        array.set_length(0);
-        array.set_index_length(0);
-        array.set_is_nullable(false);
-        array.set_is_bf_column(false);
-        TabletColumn child;
-        child.set_name("arr_sub_string");
-        child.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
-        child.set_length(INT_MAX);
-        array.add_sub_column(child);
-        tablet_schema->append_column(array);
-        return tablet_schema;
-    }
 
     void test_non_null_string(std::string_view rowset_id, int seg_id, const TabletColumn* field) {
         EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
@@ -251,33 +230,8 @@ public:
         block.insert(type_and_name);
         // block.rows() should be 2
 
-        // Use OlapBlockDataConvertor to convert
-        // Note: Here we need a TabletSchema object, in this example we construct a simple schema,
-        // Assuming that the 0th column in the schema is our array column (the actual UT has the corresponding TabletColumn)
-        TabletSchemaSPtr tablet_schema = create_schema_with_array();
-        OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
-        convertor.set_source_content(&block, 0, block.rows());
-        auto [st, accessor] = convertor.convert_column_data(0);
-        EXPECT_EQ(st, Status::OK());
-        // The conversion result is actually an array of 4 pointers:
-        //   [0]: Total number of elements (elem_cnt)
-        //   [1]: Offsets array pointer
-        //   [2]: Nested item data pointer
-        //   [3]: Nested nullmap pointer
-        const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
-        const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
-        const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
-        const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
-
-        // Get the length of the subfield, used for inverted index writing
-        auto field_size = field_type_size(field->get_sub_column(0).type());
-        // Call the inverted index writing interface, passing in item_data, item_nullmap, offsets_ptr, and the number of rows (the number of array rows in the Block)
-        st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
-                                                       offsets_ptr, block.rows());
-        EXPECT_EQ(st, Status::OK());
-        const auto* null_map = accessor->get_nullmap();
-        // add nulls
-        st = _inverted_index_builder->add_array_nulls(null_map, block.rows());
+        auto st = feed_array_rows(*_inverted_index_builder, *block.get_by_position(0).column,
+                                  block.rows());
         EXPECT_EQ(st, Status::OK());
 
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
@@ -285,6 +239,65 @@ public:
         EXPECT_EQ(index_file_writer->finish_close(), Status::OK());
 
         ExpectedDocMap expected = {{"amory", {0, 1}}, {"doris", {0}}, {"commiter", {1}}};
+        check_terms_stats(index_path_prefix, &expected, {}, InvertedIndexStorageFormatPB::V1,
+                          &idx_meta);
+    }
+
+    // ArrayColumnWriter hands add_array the block's whole item column and the
+    // index of the batch's first element; the elements before it belong to
+    // earlier batches.
+    void test_string_batch_from_first_item(std::string_view rowset_id, int seg_id,
+                                           const TabletColumn* field) {
+        EXPECT_TRUE(field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY);
+        std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+                local_segment_path(kTestDir, rowset_id, seg_id))};
+        int index_id = 26033;
+        auto fs = io::global_local_filesystem();
+
+        auto index_meta_pb = std::make_unique<TabletIndexPB>();
+        index_meta_pb->set_index_type(IndexType::INVERTED);
+        index_meta_pb->set_index_id(index_id);
+        index_meta_pb->set_index_name("index_inverted_arr1");
+        index_meta_pb->clear_col_unique_id();
+        index_meta_pb->add_col_unique_id(0);
+
+        TabletIndex idx_meta;
+        idx_meta.init_from_pb(*index_meta_pb.get());
+        auto index_file_writer =
+                std::make_unique<IndexFileWriter>(fs, index_path_prefix, std::string {rowset_id},
+                                                  seg_id, InvertedIndexStorageFormatPB::V1);
+        std::unique_ptr<segment_v2::IndexColumnWriter> _inverted_index_builder = nullptr;
+        EXPECT_EQ(IndexColumnWriter::create(field, &_inverted_index_builder,
+                                            index_file_writer.get(), &idx_meta),
+                  Status::OK());
+
+        // Rows 0 and 1 belong to an earlier batch; the batch is rows [2, 5).
+        DataTypePtr array_type =
+                std::make_shared<DataTypeArray>(std::make_shared<DataTypeString>());
+        MutableColumnPtr col = array_type->create_column();
+        for (const auto& row : std::vector<std::vector<std::string>> {{"skip0", "skip1"},
+                                                                      {"skip2"},
+                                                                      {"amory", "doris"},
+                                                                      {},
+                                                                      {"amory", "commiter"}}) {
+            Array arr;
+            for (const auto& value : row) {
+                arr.push_back(Field::create_field<TYPE_STRING>(value));
+            }
+            col->insert(Field::create_field<TYPE_ARRAY>(arr));
+        }
+        const auto& col_array = assert_cast<const ColumnArray&>(*col);
+        auto offsets = ColumnOffset64::create();
+        rebase_offsets(col_array.get_offsets(), 2, 3, 0, offsets.get());
+        auto st = feed_array_index(_inverted_index_builder.get(), col_array.get_data(),
+                                   col_array.get_offsets()[1], *offsets, nullptr);
+        EXPECT_EQ(st, Status::OK());
+
+        EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
+        EXPECT_EQ(index_file_writer->begin_close(), Status::OK());
+        EXPECT_EQ(index_file_writer->finish_close(), Status::OK());
+
+        ExpectedDocMap expected = {{"amory", {0, 2}}, {"doris", {0}}, {"commiter", {2}}};
         check_terms_stats(index_path_prefix, &expected, {}, InvertedIndexStorageFormatPB::V1,
                           &idx_meta);
     }
@@ -338,33 +351,8 @@ public:
         block.insert(type_and_name);
         // block.rows() should be 2
 
-        // Use OlapBlockDataConvertor to convert
-        // Note: Here we need a TabletSchema object, in this example we construct a simple schema,
-        // Assuming that the 0th column in the schema is our array column (the actual UT has the corresponding TabletColumn)
-        TabletSchemaSPtr tablet_schema = create_schema_with_array();
-        OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
-        convertor.set_source_content(&block, 0, block.rows());
-        auto [st, accessor] = convertor.convert_column_data(0);
-        EXPECT_EQ(st, Status::OK());
-        // The conversion result is actually an array of 4 pointers:
-        //   [0]: Total number of elements (elem_cnt)
-        //   [1]: Offsets array pointer
-        //   [2]: Nested item data pointer
-        //   [3]: Nested nullmap pointer
-        const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
-        const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
-        const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
-        const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
-
-        // Get the length of the subfield, used for inverted index writing
-        auto field_size = field_type_size(field->get_sub_column(0).type());
-        // Call the inverted index writing interface, passing in item_data, item_nullmap, offsets_ptr, and the number of rows (the number of array rows in the Block)
-        st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
-                                                       offsets_ptr, block.rows());
-        EXPECT_EQ(st, Status::OK());
-        const auto* null_map = accessor->get_nullmap();
-        // add nulls
-        st = _inverted_index_builder->add_array_nulls(null_map, block.rows());
+        auto st = feed_array_rows(*_inverted_index_builder, *block.get_by_position(0).column,
+                                  block.rows());
         EXPECT_EQ(st, Status::OK());
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
         EXPECT_EQ(index_file_writer->begin_close(), Status::OK());
@@ -449,33 +437,8 @@ public:
         Block block;
         block.insert(type_and_name);
 
-        // Construct TabletSchema (containing the array column) - reference the existing helper function
-        TabletSchemaSPtr tablet_schema = create_schema_with_array();
-        // In this schema, assume the 0th column is the key, and the arr1 column is the non-key column with index 1
-        OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
-        convertor.set_source_content(&block, 0, block.rows());
-
-        // Convert array column data
-        auto [st, accessor] = convertor.convert_column_data(0);
-        EXPECT_EQ(st, Status::OK());
-        // OlapColumnDataConvertorArray conversion result is a 4-tuple:
-        //   [0]: element total count (elem_cnt, not used directly)
-        //   [1]: offsets array pointer
-        //   [2]: nested item data conversion result pointer
-        //   [3]: nested nullmap pointer
-        const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
-        const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
-        const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
-        const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
-
-        // Call the inverted index writing interface, passing in the converted nested data, nullmap, and offsets
-        auto field_size = field_type_size(field->get_sub_column(0).type());
-        st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
-                                                       offsets_ptr, block.rows());
-        EXPECT_EQ(st, Status::OK());
-        const auto* null_map = accessor->get_nullmap();
-        // add nulls
-        st = _inverted_index_builder->add_array_nulls(null_map, block.rows());
+        auto st = feed_array_rows(*_inverted_index_builder, *block.get_by_position(0).column,
+                                  block.rows());
         EXPECT_EQ(st, Status::OK());
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
         EXPECT_EQ(index_file_writer->begin_close(), Status::OK());
@@ -562,33 +525,8 @@ public:
         Block block;
         block.insert(type_and_name);
 
-        // Construct TabletSchema (containing the array column) - reference the existing helper function
-        TabletSchemaSPtr tablet_schema = create_schema_with_array();
-        // In this schema, assume the 0th column is the key, and the arr1 column is the non-key column with index 1
-        OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
-        convertor.set_source_content(&block, 0, block.rows());
-
-        // Convert array column data
-        auto [st, accessor] = convertor.convert_column_data(0);
-        EXPECT_EQ(st, Status::OK());
-        // OlapColumnDataConvertorArray conversion result is a 4-tuple:
-        //   [0]: element total count (elem_cnt, not used directly)
-        //   [1]: offsets array pointer
-        //   [2]: nested item data conversion result pointer
-        //   [3]: nested nullmap pointer
-        const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
-        const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
-        const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
-        const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
-
-        // Call the inverted index writing interface, passing in the converted nested data, nullmap, and offsets
-        auto field_size = field_type_size(field->get_sub_column(0).type());
-        st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
-                                                       offsets_ptr, block.rows());
-        EXPECT_EQ(st, Status::OK());
-        const auto* null_map = accessor->get_nullmap();
-        // add nulls
-        st = _inverted_index_builder->add_array_nulls(null_map, block.rows());
+        auto st = feed_array_rows(*_inverted_index_builder, *block.get_by_position(0).column,
+                                  block.rows());
         EXPECT_EQ(st, Status::OK());
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
         EXPECT_EQ(index_file_writer->begin_close(), Status::OK());
@@ -665,26 +603,8 @@ public:
             Block block;
             block.insert(type_and_name);
 
-            // use TabletSchema containing the array column (arr1 is the non-key column with index 1 in the schema)
-            TabletSchemaSPtr tablet_schema = create_schema_with_array();
-            OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
-            convertor.set_source_content(&block, 0, block.rows());
-
-            // convert the arr1 column in the block
-            auto [st, accessor] = convertor.convert_column_data(0);
-            EXPECT_EQ(st, Status::OK());
-            // the conversion result is a 4-tuple: [0]: element count, [1]: offsets pointer, [2]: item data, [3]: item nullmap
-            const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
-            const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
-            const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
-            const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
-            auto field_size = field_type_size(field->get_sub_column(0).type());
-            st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
-                                                           offsets_ptr, row_num);
-            EXPECT_EQ(st, Status::OK());
-            const auto* null_map = accessor->get_nullmap();
-            // add nulls
-            st = _inverted_index_builder->add_array_nulls(null_map, row_num);
+            auto st = feed_array_rows(*_inverted_index_builder, *block.get_by_position(0).column,
+                                      row_num);
             EXPECT_EQ(st, Status::OK());
 
             // for Block1, the expected non-null behavior is row1 and row2
@@ -716,24 +636,8 @@ public:
             Block block;
             block.insert(type_and_name);
 
-            TabletSchemaSPtr tablet_schema = create_schema_with_array();
-            OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
-            convertor.set_source_content(&block, 0, block.rows());
-
-            auto [st, accessor] = convertor.convert_column_data(0);
-            EXPECT_EQ(st, Status::OK());
-            const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
-            const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
-            const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
-            const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
-
-            auto field_size = field_type_size(field->get_sub_column(0).type());
-            st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
-                                                           offsets_ptr, row_num);
-            EXPECT_EQ(st, Status::OK());
-            const auto* null_map = accessor->get_nullmap();
-            // add nulls
-            st = _inverted_index_builder->add_array_nulls(null_map, row_num);
+            auto st = feed_array_rows(*_inverted_index_builder, *block.get_by_position(0).column,
+                                      row_num);
             EXPECT_EQ(st, Status::OK());
 
             ExpectedDocMap expected = {{"block2_data1", {4}}};
@@ -764,23 +668,8 @@ public:
             Block block;
             block.insert(type_and_name);
 
-            TabletSchemaSPtr tablet_schema = create_schema_with_array();
-            OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
-            convertor.set_source_content(&block, 0, block.rows());
-
-            auto [st, accessor] = convertor.convert_column_data(0);
-            EXPECT_EQ(st, Status::OK());
-            const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
-            const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
-            const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
-            const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
-            auto field_size = field_type_size(field->get_sub_column(0).type());
-            st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
-                                                           offsets_ptr, row_num);
-            EXPECT_EQ(st, Status::OK());
-            const auto* null_map = accessor->get_nullmap();
-            // add nulls
-            st = _inverted_index_builder->add_array_nulls(null_map, row_num);
+            auto st = feed_array_rows(*_inverted_index_builder, *block.get_by_position(0).column,
+                                      row_num);
             EXPECT_EQ(st, Status::OK());
 
             ExpectedDocMap expected = {{"block3_data1", {6}}};
@@ -852,43 +741,8 @@ public:
         Block block;
         block.insert(type_and_name);
 
-        TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
-        TabletSchemaPB tablet_schema_pb;
-        tablet_schema_pb.set_keys_type(KeysType::DUP_KEYS);
-
-        tablet_schema->init_from_pb(tablet_schema_pb);
-        TabletColumn array;
-        array.set_name("arr1");
-        array.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
-        array.set_length(0);
-        array.set_index_length(0);
-        array.set_is_nullable(false);
-        array.set_is_bf_column(false);
-        TabletColumn child;
-        child.set_name("arr_sub_int");
-        child.set_type(FieldType::OLAP_FIELD_TYPE_INT);
-        child.set_length(INT_MAX);
-        array.add_sub_column(child);
-        tablet_schema->append_column(array);
-
-        OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
-        convertor.set_source_content(&block, 0, block.rows());
-        auto [st, accessor] = convertor.convert_column_data(0);
-        EXPECT_EQ(st, Status::OK());
-        // the conversion result is a 4-tuple: [0]: element total count, [1]: offsets pointer, [2]: item data, [3]: item nullmap
-        const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
-        const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
-        const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
-        const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
-
-        // get the size of the sub field (4 bytes for INT type)
-        auto field_size = field_type_size(field->get_sub_column(0).type());
-        st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
-                                                       offsets_ptr, block.rows());
-        EXPECT_EQ(st, Status::OK());
-        const auto* null_map = accessor->get_nullmap();
-        // add nulls
-        st = _inverted_index_builder->add_array_nulls(null_map, block.rows());
+        auto st = feed_array_rows(*_inverted_index_builder, *block.get_by_position(0).column,
+                                  block.rows());
         EXPECT_EQ(st, Status::OK());
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
         EXPECT_EQ(index_file_writer->begin_close(), Status::OK());
@@ -981,23 +835,8 @@ public:
         Block block;
         block.insert(type_and_name);
 
-        TabletSchemaSPtr tablet_schema = create_schema_with_array();
-        OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
-        convertor.set_source_content(&block, 0, block.rows());
-
-        auto [st, accessor] = convertor.convert_column_data(0);
-        EXPECT_EQ(st, Status::OK());
-        const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
-        const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
-        const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
-        const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
-        const auto* null_map = accessor->get_nullmap();
-
-        auto field_size = field_type_size(field->get_sub_column(0).type());
-        st = _inverted_index_builder->add_array_values(field_size, item_data, item_nullmap,
-                                                       offsets_ptr, block.rows());
-        EXPECT_EQ(st, Status::OK());
-        st = _inverted_index_builder->add_array_nulls(null_map, block.rows());
+        auto st = feed_array_rows(*_inverted_index_builder, *block.get_by_position(0).column,
+                                  block.rows());
         EXPECT_EQ(st, Status::OK());
 
         EXPECT_EQ(_inverted_index_builder->finish(), Status::OK());
@@ -1058,6 +897,7 @@ TEST_F(InvertedIndexArrayTest, ArrayString) {
     const TabletColumn* field = &(arrayTabletColumn);
     test_string("rowset_id", 0, field);
     test_non_null_string("rowset_id_non_null", 0, field);
+    test_string_batch_from_first_item("rowset_id_first_item", 0, field);
 }
 
 TEST_F(InvertedIndexArrayTest, ComplexNullCases) {

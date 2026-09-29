@@ -924,10 +924,10 @@ Status SniiIndexReader::_try_count_only_fastpath(
     }
 
     // ARRAY columns: df is NOT null-free, so nothing below may fabricate from it.
-    // ArrayColumnWriter::append_nullable hands add_array_values() every row of the
-    // batch -- the offsets come from the nested ColumnArray, and
-    // OlapColumnDataConvertorArray::convert_to_olap reads them without ever
-    // consulting the outer null map -- and the add_array_nulls() that follows only
+    // feed_array_index() hands add_array() every row of the batch -- the
+    // offsets come from the nested ColumnArray, which rebase_offsets()
+    // rebases without ever consulting the outer null map -- and the
+    // add_array_nulls() that follows only
     // RECORDS the null row ids, it never retracts the tokens already emitted for
     // them. A nullable array whose nested payload survives under the null map does
     // occur: PreparedFunctionImpl::default_implementation_for_nulls documents that
@@ -941,7 +941,7 @@ Status SniiIndexReader::_try_count_only_fastpath(
     // (InvertedIndexColumnWriter::add_array_nulls only touches _null_bitmap), so
     // this cannot be repaired from the reader side; decline whenever this segment
     // has a null bitmap at all. Scalars are unaffected: ScalarColumnWriter::
-    // append_nullable splits the batch into runs and sends null runs to
+    // append splits the batch into runs and sends null runs to
     // append_nulls(), which emits no tokens.
     if (_column_is_array && logical_reader->section_refs().null_bitmap.length > 0) {
         return Status::OK();

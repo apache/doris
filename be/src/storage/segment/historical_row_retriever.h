@@ -69,9 +69,9 @@ public:
     ~PrimaryKeyModelRowRetriever() override;
     Status init(const HistoricalRowRetrieverContext& context) override;
 
-    Status prepare_lookup_plan_from_source_columns(
-            const std::vector<IOlapColumnDataAccessor*>& key_columns,
-            const IOlapColumnDataAccessor* seq_column, std::shared_ptr<MowContext> mow_context) {
+    Status prepare_lookup_plan_from_source_columns(const std::vector<const IColumn*>& key_columns,
+                                                   const IColumn* seq_column,
+                                                   std::shared_ptr<MowContext> mow_context) {
         _key_columns = key_columns;
         _seq_column = seq_column;
         _mow_context = mow_context;
@@ -103,8 +103,8 @@ private:
                                   const std::map<uint32_t, uint32_t>& read_index, size_t num_rows);
 
     // get key_columns, seq column, delete data from source block, prepare for searching historial data
-    std::vector<IOlapColumnDataAccessor*> _key_columns;
-    const IOlapColumnDataAccessor* _seq_column = nullptr;
+    std::vector<const IColumn*> _key_columns;
+    const IColumn* _seq_column = nullptr;
     std::shared_ptr<MowContext> _mow_context;
     std::unique_ptr<RowKeyEncoder> _key_encoder;
 

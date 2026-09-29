@@ -277,113 +277,96 @@ struct PrimitiveTypeTraits;
 
 /**
  * CppType: Doris type in execution engine
- * StorageFieldType: Doris type in storage engine
  * DataType: DataType which is mapping to this PrimitiveType
  * ColumnType: ColumnType which is mapping to this PrimitiveType
  */
 template <>
 struct PrimitiveTypeTraits<TYPE_BOOLEAN> {
     using CppType = UInt8;
-    using StorageFieldType = CppType;
     using DataType = DataTypeBool;
     using ColumnType = ColumnUInt8;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_TINYINT> {
     using CppType = int8_t;
-    using StorageFieldType = CppType;
     using DataType = DataTypeInt8;
     using ColumnType = ColumnInt8;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_SMALLINT> {
     using CppType = int16_t;
-    using StorageFieldType = CppType;
     using DataType = DataTypeInt16;
     using ColumnType = ColumnInt16;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_INT> {
     using CppType = int32_t;
-    using StorageFieldType = CppType;
     using DataType = DataTypeInt32;
     using ColumnType = ColumnInt32;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_BIGINT> {
     using CppType = int64_t;
-    using StorageFieldType = CppType;
     using DataType = DataTypeInt64;
     using ColumnType = ColumnInt64;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_LARGEINT> {
     using CppType = __int128_t;
-    using StorageFieldType = CppType;
     using DataType = DataTypeInt128;
     using ColumnType = ColumnInt128;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_NULL> {
     using CppType = Null;
-    using StorageFieldType = CppType;
     using DataType = DataTypeNothing;
     using ColumnType = IColumnDummy;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_FLOAT> {
     using CppType = float;
-    using StorageFieldType = CppType;
     using DataType = DataTypeFloat32;
     using ColumnType = ColumnFloat32;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DOUBLE> {
     using CppType = double;
-    using StorageFieldType = CppType;
     using DataType = DataTypeFloat64;
     using ColumnType = ColumnFloat64;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_TIMEV2> {
     using CppType = Float64;
-    using StorageFieldType = CppType;
     using DataType = DataTypeTimeV2;
     using ColumnType = ColumnTimeV2;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATE> {
     using CppType = doris::VecDateTimeValue;
-    /// Different with compute layer, the DateV1 was stored as uint24_t(3 bytes).
-    using StorageFieldType = uint24_t;
     using DataType = DataTypeDate;
     using ColumnType = ColumnDate;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATETIME> {
     using CppType = doris::VecDateTimeValue;
-    using StorageFieldType = uint64_t;
     using DataType = DataTypeDateTime;
     using ColumnType = ColumnDateTime;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATETIMEV2> {
     using CppType = DateV2Value<DateTimeV2ValueType>;
-    using StorageFieldType = uint64_t;
     using DataType = DataTypeDateTimeV2;
     using ColumnType = ColumnDateTimeV2;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_TIMESTAMP_NS> {
     using CppType = TimeStampNsValue;
-    using StorageFieldType = int64_t;
     using DataType = DataTypeTimeStampNs;
     using ColumnType = ColumnTimeStampNs;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DATEV2> {
     using CppType = DateV2Value<DateV2ValueType>;
-    using StorageFieldType = uint32_t;
     using DataType = DataTypeDateV2;
     using ColumnType = ColumnDateV2;
 };
@@ -391,7 +374,6 @@ struct PrimitiveTypeTraits<TYPE_DATEV2> {
 template <>
 struct PrimitiveTypeTraits<TYPE_TIMESTAMPTZ> {
     using CppType = TimestampTzValue;
-    using StorageFieldType = uint64_t;
     using DataType = DataTypeTimeStampTz;
     using ColumnType = ColumnTimeStampTz;
 };
@@ -399,194 +381,128 @@ struct PrimitiveTypeTraits<TYPE_TIMESTAMPTZ> {
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMALV2> {
     using CppType = DecimalV2Value;
-    /// Different with compute layer, the DecimalV1 was stored as decimal12_t(12 bytes).
-    using StorageFieldType = decimal12_t;
     using DataType = DataTypeDecimalV2;
     using ColumnType = ColumnDecimal128V2;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL32> {
     using CppType = Decimal32;
-    using StorageFieldType = Int32;
     using DataType = DataTypeDecimal32;
     using ColumnType = ColumnDecimal32;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL64> {
     using CppType = Decimal64;
-    using StorageFieldType = Int64;
     using DataType = DataTypeDecimal64;
     using ColumnType = ColumnDecimal64;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL128I> {
     using CppType = Decimal128V3;
-    using StorageFieldType = Int128;
     using DataType = DataTypeDecimal128;
     using ColumnType = ColumnDecimal128V3;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_DECIMAL256> {
     using CppType = Decimal256;
-    using StorageFieldType = wide::Int256;
     using DataType = DataTypeDecimal256;
     using ColumnType = ColumnDecimal256;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_IPV4> {
     using CppType = IPv4;
-    using StorageFieldType = CppType;
     using DataType = DataTypeIPv4;
     using ColumnType = ColumnIPv4;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_IPV6> {
     using CppType = IPv6;
-    using StorageFieldType = CppType;
     using DataType = DataTypeIPv6;
     using ColumnType = ColumnIPv6;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_CHAR> {
     using CppType = String;
-    using StorageFieldType = CppType;
     using DataType = DataTypeString;
     using ColumnType = ColumnString;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_VARCHAR> {
     using CppType = String;
-    using StorageFieldType = CppType;
     using DataType = DataTypeString;
     using ColumnType = ColumnString;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_STRING> {
     using CppType = String;
-    using StorageFieldType = CppType;
     using DataType = DataTypeString;
     using ColumnType = ColumnString;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_VARBINARY> {
     using CppType = doris::StringView;
-    using StorageFieldType = CppType;
     using DataType = DataTypeVarbinary;
     using ColumnType = ColumnVarbinary;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_HLL> {
     using CppType = HyperLogLog;
-    using StorageFieldType = CppType;
     using DataType = DataTypeHLL;
     using ColumnType = ColumnHLL;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_JSONB> {
     using CppType = JsonbField;
-    using StorageFieldType = CppType;
     using DataType = DataTypeJsonb;
     using ColumnType = ColumnString;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_ARRAY> {
     using CppType = Array;
-    using StorageFieldType = CppType;
     using DataType = DataTypeArray;
     using ColumnType = ColumnArray;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_MAP> {
     using CppType = Map;
-    using StorageFieldType = CppType;
     using DataType = DataTypeMap;
     using ColumnType = ColumnMap;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_STRUCT> {
     using CppType = Struct;
-    using StorageFieldType = CppType;
     using DataType = DataTypeStruct;
     using ColumnType = ColumnStruct;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_VARIANT> {
     using CppType = VariantField;
-    using StorageFieldType = CppType;
     using DataType = DataTypeVariant;
     using ColumnType = ColumnVariantV2;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_BITMAP> {
     using CppType = BitmapValue;
-    using StorageFieldType = CppType;
     using DataType = DataTypeBitMap;
     using ColumnType = ColumnBitmap;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_QUANTILE_STATE> {
     using CppType = QuantileState;
-    using StorageFieldType = CppType;
     using DataType = DataTypeQuantileState;
     using ColumnType = ColumnQuantileState;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_UINT32> {
     using CppType = UInt32;
-    using StorageFieldType = CppType;
     using DataType = DataTypeNothing;
     using ColumnType = ColumnOffset32;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_UINT64> {
     using CppType = UInt64;
-    using StorageFieldType = CppType;
     using DataType = DataTypeNothing;
     using ColumnType = ColumnOffset64;
-};
-
-template <PrimitiveType PT>
-struct PrimitiveTypeConvertor {
-    using CppType = typename PrimitiveTypeTraits<PT>::CppType;
-    using StorageFieldType = typename PrimitiveTypeTraits<PT>::StorageFieldType;
-
-    static inline StorageFieldType&& to_storage_field_type(CppType&& value) {
-        return static_cast<StorageFieldType&&>(std::forward<CppType>(value));
-    }
-
-    static inline const StorageFieldType& to_storage_field_type(const CppType& value) {
-        return *reinterpret_cast<const StorageFieldType*>(&value);
-    }
-};
-
-template <>
-struct PrimitiveTypeConvertor<TYPE_DATE> {
-    using CppType = typename PrimitiveTypeTraits<TYPE_DATE>::CppType;
-    using StorageFieldType = typename PrimitiveTypeTraits<TYPE_DATE>::StorageFieldType;
-
-    static inline StorageFieldType to_storage_field_type(const CppType& value) {
-        return StorageFieldType(cast_set<uint32_t>(value.to_olap_date()));
-    }
-};
-
-template <>
-struct PrimitiveTypeConvertor<TYPE_DATETIME> {
-    using CppType = typename PrimitiveTypeTraits<TYPE_DATETIME>::CppType;
-    using StorageFieldType = typename PrimitiveTypeTraits<TYPE_DATETIME>::StorageFieldType;
-
-    static inline StorageFieldType to_storage_field_type(const CppType& value) {
-        return value.to_olap_datetime();
-    }
-};
-
-template <>
-struct PrimitiveTypeConvertor<TYPE_DECIMALV2> {
-    using CppType = typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType;
-    using StorageFieldType = typename PrimitiveTypeTraits<TYPE_DECIMALV2>::StorageFieldType;
-
-    static inline StorageFieldType to_storage_field_type(const CppType& value) {
-        return {value.int_value(), value.frac_value()};
-    }
 };
 
 inline TTypeDesc create_type_desc(PrimitiveType type, int precision = 0, int scale = 0) {

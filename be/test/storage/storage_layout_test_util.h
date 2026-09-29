@@ -1,4 +1,3 @@
-
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -16,26 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "core/column/column_vector.h"
+#pragma once
 
-#include <gtest/gtest-message.h>
-#include <gtest/gtest-test-part.h>
-
-#include <string>
-
-#include "gtest/gtest_pred_impl.h"
+#include "core/data_type/primitive_type.h"
+#include "core/data_type/storage_field_type.h"
+#include "core/field.h"
+#include "storage/storage_layout.h"
 
 namespace doris {
 
-TEST(VColumnVectorTest, insert_date_column) {
-    auto column = ColumnInt64::create();
-
-    size_t rows = 4096;
-    int64_t val = 0;
-    for (size_t i = 0; i < rows; ++i) {
-        column->insert_date_column(reinterpret_cast<char*>(&val), 1);
-    }
-    ASSERT_EQ(column->size(), rows);
+// The compute-layer Field a StorageValue of PT's FieldType decodes to.
+template <PrimitiveType PT>
+Field field_of_cell(
+        const typename StorageLayout<primitive_type_to_storage_field_type(PT)>::StorageValue&
+                value) {
+    return Field::create_field<PT>(
+            StorageLayout<primitive_type_to_storage_field_type(PT)>::to_primitive(value));
 }
 
 } // namespace doris

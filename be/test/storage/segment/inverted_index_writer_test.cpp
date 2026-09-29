@@ -35,6 +35,7 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "core/block/block.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_number.h"
 #include "core/field.h"
@@ -44,6 +45,7 @@
 #include "runtime/runtime_state.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
+#include "storage/index/index_writer_feed.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/inverted_index_desc.h"
@@ -53,7 +55,7 @@
 #include "storage/index/snii/query/term_query.h"
 #include "storage/index/snii/snii_index_writer.h"
 #include "storage/index/snii/stats/snii_stats_provider.h"
-#include "storage/iterator/olap_data_convertor.h"
+#include "storage/segment/array_index_input_helper.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
 #include "util/defer_op.h"
@@ -592,7 +594,7 @@ public:
         std::vector<Slice> values = {Slice("hello world"), Slice("testing value"),
                                      Slice("sample data")};
 
-        status = column_writer->add_values("c2", values.data(), values.size());
+        status = add_slices(*column_writer, values.data(), values.size());
         EXPECT_TRUE(status.ok()) << status;
 
         // Finish and close
@@ -649,7 +651,7 @@ public:
                                      Slice("apple"), // Duplicate to test frequency
                                      Slice("date")};
 
-        status = column_writer->add_values("c2", values.data(), values.size());
+        status = add_slices(*column_writer, values.data(), values.size());
         EXPECT_TRUE(status.ok()) << status;
 
         // Finish and close
@@ -715,7 +717,7 @@ public:
         // Add some regular values
         std::vector<Slice> values = {Slice("apple"), Slice("banana")};
 
-        status = column_writer->add_values("c2", values.data(), values.size());
+        status = add_slices(*column_writer, values.data(), values.size());
         EXPECT_TRUE(status.ok()) << status;
 
         // Add more nulls
@@ -787,7 +789,7 @@ public:
         // Add integer values
         std::vector<int32_t> values = {42, 100, 42, 200, 300};
 
-        status = column_writer->add_values("c1", values.data(), values.size());
+        status = add_cells(*column_writer, field->type(), values.data(), values.size());
         EXPECT_TRUE(status.ok()) << status;
 
         // Finish and close
@@ -865,7 +867,7 @@ public:
                 Slice("regular")      // Duplicate to test frequency
         };
 
-        status = column_writer->add_values("c2", values.data(), values.size());
+        status = add_slices(*column_writer, values.data(), values.size());
         EXPECT_TRUE(status.ok()) << status;
 
         // Finish and close
@@ -999,9 +1001,9 @@ TEST_F(InvertedIndexWriterTest, TimeStampNsWriteReadFilter) {
     const std::vector<int64_t> values = {std::numeric_limits<int64_t>::min(), -1, 0, 1,
                                          std::numeric_limits<int64_t>::max()};
     ASSERT_TRUE(column_writer->add_nulls(2).ok());
-    ASSERT_TRUE(column_writer->add_values("dt", values.data(), 2).ok());
+    ASSERT_TRUE(add_cells(*column_writer, field.type(), values.data(), 2).ok());
     ASSERT_TRUE(column_writer->add_nulls(1).ok());
-    ASSERT_TRUE(column_writer->add_values("dt", values.data() + 2, 3).ok());
+    ASSERT_TRUE(add_cells(*column_writer, field.type(), values.data() + 2, 3).ok());
     ASSERT_TRUE(column_writer->add_nulls(2).ok());
     ASSERT_TRUE(column_writer->finish().ok());
     ASSERT_TRUE(index_file_writer->begin_close().ok());
@@ -1103,10 +1105,10 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     };
 
     // Add values to both writers
-    status = column_writer_enabled->add_values("c2", values.data(), values.size());
+    status = add_slices(*column_writer_enabled, values.data(), values.size());
     EXPECT_TRUE(status.ok()) << status;
 
-    status = column_writer_disabled->add_values("c2", values.data(), values.size());
+    status = add_slices(*column_writer_disabled, values.data(), values.size());
     EXPECT_TRUE(status.ok()) << status;
 
     // Finish and close both writers
@@ -1245,14 +1247,14 @@ TEST_F(InvertedIndexWriterTest, ErrorHandlingInFileWriter) {
 
     // Test with empty values array to trigger certain error paths
     std::vector<Slice> empty_values;
-    status = column_writer->add_values("c2", empty_values.data(), 0);
+    status = add_slices(*column_writer, empty_values.data(), 0);
     EXPECT_TRUE(status.ok()) << status;
 
     // Test with very large strings that might trigger ignore_above behavior
     std::vector<Slice> large_values;
     std::string large_string(100000, 'a'); // Very large string
     large_values.push_back(Slice(large_string));
-    status = column_writer->add_values("c2", large_values.data(), large_values.size());
+    status = add_slices(*column_writer, large_values.data(), large_values.size());
     EXPECT_TRUE(status.ok()) << status;
 
     // Finish and write
@@ -1297,7 +1299,7 @@ TEST_F(InvertedIndexWriterTest, AnalyzerExceptionReturnsStatus) {
 
     const Slice value("value");
     Status status;
-    EXPECT_NO_THROW(status = writer.add_values(column.name(), &value, 1));
+    EXPECT_NO_THROW(status = add_slices(writer, &value, 1));
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR) << status;
 }
 
@@ -1334,19 +1336,12 @@ TEST_F(InvertedIndexWriterTest, ArrayAnalyzerExceptionReturnsStatus) {
     const Slice value("value");
     const uint64_t offsets[] = {0, 1};
     Status status;
-    EXPECT_NO_THROW(status = writer.add_array_values(sizeof(Slice), &value, nullptr,
-                                                     reinterpret_cast<const uint8_t*>(offsets), 1));
+    EXPECT_NO_THROW(status = add_slice_arrays(writer, &value, nullptr, offsets, 1));
     EXPECT_EQ(status.code(), ErrorCode::INVERTED_INDEX_ANALYZER_ERROR) << status;
 }
 
 // Test case for array values with mixed null and non-null elements
 TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
-    // Create TabletSchema with array column (reference inverted_index_array_test.cpp)
-    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
-    TabletSchemaPB tablet_schema_pb;
-    tablet_schema_pb.set_keys_type(DUP_KEYS);
-    tablet_schema->init_from_pb(tablet_schema_pb);
-
     TabletColumn array_column;
     array_column.set_name("arr1");
     array_column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
@@ -1359,7 +1354,6 @@ TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
     child_column.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
     child_column.set_length(INT_MAX);
     array_column.add_sub_column(child_column);
-    tablet_schema->append_column(array_column);
 
     // Create index meta for array
     auto index_meta_pb = std::make_unique<TabletIndexPB>();
@@ -1425,33 +1419,7 @@ TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
     Block block;
     block.insert(type_and_name);
 
-    // Use OlapBlockDataConvertor to convert (reference inverted_index_array_test.cpp)
-    OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
-    convertor.set_source_content(&block, 0, block.rows());
-    auto [st, accessor] = convertor.convert_column_data(0);
-    EXPECT_EQ(st, Status::OK());
-
-    // The conversion result is an array of 4 pointers:
-    //   [0]: Total number of elements (elem_cnt)
-    //   [1]: Offsets array pointer
-    //   [2]: Nested item data pointer
-    //   [3]: Nested nullmap pointer
-    const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
-    const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
-    const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
-    const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
-
-    // Get the length of the subfield
-    auto field_size = field_type_size(field->get_sub_column(0).type());
-
-    // Call the inverted index writing interface
-    status = column_writer->add_array_values(field_size, item_data, item_nullmap, offsets_ptr,
-                                             block.rows());
-    EXPECT_TRUE(status.ok()) << status;
-
-    // Add array nulls
-    const auto* null_map = accessor->get_nullmap();
-    status = column_writer->add_array_nulls(null_map, block.rows());
+    status = feed_array_rows(*column_writer, *block.get_by_position(0).column, block.rows());
     EXPECT_TRUE(status.ok()) << status;
 
     // Finish and write
@@ -1466,12 +1434,6 @@ TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
 
 // Test case for numeric array values with error conditions
 TEST_F(InvertedIndexWriterTest, NumericArrayWithErrorConditions) {
-    // Create TabletSchema with numeric array column (reference inverted_index_array_test.cpp)
-    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
-    TabletSchemaPB tablet_schema_pb;
-    tablet_schema_pb.set_keys_type(DUP_KEYS);
-    tablet_schema->init_from_pb(tablet_schema_pb);
-
     TabletColumn array_column;
     array_column.set_name("arr_num");
     array_column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
@@ -1484,7 +1446,6 @@ TEST_F(InvertedIndexWriterTest, NumericArrayWithErrorConditions) {
     child_column.set_type(FieldType::OLAP_FIELD_TYPE_INT);
     child_column.set_length(4);
     array_column.add_sub_column(child_column);
-    tablet_schema->append_column(array_column);
 
     // Create index meta for numeric BKD
     auto index_meta_pb = std::make_unique<TabletIndexPB>();
@@ -1556,37 +1517,11 @@ TEST_F(InvertedIndexWriterTest, NumericArrayWithErrorConditions) {
     Block block;
     block.insert(type_and_name);
 
-    // Use OlapBlockDataConvertor to convert (reference inverted_index_array_test.cpp)
-    OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
-    convertor.set_source_content(&block, 0, block.rows());
-    auto [st, accessor] = convertor.convert_column_data(0);
-    EXPECT_EQ(st, Status::OK());
-
-    // The conversion result is an array of 4 pointers:
-    //   [0]: Total number of elements (elem_cnt)
-    //   [1]: Offsets array pointer
-    //   [2]: Nested item data pointer
-    //   [3]: Nested nullmap pointer
-    const auto* data_ptr = reinterpret_cast<const uint64_t*>(accessor->get_data());
-    const auto* offsets_ptr = reinterpret_cast<const uint8_t*>(data_ptr[1]);
-    const void* item_data = reinterpret_cast<const void*>(data_ptr[2]);
-    const auto* item_nullmap = reinterpret_cast<const uint8_t*>(data_ptr[3]);
-
-    // Get the length of the subfield
-    auto field_size = field_type_size(field->get_sub_column(0).type());
-
-    // Call the inverted index writing interface
-    status = column_writer->add_array_values(field_size, item_data, item_nullmap, offsets_ptr,
-                                             block.rows());
+    status = feed_array_rows(*column_writer, *block.get_by_position(0).column, block.rows());
     EXPECT_TRUE(status.ok()) << status;
 
-    // Add array nulls
-    const auto* null_map = accessor->get_nullmap();
-    status = column_writer->add_array_nulls(null_map, block.rows());
-    EXPECT_TRUE(status.ok()) << status;
-
-    // Test with zero count to trigger specific branch
-    status = column_writer->add_array_values(field_size, item_data, nullptr, offsets_ptr, 0);
+    // A zero-row batch returns before reading its items or offsets.
+    status = column_writer->add_array(*block.get_by_position(0).column, 0, nullptr, 0);
     EXPECT_TRUE(status.ok()) << status;
 
     // Finish and write
@@ -1597,6 +1532,69 @@ TEST_F(InvertedIndexWriterTest, NumericArrayWithErrorConditions) {
     EXPECT_TRUE(status.ok()) << status;
     status = index_file_writer->finish_close();
     EXPECT_TRUE(status.ok()) << status;
+}
+
+// ArrayColumnWriter hands add_array the block's whole item column and the
+// index of the batch's first element; the elements before it belong to earlier
+// batches.
+TEST_F(InvertedIndexWriterTest, NumericArrayBatchStartsAtFirstItem) {
+    TabletColumn array_column;
+    array_column.set_name("arr_num");
+    array_column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    array_column.set_is_nullable(false);
+    TabletColumn child_column;
+    child_column.set_name("arr_sub_int");
+    child_column.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    child_column.set_length(4);
+    array_column.add_sub_column(child_column);
+
+    auto index_meta_pb = std::make_unique<TabletIndexPB>();
+    index_meta_pb->set_index_type(IndexType::INVERTED);
+    index_meta_pb->set_index_id(1);
+    index_meta_pb->set_index_name("test");
+    index_meta_pb->clear_col_unique_id();
+    index_meta_pb->add_col_unique_id(0);
+    (*index_meta_pb->mutable_properties())["type"] = "bkd";
+    TabletIndex idx_meta;
+    idx_meta.init_from_pb(*index_meta_pb.get());
+
+    std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+            local_segment_path(kTestDir, "test_numeric_array_first_item", 0))};
+    std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+    io::FileWriterPtr file_writer;
+    io::FileWriterOptions opts;
+    auto fs = io::global_local_filesystem();
+    ASSERT_TRUE(fs->create_file(index_path, &file_writer, &opts).ok());
+    auto index_file_writer = std::make_unique<IndexFileWriter>(
+            fs, index_path_prefix, "test_numeric_array_first_item", 0,
+            InvertedIndexStorageFormatPB::V2, std::move(file_writer));
+    std::unique_ptr<IndexColumnWriter> column_writer;
+    ASSERT_TRUE(IndexColumnWriter::create(&array_column, &column_writer, index_file_writer.get(),
+                                          &idx_meta)
+                        .ok());
+
+    // Rows 0 and 1 belong to an earlier batch; the batch is rows [2, 4).
+    DataTypePtr array_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt32>());
+    MutableColumnPtr col = array_type->create_column();
+    for (const auto& row : std::vector<std::vector<int32_t>> {{1, 2}, {3}, {10, 20}, {30}}) {
+        Array arr;
+        for (int32_t value : row) {
+            arr.push_back(Field::create_field<TYPE_INT>(value));
+        }
+        col->insert(Field::create_field<TYPE_ARRAY>(arr));
+    }
+    const auto& col_array = assert_cast<const ColumnArray&>(*col);
+    auto offsets = ColumnOffset64::create();
+    rebase_offsets(col_array.get_offsets(), 2, 2, 0, offsets.get());
+    auto status = feed_array_index(column_writer.get(), col_array.get_data(),
+                                   col_array.get_offsets()[1], *offsets, nullptr);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_TRUE(column_writer->finish().ok());
+    ASSERT_TRUE(index_file_writer->begin_close().ok());
+    ASSERT_TRUE(index_file_writer->finish_close().ok());
+
+    check_bkd_index<TYPE_INT>(index_path_prefix, &idx_meta, "arr_num",
+                              std::vector<int32_t> {10, 20, 30}, {0, 0, 1}, 25);
 }
 
 // Test case for copy file error handling
@@ -1642,7 +1640,7 @@ TEST_F(InvertedIndexWriterTest, CopyFileErrorHandling) {
 
     // Add some values to create index files
     std::vector<Slice> values = {Slice("test1"), Slice("test2"), Slice("test3")};
-    status = column_writer->add_values("c2", values.data(), values.size());
+    status = add_slices(*column_writer, values.data(), values.size());
     EXPECT_TRUE(status.ok()) << status;
 
     // Finish and write
@@ -1704,7 +1702,7 @@ TEST_F(InvertedIndexWriterTest, BKDWriterErrorConditions) {
     std::vector<int32_t> values = {std::numeric_limits<int32_t>::min(), 0,
                                    std::numeric_limits<int32_t>::max()};
 
-    status = column_writer->add_values("c1", values.data(), values.size());
+    status = add_cells(*column_writer, field->type(), values.data(), values.size());
     EXPECT_TRUE(status.ok()) << status;
 
     // Add some nulls to test null handling in BKD
@@ -1764,7 +1762,7 @@ TEST_F(InvertedIndexWriterTest, FileCreationAndOutputErrorHandling) {
 
     // Add some values to ensure files are created
     std::vector<Slice> values = {Slice("test1"), Slice("test2")};
-    status = column_writer->add_values("c2", values.data(), values.size());
+    status = add_slices(*column_writer, values.data(), values.size());
     EXPECT_TRUE(status.ok()) << status;
 
     // Force close on error to test error handling paths
@@ -1792,7 +1790,7 @@ TEST_F(InvertedIndexWriterTest, SniiCharKeywordUsesLogicalValue) {
             column, "snii_char_keyword_logical_value", 3,
             [&](IndexColumnWriter* writer) {
                 const Slice value(padded_value);
-                ASSERT_TRUE(writer->add_values(column.name(), &value, 1).ok());
+                ASSERT_TRUE(add_slices(*writer, &value, 1).ok());
             },
             &file_reader, &logical);
 
@@ -1829,11 +1827,8 @@ TEST_F(InvertedIndexWriterTest, SniiArrayCharKeywordUsesLogicalValue) {
     write_snii_keyword_index(
             array_column, "snii_array_char_keyword_logical_value", 3,
             [&](IndexColumnWriter* writer) {
-                ASSERT_TRUE(writer->add_array_values(
-                                          field_type_size(item_column.type()), values.data(),
-                                          nullptr, reinterpret_cast<const uint8_t*>(offsets.data()),
-                                          1)
-                                    .ok());
+                ASSERT_TRUE(
+                        add_slice_arrays(*writer, values.data(), nullptr, offsets.data(), 1).ok());
             },
             &file_reader, &logical);
 
@@ -1859,7 +1854,7 @@ TEST_F(InvertedIndexWriterTest, SniiVarcharKeywordPreservesNulBytes) {
             column, "snii_varchar_keyword_preserves_nul", 32,
             [&](IndexColumnWriter* writer) {
                 const Slice value(value_with_nul);
-                ASSERT_TRUE(writer->add_values(column.name(), &value, 1).ok());
+                ASSERT_TRUE(add_slices(*writer, &value, 1).ok());
             },
             &file_reader, &logical);
 

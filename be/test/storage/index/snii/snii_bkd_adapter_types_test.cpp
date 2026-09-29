@@ -54,6 +54,7 @@
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
 #include "storage/index/index_file_writer.h"
+#include "storage/index/index_writer_feed.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/snii/bkd/bkd_reader.h"
 #include "storage/index/snii/format/metadata_directory.h"
@@ -100,6 +101,12 @@ struct ValueOf {
             return uint24_t(static_cast<uint32_t>(rank & 0xFFFFFF));
         } else if constexpr (std::is_same_v<CppType, wide::Int256>) {
             return wide::Int256(rank);
+        } else if constexpr (FT == FieldType::OLAP_FIELD_TYPE_DATETIME) {
+            // The writer takes the datetime a cell decodes to, so the cell has
+            // to be a real one: 12:00:00 plus (30 + rank) seconds, which needs
+            // -30 <= rank < 30.
+            DCHECK(rank >= -30 && rank < 30);
+            return static_cast<CppType>(20240101120030 + rank);
         } else {
             return static_cast<CppType>(rank);
         }
@@ -177,9 +184,9 @@ TYPED_TEST(SniiBkdAdapterTypesTest, AdapterPreservesValueToRowAssociation) {
                                       /*tablet_id=*/302);
     SniiBkdIndexColumnWriter writer(&index_file_writer, &this->_meta, FT);
     assert_ok(writer.init());
-    // ONE call over a contiguous CppType array: exactly how the segment writer
-    // hands a run of rows over, and the shape the stride has to walk.
-    assert_ok(writer.add_values("c1", values.data(), values.size()));
+    // ONE call over a run of rows: exactly how the segment writer hands them
+    // over.
+    assert_ok(add_cells(writer, FT, values.data(), values.size()));
     assert_ok(writer.finish());
     assert_ok(index_file_writer.begin_close());
     assert_ok(index_file_writer.finish_close());

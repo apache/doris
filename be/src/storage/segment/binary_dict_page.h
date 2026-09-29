@@ -22,8 +22,10 @@
 #include <stdint.h>
 
 #include <memory>
+#include <string>
 #include <vector>
 
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "core/arena.h"
 #include "core/data_type/data_type.h"
@@ -34,6 +36,7 @@
 #include "storage/segment/options.h"
 #include "storage/segment/page_builder.h"
 #include "storage/segment/page_decoder.h"
+#include "storage/storage_layout.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 
@@ -44,6 +47,8 @@ namespace segment_v2 {
 enum EncodingTypePB : int;
 template <FieldType Type>
 class BitShufflePageDecoder;
+template <FieldType Type>
+class BitshufflePageBuilder;
 
 enum { BINARY_DICT_PAGE_HEADER_SIZE = 4 };
 
@@ -69,16 +74,21 @@ enum { BINARY_DICT_PAGE_HEADER_SIZE = 4 };
 //
 // The dictionary page itself is encoded as either BinaryPlainPage (PLAIN_ENCODING) or
 // BinaryPlainPageV2 (PLAIN_ENCODING_V2), determined by config::binary_plain_encoding_default_impl.
-class BinaryDictPageBuilder : public PageBuilderHelper<BinaryDictPageBuilder> {
+class BinaryDictPageBuilder final
+        : public PageBuilderHelper<BinaryDictPageBuilder, StringPageBuilder> {
 public:
     using Self = BinaryDictPageBuilder;
-    friend class PageBuilderHelper<Self>;
+    friend class PageBuilderHelper<Self, StringPageBuilder>;
+
+    ~BinaryDictPageBuilder() override;
 
     Status init() override;
 
     bool is_page_full() override;
 
-    Status add(const uint8_t* vals, size_t* count) override;
+    Status add_slices(const Slice* values, size_t* count) override;
+
+    Status add(const IColumn& column, size_t row_pos, size_t n, size_t* added) override;
 
     Status finish(OwnedSlice* slice) override;
 
@@ -97,12 +107,31 @@ public:
 private:
     BinaryDictPageBuilder(const PageBuilderOptions& options);
 
+    // Dictionary mode: writes value's code to the code page, adding value to the
+    // dictionary page first when it is new. *added stays 0 when either page is
+    // full.
+    inline ALWAYS_INLINE Status _add_dict_coded(const Slice& value, size_t* added);
+
+    // Creates a string builder in the plain encoding, for the dictionary page
+    // and, once plain mode starts, for the plain page.
+    Status _create_plain_page_builder(const PageBuilderOptions& options,
+                                      std::unique_ptr<StringPageBuilder>* builder) const;
+
+    // The code page builder in dictionary mode, the plain page builder in plain
+    // mode.
+    PageBuilder& _data_page_builder() const;
+
     PageBuilderOptions _options;
     bool _finished;
 
-    std::unique_ptr<PageBuilder> _data_page_builder;
-
-    std::unique_ptr<PageBuilder> _dict_builder = nullptr;
+    // Two modes:
+    // 1. Dictionary mode: each new value goes to the dictionary page, and each
+    //    row's code to the code page.
+    // 2. Plain mode, once the dictionary page is full: the values themselves go
+    //    to the plain page.
+    std::unique_ptr<StringPageBuilder> _dict_page_builder;
+    std::unique_ptr<BitshufflePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>> _code_page_builder;
+    std::unique_ptr<StringPageBuilder> _plain_page_builder;
 
     EncodingTypePB _encoding_type;
 

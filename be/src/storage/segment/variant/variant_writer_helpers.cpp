@@ -36,7 +36,6 @@
 #include "core/data_type/data_type_nullable.h"
 #include "exec/common/variant_util.h"
 #include "storage/index/indexed_column_writer.h"
-#include "storage/iterator/olap_data_convertor.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/segment/encoding_info.h"
 #include "storage/segment/variant/v2/variant_shredder.h"
@@ -92,18 +91,14 @@ Status make_variant_shredder_options(const TabletSchema& tablet_schema,
     return Status::OK();
 }
 
-Status classify_variant_writer_input(const VariantColumnData& column,
-                                     VariantWriterInputFormat current_format,
+Status classify_variant_writer_input(const IColumn& column, VariantWriterInputFormat current_format,
                                      std::string_view writer_description,
                                      VariantWriterInputFormat* input_format) {
     DORIS_CHECK(input_format != nullptr);
-    if (column.column_data == nullptr) {
-        return Status::InvalidArgument("{} received null column data", writer_description);
-    }
-    const bool is_v2 = check_and_get_column<ColumnVariantV2>(*column.column_data) != nullptr;
+    const bool is_v2 = check_and_get_column<ColumnVariantV2>(column) != nullptr;
     if (!is_v2) {
         return Status::InvalidArgument("{} requires ColumnVariantV2, got {}", writer_description,
-                                       column.column_data->get_name());
+                                       column.get_name());
     }
 
     const VariantWriterInputFormat detected_format = VariantWriterInputFormat::V2;
@@ -115,15 +110,15 @@ Status classify_variant_writer_input(const VariantColumnData& column,
     return Status::OK();
 }
 
-Status append_variant_v2_to_shredder(VariantShredder* shredder, const VariantColumnData& column,
-                                     size_t num_rows, std::span<const uint8_t> outer_nulls) {
+Status append_variant_v2_to_shredder(VariantShredder* shredder, const IColumn& column,
+                                     size_t row_pos, size_t num_rows,
+                                     std::span<const uint8_t> outer_nulls) {
     DORIS_CHECK(shredder != nullptr);
-    DORIS_CHECK(column.column_data != nullptr);
-    const auto* source = check_and_get_column<ColumnVariantV2>(*column.column_data);
+    const auto* source = check_and_get_column<ColumnVariantV2>(column);
     DORIS_CHECK(source != nullptr);
-    if (column.row_pos > source->size() || num_rows > source->size() - column.row_pos) {
+    if (row_pos > source->size() || num_rows > source->size() - row_pos) {
         return Status::InvalidArgument("ColumnVariantV2 writer range [{}, {}) exceeds {} rows",
-                                       column.row_pos, column.row_pos + num_rows, source->size());
+                                       row_pos, row_pos + num_rows, source->size());
     }
     if (!outer_nulls.empty() && outer_nulls.size() != num_rows) {
         return Status::InvalidArgument("ColumnVariantV2 outer-null span has {} rows, expected {}",
@@ -132,12 +127,12 @@ Status append_variant_v2_to_shredder(VariantShredder* shredder, const VariantCol
 
     const auto view = source->read_view();
     if (!view.is_typed()) {
-        return shredder->append(view, column.row_pos, num_rows, outer_nulls);
+        return shredder->append(view, row_pos, num_rows, outer_nulls);
     }
 
     auto encoded_batch = ColumnVariantV2::create();
     RETURN_IF_CATCH_EXCEPTION({
-        encoded_batch->insert_range_from(*source, column.row_pos, num_rows);
+        encoded_batch->insert_range_from(*source, row_pos, num_rows);
         encoded_batch->ensure_encoded();
     });
     DORIS_CHECK(!encoded_batch->is_typed());
@@ -224,31 +219,14 @@ Status create_column_writer(uint32_t cid, const TabletColumn& column,
     return Status::OK();
 }
 
-Status convert_and_write_column(OlapBlockDataConvertor* converter, const TabletColumn& column,
-                                DataTypePtr data_type, ColumnWriter* writer,
-                                const ColumnPtr& src_column, size_t num_rows, int column_id) {
-    converter->add_column_data_convertor(column);
-    RETURN_IF_ERROR(converter->set_source_content_with_specifid_column({src_column, data_type, ""},
-                                                                       0, num_rows, column_id));
-    auto [status, converted_column] = converter->convert_column_data(column_id);
-    RETURN_IF_ERROR(status);
-
-    RETURN_IF_ERROR(writer->append(converted_column->get_nullmap(), converted_column->get_data(),
-                                   num_rows));
-    converter->clear_source_content(column_id);
-    return Status::OK();
-}
-
 namespace {
 
-Status append_sparse_array_column(const TabletColumn& tablet_column, ColumnWriter* writer,
-                                  OlapBlockDataConvertor* converter, int column_id,
-                                  const DataTypePtr& type, const ColumnPtr& values_column,
+Status append_sparse_array_column(ColumnWriter* writer, const ColumnPtr& values_column,
                                   std::span<const uint32_t> rowids, size_t total_rows) {
     // Example: values=[a,b], rowids=[1,4], total_rows=6 becomes
-    // [NULL,a,NULL,NULL,b,NULL]. ARRAY convertor output contains offsets/pointers rather than a
-    // fixed cell stride, so materialize only this path while it is being written. Scalar paths
-    // never allocate the full N-row representation.
+    // [NULL,a,NULL,NULL,b,NULL]. An ARRAY column is offsets plus items, not cells of one stride,
+    // so materialize only this path while it is being written. Scalar paths never allocate the
+    // full N-row representation.
     MutableColumnPtr full_column = values_column->clone_empty();
     full_column->reserve(total_rows);
     size_t next_row = 0;
@@ -270,28 +248,14 @@ Status append_sparse_array_column(const TabletColumn& tablet_column, ColumnWrite
     DORIS_CHECK_LE(next_row, total_rows);
     full_column->insert_many_defaults(total_rows - next_row);
 
-    RETURN_IF_ERROR(converter->set_source_content_with_specifid_column(
-            {full_column->get_ptr(), type, ""}, 0, total_rows, column_id));
-    auto [status, converted] = converter->convert_column_data(column_id);
-    RETURN_IF_ERROR(status);
-    const auto* data = reinterpret_cast<const uint8_t*>(converted->get_data());
-    RETURN_IF_ERROR(writer->append_nullable(converted->get_nullmap(), &data, total_rows));
-    converter->clear_source_content(column_id);
-    return Status::OK();
+    // ArrayColumnWriter rebases the offsets and recurses into the item writer
+    // itself, so the materialized column goes straight in.
+    return writer->append(*full_column, 0, total_rows);
 }
 
 Status append_sparse_scalar_column(const TabletColumn& tablet_column, ColumnWriter* writer,
-                                   OlapBlockDataConvertor* converter, int column_id,
-                                   const DataTypePtr& type, const ColumnPtr& values_column,
-                                   std::span<const uint32_t> rowids, size_t total_rows) {
-    const size_t cell_size = field_type_size(writer->get_column()->type());
-    RETURN_IF_ERROR(converter->set_source_content_with_specifid_column({values_column, type, ""}, 0,
-                                                                       rowids.size(), column_id));
-    auto [status, converted] = converter->convert_column_data(column_id);
-    RETURN_IF_ERROR(status);
-
-    const uint8_t* nullmap = converted->get_nullmap();
-    const auto* data = reinterpret_cast<const uint8_t*>(converted->get_data());
+                                   const ColumnPtr& values_column, std::span<const uint32_t> rowids,
+                                   size_t total_rows) {
     auto append_gap = [&](size_t gap) -> Status {
         if (gap == 0) {
             return Status::OK();
@@ -312,31 +276,24 @@ Status append_sparse_scalar_column(const TabletColumn& tablet_column, ColumnWrit
                rowids[value_index + run_length] == row + run_length) {
             ++run_length;
         }
-        const uint8_t* run_nullmap = nullmap == nullptr ? nullptr : nullmap + value_index;
-        RETURN_IF_ERROR(writer->append(run_nullmap, data + cell_size * value_index, run_length));
+        RETURN_IF_ERROR(writer->append(*values_column, value_index, run_length));
         value_index += run_length;
         next_row = row + run_length;
     }
     RETURN_IF_ERROR(append_gap(total_rows - next_row));
-    converter->clear_source_content(column_id);
     return Status::OK();
 }
 
 } // namespace
 
-Status append_sparse_converted_column(const TabletColumn& tablet_column, ColumnWriter* writer,
-                                      OlapBlockDataConvertor* converter, int column_id,
-                                      const DataTypePtr& type, const ColumnPtr& values_column,
-                                      std::span<const uint32_t> rowids, size_t total_rows) {
+Status append_sparse_column(const TabletColumn& tablet_column, ColumnWriter* writer,
+                            const DataTypePtr& type, const ColumnPtr& values_column,
+                            std::span<const uint32_t> rowids, size_t total_rows) {
     DORIS_CHECK_EQ(values_column->size(), rowids.size());
     if (!rowids.empty()) {
         DORIS_CHECK_LT(rowids.back(), total_rows);
     }
-
-    // Column ids and convertor slots advance together across physical paths. Reserve exactly one
-    // slot at the common entry point, including empty segments and paths whose forced cast removed
-    // every value; otherwise the next path is registered at this index but queried by the next id.
-    converter->add_column_data_convertor(tablet_column);
+    // An empty segment has nothing to write.
     if (total_rows == 0) {
         return Status::OK();
     }
@@ -347,11 +304,9 @@ Status append_sparse_converted_column(const TabletColumn& tablet_column, ColumnW
 
     const DataTypePtr base_type = remove_nullable(type);
     if (base_type->get_primitive_type() == PrimitiveType::TYPE_ARRAY) {
-        return append_sparse_array_column(tablet_column, writer, converter, column_id, type,
-                                          values_column, rowids, total_rows);
+        return append_sparse_array_column(writer, values_column, rowids, total_rows);
     }
-    return append_sparse_scalar_column(tablet_column, writer, converter, column_id, type,
-                                       values_column, rowids, total_rows);
+    return append_sparse_scalar_column(tablet_column, writer, values_column, rowids, total_rows);
 }
 
 void maybe_remove_root_jsonb_with_empty_defaults(MutableColumnPtr* root_column, size_t num_rows,

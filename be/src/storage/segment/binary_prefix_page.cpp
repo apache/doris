@@ -24,6 +24,8 @@
 #include <vector>
 
 #include "common/status.h"
+#include "core/assert_cast.h"
+#include "core/column/column_string.h"
 #include "util/coding.h"
 #include "util/faststring.h"
 #include "util/slice.h"
@@ -31,53 +33,60 @@
 namespace doris {
 namespace segment_v2 {
 
-Status BinaryPrefixPageBuilder::add(const uint8_t* vals, size_t* add_count) {
+Status BinaryPrefixPageBuilder::add_slices(const Slice* values, size_t* count) {
     DCHECK(!_finished);
-    if (*add_count == 0) {
-        return Status::OK();
+    return add_each_slice(*this, values, count,
+                          [&](const Slice& value) ALWAYS_INLINE { return _add_one(value); });
+}
+
+// Every FieldType prefix encoding serves stores the row's own bytes, so there
+// is no StorageValue to form.
+Status BinaryPrefixPageBuilder::add(const IColumn& column, size_t row_pos, size_t n,
+                                    size_t* added) {
+    DCHECK(!_finished);
+    const auto& strings = assert_cast<const ColumnString&>(column);
+    size_t i = 0;
+    for (; !is_page_full() && i < n; ++i) {
+        const StringRef value = strings.get_data_at(row_pos + i);
+        RETURN_IF_ERROR(_add_one(Slice(value.data, value.size)));
     }
+    *added = i;
+    return Status::OK();
+}
 
-    const Slice* src = reinterpret_cast<const Slice*>(vals);
+Status BinaryPrefixPageBuilder::_add_one(const Slice& value) {
+    const char* entry = value.data;
+    size_t entry_len = value.size;
+    size_t old_size = _buffer.size();
 
-    int i = 0;
-    for (; i < *add_count; ++i, ++src) {
-        if (is_page_full()) {
-            break;
-        }
-        const char* entry = src->data;
-        size_t entry_len = src->size;
-        size_t old_size = _buffer.size();
-
-        size_t share_len;
-        if (_count % RESTART_POINT_INTERVAL == 0) {
-            share_len = 0;
-            _restart_points_offset.push_back(cast_set<uint32_t>(old_size));
-        } else {
-            size_t max_share_len = std::min(_last_entry.size(), entry_len);
-            share_len = max_share_len;
-            for (int j = 0; j < max_share_len; ++j) {
-                if (entry[j] != _last_entry[j]) {
-                    share_len = j;
-                    break;
-                }
+    size_t share_len;
+    if (_count % RESTART_POINT_INTERVAL == 0) {
+        share_len = 0;
+        _restart_points_offset.push_back(cast_set<uint32_t>(old_size));
+    } else {
+        size_t max_share_len = std::min(_last_entry.size(), entry_len);
+        share_len = max_share_len;
+        for (size_t j = 0; j < max_share_len; ++j) {
+            if (entry[j] != _last_entry[j]) {
+                share_len = j;
+                break;
             }
         }
-        size_t non_share_len = entry_len - share_len;
-        // This may need a large memory, should return error if could not allocated
-        // successfully, to avoid BE OOM.
-        RETURN_IF_CATCH_EXCEPTION({
-            put_varint32(&_buffer, cast_set<uint32_t>(share_len));
-            put_varint32(&_buffer, cast_set<uint32_t>(non_share_len));
-            _buffer.append(entry + share_len, non_share_len);
-
-            _last_entry.clear();
-            _last_entry.append(entry, entry_len);
-        });
-
-        _raw_data_size += entry_len;
-        ++_count;
     }
-    *add_count = i;
+    size_t non_share_len = entry_len - share_len;
+    // This may need a large memory, should return error if could not allocated
+    // successfully, to avoid BE OOM.
+    RETURN_IF_CATCH_EXCEPTION({
+        put_varint32(&_buffer, cast_set<uint32_t>(share_len));
+        put_varint32(&_buffer, cast_set<uint32_t>(non_share_len));
+        _buffer.append(entry + share_len, non_share_len);
+
+        _last_entry.clear();
+        _last_entry.append(entry, entry_len);
+    });
+
+    _raw_data_size += entry_len;
+    ++_count;
     return Status::OK();
 }
 

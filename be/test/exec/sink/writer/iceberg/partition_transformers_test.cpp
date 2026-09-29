@@ -48,7 +48,7 @@ TEST_F(PartitionTransformersTest, binary_computation_transforms_are_not_supporte
 TEST_F(PartitionTransformersTest, test_integer_truncate_transform) {
     const std::vector<int32_t> values({1, -1});
     auto column = ColumnInt32::create();
-    column->insert_many_fix_len_data(reinterpret_cast<const char*>(values.data()), values.size());
+    column->insert_many_raw_data(reinterpret_cast<const char*>(values.data()), values.size());
     ColumnWithTypeAndName test_int(column->get_ptr(), std::make_shared<DataTypeInt32>(),
                                    "test_int");
 
@@ -69,7 +69,7 @@ TEST_F(PartitionTransformersTest, test_integer_truncate_transform) {
 TEST_F(PartitionTransformersTest, test_bigint_truncate_transform) {
     const std::vector<int64_t> values({1, -1});
     auto column = ColumnInt64::create();
-    column->insert_many_fix_len_data(reinterpret_cast<const char*>(values.data()), values.size());
+    column->insert_many_raw_data(reinterpret_cast<const char*>(values.data()), values.size());
     ColumnWithTypeAndName test_bigint(column->get_ptr(), std::make_shared<DataTypeInt64>(),
                                       "test_bigint");
 
@@ -91,7 +91,7 @@ TEST_F(PartitionTransformersTest, test_bigint_truncate_transform) {
 TEST_F(PartitionTransformersTest, test_decimal32_truncate_transform) {
     const std::vector<int32_t> values({1065});
     auto column = ColumnDecimal32::create(0, 2);
-    column->insert_many_fix_len_data(reinterpret_cast<const char*>(values.data()), values.size());
+    column->insert_many_raw_data(reinterpret_cast<const char*>(values.data()), values.size());
     ColumnWithTypeAndName test_decimal32(
             column->get_ptr(), std::make_shared<DataTypeDecimal32>(4, 2), "test_decimal32");
 
@@ -156,7 +156,7 @@ TEST_F(PartitionTransformersTest, test_floating_point_special_partition_value) {
 TEST_F(PartitionTransformersTest, test_integer_bucket_transform) {
     const std::vector<int32_t> values({34, -123}); // 2017239379, -471378254
     auto column = ColumnInt32::create();
-    column->insert_many_fix_len_data(reinterpret_cast<const char*>(values.data()), values.size());
+    column->insert_many_raw_data(reinterpret_cast<const char*>(values.data()), values.size());
     ColumnWithTypeAndName test_int(column->get_ptr(), std::make_shared<DataTypeInt32>(),
                                    "test_int");
 
@@ -177,7 +177,7 @@ TEST_F(PartitionTransformersTest, test_integer_bucket_transform) {
 TEST_F(PartitionTransformersTest, test_bigint_bucket_transform) {
     const std::vector<int64_t> values({34, -123}); // 2017239379, -471378254
     auto column = ColumnInt64::create();
-    column->insert_many_fix_len_data(reinterpret_cast<const char*>(values.data()), values.size());
+    column->insert_many_raw_data(reinterpret_cast<const char*>(values.data()), values.size());
     ColumnWithTypeAndName test_bigint(column->get_ptr(), std::make_shared<DataTypeInt64>(),
                                       "test_bigint");
 
@@ -199,7 +199,7 @@ TEST_F(PartitionTransformersTest, test_bigint_bucket_transform) {
 TEST_F(PartitionTransformersTest, test_decimal32_bucket_transform) {
     const std::vector<int32_t> values({1420}); // -500754589
     auto column = ColumnDecimal32::create(0, 2);
-    column->insert_many_fix_len_data(reinterpret_cast<const char*>(values.data()), values.size());
+    column->insert_many_raw_data(reinterpret_cast<const char*>(values.data()), values.size());
     ColumnWithTypeAndName test_decimal32(
             column->get_ptr(), std::make_shared<DataTypeDecimal32>(4, 2), "test_decimal32");
 
@@ -479,7 +479,7 @@ TEST_F(PartitionTransformersTest, test_timestamp_hour_transform) {
 TEST_F(PartitionTransformersTest, test_void_transform) {
     const std::vector<int32_t> values({1, -1});
     auto column = ColumnInt32::create();
-    column->insert_many_fix_len_data(reinterpret_cast<const char*>(values.data()), values.size());
+    column->insert_many_raw_data(reinterpret_cast<const char*>(values.data()), values.size());
     ColumnWithTypeAndName test_int(column->get_ptr(), std::make_shared<DataTypeInt32>(),
                                    "test_int");
 
@@ -501,7 +501,7 @@ TEST_F(PartitionTransformersTest, test_nullable_column_integer_truncate_transfor
     const std::vector<int32_t> values({1, -1});
     auto column = ColumnNullable::create(ColumnInt32::create(), ColumnUInt8::create());
     column->insert_data(nullptr, 0);
-    column->insert_many_fix_len_data(reinterpret_cast<const char*>(values.data()), values.size());
+    column->insert_many_raw_data(reinterpret_cast<const char*>(values.data()), values.size());
     ColumnWithTypeAndName test_int(
             column->get_ptr(),
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), "test_int");

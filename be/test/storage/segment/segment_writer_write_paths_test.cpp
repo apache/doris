@@ -35,6 +35,7 @@
 #include <string>
 
 #include "common/config.h"
+#include "common/consts.h"
 #include "core/block/block.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "io/fs/local_file_system.h"
@@ -48,6 +49,7 @@
 #include "storage/segment/vertical_segment_writer.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/transform/block_transform.h"
+#include "storage/utils.h"
 
 namespace doris::segment_v2 {
 
@@ -83,10 +85,17 @@ TabletColumnPtr create_int_value(int32_t id) {
     return column;
 }
 
+TabletColumnPtr create_seq_column(int32_t id) {
+    auto column = create_int_value(id);
+    column->_col_name = SEQUENCE_COL;
+    return column;
+}
+
 // One key column and two value columns, so a column group split has something
-// to split.
+// to split. A sequence column goes last, so the key group it joins holds it at
+// another position than the schema does.
 TabletSchemaSPtr create_schema(KeysType keys_type, bool with_cluster_key,
-                               bool with_key_column = true) {
+                               bool with_key_column = true, bool with_seq = false) {
     TabletSchemaSPtr schema = std::make_shared<TabletSchema>();
     if (with_key_column) {
         schema->append_column(*create_int_key(0));
@@ -95,6 +104,9 @@ TabletSchemaSPtr create_schema(KeysType keys_type, bool with_cluster_key,
     }
     schema->append_column(*create_int_value(1));
     schema->append_column(*create_int_value(2));
+    if (with_seq) {
+        schema->append_column(*create_seq_column(3));
+    }
     schema->_keys_type = keys_type;
     schema->_num_short_key_columns = with_key_column ? 1 : 0;
     if (with_cluster_key) {
@@ -102,6 +114,11 @@ TabletSchemaSPtr create_schema(KeysType keys_type, bool with_cluster_key,
         schema->_cluster_key_uids = {1};
     }
     return schema;
+}
+
+// Every fifth row has a NULL sequence value.
+bool seq_is_null(size_t row) {
+    return row % 5 == 0;
 }
 
 // Rows in the order the segment stores them: the key column descends and the
@@ -124,6 +141,19 @@ Block create_block(const TabletSchemaSPtr& schema, bool sorted_by_value) {
     block.replace_by_position(0, std::move(key_column));
     block.replace_by_position(1, std::move(sort_column));
     block.replace_by_position(2, std::move(plain_column));
+    if (schema->has_sequence_col()) {
+        const auto seq_idx = static_cast<size_t>(schema->sequence_col_idx());
+        auto seq_column = block.get_by_position(seq_idx).column->assert_mutable();
+        for (size_t row = 0; row < kNumRows; ++row) {
+            auto seq = static_cast<int32_t>(row);
+            if (seq_is_null(row)) {
+                seq_column->insert_default();
+            } else {
+                seq_column->insert_data(reinterpret_cast<const char*>(&seq), sizeof(int32_t));
+            }
+        }
+        block.replace_by_position(seq_idx, std::move(seq_column));
+    }
     return block;
 }
 
@@ -336,8 +366,10 @@ protected:
     }
 
     void expect_both_shapes_agree(KeysType keys_type, bool mow, bool with_cluster_key,
-                                  const std::string& name, size_t append_batches = 1) {
-        auto schema = create_schema(keys_type, with_cluster_key);
+                                  const std::string& name, size_t append_batches = 1,
+                                  bool with_seq = false) {
+        auto schema =
+                create_schema(keys_type, with_cluster_key, /*with_key_column=*/true, with_seq);
         Block block = create_block(schema, with_cluster_key);
         WrittenSegment grouped;
         WrittenSegment whole;
@@ -353,6 +385,18 @@ protected:
         EXPECT_EQ(grouped.rows, block.dump_data(0, block.rows())) << name;
         EXPECT_EQ(whole.rows, block.dump_data(0, block.rows())) << name;
         EXPECT_EQ(grouped.primary_key_entries, whole.primary_key_entries) << name;
+        if (with_seq) {
+            // Entry i holds the i-th smallest key, and its sequence suffix
+            // starts after the key marker and the four key bytes.
+            ASSERT_EQ(grouped.primary_key_entries.size(), kNumRows) << name;
+            for (size_t i = 0; i < kNumRows; ++i) {
+                const size_t row = with_cluster_key ? kNumRows - 1 - i : i;
+                EXPECT_EQ(static_cast<uint8_t>(grouped.primary_key_entries[i][5]),
+                          seq_is_null(row) ? KeyConsts::KEY_NULL_FIRST_MARKER
+                                           : KeyConsts::KEY_NORMAL_MARKER)
+                        << name << " entry " << i;
+            }
+        }
         if (with_cluster_key) {
             // The keys run kNumRows..1 down the block, so the i-th smallest key
             // sits in row kNumRows-1-i: every entry must point back at its row.
@@ -391,6 +435,30 @@ TEST_F(VerticalSegmentWriterWritePathsTest, MowWithClusterKeySeveralAppendsMatch
     shrink_primary_key_index_pages();
     expect_both_shapes_agree(UNIQUE_KEYS, /*mow=*/true, /*with_cluster_key=*/true,
                              "mow_cluster_key_appends", /*append_batches=*/3);
+}
+
+// Every append after the first hands the writer a row_pos past zero: the keys
+// must come from the rows from row_pos on, not from the start of the block.
+TEST_F(VerticalSegmentWriterWritePathsTest, MowSeveralAppendsMatchWholeSchema) {
+    expect_both_shapes_agree(UNIQUE_KEYS, /*mow=*/true, /*with_cluster_key=*/false, "mow_appends",
+                             /*append_batches=*/3);
+}
+
+// The key group holds the sequence column right after the key column, not where
+// the schema has it; every primary key index entry carries its value as the
+// suffix, a NULL one included.
+TEST_F(VerticalSegmentWriterWritePathsTest, MowWithSequenceColumnGroupsMatchWholeSchema) {
+    expect_both_shapes_agree(UNIQUE_KEYS, /*mow=*/true, /*with_cluster_key=*/false, "mow_seq",
+                             /*append_batches=*/3, /*with_seq=*/true);
+}
+
+// With cluster keys each primary key index entry carries the sequence value and
+// then the row id.
+TEST_F(VerticalSegmentWriterWritePathsTest,
+       MowWithClusterKeyAndSequenceColumnGroupsMatchWholeSchema) {
+    shrink_primary_key_index_pages();
+    expect_both_shapes_agree(UNIQUE_KEYS, /*mow=*/true, /*with_cluster_key=*/true,
+                             "mow_cluster_key_seq", /*append_batches=*/3, /*with_seq=*/true);
 }
 
 // The primary key index really does span several data pages at this row count,

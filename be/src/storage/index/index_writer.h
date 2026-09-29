@@ -34,6 +34,7 @@
 #include "storage/options.h"
 
 namespace doris {
+class IColumn;
 
 class TabletIndex;
 class TabletColumn;
@@ -50,11 +51,15 @@ public:
     IndexColumnWriter() = default;
     virtual ~IndexColumnWriter() = default;
 
-    virtual Status add_values(const std::string name, const void* values, size_t count) = 0;
+    // Rows [row_pos, row_pos + n) of `column`; each row is one document.
+    virtual Status add(const IColumn& column, size_t row_pos, size_t n) = 0;
 
-    virtual Status add_array_values(size_t field_size, const void* value_ptr,
-                                    const uint8_t* null_map, const uint8_t* offsets_ptr,
-                                    size_t count) = 0;
+    // `num_rows` array rows, each one document. `items` is the array's item
+    // column (Nullable when the items are), `first_item` the index in it of the
+    // batch's first element, and offsets[i + 1] - offsets[i] row i's element
+    // count.
+    virtual Status add_array(const IColumn& items, size_t first_item, const uint64_t* offsets,
+                             size_t num_rows) = 0;
 
     virtual Status add_nulls(uint32_t count) = 0;
     virtual Status add_array_nulls(const uint8_t* null_map, size_t num_rows) = 0;

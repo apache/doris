@@ -478,7 +478,7 @@ EncodingInfo::EncodingInfo(TraitsClass traits)
     } else if (_encoding == PLAIN_ENCODING_V2) {
         // Only binary types (Slice) need the predecoder for PLAIN_ENCODING_V2 — it converts
         // varint-encoded lengths to an offset-array format that downstream Slice decoders expect.
-        // CHAR pages additionally strip trailing '\0' padding written by the convertor; other
+        // CHAR pages additionally strip the trailing '\0' padding older segments wrote; other
         // Slice types use the non-CHAR specialization. All current (type, PLAIN_ENCODING_V2)
         // registrations are Slice (CHAR/VARCHAR/STRING/JSONB/VARIANT/HLL/BITMAP/QUANTILE_STATE/
         // AGG_STATE per storage/types.h). The else throws at construction time to fail loudly

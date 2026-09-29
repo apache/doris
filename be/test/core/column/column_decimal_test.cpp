@@ -238,12 +238,6 @@ TEST_F(ColumnDecimalTest, insert_indices_from) {
     _column_decimal_common_test_with_type(assert_column_vector_insert_indices_from_callback, false);
 }
 
-// decimal, vector, nullable, PredicateColumnType
-TEST_F(ColumnDecimalTest, insert_many_fix_len_data) {
-    _column_decimal_common_test_with_type(assert_column_vector_insert_many_fix_len_data_callback,
-                                          true);
-}
-
 TEST_F(ColumnDecimalTest, insert_many_raw_data) {
     _column_decimal_common_test_with_type(assert_column_vector_insert_many_raw_data_callback,
                                           false);

@@ -34,11 +34,14 @@
 #include "runtime/runtime_state.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
+#include "storage/index/index_writer_feed.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/inverted_index_writer.h"
 #include "storage/key_coder.h"
+#include "storage/storage_layout.h"
+#include "storage/storage_layout_test_util.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
 #include "util/slice.h"
@@ -157,7 +160,7 @@ public:
         EXPECT_TRUE(status.ok()) << status;
 
         // Write string values
-        status = column_writer->add_values("c2", values.data(), values.size());
+        status = add_slices(*column_writer, values.data(), values.size());
         EXPECT_TRUE(status.ok()) << status;
 
         // Finish and close
@@ -216,7 +219,7 @@ public:
 
         // Add some regular values
         std::vector<Slice> values = {Slice("apple"), Slice("banana")};
-        status = column_writer->add_values("c2", values.data(), values.size());
+        status = add_slices(*column_writer, values.data(), values.size());
         EXPECT_TRUE(status.ok()) << status;
 
         // Add more NULL values
@@ -279,7 +282,7 @@ public:
         EXPECT_TRUE(status.ok()) << status;
 
         // Add integer values
-        status = column_writer->add_values("c1", values.data(), values.size());
+        status = add_cells(*column_writer, column.type(), values.data(), values.size());
         EXPECT_TRUE(status.ok()) << status;
 
         // Finish and close
@@ -3036,7 +3039,7 @@ public:
             // proxy, so `auto`/`&value` would give a __bit_reference/__bit_iterator
             // rather than a real pointer. Use the container's value_type.
             typename std::decay_t<decltype(values)>::value_type v = value;
-            status = column_writer->add_values(column.name(), reinterpret_cast<const void*>(&v), 1);
+            status = add_cells(*column_writer, column.type(), &v, 1);
             EXPECT_TRUE(status.ok()) << status;
         }
 
@@ -3312,7 +3315,7 @@ public:
     // Locks in:
     //  * the typed-param interface (TypedInvertedIndexQueryParam<PT>)
     //  * the +/-infinity sentinels routed through type_limit<compute_t> +
-    //    PrimitiveTypeConvertor<PT>
+    //    StorageLayout<FT>::to_storage
     //  * BKD's writer/reader/visitor agreement on KeyCoder-encoded bytes
     template <PrimitiveType PT, typename T>
     void verify_bkd_range_queries(int col_id, std::string_view rowset_id,
@@ -3340,8 +3343,9 @@ public:
         EXPECT_NE(bkd_reader, nullptr);
 
         auto run_query = [&](InvertedIndexQueryType qt, T thr) {
-            using raw_t = typename PrimitiveTypeTraits<PT>::StorageFieldType;
-            Field qp = Field::create_field_from_olap_value<PT>(static_cast<raw_t>(thr));
+            using Layout = StorageLayout<primitive_type_to_storage_field_type(PT)>;
+            Field qp = Field::create_field<PT>(
+                    Layout::to_primitive(static_cast<typename Layout::StorageValue>(thr)));
             auto bitmap = std::make_shared<roaring::Roaring>();
             auto status = bkd_reader->query(context, column_name, qp, qt, bitmap);
             EXPECT_TRUE(status.ok()) << column_name << ": " << status;
@@ -3818,7 +3822,7 @@ public:
             // proxy, so `auto`/`&value` would give a __bit_reference/__bit_iterator
             // rather than a real pointer. Use the container's value_type.
             typename std::decay_t<decltype(values)>::value_type v = value;
-            status = column_writer->add_values(column.name(), reinterpret_cast<const void*>(&v), 1);
+            status = add_cells(*column_writer, column.type(), &v, 1);
             EXPECT_TRUE(status.ok()) << status;
         }
 
@@ -3941,8 +3945,7 @@ public:
 
             for (auto& test_case : test_cases) {
                 std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-                Field qp_3262 =
-                        Field::create_field_from_olap_value<TYPE_TIMESTAMPTZ>(test_case.second);
+                Field qp_3262 = field_of_cell<TYPE_TIMESTAMPTZ>(test_case.second);
                 auto status = bkd_reader->query(context, "c_timestamptz", qp_3262, test_case.first,
                                                 bitmap);
                 EXPECT_TRUE(status.ok()) << "Query type: " << static_cast<int>(test_case.first);
@@ -3955,8 +3958,7 @@ public:
 
             for (auto& test_case : test_cases) {
                 size_t count = 0;
-                Field qp_3274 =
-                        Field::create_field_from_olap_value<TYPE_TIMESTAMPTZ>(test_case.second);
+                Field qp_3274 = field_of_cell<TYPE_TIMESTAMPTZ>(test_case.second);
                 auto status = bkd_reader->try_query(context, "c_timestamptz", qp_3274,
                                                     test_case.first, &count);
                 EXPECT_TRUE(status.ok()) << "Try query type: " << static_cast<int>(test_case.first);
@@ -4054,8 +4056,8 @@ public:
             uint32_t query_value = 20240102;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
             // TYPE_DATE storage is uint24_t — narrow from the test's uint32_t.
-            typename PrimitiveTypeTraits<TYPE_DATE>::StorageFieldType date_storage(query_value);
-            Field qp_3366 = Field::create_field_from_olap_value<TYPE_DATE>(date_storage);
+            StorageLayout<FieldType::OLAP_FIELD_TYPE_DATE>::StorageValue date_storage(query_value);
+            Field qp_3366 = field_of_cell<TYPE_DATE>(date_storage);
             auto status = bkd_reader->query(context, "c_date", qp_3366,
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
@@ -4081,8 +4083,7 @@ public:
 
             int64_t query_value = 20240101130000LL;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            Field qp_3391 = Field::create_field_from_olap_value<TYPE_DATETIME>(
-                    static_cast<uint64_t>(query_value));
+            Field qp_3391 = field_of_cell<TYPE_DATETIME>(static_cast<uint64_t>(query_value));
             auto status = bkd_reader->query(context, "c_datetime", qp_3391,
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
@@ -4261,7 +4262,7 @@ public:
 
             uint64_t query_value = 20240201130000ULL;
             std::shared_ptr<roaring::Roaring> bitmap = std::make_shared<roaring::Roaring>();
-            Field qp_3561 = Field::create_field_from_olap_value<TYPE_TIMESTAMPTZ>(query_value);
+            Field qp_3561 = field_of_cell<TYPE_TIMESTAMPTZ>(query_value);
             auto status = bkd_reader->query(context, "c_timestamptz", qp_3561,
                                             InvertedIndexQueryType::EQUAL_QUERY, bitmap);
             EXPECT_TRUE(status.ok());
@@ -4387,7 +4388,7 @@ TEST_F(InvertedIndexReaderTest, BkdIndexRead) {
 //    cardinalities derived from the values via std::count_if.
 //
 // Locks in the typed-param interface, the +/-infinity sentinels routed
-// through type_limit<compute_t> + PrimitiveTypeConvertor<PT>, and BKD
+// through type_limit<compute_t> + StorageLayout<FT>::to_storage, and BKD
 // writer/reader/visitor agreement.
 TEST_F(InvertedIndexReaderTest, BkdRangeIntRangeQuery) {
     test_bkd_range_int();

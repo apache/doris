@@ -503,7 +503,7 @@ protected:
         config::enable_ordered_data_compaction = false;
         config::total_permits_for_compaction_score = 200000;
         config::inverted_index_ram_dir_enable = true;
-        config::string_type_length_soft_limit_bytes = 10485760;
+        _origin_string_soft_limit = config::string_type_length_soft_limit_bytes;
 
         // The query path goes through InvertedIndexQueryCache::instance() unconditionally, and
         // ExecEnv hands out a null pointer unless something installs one. Own them here and put the
@@ -534,7 +534,7 @@ protected:
         config::enable_segcompaction = true;
         config::enable_ordered_data_compaction = true;
         config::total_permits_for_compaction_score = 1000000;
-        config::string_type_length_soft_limit_bytes = 1048576;
+        config::string_type_length_soft_limit_bytes = _origin_string_soft_limit;
         // do_compaction() raises this; the sibling DISABLED_IndexCompactionPerformanceTest
         // restores it the same way. Leaving it set changes later tests in the same binary.
         config::compaction_batch_size = _origin_compaction_batch_size;
@@ -1894,6 +1894,7 @@ protected:
     io::FileCacheFactory* _origin_file_cache_factory = nullptr;
     bool _origin_file_cache_factory_saved = false;
     int64_t _origin_compaction_batch_size = config::compaction_batch_size;
+    decltype(config::string_type_length_soft_limit_bytes) _origin_string_soft_limit = 0;
     bool _origin_index_compaction_enable = config::inverted_index_compaction_enable;
     bool _origin_ram_dir_enable = config::inverted_index_ram_dir_enable;
     std::string _file_cache_dir;

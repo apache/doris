@@ -137,7 +137,7 @@ std::vector<ScalarBloomFilterTypeCase> create_segment_writer_compatible_type_cas
     std::vector<ScalarBloomFilterTypeCase> compatible_type_cases;
     compatible_type_cases.reserve(kScalarBloomFilterTypeCases.size());
     for (const auto& type_case : kScalarBloomFilterTypeCases) {
-        // BF itself supports UNSIGNED_INT, but the current block/convertor stack used by
+        // BF itself supports UNSIGNED_INT, but the Block path used by
         // VerticalSegmentWriter still does not materialize that type end-to-end.
         // Keep its coverage at direct ColumnWriter level instead of failing these integration tests
         // for an unrelated legacy limitation.
@@ -314,7 +314,7 @@ TEST_P(AllScalarBloomFilterFppWriterTest, column_writer_uses_bloom_filter_fpp) {
     ASSERT_TRUE(ColumnWriter::create(writer_opts, &column, file_writer.get(), &writer).ok());
 
     // Cover the full scalar BF type matrix directly at ColumnWriter level, including
-    // UNSIGNED_INT which cannot currently flow through the segment writer block/convertor stack.
+    // UNSIGNED_INT which cannot currently flow through the segment writer's Block path.
     ScopedBloomFilterFppDebugPoint debug_point(kExpectedFpp);
     auto st = writer->init();
     ASSERT_TRUE(st.ok()) << st;

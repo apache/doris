@@ -28,6 +28,7 @@
 #include "storage/index/ann/faiss_ann_index.h"
 #include "storage/index/ann/vector_search_utils.h"
 #include "storage/index/index_file_writer.h"
+#include "storage/index/index_writer_feed.h"
 #include "storage/olap_common.h"
 
 using namespace doris::vector_search_utils;
@@ -106,8 +107,7 @@ TEST_F(AnnIndexTest, SmokeTest) {
     }
     offsets[10] = 10 * 10; // terminal offset
 
-    auto st = ann_index_writer->add_array_values(
-            0, data.get(), nullptr, reinterpret_cast<uint8_t*>(offsets_data.get()), 10);
+    auto st = add_float_arrays(*ann_index_writer, data.get(), offsets_data.get(), 10);
     EXPECT_TRUE(st.ok()) << st.to_string();
 
     ASSERT_TRUE(ann_index_writer->finish().ok());

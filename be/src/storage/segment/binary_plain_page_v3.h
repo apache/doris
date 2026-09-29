@@ -30,13 +30,13 @@
 // and walk the varint lengths once to fill the offsets array.
 //
 // V3 stores exactly the same bytes as V1/V2 — only the on-disk layout differs. In
-// particular, CHAR values keep their trailing '\0' padding on disk (as written by
-// OlapColumnDataConvertorChar); that padding is stripped on read by
-// BinaryPlainPageV3PreDecoder<true>, selected for (CHAR, PLAIN_ENCODING_V3), exactly
-// mirroring PLAIN_ENCODING_V2.
+// particular, CHAR values in segments old enough to carry trailing '\0' padding keep
+// it on disk; that padding is stripped on read by BinaryPlainPageV3PreDecoder<true>,
+// selected for (CHAR, PLAIN_ENCODING_V3), exactly mirroring PLAIN_ENCODING_V2.
 
 #pragma once
 
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "core/column/column_complex.h"
 #include "core/column/column_nullable.h"
@@ -45,6 +45,7 @@
 #include "storage/segment/options.h"
 #include "storage/segment/page_builder.h"
 #include "storage/segment/page_decoder.h"
+#include "storage/storage_layout.h"
 #include "storage/types.h"
 #include "util/coding.h"
 #include "util/faststring.h"
@@ -53,10 +54,11 @@ namespace doris {
 namespace segment_v2 {
 
 template <FieldType Type>
-class BinaryPlainPageV3Builder : public PageBuilderHelper<BinaryPlainPageV3Builder<Type>> {
+class BinaryPlainPageV3Builder
+        : public PageBuilderHelper<BinaryPlainPageV3Builder<Type>, StringPageBuilder> {
 public:
     using Self = BinaryPlainPageV3Builder<Type>;
-    friend class PageBuilderHelper<Self>;
+    friend class PageBuilderHelper<Self, StringPageBuilder>;
 
     Status init() override { return reset(); }
 
@@ -70,40 +72,17 @@ public:
         return ret;
     }
 
-    Status add(const uint8_t* vals, size_t* count) override {
+    Status add_slices(const Slice* values, size_t* count) override {
         DCHECK(!_finished);
         DCHECK_GT(*count, 0);
-        size_t i = 0;
+        return add_each_slice(*this, values, count,
+                              [&](const Slice& value) ALWAYS_INLINE { return _add_one(value); });
+    }
 
-        while (!is_page_full() && i < *count) {
-            const auto* src = reinterpret_cast<const Slice*>(vals);
-            if constexpr (Type == FieldType::OLAP_FIELD_TYPE_BITMAP) {
-                if (_options.need_check_bitmap) {
-                    RETURN_IF_ERROR(BitmapTypeCode::validate(*(src->data)));
-                }
-            }
-
-            // Append the data straight into the contiguous data buffer. V3 stores the same
-            // bytes as V1/V2 (CHAR keeps its '\0' padding, VARCHAR does not); only the layout
-            // differs. CHAR padding is stripped on read by BinaryPlainPageV3PreDecoder<true>.
-            RETURN_IF_CATCH_EXCEPTION(_data_buffer.append(src->data, src->size));
-
-            // Encode varuint length into a scratch buffer, then append.
-            uint8_t length_buffer[5]; // max varint32 size
-            uint8_t* ptr = encode_varint32(length_buffer, cast_set<uint32_t>(src->size));
-            size_t length_size = ptr - length_buffer;
-            RETURN_IF_CATCH_EXCEPTION(_lengths_buffer.append(length_buffer, length_size));
-
-            _num_elems++;
-            _size_estimate += src->size + length_size;
-            _raw_data_size += src->size;
-
-            i++;
-            vals += sizeof(Slice);
-        }
-
-        *count = i;
-        return Status::OK();
+    Status add(const IColumn& column, size_t row_pos, size_t n, size_t* added) override {
+        DCHECK(!_finished);
+        auto add_one = [&](const Slice& value) ALWAYS_INLINE { return _add_one(value); };
+        return add_string_cells<Type>(*this, column, row_pos, n, _tmp_buffer, added, add_one);
     }
 
     Status finish(OwnedSlice* slice) override {
@@ -146,6 +125,33 @@ public:
     uint64_t get_raw_data_size() const override { return _raw_data_size; }
 
 private:
+    ALWAYS_INLINE Status _add_one(const Slice& value) {
+        if constexpr (Type == FieldType::OLAP_FIELD_TYPE_BITMAP) {
+            if (_options.need_check_bitmap) {
+                RETURN_IF_ERROR(BitmapTypeCode::validate(*(value.data)));
+            }
+        }
+
+        // Append the data straight into the contiguous data buffer. V3 stores the same
+        // bytes as V1/V2; only the layout differs.
+        RETURN_IF_CATCH_EXCEPTION(_data_buffer.append(value.data, value.size));
+
+        // Encode varuint length into a scratch buffer, then append.
+        uint8_t length_buffer[5]; // max varint32 size
+        uint8_t* ptr = encode_varint32(length_buffer, cast_set<uint32_t>(value.size));
+        size_t length_size = ptr - length_buffer;
+        RETURN_IF_CATCH_EXCEPTION(_lengths_buffer.append(length_buffer, length_size));
+
+        _num_elems++;
+        _size_estimate += value.size + length_size;
+        _raw_data_size += value.size;
+        return Status::OK();
+    }
+
+    // Holds what a BITMAP / HLL / QUANTILE_STATE / AGG_STATE value converts to
+    // for storage; reused across rows so each one is not a fresh allocation.
+    PaddedPODArray<char> _tmp_buffer;
+
     BinaryPlainPageV3Builder(const PageBuilderOptions& options)
             : _size_estimate(0), _options(options) {}
 

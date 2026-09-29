@@ -28,12 +28,14 @@
 
 #pragma once
 
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "core/column/column_complex.h"
 #include "storage/olap_common.h"
 #include "storage/segment/options.h"
 #include "storage/segment/page_builder.h"
 #include "storage/segment/page_decoder.h"
+#include "storage/storage_layout.h"
 #include "storage/types.h"
 #include "util/coding.h"
 #include "util/faststring.h"
@@ -42,10 +44,11 @@ namespace doris {
 namespace segment_v2 {
 
 template <FieldType Type>
-class BinaryPlainPageBuilder : public PageBuilderHelper<BinaryPlainPageBuilder<Type>> {
+class BinaryPlainPageBuilder
+        : public PageBuilderHelper<BinaryPlainPageBuilder<Type>, StringPageBuilder> {
 public:
     using Self = BinaryPlainPageBuilder<Type>;
-    friend class PageBuilderHelper<Self>;
+    friend class PageBuilderHelper<Self, StringPageBuilder>;
 
     Status init() override { return reset(); }
 
@@ -60,36 +63,17 @@ public:
         return ret;
     }
 
-    Status add(const uint8_t* vals, size_t* count) override {
+    Status add_slices(const Slice* values, size_t* count) override {
         DCHECK(!_finished);
         DCHECK_GT(*count, 0);
-        size_t i = 0;
+        return add_each_slice(*this, values, count,
+                              [&](const Slice& value) ALWAYS_INLINE { return _add_one(value); });
+    }
 
-        // If the page is full, should stop adding more items.
-        while (!is_page_full() && i < *count) {
-            const auto* src = reinterpret_cast<const Slice*>(vals);
-            if constexpr (Type == FieldType::OLAP_FIELD_TYPE_BITMAP) {
-                if (_options.need_check_bitmap) {
-                    RETURN_IF_ERROR(BitmapTypeCode::validate(*(src->data)));
-                }
-            }
-            size_t offset = _buffer.size();
-            _offsets.push_back(cast_set<uint32_t>(offset));
-            // This may need a large memory, should return error if could not allocated
-            // successfully, to avoid BE OOM.
-            RETURN_IF_CATCH_EXCEPTION(_buffer.append(src->data, src->size));
-
-            _last_value_size = cast_set<uint32_t>(src->size);
-            _size_estimate += src->size;
-            _size_estimate += sizeof(uint32_t);
-            _raw_data_size += src->size;
-
-            i++;
-            vals += sizeof(Slice);
-        }
-
-        *count = i;
-        return Status::OK();
+    Status add(const IColumn& column, size_t row_pos, size_t n, size_t* added) override {
+        DCHECK(!_finished);
+        auto add_one = [&](const Slice& value) ALWAYS_INLINE { return _add_one(value); };
+        return add_string_cells<Type>(*this, column, row_pos, n, _tmp_buffer, added, add_one);
     }
 
     Status finish(OwnedSlice* slice) override {
@@ -130,6 +114,29 @@ public:
 private:
     BinaryPlainPageBuilder(const PageBuilderOptions& options)
             : _size_estimate(0), _options(options) {}
+
+    ALWAYS_INLINE Status _add_one(const Slice& value) {
+        if constexpr (Type == FieldType::OLAP_FIELD_TYPE_BITMAP) {
+            if (_options.need_check_bitmap) {
+                RETURN_IF_ERROR(BitmapTypeCode::validate(*(value.data)));
+            }
+        }
+        size_t offset = _buffer.size();
+        _offsets.push_back(cast_set<uint32_t>(offset));
+        // This may need a large memory, should return error if could not allocated
+        // successfully, to avoid BE OOM.
+        RETURN_IF_CATCH_EXCEPTION(_buffer.append(value.data, value.size));
+
+        _last_value_size = cast_set<uint32_t>(value.size);
+        _size_estimate += value.size;
+        _size_estimate += sizeof(uint32_t);
+        _raw_data_size += value.size;
+        return Status::OK();
+    }
+
+    // Holds what a BITMAP / HLL / QUANTILE_STATE / AGG_STATE value converts to
+    // for storage; reused across rows so each one is not a fresh allocation.
+    PaddedPODArray<char> _tmp_buffer;
 
     faststring _buffer;
     size_t _size_estimate;

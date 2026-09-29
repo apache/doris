@@ -17,9 +17,12 @@
 
 #pragma once
 
+#include <vector>
+
 #include "storage/segment/options.h"      // for PageBuilderOptions/PageDecoderOptions
 #include "storage/segment/page_builder.h" // for PageBuilder
 #include "storage/segment/page_decoder.h" // for PageDecoder
+#include "storage/storage_layout.h"
 #include "util/frame_of_reference_coding.h"
 
 namespace doris {
@@ -27,10 +30,11 @@ namespace segment_v2 {
 
 // Encode page use frame-of-reference coding
 template <FieldType Type>
-class FrameOfReferencePageBuilder : public PageBuilderHelper<FrameOfReferencePageBuilder<Type>> {
+class FrameOfReferencePageBuilder
+        : public PageBuilderHelper<FrameOfReferencePageBuilder<Type>, FixedWidthPageBuilder<Type>> {
 public:
     using Self = FrameOfReferencePageBuilder<Type>;
-    friend class PageBuilderHelper<Self>;
+    friend class PageBuilderHelper<Self, FixedWidthPageBuilder<Type>>;
 
     Status init() override {
         _encoder.reset(new ForEncoder<CppType>(&_buf));
@@ -39,15 +43,30 @@ public:
 
     bool is_page_full() override { return _encoder->len() >= _options.data_page_size; }
 
-    Status add(const uint8_t* vals, size_t* count) override {
+    Status add_cells(const typename StorageLayout<Type>::StorageValue* cells,
+                     size_t* count) override {
         DCHECK(!_finished);
         if (*count == 0) {
             return Status::OK();
         }
-        auto new_vals = reinterpret_cast<const CppType*>(vals);
-        _encoder->put_batch(new_vals, *count);
+        _encoder->put_batch(cells, *count);
         _count += *count;
         _raw_data_size += *count * sizeof(CppType);
+        return Status::OK();
+    }
+
+    Status add(const IColumn& column, size_t row_pos, size_t n, size_t* added) override {
+        DCHECK(!_finished);
+        *added = n;
+        if (n == 0) {
+            return Status::OK();
+        }
+        _staged.resize(n);
+        StorageLayout<Type>::column_to_storage(column, row_pos, n,
+                                               reinterpret_cast<uint8_t*>(_staged.data()));
+        _encoder->put_batch(_staged.data(), n);
+        _count += n;
+        _raw_data_size += n * sizeof(CppType);
         return Status::OK();
     }
 
@@ -84,6 +103,8 @@ private:
     std::unique_ptr<ForEncoder<CppType>> _encoder;
     faststring _buf;
     uint64_t _raw_data_size = 0;
+    // The StorageValues a batch is encoded from; reused across batches.
+    std::vector<CppType> _staged;
 };
 
 template <FieldType Type>

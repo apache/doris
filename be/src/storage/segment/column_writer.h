@@ -33,6 +33,8 @@
 #include <vector>
 
 #include "common/status.h" // for Status
+#include "core/column/column.h"
+#include "core/column/column_vector.h"
 #include "storage/index/ann/ann_index_writer.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/index/inverted/inverted_index_writer.h"
@@ -42,7 +44,6 @@
 #include "storage/segment/variant/variant_statistics.h"
 #include "storage/tablet/tablet_schema.h" // for TabletColumnPtr
 #include "storage/types.h"                // for field_type_size
-#include "util/bitmap.h"                  // for BitmapChange
 #include "util/slice.h"                   // for OwnedSlice
 
 namespace doris {
@@ -51,7 +52,6 @@ class BlockCompressionCodec;
 class TabletColumn;
 class TabletIndex;
 struct RowsetWriterContext;
-struct VariantColumnData;
 
 namespace io {
 class FileWriter;
@@ -121,6 +121,8 @@ class EncodingInfo;
 class NullBitmapBuilder;
 class OrdinalIndexWriter;
 class PageBuilder;
+template <FieldType Type>
+class FixedWidthPageBuilder;
 class BloomFilterIndexWriter;
 class ZoneMapIndexWriter;
 class VariantColumnWriterImpl;
@@ -156,33 +158,16 @@ public:
 
     virtual Status init() = 0;
 
-    template <typename CellType>
-    Status append(const CellType& cell) {
-        if (_is_nullable) {
-            uint8_t nullmap = 0;
-            BitmapChange(&nullmap, 0, cell.is_null());
-            return append_nullable(&nullmap, cell.cell_ptr(), 1);
-        } else {
-            auto* cel_ptr = cell.cell_ptr();
-            return append_data((const uint8_t**)&cel_ptr, 1);
-        }
-    }
+    // Write rows [row_pos, row_pos + num_rows) straight from the compute-layer
+    // column. Scalar writers hand the rows to their page builder and index
+    // writers, which form each row's StorageValue through StorageLayout; composite
+    // writers recurse into their sub-writers; the null bits they encode
+    // themselves go through NullMapColumnWriter::append_null_map, the rebased
+    // offsets through the offset writer's own append.
+    virtual Status append(const IColumn& column, size_t row_pos, size_t num_rows) = 0;
 
-    // Now we only support append one by one, we should support append
-    // multi rows in one call
-    Status append(bool is_null, void* data) {
-        uint8_t nullmap = 0;
-        BitmapChange(&nullmap, 0, is_null);
-        return append_nullable(&nullmap, data, 1);
-    }
-
-    Status append(const uint8_t* nullmap, const void* data, size_t num_rows);
-
-    Status append_nullable(const uint8_t* nullmap, const void* data, size_t num_rows);
-
-    // use only in vectorized load
-    virtual Status append_nullable(const uint8_t* null_map, const uint8_t** data, size_t num_rows);
-
+    // Write num_rows NULL rows without any data. The variant writers use this to
+    // pad a sub-column over rows where its path is absent.
     virtual Status append_nulls(size_t num_rows) = 0;
 
     virtual Status finish_current_page() = 0;
@@ -211,16 +196,9 @@ public:
     virtual uint64_t get_total_uncompressed_data_pages_bytes() const = 0;
     virtual uint64_t get_total_compressed_data_pages_bytes() const = 0;
 
-    // used for append not null data.
-    virtual Status append_data(const uint8_t** ptr, size_t num_rows) = 0;
-
     bool is_nullable() const { return _is_nullable; }
 
     const TabletColumn* get_column() const { return _column.get(); }
-
-    // Per-row in-memory cell footprint of this writer's column, used to step
-    // the input pointer across rows in append_*/null-run loops.
-    size_t cell_size() const { return field_type_size(_column->type()); }
 
     ColumnMetaPB* get_column_meta() const { return _column_meta; }
 
@@ -231,7 +209,6 @@ private:
     TabletColumnPtr _column;
     bool _is_nullable;
     ColumnMetaPB* _column_meta;
-    std::vector<uint8_t> _null_bitmap;
 };
 
 class FlushPageCallback {
@@ -282,29 +259,26 @@ public:
     void register_flush_page_callback(FlushPageCallback* flush_page_callback) {
         _new_page_callback = flush_page_callback;
     }
-    Status append_data(const uint8_t** ptr, size_t num_rows) override;
-    Status append_nullable(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows) override;
+    // Each row goes to the page builder and to every index the column carries.
+    Status append(const IColumn& column, size_t row_pos, size_t num_rows) override;
 
-    // used for append not null data. When page is full, will append data not reach num_rows.
-    Status append_data_in_current_page(const uint8_t** ptr, size_t* num_written);
+protected:
+    // Feeds num_rows rows page by page: add(pos, &n) writes up to n rows from
+    // position pos of the batch into the current page and leaves in n how many
+    // it took; a full page is finished before the rest goes on.
+    template <class Add>
+    Status _fill_pages(size_t num_rows, Add add);
 
-    Status append_data_in_current_page(const uint8_t* ptr, size_t* num_written) {
-        RETURN_IF_CATCH_EXCEPTION(
-                { return _internal_append_data_in_current_page(ptr, num_written); });
-    }
-    friend class ArrayColumnWriter;
-    friend class OffsetColumnWriter;
+    // Rows of the peeled column, none of them NULL, into the current page.
+    Status _append_rows_in_current_page(const IColumn& column, size_t row_pos, size_t* num_written);
+    PageBuilder* _page_builder_ptr() { return _page_builder.get(); }
+    void _advance_rows(size_t num_rows) { _next_rowid += num_rows; }
 
 private:
-    Status _internal_append_data_in_current_page(const uint8_t* ptr, size_t* num_written);
+    // The same, page after page.
+    Status _append_rows(const IColumn& column, size_t row_pos, size_t num_rows);
 
 private:
-    struct NullRun {
-        bool is_null;
-        uint32_t len;
-    };
-
-    std::vector<NullRun> _null_run_buffer;
     std::unique_ptr<PageBuilder> _page_builder;
 
     std::unique_ptr<NullBitmapBuilder> _null_bitmap_builder;
@@ -374,7 +348,10 @@ public:
 
     Status init() override;
 
-    Status append_data(const uint8_t** ptr, size_t num_rows) override;
+    // The rebased offsets of a batch, one entry more than its rows: the entry
+    // after the last row is the next array item ordinal, which every page's
+    // footer records after its own last row.
+    Status append(const IColumn& column, size_t row_pos, size_t num_rows) override;
 
 private:
     void put_extra_info_in_page(DataPageFooterPB* footer) override;
@@ -382,24 +359,45 @@ private:
     uint64_t _next_offset;
 };
 
+// The null map of a composite column: a TINYINT column whose cells are the
+// map's own bytes, so a batch goes in as those bytes, without a column around
+// them.
+class NullMapColumnWriter final : public ScalarColumnWriter {
+public:
+    using ScalarColumnWriter::ScalarColumnWriter;
+
+    // The null signs of num_rows rows: `null_map` when the batch carries one,
+    // else `fill` for every row. A composite column whose schema says nullable
+    // may arrive as a runtime column that is not (fill 0), and the variant
+    // writers pad with bare nulls (fill 1).
+    Status append_null_map(const uint8_t* null_map, size_t num_rows, uint8_t fill);
+};
+
 class StructColumnWriter final : public ColumnWriter {
 public:
     explicit StructColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
-                                ScalarColumnWriter* null_writer,
+                                NullMapColumnWriter* null_writer,
                                 std::vector<std::unique_ptr<ColumnWriter>>& sub_column_writers);
     ~StructColumnWriter() override = default;
 
     Status init() override;
 
-    Status append_nullable(const uint8_t* null_map, const uint8_t** data, size_t num_rows) override;
-    Status append_data(const uint8_t** ptr, size_t num_rows) override;
+    // Recurse into each sub-column writer; write our own null bits.
+    Status append(const IColumn& column, size_t row_pos, size_t num_rows) override;
 
     uint64_t estimate_buffer_size() override;
 
     Status finish() override;
     Status write_data() override;
     Status write_ordinal_index() override;
-    Status append_nulls(size_t num_rows) override;
+
+    // Only the variant writers pad a column with bare nulls, and a variant
+    // sub-column is never a struct. A struct row that is null still goes
+    // through append(): its sub-columns take a value and the null bit says the
+    // row is null.
+    Status append_nulls(size_t num_rows) override {
+        return Status::NotSupported("struct writer can not append_nulls");
+    }
 
     Status finish_current_page() override;
 
@@ -444,7 +442,7 @@ private:
 
 private:
     size_t _num_sub_column_writers;
-    std::unique_ptr<ScalarColumnWriter> _null_writer;
+    std::unique_ptr<NullMapColumnWriter> _null_writer;
     std::vector<std::unique_ptr<ColumnWriter>> _sub_column_writers;
     ColumnWriterOptions _opts;
 };
@@ -452,13 +450,15 @@ private:
 class ArrayColumnWriter final : public ColumnWriter {
 public:
     explicit ArrayColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
-                               OffsetColumnWriter* offset_writer, ScalarColumnWriter* null_writer,
+                               OffsetColumnWriter* offset_writer, NullMapColumnWriter* null_writer,
                                std::unique_ptr<ColumnWriter> item_writer);
     ~ArrayColumnWriter() override = default;
 
     Status init() override;
 
-    Status append_data(const uint8_t** ptr, size_t num_rows) override;
+    // Rebase the offsets to disk layout, recurse into _item_writer, feed the
+    // array index writers.
+    Status append(const IColumn& column, size_t row_pos, size_t num_rows) override;
 
     uint64_t estimate_buffer_size() override;
 
@@ -466,7 +466,6 @@ public:
     Status write_data() override;
     Status write_ordinal_index() override;
     Status append_nulls(size_t num_rows) override;
-    Status append_nullable(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows) override;
 
     Status finish_current_page() override;
 
@@ -511,37 +510,45 @@ private:
     }
 
 private:
-    Status write_null_column(size_t num_rows, bool is_null); // 写入num_rows个null标记
     bool has_empty_items() const { return _item_writer->get_next_rowid() == 0; }
 
 private:
     std::unique_ptr<OffsetColumnWriter> _offset_writer;
-    std::unique_ptr<ScalarColumnWriter> _null_writer;
+    std::unique_ptr<NullMapColumnWriter> _null_writer;
     std::unique_ptr<ColumnWriter> _item_writer;
     std::unique_ptr<IndexColumnWriter> _inverted_index_writer;
     std::unique_ptr<AnnIndexColumnWriter> _ann_index_writer;
     ColumnWriterOptions _opts;
+    // The current batch's offsets as the offset writer and the index writers
+    // read them.
+    ColumnOffset64::MutablePtr _offsets_buffer = ColumnOffset64::create();
 };
 
 class MapColumnWriter final : public ColumnWriter {
 public:
     explicit MapColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
-                             ScalarColumnWriter* null_writer, OffsetColumnWriter* offsets_writer,
+                             NullMapColumnWriter* null_writer, OffsetColumnWriter* offsets_writer,
                              std::vector<std::unique_ptr<ColumnWriter>>& _kv_writers);
 
     ~MapColumnWriter() override = default;
 
     Status init() override;
 
-    Status append_data(const uint8_t** ptr, size_t num_rows) override;
-    Status append_nullable(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows) override;
+    // Rebase the offsets to disk layout, recurse into the key and value writers.
+    Status append(const IColumn& column, size_t row_pos, size_t num_rows) override;
+
     uint64_t estimate_buffer_size() override;
 
     Status finish() override;
     Status write_data() override;
     Status write_ordinal_index() override;
     Status write_inverted_index() override;
-    Status append_nulls(size_t num_rows) override;
+
+    // Only the variant writers pad with bare nulls, and a map is never a
+    // variant sub-column.
+    Status append_nulls(size_t num_rows) override {
+        return Status::NotSupported("map writer can not append_nulls");
+    }
 
     Status finish_current_page() override;
 
@@ -590,10 +597,11 @@ private:
 private:
     std::vector<std::unique_ptr<ColumnWriter>> _kv_writers;
     // we need null writer to make sure a row is null or not
-    std::unique_ptr<ScalarColumnWriter> _null_writer;
+    std::unique_ptr<NullMapColumnWriter> _null_writer;
     std::unique_ptr<OffsetColumnWriter> _offsets_writer;
     std::unique_ptr<IndexColumnWriter> _index_builder;
     ColumnWriterOptions _opts;
+    ColumnOffset64::MutablePtr _map_offsets_buffer = ColumnOffset64::create();
 };
 
 // used for compaction to write sub variant column
@@ -604,8 +612,6 @@ public:
     ~VariantSubcolumnWriter() override;
 
     Status init() override;
-
-    Status append_data(const uint8_t** ptr, size_t num_rows) override;
 
     uint64_t estimate_buffer_size() override;
 
@@ -634,7 +640,10 @@ public:
     Status append_nulls(size_t num_rows) override {
         return Status::NotSupported("variant writer can not append_nulls");
     }
-    Status append_nullable(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows) override;
+
+    // Splits off the null map and hands the nested column down to the
+    // variant writers.
+    Status append(const IColumn& column, size_t row_pos, size_t num_rows) override;
 
     Status finish_current_page() override {
         return Status::NotSupported("variant writer has no data, can not finish_current_page");
@@ -645,10 +654,10 @@ public:
     Status finalize();
 
 private:
-    Status _append(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows);
-    Status _append_v2(const VariantColumnData& column, size_t num_rows,
+    Status _append(const IColumn& column, size_t row_pos, size_t num_rows, const uint8_t* null_map);
+    Status _append_v2(const IColumn& column, size_t row_pos, size_t num_rows,
                       std::span<const uint8_t> outer_nulls);
-    Status _ensure_input_format(const VariantColumnData& column);
+    Status _ensure_input_format(const IColumn& column);
     Status _initialize_v2_builder();
     bool is_finalized() const;
     bool _is_finalized = false;
@@ -673,8 +682,6 @@ public:
 
     Status init() override;
 
-    Status append_data(const uint8_t** ptr, size_t num_rows) override;
-
     uint64_t estimate_buffer_size() override;
 
     Status finish() override;
@@ -702,7 +709,10 @@ public:
     Status append_nulls(size_t num_rows) override {
         return Status::NotSupported("variant writer can not append_nulls");
     }
-    Status append_nullable(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows) override;
+
+    // Splits off the null map and hands the nested column down to the
+    // variant writers.
+    Status append(const IColumn& column, size_t row_pos, size_t num_rows) override;
 
     Status finish_current_page() override {
         return Status::NotSupported("variant writer has no data, can not finish_current_page");

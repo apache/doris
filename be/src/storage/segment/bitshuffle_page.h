@@ -38,6 +38,7 @@
 #include "storage/segment/options.h"
 #include "storage/segment/page_builder.h"
 #include "storage/segment/page_decoder.h"
+#include "storage/storage_layout.h"
 #include "storage/types.h"
 #include "util/alignment.h"
 #include "util/coding.h"
@@ -87,74 +88,42 @@ void warn_with_bitshuffle_error(int64_t val);
 //    The header is followed by the bitshuffle-compressed element data.
 //
 template <FieldType Type>
-class BitshufflePageBuilder : public PageBuilderHelper<BitshufflePageBuilder<Type>> {
+class BitshufflePageBuilder final
+        : public PageBuilderHelper<BitshufflePageBuilder<Type>, FixedWidthPageBuilder<Type>> {
 public:
     using Self = BitshufflePageBuilder<Type>;
-    friend class PageBuilderHelper<Self>;
+    friend class PageBuilderHelper<Self, FixedWidthPageBuilder<Type>>;
 
     Status init() override { return reset(); }
 
     bool is_page_full() override { return _remain_element_capacity == 0; }
 
-    Status add(const uint8_t* vals, size_t* count) override {
-        return add_internal<false>(vals, count);
+    Status add_cells(const typename StorageLayout<Type>::StorageValue* cells,
+                     size_t* count) override {
+        uint8_t* page_dst = nullptr;
+        RETURN_IF_ERROR(_reserve(count, &page_dst));
+        if (*count != 0) {
+            memcpy(page_dst, cells, *count * SIZE_OF_TYPE);
+        }
+        return Status::OK();
     }
 
-    Status single_add(const uint8_t* vals, size_t* count) {
-        return add_internal<true>(vals, count);
+    ALWAYS_INLINE Status add_cell(const typename StorageLayout<Type>::StorageValue& cell) {
+        size_t count = 1;
+        uint8_t* page_dst = nullptr;
+        RETURN_IF_ERROR(_reserve(&count, &page_dst));
+        DCHECK_EQ(count, 1);
+        memcpy(page_dst, &cell, SIZE_OF_TYPE);
+        return Status::OK();
     }
 
-    template <bool single>
-    inline Status add_internal(const uint8_t* vals, size_t* num_written) {
-        DCHECK(!_finished);
-        if (_remain_element_capacity == 0) {
-            *num_written = 0;
-            return Status::OK();
+    Status add(const IColumn& column, size_t row_pos, size_t n, size_t* added) override {
+        *added = n;
+        uint8_t* page_dst = nullptr;
+        RETURN_IF_ERROR(_reserve(added, &page_dst));
+        if (*added != 0) {
+            StorageLayout<Type>::column_to_storage(column, row_pos, *added, page_dst);
         }
-
-        // When increasing the size of the memtabl flush threshold to a very large value, for example 15GB.
-        // the row count of a single men tbl could be very large.
-        // a real log:
-        /*
-        I20250823 19:01:16.153575 2982018 memtable_flush_executor.cpp:185] begin to flush memtable for tablet: 1755915952737, memsize: 15.11 GB, rows: 3751968
-        */
-        // This is not a very wide table, actually it just has two columns, int and array<float>
-        // The write process of column array has two steps: write nested column(column float here), and write offsets column.
-        // The row count of column array is 3751968, which is not that big, but each row of column array has 768 float numbers (this is a common case in vector search scenario).
-        // so the row num of nested column float will be 3751968 * 768 = 2,881,511,424, which is bigger than INT32_MAX.
-        uint32_t to_add = cast_set<UInt32>(
-                std::min(cast_set<size_t>(_remain_element_capacity), *num_written));
-        // Max value of to_add_size is less than STORAGE_PAGE_SIZE_DEFAULT_VALUE
-        int to_add_size = to_add * SIZE_OF_TYPE;
-        size_t orig_size = _data.size();
-        // This may need a large memory, should return error if could not allocated
-        // successfully, to avoid BE OOM.
-        RETURN_IF_CATCH_EXCEPTION(_data.resize(orig_size + to_add_size));
-        _count += to_add;
-        _remain_element_capacity -= to_add;
-        _raw_data_size += to_add_size;
-        // return added number through count
-        *num_written = to_add;
-        if constexpr (single) {
-            if constexpr (SIZE_OF_TYPE == 1) {
-                _data[orig_size] = *vals;
-                return Status::OK();
-            } else if constexpr (SIZE_OF_TYPE == 2) {
-                *reinterpret_cast<uint16_t*>(&_data[orig_size]) =
-                        *reinterpret_cast<const uint16_t*>(vals);
-                return Status::OK();
-            } else if constexpr (SIZE_OF_TYPE == 4) {
-                *reinterpret_cast<uint32_t*>(&_data[orig_size]) =
-                        *reinterpret_cast<const uint32_t*>(vals);
-                return Status::OK();
-            } else if constexpr (SIZE_OF_TYPE == 8) {
-                *reinterpret_cast<uint64_t*>(&_data[orig_size]) =
-                        *reinterpret_cast<const uint64_t*>(vals);
-                return Status::OK();
-            }
-        }
-        // when single is true and SIZE_OF_TYPE > 8 or single is false
-        memcpy(&_data[orig_size], vals, to_add_size);
         return Status::OK();
     }
 
@@ -189,6 +158,41 @@ public:
 private:
     BitshufflePageBuilder(const PageBuilderOptions& options)
             : _options(options), _count(0), _remain_element_capacity(0), _finished(false) {}
+
+    // Takes room for up to *count cells, fewer when the page fills up; *count
+    // becomes the number taken and *out where they go.
+    ALWAYS_INLINE Status _reserve(size_t* count, uint8_t** out) {
+        DCHECK(!_finished);
+        if (_remain_element_capacity == 0) {
+            *count = 0;
+            return Status::OK();
+        }
+
+        // When increasing the size of the memtabl flush threshold to a very large value, for example 15GB.
+        // the row count of a single men tbl could be very large.
+        // a real log:
+        /*
+        I20250823 19:01:16.153575 2982018 memtable_flush_executor.cpp:185] begin to flush memtable for tablet: 1755915952737, memsize: 15.11 GB, rows: 3751968
+        */
+        // This is not a very wide table, actually it just has two columns, int and array<float>
+        // The write process of column array has two steps: write nested column(column float here), and write offsets column.
+        // The row count of column array is 3751968, which is not that big, but each row of column array has 768 float numbers (this is a common case in vector search scenario).
+        // so the row num of nested column float will be 3751968 * 768 = 2,881,511,424, which is bigger than INT32_MAX.
+        const uint32_t to_add =
+                cast_set<UInt32>(std::min(cast_set<size_t>(_remain_element_capacity), *count));
+        // Max value of to_add_size is less than STORAGE_PAGE_SIZE_DEFAULT_VALUE
+        const size_t to_add_size = to_add * SIZE_OF_TYPE;
+        const size_t orig_size = _data.size();
+        // This may need a large memory, should return error if could not allocated
+        // successfully, to avoid BE OOM.
+        RETURN_IF_CATCH_EXCEPTION(_data.resize(orig_size + to_add_size));
+        *out = &_data[orig_size];
+        _count += to_add;
+        _remain_element_capacity -= to_add;
+        _raw_data_size += to_add_size;
+        *count = to_add;
+        return Status::OK();
+    }
 
     OwnedSlice _finish(int final_size_of_type) {
         _data.resize(final_size_of_type * _count);
@@ -393,7 +397,8 @@ public:
 
         size_t max_fetch = std::min(*n, _num_elements - _cur_index);
 
-        dst->insert_many_fix_len_data(get_data(_cur_index), max_fetch);
+        read_to_column<Type>(reinterpret_cast<const uint8_t*>(get_data(_cur_index)), max_fetch,
+                             *dst);
         *n = max_fetch;
         if constexpr (forward_index) {
             _cur_index += max_fetch;
@@ -425,7 +430,8 @@ public:
         }
 
         if (LIKELY(read_count > 0)) {
-            dst->insert_many_fix_len_data((char*)_buffer.data(), read_count);
+            read_to_column<Type>(reinterpret_cast<const uint8_t*>(_buffer.data()), read_count,
+                                 *dst);
         }
 
         *n = read_count;

@@ -54,6 +54,7 @@
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_query_context.h"
+#include "storage/index/index_writer_feed.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_query_type.h"
@@ -162,7 +163,7 @@ struct Sample {
     std::string name;
     std::map<std::string, std::string> properties;
     bool keyword_lane;
-    bool array = false; // ARRAY<STRING>, written via add_array_values / add_array_nulls.
+    bool array = false; // ARRAY<STRING>, written via add_array / add_array_nulls.
 };
 
 std::vector<Sample> samples() {
@@ -354,7 +355,7 @@ Status write_sample(const std::string& dir, const Sample& sample, const TabletIn
     SniiIndexColumnWriter writer(&index_file_writer, &meta, FieldType::OLAP_FIELD_TYPE_VARCHAR);
     RETURN_IF_ERROR(writer.init());
     if (sample.array) {
-        // Follow ArrayColumnWriter::append_nullable: pass all rows to add_array_values,
+        // Follow feed_array_index(): pass all rows to add_array,
         // representing NULL rows as empty arrays, then mark them with add_array_nulls.
         const auto rows = array_corpus();
         std::vector<std::string> storage;
@@ -374,9 +375,8 @@ Status write_sample(const std::string& dir, const Sample& sample, const TabletIn
         std::vector<Slice> elements;
         elements.reserve(storage.size());
         for (const auto& value : storage) elements.emplace_back(value);
-        RETURN_IF_ERROR(writer.add_array_values(
-                sizeof(Slice), elements.data(), element_nulls.data(),
-                reinterpret_cast<const uint8_t*>(offsets.data()), rows.size()));
+        RETURN_IF_ERROR(add_slice_arrays(writer, elements.data(), element_nulls.data(),
+                                         offsets.data(), rows.size()));
         RETURN_IF_ERROR(writer.add_array_nulls(row_nulls.data(), rows.size()));
         RETURN_IF_ERROR(writer.finish());
         RETURN_IF_ERROR(index_file_writer.begin_close());
@@ -390,7 +390,7 @@ Status write_sample(const std::string& dir, const Sample& sample, const TabletIn
         std::vector<Slice> slices;
         slices.reserve(batch.size());
         for (const auto& row : batch) slices.emplace_back(row);
-        RETURN_IF_ERROR(writer.add_values(kColumn, slices.data(), slices.size()));
+        RETURN_IF_ERROR(add_slices(writer, slices.data(), slices.size()));
         batch.clear();
         return Status::OK();
     };

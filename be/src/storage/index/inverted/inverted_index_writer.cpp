@@ -17,10 +17,13 @@
 
 #include "storage/index/inverted/inverted_index_writer.h"
 
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_common.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/key_coder.h"
+#include "storage/storage_layout.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/faststring.h"
 
@@ -371,8 +374,7 @@ void InvertedIndexColumnWriter<field_type>::new_field_char_value(const char* s, 
 }
 
 template <FieldType field_type>
-Status InvertedIndexColumnWriter<field_type>::add_values(const std::string fn, const void* values,
-                                                         size_t count) {
+Status InvertedIndexColumnWriter<field_type>::add(const IColumn& column, size_t row_pos, size_t n) {
     if constexpr (field_is_slice_type(field_type)) {
         DBUG_EXECUTE_IF("InvertedIndexColumnWriter::add_values_field_is_nullptr",
                         { _field = nullptr; })
@@ -382,36 +384,40 @@ Status InvertedIndexColumnWriter<field_type>::add_values(const std::string fn, c
             LOG(ERROR) << "field or index writer is null in inverted index writer.";
             return Status::InternalError("field or index writer is null in inverted index writer");
         }
-        const auto* v = (Slice*)values;
-        for (size_t i = 0; i < count; ++i) {
+        // CHAR, VARCHAR and STRING all store the row's own bytes.
+        const auto& strings = assert_cast<const ColumnString&>(column);
+        for (size_t i = 0; i < n; ++i) {
+            const StringRef value = strings.get_data_at(row_pos + i);
             // only ignore_above UNTOKENIZED strings and empty strings not tokenized
-            if ((!_should_analyzer && v->get_size() > _ignore_above) ||
-                (_should_analyzer && v->empty())) {
+            if ((!_should_analyzer && value.size > _ignore_above) ||
+                (_should_analyzer && value.size == 0)) {
                 RETURN_IF_ERROR(add_null_document());
             } else {
-                RETURN_IF_ERROR(new_inverted_index_field(v->get_data(), v->get_size()));
+                RETURN_IF_ERROR(new_inverted_index_field(value.data, value.size));
                 RETURN_IF_ERROR(add_document());
             }
-            ++v;
             _rid++;
         }
     } else if constexpr (field_is_numeric_type(field_type)) {
-        RETURN_IF_ERROR(add_numeric_values(values, count));
+        const auto& data =
+                assert_cast<const typename StorageLayout<field_type>::Column&>(column).get_data();
+        for (size_t i = 0; i < n; ++i) {
+            RETURN_IF_ERROR(add_value(StorageLayout<field_type>::to_storage(data[row_pos + i])));
+            _rid++;
+            _row_ids_seen_for_bkd++;
+        }
     }
     return Status::OK();
 }
 
 template <FieldType field_type>
-Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size,
-                                                               const void* value_ptr,
-                                                               const uint8_t* nested_null_map,
-                                                               const uint8_t* offsets_ptr,
-                                                               size_t count) {
-    if (count == 0) {
-        // no values to add inverted index
+Status InvertedIndexColumnWriter<field_type>::add_array(const IColumn& items, size_t first_item,
+                                                        const uint64_t* offsets, size_t num_rows) {
+    if (num_rows == 0) {
         return Status::OK();
     }
-    const auto* offsets = reinterpret_cast<const uint64_t*>(offsets_ptr);
+    const uint8_t* nested_null_map = nullptr;
+    const IColumn& nested = peel_nullable(items, first_item, &nested_null_map);
     if constexpr (field_is_slice_type(field_type)) {
         DBUG_EXECUTE_IF("InvertedIndexColumnWriter::add_array_values_index_writer_is_nullptr",
                         { _index_writer = nullptr; })
@@ -419,22 +425,25 @@ Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size
             LOG(ERROR) << "index writer is null in inverted index writer.";
             return Status::InternalError("index writer is null in inverted index writer");
         }
+        const auto& strings = assert_cast<const ColumnString&>(nested);
         size_t start_off = 0;
         std::vector<ReaderPtr> keep_readers;
-        for (size_t i = 0; i < count; ++i) {
-            // nullmap & value ptr-array may not from offsets[i] because olap_convertor make offsets accumulate from _base_offset which may not is 0, but nullmap & value in this segment is from 0, we only need
-            // every single array row element size to go through the nullmap & value ptr-array, and also can go through the every row in array to keep with _rid++
+        for (size_t i = 0; i < num_rows; ++i) {
+            // The offsets are rebased to the segment (rebase_offsets), not to this
+            // batch, while the elements are numbered from this batch's first one,
+            // so only the per-row element count is read from them; walking every
+            // row also keeps _rid in step.
             auto array_elem_size = offsets[i + 1] - offsets[i];
             // TODO(Amory).later we use object pool to avoid field creation
             std::unique_ptr<lucene::document::Field> new_field;
             CL_NS(analysis)::TokenStream* ts = nullptr;
             for (auto j = start_off; j < start_off + array_elem_size; ++j) {
-                if (nested_null_map && nested_null_map[j] == 1) {
+                if (nested_null_map != nullptr && nested_null_map[j] == 1) {
                     continue;
                 }
-                auto* v = (Slice*)((const uint8_t*)value_ptr + j * field_size);
-                if ((!_should_analyzer && v->get_size() > _ignore_above) ||
-                    (_should_analyzer && v->empty())) {
+                const StringRef v = strings.get_data_at(first_item + j);
+                if ((!_should_analyzer && v.size > _ignore_above) ||
+                    (_should_analyzer && v.size == 0)) {
                     // is here a null value?
                     // TODO. Maybe here has performance problem for large size string.
                     continue;
@@ -463,8 +472,7 @@ Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size
                             bool own_token_stream = true;
                             ReaderPtr char_string_reader = DORIS_TRY(
                                     create_char_string_reader(_analyzer_config.char_filter_map));
-                            char_string_reader->init(v->get_data(),
-                                                     cast_set<int32_t>(v->get_size()), false);
+                            char_string_reader->init(v.data, cast_set<int32_t>(v.size), false);
                             ts = _analyzer->tokenStream(new_field->name(), char_string_reader);
                             new_field->setValue(ts, own_token_stream);
                             keep_readers.emplace_back(std::move(char_string_reader));
@@ -481,7 +489,7 @@ Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size
                                     e.what());
                         }
                     } else {
-                        new_field_char_value(v->get_data(), v->get_size(), new_field.get());
+                        new_field_char_value(v.data, v.size, new_field.get());
                     }
                     // NOTE: new_field is managed by doc now, so we need to use release() to get the pointer
                     _doc->add(*new_field.release());
@@ -534,32 +542,22 @@ Status InvertedIndexColumnWriter<field_type>::add_array_values(size_t field_size
             keep_readers.clear();
         }
     } else if constexpr (field_is_numeric_type(field_type)) {
+        const auto& data =
+                assert_cast<const typename StorageLayout<field_type>::Column&>(nested).get_data();
         size_t start_off = 0;
-        for (int i = 0; i < count; ++i) {
+        for (size_t i = 0; i < num_rows; ++i) {
             auto array_elem_size = offsets[i + 1] - offsets[i];
             for (size_t j = start_off; j < start_off + array_elem_size; ++j) {
-                if (nested_null_map && nested_null_map[j] == 1) {
+                if (nested_null_map != nullptr && nested_null_map[j] == 1) {
                     continue;
                 }
-                const CppType* p = &reinterpret_cast<const CppType*>(value_ptr)[j];
-                RETURN_IF_ERROR(add_value(*p));
+                RETURN_IF_ERROR(
+                        add_value(StorageLayout<field_type>::to_storage(data[first_item + j])));
             }
             start_off += array_elem_size;
             _row_ids_seen_for_bkd++;
             _rid++;
         }
-    }
-    return Status::OK();
-}
-
-template <FieldType field_type>
-Status InvertedIndexColumnWriter<field_type>::add_numeric_values(const void* values, size_t count) {
-    auto p = reinterpret_cast<const CppType*>(values);
-    for (size_t i = 0; i < count; ++i) {
-        RETURN_IF_ERROR(add_value(*p));
-        _rid++;
-        p++;
-        _row_ids_seen_for_bkd++;
     }
     return Status::OK();
 }

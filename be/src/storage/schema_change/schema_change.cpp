@@ -60,7 +60,6 @@
 #include "storage/delete/delete_handler.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_writer.h"
-#include "storage/iterator/olap_data_convertor.h"
 #include "storage/iterators.h"
 #include "storage/merger.h"
 #include "storage/olap_common.h"

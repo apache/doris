@@ -24,10 +24,12 @@
 #include <ostream>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_string.h"
 #include "storage/segment/binary_plain_page_v2.h"
@@ -45,121 +47,150 @@ namespace segment_v2 {
 BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options)
         : _options(options),
           _finished(false),
-          _data_page_builder(nullptr),
-          _dict_builder(nullptr),
           _encoding_type(DICT_ENCODING),
           _binary_plain_encoding_type(options.dict_binary_plain_encoding) {}
+
+BinaryDictPageBuilder::~BinaryDictPageBuilder() = default;
 
 Status BinaryDictPageBuilder::init() {
     // initially use DICT_ENCODING
     // TODO: the data page builder type can be created by Factory according to user config
-    PageBuilder* data_page_builder_ptr = nullptr;
+    PageBuilder* code_page_builder = nullptr;
     RETURN_IF_ERROR(BitshufflePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>::create(
-            &data_page_builder_ptr, _options));
-    _data_page_builder.reset(data_page_builder_ptr);
+            &code_page_builder, _options));
+    _code_page_builder.reset(
+            static_cast<BitshufflePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>*>(code_page_builder));
     PageBuilderOptions dict_builder_options;
     // here the binary plain page is used to store the dictionary items so
     // the data page size is set to the same as the dict page size
     dict_builder_options.data_page_size = _options.dict_page_size;
     dict_builder_options.dict_page_size = _options.dict_page_size;
     dict_builder_options.is_dict_page = true;
-
-    const EncodingInfo* encoding_info;
-    RETURN_IF_ERROR(EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_VARCHAR,
-                                      _binary_plain_encoding_type, &encoding_info));
-    RETURN_IF_ERROR(encoding_info->create_page_builder(dict_builder_options, _dict_builder));
+    RETURN_IF_ERROR(_create_plain_page_builder(dict_builder_options, &_dict_page_builder));
     return reset();
 }
 
-bool BinaryDictPageBuilder::is_page_full() {
-    if (_data_page_builder->is_page_full()) {
-        return true;
-    }
-    if (_encoding_type == DICT_ENCODING && _dict_builder->is_page_full()) {
-        return true;
-    }
-    return false;
+Status BinaryDictPageBuilder::_create_plain_page_builder(
+        const PageBuilderOptions& options, std::unique_ptr<StringPageBuilder>* builder) const {
+    const EncodingInfo* encoding_info;
+    RETURN_IF_ERROR(EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_VARCHAR,
+                                      _binary_plain_encoding_type, &encoding_info));
+    std::unique_ptr<PageBuilder> plain;
+    RETURN_IF_ERROR(encoding_info->create_page_builder(options, plain));
+    builder->reset(assert_cast<StringPageBuilder*>(plain.release()));
+    return Status::OK();
 }
 
-Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
+PageBuilder& BinaryDictPageBuilder::_data_page_builder() const {
+    if (_encoding_type == DICT_ENCODING) {
+        return *_code_page_builder;
+    }
+    return *_plain_page_builder;
+}
+
+bool BinaryDictPageBuilder::is_page_full() {
+    if (_encoding_type == DICT_ENCODING) {
+        return _code_page_builder->is_page_full() || _dict_page_builder->is_page_full();
+    }
+    return _plain_page_builder->is_page_full();
+}
+
+Status BinaryDictPageBuilder::add_slices(const Slice* values, size_t* count) {
     if (_encoding_type == DICT_ENCODING) {
         DCHECK(!_finished);
         DCHECK_GT(*count, 0);
-        const Slice* src = reinterpret_cast<const Slice*>(vals);
         size_t num_added = 0;
-        uint32_t value_code = -1;
-        auto* actual_builder = dynamic_cast<BitshufflePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>*>(
-                _data_page_builder.get());
-
-        for (int i = 0; i < *count; ++i, ++src) {
-            if (is_page_full()) {
+        for (size_t i = 0; i < *count; ++i) {
+            size_t added = 0;
+            RETURN_IF_ERROR(_add_dict_coded(values[i], &added));
+            if (added == 0) {
                 break;
             }
-
-            if (src->empty() && _has_empty) {
-                value_code = _empty_code;
-            } else if (auto iter = _dictionary.find(*src); iter != _dictionary.end()) {
-                value_code = iter->second;
-            } else {
-                Slice dict_item(src->data, src->size);
-                if (src->size > 0) {
-                    char* item_mem = _arena.alloc(src->size);
-                    if (item_mem == nullptr) {
-                        return Status::MemoryAllocFailed("memory allocate failed, size:{}",
-                                                         src->size);
-                    }
-                    dict_item.relocate(item_mem);
-                }
-                value_code = cast_set<uint32_t>(_dictionary.size());
-                size_t add_count = 1;
-                RETURN_IF_ERROR(_dict_builder->add(reinterpret_cast<const uint8_t*>(&dict_item),
-                                                   &add_count));
-                if (add_count == 0) {
-                    // current dict page is full, stop processing remaining inputs
-                    break;
-                }
-                _dictionary.emplace(dict_item, value_code);
-                if (src->empty()) {
-                    _has_empty = true;
-                    _empty_code = value_code;
-                }
-            }
-            size_t add_count = 1;
-            RETURN_IF_ERROR(actual_builder->single_add(
-                    reinterpret_cast<const uint8_t*>(&value_code), &add_count));
-            if (add_count == 0) {
-                // current data page is full, stop processing remaining inputs
-                break;
-            }
-            // Track raw data size: the original string size
-            _raw_data_size += src->size;
             num_added += 1;
         }
         *count = num_added;
         return Status::OK();
-    } else {
-        DCHECK(_encoding_type == PLAIN_ENCODING || _encoding_type == PLAIN_ENCODING_V2 ||
-               _encoding_type == PLAIN_ENCODING_V3);
-        RETURN_IF_ERROR(_data_page_builder->add(vals, count));
-        // For plain encoding, track raw data size from the input
-        const Slice* src = reinterpret_cast<const Slice*>(vals);
-        for (size_t i = 0; i < *count; ++i) {
-            _raw_data_size += src[i].size;
-        }
+    }
+    DCHECK(_encoding_type == PLAIN_ENCODING || _encoding_type == PLAIN_ENCODING_V2 ||
+           _encoding_type == PLAIN_ENCODING_V3);
+    RETURN_IF_ERROR(_plain_page_builder->add_slices(values, count));
+    // The plain page counts the same bytes this builder would.
+    _raw_data_size = _plain_page_builder->get_raw_data_size();
+    return Status::OK();
+}
+
+Status BinaryDictPageBuilder::add(const IColumn& column, size_t row_pos, size_t n, size_t* added) {
+    if (_encoding_type != DICT_ENCODING) {
+        RETURN_IF_ERROR(_plain_page_builder->add(column, row_pos, n, added));
+        _raw_data_size = _plain_page_builder->get_raw_data_size();
         return Status::OK();
     }
+    DCHECK(!_finished);
+    const auto& strings = assert_cast<const ColumnString&>(column);
+    size_t num_added = 0;
+    for (size_t i = 0; i < n; ++i) {
+        const StringRef value = strings.get_data_at(row_pos + i);
+        size_t one = 0;
+        RETURN_IF_ERROR(_add_dict_coded(Slice(value.data, value.size), &one));
+        if (one == 0) {
+            break;
+        }
+        num_added += 1;
+    }
+    *added = num_added;
+    return Status::OK();
+}
+
+Status BinaryDictPageBuilder::_add_dict_coded(const Slice& value, size_t* added) {
+    *added = 0;
+    if (is_page_full()) {
+        return Status::OK();
+    }
+    uint32_t value_code = -1;
+    if (value.empty() && _has_empty) {
+        value_code = _empty_code;
+    } else if (auto iter = _dictionary.find(value); iter != _dictionary.end()) {
+        value_code = iter->second;
+    } else {
+        Slice dict_item(value.data, value.size);
+        if (value.size > 0) {
+            char* item_mem = _arena.alloc(value.size);
+            if (item_mem == nullptr) {
+                return Status::MemoryAllocFailed("memory allocate failed, size:{}", value.size);
+            }
+            dict_item.relocate(item_mem);
+        }
+        value_code = cast_set<uint32_t>(_dictionary.size());
+        size_t add_count = 1;
+        RETURN_IF_ERROR(_dict_page_builder->add_slices(&dict_item, &add_count));
+        if (add_count == 0) {
+            // current dict page is full, stop processing remaining inputs
+            return Status::OK();
+        }
+        _dictionary.emplace(dict_item, value_code);
+        if (value.empty()) {
+            _has_empty = true;
+            _empty_code = value_code;
+        }
+    }
+    // The is_page_full() check above left the code page room for this code.
+    RETURN_IF_ERROR(_code_page_builder->add_cell(cast_set<int32_t>(value_code)));
+    // Track raw data size: the original string size
+    _raw_data_size += value.size;
+    *added = 1;
+    return Status::OK();
 }
 
 Status BinaryDictPageBuilder::finish(OwnedSlice* slice) {
     if (VLOG_DEBUG_IS_ON && _encoding_type == DICT_ENCODING) {
-        VLOG_DEBUG << "dict page size:" << _dict_builder->size();
+        VLOG_DEBUG << "dict page size:" << _dict_page_builder->size();
     }
 
     DCHECK(!_finished);
     _finished = true;
 
     OwnedSlice data_slice;
-    RETURN_IF_ERROR(_data_page_builder->finish(&data_slice));
+    RETURN_IF_ERROR(_data_page_builder().finish(&data_slice));
     // TODO(gaodayue) separate page header and content to avoid this copy
     RETURN_IF_CATCH_EXCEPTION(
             { _buffer.append(data_slice.slice().data, data_slice.slice().size); });
@@ -175,29 +206,27 @@ Status BinaryDictPageBuilder::reset() {
         _buffer.reserve(_options.data_page_size + BINARY_DICT_PAGE_HEADER_SIZE);
         _buffer.resize(BINARY_DICT_PAGE_HEADER_SIZE);
 
-        if (_encoding_type == DICT_ENCODING && _dict_builder->is_page_full()) {
-            const EncodingInfo* encoding_info;
-            RETURN_IF_ERROR(EncodingInfo::get(FieldType::OLAP_FIELD_TYPE_VARCHAR,
-                                              _binary_plain_encoding_type, &encoding_info));
-            RETURN_IF_ERROR(encoding_info->create_page_builder(_options, _data_page_builder));
+        if (_encoding_type == DICT_ENCODING && _dict_page_builder->is_page_full()) {
+            RETURN_IF_ERROR(_create_plain_page_builder(_options, &_plain_page_builder));
+            _code_page_builder.reset();
             _encoding_type = _binary_plain_encoding_type;
         } else {
-            RETURN_IF_ERROR(_data_page_builder->reset());
+            RETURN_IF_ERROR(_data_page_builder().reset());
         }
     });
     return Status::OK();
 }
 
 size_t BinaryDictPageBuilder::count() const {
-    return _data_page_builder->count();
+    return _data_page_builder().count();
 }
 
 uint64_t BinaryDictPageBuilder::size() const {
-    return _arena.used_size() + _data_page_builder->size();
+    return _arena.used_size() + _data_page_builder().size();
 }
 
 Status BinaryDictPageBuilder::get_dictionary_page(OwnedSlice* dictionary_page) {
-    return _dict_builder->finish(dictionary_page);
+    return _dict_page_builder->finish(dictionary_page);
 }
 
 Status BinaryDictPageBuilder::get_dictionary_page_encoding(EncodingTypePB* encoding) const {

@@ -31,6 +31,7 @@
 #include "core/uint24.h"
 #include "core/wide_integer.h"
 #include "storage/schema.h"
+#include "storage/storage_layout_test_util.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
 #include "util/debug_util.h"
@@ -433,8 +434,7 @@ TEST_F(TestRowCursor, encode_key_int_date_varchar) {
 
     row.mutable_field(0) = Field::create_field<TYPE_INT>(int32_t(12345));
     // DATE(2020-01-01): raw uint24_t = 2020*512 + 1*32 + 1 = 1034273
-    row.mutable_field(1) =
-            Field::create_field_from_olap_value<TYPE_DATE>(uint24_t(2020 * 512 + 1 * 32 + 1));
+    row.mutable_field(1) = field_of_cell<TYPE_DATE>(uint24_t(2020 * 512 + 1 * 32 + 1));
     row.mutable_field(2) = Field::create_field<TYPE_STRING>(String("hello"));
 
     // encode_key: VARCHAR('hello') truncated to 4 bytes
@@ -468,8 +468,7 @@ TEST_F(TestRowCursor, encode_key_double_nan_decimal_string) {
     row.mutable_field(0) =
             Field::create_field<TYPE_DOUBLE>(std::numeric_limits<double>::quiet_NaN());
     // DECIMAL(123.456000000): stored as decimal12_t{123, 456000000}
-    row.mutable_field(1) =
-            Field::create_field_from_olap_value<TYPE_DECIMALV2>(decimal12_t {123, 456000000});
+    row.mutable_field(1) = field_of_cell<TYPE_DECIMALV2>(decimal12_t {123, 456000000});
     row.mutable_field(2) = Field::create_field<TYPE_STRING>(String("hello world"));
 
     // encode_key: STRING truncated to 4 bytes
@@ -541,8 +540,7 @@ TEST_F(TestRowCursor, encode_key_float_inf_datetime_varchar) {
 
     row.mutable_field(0) = Field::create_field<TYPE_FLOAT>(std::numeric_limits<float>::infinity());
     // DATETIME(2020-01-01 12:00:00) = 20200101120000 in olap datetime format
-    row.mutable_field(1) =
-            Field::create_field_from_olap_value<TYPE_DATETIME>(uint64_t(20200101120000ULL));
+    row.mutable_field(1) = field_of_cell<TYPE_DATETIME>(uint64_t(20200101120000ULL));
     row.mutable_field(2) = Field::create_field<TYPE_STRING>(String("ab"));
 
     // encode_key: VARCHAR('ab') only 2 bytes (< index_size=4, not truncated)
@@ -609,8 +607,7 @@ TEST_F(TestRowCursor, encode_key_negative_values) {
     row.mutable_field(0) = Field::create_field<TYPE_INT>(int32_t(-12345));
     row.mutable_field(1) = Field::create_field<TYPE_DOUBLE>(-1.0);
     // DECIMAL(-123, -456000000) representing -123.456000000
-    row.mutable_field(2) =
-            Field::create_field_from_olap_value<TYPE_DECIMALV2>(decimal12_t {-123, -456000000});
+    row.mutable_field(2) = field_of_cell<TYPE_DECIMALV2>(decimal12_t {-123, -456000000});
 
     {
         std::string buf;
@@ -706,8 +703,7 @@ TEST_F(TestRowCursor, encode_key_datetime_v1) {
     {
         RowCursor row;
         init_row_cursor_with_nulls(row, tablet_schema, 1);
-        row.mutable_field(0) =
-                Field::create_field_from_olap_value<TYPE_DATETIME>(uint64_t(20241231123045ULL));
+        row.mutable_field(0) = field_of_cell<TYPE_DATETIME>(uint64_t(20241231123045ULL));
 
         std::string buf;
         row.encode_key(&buf, 1);

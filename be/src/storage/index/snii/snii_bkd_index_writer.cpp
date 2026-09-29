@@ -21,12 +21,14 @@
 #include <utility>
 
 #include "common/check.h"
+#include "core/column/column_nullable.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/snii/bkd/bkd_types.h"
 #include "storage/index/snii/format/metadata_directory.h"
 #include "storage/index/snii/format/null_bitmap.h"
 #include "storage/index/snii/writer/snii_compound_writer.h"
 #include "storage/key_coder.h"
+#include "storage/storage_layout.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
 
@@ -69,8 +71,8 @@ Status SniiBkdIndexColumnWriter::init() {
                 "SNII BKD index does not support field type {}", static_cast<int>(_value_type));
     }
     // Both resolved from the SAME FieldType, which is also the one recorded in
-    // the index header (INV-1): the stride the source array is walked with and
-    // the encoder the points are built with can never disagree.
+    // the index header (INV-1): the StorageValue the column is read as and the encoder
+    // the points are built with can never disagree.
     // field_is_numeric_type() is WIDER than the set this index can actually
     // encode: it admits UNSIGNED_TINYINT and UNSIGNED_SMALLINT, for which
     // field_type_size LOG(FATAL)s and get_key_coder returns nullptr. No FE type
@@ -103,51 +105,66 @@ Status SniiBkdIndexColumnWriter::_add_value(const void* value, uint32_t docid) {
             ::doris::snii::Slice(reinterpret_cast<const uint8_t*>(encoded.data()), encoded.size()));
 }
 
-Status SniiBkdIndexColumnWriter::add_values(const std::string /*name*/, const void* values,
-                                            size_t count) {
-    DORIS_CHECK(values != nullptr || count == 0);
-    const auto* cursor = static_cast<const uint8_t*>(values);
-    for (size_t i = 0; i < count; ++i) {
-        RETURN_IF_ERROR(_add_value(cursor, _rid));
-        cursor += _value_size;
-        ++_rid;
+template <FieldType FT, class DocIdOf>
+Status SniiBkdIndexColumnWriter::_add_cells_of(const IColumn& column, size_t first, size_t n,
+                                               const uint8_t* null_map, DocIdOf docid_of) {
+    const auto& data = assert_cast<const typename StorageLayout<FT>::Column&>(column).get_data();
+    for (size_t i = 0; i < n; ++i) {
+        if (null_map != nullptr && null_map[i] == 1) {
+            continue;
+        }
+        const auto value = StorageLayout<FT>::to_storage(data[first + i]);
+        RETURN_IF_ERROR(_add_value(&value, docid_of(i)));
     }
     return Status::OK();
 }
 
-Status SniiBkdIndexColumnWriter::add_array_values(size_t field_size, const void* value_ptr,
-                                                  const uint8_t* null_map,
-                                                  const uint8_t* offsets_ptr, size_t count) {
-    if (count == 0) {
+template <class DocIdOf>
+Status SniiBkdIndexColumnWriter::_add_cells(const IColumn& column, size_t first, size_t n,
+                                            const uint8_t* null_map, DocIdOf docid_of) {
+    switch (_value_type) {
+#define CASE(FT)        \
+    case FieldType::FT: \
+        return _add_cells_of<FieldType::FT>(column, first, n, null_map, docid_of);
+        DORIS_APPLY_FOR_FIXED_WIDTH_STORAGE_LAYOUT_TYPES(CASE)
+#undef CASE
+    default:
+        return Status::InternalError("SNII BKD index has no cell for field type {}",
+                                     static_cast<int>(_value_type));
+    }
+}
+
+Status SniiBkdIndexColumnWriter::add(const IColumn& column, size_t row_pos, size_t n) {
+    const uint32_t first_rid = _rid;
+    RETURN_IF_ERROR(_add_cells(column, row_pos, n, nullptr, [first_rid](size_t i) {
+        return first_rid + cast_set<uint32_t>(i);
+    }));
+    _rid += cast_set<uint32_t>(n);
+    return Status::OK();
+}
+
+Status SniiBkdIndexColumnWriter::add_array(const IColumn& items, size_t first_item,
+                                           const uint64_t* offsets, size_t num_rows) {
+    if (num_rows == 0) {
         return Status::OK();
     }
-    DORIS_CHECK(value_ptr != nullptr);
-    DORIS_CHECK(offsets_ptr != nullptr);
-    // The element width comes from the caller's array layout, but the points it
-    // produces are the index's own field type, so a mismatch would silently
-    // reinterpret the payload.
-    DORIS_CHECK_EQ(field_size, _value_size);
-
-    const auto* offsets = reinterpret_cast<const uint64_t*>(offsets_ptr);
-    const auto* elements = static_cast<const uint8_t*>(value_ptr);
+    DORIS_CHECK(offsets != nullptr);
+    const uint8_t* null_map = nullptr;
+    const IColumn& nested = peel_nullable(items, first_item, &null_map);
     size_t element = 0;
-    for (size_t i = 0; i < count; ++i) {
+    for (size_t i = 0; i < num_rows; ++i) {
         const size_t row_elements = offsets[i + 1] - offsets[i];
-        for (size_t j = 0; j < row_elements; ++j, ++element) {
-            if (null_map != nullptr && null_map[element] == 1) {
-                continue;
-            }
-            // One row contributing several points is a first-class case; the
-            // builder keys on (value, doc_id), so the row id does NOT advance
-            // between them.
-            RETURN_IF_ERROR(_add_value(elements + element * _value_size, _rid));
-        }
-        // A row that produced no point is NOT recorded as NULL here. An empty
-        // array, and an array whose every element is NULL, are both non-null
-        // arrays that simply cannot match a comparison -- and the index already
-        // says so by holding no point for them. Marking them NULL would make
-        // `col IS NULL` true for a row holding []. Array-LEVEL nulls arrive
-        // separately through add_array_nulls, which is their only source.
+        // One row contributing several points is a first-class case; the
+        // builder keys on (value, doc_id), so the row id does NOT advance
+        // between them.
+        const uint32_t rid = _rid;
+        RETURN_IF_ERROR(_add_cells(nested, first_item + element, row_elements,
+                                   null_map == nullptr ? nullptr : null_map + element,
+                                   [rid](size_t) { return rid; }));
+        element += row_elements;
+        // A row that produced no point is NOT recorded as NULL here: an empty
+        // array and an all-NULL array are non-null rows that simply hold no
+        // point. Array-level nulls arrive through add_array_nulls.
         ++_rid;
     }
     return Status::OK();
@@ -163,7 +180,7 @@ Status SniiBkdIndexColumnWriter::add_nulls(uint32_t count) {
 
 Status SniiBkdIndexColumnWriter::add_array_nulls(const uint8_t* null_map, size_t num_rows) {
     DORIS_CHECK(null_map != nullptr || num_rows == 0);
-    // Called for the SAME rows add_array_values already walked, so it must not
+    // Called for the SAME rows add_array already walked, so it must not
     // advance the row id -- it only records which of those rows were NULL at the
     // array level.
     DORIS_CHECK_GE(_rid, num_rows);

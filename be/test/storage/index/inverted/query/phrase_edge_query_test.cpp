@@ -26,6 +26,7 @@
 #include "runtime/runtime_state.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
+#include "storage/index/index_writer_feed.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_searcher.h"
 #include "storage/index/inverted/inverted_index_writer.h"
@@ -150,7 +151,7 @@ public:
         EXPECT_TRUE(status.ok()) << status;
 
         // Write string values
-        status = column_writer->add_values("c2", values.data(), values.size());
+        status = add_slices(*column_writer, values.data(), values.size());
         EXPECT_TRUE(status.ok()) << status;
 
         // Finish and close

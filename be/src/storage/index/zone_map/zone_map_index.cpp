@@ -22,13 +22,16 @@
 
 #include <algorithm>
 #include <limits>
+#include <ranges>
 #include <type_traits>
 
+#include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_string.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
+#include "core/data_type/storage_field_type.h"
 #include "core/string_ref.h"
 #include "core/value/decimalv2_value.h"
 #include "core/value/vdatetime_value.h"
@@ -36,11 +39,11 @@
 #include "storage/index/indexed_column_writer.h"
 #include "storage/olap_common.h"
 #include "storage/segment/encoding_info.h"
+#include "storage/storage_layout.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
 #include "storage/utils.h"
 #include "util/slice.h"
-#include "util/unaligned.h"
 
 namespace doris {
 struct uint24_t;
@@ -109,7 +112,7 @@ Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_ty
         }
 
         // NaN and infinity only set the flags below, never min/max, so a page holding nothing
-        // else leaves both at the values add_values() starts from: min = DBL_MAX and
+        // else leaves both at the values add() starts from: min = DBL_MAX and
         // max = -DBL_MAX, neither of which is a value in the page.
         if (!zone_map_info.pass_all &&
             is_reversed(zone_map_info.min_value, zone_map_info.max_value, field_type)) {
@@ -153,8 +156,8 @@ Status ZoneMap::from_proto(const ZoneMapPB& zone_map, const DataTypePtr& data_ty
     return Status::OK();
 }
 
-template <PrimitiveType Type>
-TypedZoneMapIndexWriter<Type>::TypedZoneMapIndexWriter(DataTypePtr&& data_type)
+template <FieldType FT>
+TypedZoneMapIndexWriter<FT>::TypedZoneMapIndexWriter(DataTypePtr&& data_type)
         : _data_type(std::move(data_type)) {
     _page_zone_map.min_value =
             doris::Field::create_field<Type>(typename PrimitiveTypeTraits<Type>::CppType());
@@ -168,13 +171,13 @@ TypedZoneMapIndexWriter<Type>::TypedZoneMapIndexWriter(DataTypePtr&& data_type)
     _reset_zone_map(&_segment_zone_map);
 }
 
-template <PrimitiveType Type>
-void TypedZoneMapIndexWriter<Type>::_update_page_zonemap(const ValType& min_value,
-                                                         const ValType& max_value) {
+template <FieldType FT>
+void TypedZoneMapIndexWriter<FT>::_update_page_zonemap(const ValType& min_value,
+                                                       const ValType& max_value) {
     // Hot path: compare/store using raw CppType to avoid Field temporaries.
     // For string types, truncate to MAX_ZONE_MAP_INDEX_SIZE (matching the old
     // Field-based path) and copy bytes into _page_{min,max}_storage so the
-    // StringRef stays valid across add_values() calls.
+    // StringRef stays valid across add() calls.
     if constexpr (is_string_type(Type)) {
         auto truncate_into = [](const StringRef& src, std::string& dst) {
             auto sz = std::min<size_t>(src.size, MAX_ZONE_MAP_INDEX_SIZE);
@@ -200,49 +203,75 @@ void TypedZoneMapIndexWriter<Type>::_update_page_zonemap(const ValType& min_valu
     _page_zone_map.has_not_null = true;
 }
 
-template <PrimitiveType Type>
-void TypedZoneMapIndexWriter<Type>::_materialize_page_minmax() {
+template <FieldType FT>
+void TypedZoneMapIndexWriter<FT>::_materialize_page_minmax() {
     if (!_page_zone_map.has_not_null) {
         return;
     }
-    _page_zone_map.min_value = doris::Field::create_field_from_olap_value<Type>(_page_min);
-    _page_zone_map.max_value = doris::Field::create_field_from_olap_value<Type>(_page_max);
+    if constexpr (is_string_type(Type)) {
+        _page_zone_map.min_value =
+                Field::create_field<Type>(String(_page_min.data, _page_min.size));
+        _page_zone_map.max_value =
+                Field::create_field<Type>(String(_page_max.data, _page_max.size));
+    } else if constexpr (FT == FieldType::OLAP_FIELD_TYPE_DATE ||
+                         FT == FieldType::OLAP_FIELD_TYPE_DATETIME) {
+        // The TimeType a V1 value carries is not stored with it but decides how the bound is
+        // written: VecDateTimeValue::DEFAULT_VALUE's is not a valid one and writes "". Bound
+        // the stored values.
+        using Layout = StorageLayout<FT>;
+        _page_zone_map.min_value =
+                Field::create_field<Type>(Layout::to_primitive(Layout::to_storage(_page_min)));
+        _page_zone_map.max_value =
+                Field::create_field<Type>(Layout::to_primitive(Layout::to_storage(_page_max)));
+    } else {
+        _page_zone_map.min_value = Field::create_field<Type>(_page_min);
+        _page_zone_map.max_value = Field::create_field<Type>(_page_max);
+    }
 }
 
-template <PrimitiveType Type>
-void TypedZoneMapIndexWriter<Type>::add_values(const void* values, size_t count) {
+template <FieldType FT>
+void TypedZoneMapIndexWriter<FT>::add(const IColumn& column, size_t row_pos, size_t count) {
     if (count == 0) {
         return;
     }
-    const auto* vals = reinterpret_cast<const ValType*>(values);
-    if constexpr (Type == TYPE_FLOAT || Type == TYPE_DOUBLE) {
-        ValType min = std::numeric_limits<ValType>::max();
-        ValType max = std::numeric_limits<ValType>::lowest();
-        for (size_t i = 0; i < count; ++i) {
-            if (std::isnan(vals[i])) {
-                _page_zone_map.has_nan = true;
-            } else if (vals[i] == std::numeric_limits<ValType>::infinity()) {
-                _page_zone_map.has_positive_inf = true;
-            } else if (vals[i] == -std::numeric_limits<ValType>::infinity()) {
-                _page_zone_map.has_negative_inf = true;
-            } else {
-                if (vals[i] < min) {
-                    min = vals[i];
-                }
-                if (vals[i] > max) {
-                    max = vals[i];
-                }
-            }
-        }
+    if constexpr (is_string_type(Type)) {
+        const auto& strings = assert_cast<const ColumnString&>(column);
+        const auto [min, max] = std::ranges::minmax(
+                std::views::iota(row_pos, row_pos + count) |
+                std::views::transform([&strings](size_t row) { return strings.get_data_at(row); }));
         _update_page_zonemap(min, max);
     } else {
-        auto [min, max] = std::minmax_element(vals, vals + count);
-        _update_page_zonemap(unaligned_load<ValType>(min), unaligned_load<ValType>(max));
+        using Column = typename PrimitiveTypeTraits<Type>::ColumnType;
+        const ValType* vals = assert_cast<const Column&>(column).get_data().data() + row_pos;
+        if constexpr (Type == TYPE_FLOAT || Type == TYPE_DOUBLE) {
+            ValType min = std::numeric_limits<ValType>::max();
+            ValType max = std::numeric_limits<ValType>::lowest();
+            for (size_t i = 0; i < count; ++i) {
+                if (std::isnan(vals[i])) {
+                    _page_zone_map.has_nan = true;
+                } else if (vals[i] == std::numeric_limits<ValType>::infinity()) {
+                    _page_zone_map.has_positive_inf = true;
+                } else if (vals[i] == -std::numeric_limits<ValType>::infinity()) {
+                    _page_zone_map.has_negative_inf = true;
+                } else {
+                    if (vals[i] < min) {
+                        min = vals[i];
+                    }
+                    if (vals[i] > max) {
+                        max = vals[i];
+                    }
+                }
+            }
+            _update_page_zonemap(min, max);
+        } else {
+            auto [min, max] = std::minmax_element(vals, vals + count);
+            _update_page_zonemap(*min, *max);
+        }
     }
 }
 
-template <PrimitiveType Type>
-void TypedZoneMapIndexWriter<Type>::modify_index_before_flush(
+template <FieldType FT>
+void TypedZoneMapIndexWriter<FT>::modify_index_before_flush(
         struct doris::segment_v2::ZoneMap& zone_map) {
     // Only varchar/string filed need modify zone map index when zone map max_value
     // For varchar/string type, the zone map buffer is truncated at MAX_ZONE_MAP_INDEX_SIZE (512 bytes).
@@ -271,13 +300,13 @@ void TypedZoneMapIndexWriter<Type>::modify_index_before_flush(
     }
 }
 
-template <PrimitiveType Type>
-void TypedZoneMapIndexWriter<Type>::invalid_page_zone_map() {
+template <FieldType FT>
+void TypedZoneMapIndexWriter<FT>::invalid_page_zone_map() {
     _page_zone_map.pass_all = true;
 }
 
-template <PrimitiveType Type>
-Status TypedZoneMapIndexWriter<Type>::flush() {
+template <FieldType FT>
+Status TypedZoneMapIndexWriter<FT>::flush() {
     // Materialize the running CppType min/max into the Field-typed page zone map
     // before merging into the segment zone map / serializing to proto.
     _materialize_page_minmax();
@@ -324,9 +353,9 @@ Status TypedZoneMapIndexWriter<Type>::flush() {
     return Status::OK();
 }
 
-template <PrimitiveType Type>
-Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
-                                             ColumnIndexMetaPB* index_meta) {
+template <FieldType FT>
+Status TypedZoneMapIndexWriter<FT>::finish(io::FileWriter* file_writer,
+                                           ColumnIndexMetaPB* index_meta) {
     index_meta->set_type(ZONE_MAP_INDEX);
     ZoneMapIndexPB* meta = index_meta->mutable_zone_map_index();
     // store segment zone map
@@ -347,7 +376,7 @@ Status TypedZoneMapIndexWriter<Type>::finish(io::FileWriter* file_writer,
 
     for (auto& value : _values) {
         Slice value_slice(value);
-        RETURN_IF_ERROR(writer.add(&value_slice));
+        RETURN_IF_ERROR(writer.add(value_slice));
     }
     return writer.finish(meta->mutable_page_zone_maps());
 }
@@ -401,48 +430,43 @@ int64_t ZoneMapIndexReader::get_metadata_size() const {
 }
 
 ZoneMapIndexReader::~ZoneMapIndexReader() = default;
-#define APPLY_FOR_PRIMITITYPE(M) \
-    M(TYPE_TINYINT)              \
-    M(TYPE_SMALLINT)             \
-    M(TYPE_INT)                  \
-    M(TYPE_BIGINT)               \
-    M(TYPE_LARGEINT)             \
-    M(TYPE_FLOAT)                \
-    M(TYPE_DOUBLE)               \
-    M(TYPE_CHAR)                 \
-    M(TYPE_DATE)                 \
-    M(TYPE_DATETIME)             \
-    M(TYPE_DATEV2)               \
-    M(TYPE_DATETIMEV2)           \
-    M(TYPE_TIMESTAMP_NS)         \
-    M(TYPE_TIMESTAMPTZ)          \
-    M(TYPE_IPV4)                 \
-    M(TYPE_IPV6)                 \
-    M(TYPE_VARCHAR)              \
-    M(TYPE_STRING)               \
-    M(TYPE_DECIMAL32)            \
-    M(TYPE_DECIMAL64)            \
-    M(TYPE_DECIMAL128I)          \
-    M(TYPE_DECIMAL256)
+// Every FieldType a zone map is kept for.
+#define APPLY_FOR_ZONE_MAP_FIELD_TYPES(M) \
+    M(OLAP_FIELD_TYPE_BOOL)               \
+    M(OLAP_FIELD_TYPE_TINYINT)            \
+    M(OLAP_FIELD_TYPE_SMALLINT)           \
+    M(OLAP_FIELD_TYPE_INT)                \
+    M(OLAP_FIELD_TYPE_BIGINT)             \
+    M(OLAP_FIELD_TYPE_LARGEINT)           \
+    M(OLAP_FIELD_TYPE_FLOAT)              \
+    M(OLAP_FIELD_TYPE_DOUBLE)             \
+    M(OLAP_FIELD_TYPE_DECIMAL)            \
+    M(OLAP_FIELD_TYPE_DECIMAL32)          \
+    M(OLAP_FIELD_TYPE_DECIMAL64)          \
+    M(OLAP_FIELD_TYPE_DECIMAL128I)        \
+    M(OLAP_FIELD_TYPE_DECIMAL256)         \
+    M(OLAP_FIELD_TYPE_DATE)               \
+    M(OLAP_FIELD_TYPE_DATETIME)           \
+    M(OLAP_FIELD_TYPE_DATEV2)             \
+    M(OLAP_FIELD_TYPE_DATETIMEV2)         \
+    M(OLAP_FIELD_TYPE_TIMESTAMP_NS)       \
+    M(OLAP_FIELD_TYPE_TIMESTAMPTZ)        \
+    M(OLAP_FIELD_TYPE_IPV4)               \
+    M(OLAP_FIELD_TYPE_IPV6)               \
+    M(OLAP_FIELD_TYPE_CHAR)               \
+    M(OLAP_FIELD_TYPE_VARCHAR)            \
+    M(OLAP_FIELD_TYPE_STRING)
 
 Status ZoneMapIndexWriter::create(DataTypePtr data_type, const TabletColumn* column,
                                   std::unique_ptr<ZoneMapIndexWriter>& res) {
     switch (column->type()) {
-#define M(NAME)                                                             \
-    case FieldType::OLAP_FIELD_##NAME: {                                    \
-        res.reset(new TypedZoneMapIndexWriter<NAME>(std::move(data_type))); \
-        return Status::OK();                                                \
+#define M(FT)                                                                        \
+    case FieldType::FT: {                                                            \
+        res.reset(new TypedZoneMapIndexWriter<FieldType::FT>(std::move(data_type))); \
+        return Status::OK();                                                         \
     }
-        APPLY_FOR_PRIMITITYPE(M)
+        APPLY_FOR_ZONE_MAP_FIELD_TYPES(M)
 #undef M
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL: {
-        res.reset(new TypedZoneMapIndexWriter<TYPE_DECIMALV2>(std::move(data_type)));
-        return Status::OK();
-    }
-    case FieldType::OLAP_FIELD_TYPE_BOOL: {
-        res.reset(new TypedZoneMapIndexWriter<TYPE_BOOLEAN>(std::move(data_type)));
-        return Status::OK();
-    }
     default:
         return Status::InvalidArgument("Invalid type!");
     }

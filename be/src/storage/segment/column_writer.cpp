@@ -26,6 +26,11 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "core/assert_cast.h"
+#include "core/column/column_array.h"
+#include "core/column/column_map.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_struct.h"
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/types.h"
@@ -35,19 +40,22 @@
 #include "storage/index/ordinal_page_index.h"
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/olap_common.h"
+#include "storage/segment/array_index_input.h"
 #include "storage/segment/encoding_info.h"
+#include "storage/segment/null_runs.h"
 #include "storage/segment/options.h"
 #include "storage/segment/page_builder.h"
 #include "storage/segment/page_io.h"
 #include "storage/segment/page_pointer.h"
 #include "storage/segment/variant/variant_column_writer_impl.h"
+#include "storage/storage_layout.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
+#include "util/bitmap.h"
 #include "util/block_compression.h"
 #include "util/debug_points.h"
 #include "util/faststring.h"
 #include "util/rle_encoding.h"
-#include "util/simd/bits.h"
 
 namespace doris::segment_v2 {
 
@@ -115,8 +123,8 @@ private:
     RleEncoder<bool> _rle_encoder;
 };
 
-inline ScalarColumnWriter* get_null_writer(const ColumnWriterOptions& opts,
-                                           io::FileWriter* file_writer, uint32_t id) {
+inline NullMapColumnWriter* get_null_writer(const ColumnWriterOptions& opts,
+                                            io::FileWriter* file_writer, uint32_t id) {
     if (!opts.meta->is_nullable()) {
         return nullptr;
     }
@@ -143,7 +151,7 @@ inline ScalarColumnWriter* get_null_writer(const ColumnWriterOptions& opts,
     null_column_ptr->set_index_length(-1); // no short key index
     null_options.meta->set_encoding(
             EncodingInfo::resolve_default_encoding(opts.storage_format, *null_column_ptr));
-    return new ScalarColumnWriter(null_options, std::move(null_column_ptr), file_writer);
+    return new NullMapColumnWriter(null_options, std::move(null_column_ptr), file_writer);
 }
 
 ColumnWriter::ColumnWriter(TabletColumnPtr column, bool is_nullable, ColumnMetaPB* meta)
@@ -173,7 +181,7 @@ Status ColumnWriter::create_struct_writer(const ColumnWriterOptions& opts,
         sub_column_writers.push_back(std::move(sub_column_writer));
     }
 
-    ScalarColumnWriter* null_writer =
+    NullMapColumnWriter* null_writer =
             get_null_writer(opts, file_writer, column->get_subtype_count() + 1);
 
     *writer = std::unique_ptr<ColumnWriter>(new StructColumnWriter(
@@ -225,7 +233,7 @@ Status ColumnWriter::create_array_writer(const ColumnWriterOptions& opts,
     auto* length_writer =
             new OffsetColumnWriter(length_options, std::move(length_column_ptr), file_writer);
 
-    ScalarColumnWriter* null_writer = get_null_writer(opts, file_writer, 3);
+    NullMapColumnWriter* null_writer = get_null_writer(opts, file_writer, 3);
 
     *writer = std::unique_ptr<ColumnWriter>(
             new ArrayColumnWriter(opts, std::make_shared<TabletColumn>(*column), length_writer,
@@ -289,7 +297,7 @@ Status ColumnWriter::create_map_writer(const ColumnWriterOptions& opts, const Ta
     auto* length_writer =
             new OffsetColumnWriter(length_options, std::move(length_column_ptr), file_writer);
 
-    ScalarColumnWriter* null_writer =
+    NullMapColumnWriter* null_writer =
             get_null_writer(opts, file_writer, column->get_subtype_count() + 2);
 
     *writer = std::unique_ptr<ColumnWriter>(
@@ -383,83 +391,6 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
     }
 }
 
-Status ColumnWriter::append_nullable(const uint8_t* is_null_bits, const void* data,
-                                     size_t num_rows) {
-    const auto* ptr = (const uint8_t*)data;
-    BitmapIterator null_iter(is_null_bits, num_rows);
-    bool is_null = false;
-    size_t this_run = 0;
-    while ((this_run = null_iter.Next(&is_null)) > 0) {
-        if (is_null) {
-            RETURN_IF_ERROR(append_nulls(this_run));
-        } else {
-            RETURN_IF_ERROR(append_data(&ptr, this_run));
-        }
-    }
-    return Status::OK();
-}
-
-Status ColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
-                                     size_t num_rows) {
-    // Fast path: use SIMD to detect all-NULL or all-non-NULL columns
-    if (config::enable_rle_batch_put_optimization) {
-        size_t non_null_count =
-                simd::count_zero_num(reinterpret_cast<const int8_t*>(null_map), num_rows);
-
-        if (non_null_count == 0) {
-            // All NULL: skip run-length iteration, directly append all nulls
-            RETURN_IF_ERROR(append_nulls(num_rows));
-            *ptr += cell_size() * num_rows;
-            return Status::OK();
-        }
-
-        if (non_null_count == num_rows) {
-            // All non-NULL: skip run-length iteration, directly append all data
-            return append_data(ptr, num_rows);
-        }
-    }
-
-    // Mixed case or sparse optimization disabled: use run-length processing
-    size_t offset = 0;
-    auto next_run_step = [&]() {
-        size_t step = 1;
-        for (auto i = offset + 1; i < num_rows; ++i) {
-            if (null_map[offset] == null_map[i]) {
-                step++;
-            } else {
-                break;
-            }
-        }
-        return step;
-    };
-
-    do {
-        auto step = next_run_step();
-        if (null_map[offset]) {
-            RETURN_IF_ERROR(append_nulls(step));
-            *ptr += cell_size() * step;
-        } else {
-            // TODO:
-            //  1. `*ptr += cell_size() * step;` should do in this function, not append_data;
-            //  2. support array vectorized load and ptr offset add
-            RETURN_IF_ERROR(append_data(ptr, step));
-        }
-        offset += step;
-    } while (offset < num_rows);
-
-    return Status::OK();
-}
-
-Status ColumnWriter::append(const uint8_t* nullmap, const void* data, size_t num_rows) {
-    assert(data && num_rows > 0);
-    const auto* ptr = (const uint8_t*)data;
-    if (nullmap) {
-        return append_nullable(nullmap, &ptr, num_rows);
-    } else {
-        return append_data(&ptr, num_rows);
-    }
-}
-
 ///////////////////////////////////////////////////////////////////////////////////
 
 ScalarColumnWriter::ScalarColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
@@ -538,17 +469,15 @@ Status ScalarColumnWriter::init() {
                     class InvertedIndexColumnWriterEmpty final : public IndexColumnWriter {
                     public:
                         Status init() override { return Status::OK(); }
-                        Status add_values(const std::string name, const void* values,
-                                          size_t count) override {
-                            return Status::OK();
-                        }
-                        Status add_array_values(size_t field_size, const void* value_ptr,
-                                                const uint8_t* null_map, const uint8_t* offsets_ptr,
-                                                size_t count) override {
-                            return Status::OK();
-                        }
                         Status add_nulls(uint32_t count) override { return Status::OK(); }
                         Status add_array_nulls(const uint8_t* null_map, size_t num_rows) override {
+                            return Status::OK();
+                        }
+                        Status add(const IColumn& column, size_t row_pos, size_t n) override {
+                            return Status::OK();
+                        }
+                        Status add_array(const IColumn& items, size_t first_item,
+                                         const uint64_t* offsets, size_t num_rows) override {
                             return Status::OK();
                         }
                         Status finish() override { return Status::OK(); }
@@ -588,6 +517,7 @@ Status ScalarColumnWriter::init() {
 }
 
 Status ScalarColumnWriter::append_nulls(size_t num_rows) {
+    DCHECK(is_nullable());
     _null_bitmap_builder->add_run(true, num_rows);
     _next_rowid += num_rows;
     if (_opts.need_zone_map) {
@@ -604,17 +534,13 @@ Status ScalarColumnWriter::append_nulls(size_t num_rows) {
     return Status::OK();
 }
 
-// append data to page builder. this function will make sure that
-// num_rows must be written before return. And ptr will be modified
-// to next data should be written
-Status ScalarColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
-    size_t remaining = num_rows;
-    while (remaining > 0) {
-        size_t num_written = remaining;
-        RETURN_IF_ERROR(append_data_in_current_page(ptr, &num_written));
-
-        remaining -= num_written;
-
+template <class Add>
+Status ScalarColumnWriter::_fill_pages(size_t num_rows, Add add) {
+    size_t pos = 0;
+    while (pos < num_rows) {
+        size_t num_written = num_rows - pos;
+        RETURN_IF_CATCH_EXCEPTION({ RETURN_IF_ERROR(add(pos, &num_written)); });
+        pos += num_written;
         if (_page_builder->is_page_full()) {
             RETURN_IF_ERROR(finish_current_page());
         }
@@ -622,19 +548,25 @@ Status ScalarColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     return Status::OK();
 }
 
-Status ScalarColumnWriter::_internal_append_data_in_current_page(const uint8_t* data,
-                                                                 size_t* num_written) {
-    RETURN_IF_ERROR(_page_builder->add(data, num_written));
+Status ScalarColumnWriter::_append_rows(const IColumn& column, size_t row_pos, size_t num_rows) {
+    return _fill_pages(num_rows, [&](size_t pos, size_t* num_written) {
+        return _append_rows_in_current_page(column, row_pos + pos, num_written);
+    });
+}
+
+Status ScalarColumnWriter::_append_rows_in_current_page(const IColumn& column, size_t row_pos,
+                                                        size_t* num_written) {
+    RETURN_IF_ERROR(_page_builder->add(column, row_pos, *num_written, num_written));
     if (_opts.need_zone_map) {
-        _zone_map_index_builder->add_values(data, *num_written);
+        _zone_map_index_builder->add(column, row_pos, *num_written);
     }
     if (_opts.need_inverted_index) {
         for (const auto& builder : _inverted_index_builders) {
-            RETURN_IF_ERROR(builder->add_values(get_column()->name(), data, *num_written));
+            RETURN_IF_ERROR(builder->add(column, row_pos, *num_written));
         }
     }
     if (_opts.need_bloom_filter) {
-        RETURN_IF_ERROR(_bloom_filter_index_builder->add_values(data, *num_written));
+        RETURN_IF_ERROR(_bloom_filter_index_builder->add(column, row_pos, *num_written));
     }
 
     _next_rowid += *num_written;
@@ -647,82 +579,31 @@ Status ScalarColumnWriter::_internal_append_data_in_current_page(const uint8_t* 
     return Status::OK();
 }
 
-Status ScalarColumnWriter::append_data_in_current_page(const uint8_t** data, size_t* num_written) {
-    RETURN_IF_ERROR(append_data_in_current_page(*data, num_written));
-    *data += cell_size() * (*num_written);
-    return Status::OK();
-}
-
-Status ScalarColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
-                                           size_t num_rows) {
-    // When optimization is disabled, use base class implementation
-    if (!config::enable_rle_batch_put_optimization) {
-        return ColumnWriter::append_nullable(null_map, ptr, num_rows);
+Status ScalarColumnWriter::append(const IColumn& column, size_t row_pos, size_t num_rows) {
+    DCHECK(num_rows > 0);
+    DCHECK_LE(row_pos + num_rows, column.size());
+    const uint8_t* null_map = nullptr;
+    const IColumn& nested = peel_nullable(column, row_pos, &null_map);
+    RETURN_IF_ERROR(admit_storage_rows(get_column()->type(), nested, row_pos, num_rows, null_map));
+    if (null_map == nullptr) {
+        return _append_rows(nested, row_pos, num_rows);
     }
-
-    if (UNLIKELY(num_rows == 0)) {
-        return Status::OK();
-    }
-
-    // Build run-length encoded null runs using memchr for fast boundary detection
-    _null_run_buffer.clear();
-    if (_null_run_buffer.capacity() < num_rows) {
-        _null_run_buffer.reserve(std::min(num_rows, size_t(256)));
-    }
-
-    size_t non_null_count = 0;
-    size_t offset = 0;
-    while (offset < num_rows) {
-        bool is_null = null_map[offset] != 0;
-        size_t remaining = num_rows - offset;
-        const uint8_t* run_end =
-                static_cast<const uint8_t*>(memchr(null_map + offset, is_null ? 0 : 1, remaining));
-        size_t run_length = run_end != nullptr ? (run_end - (null_map + offset)) : remaining;
-        _null_run_buffer.push_back(NullRun {is_null, static_cast<uint32_t>(run_length)});
-        if (!is_null) {
-            non_null_count += run_length;
-        }
-        offset += run_length;
-    }
-
-    // Pre-allocate buffer based on estimated size
-    if (_null_bitmap_builder != nullptr) {
-        size_t current_rows = _next_rowid - _first_rowid;
-        size_t expected_rows = current_rows + num_rows;
+    if (config::enable_rle_batch_put_optimization && _null_bitmap_builder != nullptr) {
+        // Size the null bitmap for the batch from the null density seen so far.
+        const size_t non_null_count =
+                num_rows - std::count_if(null_map, null_map + num_rows,
+                                         [](uint8_t is_null) { return is_null != 0; });
+        const size_t current_rows = _next_rowid - _first_rowid;
+        const size_t expected_rows = current_rows + num_rows;
         size_t est_non_null = non_null_count;
         if (num_rows > 0 && expected_rows > num_rows) {
             est_non_null = (non_null_count * expected_rows) / num_rows;
         }
         _null_bitmap_builder->reserve_for_write(expected_rows, est_non_null);
     }
-
-    if (non_null_count == 0) {
-        // All NULL: skip data writing, only update null bitmap and indexes
-        RETURN_IF_ERROR(append_nulls(num_rows));
-        *ptr += cell_size() * num_rows;
-        return Status::OK();
-    }
-
-    if (non_null_count == num_rows) {
-        // All non-NULL: use normal append_data which handles both data and null bitmap
-        return append_data(ptr, num_rows);
-    }
-
-    // Process by runs
-    for (const auto& run : _null_run_buffer) {
-        size_t run_length = run.len;
-        if (run.is_null) {
-            RETURN_IF_ERROR(append_nulls(run_length));
-            *ptr += cell_size() * run_length;
-        } else {
-            // TODO:
-            //  1. `*ptr += cell_size() * step;` should do in this function, not append_data;
-            //  2. support array vectorized load and ptr offset add
-            RETURN_IF_ERROR(append_data(ptr, run_length));
-        }
-    }
-
-    return Status::OK();
+    return for_each_null_run(null_map, num_rows, [&](bool is_null, size_t start, size_t len) {
+        return is_null ? append_nulls(len) : _append_rows(nested, row_pos + start, len);
+    });
 }
 
 uint64_t ScalarColumnWriter::estimate_buffer_size() {
@@ -907,30 +788,39 @@ Status OffsetColumnWriter::init() {
     return Status::OK();
 }
 
-Status OffsetColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
-    size_t remaining = num_rows;
-    while (remaining > 0) {
-        size_t num_written = remaining;
-        RETURN_IF_ERROR(append_data_in_current_page(ptr, &num_written));
-        // Callers provide one extra tail offset after the written rows so the page footer can
-        // store the next array item ordinal for the current page.
-        _next_offset = *(const uint64_t*)(*ptr);
-        remaining -= num_written;
-
-        if (_page_builder->is_page_full()) {
-            // get next data for next array_item_rowid
-            RETURN_IF_ERROR(finish_current_page());
-        }
-    }
-    return Status::OK();
+Status OffsetColumnWriter::append(const IColumn& column, size_t row_pos, size_t num_rows) {
+    const auto& offsets = assert_cast<const ColumnOffset64&>(column).get_data();
+    DCHECK_LE(row_pos + num_rows + 1, offsets.size());
+    return _fill_pages(num_rows, [&](size_t pos, size_t* num_written) {
+        RETURN_IF_ERROR(_append_rows_in_current_page(column, row_pos + pos, num_written));
+        _next_offset = offsets[row_pos + pos + *num_written];
+        return Status::OK();
+    });
 }
 
 void OffsetColumnWriter::put_extra_info_in_page(DataPageFooterPB* footer) {
     footer->set_next_array_item_ordinal(_next_offset);
 }
 
+Status NullMapColumnWriter::append_null_map(const uint8_t* null_map, size_t num_rows,
+                                            uint8_t fill) {
+    std::vector<uint8_t> filled;
+    if (null_map == nullptr) {
+        filled.assign(num_rows, fill);
+        null_map = filled.data();
+    }
+    auto* cells = assert_cast<FixedWidthPageBuilder<FieldType::OLAP_FIELD_TYPE_TINYINT>*>(
+            _page_builder_ptr());
+    return _fill_pages(num_rows, [&](size_t pos, size_t* num_written) {
+        RETURN_IF_ERROR(
+                cells->add_cells(reinterpret_cast<const int8_t*>(null_map + pos), num_written));
+        _advance_rows(*num_written);
+        return Status::OK();
+    });
+}
+
 StructColumnWriter::StructColumnWriter(
-        const ColumnWriterOptions& opts, TabletColumnPtr column, ScalarColumnWriter* null_writer,
+        const ColumnWriterOptions& opts, TabletColumnPtr column, NullMapColumnWriter* null_writer,
         std::vector<std::unique_ptr<ColumnWriter>>& sub_column_writers)
         : ColumnWriter(std::move(column), opts.meta->is_nullable(), opts.meta), _opts(opts) {
     for (auto& sub_column_writer : sub_column_writers) {
@@ -962,21 +852,16 @@ Status StructColumnWriter::write_inverted_index() {
     return Status::OK();
 }
 
-Status StructColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
-                                           size_t num_rows) {
-    RETURN_IF_ERROR(append_data(ptr, num_rows));
-    RETURN_IF_ERROR(_null_writer->append_data(&null_map, num_rows));
-    return Status::OK();
-}
-
-Status StructColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
-    const auto* results = reinterpret_cast<const uint64_t*>(*ptr);
+Status StructColumnWriter::append(const IColumn& column, size_t row_pos, size_t num_rows) {
+    const uint8_t* null_map = nullptr;
+    const IColumn& nested = peel_nullable(column, row_pos, &null_map);
+    const auto* col_struct = assert_cast<const ColumnStruct*>(&nested);
     for (size_t i = 0; i < _num_sub_column_writers; ++i) {
-        auto nullmap = *(results + _num_sub_column_writers + i);
-        auto data = *(results + i);
-        RETURN_IF_ERROR(_sub_column_writers[i]->append(reinterpret_cast<const uint8_t*>(nullmap),
-                                                       reinterpret_cast<const void*>(data),
-                                                       num_rows));
+        RETURN_IF_ERROR(
+                _sub_column_writers[i]->append(*col_struct->get_column_ptr(i), row_pos, num_rows));
+    }
+    if (is_nullable()) {
+        RETURN_IF_ERROR(_null_writer->append_null_map(null_map, num_rows, 0));
     }
     return Status::OK();
 }
@@ -1021,25 +906,13 @@ Status StructColumnWriter::write_ordinal_index() {
     return Status::OK();
 }
 
-Status StructColumnWriter::append_nulls(size_t num_rows) {
-    for (auto& column_writer : _sub_column_writers) {
-        RETURN_IF_ERROR(column_writer->append_nulls(num_rows));
-    }
-    if (is_nullable()) {
-        std::vector<UInt8> null_signs(num_rows, 1);
-        const uint8_t* null_sign_ptr = null_signs.data();
-        RETURN_IF_ERROR(_null_writer->append_data(&null_sign_ptr, num_rows));
-    }
-    return Status::OK();
-}
-
 Status StructColumnWriter::finish_current_page() {
     return Status::NotSupported("struct writer has no data, can not finish_current_page");
 }
 
 ArrayColumnWriter::ArrayColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
                                      OffsetColumnWriter* offset_writer,
-                                     ScalarColumnWriter* null_writer,
+                                     NullMapColumnWriter* null_writer,
                                      std::unique_ptr<ColumnWriter> item_writer)
         : ColumnWriter(std::move(column), opts.meta->is_nullable(), opts.meta),
           _item_writer(std::move(item_writer)),
@@ -1092,30 +965,27 @@ Status ArrayColumnWriter::write_ann_index() {
     return Status::OK();
 }
 
-// batch append data for array
-Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
-    // data_ptr contains
-    // [size, offset_ptr, item_data_ptr, item_nullmap_ptr]
-    auto data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
-    // total number length
-    size_t element_cnt = size_t((unsigned long)(*data_ptr));
-    auto offset_data = *(data_ptr + 1);
-    const uint8_t* offsets_ptr = (const uint8_t*)offset_data;
-    auto data = *(data_ptr + 2);
-    auto nested_null_map = *(data_ptr + 3);
+Status ArrayColumnWriter::append(const IColumn& column, size_t row_pos, size_t num_rows) {
+    const uint8_t* null_map = nullptr;
+    const IColumn& nested = peel_nullable(column, row_pos, &null_map);
+    const auto* col_array = assert_cast<const ColumnArray*>(&nested);
+
+    const size_t element_cnt =
+            rebase_offsets(col_array->get_offsets(), row_pos, num_rows,
+                           _item_writer->get_next_rowid(), _offsets_buffer.get());
+    const size_t first_item = col_array->offset_at(cast_set<ssize_t, size_t, false>(row_pos));
+    const IColumn& items = *col_array->get_data_ptr();
+
     if (element_cnt > 0) {
-        RETURN_IF_ERROR(_item_writer->append(reinterpret_cast<const uint8_t*>(nested_null_map),
-                                             reinterpret_cast<const void*>(data), element_cnt));
+        RETURN_IF_ERROR(_item_writer->append(items, first_item, element_cnt));
     }
+
     if (_opts.need_inverted_index) {
         auto* writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
         // now only support nested type is scala
         if (writer != nullptr) {
-            //NOTE: use array field name as index field, but item_writer size should be used when moving item_data_ptr
-            RETURN_IF_ERROR(_inverted_index_writer->add_array_values(
-                    field_type_size(_item_writer->get_column()->type()),
-                    reinterpret_cast<const void*>(data),
-                    reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
+            RETURN_IF_ERROR(feed_array_index(_inverted_index_writer.get(), items, first_item,
+                                             *_offsets_buffer, null_map));
         }
     }
 
@@ -1123,11 +993,9 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
         auto* writer = dynamic_cast<ScalarColumnWriter*>(_item_writer.get());
         // now only support nested type is scala
         if (writer != nullptr) {
-            //NOTE: use array field name as index field, but item_writer size should be used when moving item_data_ptr
-            RETURN_IF_ERROR(_ann_index_writer->add_array_values(
-                    field_type_size(_item_writer->get_column()->type()),
-                    reinterpret_cast<const void*>(data),
-                    reinterpret_cast<const uint8_t*>(nested_null_map), offsets_ptr, num_rows));
+            // The ANN writer takes no null map: it rejects one outright.
+            RETURN_IF_ERROR(feed_array_index(_ann_index_writer.get(), items, first_item,
+                                             *_offsets_buffer, nullptr));
         } else {
             return Status::NotSupported(
                     "Ann index can only be build on array with scalar type. but got {} as "
@@ -1136,7 +1004,11 @@ Status ArrayColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
         }
     }
 
-    RETURN_IF_ERROR(_offset_writer->append_data(&offsets_ptr, num_rows));
+    RETURN_IF_ERROR(_offset_writer->append(*_offsets_buffer, 0, num_rows));
+
+    if (is_nullable()) {
+        RETURN_IF_ERROR(_null_writer->append_null_map(null_map, num_rows, 0));
+    }
     return Status::OK();
 }
 
@@ -1144,18 +1016,6 @@ uint64_t ArrayColumnWriter::estimate_buffer_size() {
     return _offset_writer->estimate_buffer_size() +
            (is_nullable() ? _null_writer->estimate_buffer_size() : 0) +
            _item_writer->estimate_buffer_size();
-}
-
-Status ArrayColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
-                                          size_t num_rows) {
-    RETURN_IF_ERROR(append_data(ptr, num_rows));
-    if (is_nullable()) {
-        if (_opts.need_inverted_index) {
-            RETURN_IF_ERROR(_inverted_index_writer->add_array_nulls(null_map, num_rows));
-        }
-        RETURN_IF_ERROR(_null_writer->append_data(&null_map, num_rows));
-    }
-    return Status::OK();
 }
 
 Status ArrayColumnWriter::finish() {
@@ -1190,21 +1050,12 @@ Status ArrayColumnWriter::write_ordinal_index() {
 
 Status ArrayColumnWriter::append_nulls(size_t num_rows) {
     const UInt64 offset = cast_set<UInt64>(_item_writer->get_next_rowid());
-    std::vector<UInt64> offsets_data(num_rows + 1, offset);
-    const uint8_t* offsets_ptr = reinterpret_cast<const uint8_t*>(offsets_data.data());
-    RETURN_IF_ERROR(_offset_writer->append_data(&offsets_ptr, num_rows));
-    return write_null_column(num_rows, true);
-}
-
-Status ArrayColumnWriter::write_null_column(size_t num_rows, bool is_null) {
-    uint8_t null_sign = is_null ? 1 : 0;
-    while (is_nullable() && num_rows > 0) {
-        // TODO llj bulk write
-        const uint8_t* null_sign_ptr = &null_sign;
-        RETURN_IF_ERROR(_null_writer->append_data(&null_sign_ptr, 1));
-        --num_rows;
+    const auto offsets = ColumnOffset64::create(num_rows + 1, offset);
+    RETURN_IF_ERROR(_offset_writer->append(*offsets, 0, num_rows));
+    if (!is_nullable()) {
+        return Status::OK();
     }
-    return Status::OK();
+    return _null_writer->append_null_map(nullptr, num_rows, 1);
 }
 
 Status ArrayColumnWriter::finish_current_page() {
@@ -1213,7 +1064,8 @@ Status ArrayColumnWriter::finish_current_page() {
 
 /// ============================= MapColumnWriter =====================////
 MapColumnWriter::MapColumnWriter(const ColumnWriterOptions& opts, TabletColumnPtr column,
-                                 ScalarColumnWriter* null_writer, OffsetColumnWriter* offset_writer,
+                                 NullMapColumnWriter* null_writer,
+                                 OffsetColumnWriter* offset_writer,
                                  std::vector<std::unique_ptr<ColumnWriter>>& kv_writers)
         : ColumnWriter(std::move(column), opts.meta->is_nullable(), opts.meta), _opts(opts) {
     CHECK_EQ(kv_writers.size(), 2);
@@ -1263,38 +1115,26 @@ Status MapColumnWriter::finish() {
     return Status::OK();
 }
 
-Status MapColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
-                                        size_t num_rows) {
-    RETURN_IF_ERROR(append_data(ptr, num_rows));
+Status MapColumnWriter::append(const IColumn& column, size_t row_pos, size_t num_rows) {
+    const uint8_t* null_map = nullptr;
+    const IColumn& nested = peel_nullable(column, row_pos, &null_map);
+    const auto* col_map = assert_cast<const ColumnMap*>(&nested);
+
+    const size_t elem_size =
+            rebase_offsets(col_map->get_offsets(), row_pos, num_rows,
+                           _kv_writers[0]->get_next_rowid(), _map_offsets_buffer.get());
+
+    if (elem_size > 0) {
+        const size_t first_item = col_map->offset_at(cast_set<ssize_t, size_t, false>(row_pos));
+        RETURN_IF_ERROR(_kv_writers[0]->append(*col_map->get_keys_ptr(), first_item, elem_size));
+        RETURN_IF_ERROR(_kv_writers[1]->append(*col_map->get_values_ptr(), first_item, elem_size));
+    }
+
+    RETURN_IF_ERROR(_offsets_writer->append(*_map_offsets_buffer, 0, num_rows));
+
     if (is_nullable()) {
-        RETURN_IF_ERROR(_null_writer->append_data(&null_map, num_rows));
+        RETURN_IF_ERROR(_null_writer->append_null_map(null_map, num_rows, 0));
     }
-    return Status::OK();
-}
-
-// write key value data with offsets
-Status MapColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
-    // data_ptr contains
-    // [size, offset_ptr, key_data_ptr, val_data_ptr, k_nullmap_ptr, v_nullmap_pr]
-    // which converted results from olap_map_convertor and later will use a structure to replace it
-    auto data_ptr = reinterpret_cast<const uint64_t*>(*ptr);
-    // total number length
-    size_t element_cnt = size_t((unsigned long)(*data_ptr));
-    auto offset_data = *(data_ptr + 1);
-    const uint8_t* offsets_ptr = (const uint8_t*)offset_data;
-
-    if (element_cnt > 0) {
-        for (size_t i = 0; i < 2; ++i) {
-            auto data = *(data_ptr + 2 + i);
-            auto nested_null_map = *(data_ptr + 2 + 2 + i);
-            RETURN_IF_ERROR(
-                    _kv_writers[i]->append(reinterpret_cast<const uint8_t*>(nested_null_map),
-                                           reinterpret_cast<const void*>(data), element_cnt));
-        }
-    }
-    // make sure the order : offset writer flush next_array_item_ordinal after kv_writers append_data
-    // because we use _kv_writers[0]->get_next_rowid() to set next_array_item_ordinal in offset page footer
-    RETURN_IF_ERROR(_offsets_writer->append_data(&offsets_ptr, num_rows));
     return Status::OK();
 }
 
@@ -1322,23 +1162,6 @@ Status MapColumnWriter::write_ordinal_index() {
     return Status::OK();
 }
 
-Status MapColumnWriter::append_nulls(size_t num_rows) {
-    for (auto& sub_writer : _kv_writers) {
-        RETURN_IF_ERROR(sub_writer->append_nulls(num_rows));
-    }
-    const UInt64 offset = cast_set<UInt64>(_kv_writers[0]->get_next_rowid());
-    std::vector<UInt64> offsets_data(num_rows + 1, offset);
-    const uint8_t* offsets_ptr = reinterpret_cast<const uint8_t*>(offsets_data.data());
-    RETURN_IF_ERROR(_offsets_writer->append_data(&offsets_ptr, num_rows));
-
-    if (is_nullable()) {
-        std::vector<UInt8> null_signs(num_rows, 1);
-        const uint8_t* null_sign_ptr = null_signs.data();
-        RETURN_IF_ERROR(_null_writer->append_data(&null_sign_ptr, num_rows));
-    }
-    return Status::OK();
-}
-
 Status MapColumnWriter::finish_current_page() {
     return Status::NotSupported("map writer has no data, can not finish_current_page");
 }
@@ -1359,8 +1182,10 @@ Status VariantColumnWriter::init() {
     return _impl->init();
 }
 
-Status VariantColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
-    RETURN_IF_ERROR(_impl->append_data(ptr, num_rows));
+Status VariantColumnWriter::append(const IColumn& column, size_t row_pos, size_t num_rows) {
+    const uint8_t* null_map = nullptr;
+    const IColumn& nested = peel_nullable(column, row_pos, &null_map);
+    RETURN_IF_ERROR(_impl->append(nested, row_pos, num_rows, null_map));
     _next_rowid += num_rows;
     return Status::OK();
 }
@@ -1388,13 +1213,6 @@ Status VariantColumnWriter::write_inverted_index() {
 }
 Status VariantColumnWriter::write_bloom_filter_index() {
     return _impl->write_bloom_filter_index();
-}
-
-Status VariantColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
-                                            size_t num_rows) {
-    RETURN_IF_ERROR(_impl->append_nullable(null_map, ptr, num_rows));
-    _next_rowid += num_rows;
-    return Status::OK();
 }
 
 } // namespace doris::segment_v2

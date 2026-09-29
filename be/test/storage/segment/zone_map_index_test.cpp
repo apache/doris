@@ -28,6 +28,9 @@
 #include <vector>
 
 #include "common/config.h"
+#include "core/column/column_decimal.h"
+#include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/define_primitive_type.h"
 #include "core/decimal12.h"
@@ -49,6 +52,34 @@
 namespace doris {
 namespace segment_v2 {
 
+namespace {
+
+// One batch of values as the compute-layer column the writer takes.
+void add_strings(ZoneMapIndexWriter& writer, const std::vector<std::string>& values) {
+    auto column = ColumnString::create();
+    for (const auto& value : values) {
+        column->insert_data(value.data(), value.size());
+    }
+    writer.add(*column, 0, values.size());
+}
+
+template <typename ColumnT, typename T>
+void add_values(ZoneMapIndexWriter& writer, const std::vector<T>& values) {
+    auto column = [] {
+        if constexpr (std::is_same_v<ColumnT, ColumnDecimal128V2>) {
+            return ColumnT::create(0, 9);
+        } else {
+            return ColumnT::create();
+        }
+    }();
+    for (const auto& value : values) {
+        column->insert_value(value);
+    }
+    writer.add(*column, 0, values.size());
+}
+
+} // namespace
+
 class ColumnZoneMapTest : public testing::Test {
 public:
     const std::string kTestDir = "./ut_dir/zone_map_index_test";
@@ -69,16 +100,10 @@ public:
         std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
         static_cast<void>(ZoneMapIndexWriter::create(data_type_ptr, field, builder));
         std::vector<std::string> values1 = {"aaaa", "bbbb", "cccc", "dddd", "eeee", "ffff"};
-        for (auto& value : values1) {
-            Slice slice(value);
-            builder->add_values((const uint8_t*)&slice, 1);
-        }
+        add_strings(*builder, values1);
         static_cast<void>(builder->flush());
         std::vector<std::string> values2 = {"aaaaa", "bbbbb", "ccccc", "ddddd", "eeeee", "fffff"};
-        for (auto& value : values2) {
-            Slice slice(value);
-            builder->add_values((const uint8_t*)&slice, 1);
-        }
+        add_strings(*builder, values2);
         builder->add_nulls(1);
         static_cast<void>(builder->flush());
         for (int i = 0; i < 6; ++i) {
@@ -149,9 +174,7 @@ public:
                 'y'; // last byte should be incremented
 
         {
-            Slice slices[] = {Slice(short_string), Slice(big_long_string1),
-                              Slice(small_long_string1)};
-            writer->add_values(&slices, 3);
+            add_strings(*writer, {short_string, big_long_string1, small_long_string1});
             if (pass_all) {
                 writer->invalid_page_zone_map();
             }
@@ -163,9 +186,7 @@ public:
         big_long_string2_expect[MAX_ZONE_MAP_INDEX_SIZE - 1] =
                 'z'; // last byte should be incremented
         {
-            Slice slices[] = {Slice(short_string), Slice(big_long_string2),
-                              Slice(small_long_string1)};
-            writer->add_values(&slices, 3);
+            add_strings(*writer, {short_string, big_long_string2, small_long_string1});
             if (pass_all) {
                 writer->invalid_page_zone_map();
             }
@@ -252,17 +273,12 @@ public:
                 DataTypeFactory::instance().create_data_type(TYPE_CHAR, true, 0, 0, length);
         auto tab_col = create_char_key(0, true, length);
         const TabletColumn* field = tab_col.get();
-        // ZoneMap writer stores whatever slice bytes it receives. In production
-        // OlapColumnDataConvertorChar pads CHAR slices to the declared length
-        // before they reach the writer; from_olap_string strnlens at read time
-        // so the materialized Field is always unpadded. This test passes raw
-        // shorter slices directly to the writer to exercise the strnlen path.
+        // The writer stores the logical value, so the on-disk bound is unpadded.
         std::string s_less_than_char_len1(length - 1, 'a');
         std::string s_less_than_char_len2(length - 2, 'b');
         std::unique_ptr<ZoneMapIndexWriter> writer;
         ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, field, writer).ok());
-        Slice slices[] = {Slice(s_less_than_char_len1), Slice(s_less_than_char_len2)};
-        writer->add_values(&slices, 2);
+        add_strings(*writer, {s_less_than_char_len1, s_less_than_char_len2});
         if (pass_all) {
             writer->invalid_page_zone_map();
         }
@@ -355,8 +371,11 @@ public:
         decimal12_t decimal3 {.integer = 323, .fraction = 45678};
 
         {
-            decimal12_t values[] = {decimal1, decimal2, decimal3};
-            writer->add_values(&values, 3);
+            add_values<ColumnDecimal128V2>(
+                    *writer, std::vector<DecimalV2Value> {
+                                     DecimalV2Value(decimal1.integer, decimal1.fraction),
+                                     DecimalV2Value(decimal2.integer, decimal2.fraction),
+                                     DecimalV2Value(decimal3.integer, decimal3.fraction)});
             if (pass_all) {
                 writer->invalid_page_zone_map();
             }
@@ -441,9 +460,8 @@ public:
         VecDateTimeValue value1(false, TIME_DATE, 0, 0, 0, 2026, 2, 1);
         VecDateTimeValue value2(false, TIME_DATE, 0, 0, 0, 2026, 2, 2);
         VecDateTimeValue value3(false, TIME_DATE, 0, 0, 0, 2026, 2, 28);
-        uint24_t values[] = {value1.to_olap_date(), value2.to_olap_date(), value3.to_olap_date()};
         {
-            writer->add_values(&values, 3);
+            add_values<ColumnDate>(*writer, std::vector<VecDateTimeValue> {value1, value2, value3});
             if (pass_all) {
                 writer->invalid_page_zone_map();
             }
@@ -522,10 +540,9 @@ public:
         VecDateTimeValue value1(false, TIME_DATETIME, 18, 12, 10, 2026, 2, 1);
         VecDateTimeValue value2(false, TIME_DATETIME, 18, 13, 0, 2026, 2, 2);
         VecDateTimeValue value3(false, TIME_DATETIME, 18, 20, 0, 2026, 2, 28);
-        uint64_t values[] = {value1.to_olap_datetime(), value2.to_olap_datetime(),
-                             value3.to_olap_datetime()};
         {
-            writer->add_values(&values, 3);
+            add_values<ColumnDateTime>(*writer,
+                                       std::vector<VecDateTimeValue> {value1, value2, value3});
             if (pass_all) {
                 writer->invalid_page_zone_map();
             }
@@ -583,8 +600,8 @@ public:
     // A STRING / VARCHAR value may hold '\0' in the middle, and the zone map
     // bound has to keep those bytes. A bound cut at the '\0' is smaller than the data it
     // stands for, so a pushed-down comparison prunes pages that do hold matching rows.
-    // CHAR is the exception: it is zero-padded to the schema length on write and the page
-    // read path cuts every CHAR value at its first '\0', so its bound is cut here too.
+    // CHAR is the exception: the page read path cuts every CHAR value at its first '\0'
+    // and from_olap_string cuts the bound the same way, so its bound is cut here too.
     template <PrimitiveType PType>
     void test_embedded_nul_bound(const std::string& testname, bool bound_is_cut) {
         // 'a' '\0' 'b' -- a value whose middle byte is '\0'.
@@ -605,8 +622,7 @@ public:
 
         std::unique_ptr<ZoneMapIndexWriter> writer;
         ASSERT_TRUE(ZoneMapIndexWriter::create(data_type, tab_col.get(), writer).ok());
-        Slice slices[] = {Slice(value), Slice(value)};
-        writer->add_values(slices, 2);
+        add_strings(*writer, {value, value});
         ASSERT_TRUE(writer->flush().ok());
 
         const std::string file_path = kTestDir + "/" + testname;
@@ -662,14 +678,10 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
     std::unique_ptr<ZoneMapIndexWriter> builder(nullptr);
     static_cast<void>(ZoneMapIndexWriter::create(data_type_ptr, field, builder));
     std::vector<int> values1 = {1, 10, 11, 20, 21, 22};
-    for (auto value : values1) {
-        builder->add_values((const uint8_t*)&value, 1);
-    }
+    add_values<ColumnInt32>(*builder, values1);
     static_cast<void>(builder->flush());
     std::vector<int> values2 = {2, 12, 31, 23, 21, 22};
-    for (auto value : values2) {
-        builder->add_values((const uint8_t*)&value, 1);
-    }
+    add_values<ColumnInt32>(*builder, values2);
     builder->add_nulls(1);
     static_cast<void>(builder->flush());
     builder->add_nulls(6);
@@ -763,6 +775,42 @@ TEST_F(ColumnZoneMapTest, DateTimeV1) {
     test_datetimev1(true);
 }
 
+// The TimeType a V1 value carries is not stored with it: insert_default() writes
+// VecDateTimeValue::DEFAULT_VALUE, whose TimeType is not a valid one (a partial update fills the
+// NOT NULL columns it does not mention that way), and a DATE converted from a DATETIME keeps its
+// time. The bounds are the stored values either way.
+TEST_F(ColumnZoneMapTest, V1BoundsAreTheStoredValues) {
+    auto segment_bounds = [&](const TabletColumnPtr& tablet_column, PrimitiveType type,
+                              const IColumn& column, const std::string& file_name) {
+        auto data_type = DataTypeFactory::instance().create_data_type(type, true);
+        std::unique_ptr<ZoneMapIndexWriter> writer;
+        EXPECT_TRUE(ZoneMapIndexWriter::create(data_type, tablet_column.get(), writer).ok());
+        writer->add(column, 0, column.size());
+        EXPECT_TRUE(writer->flush().ok());
+        io::FileWriterPtr file_writer;
+        EXPECT_TRUE(_fs->create_file(kTestDir + "/" + file_name, &file_writer).ok());
+        ColumnIndexMetaPB index_meta;
+        EXPECT_TRUE(writer->finish(file_writer.get(), &index_meta).ok());
+        EXPECT_TRUE(file_writer->close().ok());
+        const auto& zone_map = index_meta.zone_map_index().segment_zone_map();
+        return std::make_pair(zone_map.min(), zone_map.max());
+    };
+
+    auto dates = ColumnDate::create();
+    dates->insert_value(VecDateTimeValue(false, TIME_DATETIME, 12, 34, 56, 1960, 6, 15));
+    dates->insert_default();
+    EXPECT_EQ(segment_bounds(create_datev1_key(0, true), TYPE_DATE, *dates, "datev1_bounds"),
+              std::make_pair(std::string("1960-06-15"), std::string("1970-01-01")));
+
+    auto datetimes = ColumnDateTime::create();
+    datetimes->insert_value(VecDateTimeValue(false, TIME_DATE, 0, 0, 0, 1960, 6, 15));
+    datetimes->insert_default();
+    EXPECT_EQ(
+            segment_bounds(create_datetimev1_key(0, true), TYPE_DATETIME, *datetimes,
+                           "datetimev1_bounds"),
+            std::make_pair(std::string("1960-06-15 00:00:00"), std::string("1970-01-01 00:00:00")));
+}
+
 // Test for float/double
 template <FieldType T>
 TabletColumnPtr create_float_column(int32_t id, bool is_nullable) {
@@ -800,18 +848,14 @@ TEST_F(ColumnZoneMapTest, NormalTestFloatPage) {
             1234.56F,
     };
     // page 1
-    for (auto value : values1) {
-        builder->add_values((const uint8_t*)&value, 1);
-    }
+    add_values<ColumnFloat32>(*builder, values1);
     static_cast<void>(builder->flush());
 
     // page 2
     std::vector<float> values2 = {
             -1234.56F, -1.23456F, 0, 1.23456F, 1234.56F,
     };
-    for (auto value : values2) {
-        builder->add_values((const uint8_t*)&value, 1);
-    }
+    add_values<ColumnFloat32>(*builder, values2);
     builder->add_nulls(1);
     static_cast<void>(builder->flush());
 
@@ -886,9 +930,7 @@ TEST_F(ColumnZoneMapTest, NormalTestDoublePage) {
             1234.56789012345,
     };
     // page 1
-    for (auto value : values1) {
-        builder->add_values((const uint8_t*)&value, 1);
-    }
+    add_values<ColumnFloat64>(*builder, values1);
     static_cast<void>(builder->flush());
 
     // page 2
@@ -897,9 +939,7 @@ TEST_F(ColumnZoneMapTest, NormalTestDoublePage) {
             0,
             1234.56789012345,
     };
-    for (auto value : values2) {
-        builder->add_values((const uint8_t*)&value, 1);
-    }
+    add_values<ColumnFloat64>(*builder, values2);
     builder->add_nulls(1);
     static_cast<void>(builder->flush());
 
@@ -976,9 +1016,7 @@ TEST_F(ColumnZoneMapTest, DoubleFiniteExtremesRoundTrip) {
             0.0,
             3.141592653589793,
     };
-    for (double v : values) {
-        builder->add_values(reinterpret_cast<const uint8_t*>(&v), 1);
-    }
+    add_values<ColumnFloat64>(*builder, std::vector<double>(std::begin(values), std::end(values)));
     ASSERT_TRUE(builder->flush().ok());
 
     std::string file_path = kTestDir + "/double_finite_extremes";
@@ -1179,10 +1217,11 @@ void test_every_value_combination(const std::string& test_dir) {
         // Stay above zone_map_row_num_threshold so the writer does not invalidate the page for
         // being small, which would hide what is being tested here.
         const size_t rows = config::zone_map_row_num_threshold + 5;
+        std::vector<CppType> row_values;
         for (size_t i = 0; i < rows; ++i) {
-            CppType value = values[i % values.size()];
-            builder->add_values((const uint8_t*)&value, 1);
+            row_values.push_back(values[i % values.size()]);
         }
+        add_values<typename PrimitiveTypeTraits<Type>::ColumnType>(*builder, row_values);
         ASSERT_TRUE(builder->flush().ok()) << label;
 
         ColumnIndexMetaPB index_meta;
@@ -1238,7 +1277,7 @@ TEST_F(ColumnZoneMapTest, ReversedBoundsDegradeToPassAll) {
         pb.set_has_nan(false);
         return pb;
     };
-    // add_values() starts each call from numeric_limits::max() and ::lowest(), and a page whose
+    // add() starts each call from numeric_limits::max() and ::lowest(), and a page whose
     // only non-null values are NaN or infinity leaves them there, so the stored pair comes back
     // reversed. These strings round-trip exactly, and the reversal is the first signal either way:
     // is_reversed runs before the flag overrides.
@@ -1344,7 +1383,7 @@ TEST_F(ColumnZoneMapTest, TimestamptzPage) {
         for (auto str : values) {
             TimestampTzValue tz {};
             EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params, 0));
-            builder->add_values((const uint8_t*)&tz, 1);
+            add_values<ColumnTimeStampTz>(*builder, std::vector<TimestampTzValue> {tz});
         }
         static_cast<void>(builder->flush());
     }
@@ -1359,7 +1398,7 @@ TEST_F(ColumnZoneMapTest, TimestamptzPage) {
         for (auto str : values) {
             TimestampTzValue tz {};
             EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params, 0));
-            builder->add_values((const uint8_t*)&tz, 1);
+            add_values<ColumnTimeStampTz>(*builder, std::vector<TimestampTzValue> {tz});
         }
         builder->add_nulls(1);
         static_cast<void>(builder->flush());
@@ -1374,7 +1413,7 @@ TEST_F(ColumnZoneMapTest, TimestamptzPage) {
         for (auto str : values) {
             TimestampTzValue tz {};
             EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params, 0));
-            builder->add_values((const uint8_t*)&tz, 1);
+            add_values<ColumnTimeStampTz>(*builder, std::vector<TimestampTzValue> {tz});
         }
         builder->add_nulls(1);
         static_cast<void>(builder->flush());
@@ -1390,7 +1429,7 @@ TEST_F(ColumnZoneMapTest, TimestamptzPage) {
         for (auto str : values) {
             TimestampTzValue tz {};
             EXPECT_TRUE(tz.from_string(StringRef {str}, &time_zone, params, 0));
-            builder->add_values((const uint8_t*)&tz, 1);
+            add_values<ColumnTimeStampTz>(*builder, std::vector<TimestampTzValue> {tz});
         }
         builder->add_nulls(1);
         static_cast<void>(builder->flush());
@@ -1504,9 +1543,9 @@ TEST_F(ColumnZoneMapTest, TimeStampNsWriteReadFilter) {
     };
     writer->add_nulls(2);
     ASSERT_TRUE(writer->flush().ok());
-    writer->add_values(values, 2);
+    add_values<ColumnTimeStampNs>(*writer, std::vector<TimeStampNsValue> {values[0], values[1]});
     ASSERT_TRUE(writer->flush().ok());
-    writer->add_values(values + 2, 2);
+    add_values<ColumnTimeStampNs>(*writer, std::vector<TimeStampNsValue> {values[2], values[3]});
     writer->add_nulls(1);
     ASSERT_TRUE(writer->flush().ok());
     writer->add_nulls(2);
@@ -1589,9 +1628,7 @@ TEST_F(ColumnZoneMapTest, AllNullPageAfterIntValues_SegmentMinMaxPreserved) {
 
     // Page 1: integers spanning [100, 200].
     std::vector<int32_t> values = {100, 150, 200};
-    for (int32_t v : values) {
-        writer->add_values(&v, 1);
-    }
+    add_values<ColumnInt32>(*writer, values);
     ASSERT_TRUE(writer->flush().ok());
 
     // Page 2: all nulls. Without the _page_has_minmax guard the segment
@@ -1643,8 +1680,7 @@ TEST_F(ColumnZoneMapTest, AllNullPageAfterMaxLenStringPage_NoSegmentMaxDoubleInc
 
     // Page 1: one string of exactly MAX_ZONE_MAP_INDEX_SIZE bytes, all 'x'.
     std::string long_x(MAX_ZONE_MAP_INDEX_SIZE, 'x');
-    Slice s(long_x);
-    writer->add_values(&s, 1);
+    add_strings(*writer, {long_x});
     ASSERT_TRUE(writer->flush().ok());
 
     // Page 2: only nulls — triggers the all-null-page flush path.
@@ -1683,8 +1719,8 @@ TEST_F(ColumnZoneMapTest, AllNullPageAfterMaxLenStringPage_NoSegmentMaxDoubleInc
 TEST_F(ColumnZoneMapTest, EmbeddedNulKeepsStringBound) {
     test_embedded_nul_bound<TYPE_STRING>("embedded_nul_string", /*bound_is_cut=*/false);
     test_embedded_nul_bound<TYPE_VARCHAR>("embedded_nul_varchar", /*bound_is_cut=*/false);
-    // CHAR pads with '\0' on write and cuts at the first '\0' on read, so its bound is
-    // cut the same way and stays comparable with the rows the page returns.
+    // The page read path cuts CHAR at its first '\0', so its bound is cut the same
+    // way and stays comparable with the rows the page returns.
     test_embedded_nul_bound<TYPE_CHAR>("embedded_nul_char", /*bound_is_cut=*/true);
 }
 

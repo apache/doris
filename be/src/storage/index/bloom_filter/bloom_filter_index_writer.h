@@ -32,6 +32,7 @@
 #include "util/slice.h"
 
 namespace doris {
+class IColumn;
 
 namespace io {
 class FileWriter;
@@ -49,7 +50,8 @@ public:
     BloomFilterIndexWriter() = default;
     virtual ~BloomFilterIndexWriter() = default;
 
-    virtual Status add_values(const void* values, size_t count) = 0;
+    // Rows [row_pos, row_pos + count) of `column`.
+    virtual Status add(const IColumn& column, size_t row_pos, size_t count) = 0;
 
     virtual void add_nulls(uint32_t count) = 0;
 
@@ -81,10 +83,13 @@ public:
     };
 
     static Status create(const BloomFilterOptions& bf_options, FieldType type,
-                         std::unique_ptr<BloomFilterIndexWriter>* res);
-    // This method may allocate large memory for bf, will return error
-    // when memory is exhaused to prevent oom.
-    Status add_values(const void* values, size_t count) override;
+                         std::unique_ptr<PrimaryKeyBloomFilterIndexWriterImpl>* res);
+    // The keys arrive already encoded, one at a time, never as a column.
+    Status add_key(const Slice& key);
+
+    Status add(const IColumn& column, size_t row_pos, size_t count) override {
+        return Status::NotSupported("a primary key bloom filter takes encoded keys");
+    }
 
     void add_nulls(uint32_t count) override { _has_null = true; }
 
@@ -111,7 +116,7 @@ public:
 
     NGramBloomFilterIndexWriterImpl(const BloomFilterOptions& bf_options, uint8_t gram_size,
                                     uint16_t bf_size);
-    Status add_values(const void* values, size_t count) override;
+    Status add(const IColumn& column, size_t row_pos, size_t count) override;
     void add_nulls(uint32_t) override {}
     Status flush() override;
     Status finish(io::FileWriter* file_writer, ColumnIndexMetaPB* index_meta) override;

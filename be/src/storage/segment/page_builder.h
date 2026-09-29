@@ -25,6 +25,7 @@
 
 #include "common/status.h"
 #include "storage/segment/common.h"
+#include "storage/storage_layout.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -52,16 +53,9 @@ public:
     // Column writer depends on the result to decide whether to flush current page.
     virtual bool is_page_full() = 0;
 
-    // Add a sequence of values to the page.
-    // The number of values actually added will be returned through count, which may be less
-    // than requested if the page is full.
-
-    // check page if full before truly add, return ok when page is full so that column write
-    // will switch to next page
-    // vals size should be decided according to the page build type
-    // TODO make sure vals is naturally-aligned to its type so that impls can use aligned load
-    // instead of memcpy to copy values.
-    virtual Status add(const uint8_t* vals, size_t* count) = 0;
+    // Appends rows [row_pos, row_pos + n) of `column`. `*added` rows were taken,
+    // fewer than n only when the page filled up.
+    virtual Status add(const IColumn& column, size_t row_pos, size_t n, size_t* added) = 0;
 
     // Finish building the current page, return the encoded data.
     // This api should be followed by reset() before reusing the builder
@@ -93,8 +87,26 @@ public:
     virtual uint64_t get_raw_data_size() const = 0;
 };
 
-template <typename Derived>
-class PageBuilderHelper : public PageBuilder {
+// A builder whose cells are fixed width: its FieldType's StorageValues.
+template <FieldType Type>
+class FixedWidthPageBuilder : public PageBuilder {
+public:
+    using StorageValue = typename StorageLayout<Type>::StorageValue;
+    // Appends up to *count cells, already StorageValues; *count
+    // becomes how many went in, fewer than offered only when the page is full.
+    virtual Status add_cells(const StorageValue* cells, size_t* count) = 0;
+};
+
+// A builder whose cells are Slices.
+class StringPageBuilder : public PageBuilder {
+public:
+    // Appends up to *count values; *count becomes how many went in, fewer
+    // than offered only when the page is full.
+    virtual Status add_slices(const Slice* values, size_t* count) = 0;
+};
+
+template <typename Derived, typename Base>
+class PageBuilderHelper : public Base {
 public:
     template <typename... Args>
     static Status create(PageBuilder** builder, Args&&... args) {
@@ -104,6 +116,31 @@ public:
         return Status::OK();
     }
 };
+
+// The entries of a string page builder: `add_one` takes one value and the loop
+// stops at the first full page, leaving in *count / *added how many values went
+// in.
+template <class AddOne>
+Status add_each_slice(PageBuilder& builder, const Slice* values, size_t* count, AddOne add_one) {
+    size_t i = 0;
+    for (; !builder.is_page_full() && i < *count; ++i) {
+        RETURN_IF_ERROR(add_one(values[i]));
+    }
+    *count = i;
+    return Status::OK();
+}
+
+template <FieldType Type, class AddOne>
+Status add_string_cells(PageBuilder& builder, const IColumn& column, size_t row_pos, size_t n,
+                        PaddedPODArray<char>& tmp_buffer, size_t* added, AddOne add_one) {
+    size_t i = 0;
+    for (; !builder.is_page_full() && i < n; ++i) {
+        const StringRef value = StorageLayout<Type>::storage_at(column, row_pos + i, tmp_buffer);
+        RETURN_IF_ERROR(add_one(Slice(value.data, value.size)));
+    }
+    *added = i;
+    return Status::OK();
+}
 
 } // namespace segment_v2
 } // namespace doris

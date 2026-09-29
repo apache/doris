@@ -46,10 +46,9 @@ public:
 
     Status init() override;
     void set_direct_load(bool is_direct_load) override;
-    Status add_values(const std::string name, const void* values, size_t count) override;
-    Status add_array_values(size_t field_size, const void* value_ptr,
-                            const uint8_t* nested_null_map, const uint8_t* offsets_ptr,
-                            size_t count) override;
+    Status add(const IColumn& column, size_t row_pos, size_t n) override;
+    Status add_array(const IColumn& items, size_t first_item, const uint64_t* offsets,
+                     size_t num_rows) override;
     Status add_nulls(uint32_t count) override;
     Status add_array_nulls(const uint8_t* null_map, size_t num_rows) override;
     Status finish() override;

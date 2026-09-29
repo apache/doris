@@ -186,7 +186,7 @@ TEST_F(EncodingInfoTest, test_all_pre_decoders) {
         ASSERT_NE(nullptr, pre_decoder) << "Type " << static_cast<int>(type)
                                         << " with PLAIN_ENCODING_V2 should have pre_decoder";
         // CHAR PLAIN_ENCODING_V2 is wired to BinaryPlainPageV2PreDecoder<true>
-        // so the trailing '\0' padding written by OlapColumnDataConvertorChar
+        // so the trailing '\0' padding an old segment's CHAR page carries
         // is stripped at page load time; other binary types use the regular
         // <false> instantiation.
         bool ok =
@@ -266,7 +266,7 @@ TEST_F(EncodingInfoTest, test_all_pre_decoders) {
             auto* pre_decoder = encoding_info->get_data_page_pre_decoder();
             if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
                 // CHAR PLAIN_ENCODING has a CHAR-strip pre-decoder that strips
-                // the trailing '\0' padding written by the convertor.
+                // the trailing '\0' padding an old segment's CHAR page carries.
                 EXPECT_NE(nullptr, pre_decoder)
                         << "CHAR with PLAIN_ENCODING should have a pre_decoder";
                 EXPECT_NE(nullptr, dynamic_cast<BinaryPlainPageCharStripPreDecoder*>(pre_decoder))

@@ -135,17 +135,13 @@ TEST_F(DateBloomFilterTest, query_index_test) {
 
     auto date = timestamp_from_date("2024-11-08");
     auto datetime = timestamp_from_datetime("2024-11-08 09:00:00");
-    uint24_t olap_date_value(date.to_olap_date());
-    uint64_t olap_datetime_value(datetime.to_olap_datetime());
-    columns[0]->insert_many_fix_len_data(reinterpret_cast<const char*>(&olap_date_value), 1);
-    columns[1]->insert_many_fix_len_data(reinterpret_cast<const char*>(&olap_datetime_value), 1);
+    columns[0]->insert_data(reinterpret_cast<const char*>(&date), sizeof(date));
+    columns[1]->insert_data(reinterpret_cast<const char*>(&datetime), sizeof(datetime));
 
     date = timestamp_from_date("2024-11-09");
     datetime = timestamp_from_datetime("2024-11-09 09:00:00");
-    olap_date_value = date.to_olap_date();
-    olap_datetime_value = datetime.to_olap_datetime();
-    columns[0]->insert_many_fix_len_data(reinterpret_cast<const char*>(&olap_date_value), 1);
-    columns[1]->insert_many_fix_len_data(reinterpret_cast<const char*>(&olap_datetime_value), 1);
+    columns[0]->insert_data(reinterpret_cast<const char*>(&date), sizeof(date));
+    columns[1]->insert_data(reinterpret_cast<const char*>(&datetime), sizeof(datetime));
     block.set_columns(std::move(columns));
 
     Status st;
@@ -230,17 +226,13 @@ TEST_F(DateBloomFilterTest, in_list_predicate_test) {
     // Insert test data
     auto date = timestamp_from_date("2024-11-08");
     auto datetime = timestamp_from_datetime("2024-11-08 09:00:00");
-    uint24_t olap_date_value(date.to_olap_date());
-    uint64_t olap_datetime_value(datetime.to_olap_datetime());
-    columns[0]->insert_many_fix_len_data(reinterpret_cast<const char*>(&olap_date_value), 1);
-    columns[1]->insert_many_fix_len_data(reinterpret_cast<const char*>(&olap_datetime_value), 1);
+    columns[0]->insert_data(reinterpret_cast<const char*>(&date), sizeof(date));
+    columns[1]->insert_data(reinterpret_cast<const char*>(&datetime), sizeof(datetime));
 
     date = timestamp_from_date("2024-11-09");
     datetime = timestamp_from_datetime("2024-11-09 09:00:00");
-    olap_date_value = date.to_olap_date();
-    olap_datetime_value = datetime.to_olap_datetime();
-    columns[0]->insert_many_fix_len_data(reinterpret_cast<const char*>(&olap_date_value), 1);
-    columns[1]->insert_many_fix_len_data(reinterpret_cast<const char*>(&olap_datetime_value), 1);
+    columns[0]->insert_data(reinterpret_cast<const char*>(&date), sizeof(date));
+    columns[1]->insert_data(reinterpret_cast<const char*>(&datetime), sizeof(datetime));
     block.set_columns(std::move(columns));
 
     EXPECT_TRUE(rowset_writer->add_block(&block).ok());

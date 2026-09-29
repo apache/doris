@@ -39,7 +39,6 @@ class BitmapValue;
 struct RowLocation;
 class Block;
 class MutableBlock;
-class IOlapColumnDataAccessor;
 namespace segment_v2 {
 struct HistoricalRowRetrieverContext;
 }
@@ -48,7 +47,6 @@ struct RowsetWriterContext;
 struct RowsetId;
 class BitmapValue;
 class HistoricalRowFetcher;
-class OlapBlockDataConvertor;
 class RowKeyEncoder;
 struct MowContext;
 namespace segment_v2 {
@@ -213,17 +211,14 @@ class BlockAggregator {
 public:
     ~BlockAggregator();
     // All references must live longer than the aggregator; the flexible fill
-    // stage builds everything as locals in one apply() scope. The aggregator
-    // owns its block convertor (key + sequence column slots).
+    // stage builds everything as locals in one apply() scope.
     BlockAggregator(TabletSchema& tablet_schema, BaseTabletSPtr tablet,
                     std::shared_ptr<MowContext> mow_context,
                     const PartialUpdateInfo& partial_update_info, const RowKeyEncoder& key_encoder,
                     const segment_v2::MowKeyProbe& probe, HistoricalRowFetcher& fetcher);
 
-    Status convert_pk_columns(Block* block, size_t row_pos, size_t num_rows,
-                              std::vector<IOlapColumnDataAccessor*>& key_columns);
-    Status convert_seq_column(Block* block, size_t row_pos, size_t num_rows,
-                              IOlapColumnDataAccessor*& seq_column);
+    void collect_pk_columns(const Block& block, std::vector<const IColumn*>& key_columns) const;
+    void collect_seq_column(const Block& block, const IColumn*& seq_column) const;
     // Optional sidecars are aggregated and filtered with `block`; on return each element is
     // aligned with the corresponding row in the final block. A non-zero
     // `insert_after_delete_flags` entry marks the surviving INSERT of a same-batch
@@ -236,13 +231,12 @@ public:
 
 private:
     Status aggregate_for_sequence_column(
-            Block* block, int num_rows, const std::vector<IOlapColumnDataAccessor*>& key_columns,
-            IOlapColumnDataAccessor* seq_column,
-            const std::vector<RowsetSharedPtr>& specified_rowsets,
+            Block* block, int num_rows, const std::vector<const IColumn*>& key_columns,
+            const IColumn* seq_column, const std::vector<RowsetSharedPtr>& specified_rowsets,
             std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
             std::vector<int64_t>* row_lsns);
     Status aggregate_for_insert_after_delete(
-            Block* block, size_t num_rows, const std::vector<IOlapColumnDataAccessor*>& key_columns,
+            Block* block, size_t num_rows, const std::vector<const IColumn*>& key_columns,
             const std::vector<RowsetSharedPtr>& specified_rowsets,
             std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
             std::vector<int64_t>* row_lsns, std::vector<uint8_t>* insert_after_delete_flags);
@@ -266,7 +260,7 @@ private:
     // aggregate rows with same keys in range [start, end) from block to output_block
     Status aggregate_rows(MutableBlock& output_block, Block* block, int start, int end,
                           std::string key, std::vector<BitmapValue>* skip_bitmaps,
-                          const signed char* delete_signs, IOlapColumnDataAccessor* seq_column,
+                          const signed char* delete_signs, const IColumn* seq_column,
                           const std::vector<RowsetSharedPtr>& specified_rowsets,
                           std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
 
@@ -277,7 +271,6 @@ private:
     std::shared_ptr<MowContext> _mow_context;
     const PartialUpdateInfo& _partial_update_info;
     const RowKeyEncoder& _key_encoder;
-    std::unique_ptr<OlapBlockDataConvertor> _convertor;
     const segment_v2::MowKeyProbe& _probe;
     HistoricalRowFetcher& _fetcher;
 

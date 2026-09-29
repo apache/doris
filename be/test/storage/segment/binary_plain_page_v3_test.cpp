@@ -55,21 +55,23 @@ public:
     }
 
     template <FieldType Type>
-    std::unique_ptr<PageBuilder> make_builder(size_t data_page_size = 256 * 1024) {
+    std::unique_ptr<BinaryPlainPageV3Builder<Type>> make_builder(size_t data_page_size = 256 *
+                                                                                         1024) {
         PageBuilderOptions opts;
         opts.data_page_size = data_page_size;
 
         PageBuilder* raw = nullptr;
         Status st = BinaryPlainPageV3Builder<Type>::create(&raw, opts);
         EXPECT_TRUE(st.ok()) << st;
-        return std::unique_ptr<PageBuilder>(raw);
+        return std::unique_ptr<BinaryPlainPageV3Builder<Type>>(
+                static_cast<BinaryPlainPageV3Builder<Type>*>(raw));
     }
 
     template <FieldType Type>
     OwnedSlice build_page(const std::vector<Slice>& slices) {
         auto builder = make_builder<Type>();
         size_t count = slices.size();
-        Status st = builder->add(reinterpret_cast<const uint8_t*>(slices.data()), &count);
+        Status st = builder->add_slices(slices.data(), &count);
         EXPECT_TRUE(st.ok()) << st;
         EXPECT_EQ(slices.size(), count);
 
@@ -80,7 +82,7 @@ public:
     }
 
     // Build the Slices fed to the builder. For CHAR, pad every value to a fixed declared
-    // length with trailing '\0' (as OlapColumnDataConvertorChar does) so the IS_CHAR read path
+    // length with trailing '\0' (as an old segment's CHAR page does) so the IS_CHAR read path
     // is exercised; `backing` owns the padded bytes and must outlive the returned Slices.
     // Decoded values must still equal the logical src_strings (callers must not pass embedded
     // '\0' in CHAR inputs).
@@ -247,7 +249,7 @@ public:
         for (size_t i = 0; i < slices.size(); ++i) {
             if (builder->is_page_full()) break;
             size_t n = 1;
-            ASSERT_TRUE(builder->add(reinterpret_cast<const uint8_t*>(&slices[i]), &n).ok());
+            ASSERT_TRUE(builder->add_slices(&slices[i], &n).ok());
             if (n > 0) added++;
         }
         EXPECT_GT(added, 0);
@@ -281,14 +283,14 @@ public:
         }
 
         size_t count = slices.size();
-        ASSERT_TRUE(builder->add(reinterpret_cast<const uint8_t*>(slices.data()), &count).ok());
+        ASSERT_TRUE(builder->add_slices(slices.data(), &count).ok());
         EXPECT_EQ(2, builder->count());
 
         ASSERT_TRUE(builder->reset().ok());
         EXPECT_EQ(0, builder->count());
 
         count = slices.size();
-        ASSERT_TRUE(builder->add(reinterpret_cast<const uint8_t*>(slices.data()), &count).ok());
+        ASSERT_TRUE(builder->add_slices(slices.data(), &count).ok());
         EXPECT_EQ(2, builder->count());
     }
 };
@@ -365,12 +367,12 @@ TEST_F(BinaryPlainPageV3Test, TestEncodeDecodeAggState) {
             {"agg_state_1", "", std::string("\x01\x02\x00\x03", 4), "another_state"});
 }
 
-// CHAR padding handling. OlapColumnDataConvertorChar pads CHAR values to their declared
+// CHAR padding handling. Segments old enough to pad CHAR store values at their declared
 // length with trailing '\0'. V3 (like V1/V2) stores the padded bytes verbatim; the padding
 // is stripped on read by BinaryPlainPageV3PreDecoder<true>.
 namespace {
 // Build a fixed-length CHAR slice payload: each logical value padded with '\0' to
-// padded_len, exactly as the convertor hands it to the page builder.
+// padded_len, as an older segment stored it.
 std::vector<std::string> make_padded_char_backing(const std::vector<std::string>& logical,
                                                   size_t padded_len) {
     std::vector<std::string> padded;

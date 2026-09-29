@@ -26,12 +26,15 @@
 #include <string>
 #include <utility>
 
+#include "core/assert_cast.h"
+#include "core/column/column_string.h"
 #include "core/packed_int128.h"
 #include "core/value/decimalv2_value.h"
 #include "storage/index/bloom_filter/bloom_filter.h" // for BloomFilterOptions, BloomFilter
 #include "storage/index/indexed_column_writer.h"
 #include "storage/index/primary_key_index.h"
 #include "storage/olap_common.h"
+#include "storage/storage_layout.h"
 #include "storage/types.h"
 #include "util/debug_points.h"
 #include "util/slice.h"
@@ -71,24 +74,20 @@ public:
 
     ~BloomFilterIndexWriterImpl() override = default;
 
-    Status add_values(const void* values, size_t count) override {
-        const auto* v = (const CppType*)values;
-        for (int i = 0; i < count; ++i) {
-            if (_values.find(*v) == _values.end()) {
-                if constexpr (_is_slice_type()) {
-                    const auto* s = reinterpret_cast<const Slice*>(v);
-                    auto hash =
-                            DORIS_TRY(BloomFilter::hash(s->data, s->size, _bf_options.strategy));
-                    _hash_values.insert(hash);
-                } else if constexpr (_is_int128()) {
-                    int128_t new_value;
-                    memcpy(&new_value, v, sizeof(PackedInt128));
-                    _values.insert(new_value);
-                } else {
-                    _values.insert(*v);
-                }
+    Status add(const IColumn& column, size_t row_pos, size_t count) override {
+        if constexpr (_is_slice_type()) {
+            const auto& strings = assert_cast<const ColumnString&>(column);
+            for (size_t i = 0; i < count; ++i) {
+                const StringRef value = strings.get_data_at(row_pos + i);
+                RETURN_IF_ERROR(_add_one(Slice(value.data, value.size)));
             }
-            ++v;
+        } else {
+            const auto& data =
+                    assert_cast<const typename StorageLayout<field_type>::Column&>(column)
+                            .get_data();
+            for (size_t i = 0; i < count; ++i) {
+                RETURN_IF_ERROR(_add_one(StorageLayout<field_type>::to_storage(data[row_pos + i])));
+            }
         }
         return Status::OK();
     }
@@ -136,7 +135,7 @@ public:
         RETURN_IF_ERROR(bf_writer.init());
         for (auto& bf : _bfs) {
             Slice data(bf->data(), bf->size());
-            RETURN_IF_ERROR(bf_writer.add(&data));
+            RETURN_IF_ERROR(bf_writer.add(data));
         }
         RETURN_IF_ERROR(bf_writer.finish(meta->mutable_bloom_filter()));
         return Status::OK();
@@ -149,6 +148,22 @@ public:
     }
 
 private:
+    Status _add_one(const CppType& v) {
+        if (_values.find(v) == _values.end()) {
+            if constexpr (_is_slice_type()) {
+                auto hash = DORIS_TRY(BloomFilter::hash(v.data, v.size, _bf_options.strategy));
+                _hash_values.insert(hash);
+            } else if constexpr (_is_int128()) {
+                int128_t new_value;
+                memcpy(&new_value, &v, sizeof(PackedInt128));
+                _values.insert(new_value);
+            } else {
+                _values.insert(v);
+            }
+        }
+        return Status::OK();
+    }
+
     // supported slice types are: FieldType::OLAP_FIELD_TYPE_CHAR|FieldType::OLAP_FIELD_TYPE_VARCHAR
     static constexpr bool _is_slice_type() {
         return field_type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
@@ -171,20 +186,16 @@ private:
 
 } // namespace
 
-Status PrimaryKeyBloomFilterIndexWriterImpl::add_values(const void* values, size_t count) {
-    const auto* v = (const Slice*)values;
-    for (int i = 0; i < count; ++i) {
-        Slice new_value;
-        new_value.size = v->size;
-        if (v->size > 0) {
-            new_value.data = _arena.alloc(v->size);
-            memcpy(new_value.data, v->data, v->size);
-        } else {
-            new_value.data = nullptr;
-        }
-        _values.push_back(new_value);
-        ++v;
+Status PrimaryKeyBloomFilterIndexWriterImpl::add_key(const Slice& key) {
+    Slice new_value;
+    new_value.size = key.size;
+    if (key.size > 0) {
+        new_value.data = _arena.alloc(key.size);
+        memcpy(new_value.data, key.data, key.size);
+    } else {
+        new_value.data = nullptr;
     }
+    _values.push_back(new_value);
     return Status::OK();
 }
 
@@ -227,7 +238,7 @@ Status PrimaryKeyBloomFilterIndexWriterImpl::finish(io::FileWriter* file_writer,
     RETURN_IF_ERROR(bf_writer.init());
     for (auto& bf : _bfs) {
         Slice data(bf->data(), bf->size());
-        RETURN_IF_ERROR(bf_writer.add(&data));
+        RETURN_IF_ERROR(bf_writer.add(data));
     }
     RETURN_IF_ERROR(bf_writer.finish(meta->mutable_bloom_filter()));
     return Status::OK();
@@ -249,13 +260,14 @@ NGramBloomFilterIndexWriterImpl::NGramBloomFilterIndexWriterImpl(
     static_cast<void>(BloomFilter::create(NGRAM_BLOOM_FILTER, &_bf, bf_size));
 }
 
-Status NGramBloomFilterIndexWriterImpl::add_values(const void* values, size_t count) {
-    const auto* src = reinterpret_cast<const Slice*>(values);
-    for (int i = 0; i < count; ++i, ++src) {
-        if (src->size < _gram_size) {
+Status NGramBloomFilterIndexWriterImpl::add(const IColumn& column, size_t row_pos, size_t count) {
+    const auto& strings = assert_cast<const ColumnString&>(column);
+    for (size_t i = 0; i < count; ++i) {
+        const StringRef value = strings.get_data_at(row_pos + i);
+        if (value.size < _gram_size) {
             continue;
         }
-        _token_extractor.string_to_bloom_filter(src->data, src->size, *_bf);
+        _token_extractor.string_to_bloom_filter(value.data, value.size, *_bf);
     }
     return Status::OK();
 }
@@ -284,7 +296,7 @@ Status NGramBloomFilterIndexWriterImpl::finish(io::FileWriter* file_writer,
     RETURN_IF_ERROR(bf_writer.init());
     for (auto& bf : _bfs) {
         Slice data(bf->data(), bf->size());
-        RETURN_IF_ERROR(bf_writer.add(&data));
+        RETURN_IF_ERROR(bf_writer.add(data));
     }
     RETURN_IF_ERROR(bf_writer.finish(meta->mutable_bloom_filter()));
     return Status::OK();
@@ -363,9 +375,9 @@ Status NGramBloomFilterIndexWriterImpl::create(const BloomFilterOptions& bf_opti
     return Status::OK();
 }
 
-Status PrimaryKeyBloomFilterIndexWriterImpl::create(const BloomFilterOptions& bf_options,
-                                                    FieldType type,
-                                                    std::unique_ptr<BloomFilterIndexWriter>* res) {
+Status PrimaryKeyBloomFilterIndexWriterImpl::create(
+        const BloomFilterOptions& bf_options, FieldType type,
+        std::unique_ptr<PrimaryKeyBloomFilterIndexWriterImpl>* res) {
     switch (type) {
     case FieldType::OLAP_FIELD_TYPE_CHAR:
     case FieldType::OLAP_FIELD_TYPE_VARCHAR:

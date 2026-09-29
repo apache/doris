@@ -40,6 +40,7 @@
 #include "gen_cpp/AgentService_types.h"
 #include "runtime/exec_env.h"
 #include "runtime/index_policy/index_policy_mgr.h"
+#include "storage/index/index_writer_feed.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
 #include "storage/index/snii/common/slice.h"
@@ -272,7 +273,7 @@ TEST(SniiSegmentReaderTest, DictBlockAnchorHeapBytesCountsLongAnchor) {
 
 // ==================== null-docids growth-policy regression pins ====================
 //
-// append_nullable feeds add_nulls once per NULL RUN -- millions of calls on a
+// ScalarColumnWriter::append feeds add_nulls once per NULL RUN -- millions of calls on a
 // large interleaved-null compaction segment. An exact reserve(size()+count)
 // inside add_nulls capped capacity at "just enough", so EVERY subsequent call
 // reallocated + memcpy'd the whole array: O(runs x N) total memcpy (the
@@ -322,7 +323,7 @@ TEST(SniiWriterFailureLatch, AnalyzerFailureDiscardsStateAndBlocksFinish) {
             create_failure_analyzer());
 
     const doris::Slice value = malformed_value_after_valid_token();
-    auto add_status = writer.add_values("", &value, 1);
+    auto add_status = add_slices(writer, &value, 1);
     ASSERT_EQ(add_status.code(), doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR);
     EXPECT_EQ(writer.term_buffer_for_test(), nullptr);
     EXPECT_EQ(writer.memory_reporter_for_test(), nullptr);

@@ -40,6 +40,7 @@
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/column_predicate.h"
+#include "storage/storage_layout.h"
 
 // for uint24_t
 template <>
@@ -346,8 +347,9 @@ public:
                 return true;
             }
             if constexpr (Type == TYPE_CHAR) {
-                // CHAR BFs hash zero-padded bytes while the predicate value is
-                // unpadded, so probing the BF would always miss. Skip BF
+                // Older segments' CHAR BFs hash zero-padded bytes while the
+                // predicate value is unpadded, so probing them would always
+                // miss, and a BF does not record which kind it is. Skip BF
                 // pruning for CHAR entirely.
                 return true;
             }
@@ -358,34 +360,12 @@ public:
                     if (bf->test_bytes(value->data, value->size)) {
                         return true;
                     }
-                } else if constexpr (Type == PrimitiveType::TYPE_DECIMALV2) {
-                    // DecimalV2 using decimal12_t in bloom filter in storage layer,
-                    // should convert value to decimal12_t
-                    // Datev1/DatetimeV1 using VecDatetimeValue in bloom filter, NO need to convert.
-                    const T* value = (const T*)(iter->get_value());
-                    decimal12_t decimal12_t_val(value->int_value(), value->frac_value());
-                    if (bf->test_bytes(reinterpret_cast<const char*>(&decimal12_t_val),
-                                       sizeof(decimal12_t))) {
-                        return true;
-                    }
-                } else if constexpr (Type == PrimitiveType::TYPE_DATE) {
-                    const T* value = (const T*)(iter->get_value());
-                    uint24_t date_value(uint32_t(value->to_olap_date()));
-                    if (bf->test_bytes(reinterpret_cast<const char*>(&date_value),
-                                       sizeof(uint24_t))) {
-                        return true;
-                    }
-                    // DatetimeV1 using int64_t in bloom filter
-                } else if constexpr (Type == PrimitiveType::TYPE_DATETIME) {
-                    const T* value = (const T*)(iter->get_value());
-                    int64_t datetime_value(value->to_olap_datetime());
-                    if (bf->test_bytes(reinterpret_cast<const char*>(&datetime_value),
-                                       sizeof(int64_t))) {
-                        return true;
-                    }
                 } else {
                     const T* value = (const T*)(iter->get_value());
-                    if (bf->test_bytes(reinterpret_cast<const char*>(value), sizeof(*value))) {
+                    const auto stored =
+                            StorageLayout<primitive_type_to_storage_field_type(Type)>::to_storage(
+                                    *value);
+                    if (bf->test_bytes(reinterpret_cast<const char*>(&stored), sizeof(stored))) {
                         return true;
                     }
                 }

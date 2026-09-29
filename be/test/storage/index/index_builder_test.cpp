@@ -2572,7 +2572,7 @@ TEST_F(IndexBuilderTest, NonNullIndexDataTest) {
     EXPECT_TRUE(status.ok()) << status.to_string();
     EXPECT_EQ(builder._alter_index_ids.size(), 1);
 
-    // 9. Build index - should trigger _add_data rather than _add_nullable
+    // 9. Build index - should take _add_column without a null map
     status = builder.do_build_inverted_index();
     EXPECT_TRUE(status.ok()) << status.to_string();
 
@@ -3964,6 +3964,88 @@ TEST_F(IndexBuilderTest, SniiBuildFailureCommitsNoRowset) {
     auto rowset = tablet->get_rowset_by_version(Version(10, 10));
     ASSERT_NE(rowset, nullptr);
     EXPECT_EQ(rowset->rowset_id(), source_rowset->rowset_id());
+}
+
+// A NOT NULL array block whose rows are all [] adds no term but still owns its
+// row ids; the rows of the next block must not slide back onto them.
+TEST_F(IndexBuilderTest, SniiBuildArrayIndexAfterAllEmptyBlock) {
+    const auto tablet_path = _absolute_dir + "/15701";
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(DUP_KEYS);
+    schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->init_from_pb(schema_pb);
+
+    TabletColumn key_column;
+    key_column.set_unique_id(1);
+    key_column.set_name("k1");
+    key_column.set_type(FieldType::OLAP_FIELD_TYPE_INT);
+    key_column.set_length(4);
+    key_column.set_index_length(4);
+    key_column.set_is_key(true);
+    key_column.set_is_nullable(false);
+    tablet_schema->append_column(key_column);
+
+    TabletColumn array_column;
+    array_column.set_unique_id(2);
+    array_column.set_name("tags");
+    array_column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    array_column.set_is_nullable(false);
+    TabletColumn item_column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                             FieldType::OLAP_FIELD_TYPE_VARCHAR, true);
+    item_column.set_length(64);
+    array_column.add_sub_column(item_column);
+    tablet_schema->append_column(array_column);
+
+    TabletSharedPtr tablet;
+    ASSERT_TRUE(create_snii_drop_tablet(tablet_schema, tablet_path, &tablet).ok());
+
+    RowsetWriterContext writer_context;
+    writer_context.rowset_id.init(15701);
+    writer_context.tablet_id = tablet->tablet_id();
+    writer_context.tablet_schema_hash = tablet->schema_hash();
+    writer_context.partition_id = 10;
+    writer_context.rowset_type = BETA_ROWSET;
+    writer_context.tablet_path = tablet_path;
+    writer_context.rowset_state = VISIBLE;
+    writer_context.tablet_schema = tablet_schema;
+    writer_context.version = Version(10, 10);
+    auto res = RowsetFactory::create_rowset_writer(*_engine_ref, writer_context, false);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto rowset_writer = std::move(res).value();
+
+    // More [] rows than one read batch (block_row_max) holds, so the builder's
+    // first block is all [].
+    constexpr int32_t kEmptyRows = 4096;
+    Block block = tablet_schema->create_storage_block();
+    auto columns = std::move(block).mutate_columns();
+    for (int32_t i = 0; i < kEmptyRows + 2; ++i) {
+        columns[0]->insert_data(reinterpret_cast<const char*>(&i), sizeof(i));
+        Array arr;
+        if (i == kEmptyRows) {
+            arr.push_back(Field::create_field<TYPE_STRING>("a"));
+        } else if (i == kEmptyRows + 1) {
+            arr.push_back(Field::create_field<TYPE_STRING>("b"));
+            arr.push_back(Field::create_field<TYPE_STRING>("a"));
+        }
+        columns[1]->insert(Field::create_field<TYPE_ARRAY>(arr));
+    }
+    block = tablet_schema->create_storage_block();
+    block.set_columns(std::move(columns));
+    ASSERT_TRUE(rowset_writer->add_block(&block).ok());
+    ASSERT_TRUE(rowset_writer->flush().ok());
+    RowsetSharedPtr source_rowset;
+    ASSERT_TRUE(rowset_writer->build(source_rowset).ok());
+    ASSERT_TRUE(tablet->add_rowset(source_rowset).ok());
+
+    std::vector<RowsetSharedPtr> output_rowsets;
+    ASSERT_TRUE(build_snii_index(tablet, {create_build_index(1, "idx_tags", "tags", 2, {})},
+                                 &output_rowsets)
+                        .ok());
+    ASSERT_EQ(output_rowsets.size(), 1U);
+    assert_snii_term(output_rowsets.front(), tablet->tablet_id(), 2, 1, "a",
+                     {kEmptyRows, kEmptyRows + 1});
+    assert_snii_term(output_rowsets.front(), tablet->tablet_id(), 2, 1, "b", {kEmptyRows + 1});
 }
 
 } // namespace doris

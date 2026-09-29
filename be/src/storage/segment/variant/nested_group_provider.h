@@ -50,7 +50,6 @@ class ColumnVariantV2;
 namespace io {
 class FileReader;
 } // namespace io
-class OlapBlockDataConvertor;
 } // namespace doris
 
 namespace doris::segment_v2 {
@@ -139,13 +138,12 @@ public:
     virtual ~NestedGroupWriteProvider() = default;
 
     virtual Status prepare(const ColumnVariantV2& variant, const TabletColumn* tablet_column,
-                           const ColumnWriterOptions& opts, OlapBlockDataConvertor* converter,
-                           int* column_id, VariantStatistics* statistics) = 0;
+                           const ColumnWriterOptions& opts, int* column_id,
+                           VariantStatistics* statistics) = 0;
 
     virtual Status prepare_with_built_groups(const NestedGroupsMap& nested_groups,
                                              const TabletColumn* tablet_column,
-                                             const ColumnWriterOptions& opts,
-                                             OlapBlockDataConvertor* converter, int* column_id,
+                                             const ColumnWriterOptions& opts, int* column_id,
                                              VariantStatistics* statistics) = 0;
 
     virtual Status init_with_plan(const NestedGroupStreamingWritePlan& plan,

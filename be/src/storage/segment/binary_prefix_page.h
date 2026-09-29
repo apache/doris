@@ -21,13 +21,16 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <string>
 #include <vector>
 
+#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "core/column/column.h"
 #include "storage/segment/options.h"
 #include "storage/segment/page_builder.h"
 #include "storage/segment/page_decoder.h"
+#include "storage/storage_layout.h"
 #include "util/coding.h"
 #include "util/faststring.h"
 #include "util/slice.h"
@@ -41,16 +44,19 @@ namespace segment_v2 {
 // Entry := SharedPrefixLength(vint), UnsharedLength(vint), Byte^UnsharedLength
 // Trailer := NumEntry(uint32_t), RESTART_POINT_INTERVAL(uint8_t)
 //            RestartPointStartOffset(uint32_t)^NumRestartPoints,NumRestartPoints(uint32_t)
-class BinaryPrefixPageBuilder : public PageBuilderHelper<BinaryPrefixPageBuilder> {
+class BinaryPrefixPageBuilder
+        : public PageBuilderHelper<BinaryPrefixPageBuilder, StringPageBuilder> {
 public:
     using Self = BinaryPrefixPageBuilder;
-    friend class PageBuilderHelper<Self>;
+    friend class PageBuilderHelper<Self, StringPageBuilder>;
 
     Status init() override { return reset(); }
 
     bool is_page_full() override { return size() >= _options.data_page_size; }
 
-    Status add(const uint8_t* vals, size_t* add_count) override;
+    Status add_slices(const Slice* values, size_t* count) override;
+
+    Status add(const IColumn& column, size_t row_pos, size_t n, size_t* added) override;
 
     Status finish(OwnedSlice* slice) override;
 
@@ -78,6 +84,8 @@ public:
 
 private:
     BinaryPrefixPageBuilder(const PageBuilderOptions& options) : _options(options) {}
+
+    inline ALWAYS_INLINE Status _add_one(const Slice& value);
 
     PageBuilderOptions _options;
     std::vector<uint32_t> _restart_points_offset;

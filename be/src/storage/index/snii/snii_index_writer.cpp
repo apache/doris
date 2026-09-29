@@ -27,6 +27,9 @@
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "core/assert_cast.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_parser.h"
@@ -206,38 +209,39 @@ Status SniiIndexColumnWriter::_add_value_tokens(const Slice& value, uint32_t doc
     return Status::OK();
 }
 
-Status SniiIndexColumnWriter::add_values(const std::string /*name*/, const void* values,
-                                         size_t count) {
+Status SniiIndexColumnWriter::add(const IColumn& column, size_t row_pos, size_t n) {
     if (!_failure_status.ok()) {
         return _failure_status;
     }
-    const auto* v = reinterpret_cast<const Slice*>(values);
-    for (size_t i = 0; i < count; ++i) {
+    const auto& strings = assert_cast<const ColumnString&>(column);
+    for (size_t i = 0; i < n; ++i) {
+        const StringRef value = strings.get_data_at(row_pos + i);
         uint32_t max_position = 0;
         uint32_t token_count = 0;
-        RETURN_IF_ERROR(_add_value_tokens(*v, _rid, 0, &max_position, &token_count));
+        RETURN_IF_ERROR(_add_value_tokens(Slice(value.data, value.size), _rid, 0, &max_position,
+                                          &token_count));
         if (_writes_norms) {
             _encoded_norms.push_back(::doris::snii::query::encode_norm(token_count));
             _report_encoded_norms_capacity();
         }
-        ++v;
         ++_rid;
     }
     return Status::OK();
 }
 
-Status SniiIndexColumnWriter::add_array_values(size_t field_size, const void* value_ptr,
-                                               const uint8_t* nested_null_map,
-                                               const uint8_t* offsets_ptr, size_t count) {
+Status SniiIndexColumnWriter::add_array(const IColumn& items, size_t first_item,
+                                        const uint64_t* offsets, size_t num_rows) {
     if (!_failure_status.ok()) {
         return _failure_status;
     }
-    if (count == 0) {
+    if (num_rows == 0) {
         return Status::OK();
     }
-    const auto* offsets = reinterpret_cast<const uint64_t*>(offsets_ptr);
+    const uint8_t* nested_null_map = nullptr;
+    const IColumn& nested = peel_nullable(items, first_item, &nested_null_map);
+    const auto& strings = assert_cast<const ColumnString&>(nested);
     size_t start_off = 0;
-    for (size_t i = 0; i < count; ++i) {
+    for (size_t i = 0; i < num_rows; ++i) {
         auto array_elem_size = offsets[i + 1] - offsets[i];
         uint32_t position_base = 0;
         uint64_t row_token_count = 0;
@@ -245,12 +249,11 @@ Status SniiIndexColumnWriter::add_array_values(size_t field_size, const void* va
             if (nested_null_map != nullptr && nested_null_map[j] == 1) {
                 continue;
             }
-            const auto* value = reinterpret_cast<const Slice*>(
-                    reinterpret_cast<const uint8_t*>(value_ptr) + j * field_size);
+            const StringRef bytes = strings.get_data_at(first_item + j);
             uint32_t max_position = position_base;
             uint32_t token_count = 0;
-            RETURN_IF_ERROR(
-                    _add_value_tokens(*value, _rid, position_base, &max_position, &token_count));
+            RETURN_IF_ERROR(_add_value_tokens(Slice(bytes.data, bytes.size), _rid, position_base,
+                                              &max_position, &token_count));
             position_base = max_position + 1;
             row_token_count += token_count;
         }
@@ -293,7 +296,7 @@ Status SniiIndexColumnWriter::add_nulls(uint32_t count) {
     if (!_failure_status.ok()) {
         return _failure_status;
     }
-    // GEOMETRIC BULK reserve -- never an exact one: append_nullable calls
+    // GEOMETRIC BULK reserve -- never an exact one: ScalarColumnWriter::append calls
     // add_nulls once per NULL RUN (thousands to millions of calls on a large
     // interleaved-null segment), and an exact reserve(size()+count) caps
     // capacity at "just enough" -- the NEXT call then reallocates and memcpys

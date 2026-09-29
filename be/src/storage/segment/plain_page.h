@@ -22,6 +22,7 @@
 #include "storage/segment/options.h"
 #include "storage/segment/page_builder.h"
 #include "storage/segment/page_decoder.h"
+#include "storage/storage_layout.h"
 #include "storage/types.h"
 #include "util/coding.h"
 #include "util/faststring.h"
@@ -33,10 +34,11 @@ namespace segment_v2 {
 static const size_t PLAIN_PAGE_HEADER_SIZE = sizeof(uint32_t);
 
 template <FieldType Type>
-class PlainPageBuilder : public PageBuilderHelper<PlainPageBuilder<Type>> {
+class PlainPageBuilder
+        : public PageBuilderHelper<PlainPageBuilder<Type>, FixedWidthPageBuilder<Type>> {
 public:
     using Self = PlainPageBuilder<Type>;
-    friend class PageBuilderHelper<Self>;
+    friend class PageBuilderHelper<Self, FixedWidthPageBuilder<Type>>;
 
     Status init() override {
         // Reserve enough space for the page, plus a bit of slop since
@@ -46,22 +48,23 @@ public:
 
     bool is_page_full() override { return _remain_element_capacity == 0; }
 
-    Status add(const uint8_t* vals, size_t* count) override {
-        if (is_page_full() || *count == 0) {
-            *count = 0;
-            return Status::OK();
+    Status add_cells(const typename StorageLayout<Type>::StorageValue* cells,
+                     size_t* count) override {
+        uint8_t* page_dst = nullptr;
+        RETURN_IF_ERROR(_reserve(count, &page_dst));
+        if (*count != 0) {
+            memcpy(page_dst, cells, *count * SIZE_OF_TYPE);
         }
-        size_t old_size = _buffer.size();
-        size_t to_add = std::min(_remain_element_capacity, *count);
-        // This may need a large memory, should return error if could not allocated
-        // successfully, to avoid BE OOM.
-        RETURN_IF_CATCH_EXCEPTION(_buffer.resize(old_size + to_add * SIZE_OF_TYPE));
-        memcpy(&_buffer[old_size], vals, to_add * SIZE_OF_TYPE);
-        _count += to_add;
-        _raw_data_size += to_add * SIZE_OF_TYPE;
+        return Status::OK();
+    }
 
-        *count = to_add;
-        _remain_element_capacity -= to_add;
+    Status add(const IColumn& column, size_t row_pos, size_t n, size_t* added) override {
+        *added = n;
+        uint8_t* page_dst = nullptr;
+        RETURN_IF_ERROR(_reserve(added, &page_dst));
+        if (*added != 0) {
+            StorageLayout<Type>::column_to_storage(column, row_pos, *added, page_dst);
+        }
         return Status::OK();
     }
 
@@ -91,6 +94,26 @@ public:
 
 private:
     PlainPageBuilder(const PageBuilderOptions& options) : _options(options) {}
+
+    // Takes room for up to *count cells, fewer when the page fills up; *count
+    // becomes the number taken and *out where they go.
+    Status _reserve(size_t* count, uint8_t** out) {
+        if (is_page_full() || *count == 0) {
+            *count = 0;
+            return Status::OK();
+        }
+        const size_t to_add = std::min(_remain_element_capacity, *count);
+        const size_t old_size = _buffer.size();
+        // This may need a large memory, should return error if could not allocated
+        // successfully, to avoid BE OOM.
+        RETURN_IF_CATCH_EXCEPTION(_buffer.resize(old_size + to_add * SIZE_OF_TYPE));
+        *out = &_buffer[old_size];
+        _count += to_add;
+        _raw_data_size += to_add * SIZE_OF_TYPE;
+        _remain_element_capacity -= to_add;
+        *count = to_add;
+        return Status::OK();
+    }
 
     faststring _buffer;
     PageBuilderOptions _options;
@@ -191,7 +214,7 @@ public:
         size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
         const void* src_data = &_data[PLAIN_PAGE_HEADER_SIZE + _cur_idx * SIZE_OF_TYPE];
 
-        dst->insert_many_fix_len_data((const char*)src_data, max_fetch);
+        read_to_column<Type>(static_cast<const uint8_t*>(src_data), max_fetch, *dst);
 
         *n = max_fetch;
         _cur_idx += max_fetch;
@@ -220,7 +243,8 @@ public:
         }
 
         if (LIKELY(read_count > 0)) {
-            dst->insert_many_fix_len_data((char*)_buffer.data(), read_count);
+            read_to_column<Type>(reinterpret_cast<const uint8_t*>(_buffer.data()), read_count,
+                                 *dst);
         }
 
         *n = read_count;

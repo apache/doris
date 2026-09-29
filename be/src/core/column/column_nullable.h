@@ -161,11 +161,6 @@ public:
         _null_map->insert_from(src_concrete.get_null_map_column(), n);
     }
 
-    void insert_many_fix_len_data(const char* pos, size_t num) override {
-        push_false_to_nullmap(num);
-        get_nested_column().insert_many_fix_len_data(pos, num);
-    }
-
     void insert_many_raw_data(const char* pos, size_t num) override {
         DCHECK(pos);
         push_false_to_nullmap(num);
@@ -427,4 +422,8 @@ private:
 
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable = false);
 ColumnPtr remove_nullable(const ColumnPtr& column);
+
+// Splits a possibly-Nullable column into its null bits, already offset to
+// row_pos (nullptr when the column is not nullable), and the column underneath.
+const IColumn& peel_nullable(const IColumn& column, size_t row_pos, const uint8_t** null_map);
 } // namespace doris

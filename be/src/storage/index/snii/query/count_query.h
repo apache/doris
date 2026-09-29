@@ -51,7 +51,7 @@ Status count_only_term_df(const reader::LogicalIndexReader& idx, std::string_vie
 // callers allowed to fabricate, postings never contain null docs -- the writer
 // adds NO tokens for a null doc (scalar add_nulls) -- so that subtraction is a
 // no-op on true results and df already IS the exact match count regardless of
-// nulls. That does NOT hold for ARRAY columns, whose add_array_values() also
+// nulls. That does NOT hold for ARRAY columns, whose add_array() also
 // indexes the nested payload of outer-null rows and whose add_array_nulls()
 // never retracts it; SniiIndexReader::_try_count_only_fastpath therefore
 // refuses an ARRAY column on a segment with nulls before reaching here. A naive

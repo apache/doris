@@ -38,6 +38,7 @@
 #include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/index/bloom_filter/bloom_filter_index_reader.h"
 #include "storage/index/bloom_filter/bloom_filter_index_writer.h"
+#include "storage/index/index_writer_feed.h"
 #include "storage/itoken_extractor.h"
 #include "storage/olap_common.h"
 #include "storage/types.h"
@@ -62,6 +63,16 @@ public:
     }
 };
 
+// A column holding `num` cells, the way the writer's column entry takes them.
+template <FieldType type>
+MutableColumnPtr cells_column(const typename CppTypeTraits<type>::CppType* cells, size_t num) {
+    if constexpr (field_is_slice_type(type)) {
+        return column_of_slices(cells, num);
+    } else {
+        return column_of_cells<type>(cells, num);
+    }
+}
+
 template <FieldType type>
 Status write_bloom_filter_index_file(const std::string& file_name, const void* values,
                                      size_t value_count, size_t null_count,
@@ -76,20 +87,39 @@ Status write_bloom_filter_index_file(const std::string& file_name, const void* v
         RETURN_IF_ERROR(fs->create_file(fname, &file_writer));
 
         std::unique_ptr<BloomFilterIndexWriter> bloom_filter_index_writer;
+        PrimaryKeyBloomFilterIndexWriterImpl* primary_key_writer = nullptr;
         BloomFilterOptions bf_options;
         bf_options.fpp = fpp; // Set the expected FPP
+        const CppType* vals = (const CppType*)values;
         if (use_primary_key_bloom_filter) {
-            RETURN_IF_ERROR(PrimaryKeyBloomFilterIndexWriterImpl::create(
-                    bf_options, type, &bloom_filter_index_writer));
+            std::unique_ptr<PrimaryKeyBloomFilterIndexWriterImpl> writer;
+            RETURN_IF_ERROR(
+                    PrimaryKeyBloomFilterIndexWriterImpl::create(bf_options, type, &writer));
+            primary_key_writer = writer.get();
+            bloom_filter_index_writer = std::move(writer);
         } else {
             RETURN_IF_ERROR(
                     BloomFilterIndexWriter::create(bf_options, type, &bloom_filter_index_writer));
         }
 
-        const CppType* vals = (const CppType*)values;
+        // The primary key writer takes encoded keys one at a time; every other
+        // writer takes the column the cells came from.
+        auto add = [&](const CppType* cells, size_t num) -> Status {
+            if (primary_key_writer != nullptr) {
+                if constexpr (field_is_slice_type(type)) {
+                    for (size_t j = 0; j < num; ++j) {
+                        RETURN_IF_ERROR(primary_key_writer->add_key(cells[j]));
+                    }
+                    return Status::OK();
+                } else {
+                    return Status::NotSupported("the primary key writer takes encoded keys only");
+                }
+            }
+            return bloom_filter_index_writer->add(*cells_column<type>(cells, num), 0, num);
+        };
         for (int i = 0; i < value_count;) {
             size_t num = std::min(1024, (int)value_count - i);
-            RETURN_IF_ERROR(bloom_filter_index_writer->add_values(vals + i, num));
+            RETURN_IF_ERROR(add(vals + i, num));
             if (i == 2048) {
                 // second page
                 bloom_filter_index_writer->add_nulls(null_count);
@@ -100,7 +130,7 @@ Status write_bloom_filter_index_file(const std::string& file_name, const void* v
             i += 1024;
         }
         if (value_count == 3072) {
-            RETURN_IF_ERROR(bloom_filter_index_writer->add_values(vals + 3071, 1));
+            RETURN_IF_ERROR(add(vals + 3071, 1));
             auto bf_size = BloomFilter::optimal_bit_num(1, fpp) / 8;
             expect_size += bf_size + 1;
         }
@@ -361,12 +391,13 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_datetime) {
     size_t num = 1024 * 3;
     int64_t* val = new int64_t[num];
     for (int i = 0; i < num; ++i) {
-        // there will be 3 bloom filter pages
-        val[i] = 10000 + i + 1;
+        // there will be 3 bloom filter pages; the cells must be real datetimes,
+        // as the writer takes the values they decode to
+        val[i] = 20240101000000 + (i / 60) * 100 + (i % 60);
     }
 
     std::string file_name = "bloom_filter_datetime";
-    int64_t not_exist_value = 18888;
+    int64_t not_exist_value = 20240102000000;
     auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DATETIME>(
             file_name, val, num, 1, &not_exist_value);
     EXPECT_TRUE(st.ok());
@@ -670,7 +701,10 @@ Status write_ngram_bloom_filter_index_file(const std::string& file_name, Slice* 
     size_t i = 0;
     while (i < num_values) {
         size_t num = std::min(static_cast<size_t>(1024), num_values - i);
-        st = bf_index_writer->add_values(values + i, num);
+        // The ngram writer only ever takes strings, whatever `type` the case
+        // asks for.
+        st = bf_index_writer->add(
+                *cells_column<FieldType::OLAP_FIELD_TYPE_VARCHAR>(values + i, num), 0, num);
         EXPECT_TRUE(st.ok());
         st = bf_index_writer->flush();
         EXPECT_TRUE(st.ok());

@@ -69,6 +69,7 @@
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
+#include "storage/index/index_writer_feed.h"
 #include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/snii/format/metadata_directory.h"
@@ -233,9 +234,7 @@ protected:
         for (uint32_t i = 0; i <= kRows; ++i) {
             offsets[i] = static_cast<size_t>(i) * kDim;
         }
-        RETURN_IF_ERROR(ann->add_array_values(sizeof(float), vectors.data(), /*null_map=*/nullptr,
-                                              reinterpret_cast<const uint8_t*>(offsets.data()),
-                                              kRows));
+        RETURN_IF_ERROR(add_float_arrays(*ann, vectors.data(), offsets.data(), kRows));
         return ann->finish();
     }
 

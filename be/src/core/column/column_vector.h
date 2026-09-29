@@ -46,7 +46,6 @@
 #include "core/pod_array_fwd.h"
 #include "core/string_ref.h"
 #include "core/types.h"
-#include "core/uint24.h"
 #include "core/value/timestamp_ns_value.h"
 #include "core/value/vdatetime_value.h"
 #include "util/unaligned.h"
@@ -129,45 +128,6 @@ public:
         } else {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                    "double column not support insert_range_of_integer");
-        }
-    }
-
-    void insert_date_column(const char* data_ptr, size_t num) {
-        data.reserve(data.size() + num);
-        constexpr size_t input_value_size = sizeof(uint24_t);
-
-        for (int i = 0; i < num; i++) {
-            uint24_t val = 0;
-            memcpy((char*)(&val), data_ptr, input_value_size);
-            data_ptr += input_value_size;
-
-            VecDateTimeValue date;
-            date.set_olap_date(val);
-            data.push_back_without_reserve(date);
-        }
-    }
-
-    void insert_datetime_column(const char* data_ptr, size_t num) {
-        data.reserve(data.size() + num);
-        size_t value_size = sizeof(uint64_t);
-        for (int i = 0; i < num; i++) {
-            const char* cur_ptr = data_ptr + value_size * i;
-            auto value = unaligned_load<uint64_t>(cur_ptr);
-            VecDateTimeValue datetime = VecDateTimeValue::create_from_olap_datetime(value);
-            this->insert_data(reinterpret_cast<char*>(&datetime), 0);
-        }
-    }
-
-    /*
-        use by date, datetime, basic type
-    */
-    void insert_many_fix_len_data(const char* data_ptr, size_t num) override {
-        if (T == TYPE_DATE) {
-            insert_date_column(data_ptr, num);
-        } else if (T == TYPE_DATETIME) {
-            insert_datetime_column(data_ptr, num);
-        } else {
-            insert_many_raw_data(data_ptr, num);
         }
     }
 

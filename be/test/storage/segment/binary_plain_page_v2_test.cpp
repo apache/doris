@@ -68,7 +68,7 @@ public:
 
         size_t count = slices.size();
         const Slice* ptr = slices.data();
-        status = page_builder->add(reinterpret_cast<const uint8_t*>(ptr), &count);
+        status = page_builder->add_slices(ptr, &count);
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(slices.size(), count);
 
@@ -125,7 +125,7 @@ public:
 
         size_t count = slices.size();
         const Slice* ptr = slices.data();
-        status = page_builder->add(reinterpret_cast<const uint8_t*>(ptr), &count);
+        status = page_builder->add_slices(ptr, &count);
         EXPECT_TRUE(status.ok());
 
         OwnedSlice owned_slice;
@@ -183,7 +183,7 @@ public:
 
         size_t count = slices.size();
         const Slice* ptr = slices.data();
-        status = page_builder->add(reinterpret_cast<const uint8_t*>(ptr), &count);
+        status = page_builder->add_slices(ptr, &count);
         EXPECT_TRUE(status.ok());
 
         OwnedSlice owned_slice;
@@ -294,7 +294,7 @@ public:
 
             size_t count = 1;
             const Slice* ptr = &slices[i];
-            status = page_builder->add(reinterpret_cast<const uint8_t*>(ptr), &count);
+            status = page_builder->add_slices(ptr, &count);
             EXPECT_TRUE(status.ok());
 
             if (count > 0) {
@@ -352,7 +352,7 @@ public:
 
         size_t count = slices.size();
         const Slice* ptr = slices.data();
-        status = page_builder->add(reinterpret_cast<const uint8_t*>(ptr), &count);
+        status = page_builder->add_slices(ptr, &count);
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(2, page_builder->count());
 
@@ -363,7 +363,7 @@ public:
 
         // Add data again
         count = slices.size();
-        status = page_builder->add(reinterpret_cast<const uint8_t*>(ptr), &count);
+        status = page_builder->add_slices(ptr, &count);
         EXPECT_TRUE(status.ok());
         EXPECT_EQ(2, page_builder->count());
     }
@@ -388,7 +388,7 @@ public:
 
         size_t count = slices.size();
         const Slice* ptr = slices.data();
-        status = page_builder->add(reinterpret_cast<const uint8_t*>(ptr), &count);
+        status = page_builder->add_slices(ptr, &count);
         EXPECT_TRUE(status.ok());
 
         OwnedSlice owned_slice;
@@ -519,7 +519,7 @@ TEST_F(BinaryPlainPageV2Test, TestSeekAndRead) {
 
     size_t count = slices.size();
     const Slice* ptr = slices.data();
-    status = page_builder->add(reinterpret_cast<const uint8_t*>(ptr), &count);
+    status = page_builder->add_slices(ptr, &count);
     EXPECT_TRUE(status.ok());
 
     OwnedSlice owned_slice;
@@ -556,7 +556,7 @@ TEST_F(BinaryPlainPageV2Test, TestSeekAndRead) {
 }
 
 // CHAR-specific roundtrip: write padded slices (the on-disk format produced
-// by OlapColumnDataConvertorChar) through both CHAR-strip pre-decoders and
+// by an old segment's CHAR page) through both CHAR-strip pre-decoders and
 // confirm the post-decode column surfaces the unpadded logical content.
 
 namespace {
@@ -618,7 +618,7 @@ TEST_F(BinaryPlainPageV2Test, CharStripPreDecoder_V2_RoundtripPaddedSlices) {
     auto* page_builder =
             static_cast<BinaryPlainPageV2Builder<FieldType::OLAP_FIELD_TYPE_CHAR>*>(builder_ptr);
     size_t count = slices.size();
-    ASSERT_TRUE(page_builder->add(reinterpret_cast<const uint8_t*>(slices.data()), &count).ok());
+    ASSERT_TRUE(page_builder->add_slices(slices.data(), &count).ok());
     ASSERT_EQ(slices.size(), count);
 
     OwnedSlice owned_slice;
@@ -669,7 +669,7 @@ TEST_F(BinaryPlainPageV2Test, CharStripPreDecoder_V1_RoundtripPaddedSlices) {
     auto* page_builder =
             static_cast<BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_CHAR>*>(builder_ptr);
     size_t count = slices.size();
-    ASSERT_TRUE(page_builder->add(reinterpret_cast<const uint8_t*>(slices.data()), &count).ok());
+    ASSERT_TRUE(page_builder->add_slices(slices.data(), &count).ok());
     ASSERT_EQ(slices.size(), count);
 
     OwnedSlice owned_slice;

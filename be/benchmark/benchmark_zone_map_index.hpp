@@ -16,7 +16,7 @@
 // under the License.
 
 // ============================================================
-// Benchmark: TypedZoneMapIndexWriter::add_values
+// Benchmark: TypedZoneMapIndexWriter::add
 //
 // Measures CPU cost of feeding values into the per-page zone-map
 // builder for a few representative primitive types and call sizes.
@@ -32,7 +32,10 @@
 #include <string>
 #include <vector>
 
+#include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type/primitive_type.h"
 #include "core/string_ref.h"
 #include "storage/index/zone_map/zone_map_index.h"
 #include "storage/tablet/tablet_schema.h"
@@ -98,6 +101,20 @@ inline TabletColumnPtr make_column(FieldType ft, int32_t length, int32_t index_l
     return c;
 }
 
+// The generated values as the column a writer is handed.
+template <PrimitiveType PType, typename Vec>
+ColumnPtr to_column(const Vec& values) {
+    auto column = PrimitiveTypeTraits<PType>::ColumnType::create();
+    for (const auto& value : values) {
+        if constexpr (PType == TYPE_VARCHAR) {
+            column->insert_data(value.data, value.size);
+        } else {
+            column->insert_value(value);
+        }
+    }
+    return column;
+}
+
 template <PrimitiveType PType>
 std::unique_ptr<ZoneMapIndexWriter> make_writer() {
     TabletColumnPtr col;
@@ -120,16 +137,16 @@ std::unique_ptr<ZoneMapIndexWriter> make_writer() {
     return w;
 }
 
-template <PrimitiveType PType, typename Vec>
-void run(benchmark::State& state, const Vec& values) {
+template <PrimitiveType PType>
+void run(benchmark::State& state, const IColumn& column) {
     const size_t batch = static_cast<size_t>(state.range(0));
-    const size_t total = values.size();
+    const size_t total = column.size();
     for (auto _ : state) {
         auto w = make_writer<PType>();
         size_t off = 0;
         while (off < total) {
             size_t n = std::min(batch, total - off);
-            w->add_values(reinterpret_cast<const void*>(&values[off]), n);
+            w->add(column, off, n);
             off += n;
         }
         (void)w->flush();
@@ -141,7 +158,7 @@ void run(benchmark::State& state, const Vec& values) {
 // Simulates the ScalarColumnWriter call pattern in compaction:
 //   - merge iterator hands `block_rows`-row blocks to ColumnWriter::append
 //   - column_writer chunks each block by page remaining capacity and calls
-//     add_values() per chunk
+//     add() per chunk
 //   - when a page is full, finish_current_page() calls flush() on the zone
 //     map builder, then a new page begins
 //
@@ -149,11 +166,11 @@ void run(benchmark::State& state, const Vec& values) {
 // `block_mem_limit / group_data_size` clamped to [32, 4064]
 // (be/src/storage/merger.cpp:458). For wide rows / variant data it routinely
 // drops to the low end (32 - 256), which is the case the flame graph exposes.
-template <PrimitiveType PType, typename Vec>
-void run_column_writer_like(benchmark::State& state, const Vec& values, size_t elem_size) {
+template <PrimitiveType PType>
+void run_column_writer_like(benchmark::State& state, const IColumn& column, size_t elem_size) {
     const size_t block_rows = static_cast<size_t>(state.range(0));
     const size_t page_capacity = kStoragePageSize / elem_size; // e.g. 16384 for int32
-    const size_t total = values.size();
+    const size_t total = column.size();
     for (auto _ : state) {
         auto w = make_writer<PType>();
         size_t off = 0;
@@ -162,7 +179,7 @@ void run_column_writer_like(benchmark::State& state, const Vec& values, size_t e
             size_t block_left = std::min(block_rows, total - off);
             while (block_left > 0) {
                 size_t n = std::min(block_left, page_capacity - page_used);
-                w->add_values(reinterpret_cast<const void*>(&values[off]), n);
+                w->add(column, off, n);
                 off += n;
                 block_left -= n;
                 page_used += n;
@@ -179,20 +196,20 @@ void run_column_writer_like(benchmark::State& state, const Vec& values, size_t e
 }
 
 static void BM_ZoneMap_Int32(benchmark::State& state) {
-    static auto vals = gen_int32(kTotalRows);
-    run<TYPE_INT>(state, vals);
+    static auto vals = to_column<TYPE_INT>(gen_int32(kTotalRows));
+    run<TYPE_INT>(state, *vals);
 }
 static void BM_ZoneMap_Int64(benchmark::State& state) {
-    static auto vals = gen_int64(kTotalRows);
-    run<TYPE_BIGINT>(state, vals);
+    static auto vals = to_column<TYPE_BIGINT>(gen_int64(kTotalRows));
+    run<TYPE_BIGINT>(state, *vals);
 }
 static void BM_ZoneMap_Double(benchmark::State& state) {
-    static auto vals = gen_double(kTotalRows);
-    run<TYPE_DOUBLE>(state, vals);
+    static auto vals = to_column<TYPE_DOUBLE>(gen_double(kTotalRows));
+    run<TYPE_DOUBLE>(state, *vals);
 }
 static void BM_ZoneMap_String(benchmark::State& state) {
-    static auto batch = gen_strings(kTotalRows, 16);
-    run<TYPE_VARCHAR>(state, batch.slices);
+    static auto vals = to_column<TYPE_VARCHAR>(gen_strings(kTotalRows, 16).slices);
+    run<TYPE_VARCHAR>(state, *vals);
 }
 
 BENCHMARK(BM_ZoneMap_Int32)->Arg(1)->Arg(64)->Arg(1024);
@@ -202,21 +219,21 @@ BENCHMARK(BM_ZoneMap_String)->Arg(1)->Arg(64)->Arg(1024);
 
 // Realistic compaction-shaped: 1024-row blocks + page-driven flush().
 static void BM_ZoneMap_ColWriter_Int32(benchmark::State& state) {
-    static auto vals = gen_int32(kTotalRows);
-    run_column_writer_like<TYPE_INT>(state, vals, sizeof(int32_t));
+    static auto vals = to_column<TYPE_INT>(gen_int32(kTotalRows));
+    run_column_writer_like<TYPE_INT>(state, *vals, sizeof(int32_t));
 }
 static void BM_ZoneMap_ColWriter_Int64(benchmark::State& state) {
-    static auto vals = gen_int64(kTotalRows);
-    run_column_writer_like<TYPE_BIGINT>(state, vals, sizeof(int64_t));
+    static auto vals = to_column<TYPE_BIGINT>(gen_int64(kTotalRows));
+    run_column_writer_like<TYPE_BIGINT>(state, *vals, sizeof(int64_t));
 }
 static void BM_ZoneMap_ColWriter_Double(benchmark::State& state) {
-    static auto vals = gen_double(kTotalRows);
-    run_column_writer_like<TYPE_DOUBLE>(state, vals, sizeof(double));
+    static auto vals = to_column<TYPE_DOUBLE>(gen_double(kTotalRows));
+    run_column_writer_like<TYPE_DOUBLE>(state, *vals, sizeof(double));
 }
 static void BM_ZoneMap_ColWriter_String(benchmark::State& state) {
-    static auto batch = gen_strings(kTotalRows, 16);
+    static auto vals = to_column<TYPE_VARCHAR>(gen_strings(kTotalRows, 16).slices);
     // For strings the page packs (size+payload); use ~32B avg per element.
-    run_column_writer_like<TYPE_VARCHAR>(state, batch.slices, 32);
+    run_column_writer_like<TYPE_VARCHAR>(state, *vals, 32);
 }
 BENCHMARK(BM_ZoneMap_ColWriter_Int32)
         ->Arg(1)

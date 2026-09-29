@@ -22,9 +22,10 @@
 #include "storage/segment/options.h"      // for PageBuilderOptions/PageDecoderOptions
 #include "storage/segment/page_builder.h" // for PageBuilder
 #include "storage/segment/page_decoder.h" // for PageDecoder
-#include "util/coding.h"                  // for encode_fixed32_le/decode_fixed32_le
-#include "util/rle_encoding.h"            // for RleEncoder/RleDecoder
-#include "util/slice.h"                   // for OwnedSlice
+#include "storage/storage_layout.h"
+#include "util/coding.h"       // for encode_fixed32_le/decode_fixed32_le
+#include "util/rle_encoding.h" // for RleEncoder/RleDecoder
+#include "util/slice.h"        // for OwnedSlice
 
 namespace doris {
 namespace segment_v2 {
@@ -53,10 +54,10 @@ enum { RLE_PAGE_HEADER_SIZE = 4 };
 //
 // TODO(hkp): optimize rle algorithm
 template <FieldType Type>
-class RlePageBuilder : public PageBuilderHelper<RlePageBuilder<Type> > {
+class RlePageBuilder : public PageBuilderHelper<RlePageBuilder<Type>, FixedWidthPageBuilder<Type>> {
 public:
     using Self = RlePageBuilder<Type>;
-    friend class PageBuilderHelper<Self>;
+    friend class PageBuilderHelper<Self, FixedWidthPageBuilder<Type>>;
 
     Status init() override {
         switch (Type) {
@@ -77,18 +78,28 @@ public:
 
     bool is_page_full() override { return _rle_encoder->len() >= _options.data_page_size; }
 
-    Status add(const uint8_t* vals, size_t* count) override {
+    Status add_cells(const typename StorageLayout<Type>::StorageValue* cells,
+                     size_t* count) override {
         DCHECK(!_finished);
-        auto new_vals = reinterpret_cast<const CppType*>(vals);
-        for (int i = 0; i < *count; ++i) {
-            // note: vals is not guaranteed to be aligned for now, thus memcpy here
-            CppType value;
-            memcpy(&value, &new_vals[i], SIZE_OF_TYPE);
-            _rle_encoder->Put(value);
+        for (size_t i = 0; i < *count; ++i) {
+            _rle_encoder->Put(cells[i]);
         }
 
         _count += *count;
         _raw_data_size += *count * SIZE_OF_TYPE;
+        return Status::OK();
+    }
+
+    Status add(const IColumn& column, size_t row_pos, size_t n, size_t* added) override {
+        DCHECK(!_finished);
+        const auto& data =
+                assert_cast<const typename StorageLayout<Type>::Column&>(column).get_data();
+        for (size_t i = 0; i < n; ++i) {
+            _rle_encoder->Put(StorageLayout<Type>::to_storage(data[row_pos + i]));
+        }
+        _count += n;
+        _raw_data_size += n * SIZE_OF_TYPE;
+        *added = n;
         return Status::OK();
     }
 
