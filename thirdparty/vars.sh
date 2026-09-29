@@ -581,10 +581,10 @@ PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
 # lance-c
 # Complete-segment prefilter fixes are supplied by upstream lance-c, not local patches.
-LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/4299a5ee5a7849f7075ba5f1bb327dc165cb30a2"
-LANCE_C_NAME="lance-c-4299a5ee5a7849f7075ba5f1bb327dc165cb30a2.tar.gz"
-LANCE_C_SOURCE="lance-c-4299a5ee5a7849f7075ba5f1bb327dc165cb30a2"
-LANCE_C_MD5SUM="fb1bdfacb63821ba85b3c8aeb879c73d"
+LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/4e6b2edbee36103758feb4b3f14ace2475e3be4d"
+LANCE_C_NAME="lance-c-4e6b2edbee36103758feb4b3f14ace2475e3be4d.tar.gz"
+LANCE_C_SOURCE="lance-c-4e6b2edbee36103758feb4b3f14ace2475e3be4d"
+LANCE_C_MD5SUM="bb47fd5cee55428a625ef5278b7005f8"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
