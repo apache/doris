@@ -61,6 +61,18 @@ public class PaimonRustReaderEvolutionTest {
     }
 
     @Test
+    public void testTimestampEvolutionIntoNanosecondRangeFallback() {
+        for (int oldPrecision : new int[] {0, 3, 6}) {
+            for (int newPrecision : new int[] {7, 8, 9}) {
+                assertNestedEvolution(DataTypes.TIMESTAMP(oldPrecision), DataTypes.TIMESTAMP(newPrecision), false);
+                assertNestedEvolution(DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(oldPrecision),
+                        DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(newPrecision), false);
+            }
+        }
+        assertNestedEvolution(DataTypes.TIMESTAMP(7), DataTypes.TIMESTAMP(9), true);
+    }
+
+    @Test
     public void testTimestampToDateFallback() {
         assertNestedEvolution(DataTypes.TIMESTAMP(3), DataTypes.DATE(), false);
         assertNestedEvolution(DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(3), DataTypes.DATE(), false);

@@ -31,11 +31,18 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 public class ProfileCompletionStateTest {
     @Rule
@@ -87,6 +94,103 @@ public class ProfileCompletionStateTest {
         report(execution, "127.0.0.1", false);
         Assert.assertEquals("COMPLETE", profile.getProfileCompletionState());
         Assert.assertTrue(profile.getProfileByLevel().contains("Profile Completion State: COMPLETE"));
+    }
+
+    private static class PausingSummaryProfile extends SummaryProfile {
+        private final transient boolean beforeSerialization;
+        private final transient CountDownLatch storagePaused;
+        private final transient CountDownLatch resumeStorage;
+
+        private PausingSummaryProfile(boolean beforeSerialization, CountDownLatch storagePaused,
+                CountDownLatch resumeStorage) {
+            this.beforeSerialization = beforeSerialization;
+            this.storagePaused = storagePaused;
+            this.resumeStorage = resumeStorage;
+        }
+
+        @Override
+        public void write(DataOutput output) throws IOException {
+            if (!beforeSerialization) {
+                super.write(output);
+            }
+            storagePaused.countDown();
+            try {
+                if (!resumeStorage.await(10, TimeUnit.SECONDS)) {
+                    throw new IOException("Timed out waiting for concurrent profile rendering");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException(e);
+            }
+            if (beforeSerialization) {
+                super.write(output);
+            }
+        }
+    }
+
+    private static class FailingSummaryProfile extends SummaryProfile {
+        private transient boolean fail = true;
+
+        @Override
+        public void write(DataOutput output) throws IOException {
+            if (fail) {
+                fail = false;
+                throw new IOException("Injected storage failure");
+            }
+            super.write(output);
+        }
+    }
+
+    @Test
+    public void failedStorageDoesNotFreezeCompletionState() throws Exception {
+        Profile profile = profile();
+        SummaryProfile summary = new FailingSummaryProfile();
+        summary.getSummary().addInfoString(SummaryProfile.PROFILE_ID, profile.getId());
+        profile.setSummaryProfile(summary);
+        ExecutionProfile execution = profile.getExecutionProfiles().get(0);
+        execution.addFragmentBackend(new PlanFragmentId(0), 1L);
+        profile.markQueryFinished();
+        String directory = temporary.newFolder().getAbsolutePath();
+        profile.writeToStorage(directory);
+        Assert.assertFalse(profile.profileHasBeenStored());
+        Assert.assertEquals("COLLECTING", profile.getProfileCompletionState());
+        report(execution, "127.0.0.1", true);
+        profile.writeToStorage(directory);
+        Assert.assertTrue(profile.profileHasBeenStored());
+        Assert.assertEquals("COMPLETE", Profile.read(profile.getProfileStoragePath()).getProfileCompletionState());
+    }
+
+    @Test
+    public void renderingDuringStoragePreservesTerminalState() throws Exception {
+        for (boolean beforeSerialization : new boolean[] {true, false}) {
+            Profile profile = profile();
+            CountDownLatch storagePaused = new CountDownLatch(1);
+            CountDownLatch resumeStorage = new CountDownLatch(1);
+            SummaryProfile summary = new PausingSummaryProfile(beforeSerialization, storagePaused, resumeStorage);
+            summary.getSummary().addInfoString(SummaryProfile.PROFILE_ID, profile.getId());
+            profile.setSummaryProfile(summary);
+            profile.getExecutionProfiles().get(0).addFragmentBackend(new PlanFragmentId(0), 1L);
+            profile.markQueryFinished();
+            String directory = temporary.newFolder().getAbsolutePath();
+            ExecutorService writer = Executors.newSingleThreadExecutor();
+            try {
+                Future<?> stored = writer.submit(() -> profile.writeToStorage(directory));
+                Assert.assertTrue(storagePaused.await(10, TimeUnit.SECONDS));
+                // Render both before serialization and before path publication, while storage is paused.
+                profile.getProfileByLevel();
+                resumeStorage.countDown();
+                stored.get(10, TimeUnit.SECONDS);
+                Assert.assertTrue(profile.profileHasBeenStored());
+                Assert.assertEquals("INCOMPLETE", profile.getProfileCompletionState());
+                Profile restored = Profile.read(profile.getProfileStoragePath());
+                Assert.assertNotNull(restored);
+                Assert.assertEquals("INCOMPLETE", restored.getProfileCompletionState());
+            } finally {
+                resumeStorage.countDown();
+                writer.shutdownNow();
+                Assert.assertTrue(writer.awaitTermination(10, TimeUnit.SECONDS));
+            }
+        }
     }
 
     @Test

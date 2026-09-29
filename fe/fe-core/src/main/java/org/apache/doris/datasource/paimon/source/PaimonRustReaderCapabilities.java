@@ -175,7 +175,11 @@ final class PaimonRustReaderCapabilities {
         }
         if (oldRoot == newRoot && (newRoot == DataTypeRoot.TIMESTAMP_WITHOUT_TIME_ZONE
                 || newRoot == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE)) {
-            return DataTypeChecks.getPrecision(oldType) > DataTypeChecks.getPrecision(newType);
+            int oldPrecision = DataTypeChecks.getPrecision(oldType);
+            int newPrecision = DataTypeChecks.getPrecision(newType);
+            // Arrow's nanosecond range is narrower than historical millis/micros; Java
+            // preserves out-of-range dates while Rust's checked cast turns them into NULL.
+            return oldPrecision > newPrecision || (oldPrecision <= 6 && newPrecision > 6);
         }
         // Only established cast equivalence may use Rust. Java's temporal casts use the
         // default zone and truncate negative epochs; its string casts format/pad values.

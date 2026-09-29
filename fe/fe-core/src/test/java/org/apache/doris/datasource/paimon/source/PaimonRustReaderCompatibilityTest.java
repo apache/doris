@@ -49,6 +49,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -191,6 +192,32 @@ public class PaimonRustReaderCompatibilityTest {
                 DataTypes.FIELD(3, "b", DataTypes.STRING()));
         assertPersistedEvolution(rowType, DataTypes.STRING(), GenericRow.of(11, BinaryString.fromString("x")),
                 false, row -> row.getString(1).toString(), "{11, x}");
+    }
+
+    @Test
+    public void testPersistedTimestampEvolutionIntoNanosecondRange() throws Exception {
+        List<String> expected = Arrays.asList("2300-01-01T00:00:00.123", "1600-01-01T00:00:00.123",
+                "2024-01-01T00:00:00.123", null);
+        for (int oldPrecision : new int[] {3, 6}) {
+            for (boolean localZone : new boolean[] {false, true}) {
+                DataType source = localZone ? DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(oldPrecision)
+                        : DataTypes.TIMESTAMP(oldPrecision);
+                FileStoreTable table = table(Schema.newBuilder().column("id", DataTypes.INT()).column("v", source),
+                        ImmutableMap.of("bucket", "-1"));
+                commit(table, GenericRow.of(1, Timestamp.fromLocalDateTime(LocalDateTime.parse(expected.get(0)))),
+                        GenericRow.of(2, Timestamp.fromLocalDateTime(LocalDateTime.parse(expected.get(1)))),
+                        GenericRow.of(3, Timestamp.fromLocalDateTime(LocalDateTime.parse(expected.get(2)))),
+                        GenericRow.of(4, null));
+                assertRead(table, true, row -> row.isNullAt(1) ? null
+                        : row.getTimestamp(1, oldPrecision).toString(), expected);
+                DataType target = localZone ? DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(9) : DataTypes.TIMESTAMP(9);
+                table.schemaManager().commitChanges(Collections.singletonList(
+                        SchemaChange.updateColumnType("v", target, true)));
+                table = FileStoreTableFactory.create(table.fileIO(), table.location());
+                // Java retains the full historical range; Arrow's nanosecond cast overflows these dates to NULL.
+                assertRead(table, false, row -> row.isNullAt(1) ? null : row.getTimestamp(1, 9).toString(), expected);
+            }
+        }
     }
 
     @Test
