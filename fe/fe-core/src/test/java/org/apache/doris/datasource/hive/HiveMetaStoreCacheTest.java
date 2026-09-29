@@ -105,6 +105,45 @@ public class HiveMetaStoreCacheTest {
     }
 
     @Test
+    public void testRefreshTableWithSharedPartitionLocation() {
+        ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, 1, "refresh", 1, false);
+        ThreadPoolExecutor listExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, 1, "file", 1, false);
+        try {
+            HiveExternalMetaCache cache = new HiveExternalMetaCache(executor, listExecutor);
+            cache.initCatalog(0, new HashMap<>());
+            MetaCacheEntry<HiveExternalMetaCache.FileCacheKey, HiveExternalMetaCache.FileCacheValue> fileCache =
+                    cache.entry(0, HiveExternalMetaCache.ENTRY_FILE,
+                            HiveExternalMetaCache.FileCacheKey.class,
+                            HiveExternalMetaCache.FileCacheValue.class);
+
+            String location = "/warehouse/shared/p=p1";
+            List<String> values = Collections.singletonList("p1");
+            HiveExternalMetaCache.FileCacheKey keyA = new HiveExternalMetaCache.FileCacheKey(
+                    0, Util.genIdByName("db", "a"), location, "parquet", values);
+            HiveExternalMetaCache.FileCacheKey keyB = new HiveExternalMetaCache.FileCacheKey(
+                    0, Util.genIdByName("db", "b"), location, "parquet", values);
+            HiveExternalMetaCache.FileCacheValue oldFiles = new HiveExternalMetaCache.FileCacheValue();
+            fileCache.put(keyA, oldFiles);
+
+            // b must list the directory after its write instead of reusing a's old file list.
+            Assertions.assertNull(fileCache.getIfPresent(keyB));
+            HiveExternalMetaCache.FileCacheValue newFiles = new HiveExternalMetaCache.FileCacheValue();
+            fileCache.put(keyB, newFiles);
+            Assertions.assertSame(oldFiles, fileCache.getIfPresent(keyA));
+            Assertions.assertSame(newFiles, fileCache.getIfPresent(keyB));
+
+            cache.invalidateTable(0, "db", "b");
+            Assertions.assertNull(fileCache.getIfPresent(keyB));
+            Assertions.assertSame(oldFiles, fileCache.getIfPresent(keyA));
+        } finally {
+            executor.shutdownNow();
+            listExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testInvalidateTableCache() {
         ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(
                 1, 1, "refresh", 1, false);
