@@ -2592,6 +2592,98 @@ EOF
     install_rust_archive "${BUILD_DIR}/release/libpaimon_c.a"
 }
 
+# openblas
+build_openblas() {
+    check_if_source_exist "${OPENBLAS_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${OPENBLAS_SOURCE}"
+
+    # faiss is the only consumer. It calls the Fortran BLAS and LAPACK symbols, so there is
+    # no CBLAS and no Fortran compiler (LAPACK is built from its C translation), and it calls
+    # OpenBLAS from its own OpenMP threads, so OpenBLAS threads with OpenMP too.
+    # NUM_THREADS defaults to the core count of the build host, and it caps the threads one
+    # call can use wherever the library runs, so pin it.
+    local openblas_cmake_options=(
+        -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}"
+        -DCMAKE_INSTALL_LIBDIR=lib64
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+        -DBUILD_SHARED_LIBS=OFF
+        -DBUILD_STATIC_LIBS=ON
+        -DBUILD_TESTING=OFF
+        -DBUILD_BENCHMARKS=OFF
+        -DNOFORTRAN=ON
+        -DC_LAPACK=ON
+        -DBUILD_RELAPACK=ON
+        -DBUILD_WITHOUT_CBLAS=ON
+        -DUSE_OPENMP=ON
+        -DNUM_THREADS=128
+        -DNO_AVX512=ON
+    )
+    if [[ "${KERNEL}" == 'Darwin' ]]; then
+        # Homebrew's LLVM ships no OpenMP runtime. Use Homebrew's libomp, which is also
+        # what the BE links on macOS.
+        local libomp_prefix
+        libomp_prefix="$(brew --prefix libomp)"
+        if [[ ! -f "${libomp_prefix}/include/omp.h" ]]; then
+            echo "libomp is required to build openblas on macOS. Install it with 'brew install libomp'."
+            exit 1
+        fi
+        openblas_cmake_options+=(
+            "-DOpenMP_C_FLAGS=-fopenmp=libomp -I${libomp_prefix}/include"
+            -DOpenMP_C_LIB_NAMES=omp
+            "-DOpenMP_omp_LIBRARY=${libomp_prefix}/lib/libomp.dylib"
+        )
+    else
+        # Pick the kernels at run time, since the BE runs on whatever CPU it is deployed
+        # to. TARGET is the CPU the code outside the kernels is built for, and defaults
+        # to the build host; keep it at the baseline the BE itself is built for.
+        openblas_cmake_options+=(-DDYNAMIC_ARCH=ON)
+        case "$(uname -m)" in
+        x86_64)
+            case "${USE_AVX2:-ON}" in
+            0 | OFF | off | FALSE | false | NO | no)
+                openblas_cmake_options+=(-DTARGET=NEHALEM -DNO_AVX=ON -DNO_AVX2=ON)
+                ;;
+            *)
+                openblas_cmake_options+=(-DTARGET=HASWELL)
+                ;;
+            esac
+            ;;
+        aarch64)
+            openblas_cmake_options+=(-DTARGET=ARMV8)
+            ;;
+        esac
+    fi
+    if [[ "${CC}" == *gcc ]]; then
+        # gcc in the LDB toolchain is configured for OpenMP offloading but ships no
+        # crtoffloadbegin.o or crtoffloadend.o, so nothing links with -fopenmp and
+        # FindOpenMP cannot probe for the flags. A static library is never linked here.
+        openblas_cmake_options+=(
+            -DOpenMP_C_FLAGS=-fopenmp
+            -DOpenMP_C_LIB_NAMES=gomp
+            "-DOpenMP_gomp_LIBRARY=$("${CC}" -print-file-name=libgomp.so)"
+        )
+    fi
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -S . -B "${BUILD_DIR}" "${openblas_cmake_options[@]}"
+    "${CMAKE_CMD}" --build "${BUILD_DIR}" -j "${PARALLEL}"
+    "${CMAKE_CMD}" --install "${BUILD_DIR}"
+}
+
+# datasketches-cpp
+build_datasketches() {
+    check_if_source_exist "${DATASKETCHES_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${DATASKETCHES_SOURCE}"
+
+    # Header-only. Installing puts the headers of every sketch family into
+    # include/DataSketches, and they include one another from there.
+    "${CMAKE_CMD}" -G "${GENERATOR}" -S . -B "${BUILD_DIR}" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DBUILD_TESTS=OFF
+    "${CMAKE_CMD}" --install "${BUILD_DIR}"
+}
+
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
         jindofs
@@ -2672,6 +2764,8 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         mecab_ipadic
         pugixml
         paimon_rust
+        openblas
+        datasketches
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
@@ -2783,6 +2877,8 @@ cleanup_package_source() {
         pugixml)         src_var="PUGIXML_SOURCE" ;;
         lance_c)         src_var="LANCE_C_SOURCE" ;;
         paimon_rust)     src_var="PAIMON_RUST_SOURCE" ;;
+        openblas)        src_var="OPENBLAS_SOURCE" ;;
+        datasketches)    src_var="DATASKETCHES_SOURCE" ;;
         aws_sdk)         src_var="AWS_SDK_SOURCE" ;;
         lzma)            src_var="LZMA_SOURCE" ;;
         xml2)            src_var="XML2_SOURCE" ;;
