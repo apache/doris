@@ -169,6 +169,28 @@ suite("test_streaming_postgres_job_col_filter", "p0,external,pg,external_docker,
 
         qt_select_incremental """ SELECT * FROM ${table1} ORDER BY name ASC """
 
+        long completed = (sql """select SucceedTaskCount from jobs("type"="insert")
+                                   where Name='${jobName}'""")[0][0] as long
+        Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).until({
+            (sql """select SucceedTaskCount from jobs("type"="insert")
+                     where Name='${jobName}'""")[0][0] as long > completed
+        })
+        // VARCHAR -> TEXT changes the native OID, not just a length parameter.
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            sql """ALTER TABLE ${pgSchema}.${table1} ALTER COLUMN secret TYPE TEXT"""
+            sql """UPDATE ${pgSchema}.${table1} SET age=21, secret='new_type' WHERE name='B1'"""
+        }
+        Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).until({
+            (sql "SELECT age FROM ${table1} WHERE name='B1'")[0][0] as int == 21
+        })
+        qt_select_after_modify_excluded """ SELECT * FROM ${table1} ORDER BY name ASC """
+        completed = (sql """select SucceedTaskCount from jobs("type"="insert")
+                              where Name='${jobName}'""")[0][0] as long
+        Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).until({
+            (sql """select SucceedTaskCount from jobs("type"="insert")
+                     where Name='${jobName}'""")[0][0] as long > completed
+        })
+
         // ── Schema change: DROP excluded column → DDL skipped, sync continues ─
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             sql """ALTER TABLE ${pgDB}.${pgSchema}.${table1} DROP COLUMN secret"""
@@ -193,6 +215,12 @@ suite("test_streaming_postgres_job_col_filter", "p0,external,pg,external_docker,
         assert !colNamesAfterDrop.contains("secret") : "secret column must not appear in Doris after DROP"
 
         qt_select_after_drop_excluded """ SELECT * FROM ${table1} ORDER BY name ASC """
+        completed = (sql """select SucceedTaskCount from jobs("type"="insert")
+                              where Name='${jobName}'""")[0][0] as long
+        Awaitility.await().atMost(180, SECONDS).pollInterval(1, SECONDS).until({
+            (sql """select SucceedTaskCount from jobs("type"="insert")
+                     where Name='${jobName}'""")[0][0] as long > completed
+        })
 
         // ── Schema change: re-ADD excluded column → DDL also skipped ──────────
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {

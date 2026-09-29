@@ -38,6 +38,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 import io.debezium.document.Array;
+import io.debezium.relational.Column;
 import io.debezium.relational.TableId;
 import io.debezium.relational.Tables;
 import io.debezium.relational.history.HistoryRecord;
@@ -85,7 +86,8 @@ public class MySqlDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
         String ddl = history.document().getString(HistoryRecord.Fields.DDL_STATEMENTS);
         Map<TableId, TableChanges.TableChange> freshSchemas = deserializeTableChanges(history);
         LOG.info(
-                "[SCHEMA-CHANGE] MySQL deserializer received schema change, baselineSchemas={}, freshSchemas={}, ddl={}",
+                "[SCHEMA-CHANGE] MySQL deserializer received schema change, baselineSchemas={},"
+                        + " freshSchemas={}, ddl={}",
                 tableSchemas == null ? 0 : tableSchemas.size(),
                 freshSchemas.size(),
                 ddl);
@@ -102,8 +104,7 @@ public class MySqlDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
                     "[SCHEMA-CHANGE] MySQL schema baseline is empty, adopting fresh schemas as "
                             + "baseline without emitting Doris DDL. DDL: {}",
                     ddl);
-            return DeserializeResult.schemaChange(
-                    Collections.emptyList(), freshSchemas, Collections.emptyList());
+            return DeserializeResult.schemaChange(Collections.emptyList(), freshSchemas);
         }
         for (TableId tableId : freshSchemas.keySet()) {
             if (!tableSchemas.containsKey(tableId)) {
@@ -112,8 +113,29 @@ public class MySqlDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
                                 + "baseline without emitting Doris DDL. DDL: {}",
                         tableId.identifier(),
                         ddl);
-                return DeserializeResult.schemaChange(
-                        Collections.emptyList(), freshSchemas, Collections.emptyList());
+                return DeserializeResult.schemaChange(Collections.emptyList(), freshSchemas);
+            }
+        }
+
+        if (isSchemaChangeIgnored(context)) {
+            LOG.info(
+                    "[SCHEMA-CHANGE-IGNORED] MySQL target DDL skipped for tables {}",
+                    freshSchemas.keySet());
+            return DeserializeResult.schemaChange(Collections.emptyList(), freshSchemas);
+        }
+
+        for (Map.Entry<TableId, TableChanges.TableChange> entry : freshSchemas.entrySet()) {
+            if (entry.getValue().getType() != TableChanges.TableChangeType.ALTER) {
+                continue;
+            }
+            TableId tableId = entry.getKey();
+            if (!tableSchemas
+                    .get(tableId)
+                    .getTable()
+                    .primaryKeyColumnNames()
+                    .equals(entry.getValue().getTable().primaryKeyColumnNames())) {
+                return unsupportedSchemaChange(
+                        record, ddl, "Primary key changes are not supported", freshSchemas);
             }
         }
 
@@ -125,45 +147,59 @@ public class MySqlDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
             parser.parse(ddl, tables);
             changes = parser.getAndClearParsedChanges();
         } catch (Exception e) {
-            LOG.warn(
-                    "[SCHEMA-CHANGE-SKIPPED] MySQL schema change DDL parser failed. No Doris DDL "
-                            + "emitted, FE baseline will advance to the schema carried by the "
-                            + "history record. DDL: {}",
-                    ddl,
-                    e);
-            return DeserializeResult.schemaChange(
-                    Collections.emptyList(), freshSchemas, Collections.emptyList());
+            LOG.warn("Failed to parse MySQL schema change DDL: {}", ddl, e);
+            return unsupportedSchemaChange(record, ddl, "Cannot parse schema change", freshSchemas);
         }
         if (changes.isEmpty()) {
-            LOG.warn(
-                    "[SCHEMA-CHANGE-SKIPPED] MySQL schema change event produced no supported "
-                            + "column change. No Doris DDL emitted, FE baseline will advance to "
-                            + "the schema carried by the history record. DDL: {}",
-                    ddl);
-            return DeserializeResult.schemaChange(
-                    Collections.emptyList(), freshSchemas, Collections.emptyList());
+            for (Map.Entry<TableId, TableChanges.TableChange> entry : freshSchemas.entrySet()) {
+                if (entry.getValue().getType() != TableChanges.TableChangeType.ALTER) {
+                    continue;
+                }
+                TableId tableId = entry.getKey();
+                Set<String> excluded =
+                        excludeColumnsCache.getOrDefault(tableId.table(), Collections.emptySet());
+                Set<String> before =
+                        tableSchemas.get(tableId).getTable().columns().stream()
+                                .map(Column::name)
+                                .filter(name -> !excluded.contains(name))
+                                .collect(Collectors.toSet());
+                Set<String> after =
+                        entry.getValue().getTable().columns().stream()
+                                .map(Column::name)
+                                .filter(name -> !excluded.contains(name))
+                                .collect(Collectors.toSet());
+                if (!before.equals(after)) {
+                    return unsupportedSchemaChange(
+                            record, ddl, "Unrecognized column change", freshSchemas);
+                }
+            }
+            return DeserializeResult.schemaChange(Collections.emptyList(), freshSchemas);
         }
 
         List<MySqlSchemaChange> supportedChanges = new ArrayList<>();
         for (MySqlSchemaChange change : changes) {
-            if (change.getType() == MySqlSchemaChange.Type.UNSUPPORTED) {
-                LOG.warn(
-                        "[SCHEMA-CHANGE-SKIPPED] MySQL unsupported schema change {} for table {}: {}."
-                                + " Doris DDL will not be emitted for this change, FE baseline will"
-                                + " advance to the schema carried by the history record. DDL: {}",
-                        change.getSourceOperation(),
-                        change.getTableId() == null
-                                ? "<unknown>"
-                                : change.getTableId().identifier(),
-                        change.getReason(),
-                        ddl);
+            MySqlSchemaChange.Type type = change.getType();
+            if (type == MySqlSchemaChange.Type.ADD || type == MySqlSchemaChange.Type.DROP) {
+                supportedChanges.add(change);
                 continue;
             }
-            supportedChanges.add(change);
+
+            TableId tableId = change.getTableId();
+            String columnName = change.getColumnName();
+            String newColumnName = change.getNewColumnName();
+            Set<String> excluded =
+                    excludeColumnsCache.getOrDefault(tableId.table(), Collections.emptySet());
+            if (excluded.contains(columnName) && excluded.contains(newColumnName)) {
+                continue;
+            }
+            return unsupportedSchemaChange(
+                    record,
+                    ddl,
+                    type + " COLUMN is not supported (" + columnName + " -> " + newColumnName + ")",
+                    freshSchemas);
         }
         if (supportedChanges.isEmpty()) {
-            return DeserializeResult.schemaChange(
-                    Collections.emptyList(), freshSchemas, Collections.emptyList());
+            return DeserializeResult.schemaChange(Collections.emptyList(), freshSchemas);
         }
         for (MySqlSchemaChange change : supportedChanges) {
             TableId tableId = change.getTableId();
@@ -174,8 +210,7 @@ public class MySqlDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
                                 + " carried by the history record. DDL: {}",
                         tableId == null ? "<unknown>" : tableId.identifier(),
                         ddl);
-                return DeserializeResult.schemaChange(
-                        Collections.emptyList(), freshSchemas, Collections.emptyList());
+                return DeserializeResult.schemaChange(Collections.emptyList(), freshSchemas);
             }
         }
 
@@ -190,7 +225,8 @@ public class MySqlDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
                 String columnName = change.getColumn().name();
                 if (excludedCols.contains(columnName)) {
                     LOG.info(
-                            "[SCHEMA-CHANGE] MySQL table {}: added column '{}' is excluded, skipping ADD",
+                            "[SCHEMA-CHANGE] MySQL table {}: added column '{}' is excluded,"
+                                    + " skipping ADD",
                             tableId.identifier(),
                             columnName);
                     continue;
@@ -210,7 +246,8 @@ public class MySqlDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
                 String columnName = change.getColumnName();
                 if (excludedCols.contains(columnName)) {
                     LOG.info(
-                            "[SCHEMA-CHANGE] MySQL table {}: dropped column '{}' is excluded, skipping DROP",
+                            "[SCHEMA-CHANGE] MySQL table {}: dropped column '{}' is excluded,"
+                                    + " skipping DROP",
                             tableId.identifier(),
                             columnName);
                     continue;
@@ -230,7 +267,7 @@ public class MySqlDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
                 schemaChanges.stream()
                         .map(SchemaChangeOperation::getSql)
                         .collect(Collectors.toList()));
-        return DeserializeResult.schemaChange(schemaChanges, freshSchemas, Collections.emptyList());
+        return DeserializeResult.schemaChange(schemaChanges, freshSchemas);
     }
 
     private Map<TableId, TableChanges.TableChange> deserializeTableChanges(HistoryRecord history) {
@@ -238,9 +275,27 @@ public class MySqlDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
         TableChanges changes = TABLE_CHANGE_SERIALIZER.deserialize(tableChanges, true);
         Map<TableId, TableChanges.TableChange> result = new ConcurrentHashMap<>();
         for (TableChanges.TableChange tableChange : changes) {
+            // DROP has no post-change table schema and does not produce target DDL.
+            if (tableChange.getType() == TableChanges.TableChangeType.DROP) {
+                continue;
+            }
             result.put(tableChange.getTable().id(), tableChange);
         }
         return result;
+    }
+
+    private DeserializeResult unsupportedSchemaChange(
+            SourceRecord record,
+            String ddl,
+            String reason,
+            Map<TableId, TableChanges.TableChange> freshSchemas) {
+        LOG.info(
+                "[SCHEMA-CHANGE-DETAIL] MySQL tables={}: {}. DDL: {}. sourceOffset={}",
+                freshSchemas.keySet(),
+                reason,
+                ddl,
+                record.sourceOffset());
+        return DeserializeResult.unsupportedSchemaChange(reason, tableSchemas, freshSchemas);
     }
 
     private Tables toTables(Map<TableId, TableChanges.TableChange> schemas) {

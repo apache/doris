@@ -31,6 +31,8 @@ import lombok.Setter;
 @AllArgsConstructor
 @Builder
 public class TaskFailureRequest {
+    public static final String SCHEMA_CHANGE_UNSUPPORTED = "[SCHEMA_CHANGE_UNSUPPORTED]";
+
     public long jobId;
     public long taskId;
     public String reason;

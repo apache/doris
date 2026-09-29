@@ -196,6 +196,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     @Setter
     private transient volatile boolean needRebuildReader = true;
 
+    // Manual acceptance lasts until a task succeeds; restarting FE requires acceptance again.
+    @Getter
+    private transient volatile boolean tolerateSchemaChange;
+
     // The sampling window starts at the beginning of the sampling window.
     // If the error rate exceeds `max_filter_ratio` within the window, the sampling fails.
     @Setter
@@ -555,6 +559,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     public void updateJobStatus(JobStatus status) throws JobException {
         lock.writeLock().lock();
         try {
+            prepareSchemaChangeResume(status);
             super.updateJobStatus(status);
             if (JobStatus.PAUSED.equals(getJobStatus())) {
                 clearRunningStreamTask(status);
@@ -565,6 +570,18 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             log.info("Streaming insert job {} update status to {}", getJobId(), getJobStatus());
         } finally {
             lock.writeLock().unlock();
+        }
+    }
+
+    private void prepareSchemaChangeResume(JobStatus status) {
+        if (tvfType != null) {
+            return;
+        }
+        // Schema-change failures cannot auto-resume, so this transition confirms user acceptance.
+        // Called under the job write lock, before publishing PENDING to the scheduler.
+        if (JobStatus.PAUSED.equals(getJobStatus()) && JobStatus.PENDING.equals(status)
+                && failureReason != null && failureReason.isUnsupportedSchemaChange()) {
+            tolerateSchemaChange = true;
         }
     }
 
@@ -906,6 +923,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     public void onStreamTaskSuccess(AbstractStreamingTask task) throws JobException {
         try {
             this.needRebuildReader = false;
+            this.tolerateSchemaChange = false;
             resetFailureInfo(null);
             succeedTaskCount.incrementAndGet();
             lastTaskSuccessTime = System.currentTimeMillis();

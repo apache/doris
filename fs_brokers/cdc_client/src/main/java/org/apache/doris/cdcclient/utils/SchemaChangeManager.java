@@ -25,12 +25,20 @@ import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.util.EntityUtils;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.debezium.relational.Column;
+import io.debezium.relational.Table;
+import io.debezium.relational.TableId;
+import io.debezium.relational.history.TableChanges;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -107,6 +115,46 @@ public class SchemaChangeManager {
         }
     }
 
+    /**
+     * Check whether the target can accept an unsupported source schema change. Extra target columns
+     * are allowed for historical replay. Types and keys are deliberately not compared, since a
+     * manually maintained target may use different types and keys.
+     */
+    public static void validateTargetSchemas(
+            String feAddr,
+            String db,
+            String token,
+            String jobId,
+            Map<TableId, TableChanges.TableChange> updatedSchemas,
+            Map<String, String> sourceConfig)
+            throws IOException {
+        Map<String, String> targetTableMappings =
+                ConfigUtil.parseAllTargetTableMappings(sourceConfig);
+        Map<String, Set<String>> excludedColumns = ConfigUtil.parseAllExcludeColumns(sourceConfig);
+        List<String> differences = new ArrayList<>();
+        for (Map.Entry<TableId, TableChanges.TableChange> entry : updatedSchemas.entrySet()) {
+            TableId tableId = entry.getKey();
+            Table sourceTable = entry.getValue().getTable();
+            String targetTable = targetTableMappings.getOrDefault(tableId.table(), tableId.table());
+            Set<String> targetColumns =
+                    fetchTargetColumnNames(feAddr, db, token, jobId, targetTable);
+            Set<String> excluded =
+                    excludedColumns.getOrDefault(tableId.table(), Collections.emptySet());
+            List<String> missingColumns = new ArrayList<>();
+            for (Column column : sourceTable.columns()) {
+                if (!excluded.contains(column.name()) && !targetColumns.contains(column.name())) {
+                    missingColumns.add(column.name());
+                }
+            }
+            if (!missingColumns.isEmpty()) {
+                differences.add(db + "." + targetTable + ": missing columns " + missingColumns);
+            }
+        }
+        if (!differences.isEmpty()) {
+            throw new IOException(String.join("; ", differences));
+        }
+    }
+
     // ─── Internal helpers ─────────────────────────────────────────────────────
 
     private static HttpPost buildHttpPost(String feAddr, String token, String jobId, String sql)
@@ -137,7 +185,16 @@ public class SchemaChangeManager {
     private static boolean isAlreadyApplied(
             String feAddr, String db, String token, String jobId, SchemaChangeOperation operation)
             throws IOException {
-        String url = String.format(TABLE_SCHEMA_API, feAddr, db, operation.getTableName());
+        boolean columnExists =
+                fetchTargetColumnNames(feAddr, db, token, jobId, operation.getTableName())
+                        .contains(operation.getColumnName());
+        return operation.getType() == SchemaChangeOperation.Type.ADD ? columnExists : !columnExists;
+    }
+
+    private static Set<String> fetchTargetColumnNames(
+            String feAddr, String db, String token, String jobId, String tableName)
+            throws IOException {
+        String url = String.format(TABLE_SCHEMA_API, feAddr, db, tableName);
         HttpGet request = new HttpGet(url);
         request.setHeader("token", token);
         request.setHeader("jobId", jobId);
@@ -158,14 +215,11 @@ public class SchemaChangeManager {
             throw new IOException("Failed to query Doris table schema: " + responseBody);
         }
 
-        boolean columnExists = false;
+        Set<String> columnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         for (JsonNode property : properties) {
-            if (operation.getColumnName().equalsIgnoreCase(property.path("name").asText())) {
-                columnExists = true;
-                break;
-            }
+            columnNames.add(property.path("name").asText());
         }
-        return operation.getType() == SchemaChangeOperation.Type.ADD ? columnExists : !columnExists;
+        return columnNames;
     }
 
     /**
