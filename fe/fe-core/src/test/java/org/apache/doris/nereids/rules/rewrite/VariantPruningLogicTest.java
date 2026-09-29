@@ -28,6 +28,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.thrift.DescriptorsConstants;
 import org.apache.doris.thrift.TAccessPathType;
 import org.apache.doris.thrift.TColumnAccessPath;
 import org.apache.doris.thrift.TDataAccessPath;
@@ -302,6 +303,7 @@ public class VariantPruningLogicTest extends TestWithFeService {
     private TColumnAccessPath path(String... path) {
         TColumnAccessPath accessPath = new TColumnAccessPath(TAccessPathType.DATA);
         accessPath.data_access_path = new TDataAccessPath(ImmutableList.copyOf(path));
+        accessPath.setVersion(DescriptorsConstants.TCOLUMN_ACCESS_PATH_VERSION_TYPED);
         return accessPath;
     }
 

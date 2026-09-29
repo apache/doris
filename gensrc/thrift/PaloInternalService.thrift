@@ -511,6 +511,8 @@ struct TQueryOptions {
   // Fall back to RE2 when Hyperscan cannot compile a regular expression.
   228: optional bool enable_hyperscan_fallback = true;
 
+  // Master uses 226 for this option; branch-4.2 already uses 226-228, so the id was moved.
+  229: optional bool enable_prune_nested_column = false;
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
