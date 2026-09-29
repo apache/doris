@@ -38,6 +38,7 @@ import java.time.temporal.IsoFields;
 import java.time.temporal.TemporalAccessor;
 import java.time.temporal.WeekFields;
 import java.time.zone.ZoneOffsetTransition;
+import java.time.zone.ZoneOffsetTransitionRule;
 import java.time.zone.ZoneRules;
 import java.util.Arrays;
 import java.util.List;
@@ -504,6 +505,25 @@ public class DateUtils {
             return ZoneId.systemDefault();
         }
         return ZoneId.of(ConnectContext.get().getSessionVariable().getTimeZone());
+    }
+
+    /** Whether the zone's historical or recurring rules can move local time backward. */
+    public static boolean hasFallbackTransition(ZoneId zoneId) {
+        ZoneRules rules = zoneId.getRules();
+        if (rules.isFixedOffset()) {
+            return false;
+        }
+        for (ZoneOffsetTransition transition : rules.getTransitions()) {
+            if (transition.isOverlap()) {
+                return true;
+            }
+        }
+        for (ZoneOffsetTransitionRule rule : rules.getTransitionRules()) {
+            if (rule.getOffsetAfter().getTotalSeconds() < rule.getOffsetBefore().getTotalSeconds()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**Determine whether there is a fallback transition within the interval (lower, upper].

@@ -19,13 +19,15 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.util.DateUtils;
 
 /** monotonicity for from_{xx}second */
 public interface FromSecondMonotonic extends Monotonic {
     @Override
     default boolean isMonotonic(Literal lower, Literal upper) {
         if (lower instanceof BigIntLiteral) {
-            return ((BigIntLiteral) lower).getValue() >= 0;
+            return ((BigIntLiteral) lower).getValue() >= 0
+                    && !DateUtils.hasFallbackTransition(DateUtils.getTimeZone());
         }
         return false;
     }
