@@ -22,6 +22,7 @@
 #include <mutex>
 #include <ostream>
 #include <shared_mutex>
+#include <unordered_set>
 #include <utility>
 
 #include "common/logging.h"
@@ -60,6 +61,34 @@ struct QuantileState::TDigestHolder {
     TDigest digest;
     std::shared_mutex mutex;
 };
+
+QuantileState QuantileState::copy_for_result() const {
+    if (_type != TDIGEST) {
+        return *this;
+    }
+    QuantileState result(_compression);
+    result._type = TDIGEST;
+    {
+        std::shared_lock lock(_tdigest_ptr->mutex);
+        result._tdigest_ptr = std::make_shared<TDigestHolder>(*_tdigest_ptr);
+    }
+    result._tdigest_ptr->digest.compact();
+    return result;
+}
+
+size_t QuantileState::allocated_bytes(const std::vector<QuantileState>& states) {
+    size_t bytes = states.capacity() * sizeof(QuantileState);
+    std::unordered_set<const TDigestHolder*> counted;
+    for (const auto& state : states) {
+        bytes += state._explicit_data.capacity() * sizeof(double);
+        const auto* holder = state._tdigest_ptr.get();
+        if (holder && counted.insert(holder).second) {
+            std::shared_lock lock(state._tdigest_ptr->mutex);
+            bytes += sizeof(TDigestHolder) + holder->digest.allocated_bytes();
+        }
+    }
+    return bytes;
+}
 
 TDigest& QuantileState::_mutable_tdigest() {
     std::shared_ptr<TDigestHolder> detached;

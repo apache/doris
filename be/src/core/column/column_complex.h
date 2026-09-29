@@ -109,7 +109,12 @@ public:
     // calculate the memory requested by value_type
     size_t byte_size() const override { return data.size() * sizeof(data[0]); }
 
-    size_t allocated_bytes() const override { return byte_size(); }
+    size_t allocated_bytes() const override {
+        if constexpr (T == TYPE_QUANTILE_STATE) {
+            return value_type::allocated_bytes(data);
+        }
+        return byte_size();
+    }
 
     bool has_enough_capacity(const IColumn& src) const override {
         const Self& src_vec = assert_cast<const Self&>(src);

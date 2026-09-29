@@ -61,3 +61,9 @@ true
 0	10
 1	110
 
+-- !cow_long_high_compression_window --
+0	10	10
+1	10	20
+500	10	519
+1000	10	1019
+

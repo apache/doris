@@ -151,4 +151,22 @@ suite("test_quantile_state_function") {
         LATERAL VIEW explode(IF(id = 0, [0, 1], [1])) e AS k
         GROUP BY k ORDER BY k
     """
+
+    qt_cow_long_high_compression_window """
+        SELECT id, quantile_percent(q, 0), quantile_percent(q, 1)
+        FROM (
+            SELECT id, quantile_union(q) OVER (
+                ORDER BY id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS q
+            FROM (
+                SELECT 0 AS id, quantile_union(to_quantile_state(10, 10000)) AS q
+                FROM numbers("number" = "4096")
+                UNION ALL
+                SELECT number + 1 AS id, to_quantile_state(20 + number, 10000) AS q
+                FROM numbers("number" = "1000")
+            ) input
+        ) window_results
+        WHERE id IN (0, 1, 500, 1000)
+        ORDER BY id
+    """
+
 }

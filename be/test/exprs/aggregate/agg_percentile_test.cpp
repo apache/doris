@@ -23,14 +23,17 @@
 #include <vector>
 
 #include "core/column/column_array.h"
+#include "core/column/column_complex.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_quantilestate.h"
 #include "core/string_buffer.hpp"
 #include "exprs/aggregate/aggregate_function_percentile.h"
+#include "exprs/aggregate/aggregate_function_quantile_state.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "util/tdigest.h"
 
@@ -109,6 +112,109 @@ void expect_results_equal(const std::vector<double>& actual, const std::vector<d
 }
 
 } // namespace
+
+TEST(AggregateFunctionQuantileStateTest, GrowingWindowKeepsResultsCompact) {
+    auto type = std::make_shared<DataTypeQuantileState>();
+    auto function = create_aggregate_function_quantile_state_union(
+            "quantile_union", {type}, type, false,
+            {.is_window_function = true, .column_names = {}});
+    std::unique_ptr<char[]> memory(new char[function->size_of_data()]);
+    auto* place = memory.get();
+    function->create(place);
+    Defer destroy([&] { function->destroy(place); });
+    Arena arena;
+    auto input = ColumnQuantileState::create();
+    QuantileState seed(10000);
+    for (int i = 0; i < 4096; ++i) {
+        seed.add_value(10);
+    }
+    input->insert_value(std::move(seed));
+    const IColumn* columns[] = {input.get()};
+    function->add(place, columns, 0, arena);
+    input->clear();
+    using Data = AggregateFunctionQuantileStateData<AggregateFunctionQuantileStateUnionOp>;
+    auto& accumulator = reinterpret_cast<Data*>(place)->value;
+    auto* original = accumulator._tdigest_ptr.get();
+    auto results = ColumnQuantileState::create();
+    constexpr size_t result_count = 1000;
+    results->reserve(result_count);
+    bool reused_accumulator = true;
+    for (size_t row = 0; row < result_count; ++row) {
+        QuantileState value;
+        value.add_value(20 + row);
+        input->clear();
+        input->insert_value(std::move(value));
+        function->add(place, columns, 0, arena);
+        function->insert_result_into(place, *results);
+        reused_accumulator &= accumulator._tdigest_ptr.get() == original;
+    }
+    EXPECT_TRUE(reused_accumulator);
+    EXPECT_NE(accumulator._tdigest_ptr, results->get_element(result_count - 1)._tdigest_ptr);
+    // Inspect actual capacities as well as accounting, so undercounting cannot hide retention.
+    size_t digest_bytes = 0;
+    for (auto& result : results->get_data()) {
+        auto& digest = result._mutable_tdigest();
+        digest_bytes +=
+                (digest._processed.capacity() + digest._unprocessed.capacity()) * sizeof(Centroid) +
+                digest._cumulative.capacity() * sizeof(Weight);
+    }
+    RecordProperty("retained_digest_bytes", std::to_string(digest_bytes));
+    EXPECT_LT(digest_bytes, 80 * 1024 * 1024);
+    EXPECT_GE(results->allocated_bytes(), digest_bytes);
+    for (size_t row : {size_t(0), result_count / 2, result_count - 1}) {
+        auto& result = results->get_element(row);
+        EXPECT_EQ(0, result._mutable_tdigest().unprocessed().capacity());
+        EXPECT_EQ(10, result.get_value_by_percentile(0));
+        EXPECT_EQ(20 + row, result.get_value_by_percentile(1));
+    }
+    EXPECT_GE(accumulator._mutable_tdigest().unprocessed().capacity(), 80001);
+    // Saving results must not force compression of the live accumulator.
+    EXPECT_TRUE(accumulator._mutable_tdigest().have_unprocessed());
+}
+
+class AggregateFunctionQuantileStateRangeTest : public testing::TestWithParam<bool> {};
+
+TEST_P(AggregateFunctionQuantileStateRangeTest, RangeResultsShareOneSavedDigest) {
+    const bool is_window = GetParam();
+    auto type = std::make_shared<DataTypeQuantileState>();
+    auto function = create_aggregate_function_quantile_state_union(
+            "quantile_union", {type}, type, false,
+            {.is_window_function = is_window, .column_names = {}});
+    std::unique_ptr<char[]> memory(new char[function->size_of_data()]);
+    auto* place = memory.get();
+    function->create(place);
+    Defer destroy([&] { function->destroy(place); });
+    Arena arena;
+    auto input = ColumnQuantileState::create();
+    QuantileState state(10000);
+    for (int i = 0; i < 4096; ++i) {
+        state.add_value(10);
+    }
+    input->insert_value(state);
+    const IColumn* columns[] = {input.get()};
+    function->add(place, columns, 0, arena);
+    auto results = ColumnQuantileState::create();
+    results->insert_many_defaults(3);
+    function->insert_result_into_range(place, *results, 3, 1003);
+    function->insert_result_into_range(place, *results, 1003, 1003);
+    ASSERT_EQ(1003, results->size());
+    const auto& first = results->get_element(3);
+    EXPECT_EQ(first._tdigest_ptr, results->get_element(1002)._tdigest_ptr);
+    if (is_window) {
+        EXPECT_NE(state._tdigest_ptr, first._tdigest_ptr);
+        EXPECT_LT(results->allocated_bytes(), 1024 * 1024);
+    } else {
+        EXPECT_EQ(state._tdigest_ptr, first._tdigest_ptr);
+    }
+    auto modified = first;
+    modified.add_value(110);
+    EXPECT_EQ(110, modified.get_value_by_percentile(1));
+    EXPECT_EQ(10, first.get_value_by_percentile(1));
+    EXPECT_EQ(10, state.get_value_by_percentile(1));
+}
+
+INSTANTIATE_TEST_SUITE_P(AggregateAndWindow, AggregateFunctionQuantileStateRangeTest,
+                         testing::Bool());
 
 TEST(AggregateFunctionPercentileApproxArrayTest, AddAndBatchPaths) {
     const std::vector<double> values {1, 2, 3, 4, 5, 100, std::numeric_limits<double>::quiet_NaN()};

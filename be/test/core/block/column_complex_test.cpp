@@ -586,6 +586,20 @@ private:
     DataTypeQuantileState _quantile_state_type;
 };
 
+TEST_F(ColumnQuantileStateTest, AllocatedBytesIncludesSharedDigestOnce) {
+    auto column = ColumnQuantileState::create();
+    column->reserve(2);
+    QuantileState state(10000);
+    for (int i = 0; i < 4096; ++i) {
+        state.add_value(10);
+    }
+    column->insert_value(state);
+    const size_t bytes = column->allocated_bytes();
+    EXPECT_GE(bytes, size_t(80001) * 2 * sizeof(float));
+    column->insert_value(state);
+    EXPECT_EQ(bytes, column->allocated_bytes());
+}
+
 TEST_F(ColumnBitmapTest, ColumnBitmapReadWrite) {
     auto column = _bitmap_type.create_column();
 
