@@ -97,15 +97,29 @@ Status ArrowFlightResultBlockBuffer::get_schema(std::shared_ptr<arrow::Schema>* 
                                              print_id(_fragment_id), _status));
 }
 
-Status ArrowFlightResultBlockBuffer::get_arrow_batch(std::shared_ptr<Block>* result) {
+void ArrowFlightResultBlockBuffer::cancel_query(const Status& reason) {
+    cancel(reason);
+    // The result buffer can be keyed by a fragment instance id rather than the query id.
+    // Keep only a weak query reference, and cancel outside the buffer/map locks.
+    if (auto query_ctx = _query_ctx.lock()) {
+        query_ctx->cancel(reason);
+    }
+}
+
+Status ArrowFlightResultBlockBuffer::get_arrow_batch(std::shared_ptr<Block>* result, bool* eos) {
+    *result = nullptr;
+    *eos = false;
     std::unique_lock<std::mutex> l(_lock);
     Defer defer {[&]() { _update_dependency(); }};
     if (!_status.ok()) {
         return _status;
     }
 
-    while (_result_batch_queue.empty() && _status.ok() && !_is_close) {
-        _arrow_data_arrival.wait_for(l, std::chrono::milliseconds(20));
+    if (!_arrow_data_arrival.wait_for(l, std::chrono::milliseconds(20), [&] {
+            return !_result_batch_queue.empty() || !_status.ok() || _is_close;
+        })) {
+        // Let the reader check RPC cancellation without treating an empty wait as EOF.
+        return Status::OK();
     }
 
     if (!_status.ok()) {
@@ -126,6 +140,7 @@ Status ArrowFlightResultBlockBuffer::get_arrow_batch(std::shared_ptr<Block>* res
 
     // normal path end
     if (_is_close) {
+        *eos = true;
         if (!_status.ok()) {
             return _status;
         }
