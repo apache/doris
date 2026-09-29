@@ -1121,14 +1121,12 @@ public class ProfileManager extends MasterDaemon {
         return profileLoadStatus.get() == ProfileLoadStatus.LOADED;
     }
 
-    public void removeProfile(String profileId) {
+    public void removeProfile(Profile profile) {
         writeLock.lock();
         try {
-            ProfileElement profileToRemove = this.queryIdToProfileMap.remove(profileId);
-            if (profileToRemove != null) {
-                for (ExecutionProfile executionProfile : profileToRemove.profile.getExecutionProfiles()) {
-                    queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
-                }
+            queryIdToProfileMap.remove(profile.getId());
+            for (ExecutionProfile executionProfile : profile.getExecutionProfiles()) {
+                queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
             }
         } finally {
             writeLock.unlock();
