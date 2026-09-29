@@ -194,6 +194,28 @@ public class LanceCatalogClientTest {
         }
     }
 
+    /**
+     * A managed table's branch is opened by a URI Doris joins, so Doris applies Lance's branch name
+     * rules itself; the object store would resolve dot segments, even percent-encoded ones.
+     */
+    @Test
+    public void testManagedBranchNamesFollowLanceRules() {
+        // Lance accepts what Rust's char::is_alphanumeric accepts, including a Devanagari vowel sign
+        // (Other_Alphabetic) in "शाखा", a superscript digit (No) and a Roman numeral (Nl).
+        for (String valid : new String[] {"dev", "team/dev", "v1.0", "a_b-c", "123", "dev2026", "分支",
+                "शाखा", "v²", "Ⅻ"}) {
+            LanceCatalogClient.checkBranchName(valid);
+        }
+        // An emoji is a symbol (So), which neither Lance nor Doris accepts.
+        for (String invalid : new String[] {"", "../other.lance", "a/../../b", "/dev", "dev/", "a//b",
+                "x.lock", "%2e%2e/x", "dev?x=1", "dev#x", "a b", "a\\b", "s3://bucket/t", "a+b", "😀"}) {
+            RuntimeException exception = Assertions.assertThrows(RuntimeException.class,
+                    () -> LanceCatalogClient.checkBranchName(invalid), invalid);
+            Assertions.assertTrue(exception.getMessage().startsWith("Invalid Lance branch name '" + invalid + "'"),
+                    exception.getMessage());
+        }
+    }
+
     private static LanceCatalogClient client(LanceNamespace namespace, BufferAllocator allocator, Session session) {
         return new LanceCatalogClient(namespace, allocator, session, "filesystem", "default",
                 Collections.emptyList(), Collections.emptyList(), Collections.emptyMap(), Collections.emptyList());

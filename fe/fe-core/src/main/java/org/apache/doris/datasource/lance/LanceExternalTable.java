@@ -64,13 +64,15 @@ public class LanceExternalTable extends ExternalTable implements MvccTable {
         return ((LanceExternalCatalog) catalog).loadTableMetadata(db.getRemoteName(), remoteName);
     }
 
-    public LanceTableMetadata loadMetadataForSearch() {
+    /** Search metadata, index details included, of the snapshot {@code selector} selects. */
+    public LanceTableMetadata loadMetadataForSearch(LanceRefSelector selector) {
         return ((LanceExternalCatalog) catalog).loadTableMetadataForSearch(
-                db.getRemoteName(), remoteName);
+                db.getRemoteName(), remoteName, selector);
     }
 
-    public LanceTableMetadata loadBasicMetadata() {
-        return ((LanceExternalCatalog) catalog).loadBasicTableMetadata(db.getRemoteName(), remoteName);
+    /** Search metadata without index details, of the snapshot {@code selector} selects. */
+    public LanceTableMetadata loadBasicMetadata(LanceRefSelector selector) {
+        return ((LanceExternalCatalog) catalog).loadBasicTableMetadata(db.getRemoteName(), remoteName, selector);
     }
 
     public List<LanceShowIndexInfo> loadIndexesForShow() throws AnalysisException {
@@ -112,10 +114,7 @@ public class LanceExternalTable extends ExternalTable implements MvccTable {
                             + tableSnapshot.get().getValue() + "' names a tag, which cannot be combined with @branch;"
                             + " use @tag(...) or a numeric version");
                 }
-                // Lance calls the main chain "main"; it lives at the table root, not under tree/.
-                if (!LanceCatalogClient.MAIN_BRANCH.equals(branch)) {
-                    selector = LanceRefSelector.branch(branch, tableSnapshot);
-                }
+                selector = LanceRefSelector.branch(branch, tableSnapshot);
             } else if (params.isTag()) {
                 if (tableSnapshot.isPresent()) {
                     throw new IllegalArgumentException("Lance table " + getName()

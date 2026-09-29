@@ -20,7 +20,6 @@ package org.apache.doris.datasource.lance;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.lance.index.LanceIndexInspection;
 import org.apache.doris.datasource.lance.index.LanceIndexInspectionExecutor;
 import org.apache.doris.datasource.lance.index.LancePhysicalIndexEntry;
@@ -73,8 +72,6 @@ import java.util.function.BiFunction;
 final class LanceCatalogClient implements AutoCloseable {
 
     private static final Logger LOG = LogManager.getLogger(LanceCatalogClient.class);
-    /** Lance's name for the main chain; {@code @branch(main)} and tags on it mean the main chain. */
-    static final String MAIN_BRANCH = "main";
     private static final long METADATA_CACHE_SIZE_BYTES = 64L * 1024 * 1024;
     private static final long INDEX_CACHE_SIZE_BYTES = 128L * 1024 * 1024;
 
@@ -235,7 +232,11 @@ final class LanceCatalogClient implements AutoCloseable {
     }
 
     public LanceTableMetadata loadTableMetadataForSearch(String dbName, String tableName) {
-        LanceTableMetadata metadata = loadQueryMetadata(dbName, tableName, Optional.empty(),
+        return loadTableMetadataForSearch(dbName, tableName, LanceRefSelector.latest());
+    }
+
+    public LanceTableMetadata loadTableMetadataForSearch(String dbName, String tableName, LanceRefSelector selector) {
+        LanceTableMetadata metadata = loadQueryMetadata(dbName, tableName, selector,
                 LanceMetadataLoader.MetadataScope.WITH_INDEXES);
         if (!metadata.getIndexMetadataState().canPlanIndexSegments()) {
             throw new IllegalArgumentException("Lance SDK cannot provide field IDs required for search planning");
@@ -244,7 +245,11 @@ final class LanceCatalogClient implements AutoCloseable {
     }
 
     public LanceTableMetadata loadBasicTableMetadata(String dbName, String tableName) {
-        return loadQueryMetadata(dbName, tableName, Optional.empty(), LanceMetadataLoader.MetadataScope.BASIC);
+        return loadBasicTableMetadata(dbName, tableName, LanceRefSelector.latest());
+    }
+
+    public LanceTableMetadata loadBasicTableMetadata(String dbName, String tableName, LanceRefSelector selector) {
+        return loadQueryMetadata(dbName, tableName, selector, LanceMetadataLoader.MetadataScope.BASIC);
     }
 
     public Schema loadTableSchema(String dbName, String tableName) {
@@ -259,11 +264,6 @@ final class LanceCatalogClient implements AutoCloseable {
 
     public LanceTableMetadata loadTableMetadata(String dbName, String tableName, LanceRefSelector selector) {
         return loadQueryMetadata(dbName, tableName, selector, LanceMetadataLoader.MetadataScope.WITH_INDEXES);
-    }
-
-    private LanceTableMetadata loadQueryMetadata(String dbName, String tableName,
-            Optional<TableSnapshot> tableSnapshot, LanceMetadataLoader.MetadataScope mode) {
-        return loadQueryMetadata(dbName, tableName, LanceRefSelector.snapshot(tableSnapshot), mode);
     }
 
     private LanceTableMetadata loadQueryMetadata(String dbName, String tableName,
@@ -473,6 +473,7 @@ final class LanceCatalogClient implements AutoCloseable {
     private <T> T readManagedBranch(BufferAllocator allocator, ReadState state, SnapshotReader<T> reader,
             LanceMetadataMetrics metrics) throws Exception {
         String branch = state.branch.get();
+        checkBranchName(branch);
         LanceTableAccess branchAccess = state.access.onBranch(branch,
                 branchUri(state.access.getDatasetUri(), branch));
         Optional<TableSnapshot> snapshot = state.selector.getSnapshot();
@@ -492,6 +493,43 @@ final class LanceCatalogClient implements AutoCloseable {
         try (Dataset dataset = openDataset(allocator, branchAccess, state.version, metrics)) {
             return reader.read(dataset, branchAccess, metrics);
         }
+    }
+
+    /**
+     * Rejects a branch name Lance would reject ({@code check_valid_branch}). A managed table's
+     * branch is opened by the URI {@link #branchUri} joins, which Lance does not validate, and the
+     * object store resolves dot segments, including percent-encoded ones. Other tables check a
+     * branch out through Lance, which validates the name itself.
+     */
+    static void checkBranchName(String branch) {
+        String reason = null;
+        if (branch.isEmpty()) {
+            reason = "it is empty";
+        } else if (branch.startsWith("/") || branch.endsWith("/") || branch.contains("//")) {
+            reason = "it starts or ends with '/' or contains an empty segment";
+        } else if (branch.contains("..") || branch.endsWith(".lock")) {
+            reason = "it contains '..' or ends with '.lock'";
+        } else if (!branch.codePoints().allMatch(c -> c == '/' || c == '.' || c == '-' || c == '_'
+                || isLanceAlphanumeric(c))) {
+            reason = "only letters, digits, '.', '-', '_' and '/' between segments are allowed";
+        }
+        if (reason != null) {
+            throw new LanceUserFacingException("Invalid Lance branch name '" + branch + "': " + reason);
+        }
+    }
+
+    /**
+     * Rust's {@code char::is_alphanumeric}, which {@code check_valid_branch} applies: the Unicode
+     * Alphabetic property or a numeric general category. {@link Character#isLetterOrDigit} is
+     * narrower; it rejects combining vowel signs and numbers such as '²' that Lance accepts.
+     */
+    private static boolean isLanceAlphanumeric(int codePoint) {
+        if (Character.isAlphabetic(codePoint)) {
+            return true;
+        }
+        int type = Character.getType(codePoint);
+        return type == Character.DECIMAL_DIGIT_NUMBER || type == Character.LETTER_NUMBER
+                || type == Character.OTHER_NUMBER;
     }
 
     /**
@@ -746,26 +784,19 @@ final class LanceCatalogClient implements AutoCloseable {
 
     private static LanceUserFacingException historyRemoved(long version, boolean staged, String requestedText,
             ReadState state) {
-        return new LanceUserFacingException("Lance cannot resolve FOR TIME AS OF '" + requestedText + "' on "
+        // Worded for FOR TIME AS OF and the search functions' timestamp alike.
+        return new LanceUserFacingException("Lance cannot select the version at or before '" + requestedText + "' on "
                 + state.displayName() + ": version " + version + ", which may hold the state at that time, "
                 + (staged ? "cannot be read: " + stagedOnly() : "no longer exists"));
     }
 
-    /**
-     * Parses a {@code FOR TIME AS OF} value in the session time zone. Second and millisecond
-     * precision are accepted. Commit times are compared in full, so a commit later within the
-     * requested millisecond is not selected.
-     */
     private static long parseTimeTravelTimestamp(String value) {
-        long timestamp = TimeUtils.timeStringToLong(value, TimeUtils.getTimeZone());
-        if (timestamp < 0) {
-            timestamp = TimeUtils.msTimeStringToLong(value, TimeUtils.getTimeZone());
-        }
-        if (timestamp < 0) {
+        OptionalLong timestamp = LanceSnapshotResolver.parseTimestamp(value);
+        if (!timestamp.isPresent()) {
             throw new IllegalArgumentException("Cannot parse Lance FOR TIME AS OF value '" + value
-                    + "', expected 'yyyy-MM-dd HH:mm:ss' or 'yyyy-MM-dd HH:mm:ss.SSS'");
+                    + "', expected " + LanceSnapshotResolver.TIMESTAMP_FORMATS);
         }
-        return timestamp;
+        return timestamp.getAsLong();
     }
 
     /**
