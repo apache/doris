@@ -34,7 +34,7 @@ suite("test_hive_ha_catalog_validation", "p0,external") {
             'test_connection' = 'false',
             'dfs.nameservices' = ','
         )"""
-        exception "dfs.nameservices must not contain empty nameservice"
+        exception "dfs.nameservices must contain a nameservice"
     }
 
     test {
@@ -44,7 +44,7 @@ suite("test_hive_ha_catalog_validation", "p0,external") {
             'test_connection' = 'false',
             'dfs.nameservices' = 'ns1,'
         )"""
-        exception "dfs.nameservices must not contain empty nameservice"
+        exception "Missing property: dfs.ha.namenodes.ns1"
     }
 
     test {
