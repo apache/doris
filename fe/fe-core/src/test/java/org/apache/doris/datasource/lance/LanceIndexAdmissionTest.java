@@ -332,6 +332,9 @@ public class LanceIndexAdmissionTest {
         Assertions.assertEquals("v", job.getColumnName());
         Assertions.assertEquals(NORMALIZED_ANN_PROPERTIES_JSON, job.getPropertiesJson());
         Assertions.assertEquals(DATASET_VERSION, job.getAdmittedDatasetVersion());
+        // The effective IVF_PQ bounds at admission time ride the durable record.
+        Assertions.assertEquals(Integer.valueOf(4096), job.getAdmittedMaxNumPartitions());
+        Assertions.assertEquals(Integer.valueOf(256), job.getAdmittedMaxNumSubVectors());
 
         LanceIndexSchemaContract contract = job.getSchemaContract();
         Assertions.assertNotNull(contract);
@@ -354,6 +357,49 @@ public class LanceIndexAdmissionTest {
         Assertions.assertTrue(manager.isFenceHeld(job.fenceKey()));
         Assertions.assertEquals(1, manager.getUnresolvedJobs().size());
         Mockito.verify(env, Mockito.times(1)).getNextId();
+    }
+
+    @Test
+    public void admittedJobsSnapshotTheEffectiveBounds() throws Exception {
+        // The bounds are mutable master config: the durable record must capture the values
+        // in effect at admission, for CREATE and DROP alike, so a later config drift can
+        // never rebind what the dispatch replays to the worker.
+        int originalMaxNumPartitions = Config.lance_index_max_num_partitions;
+        int originalMaxNumSubVectors = Config.lance_index_max_num_sub_vectors;
+        try {
+            Config.lance_index_max_num_partitions = 64;
+            Config.lance_index_max_num_sub_vectors = 32;
+
+            LanceIndexAdmission.Outcome created = admitCreate(emptySnapshot(), annDef("IdxB", false, false),
+                    false);
+            LanceIndexJob createJob = manager.getJob(created.getJobId());
+            Assertions.assertEquals(Integer.valueOf(64), createJob.getAdmittedMaxNumPartitions());
+            Assertions.assertEquals(Integer.valueOf(32), createJob.getAdmittedMaxNumSubVectors());
+            // The journal record carries the same snapshot: it is durable state, not an
+            // in-memory convenience.
+            LanceIndexJob journaled = manager.editLog.get(manager.editLog.size() - 1);
+            Assertions.assertEquals(Integer.valueOf(64), journaled.getAdmittedMaxNumPartitions());
+            Assertions.assertEquals(Integer.valueOf(32), journaled.getAdmittedMaxNumSubVectors());
+
+            LanceIndexAdmissionSnapshot dropSnapshot = snapshot(
+                    Collections.singletonList(logicalIndex("idxgone", "v", "IVF_PQ", MATCHING_ANN_PROPERTIES_JSON)),
+                    Collections.singletonList(physicalIndex("idxgone", "VECTOR")));
+            LanceIndexAdmission.Outcome dropped = admitDrop(dropSnapshot, "IdxGone", false);
+            LanceIndexJob dropJob = manager.getJob(dropped.getJobId());
+            Assertions.assertEquals(Integer.valueOf(64), dropJob.getAdmittedMaxNumPartitions());
+            Assertions.assertEquals(Integer.valueOf(32), dropJob.getAdmittedMaxNumSubVectors());
+
+            // Restoring the config does not retro-rewrite the durable snapshots.
+            Config.lance_index_max_num_partitions = 4096;
+            Config.lance_index_max_num_sub_vectors = 256;
+            Assertions.assertEquals(Integer.valueOf(64), manager.getJob(created.getJobId())
+                    .getAdmittedMaxNumPartitions());
+            Assertions.assertEquals(Integer.valueOf(32), manager.getJob(created.getJobId())
+                    .getAdmittedMaxNumSubVectors());
+        } finally {
+            Config.lance_index_max_num_partitions = originalMaxNumPartitions;
+            Config.lance_index_max_num_sub_vectors = originalMaxNumSubVectors;
+        }
     }
 
     @Test

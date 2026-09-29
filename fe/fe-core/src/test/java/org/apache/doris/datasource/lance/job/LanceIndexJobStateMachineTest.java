@@ -392,7 +392,8 @@ public class LanceIndexJobStateMachineTest {
         createAndRun(manager, 1L, "IdxA");
 
         // Even a pre-invocation rejection reported by a worker keeps the slot: only the
-        // dispatcher's own proven no-enqueue channel releases it without a proof.
+        // dispatcher's own proven no-enqueue and never-launched channels release it
+        // without a separate proof.
         Assertions.assertTrue(manager.completeWithResult(1L, 1L, INVOCATION_ID, BE_EPOCH,
                 result(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED)));
 
@@ -400,6 +401,90 @@ public class LanceIndexJobStateMachineTest {
         Assertions.assertEquals(LanceIndexJobMutationState.NOT_COMMITTED, stored.getMutationState());
         Assertions.assertTrue(stored.holdsPossibleLiveSlot());
         Assertions.assertEquals(LanceIndexTerminationProof.NONE, stored.getTerminationProof());
+    }
+
+    @Test
+    public void preInvocationRejectionCompletesAndProvesNeverLaunchedInOneRecord() throws DdlException {
+        TestManager manager = new TestManager();
+        createAndRun(manager, 1L, "IdxA");
+        LanceIndexFenceKey fenceKey = manager.getJob(1L).fenceKey();
+        Assertions.assertTrue(manager.getJob(1L).holdsPossibleLiveSlot());
+        int journalBefore = manager.editLog.size();
+
+        Assertions.assertTrue(manager.completePreInvocationRejected(1L, 1L, INVOCATION_ID, BE_EPOCH,
+                result(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED)));
+
+        // Result and proof landed atomically: exactly one journal record, carrying
+        // NOT_COMMITTED, the internal NEVER_LAUNCHED proof, and the released slot.
+        Assertions.assertEquals(journalBefore + 1, manager.editLog.size());
+        LanceIndexJob stored = manager.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobMutationState.NOT_COMMITTED, stored.getMutationState());
+        Assertions.assertEquals(LanceIndexJobRefreshState.NOT_REQUIRED, stored.getRefreshState());
+        Assertions.assertEquals(LanceIndexTerminationProof.NEVER_LAUNCHED, stored.getTerminationProof());
+        Assertions.assertFalse(stored.holdsPossibleLiveSlot());
+        // The known terminal outcome resolves the job: fence and quota are gone.
+        Assertions.assertFalse(manager.isFenceHeld(fenceKey));
+        Assertions.assertEquals(0L, manager.getQuota().getGlobalCount());
+
+        // The atomic transition is subject to exactly the callback identity checks of
+        // completeWithResult: a stale dispatch revision, invocation id, or epoch, and a
+        // non-RUNNING job, are all rejected without a journal record.
+        TestManager stale = new TestManager();
+        createAndRun(stale, 1L, "IdxB");
+        int staleJournalBefore = stale.editLog.size();
+        Assertions.assertFalse(stale.completePreInvocationRejected(1L, 99L, INVOCATION_ID, BE_EPOCH,
+                result(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED)));
+        Assertions.assertFalse(stale.completePreInvocationRejected(1L, 1L, "wrong-invocation", BE_EPOCH,
+                result(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED)));
+        Assertions.assertFalse(stale.completePreInvocationRejected(1L, 1L, INVOCATION_ID, BE_EPOCH + 1,
+                result(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED)));
+        Assertions.assertFalse(stale.completePreInvocationRejected(404L, 1L, INVOCATION_ID, BE_EPOCH,
+                result(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED)));
+        Assertions.assertEquals(staleJournalBefore, stale.editLog.size());
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, stale.getJob(1L).getMutationState());
+        Assertions.assertTrue(stale.completePreInvocationRejected(1L, 1L, INVOCATION_ID, BE_EPOCH,
+                result(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED)));
+        Assertions.assertFalse(stale.completePreInvocationRejected(1L, 1L, INVOCATION_ID, BE_EPOCH,
+                result(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED)));
+    }
+
+    @Test
+    public void preInvocationRejectionRequiresAPreInvocationResultCode() throws DdlException {
+        TestManager manager = new TestManager();
+        createAndRun(manager, 1L, "IdxA");
+
+        // NEVER_LAUNCHED is a proof, never a result code: only a PRE_INVOCATION_*
+        // classification may carry the never-launched evidence.
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> manager.completePreInvocationRejected(1L, 1L, INVOCATION_ID, BE_EPOCH,
+                        result(LanceIndexJobResultCode.NATIVE_OK)));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> manager.completePreInvocationRejected(1L, 1L, INVOCATION_ID, BE_EPOCH,
+                        result(LanceIndexJobResultCode.NO_TRUSTED_RESULT)));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> manager.completePreInvocationRejected(1L, 1L, INVOCATION_ID, BE_EPOCH,
+                        result(LanceIndexJobResultCode.NATIVE_IO)));
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, manager.getJob(1L).getMutationState());
+        Assertions.assertTrue(manager.getJob(1L).holdsPossibleLiveSlot());
+        Assertions.assertEquals(2, manager.editLog.size());
+    }
+
+    @Test
+    public void preInvocationRejectionKeepsAnEarlierProof() throws DdlException {
+        TestManager manager = new TestManager();
+        createAndRun(manager, 1L, "IdxA");
+        // The epoch sweep races the dispatcher's pre-send failure: the slot already has
+        // its first proof, and the atomic transition must not overwrite it.
+        Assertions.assertTrue(manager.recordTerminationProof(1L, 1L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                LanceIndexTerminationProof.BE_PROCESS_EPOCH_GONE));
+
+        Assertions.assertTrue(manager.completePreInvocationRejected(1L, 1L, INVOCATION_ID, BE_EPOCH,
+                result(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED)));
+
+        LanceIndexJob stored = manager.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobMutationState.NOT_COMMITTED, stored.getMutationState());
+        Assertions.assertEquals(LanceIndexTerminationProof.BE_PROCESS_EPOCH_GONE, stored.getTerminationProof());
+        Assertions.assertFalse(stored.holdsPossibleLiveSlot());
     }
 
     @Test

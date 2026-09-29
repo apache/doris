@@ -91,7 +91,11 @@ import java.util.function.Supplier;
  * local-file identity; and an idle round writes no journal record. Storage
  * options reach the wire but never a durable record, while the per-dispatch
  * invocation secret reaches both the wire and the journal but never any
- * rendered form (events, toString, logs).
+ * rendered form (events, toString, logs). A dispatch payload that fails its
+ * pre-send bound validation converges NOT_COMMITTED with the internal
+ * NEVER_LAUNCHED proof (determined-never-sent evidence, distinct from the
+ * FE-proven no-enqueue channel), and the admitted-bound snapshot rides the
+ * dispatch only when the record carries it.
  */
 public class LanceIndexJobDispatcherTest {
     private static final long CATALOG_ID = 10L;
@@ -112,6 +116,7 @@ public class LanceIndexJobDispatcherTest {
     private SystemInfoService systemInfo;
     private RefreshManager refreshManager;
     private LanceExternalCatalog catalog;
+    private AbstractS3CompatibleProperties storageProperties;
     private CatalogMgr catalogMgr;
     private TestManager manager;
     private TestDispatcher dispatcher;
@@ -151,7 +156,7 @@ public class LanceIndexJobDispatcherTest {
         ExternalDatabase<ExternalTable> catalogDb = Mockito.mock(ExternalDatabase.class);
         Mockito.doReturn(catalogDb).when(catalog).getDbNullable("db1");
         Mockito.doReturn(Mockito.mock(ExternalTable.class)).when(catalogDb).getTableNullable("tbl1");
-        AbstractS3CompatibleProperties storageProperties = Mockito.mock(AbstractS3CompatibleProperties.class);
+        storageProperties = Mockito.mock(AbstractS3CompatibleProperties.class);
         Mockito.when(storageProperties.getAccessKey()).thenReturn(FAKE_ACCESS_KEY);
         Mockito.when(storageProperties.getSecretKey()).thenReturn(FAKE_SECRET_KEY);
         Mockito.when(storageProperties.getEndpoint()).thenReturn("http://minio.example:9000");
@@ -824,6 +829,116 @@ public class LanceIndexJobDispatcherTest {
     }
 
     // ------------------------------------------------------------------
+    // Pre-send payload validation (D4 bounds)
+    // ------------------------------------------------------------------
+
+    @Test
+    public void payloadValidationAcceptsAtLimitAndRejectsOneOver() {
+        // Exactly at every bound the dispatch is legal...
+        Map<String, String> atLimit = new java.util.HashMap<>();
+        for (int i = 0; i < LanceIndexDispatchBounds.MAX_STORAGE_OPTIONS; i++) {
+            atLimit.put(repeat('k', LanceIndexDispatchBounds.MAX_STORAGE_OPTION_KEY_BYTES - 4) + i,
+                    repeat('v', LanceIndexDispatchBounds.MAX_STORAGE_OPTION_VALUE_BYTES));
+        }
+        TLanceIndexJobDispatch maximal = minimalDispatch(1L).setStorageOptions(atLimit);
+        LanceIndexDispatchBounds.validatePayload(maximal);
+
+        // ...and one over any bound is rejected.
+        Map<String, String> tooMany = new java.util.HashMap<>(atLimit);
+        tooMany.put("one.too.many", "v");
+        assertPayloadRejected(minimalDispatch(1L).setStorageOptions(tooMany));
+
+        Map<String, String> keyTooLong = new java.util.HashMap<>();
+        keyTooLong.put(repeat('k', LanceIndexDispatchBounds.MAX_STORAGE_OPTION_KEY_BYTES + 1), "v");
+        assertPayloadRejected(minimalDispatch(1L).setStorageOptions(keyTooLong));
+
+        Map<String, String> valueTooLong = new java.util.HashMap<>();
+        valueTooLong.put("k", repeat('v', LanceIndexDispatchBounds.MAX_STORAGE_OPTION_VALUE_BYTES + 1));
+        assertPayloadRejected(minimalDispatch(1L).setStorageOptions(valueTooLong));
+
+        // A serialized frame past the 512 KiB bound is rejected even with individually
+        // legal options (the map bound alone keeps this unreachable in practice; the
+        // total-size check is the second line of defense).
+        Map<String, String> frameTooBig = new java.util.HashMap<>();
+        for (int i = 0; i < LanceIndexDispatchBounds.MAX_STORAGE_OPTIONS; i++) {
+            frameTooBig.put("key-" + i, repeat('v', LanceIndexDispatchBounds.MAX_STORAGE_OPTION_VALUE_BYTES));
+        }
+        TLanceIndexJobDispatch padded = minimalDispatch(1L).setStorageOptions(frameTooBig)
+                .setSchemaContractJson(repeat('s', LanceIndexDispatchBounds.MAX_DISPATCH_BYTES));
+        assertPayloadRejected(padded);
+    }
+
+    @Test
+    public void oversizedPayloadConvergesNotCommittedWithoutASend() throws Exception {
+        admit(1L, "IdxA", LOCATOR);
+        // A credential value one byte past the protocol bound: resolution succeeds, the
+        // pre-send payload validation fails, nothing is ever sent. Determined-never-sent
+        // evidence that is also permanent (the same record rebuilds the same payload
+        // every round), so the job converges NOT_COMMITTED with the internal
+        // NEVER_LAUNCHED proof in one durable transition instead of looping PENDING.
+        Mockito.when(storageProperties.getEndpoint())
+                .thenReturn(repeat('e', LanceIndexDispatchBounds.MAX_STORAGE_OPTION_VALUE_BYTES + 1));
+
+        dispatcher.runAfterCatalogReady();
+
+        Assertions.assertTrue(dispatcher.sends.isEmpty(), events.toString());
+        LanceIndexJob stored = manager.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobMutationState.NOT_COMMITTED, stored.getMutationState());
+        Assertions.assertEquals(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED,
+                stored.getResult().getResultCode());
+        Assertions.assertEquals(LanceIndexTerminationProof.NEVER_LAUNCHED, stored.getTerminationProof());
+        Assertions.assertFalse(stored.holdsPossibleLiveSlot());
+        Assertions.assertEquals(3, manager.editLog.size());
+    }
+
+    @Test
+    public void atLimitPayloadIsSent() throws Exception {
+        admit(1L, "IdxA", LOCATOR);
+        Mockito.when(storageProperties.getEndpoint())
+                .thenReturn(repeat('e', LanceIndexDispatchBounds.MAX_STORAGE_OPTION_VALUE_BYTES));
+
+        dispatcher.runAfterCatalogReady();
+
+        Assertions.assertEquals(1, dispatcher.sends.size());
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, manager.getJob(1L).getMutationState());
+    }
+
+    // ------------------------------------------------------------------
+    // Admitted-bound snapshot on the wire
+    // ------------------------------------------------------------------
+
+    @Test
+    public void dispatchCarriesTheAdmittedBoundSnapshot() throws Exception {
+        admitWithBounds(1L, "IdxSnap", LOCATOR, 64, 32);
+
+        dispatcher.runAfterCatalogReady();
+
+        Assertions.assertEquals(1, dispatcher.sends.size());
+        TLanceIndexJobDispatch request = dispatcher.sends.get(0);
+        Assertions.assertTrue(request.isSetMaxNumPartitions());
+        Assertions.assertEquals(64, request.getMaxNumPartitions());
+        Assertions.assertTrue(request.isSetMaxNumSubVectors());
+        Assertions.assertEquals(32, request.getMaxNumSubVectors());
+    }
+
+    @Test
+    public void legacyRecordWithoutBoundSnapshotLeavesTheFieldsUnset() throws Exception {
+        // The shared admit helper builds a record the pre-snapshot way: both bound fields
+        // stay null, and the dispatch leaves the wire fields unset for the worker to
+        // reject safely.
+        admit(1L, "IdxLegacy", LOCATOR);
+        Assertions.assertNull(manager.getJob(1L).getAdmittedMaxNumPartitions());
+        Assertions.assertNull(manager.getJob(1L).getAdmittedMaxNumSubVectors());
+
+        dispatcher.runAfterCatalogReady();
+
+        Assertions.assertEquals(1, dispatcher.sends.size());
+        TLanceIndexJobDispatch request = dispatcher.sends.get(0);
+        Assertions.assertFalse(request.isSetMaxNumPartitions());
+        Assertions.assertFalse(request.isSetMaxNumSubVectors());
+    }
+
+    // ------------------------------------------------------------------
     // Backpressure
     // ------------------------------------------------------------------
 
@@ -1373,6 +1488,47 @@ public class LanceIndexJobDispatcherTest {
                 displayName, LanceIndexNameNormalizer.normalize(displayName),
                 LanceIndexJobMutationType.CREATE, false, false, "IVF_PQ", "v",
                 null, 7L, null), 100, 100, 100);
+    }
+
+    private void admitWithBounds(long jobId, String displayName, String locator,
+            int maxNumPartitions, int maxNumSubVectors) throws Exception {
+        LanceIndexJob job = new LanceIndexJob(jobId, "tester", CATALOG_ID, "db1", "tbl1",
+                LanceIndexFenceKey.PROVIDER_DIRECTORY, locator,
+                displayName, LanceIndexNameNormalizer.normalize(displayName),
+                LanceIndexJobMutationType.CREATE, false, false, "IVF_PQ", "v",
+                null, 7L, null);
+        job.setAdmittedMaxNumPartitions(maxNumPartitions);
+        job.setAdmittedMaxNumSubVectors(maxNumSubVectors);
+        manager.createJob(job, 100, 100, 100);
+    }
+
+    private static TLanceIndexJobDispatch minimalDispatch(long jobId) {
+        return new TLanceIndexJobDispatch()
+                .setJobId(jobId)
+                .setDispatchRevision(1L)
+                .setInvocationId("inv")
+                .setBeProcessEpoch(BE_EPOCH)
+                .setDeadlineMs(FAR_DEADLINE_MS)
+                .setMutationType(TLanceIndexMutationType.CREATE)
+                .setIndexName("idx")
+                .setColumnName("v")
+                .setIndexType("IVF_PQ")
+                .setDatasetUri(LOCATOR)
+                .setAdmittedDatasetVersion(7L)
+                .setSchemaContractJson("{}");
+    }
+
+    private static void assertPayloadRejected(TLanceIndexJobDispatch dispatch) {
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> LanceIndexDispatchBounds.validatePayload(dispatch));
+    }
+
+    private static String repeat(char c, int count) {
+        StringBuilder builder = new StringBuilder(count);
+        for (int i = 0; i < count; i++) {
+            builder.append(c);
+        }
+        return builder.toString();
     }
 
     private static String journal(long jobId, String mutationState, String refreshState, boolean slot) {

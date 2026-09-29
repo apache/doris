@@ -305,8 +305,9 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
      * <p>This channel never touches the possible-live slot: a reported result
      * proves nothing about whether the worker process ended, so the slot waits
      * for an independent termination proof. The dispatcher's own proven
-     * no-enqueue completions go through {@link #completeProvenNoEnqueue}
-     * instead, which releases the slot in the same durable transition.
+     * no-enqueue and never-launched completions go through
+     * {@link #completeProvenNoEnqueue} and {@link #completePreInvocationRejected}
+     * instead, which release the slot in the same durable transition.
      *
      * @return false (with a warning) when the callback is stale or the job is not RUNNING
      */
@@ -326,6 +327,20 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
             Long beProcessEpoch, LanceIndexJobResult result) {
         return completeWithResultInternal(jobId, expectedDispatchRevision, invocationId, beProcessEpoch, result,
                 LanceIndexTerminationProof.CHILD_REAPED);
+    }
+
+    /**
+     * Applies a result and its NEVER_LAUNCHED proof in one durable transition —
+     * the never-launched counterpart of {@link #completeWithResultAndChildReaped}:
+     * the proof states the invocation never exec'd the worker program, and the
+     * deadline sweep still cannot turn RUNNING into UNKNOWN between the proof and
+     * the result. An already-recorded proof is retained and does not block
+     * completion.
+     */
+    public boolean completeWithResultAndNeverLaunched(long jobId, long expectedDispatchRevision, String invocationId,
+            Long beProcessEpoch, LanceIndexJobResult result) {
+        return completeWithResultInternal(jobId, expectedDispatchRevision, invocationId, beProcessEpoch, result,
+                LanceIndexTerminationProof.NEVER_LAUNCHED);
     }
 
     /**
@@ -396,6 +411,37 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
         } finally {
             writeUnlock();
         }
+    }
+
+    /**
+     * The FE-local never-launched channel: RUNNING -&gt; NOT_COMMITTED with the
+     * internal NEVER_LAUNCHED termination proof in ONE durable transition. Where
+     * {@link #completeProvenNoEnqueue} carries FE evidence that the dispatch never
+     * reached the backend, this channel carries FE-local determined-never-sent
+     * evidence gathered after the durable dispatch identity exists (a pre-send
+     * dispatch-payload bound violation): the typed result and the proof placement
+     * are written atomically, releasing the possible-live slot in the same record
+     * that classifies the outcome. The same NEVER_LAUNCHED proof also arrives from
+     * the backend supervisor through the termination-report channel, whose release
+     * path is {@link #recordTerminationProof}. The callback identity checks are
+     * exactly those of {@link #completeWithResult}. A record whose slot was already
+     * released by an earlier proof (the epoch sweep races this path) keeps its first
+     * proof; the result still lands.
+     *
+     * @return false (with a warning) when the callback is stale or the job is not RUNNING
+     * @throws IllegalArgumentException when the result code is not a PRE_INVOCATION_* code
+     */
+    public boolean completePreInvocationRejected(long jobId, long expectedDispatchRevision, String invocationId,
+            Long beProcessEpoch, LanceIndexJobResult result) {
+        Objects.requireNonNull(result, "result");
+        if (result.getResultCode() == null || !result.getResultCode().isPreInvocation()) {
+            // NEVER_LAUNCHED is a proof, never a result code: only a PRE_INVOCATION_*
+            // classification may carry the never-launched evidence.
+            throw new IllegalArgumentException("completePreInvocationRejected requires a PRE_INVOCATION_* result"
+                    + " code, got " + result.getResultCode());
+        }
+        return completeWithResultInternal(jobId, expectedDispatchRevision, invocationId, beProcessEpoch, result,
+                LanceIndexTerminationProof.NEVER_LAUNCHED);
     }
 
     /**

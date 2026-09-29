@@ -577,6 +577,29 @@ public class LanceIndexJobManagerReplayTest {
         Assertions.assertFalse(manager.isFenceHeld(newCreateJob(1L, "IdxB").fenceKey()));
     }
 
+    @Test
+    public void replayPreservesTheAdmittedBoundSnapshot() throws DdlException {
+        // The snapshot is durable state: a follower replaying the journal record must
+        // rebuild exactly the bounds the admission captured, so a failover cannot change
+        // what a later dispatch replays to the worker.
+        TestManager source = new TestManager();
+        LanceIndexJob admitted = newCreateJob(1L, "IdxA");
+        admitted.setAdmittedMaxNumPartitions(64);
+        admitted.setAdmittedMaxNumSubVectors(32);
+        source.createJob(admitted, 100, 100, 100);
+        source.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS);
+
+        TestManager target = new TestManager();
+        for (LanceIndexJob record : source.editLog) {
+            target.replayUpsertJob(GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(record), LanceIndexJob.class));
+        }
+
+        LanceIndexJob replayed = target.getJob(1L);
+        Assertions.assertEquals(Integer.valueOf(64), replayed.getAdmittedMaxNumPartitions());
+        Assertions.assertEquals(Integer.valueOf(32), replayed.getAdmittedMaxNumSubVectors());
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, replayed.getMutationState());
+    }
+
     private static LanceIndexJob newCreateJob(long jobId, String displayName) {
         return new LanceIndexJob(jobId, "tester", CATALOG_ID, "db1", "tbl1",
                 LanceIndexFenceKey.PROVIDER_DIRECTORY, LOCATOR,

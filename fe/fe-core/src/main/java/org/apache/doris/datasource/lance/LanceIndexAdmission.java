@@ -183,6 +183,7 @@ public final class LanceIndexAdmission {
                         orReplace ? LanceIndexJobMutationType.REPLACE : LanceIndexJobMutationType.CREATE,
                         ifNotExists, false, indexType, storedColumnName, propertiesJson,
                         snapshot.getDatasetVersion(), contract);
+                snapshotEffectiveBounds(job);
             } catch (IllegalArgumentException e) {
                 throw invalidAdmission(e.getMessage());
             }
@@ -239,6 +240,7 @@ public final class LanceIndexAdmission {
                         LanceIndexFenceKey.PROVIDER_DIRECTORY, locator, storedName, normalizedName,
                         LanceIndexJobMutationType.DROP, false, ifExists, null, null, null,
                         snapshot.getDatasetVersion(), null);
+                snapshotEffectiveBounds(job);
             } catch (IllegalArgumentException e) {
                 throw invalidAdmission(e.getMessage());
             }
@@ -248,6 +250,19 @@ public final class LanceIndexAdmission {
                     Config.lance_index_job_max_unresolved_global);
             return new Outcome(jobId);
         });
+    }
+
+    /**
+     * Snapshots the effective IVF_PQ bounds into the durable record at admission time.
+     * The bounds are mutable master config, so the dispatch must replay the values the
+     * admission actually enforced; a drift between admission and dispatch can never
+     * silently rebind the worker-side check. Both bounds are positive by the config
+     * validator, and {@link LanceIndexJob}'s setters re-assert positivity for the
+     * fe.conf path that bypasses it.
+     */
+    private static void snapshotEffectiveBounds(LanceIndexJob job) {
+        job.setAdmittedMaxNumPartitions(Config.lance_index_max_num_partitions);
+        job.setAdmittedMaxNumSubVectors(Config.lance_index_max_num_sub_vectors);
     }
 
     /**

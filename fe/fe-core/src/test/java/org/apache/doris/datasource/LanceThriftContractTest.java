@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.datasource.lance.job.LanceIndexDispatchBounds;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TLanceFileDesc;
@@ -24,19 +25,26 @@ import org.apache.doris.thrift.TLanceIndexCompletionReason;
 import org.apache.doris.thrift.TLanceIndexJobDispatch;
 import org.apache.doris.thrift.TLanceIndexJobReport;
 import org.apache.doris.thrift.TLanceIndexJobResultCode;
+import org.apache.doris.thrift.TLanceIndexJobTerminationReport;
 import org.apache.doris.thrift.TLanceIndexMutationType;
 import org.apache.doris.thrift.TLanceIndexTerminationProof;
 import org.apache.doris.thrift.TLanceScanParams;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.apache.thrift.TDeserializer;
+import org.apache.thrift.TException;
 import org.apache.thrift.TFieldIdEnum;
 import org.apache.thrift.TSerializer;
 import org.apache.thrift.meta_data.FieldMetaData;
 import org.apache.thrift.protocol.TCompactProtocol;
+import org.apache.thrift.protocol.TField;
+import org.apache.thrift.protocol.TStruct;
+import org.apache.thrift.protocol.TType;
+import org.apache.thrift.transport.TIOStreamTransport;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Collections;
@@ -235,14 +243,216 @@ public class LanceThriftContractTest {
         // fields unset: the worker treats each absence as its own meaning, and a local
         // dataset carries no storage options at all. The secret is optional on the wire
         // only for generated-code compatibility during a rolling upgrade; the FE always
-        // sets it on a fresh dispatch.
+        // sets it on a fresh dispatch. A dispatch from a job record that predates the
+        // admitted-bound snapshot likewise leaves both bound fields unset.
         Assert.assertFalse(restored.isSetPropertiesJson());
         Assert.assertFalse(restored.isSetIfNotExists());
         Assert.assertFalse(restored.isSetIfExists());
         Assert.assertFalse(restored.isSetStorageOptions());
         Assert.assertFalse(restored.isSetInvocationSecret());
+        Assert.assertFalse(restored.isSetMaxNumPartitions());
+        Assert.assertFalse(restored.isSetMaxNumSubVectors());
         Assert.assertEquals(TLanceIndexMutationType.CREATE, restored.getMutationType());
         Assert.assertEquals("file:///data/ds", restored.getDatasetUri());
+    }
+
+    @Test
+    public void testLanceIndexJobDispatchCarriesTheAdmittedBoundSnapshot() throws Exception {
+        TLanceIndexJobDispatch source = minimalDispatch()
+                .setMaxNumPartitions(4096)
+                .setMaxNumSubVectors(256);
+
+        TSerializer serializer = new TSerializer(new TCompactProtocol.Factory());
+        byte[] bytes = serializer.serialize(source);
+
+        TLanceIndexJobDispatch restored = new TLanceIndexJobDispatch();
+        new TDeserializer(new TCompactProtocol.Factory()).deserialize(restored, bytes);
+
+        Assert.assertTrue(restored.isSetMaxNumPartitions());
+        Assert.assertEquals(4096, restored.getMaxNumPartitions());
+        Assert.assertTrue(restored.isSetMaxNumSubVectors());
+        Assert.assertEquals(256, restored.getMaxNumSubVectors());
+    }
+
+    @Test
+    public void testLanceIndexJobTerminationReportCompactRoundTrip() throws Exception {
+        for (TLanceIndexTerminationProof proof : new TLanceIndexTerminationProof[]{
+                TLanceIndexTerminationProof.CHILD_REAPED, TLanceIndexTerminationProof.NEVER_LAUNCHED}) {
+            TLanceIndexJobTerminationReport source = new TLanceIndexJobTerminationReport()
+                    .setJobId(9L)
+                    .setDispatchRevision(4L)
+                    .setInvocationId("0f1e2d3c-termination")
+                    .setBeProcessEpoch(66L)
+                    .setProof(proof);
+
+            TSerializer serializer = new TSerializer(new TCompactProtocol.Factory());
+            byte[] bytes = serializer.serialize(source);
+
+            TLanceIndexJobTerminationReport restored = new TLanceIndexJobTerminationReport();
+            new TDeserializer(new TCompactProtocol.Factory()).deserialize(restored, bytes);
+
+            Assert.assertEquals(9L, restored.getJobId());
+            Assert.assertEquals(4L, restored.getDispatchRevision());
+            Assert.assertEquals("0f1e2d3c-termination", restored.getInvocationId());
+            Assert.assertEquals(66L, restored.getBeProcessEpoch());
+            Assert.assertEquals(proof, restored.getProof());
+        }
+    }
+
+    @Test
+    public void testTerminationReportRejectsBytesMissingARequiredField() throws Exception {
+        // A termination report without its proof is not a proof at all: the required-field
+        // discipline rejects the frame at read time, before any FE logic sees it.
+        byte[] withoutProof = terminationReportBytesWithProofValue(-1);
+        TLanceIndexJobTerminationReport restored = new TLanceIndexJobTerminationReport();
+        try {
+            new TDeserializer(new TCompactProtocol.Factory()).deserialize(restored, withoutProof);
+            Assert.fail("a termination report frame without a proof must fail to deserialize");
+        } catch (TException expected) {
+            // Required-field validation on read.
+        }
+    }
+
+    @Test
+    public void testUnknownWireProofValueIsRejectedAtReadOrDroppedToNull() throws Exception {
+        // An unknown enum value on the wire resolves to null through findByValue. On the
+        // termination report the proof is required, so the read itself is rejected; on the
+        // result envelope the proof is optional, so the envelope survives with a null proof
+        // the FE handler then ignores. Neither path can map an unknown value to a wrong proof.
+        byte[] unknownProof = terminationReportBytesWithProofValue(99);
+        try {
+            new TDeserializer(new TCompactProtocol.Factory()).deserialize(
+                    new TLanceIndexJobTerminationReport(), unknownProof);
+            Assert.fail("an unknown termination-proof value must fail the required-field check");
+        } catch (TException expected) {
+            // findByValue(99) is null and the required-field validation rejects the frame.
+        }
+
+        TLanceIndexJobReport restored = new TLanceIndexJobReport();
+        new TDeserializer(new TCompactProtocol.Factory()).deserialize(restored,
+                reportBytesWithProofValue(99));
+        // For an object field Java thrift derives isSet from null-ness, so an unknown
+        // enum value collapses to "unset": the proof reads null and the FE handler
+        // ignores it, while the trusted result code still lands.
+        Assert.assertNull(restored.getTerminationProof());
+        Assert.assertFalse(restored.isSetTerminationProof());
+        Assert.assertEquals(TLanceIndexJobResultCode.NATIVE_OK, restored.getResultCode());
+    }
+
+    @Test
+    public void testDispatchPayloadBoundsMatchTheBeProtocol() {
+        // The FE pre-send validation mirrors the BE-side protocol limits; the numbers are a
+        // permanent cross-side contract, pinned here against accidental drift.
+        Assert.assertEquals(64, LanceIndexDispatchBounds.MAX_STORAGE_OPTIONS);
+        Assert.assertEquals(256, LanceIndexDispatchBounds.MAX_STORAGE_OPTION_KEY_BYTES);
+        Assert.assertEquals(4096, LanceIndexDispatchBounds.MAX_STORAGE_OPTION_VALUE_BYTES);
+        Assert.assertEquals(512 * 1024, LanceIndexDispatchBounds.MAX_DISPATCH_BYTES);
+    }
+
+    @Test
+    public void testMaximalLegalDispatchFitsTheFrameBound() throws Exception {
+        // A legal maximal fixture: 64 storage options with 256-byte keys and 4096-byte
+        // values, and every required string at its durable bound. The compact frame of
+        // such a dispatch must fit the 512 KiB protocol bound with room to spare; the
+        // measured size (about 280 KiB, dominated by the storage-option values) is the
+        // evidence behind the frozen constant.
+        Map<String, String> options = new HashMap<>();
+        for (int i = 0; i < LanceIndexDispatchBounds.MAX_STORAGE_OPTIONS; i++) {
+            String suffix = String.valueOf(i);
+            options.put(repeat('k', LanceIndexDispatchBounds.MAX_STORAGE_OPTION_KEY_BYTES - suffix.length())
+                            + suffix,
+                    repeat('v', LanceIndexDispatchBounds.MAX_STORAGE_OPTION_VALUE_BYTES));
+        }
+        Assert.assertEquals(LanceIndexDispatchBounds.MAX_STORAGE_OPTIONS, options.size());
+        TLanceIndexJobDispatch maximal = minimalDispatch()
+                .setInvocationId(repeat('i', 256))
+                .setIndexName(repeat('n', 64))
+                .setColumnName(repeat('c', 1024))
+                .setIndexType(repeat('t', 64))
+                .setPropertiesJson(repeat('p', 4096))
+                .setDatasetUri("s3://" + repeat('u', 1018))
+                .setSchemaContractJson(repeat('s', 4096))
+                .setMaxNumPartitions(4096)
+                .setMaxNumSubVectors(256)
+                .setStorageOptions(options);
+
+        int serializedBytes = LanceIndexDispatchBounds.serializedSizeBytes(maximal);
+        Assert.assertTrue("maximal legal dispatch is " + serializedBytes + " bytes, past the bound",
+                serializedBytes <= LanceIndexDispatchBounds.MAX_DISPATCH_BYTES);
+        // And it passes the same pre-send validation the dispatcher runs.
+        LanceIndexDispatchBounds.validatePayload(maximal);
+    }
+
+    private static String repeat(char c, int count) {
+        StringBuilder builder = new StringBuilder(count);
+        for (int i = 0; i < count; i++) {
+            builder.append(c);
+        }
+        return builder.toString();
+    }
+
+    /**
+     * Serializes a termination report frame by hand, with the proof field carrying
+     * {@code proofValue}, or omitted entirely when {@code proofValue} is negative.
+     * Hand-written frames are the only way to put an unknown enum value or a missing
+     * required field on the wire: the generated serializer validates on write.
+     */
+    private static byte[] terminationReportBytesWithProofValue(int proofValue) throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        TCompactProtocol protocol = new TCompactProtocol(new TIOStreamTransport(out));
+        protocol.writeStructBegin(new TStruct("TLanceIndexJobTerminationReport"));
+        protocol.writeFieldBegin(new TField("job_id", TType.I64, (short) 1));
+        protocol.writeI64(9L);
+        protocol.writeFieldEnd();
+        protocol.writeFieldBegin(new TField("dispatch_revision", TType.I64, (short) 2));
+        protocol.writeI64(4L);
+        protocol.writeFieldEnd();
+        protocol.writeFieldBegin(new TField("invocation_id", TType.STRING, (short) 3));
+        protocol.writeString("inv");
+        protocol.writeFieldEnd();
+        protocol.writeFieldBegin(new TField("be_process_epoch", TType.I64, (short) 4));
+        protocol.writeI64(66L);
+        protocol.writeFieldEnd();
+        if (proofValue >= 0) {
+            protocol.writeFieldBegin(new TField("proof", TType.I32, (short) 5));
+            protocol.writeI32(proofValue);
+            protocol.writeFieldEnd();
+        }
+        protocol.writeFieldStop();
+        protocol.writeStructEnd();
+        return out.toByteArray();
+    }
+
+    /**
+     * Serializes a minimal result-envelope frame by hand, with the optional
+     * termination-proof field carrying {@code proofValue}. See
+     * {@link #terminationReportBytesWithProofValue} for why the frame is hand-written.
+     */
+    private static byte[] reportBytesWithProofValue(int proofValue) throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        TCompactProtocol protocol = new TCompactProtocol(new TIOStreamTransport(out));
+        protocol.writeStructBegin(new TStruct("TLanceIndexJobReport"));
+        protocol.writeFieldBegin(new TField("job_id", TType.I64, (short) 1));
+        protocol.writeI64(9L);
+        protocol.writeFieldEnd();
+        protocol.writeFieldBegin(new TField("dispatch_revision", TType.I64, (short) 2));
+        protocol.writeI64(4L);
+        protocol.writeFieldEnd();
+        protocol.writeFieldBegin(new TField("invocation_id", TType.STRING, (short) 3));
+        protocol.writeString("inv");
+        protocol.writeFieldEnd();
+        protocol.writeFieldBegin(new TField("be_process_epoch", TType.I64, (short) 4));
+        protocol.writeI64(66L);
+        protocol.writeFieldEnd();
+        protocol.writeFieldBegin(new TField("result_code", TType.I32, (short) 5));
+        protocol.writeI32(TLanceIndexJobResultCode.NATIVE_OK.getValue());
+        protocol.writeFieldEnd();
+        protocol.writeFieldBegin(new TField("termination_proof", TType.I32, (short) 9));
+        protocol.writeI32(proofValue);
+        protocol.writeFieldEnd();
+        protocol.writeFieldStop();
+        protocol.writeStructEnd();
+        return out.toByteArray();
     }
 
     @Test
@@ -333,11 +543,17 @@ public class LanceThriftContractTest {
 
         Assert.assertEquals(1, TLanceIndexTerminationProof.NONE.getValue());
         Assert.assertEquals(2, TLanceIndexTerminationProof.CHILD_REAPED.getValue());
+        Assert.assertEquals(3, TLanceIndexTerminationProof.NEVER_LAUNCHED.getValue());
 
         // NO_TRUSTED_RESULT is FE-side only and must never gain a wire number.
         Assert.assertEquals(12, TLanceIndexJobResultCode.values().length);
         for (TLanceIndexJobResultCode code : TLanceIndexJobResultCode.values()) {
             Assert.assertNotEquals("NO_TRUSTED_RESULT", code.name());
+        }
+        // BE_PROCESS_EPOCH_GONE is FE-derived (heartbeat epochs) and must never gain one either.
+        Assert.assertEquals(3, TLanceIndexTerminationProof.values().length);
+        for (TLanceIndexTerminationProof proof : TLanceIndexTerminationProof.values()) {
+            Assert.assertNotEquals("BE_PROCESS_EPOCH_GONE", proof.name());
         }
     }
 
@@ -364,7 +580,7 @@ public class LanceThriftContractTest {
         Assert.assertNull(TLanceIndexCompletionReason.findByValue(0));
         Assert.assertNull(TLanceIndexCompletionReason.findByValue(3));
         Assert.assertNull(TLanceIndexTerminationProof.findByValue(0));
-        Assert.assertNull(TLanceIndexTerminationProof.findByValue(3));
+        Assert.assertNull(TLanceIndexTerminationProof.findByValue(4));
     }
 
     @Test
@@ -390,6 +606,8 @@ public class LanceThriftContractTest {
         expectedDispatchIds.put("schema_contract_json", 15);
         expectedDispatchIds.put("storage_options", 16);
         expectedDispatchIds.put("invocation_secret", 17);
+        expectedDispatchIds.put("max_num_partitions", 18);
+        expectedDispatchIds.put("max_num_sub_vectors", 19);
         Assert.assertEquals(expectedDispatchIds, fieldIdsByName(TLanceIndexJobDispatch.metaDataMap));
 
         Map<String, Integer> expectedReportIds = new HashMap<>();
@@ -404,6 +622,14 @@ public class LanceThriftContractTest {
         expectedReportIds.put("termination_proof", 9);
         expectedReportIds.put("invocation_secret", 10);
         Assert.assertEquals(expectedReportIds, fieldIdsByName(TLanceIndexJobReport.metaDataMap));
+
+        Map<String, Integer> expectedTerminationIds = new HashMap<>();
+        expectedTerminationIds.put("job_id", 1);
+        expectedTerminationIds.put("dispatch_revision", 2);
+        expectedTerminationIds.put("invocation_id", 3);
+        expectedTerminationIds.put("be_process_epoch", 4);
+        expectedTerminationIds.put("proof", 5);
+        Assert.assertEquals(expectedTerminationIds, fieldIdsByName(TLanceIndexJobTerminationReport.metaDataMap));
     }
 
     private static Map<String, Integer> fieldIdsByName(

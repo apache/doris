@@ -22,6 +22,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TLanceIndexCompletionReason;
 import org.apache.doris.thrift.TLanceIndexJobReport;
 import org.apache.doris.thrift.TLanceIndexJobResultCode;
+import org.apache.doris.thrift.TLanceIndexJobTerminationReport;
 import org.apache.doris.thrift.TLanceIndexTerminationProof;
 
 import org.junit.jupiter.api.Assertions;
@@ -47,12 +48,15 @@ import java.util.concurrent.TimeUnit;
  * (mutationState, refreshState, completionReason) triple of
  * the classification table; a stale report (wrong dispatch revision, invocation id, BE
  * process epoch, or an already-terminal job) only warns and changes nothing; a
- * CHILD_REAPED proof releases exactly the possible-live slot (never the outcome, never
- * the fence) and still lands when the result of the same envelope is malformed; a
- * malformed envelope (missing or unknown result code, sanitized message past the
- * durable bound) has its result dropped whole so the dispatcher's deadline sweep
- * converges the job. Message text is stored verbatim and never inspected to infer an
- * outcome, and NO_TRUSTED_RESULT never arrives on the wire.
+ * CHILD_REAPED or NEVER_LAUNCHED proof releases exactly the possible-live slot
+ * (never the outcome, never the fence) and still lands when the result of the same
+ * envelope is malformed; a malformed envelope (missing or unknown result code,
+ * sanitized message past the durable bound) has its result dropped whole so the
+ * dispatcher's deadline sweep converges the job. The termination-only channel
+ * accepts the same two proofs for invocations without any trusted result code
+ * and drops a NONE/unknown proof outright. Message text is stored verbatim and
+ * never inspected to infer an outcome, and NO_TRUSTED_RESULT never arrives on
+ * the wire.
  */
 public class LanceIndexJobReportHandlerTest {
     private static final long CATALOG_ID = 10L;
@@ -482,6 +486,118 @@ public class LanceIndexJobReportHandlerTest {
 
         Assertions.assertEquals(0, manager.getJobCount());
         Assertions.assertTrue(manager.editLog.isEmpty());
+    }
+
+    // ------------------------------------------------------------------
+    // NEVER_LAUNCHED proof (result envelope and termination report)
+    // ------------------------------------------------------------------
+
+    @Test
+    public void neverLaunchedProofOnTheResultEnvelopeReleasesOnlyTheSlot() throws DdlException {
+        TestManager manager = runningManager(1L, "IdxNever", LanceIndexJobMutationType.CREATE, false);
+        LanceIndexJobReportHandler handler = new LanceIndexJobReportHandler(manager);
+
+        // The supervisor's asynchronous pre-fork rejection: a complete trusted rejection
+        // envelope carrying the wire NEVER_LAUNCHED proof.
+        handler.handle(matchingReport(TLanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED)
+                .setTerminationProof(TLanceIndexTerminationProof.NEVER_LAUNCHED));
+
+        LanceIndexJob stored = manager.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobMutationState.NOT_COMMITTED, stored.getMutationState());
+        Assertions.assertEquals(LanceIndexJobRefreshState.NOT_REQUIRED, stored.getRefreshState());
+        Assertions.assertEquals(LanceIndexTerminationProof.NEVER_LAUNCHED, stored.getTerminationProof());
+        Assertions.assertFalse(stored.holdsPossibleLiveSlot());
+        // The outcome resolved the job, so fence and quota are gone too — but through the
+        // result classification, never through the proof.
+        Assertions.assertFalse(manager.isFenceHeld(stored.fenceKey()));
+        Assertions.assertEquals(0L, manager.getQuota().getGlobalCount());
+        // The classified result and its proof land in ONE durable record, exactly like
+        // the CHILD_REAPED atomic settle: no RUNNING proof-only record in between.
+        Assertions.assertEquals(1, manager.editLog.size());
+    }
+
+    @Test
+    public void neverLaunchedTerminationReportReleasesTheSlotWithoutTouchingTheOutcome() throws DdlException {
+        TestManager manager = runningManager(1L, "IdxTerm", LanceIndexJobMutationType.CREATE, false);
+        LanceIndexJobReportHandler handler = new LanceIndexJobReportHandler(manager);
+        LanceIndexFenceKey fenceKey = manager.getJob(1L).fenceKey();
+
+        handler.handleTermination(matchingTermination(TLanceIndexTerminationProof.NEVER_LAUNCHED));
+
+        LanceIndexJob stored = manager.getJob(1L);
+        // The proof says the invocation never launched a worker; it says nothing about the
+        // outcome, so the job stays RUNNING for the deadline sweep, fence and quota held.
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, stored.getMutationState());
+        Assertions.assertEquals(LanceIndexTerminationProof.NEVER_LAUNCHED, stored.getTerminationProof());
+        Assertions.assertFalse(stored.holdsPossibleLiveSlot());
+        Assertions.assertTrue(manager.isFenceHeld(fenceKey));
+        Assertions.assertEquals(1L, manager.getQuota().getGlobalCount());
+        Assertions.assertEquals(1, manager.editLog.size());
+
+        // A later matching result still completes the released-slot job.
+        handler.handle(matchingReport(TLanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED));
+        Assertions.assertEquals(LanceIndexJobMutationState.NOT_COMMITTED, manager.getJob(1L).getMutationState());
+    }
+
+    @Test
+    public void childReapedTerminationReportReleasesTheSlot() throws DdlException {
+        TestManager manager = runningManager(1L, "IdxReaped", LanceIndexJobMutationType.CREATE, false);
+        LanceIndexJobReportHandler handler = new LanceIndexJobReportHandler(manager);
+
+        handler.handleTermination(matchingTermination(TLanceIndexTerminationProof.CHILD_REAPED));
+
+        LanceIndexJob stored = manager.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, stored.getMutationState());
+        Assertions.assertEquals(LanceIndexTerminationProof.CHILD_REAPED, stored.getTerminationProof());
+        Assertions.assertFalse(stored.holdsPossibleLiveSlot());
+        Assertions.assertEquals(1, manager.editLog.size());
+    }
+
+    @Test
+    public void malformedTerminationReportsAreDropped() throws DdlException {
+        // NONE is the absence of a proof, never a proof.
+        TestManager noneProof = runningManager(1L, "IdxNone", LanceIndexJobMutationType.CREATE, false);
+        new LanceIndexJobReportHandler(noneProof).handleTermination(
+                matchingTermination(TLanceIndexTerminationProof.NONE));
+        assertManagerUnchangedByDroppedEnvelope(noneProof);
+
+        // An unknown wire proof value deserializes as null; model it with a null proof.
+        TestManager nullProof = runningManager(1L, "IdxNull", LanceIndexJobMutationType.CREATE, false);
+        TLanceIndexJobTerminationReport unknownValue = matchingTermination(null);
+        new LanceIndexJobReportHandler(nullProof).handleTermination(unknownValue);
+        assertManagerUnchangedByDroppedEnvelope(nullProof);
+
+        TestManager manager = new TestManager();
+        new LanceIndexJobReportHandler(manager).handleTermination(null);
+        Assertions.assertEquals(0, manager.getJobCount());
+        Assertions.assertTrue(manager.editLog.isEmpty());
+    }
+
+    @Test
+    public void staleTerminationReportsChangeNothing() throws DdlException {
+        TestManager manager = runningManager(1L, "IdxStale", LanceIndexJobMutationType.CREATE, false);
+        LanceIndexJobReportHandler handler = new LanceIndexJobReportHandler(manager);
+
+        handler.handleTermination(matchingTermination(TLanceIndexTerminationProof.CHILD_REAPED)
+                .setDispatchRevision(99L));
+        handler.handleTermination(matchingTermination(TLanceIndexTerminationProof.CHILD_REAPED)
+                .setInvocationId("invocation-x"));
+        handler.handleTermination(matchingTermination(TLanceIndexTerminationProof.CHILD_REAPED)
+                .setBeProcessEpoch(BE_EPOCH + 1));
+        handler.handleTermination(matchingTermination(TLanceIndexTerminationProof.CHILD_REAPED)
+                .setJobId(404L));
+
+        assertManagerUnchangedByDroppedEnvelope(manager);
+    }
+
+    private static TLanceIndexJobTerminationReport matchingTermination(TLanceIndexTerminationProof proof) {
+        TLanceIndexJobTerminationReport report = new TLanceIndexJobTerminationReport()
+                .setJobId(1L)
+                .setDispatchRevision(1L)
+                .setInvocationId(INVOCATION_ID)
+                .setBeProcessEpoch(BE_EPOCH);
+        report.setProof(proof);
+        return report;
     }
 
     // ------------------------------------------------------------------

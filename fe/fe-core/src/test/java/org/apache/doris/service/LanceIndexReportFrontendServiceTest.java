@@ -22,8 +22,10 @@ import org.apache.doris.datasource.lance.job.LanceIndexJob;
 import org.apache.doris.datasource.lance.job.LanceIndexJobManager;
 import org.apache.doris.datasource.lance.job.LanceIndexJobResult;
 import org.apache.doris.datasource.lance.job.LanceIndexJobResultCode;
+import org.apache.doris.datasource.lance.job.LanceIndexTerminationProof;
 import org.apache.doris.thrift.TLanceIndexJobReport;
 import org.apache.doris.thrift.TLanceIndexJobResultCode;
+import org.apache.doris.thrift.TLanceIndexJobTerminationReport;
 import org.apache.doris.thrift.TLanceIndexTerminationProof;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
@@ -145,5 +147,55 @@ public class LanceIndexReportFrontendServiceTest {
                 .setInvocationSecret(INVOCATION_SECRET)
                 .setBeProcessEpoch(BE_EPOCH)
                 .setResultCode(TLanceIndexJobResultCode.NATIVE_OK);
+    }
+
+    @Test
+    public void nonMasterRejectsTheTerminationReportWithoutTouchingTheJobManager() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.isMaster()).thenReturn(false);
+        LanceIndexJobManager manager = Mockito.mock(LanceIndexJobManager.class);
+        Mockito.when(env.getLanceIndexJobManager()).thenReturn(manager);
+        FrontendServiceImpl service = new FrontendServiceImpl(Mockito.mock(ExecuteEnv.class));
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            TStatus status = service.reportLanceIndexJobTermination(matchingTermination());
+            Assertions.assertEquals(TStatusCode.NOT_MASTER, status.getStatusCode());
+        }
+        Mockito.verifyNoInteractions(manager);
+    }
+
+    @Test
+    public void masterRecordsATerminationProofWithTheDurableBackendId() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        LanceIndexJobManager manager = Mockito.mock(LanceIndexJobManager.class);
+        Mockito.when(env.getLanceIndexJobManager()).thenReturn(manager);
+        LanceIndexJob dispatched = Mockito.mock(LanceIndexJob.class);
+        Mockito.when(dispatched.getBackendId()).thenReturn(BACKEND_ID);
+        Mockito.when(manager.getJob(JOB_ID)).thenReturn(dispatched);
+        FrontendServiceImpl service = new FrontendServiceImpl(Mockito.mock(ExecuteEnv.class));
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            TStatus status = service.reportLanceIndexJobTermination(matchingTermination());
+            Assertions.assertEquals(TStatusCode.OK, status.getStatusCode());
+        }
+
+        // A termination report places a proof only: it never completes the job.
+        Mockito.verify(manager, Mockito.never()).completeWithResult(Mockito.anyLong(), Mockito.anyLong(),
+                Mockito.any(), Mockito.any(), Mockito.any());
+        Mockito.verify(manager).recordTerminationProof(Mockito.eq(JOB_ID), Mockito.eq(DISPATCH_REVISION),
+                Mockito.eq(BACKEND_ID), Mockito.eq(BE_EPOCH), Mockito.eq(INVOCATION_ID),
+                Mockito.eq(LanceIndexTerminationProof.NEVER_LAUNCHED));
+    }
+
+    private static TLanceIndexJobTerminationReport matchingTermination() {
+        return new TLanceIndexJobTerminationReport()
+                .setJobId(JOB_ID)
+                .setDispatchRevision(DISPATCH_REVISION)
+                .setInvocationId(INVOCATION_ID)
+                .setBeProcessEpoch(BE_EPOCH)
+                .setProof(TLanceIndexTerminationProof.NEVER_LAUNCHED);
     }
 }

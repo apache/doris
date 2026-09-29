@@ -191,11 +191,16 @@ enum TLanceIndexCompletionReason {
     IF_CONDITION_NOOP = 2
 }
 
-// Possible-live termination proof carried by the result envelope. BE_PROCESS_EPOCH_GONE
-// is derived FE-side from heartbeat epochs and never appears on the wire.
+// Possible-live termination proof carried by the result envelope or the termination
+// report. CHILD_REAPED proves the exact child process forked for the invocation was
+// reaped; NEVER_LAUNCHED proves the invocation never forked/launched a worker (a
+// synchronous rejection before enqueue, a pre-send validation failure, or a supervisor
+// rejection before fork). BE_PROCESS_EPOCH_GONE is derived FE-side from heartbeat
+// epochs and never appears on the wire.
 enum TLanceIndexTerminationProof {
     NONE = 1,
-    CHILD_REAPED = 2
+    CHILD_REAPED = 2,
+    NEVER_LAUNCHED = 3
 }
 
 // Typed result envelope of one Lance index mutation invocation, reported by the BE
@@ -227,4 +232,19 @@ struct TLanceIndexJobReport {
     // durable record from before this field existed - makes the report unauthenticated
     // and the whole envelope is dropped.
     10: optional string invocation_secret
+}
+
+// Termination-only report of one Lance index mutation invocation, sent by the BE
+// supervisor when no trusted result code exists (kill, wall-clock timeout, OOM, or a
+// panic that prevented a complete result frame), or as the supervisor-side proof that
+// the invocation never launched. It carries only the invocation identity and the
+// proof: a matched proof releases the possible-live slot on the FE side but never
+// changes an UNKNOWN outcome and never releases the same-name fence. Stale or
+// identity-mismatched reports are logged and dropped.
+struct TLanceIndexJobTerminationReport {
+    1: required i64 job_id
+    2: required i64 dispatch_revision
+    3: required string invocation_id
+    4: required i64 be_process_epoch
+    5: required TLanceIndexTerminationProof proof
 }

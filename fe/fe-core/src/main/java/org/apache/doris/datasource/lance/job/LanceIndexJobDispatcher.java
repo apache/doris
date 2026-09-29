@@ -92,7 +92,12 @@ import java.util.function.Supplier;
  * refresh loop is bounded per round (one backend RPC timeout each), because
  * this thread is also the only thread running the sweeps — see
  * {@link #dispatchPendingJobs()} and
- * {@link #driveRequiredRefreshes(LanceIndexJobManager, long)}.
+ * {@link #driveRequiredRefreshes(LanceIndexJobManager, long)}. A dispatch
+ * payload that fails its pre-send bound validation is FE-local
+ * determined-never-sent evidence that is also permanent (the same admission
+ * record would rebuild the same oversized payload every round), so it
+ * converges NOT_COMMITTED through the never-launched channel instead, which
+ * releases the slot the same way.
  *
  * <p>The manager is resolved from the supplier once per round rather than
  * captured at construction: {@code Env.loadLanceIndexJobManager} replaces the
@@ -634,6 +639,19 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             LOG.warn("lance index job {} did not survive the pre-send recheck; not sending", job.getJobId());
             return true;
         }
+        try {
+            LanceIndexDispatchBounds.validatePayload(dispatch);
+        } catch (Exception e) {
+            // Determined-never-sent evidence that is also permanent: unlike a
+            // preparation failure (nothing was marked, so the job stays PENDING and
+            // retries), the dispatch identity is already durable and the same
+            // admission record would rebuild the same out-of-bounds payload every
+            // round. The job converges NOT_COMMITTED with the internal NEVER_LAUNCHED
+            // proof in one durable transition instead of looping PENDING forever.
+            LOG.warn("pre-send payload validation of lance index job {} failed: {}", job.getJobId(), e.getMessage());
+            completeNeverLaunched(jobManager, fresh, "dispatch payload failed the pre-send bound validation");
+            return true;
+        }
         TStatus status;
         try {
             status = sendExecuteRequest(backend, dispatch);
@@ -793,6 +811,15 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
         if (!storageOptions.isEmpty()) {
             dispatch.setStorageOptions(storageOptions);
         }
+        // The admitted bounds recorded at admission time ride the dispatch so the worker
+        // replays exactly the bounds the admission enforced. A record that predates the
+        // snapshot leaves the fields unset, and a new worker safely rejects that dispatch.
+        if (job.getAdmittedMaxNumPartitions() != null) {
+            dispatch.setMaxNumPartitions(job.getAdmittedMaxNumPartitions());
+        }
+        if (job.getAdmittedMaxNumSubVectors() != null) {
+            dispatch.setMaxNumSubVectors(job.getAdmittedMaxNumSubVectors());
+        }
         return dispatch;
     }
 
@@ -840,6 +867,26 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
                     job.getJobId());
         }
         return completed;
+    }
+
+    /**
+     * Converges a job whose dispatch failed a pre-send bound check with evidence
+     * local to this FE: the invocation provably never launched a worker, so the
+     * NOT_COMMITTED result and the internal NEVER_LAUNCHED proof (which releases
+     * the possible-live slot) land in ONE durable transition. This is the FE-local
+     * counterpart of the no-enqueue channel above, which carries FE evidence that
+     * the dispatch never reached the backend; the same NEVER_LAUNCHED proof also
+     * arrives from the backend supervisor through the termination-report channel.
+     */
+    private void completeNeverLaunched(LanceIndexJobManager jobManager, LanceIndexJob job, String reason) {
+        boolean completed = jobManager.completePreInvocationRejected(job.getJobId(),
+                dispatchRevisionOf(job), job.getInvocationId(), job.getBeProcessEpoch(),
+                new LanceIndexJobResult(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED,
+                        LanceIndexJobCompletionReason.NONE, reason, false));
+        if (!completed) {
+            LOG.warn("never-launched convergence skipped for lance index job {}: already converged by a callback"
+                    + " or sweep", job.getJobId());
+        }
     }
 
     /**

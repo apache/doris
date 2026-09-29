@@ -204,6 +204,8 @@ public class LanceIndexJobTest {
         original.setInvocationId(INVOCATION_ID);
         original.setDeadlineMs(123L);
         original.setPossibleLiveOwned(true);
+        original.setAdmittedMaxNumPartitions(64);
+        original.setAdmittedMaxNumSubVectors(32);
         original.setForceActor("admin");
         original.setForceTimeMs(9L);
         original.setForceNote("note");
@@ -215,9 +217,31 @@ public class LanceIndexJobTest {
         copy.setRevision(99L);
         copy.setMutationState(LanceIndexJobMutationState.UNKNOWN);
         copy.setPossibleLiveOwned(false);
+        copy.setAdmittedMaxNumPartitions(4096);
         Assertions.assertEquals(3L, original.getRevision());
         Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, original.getMutationState());
         Assertions.assertTrue(original.isPossibleLiveOwned());
+        Assertions.assertEquals(Integer.valueOf(64), original.getAdmittedMaxNumPartitions());
+    }
+
+    @Test
+    public void admittedBoundsRejectNonPositiveWhenPresent() {
+        LanceIndexJob job = newCreateJob(1L, "IdxA");
+        Assertions.assertNull(job.getAdmittedMaxNumPartitions());
+        Assertions.assertNull(job.getAdmittedMaxNumSubVectors());
+        job.validateForAdmission();
+
+        job.setAdmittedMaxNumPartitions(64);
+        job.setAdmittedMaxNumSubVectors(32);
+        job.validateForAdmission();
+
+        Assertions.assertThrows(IllegalArgumentException.class, () -> job.setAdmittedMaxNumPartitions(0));
+        Assertions.assertThrows(IllegalArgumentException.class, () -> job.setAdmittedMaxNumSubVectors(-1));
+        // A corrupt record with a non-positive snapshot is rejected at admission validation.
+        LanceIndexJob corrupt = newCreateJob(2L, "IdxB");
+        LanceIndexJob loaded = GsonUtils.GSON.fromJson(
+                GsonUtils.GSON.toJson(corrupt).replace("\"rev\":0", "\"rev\":0,\"mnp\":0"), LanceIndexJob.class);
+        Assertions.assertThrows(IllegalArgumentException.class, loaded::validateForAdmission);
     }
 
     @Test

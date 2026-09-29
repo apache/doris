@@ -235,6 +235,7 @@ import org.apache.doris.thrift.TInitExternalCtlMetaRequest;
 import org.apache.doris.thrift.TInitExternalCtlMetaResult;
 import org.apache.doris.thrift.TInvalidateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TLanceIndexJobReport;
+import org.apache.doris.thrift.TLanceIndexJobTerminationReport;
 import org.apache.doris.thrift.TListPrivilegesResult;
 import org.apache.doris.thrift.TListTableMetadataNameIdsResult;
 import org.apache.doris.thrift.TListTableStatusResult;
@@ -1161,6 +1162,23 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return status;
         }
         new LanceIndexJobReportHandler(Env.getCurrentEnv().getLanceIndexJobManager()).handle(report);
+        return new TStatus(TStatusCode.OK);
+    }
+
+    /**
+     * Termination-only report of one Lance index mutation invocation that produced no
+     * trusted result code. A matched proof releases only the possible-live slot; stale
+     * or identity-mismatched reports are logged and dropped, and a duplicate proof is
+     * answered OK the same way. This layer stays thin, exactly like the result-report
+     * entry point above it.
+     */
+    @Override
+    public TStatus reportLanceIndexJobTermination(TLanceIndexJobTerminationReport report) throws TException {
+        TStatus status = checkMaster();
+        if (status.getStatusCode() != TStatusCode.OK) {
+            return status;
+        }
+        new LanceIndexJobReportHandler(Env.getCurrentEnv().getLanceIndexJobManager()).handleTermination(report);
         return new TStatus(TStatusCode.OK);
     }
 
