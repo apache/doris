@@ -31,10 +31,16 @@ import java.util.Objects;
  * checking and result classification all live in {@link LanceIndexJobManager},
  * so a stale or identity-mismatched report only logs a warning and changes
  * nothing. A malformed envelope (missing result code, a code this FE does not
- * know, or a sanitized message past the durable bound) is dropped rather than
- * trusted; the job then converges through the dispatcher's deadline sweep.
- * Only the typed codes are read: message text is never inspected to infer an
- * outcome.
+ * know, or a sanitized message past the durable bound) has its result dropped
+ * rather than trusted; the job then converges through the dispatcher's
+ * deadline sweep. Only the typed codes are read: message text is never
+ * inspected to infer an outcome.
+ *
+ * <p>A termination proof is validated independently of the result, so a
+ * CHILD_REAPED proof is recorded first and still lands when the result of the
+ * same envelope is malformed: reaping the exact child process proves that
+ * process ended, and dropping that proof together with the result would
+ * strand the possible-live slot until the backend process is replaced.
  *
  * <p>The handler runs on the report RPC thread and performs no I/O beyond the
  * manager's own edit-log write. It starts no refresh: the metadata refresh a
@@ -55,11 +61,17 @@ public class LanceIndexJobReportHandler {
      * classified result, and a CHILD_REAPED termination proof additionally
      * releases the possible-live slot, because reaping the exact child process
      * proves that process ended (which still says nothing about the outcome).
+     * The proof is recorded before the result is parsed: the two are validated
+     * independently, and a malformed result must not take a valid proof down
+     * with it.
      */
     public void handle(TLanceIndexJobReport report) {
         if (report == null) {
             LOG.warn("dropping null lance index job report");
             return;
+        }
+        if (report.getTerminationProof() == TLanceIndexTerminationProof.CHILD_REAPED) {
+            recordChildReaped(report);
         }
         LanceIndexJobResult result;
         try {
@@ -72,9 +84,6 @@ public class LanceIndexJobReportHandler {
                 report.getInvocationId(), report.getBeProcessEpoch(), result);
         if (!completed) {
             LOG.warn("dropping stale lance index job report for job {}", report.getJobId());
-        }
-        if (report.getTerminationProof() == TLanceIndexTerminationProof.CHILD_REAPED) {
-            recordChildReaped(report);
         }
     }
 

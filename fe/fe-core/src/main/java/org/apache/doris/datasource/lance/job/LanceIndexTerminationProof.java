@@ -29,5 +29,13 @@ public enum LanceIndexTerminationProof {
     /** The supervisor reaped the exact matching child process. */
     CHILD_REAPED,
     /** The recorded BE process epoch no longer exists (the BE process was replaced). */
-    BE_PROCESS_EPOCH_GONE
+    BE_PROCESS_EPOCH_GONE,
+    /**
+     * The dispatch is proven never to have been enqueued on the backend — a
+     * clean pre-enqueue error status, a client-pool borrow failure before any
+     * byte of the call, or an UNKNOWN_METHOD answer from an old backend — so
+     * no worker ever existed for it. FE-side only: it never travels on the
+     * wire, because a backend cannot prove its own non-enqueue this way.
+     */
+    NOT_ENQUEUED
 }

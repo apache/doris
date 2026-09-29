@@ -289,11 +289,42 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
      * result (result code NO_TRUSTED_RESULT), including the master-transfer
      * sweep; no separate markUnknown API exists.
      *
+     * <p>This channel never touches the possible-live slot: a reported result
+     * proves nothing about whether the worker process ended, so the slot waits
+     * for an independent termination proof. The dispatcher's own proven
+     * no-enqueue completions go through {@link #completeProvenNoEnqueue}
+     * instead, which releases the slot in the same durable transition.
+     *
      * @return false (with a warning) when the callback is stale or the job is not RUNNING
      */
     public boolean completeWithResult(long jobId, long expectedDispatchRevision, String invocationId,
             Long beProcessEpoch,
             LanceIndexJobResult result) {
+        return completeWithResultInternal(jobId, expectedDispatchRevision, invocationId, beProcessEpoch, result,
+                false);
+    }
+
+    /**
+     * RUNNING -&gt; terminal for a dispatch that is proven never to have been
+     * enqueued on the backend: a clean pre-enqueue error status, a client-pool
+     * borrow failure before any byte of the call, or an UNKNOWN_METHOD answer
+     * from an old backend. No worker ever existed for such a dispatch, so the
+     * possible-live slot is released in the same durable transition and marked
+     * with {@link LanceIndexTerminationProof#NOT_ENQUEUED}; an earlier proof
+     * (CHILD_REAPED or epoch-gone) is kept as the stronger evidence. The result
+     * code must be a PRE_INVOCATION_* code (proves NOT_COMMITTED); anything
+     * ambiguous belongs to {@link #completeWithResult} with the slot retained.
+     *
+     * @return false (with a warning) when the callback is stale or the job is not RUNNING
+     */
+    public boolean completeProvenNoEnqueue(long jobId, long expectedDispatchRevision, String invocationId,
+            Long beProcessEpoch, LanceIndexJobResult result) {
+        return completeWithResultInternal(jobId, expectedDispatchRevision, invocationId, beProcessEpoch, result,
+                true);
+    }
+
+    private boolean completeWithResultInternal(long jobId, long expectedDispatchRevision, String invocationId,
+            Long beProcessEpoch, LanceIndexJobResult result, boolean provenNoEnqueue) {
         Objects.requireNonNull(result, "result");
         writeLock();
         try {
@@ -327,6 +358,12 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
             updated.setRefreshState(classification.getRefreshState());
             updated.setResult(new LanceIndexJobResult(result.getResultCode(), classification.getCompletionReason(),
                     result.getSanitizedMessage(), result.isExternalMetadataAdvanced()));
+            if (provenNoEnqueue && updated.isPossibleLiveOwned()) {
+                updated.setPossibleLiveOwned(false);
+                if (updated.getTerminationProof() == LanceIndexTerminationProof.NONE) {
+                    updated.setTerminationProof(LanceIndexTerminationProof.NOT_ENQUEUED);
+                }
+            }
             updated.setRevision(current.getRevision() + 1);
             updated.setUpdateTimeMs(System.currentTimeMillis());
             writeEditLog(updated);

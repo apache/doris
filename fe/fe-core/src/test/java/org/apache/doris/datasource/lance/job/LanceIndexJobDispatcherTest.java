@@ -19,7 +19,9 @@ package org.apache.doris.datasource.lance.job;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.RefreshManager;
+import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.GenericPool;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
@@ -30,11 +32,14 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TLanceIndexJobDispatch;
 import org.apache.doris.thrift.TLanceIndexMutationType;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
+import org.apache.thrift.TApplicationException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -60,14 +65,18 @@ import java.util.function.Supplier;
  * subclass records every journal record and every send with their ordering,
  * injects clean error statuses or transport failures, and never opens a real
  * client pool. The pinned invariants: one round runs the five phases in the
- * fixed order (deadline sweep, epoch sweep, refresh, dispatch); the markRunning
- * journal record always precedes the send (durable-before-send); an attempt
- * whose compare-and-set lost never sends and never reuses its invocation id; a
- * clean send error converges NOT_COMMITTED while a transport failure converges
- * UNKNOWN with the possible-live slot still held; only a changed backend
- * process epoch releases a slot; a local-filesystem dataset is dispatched only
- * on the asserted single-node topology; and an idle round writes no journal
- * record. Storage options reach the wire but never a durable record.
+ * fixed order (deadline sweep, epoch sweep, refresh, dispatch); request
+ * preparation runs before markRunning, so a preparation failure leaves the job
+ * PENDING without a journal record; the markRunning journal record always
+ * precedes the send (durable-before-send); an attempt whose compare-and-set
+ * lost never sends and never reuses its invocation id; a clean send error, a
+ * client borrow failure, or an UNKNOWN_METHOD answer converges NOT_COMMITTED
+ * and releases the possible-live slot in the same transition, while a transport
+ * failure after the invocation may have started converges UNKNOWN with the
+ * slot still held; only a changed backend process epoch releases a slot; a
+ * local-filesystem dataset is dispatched only on the asserted single-node
+ * topology; and an idle round writes no journal record. Storage options reach
+ * the wire but never a durable record.
  */
 public class LanceIndexJobDispatcherTest {
     private static final long CATALOG_ID = 10L;
@@ -87,6 +96,7 @@ public class LanceIndexJobDispatcherTest {
     private SystemInfoService systemInfo;
     private RefreshManager refreshManager;
     private LanceExternalCatalog catalog;
+    private CatalogMgr catalogMgr;
     private TestManager manager;
     private TestDispatcher dispatcher;
 
@@ -125,12 +135,13 @@ public class LanceIndexJobDispatcherTest {
         Mockito.when(catalogProperty.getOrderedStoragePropertiesList())
                 .thenReturn(Collections.singletonList(storageProperties));
         Mockito.when(catalog.getCatalogProperty()).thenReturn(catalogProperty);
-        CatalogMgr catalogMgr = new CatalogMgr();
+        CatalogMgr mgr = new CatalogMgr();
         java.lang.reflect.Field catalogs = CatalogMgr.class.getDeclaredField("idToCatalog");
         catalogs.setAccessible(true);
         @SuppressWarnings("unchecked")
-        Map<Long, CatalogIf> registered = (Map<Long, CatalogIf>) catalogs.get(catalogMgr);
+        Map<Long, CatalogIf> registered = (Map<Long, CatalogIf>) catalogs.get(mgr);
         registered.put(CATALOG_ID, catalog);
+        catalogMgr = mgr;
         Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
 
         refreshManager = Mockito.mock(RefreshManager.class);
@@ -431,15 +442,103 @@ public class LanceIndexJobDispatcherTest {
         dispatcher.runAfterCatalogReady();
 
         // A clean error status proves the dispatch was never enqueued, so the
-        // invocation is known never to have executed: NOT_COMMITTED, no refresh owed.
+        // invocation is known never to have executed: NOT_COMMITTED, no refresh owed,
+        // and the possible-live slot released in the same durable transition.
         LanceIndexJob stored = manager.getJob(1L);
         Assertions.assertEquals(LanceIndexJobMutationState.NOT_COMMITTED, stored.getMutationState());
         Assertions.assertEquals(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED,
                 stored.getResult().getResultCode());
         Assertions.assertEquals(LanceIndexJobRefreshState.NOT_REQUIRED, stored.getRefreshState());
+        Assertions.assertFalse(stored.holdsPossibleLiveSlot());
+        Assertions.assertEquals(LanceIndexTerminationProof.NOT_ENQUEUED, stored.getTerminationProof());
         Assertions.assertFalse(manager.isFenceHeld(fenceKey));
         Assertions.assertEquals(0L, manager.getQuota().getGlobalCount());
         Assertions.assertEquals(1, dispatcher.sends.size());
+    }
+
+    @Test
+    public void borrowFailureConvergesNotCommittedAndReleasesTheSlot() throws Exception {
+        admit(1L, "IdxA", LOCATOR);
+        // The pool never handed out a client: no connection was established, so the
+        // dispatch provably never reached the backend.
+        dispatcher.sendException = new LanceIndexJobDispatcher.PreInvocationSendException(
+                "no backend client could be borrowed; the dispatch was never sent",
+                new RuntimeException("connection refused"));
+        LanceIndexFenceKey fenceKey = manager.getJob(1L).fenceKey();
+
+        dispatcher.runAfterCatalogReady();
+
+        LanceIndexJob stored = manager.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobMutationState.NOT_COMMITTED, stored.getMutationState());
+        Assertions.assertEquals(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED,
+                stored.getResult().getResultCode());
+        Assertions.assertFalse(stored.holdsPossibleLiveSlot());
+        Assertions.assertEquals(LanceIndexTerminationProof.NOT_ENQUEUED, stored.getTerminationProof());
+        Assertions.assertFalse(manager.isFenceHeld(fenceKey));
+        Assertions.assertEquals(0L, manager.getQuota().getGlobalCount());
+        Assertions.assertEquals(1, dispatcher.sends.size());
+    }
+
+    @Test
+    public void unknownMethodFromAnOldBackendConvergesNotCommittedAndReleasesTheSlot() throws Exception {
+        admit(1L, "IdxA", LOCATOR);
+        // Rolling upgrade: an old backend answered UNKNOWN_METHOD for the new RPC, so
+        // it provably never enqueued the dispatch.
+        dispatcher.sendException = new LanceIndexJobDispatcher.PreInvocationSendException(
+                "backend does not serve submitLanceIndexJob (rolling upgrade); not enqueued",
+                new TApplicationException(TApplicationException.UNKNOWN_METHOD));
+        LanceIndexFenceKey fenceKey = manager.getJob(1L).fenceKey();
+
+        dispatcher.runAfterCatalogReady();
+
+        LanceIndexJob stored = manager.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobMutationState.NOT_COMMITTED, stored.getMutationState());
+        Assertions.assertEquals(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED,
+                stored.getResult().getResultCode());
+        Assertions.assertFalse(stored.holdsPossibleLiveSlot());
+        Assertions.assertEquals(LanceIndexTerminationProof.NOT_ENQUEUED, stored.getTerminationProof());
+        Assertions.assertFalse(manager.isFenceHeld(fenceKey));
+        Assertions.assertEquals(1, dispatcher.sends.size());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void sendExecuteRequestClassifiesOnlyProvenPreInvocationFailures() throws Exception {
+        // The real send path (no seam) against a swapped client pool: a borrow failure
+        // and an UNKNOWN_METHOD answer come out wrapped as proven pre-invocation;
+        // anything raised by the call itself propagates unwrapped as ambiguous.
+        GenericPool<BackendService.Client> originalPool = ClientPool.backendPool;
+        Backend backend = backend(BE1_ID, BE_EPOCH);
+        TLanceIndexJobDispatch anyDispatch = new TLanceIndexJobDispatch();
+        LanceIndexJobDispatcher realDispatcher = new LanceIndexJobDispatcher(manager);
+        try {
+            GenericPool<BackendService.Client> pool = Mockito.mock(GenericPool.class);
+            Mockito.when(pool.borrowObject(Mockito.any(TNetworkAddress.class)))
+                    .thenThrow(new RuntimeException("connection refused"));
+            ClientPool.backendPool = pool;
+            Assertions.assertThrows(LanceIndexJobDispatcher.PreInvocationSendException.class,
+                    () -> realDispatcher.sendExecuteRequest(backend, anyDispatch));
+
+            BackendService.Client oldBackend = Mockito.mock(BackendService.Client.class);
+            Mockito.when(oldBackend.submitLanceIndexJob(Mockito.any()))
+                    .thenThrow(new TApplicationException(TApplicationException.UNKNOWN_METHOD));
+            Mockito.when(pool.borrowObject(Mockito.any(TNetworkAddress.class))).thenReturn(oldBackend);
+            Assertions.assertThrows(LanceIndexJobDispatcher.PreInvocationSendException.class,
+                    () -> realDispatcher.sendExecuteRequest(backend, anyDispatch));
+            Mockito.verify(pool, Mockito.atLeastOnce()).invalidateObject(Mockito.any(TNetworkAddress.class),
+                    Mockito.eq(oldBackend));
+
+            BackendService.Client confusedBackend = Mockito.mock(BackendService.Client.class);
+            TApplicationException ambiguous = new TApplicationException(
+                    TApplicationException.INVALID_MESSAGE_TYPE);
+            Mockito.when(confusedBackend.submitLanceIndexJob(Mockito.any())).thenThrow(ambiguous);
+            Mockito.when(pool.borrowObject(Mockito.any(TNetworkAddress.class))).thenReturn(confusedBackend);
+            TApplicationException thrown = Assertions.assertThrows(TApplicationException.class,
+                    () -> realDispatcher.sendExecuteRequest(backend, anyDispatch));
+            Assertions.assertSame(ambiguous, thrown);
+        } finally {
+            ClientPool.backendPool = originalPool;
+        }
     }
 
     @Test
@@ -485,22 +584,34 @@ public class LanceIndexJobDispatcherTest {
     }
 
     @Test
-    public void preparationFailureConvergesUnknownWithoutASend() throws Exception {
+    public void preparationFailureStaysPendingAndRecoversWhenTheCatalogReturns() throws Exception {
         admit(1L, "IdxA", LOCATOR);
-        // The job's catalog resolves to nothing: storage options cannot be resolved,
-        // which is an FE-side failure, never a trusted worker rejection. Built before
-        // the stubbing: constructing it inside when(...) triggers Mockito's
-        // unfinished-stubbing detection.
+        // The job's catalog resolves to nothing, as in the ALTER CATALOG RENAME window
+        // where CatalogMgr has the catalog temporarily removed: storage options cannot
+        // be resolved. Built before the stubbing: constructing it inside when(...)
+        // triggers Mockito's unfinished-stubbing detection.
         CatalogMgr catalogless = new CatalogMgr();
         Mockito.when(env.getCatalogMgr()).thenReturn(catalogless);
+        int journalBefore = manager.editLog.size();
 
         dispatcher.runAfterCatalogReady();
 
+        // Preparation runs before the durable boundary: nothing was marked, nothing
+        // was sent, and no journal record exists — the job just waits for a later round.
         Assertions.assertTrue(dispatcher.sends.isEmpty(), events.toString());
         LanceIndexJob stored = manager.getJob(1L);
-        Assertions.assertEquals(LanceIndexJobMutationState.UNKNOWN, stored.getMutationState());
-        Assertions.assertEquals(LanceIndexJobResultCode.NO_TRUSTED_RESULT, stored.getResult().getResultCode());
-        Assertions.assertTrue(stored.holdsPossibleLiveSlot());
+        Assertions.assertEquals(LanceIndexJobMutationState.PENDING, stored.getMutationState());
+        Assertions.assertEquals(0L, stored.getRevision());
+        Assertions.assertFalse(stored.holdsPossibleLiveSlot());
+        Assertions.assertEquals(journalBefore, manager.editLog.size());
+
+        // The rename finished and the catalog id resolves again, so the next round
+        // dispatches the job normally.
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        dispatcher.runAfterCatalogReady();
+
+        Assertions.assertEquals(1, dispatcher.sends.size());
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, manager.getJob(1L).getMutationState());
     }
 
     // ------------------------------------------------------------------
@@ -953,6 +1064,7 @@ public class LanceIndexJobDispatcherTest {
         private final List<TLanceIndexJobDispatch> sends = new ArrayList<>();
         private TStatus statusToReturn = new TStatus(TStatusCode.OK);
         private boolean throwOnSend;
+        private Exception sendException;
 
         TestDispatcher(LanceIndexJobManager jobManager, List<String> events) {
             super(jobManager);
@@ -968,6 +1080,9 @@ public class LanceIndexJobDispatcherTest {
         protected TStatus sendExecuteRequest(Backend backend, TLanceIndexJobDispatch dispatch) throws Exception {
             events.add("send:" + dispatch.getJobId());
             sends.add(dispatch);
+            if (sendException != null) {
+                throw sendException;
+            }
             if (throwOnSend) {
                 throw new RuntimeException("injected transport failure");
             }
