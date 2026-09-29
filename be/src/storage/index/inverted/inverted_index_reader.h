@@ -53,6 +53,11 @@
     } catch (...) {               \
     }
 
+namespace doris::index_query {
+class IndexSource;
+using IndexSourcePtr = std::shared_ptr<IndexSource>;
+} // namespace doris::index_query
+
 namespace lucene {
 namespace store {
 class Directory;
@@ -222,6 +227,8 @@ private:
     }
 };
 
+struct OpenedIndex;
+
 class InvertedIndexReader : public IndexReader {
 public:
     // `rows_of_segment` and `column_is_array` describe the segment and the column rather than the
@@ -282,6 +289,16 @@ public:
             std::shared_ptr<roaring::Roaring>& /*bit_map*/,
             InvertedIndexQueryCacheHandle* /*null_bitmap_cache_handle*/ = nullptr) {
         return Status::NotSupported("this index reader does not run lowered leaves");
+    }
+
+    // Opens the index for a query and binds `field` as the engine's source; `opened` keeps
+    // the index alive for as long as the source is read. Readers the engine does not read
+    // keep the default.
+    virtual Status open_source(const IndexQueryContextPtr& /*context*/,
+                               const std::wstring& /*field*/,
+                               std::unique_ptr<OpenedIndex>* /*opened*/,
+                               index_query::IndexSourcePtr* /*source*/) {
+        return Status::NotSupported("this index reader has no source for the query engine");
     }
 
     virtual Status read_null_bitmap(const IndexQueryContextPtr& context,
@@ -381,6 +398,9 @@ public:
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
                 "a text index reader does not support try_query");
     }
+    Status open_source(const IndexQueryContextPtr& context, const std::wstring& field,
+                       std::unique_ptr<OpenedIndex>* opened,
+                       index_query::IndexSourcePtr* source) override;
 
 protected:
     // Lowers a MATCH value and runs it, keyed by the raw value.
@@ -403,6 +423,10 @@ protected:
     // Opens the index, through the searcher cache when the session enables it.
     virtual Status _open_index(const IndexQueryContextPtr& context,
                                std::unique_ptr<OpenedIndex>* out) = 0;
+    // The engine's source for `field` over the open index.
+    virtual index_query::IndexSourcePtr _bind_source(const IndexQueryContextPtr& context,
+                                                     const std::wstring& field,
+                                                     OpenedIndex& index) = 0;
     // The number of documents holding `term`, read from the dictionary, and the number of
     // documents the index covers.
     virtual Status _term_document_frequency(const std::string& column_name, OpenedIndex& index,
@@ -435,6 +459,9 @@ public:
 protected:
     Status _open_index(const IndexQueryContextPtr& context,
                        std::unique_ptr<OpenedIndex>* out) override;
+    index_query::IndexSourcePtr _bind_source(const IndexQueryContextPtr& context,
+                                             const std::wstring& field,
+                                             OpenedIndex& index) override;
     Status _term_document_frequency(const std::string& column_name, OpenedIndex& index,
                                     const std::string& term, uint64_t* df,
                                     uint64_t* document_count) override;
@@ -444,12 +471,12 @@ protected:
                      std::shared_ptr<roaring::Roaring>* out) override;
 };
 
-// The query_v2 query that runs a logical leaf on the CLucene field `field`. With `candidates`, a
-// phrase only matches those rows.
-Status plan_clucene_query(const index_query::logical::Node& leaf,
-                          const IndexQueryContextPtr& context, const std::wstring& field,
-                          const std::string& binding_key, const roaring::Roaring* candidates,
-                          std::shared_ptr<inverted_index::query_v2::Query>* out);
+// The query_v2 query that runs a logical leaf on the bound source of `field`. With `candidates`,
+// a phrase only matches those rows.
+Status plan_query(const index_query::logical::Node& leaf, const IndexQueryContextPtr& context,
+                  const std::wstring& field, const std::string& binding_key,
+                  const roaring::Roaring* candidates,
+                  std::shared_ptr<inverted_index::query_v2::Query>* out);
 
 // Adds the rows a logical leaf matches on the CLucene field `field` of `searcher` to `result`, and
 // with `scoring` their BM25 values to the context's similarity. With `candidates`, a phrase only

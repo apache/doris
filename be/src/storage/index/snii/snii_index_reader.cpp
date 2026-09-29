@@ -55,6 +55,7 @@
 #include "storage/index/snii/query/term_query.h"
 #include "storage/index/snii/query/wildcard_query.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
+#include "storage/index/snii/reader/snii_index_source.h"
 #include "storage/index/snii/snii_doris_adapter.h"
 #include "storage/index/snii/snii_prx_profile.h"
 #include "storage/index/snii/stats/snii_stats_provider.h"
@@ -434,6 +435,13 @@ Status SniiIndexReader::_open_index(const IndexQueryContextPtr& context,
                                         &opened->uncached_reader, &opened->reader));
     *out = std::move(opened);
     return Status::OK();
+}
+
+index_query::IndexSourcePtr SniiIndexReader::_bind_source(const IndexQueryContextPtr& /*context*/,
+                                                          const std::wstring& /*field*/,
+                                                          OpenedIndex& index) {
+    return std::make_shared<::doris::snii::reader::SniiIndexSource>(
+            *static_cast<SniiOpenedIndex&>(index).reader);
 }
 
 Status SniiIndexReader::_term_document_frequency(const std::string& /*column_name*/,

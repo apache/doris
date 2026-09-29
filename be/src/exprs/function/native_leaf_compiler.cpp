@@ -32,55 +32,53 @@ namespace {
 namespace logical = index_query::logical;
 namespace query_v2 = segment_v2::inverted_index::query_v2;
 
+// Whether the reader scores the leaf: a term, a term set or a phrase; an expansion keeps the
+// constant score of the lazy path.
+bool reader_scores(const logical::Node& leaf) {
+    return leaf.as<logical::Term>() != nullptr || leaf.as<logical::TermSet>() != nullptr ||
+           leaf.as<logical::Phrase>() != nullptr;
+}
+
 } // namespace
 
 NativeLeafCompiler::NativeLeafCompiler(segment_v2::InvertedIndexReaderPtr reader,
-                                       std::string stored_field_name)
-        : _reader(std::move(reader)), _stored_field_name(std::move(stored_field_name)) {}
+                                       std::string stored_field_name,
+                                       std::shared_ptr<LazyLeafCompiler> lazy)
+        : _reader(std::move(reader)),
+          _stored_field_name(std::move(stored_field_name)),
+          _lazy(std::move(lazy)) {}
 
 Status NativeLeafCompiler::compile(const logical::Node& leaf, const SearchLeafContext& ctx,
                                    query_v2::QueryPtr* out) {
-    if (leaf.as<logical::Empty>() != nullptr) {
-        *out = std::make_shared<query_v2::BitSetQuery>(roaring::Roaring());
-        return Status::OK();
+    const bool scored = ctx.scoring && ctx.context->collection_similarity != nullptr;
+    if (!scored || !reader_scores(leaf)) {
+        return _lazy->compile(leaf, ctx, out);
+    }
+    return _compile_scored(leaf, ctx, out);
+}
+
+Status NativeLeafCompiler::_compile_scored(const logical::Node& leaf, const SearchLeafContext& ctx,
+                                           query_v2::QueryPtr* out) {
+    // The reader publishes BM25 values into the similarity the context carries and the collector
+    // also collects the scorer's score, so the reader gets a private sink and the scores reach the
+    // collector through the scored query built below. Whether the leaf scores at all is the
+    // reader's decision.
+    auto reader_context = std::make_shared<segment_v2::IndexQueryContext>(*ctx.context);
+    auto score_sink = std::make_shared<CollectionSimilarity>();
+    reader_context->collection_similarity = score_sink;
+    if (ctx.domain != nullptr) {
+        // SEARCH runs without the scan's candidates, so the domain is the only restriction.
+        DORIS_CHECK(ctx.context->candidate_rows == nullptr);
+        reader_context->candidate_rows = ctx.domain;
     }
     auto rows = std::make_shared<roaring::Roaring>();
-    std::shared_ptr<CollectionSimilarity> score_sink;
-    if (leaf.as<logical::Exists>() != nullptr) {
-        rows->addRange(0, ctx.num_rows);
-    } else {
-        // The reader publishes BM25 values into the similarity the context carries and the
-        // collector also collects the scorer's score, so a scored compile gives the reader a
-        // private sink and lets the scores reach the collector through the scored query built
-        // below. An unscored compile and an expanded term (a constant score, as on the CLucene
-        // path) hide the similarity instead. Whether the leaf scores at all is the reader's
-        // decision.
-        const bool similarity = ctx.context->collection_similarity != nullptr;
-        std::shared_ptr<segment_v2::IndexQueryContext> reader_context = ctx.context;
-        if (similarity || ctx.domain != nullptr) {
-            reader_context = std::make_shared<segment_v2::IndexQueryContext>(*ctx.context);
-        }
-        if (similarity) {
-            score_sink = ctx.scoring && leaf.as<logical::Expand>() == nullptr
-                                 ? std::make_shared<CollectionSimilarity>()
-                                 : nullptr;
-            reader_context->collection_similarity = score_sink;
-        }
-        if (ctx.domain != nullptr) {
-            // SEARCH runs without the scan's candidates, so the domain is the only restriction.
-            DORIS_CHECK(ctx.context->candidate_rows == nullptr);
-            reader_context->candidate_rows = ctx.domain;
-        }
-        RETURN_IF_ERROR(_reader->query_leaf(reader_context, _stored_field_name, leaf, rows));
-        // Reply-direction fields land on the copy the reader was given. The domain is internal
-        // to SEARCH, so the scan never hears that it was consumed.
-        if (reader_context != ctx.context) {
-            if (ctx.domain != nullptr) {
-                reader_context->candidate_rows_consumed = false;
-            }
-            ctx.context->merge_reader_outputs(*reader_context);
-        }
+    RETURN_IF_ERROR(_reader->query_leaf(reader_context, _stored_field_name, leaf, rows));
+    // Reply-direction fields land on the copy the reader was given. The domain is internal to
+    // SEARCH, so the scan never hears that it was consumed.
+    if (ctx.domain != nullptr) {
+        reader_context->candidate_rows_consumed = false;
     }
+    ctx.context->merge_reader_outputs(*reader_context);
 
     auto nulls = std::make_shared<roaring::Roaring>();
     if (_reader->has_null()) {
@@ -91,9 +89,9 @@ Status NativeLeafCompiler::compile(const logical::Node& leaf, const SearchLeafCo
         nulls = std::move(cached_null_bitmap);
     }
     *rows -= *nulls;
-    // Only a clause the reader scored gets a scored query; the rest keep the constant score
-    // the CLucene path also gives its unscored leaves.
-    auto scores = score_sink != nullptr ? score_sink->release_scores() : ScoreMap {};
+    // Only a leaf the reader scored gets a scored query; the rest keep the constant score the
+    // lazy path also gives its unscored leaves.
+    auto scores = score_sink->release_scores();
     if (!scores.empty()) {
         *out = std::make_shared<query_v2::ScoredBitSetQuery>(
                 std::move(rows), std::move(nulls),

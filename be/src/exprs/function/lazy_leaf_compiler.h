@@ -15,22 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/function/clucene_leaf_compiler.h"
+#pragma once
 
+#include <string>
 #include <utility>
 
-#include "storage/index/inverted/inverted_index_reader.h"
+#include "exprs/function/search_leaf_compiler.h"
+#include "storage/index/query/spi/index_source.h"
 
 namespace doris {
 
-CluceneLeafCompiler::CluceneLeafCompiler(std::wstring field, std::string binding_key)
-        : _field(std::move(field)), _binding_key(std::move(binding_key)) {}
+// Compiles a leaf into the lazy query_v2 query the engine evaluates on the field's bound source,
+// after the source resolved the leaf's terms in one dictionary batch.
+class LazyLeafCompiler final : public SearchLeafCompiler {
+public:
+    LazyLeafCompiler(std::wstring field, std::string binding_key,
+                     index_query::IndexSourcePtr source);
 
-Status CluceneLeafCompiler::compile(const index_query::logical::Node& leaf,
-                                    const SearchLeafContext& ctx,
-                                    segment_v2::inverted_index::query_v2::QueryPtr* out) {
-    return segment_v2::plan_clucene_query(leaf, ctx.context, _field, _binding_key,
-                                          /*candidates=*/nullptr, out);
-}
+    Status compile(const index_query::logical::Node& leaf, const SearchLeafContext& ctx,
+                   segment_v2::inverted_index::query_v2::QueryPtr* out) override;
+
+private:
+    std::wstring _field;
+    std::string _binding_key;
+    index_query::IndexSourcePtr _source;
+};
 
 } // namespace doris

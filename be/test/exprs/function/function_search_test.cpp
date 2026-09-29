@@ -39,7 +39,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/primitive_type.h"
-#include "exprs/function/clucene_leaf_compiler.h"
+#include "exprs/function/lazy_leaf_compiler.h"
 #include "exprs/function/native_leaf_compiler.h"
 #include "exprs/function/scalar_leaf_compiler.h"
 #include "runtime/exec_env.h"
@@ -56,6 +56,7 @@
 #include "storage/index/inverted/query_v2/phrase_query/multi_phrase_query.h"
 #include "storage/index/inverted/query_v2/phrase_query/multi_phrase_weight.h"
 #include "storage/index/inverted/query_v2/phrase_query/phrase_query.h"
+#include "storage/index/query/fake_index_source.h"
 #include "storage/index/query/logical/search_lowering.h"
 #include "storage/index/snii/snii_index_reader.h"
 #include "storage/segment/variant/nested_group_provider.h"
@@ -172,6 +173,21 @@ public:
         return Status::OK();
     }
 
+    Status open_source(const segment_v2::IndexQueryContextPtr& /*context*/,
+                       const std::wstring& /*field*/,
+                       std::unique_ptr<segment_v2::OpenedIndex>* opened,
+                       index_query::IndexSourcePtr* source) override {
+        ++open_source_calls;
+        opened->reset();
+        *source = fake_source;
+        return Status::OK();
+    }
+
+    // The postings the engine reads through this reader's source.
+    std::shared_ptr<index_query::testing::FakeIndexSource> fake_source =
+            std::make_shared<index_query::testing::FakeIndexSource>();
+    int open_source_calls = 0;
+
     Status query(const segment_v2::IndexQueryContextPtr& /*context*/,
                  const std::string& /*column_name*/, const Field& /*query_value*/,
                  segment_v2::InvertedIndexQueryType /*query_type*/,
@@ -234,6 +250,21 @@ public:
     Status new_iterator(std::unique_ptr<segment_v2::IndexIterator>* /*iterator*/) override {
         return Status::OK();
     }
+
+    Status open_source(const segment_v2::IndexQueryContextPtr& /*context*/,
+                       const std::wstring& /*field*/,
+                       std::unique_ptr<segment_v2::OpenedIndex>* opened,
+                       index_query::IndexSourcePtr* source) override {
+        ++open_source_calls;
+        opened->reset();
+        *source = fake_source;
+        return Status::OK();
+    }
+
+    // The postings the engine reads through this reader's source.
+    std::shared_ptr<index_query::testing::FakeIndexSource> fake_source =
+            std::make_shared<index_query::testing::FakeIndexSource>();
+    int open_source_calls = 0;
 
     // The raw entry analyzes the value itself; SEARCH no longer uses it.
     Status query(const segment_v2::IndexQueryContextPtr& context, const std::string& column_name,
@@ -1303,13 +1334,11 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryPhrase) {
     binding.stored_field_wstr = L"content";
     binding.index_properties["parser"] = "unicode";
     binding.query_type = InvertedIndexQueryType::MATCH_PHRASE_QUERY;
-    binding.leaf_compiler = std::make_shared<CluceneLeafCompiler>(
+    binding.index_source = std::make_shared<index_query::testing::FakeIndexSource>();
+    binding.leaf_compiler = std::make_shared<LazyLeafCompiler>(
             L"content",
-            resolver.binding_key_for("content", InvertedIndexQueryType::MATCH_PHRASE_QUERY));
-
-    auto* dummy_reader = reinterpret_cast<lucene::index::IndexReader*>(0x1);
-    binding.lucene_reader = std::shared_ptr<lucene::index::IndexReader>(
-            dummy_reader, [](lucene::index::IndexReader* /*ptr*/) {});
+            resolver.binding_key_for("content", InvertedIndexQueryType::MATCH_PHRASE_QUERY),
+            binding.index_source);
 
     std::string key =
             resolver.binding_key_for("content", InvertedIndexQueryType::MATCH_PHRASE_QUERY);
@@ -1370,12 +1399,11 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryPhraseUsesPlainTerms) {
     binding.stored_field_wstr = L"content";
     binding.index_properties["analyzer"] = analyzer.name;
     binding.query_type = InvertedIndexQueryType::MATCH_PHRASE_QUERY;
-    binding.leaf_compiler = std::make_shared<CluceneLeafCompiler>(
+    binding.index_source = std::make_shared<index_query::testing::FakeIndexSource>();
+    binding.leaf_compiler = std::make_shared<LazyLeafCompiler>(
             L"content",
-            resolver.binding_key_for("content", InvertedIndexQueryType::MATCH_PHRASE_QUERY));
-    auto* dummy_reader = reinterpret_cast<lucene::index::IndexReader*>(0x1);
-    binding.lucene_reader = std::shared_ptr<lucene::index::IndexReader>(
-            dummy_reader, [](lucene::index::IndexReader* /*ptr*/) {});
+            resolver.binding_key_for("content", InvertedIndexQueryType::MATCH_PHRASE_QUERY),
+            binding.index_source);
     binding.binding_key =
             resolver.binding_key_for("content", InvertedIndexQueryType::MATCH_PHRASE_QUERY);
     resolver._cache[binding.binding_key] = binding;
@@ -1663,7 +1691,8 @@ TEST_F(FunctionSearchTest, TestFieldReaderResolverBindsSniiWithoutOpeningClucene
     EXPECT_EQ(0, index_file_reader->init_calls);
     EXPECT_EQ(0, index_file_reader->open_calls);
     EXPECT_EQ(reader, binding.inverted_reader);
-    EXPECT_EQ(nullptr, binding.lucene_reader);
+    EXPECT_NE(nullptr, binding.index_source);
+    EXPECT_EQ(1, reader->open_source_calls);
     EXPECT_NE(nullptr, dynamic_cast<NativeLeafCompiler*>(binding.leaf_compiler.get()));
 }
 
@@ -1699,7 +1728,10 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryExecutesSelectedSniiWildcardReader)
             std::make_shared<RecordingNativeInvertedIndexReader>(&decoy_meta, decoy_file_reader);
     auto selected_reader = std::make_shared<RecordingNativeInvertedIndexReader>(
             &selected_meta, selected_file_reader);
-    selected_reader->set_query_result("*lpha", make_bitmap({0, 2}));
+    selected_reader->fake_source->add("alpha", {0, 2});
+    selected_reader->fake_source->add("gamma", {1});
+    decoy_reader->fake_source->add("alpha", {1});
+    decoy_reader->set_null_bitmap(make_bitmap({3}));
     selected_reader->set_null_bitmap(make_bitmap({3}));
 
     segment_v2::InvertedIndexIterator iterator;
@@ -1727,29 +1759,31 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryExecutesSelectedSniiWildcardReader)
     ASSERT_TRUE(status.ok()) << status.to_string();
     ASSERT_NE(nullptr, query);
     EXPECT_EQ(0, decoy_reader->query_calls);
-    EXPECT_EQ(1, selected_reader->query_calls);
-    EXPECT_EQ("stored_body", selected_reader->last_column_name);
-    EXPECT_EQ(TYPE_STRING, selected_reader->last_query_value_type);
-    EXPECT_EQ("*lpha", selected_reader->last_query_value);
-    EXPECT_EQ(InvertedIndexQueryType::WILDCARD_QUERY, selected_reader->last_query_type);
+    EXPECT_EQ(0, selected_reader->query_calls);
     EXPECT_EQ(0, selected_reader->raw_query_calls);
     EXPECT_EQ(0, decoy_file_reader->open_calls);
     EXPECT_EQ(0, selected_file_reader->open_calls);
-    EXPECT_EQ(0, decoy_reader->null_bitmap_calls);
-    EXPECT_EQ(1, selected_reader->null_bitmap_calls);
+    EXPECT_EQ(0, decoy_reader->open_source_calls);
+    EXPECT_EQ(1, selected_reader->open_source_calls);
     const auto& bindings = resolver.binding_cache();
     ASSERT_EQ(1U, bindings.size());
     EXPECT_EQ(InvertedIndexQueryType::MATCH_ANY_QUERY, bindings.begin()->second.query_type);
 
     auto weight = query->weight(true);
     ASSERT_NE(nullptr, weight);
-    inverted_index::query_v2::QueryExecutionContext exec_ctx;
-    exec_ctx.segment_num_rows = 4;
-    auto scorer = weight->scorer(exec_ctx, binding_key);
+    VariantSearchNullBitmapAdapter nulls(resolver);
+    auto scorer = weight->scorer(build_variant_search_query_execution_context(4, resolver, &nulls),
+                                 binding_key);
     ASSERT_NE(nullptr, scorer);
     EXPECT_EQ(0U, scorer->doc());
     EXPECT_FLOAT_EQ(1.0F, scorer->score());
     expect_bitmap_eq(collect_docs(scorer), {0, 2});
+    // The pattern was lowercased by the selected analyzer and enumerated on the selected
+    // index only; a leading wildcard has no prefix to enumerate from.
+    EXPECT_EQ(std::vector<std::string> {""}, selected_reader->fake_source->expanded);
+    EXPECT_TRUE(decoy_reader->fake_source->expanded.empty());
+    // The NULL rows are the column's, so either index answers them, once.
+    EXPECT_EQ(1, decoy_reader->null_bitmap_calls + selected_reader->null_bitmap_calls);
     ASSERT_TRUE(scorer->has_null_bitmap());
     const auto* null_bitmap = scorer->get_null_bitmap();
     ASSERT_NE(nullptr, null_bitmap);
@@ -1766,8 +1800,8 @@ TEST_F(FunctionSearchTest, TestSniiWildcardPreservesThreeValuedBooleanAndFieldEx
     auto index_file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
     auto reader =
             std::make_shared<RecordingNativeInvertedIndexReader>(&index_meta, index_file_reader);
-    reader->set_query_result("*lpha", make_bitmap({0}));
-    reader->set_query_result("beta*", make_bitmap({1}));
+    reader->fake_source->add("alpha", {0});
+    reader->fake_source->add("beta", {1});
     reader->set_null_bitmap(make_bitmap({3}));
 
     segment_v2::InvertedIndexIterator iterator;
@@ -1796,6 +1830,7 @@ TEST_F(FunctionSearchTest, TestSniiWildcardPreservesThreeValuedBooleanAndFieldEx
     not_clause.__isset.children = true;
     auto exists_clause = make_leaf_clause("WILDCARD", "*");
 
+    VariantSearchNullBitmapAdapter nulls(resolver);
     auto verify_result = [&](const TSearchClause& root,
                              std::initializer_list<uint32_t> expected_docs,
                              std::initializer_list<uint32_t> expected_nulls) {
@@ -1808,7 +1843,7 @@ TEST_F(FunctionSearchTest, TestSniiWildcardPreservesThreeValuedBooleanAndFieldEx
         auto weight = query->weight(false);
         ASSERT_NE(nullptr, weight);
         auto scorer = weight->scorer(
-                build_variant_search_query_execution_context(4, resolver, nullptr), binding_key);
+                build_variant_search_query_execution_context(4, resolver, &nulls), binding_key);
         ASSERT_NE(nullptr, scorer);
         expect_bitmap_eq(collect_docs(scorer), expected_docs);
         ASSERT_TRUE(scorer->has_null_bitmap());
@@ -1820,7 +1855,7 @@ TEST_F(FunctionSearchTest, TestSniiWildcardPreservesThreeValuedBooleanAndFieldEx
     verify_result(or_clause, {0, 1}, {3});
     verify_result(not_clause, {1, 2}, {3});
     verify_result(exists_clause, {0, 1, 2}, {3});
-    EXPECT_EQ(3, reader->query_calls);
+    EXPECT_EQ(0, reader->query_calls);
 }
 
 // A TERM clause on an analyzed SNII field reaches the reader as the analyzed terms of a
@@ -1835,7 +1870,7 @@ TEST_F(FunctionSearchTest, TestSniiNativeTermOnAnalyzedFieldIsAMatchAnyQuery) {
     auto index_file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
     auto reader =
             std::make_shared<RecordingNativeInvertedIndexReader>(&index_meta, index_file_reader);
-    reader->set_query_result("alpha", make_bitmap({0, 2}));
+    reader->fake_source->add("alpha", {0, 2});
     segment_v2::InvertedIndexIterator iterator;
     iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
 
@@ -1858,17 +1893,17 @@ TEST_F(FunctionSearchTest, TestSniiNativeTermOnAnalyzedFieldIsAMatchAnyQuery) {
 
     ASSERT_TRUE(status.ok()) << status.to_string();
     ASSERT_NE(nullptr, query);
-    EXPECT_EQ(1, reader->query_calls);
+    EXPECT_EQ(0, reader->query_calls);
     EXPECT_EQ(0, reader->raw_query_calls);
-    EXPECT_EQ(InvertedIndexQueryType::MATCH_ANY_QUERY, reader->last_query_type);
-    EXPECT_EQ("alpha", reader->last_query_value) << "analyzed once, with the index's lowercase";
+    EXPECT_EQ((std::vector<std::vector<std::string>> {{"alpha"}}), reader->fake_source->prepared)
+            << "analyzed once, with the index's lowercase";
     EXPECT_EQ(0, index_file_reader->open_calls);
 
     auto weight = query->weight(false);
     ASSERT_NE(nullptr, weight);
-    inverted_index::query_v2::QueryExecutionContext exec_ctx;
-    exec_ctx.segment_num_rows = 4;
-    auto scorer = weight->scorer(exec_ctx, binding_key);
+    VariantSearchNullBitmapAdapter nulls(resolver);
+    auto scorer = weight->scorer(build_variant_search_query_execution_context(4, resolver, &nulls),
+                                 binding_key);
     ASSERT_NE(nullptr, scorer);
     expect_bitmap_eq(collect_docs(scorer), {0, 2});
 }
@@ -1880,7 +1915,7 @@ TEST_F(FunctionSearchTest, TestSniiNativeTermOnKeywordFieldIsAnEqualQuery) {
     auto index_file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
     auto reader =
             std::make_shared<RecordingNativeInvertedIndexReader>(&index_meta, index_file_reader);
-    reader->set_query_result("Alpha Beta", make_bitmap({1}));
+    reader->fake_source->add("Alpha Beta", {1});
     segment_v2::InvertedIndexIterator iterator;
     iterator.add_reader(segment_v2::InvertedIndexReaderType::STRING_TYPE, reader);
 
@@ -1902,14 +1937,14 @@ TEST_F(FunctionSearchTest, TestSniiNativeTermOnKeywordFieldIsAnEqualQuery) {
                                                    resolver, &query, &binding_key, "OR", 0, 4);
 
     ASSERT_TRUE(status.ok()) << status.to_string();
-    EXPECT_EQ(1, reader->query_calls);
-    EXPECT_EQ(InvertedIndexQueryType::EQUAL_QUERY, reader->last_query_type);
-    EXPECT_EQ("Alpha Beta", reader->last_query_value);
+    EXPECT_EQ(0, reader->query_calls);
+    EXPECT_EQ((std::vector<std::vector<std::string>> {{"Alpha Beta"}}),
+              reader->fake_source->prepared);
     auto weight = query->weight(false);
     ASSERT_NE(nullptr, weight);
-    inverted_index::query_v2::QueryExecutionContext exec_ctx;
-    exec_ctx.segment_num_rows = 4;
-    auto scorer = weight->scorer(exec_ctx, binding_key);
+    VariantSearchNullBitmapAdapter nulls(resolver);
+    auto scorer = weight->scorer(build_variant_search_query_execution_context(4, resolver, &nulls),
+                                 binding_key);
     ASSERT_NE(nullptr, scorer);
     expect_bitmap_eq(collect_docs(scorer), {1});
 }
@@ -1947,7 +1982,8 @@ TEST_F(FunctionSearchTest, TestSniiNativeReceivesTermsFromTheSelectedAnalyzer) {
     auto index_file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
     auto reader =
             std::make_shared<RecordingNativeInvertedIndexReader>(&index_meta, index_file_reader);
-    reader->set_query_result("running quickly", make_bitmap({1}));
+    reader->fake_source->add("running", {1});
+    reader->fake_source->add("quickly", {1, 2});
     segment_v2::InvertedIndexIterator iterator;
     iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
 
@@ -1969,11 +2005,10 @@ TEST_F(FunctionSearchTest, TestSniiNativeReceivesTermsFromTheSelectedAnalyzer) {
             "OR", 0, 3);
 
     ASSERT_TRUE(status.ok()) << status;
-    EXPECT_EQ(1, reader->query_calls);
+    EXPECT_EQ(0, reader->query_calls);
     EXPECT_EQ(0, reader->raw_query_calls);
-    EXPECT_EQ(InvertedIndexQueryType::MATCH_ANY_QUERY, reader->last_query_type);
-    EXPECT_EQ("running quickly", reader->last_query_value);
-    ASSERT_EQ(2U, reader->last_query_info.term_infos.size());
+    EXPECT_EQ((std::vector<std::vector<std::string>> {{"running", "quickly"}}),
+              reader->fake_source->prepared);
     const auto& bindings = resolver.binding_cache();
     ASSERT_EQ(1U, bindings.size());
     ASSERT_NE(nullptr, bindings.begin()->second.analyzer_context);
@@ -1993,6 +2028,8 @@ TEST_F(FunctionSearchTest, TestSniiNativeTermDefaultOperatorAndMapsToMatchAllQue
     auto index_file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
     auto reader =
             std::make_shared<RecordingNativeInvertedIndexReader>(&index_meta, index_file_reader);
+    reader->fake_source->add("alpha", {0, 1});
+    reader->fake_source->add("beta", {1, 2});
     segment_v2::InvertedIndexIterator iterator;
     iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
 
@@ -2014,9 +2051,17 @@ TEST_F(FunctionSearchTest, TestSniiNativeTermDefaultOperatorAndMapsToMatchAllQue
                                                          &binding_key, "and", 0, 4);
 
     ASSERT_TRUE(status.ok()) << status.to_string();
-    EXPECT_EQ(1, reader->query_calls);
-    EXPECT_EQ(InvertedIndexQueryType::MATCH_ALL_QUERY, reader->last_query_type);
-    EXPECT_EQ("alpha beta", reader->last_query_value);
+    EXPECT_EQ(0, reader->query_calls);
+    EXPECT_EQ((std::vector<std::vector<std::string>> {{"alpha", "beta"}}),
+              reader->fake_source->prepared);
+
+    auto weight = query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    VariantSearchNullBitmapAdapter nulls(resolver);
+    auto scorer = weight->scorer(build_variant_search_query_execution_context(4, resolver, &nulls),
+                                 binding_key);
+    ASSERT_NE(nullptr, scorer);
+    expect_bitmap_eq(collect_docs(scorer), {1});
 }
 
 // A single-token TERM value has nothing for minimum_should_match to select "at least N of"
@@ -2029,7 +2074,7 @@ TEST_F(FunctionSearchTest, TestSniiNativeTermSingleTokenAllowsMinimumShouldMatch
     auto index_file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
     auto reader =
             std::make_shared<RecordingNativeInvertedIndexReader>(&index_meta, index_file_reader);
-    reader->set_query_result("alpha", make_bitmap({0, 2}));
+    reader->fake_source->add("alpha", {0, 2});
     segment_v2::InvertedIndexIterator iterator;
     iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
 
@@ -2052,15 +2097,14 @@ TEST_F(FunctionSearchTest, TestSniiNativeTermSingleTokenAllowsMinimumShouldMatch
 
     ASSERT_TRUE(status.ok()) << status.to_string();
     ASSERT_NE(nullptr, query);
-    EXPECT_EQ(1, reader->query_calls);
-    EXPECT_EQ(InvertedIndexQueryType::MATCH_ANY_QUERY, reader->last_query_type);
-    EXPECT_EQ("alpha", reader->last_query_value);
+    EXPECT_EQ(0, reader->query_calls);
+    EXPECT_EQ((std::vector<std::vector<std::string>> {{"alpha"}}), reader->fake_source->prepared);
 
     auto weight = query->weight(false);
     ASSERT_NE(nullptr, weight);
-    inverted_index::query_v2::QueryExecutionContext exec_ctx;
-    exec_ctx.segment_num_rows = 4;
-    auto scorer = weight->scorer(exec_ctx, binding_key);
+    VariantSearchNullBitmapAdapter nulls(resolver);
+    auto scorer = weight->scorer(build_variant_search_query_execution_context(4, resolver, &nulls),
+                                 binding_key);
     ASSERT_NE(nullptr, scorer);
     expect_bitmap_eq(collect_docs(scorer), {0, 2});
 }
@@ -2104,9 +2148,9 @@ TEST_F(FunctionSearchTest, TestSniiNativeTermZeroTokenMinimumShouldMatchReturnsE
 
     auto weight = query->weight(false);
     ASSERT_NE(nullptr, weight);
-    inverted_index::query_v2::QueryExecutionContext exec_ctx;
-    exec_ctx.segment_num_rows = 4;
-    auto scorer = weight->scorer(exec_ctx, binding_key);
+    VariantSearchNullBitmapAdapter nulls(resolver);
+    auto scorer = weight->scorer(build_variant_search_query_execution_context(4, resolver, &nulls),
+                                 binding_key);
     ASSERT_NE(nullptr, scorer);
     expect_bitmap_eq(collect_docs(scorer), {});
 }
@@ -2120,7 +2164,8 @@ TEST_F(FunctionSearchTest, TestSniiNativeKeywordPrefixIsALiteralStem) {
     auto index_file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
     auto reader =
             std::make_shared<RecordingNativeInvertedIndexReader>(&index_meta, index_file_reader);
-    reader->set_query_result("al", make_bitmap({0, 2}));
+    reader->fake_source->add("alpha", {0, 2});
+    reader->fake_source->add("beta", {1});
     segment_v2::InvertedIndexIterator iterator;
     iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
 
@@ -2143,18 +2188,17 @@ TEST_F(FunctionSearchTest, TestSniiNativeKeywordPrefixIsALiteralStem) {
 
     ASSERT_TRUE(status.ok()) << status.to_string();
     ASSERT_NE(nullptr, query);
-    EXPECT_EQ(1, reader->query_calls);
-    EXPECT_EQ(InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, reader->last_query_type);
-    EXPECT_EQ("al", reader->last_query_value);
+    EXPECT_EQ(0, reader->query_calls);
     EXPECT_EQ(0, index_file_reader->open_calls);
 
     auto weight = query->weight(false);
     ASSERT_NE(nullptr, weight);
-    inverted_index::query_v2::QueryExecutionContext exec_ctx;
-    exec_ctx.segment_num_rows = 4;
-    auto scorer = weight->scorer(exec_ctx, binding_key);
+    VariantSearchNullBitmapAdapter nulls(resolver);
+    auto scorer = weight->scorer(build_variant_search_query_execution_context(4, resolver, &nulls),
+                                 binding_key);
     ASSERT_NE(nullptr, scorer);
     expect_bitmap_eq(collect_docs(scorer), {0, 2});
+    EXPECT_EQ(std::vector<std::string> {"al"}, reader->fake_source->expanded);
 }
 
 TEST_F(FunctionSearchTest, TestSniiNativeRegexpMatchesWholeTerms) {
@@ -2165,6 +2209,8 @@ TEST_F(FunctionSearchTest, TestSniiNativeRegexpMatchesWholeTerms) {
     auto index_file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
     auto reader =
             std::make_shared<RecordingNativeInvertedIndexReader>(&index_meta, index_file_reader);
+    reader->fake_source->add("alpha", {0});
+    reader->fake_source->add("alphabet", {1});
     segment_v2::InvertedIndexIterator iterator;
     iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
 
@@ -2186,10 +2232,15 @@ TEST_F(FunctionSearchTest, TestSniiNativeRegexpMatchesWholeTerms) {
                                                          &binding_key, "OR", 0, 4);
 
     ASSERT_TRUE(status.ok()) << status.to_string();
-    EXPECT_EQ(1, reader->query_calls);
-    EXPECT_EQ(InvertedIndexQueryType::MATCH_REGEXP_QUERY, reader->last_query_type);
-    // The reader's MATCH_REGEXP matches inside a term, so SEARCH hands it an anchored pattern.
-    EXPECT_EQ("^(alpha)$", reader->last_query_value);
+    EXPECT_EQ(0, reader->query_calls);
+    // SEARCH's REGEXP matches whole terms, so "alphabet" stays out.
+    auto weight = query->weight(false);
+    ASSERT_NE(nullptr, weight);
+    VariantSearchNullBitmapAdapter nulls(resolver);
+    auto scorer = weight->scorer(build_variant_search_query_execution_context(4, resolver, &nulls),
+                                 binding_key);
+    ASSERT_NE(nullptr, scorer);
+    expect_bitmap_eq(collect_docs(scorer), {0});
 }
 
 TEST_F(FunctionSearchTest, TestSniiNativeCustomKeywordPrefixStripsTheDslSuffix) {
@@ -2226,7 +2277,8 @@ TEST_F(FunctionSearchTest, TestSniiNativeCustomKeywordPrefixStripsTheDslSuffix) 
     auto index_file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
     auto reader =
             std::make_shared<RecordingNativeInvertedIndexReader>(&index_meta, index_file_reader);
-    reader->set_query_result("fail", make_bitmap({0, 2}));
+    reader->fake_source->add("failed", {0, 2});
+    reader->fake_source->add("pass", {1});
     segment_v2::InvertedIndexIterator iterator;
     iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
 
@@ -2249,17 +2301,16 @@ TEST_F(FunctionSearchTest, TestSniiNativeCustomKeywordPrefixStripsTheDslSuffix) 
 
     ASSERT_TRUE(status.ok()) << status.to_string();
     ASSERT_NE(nullptr, query);
-    EXPECT_EQ(1, reader->query_calls);
-    EXPECT_EQ(InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, reader->last_query_type);
-    EXPECT_EQ("fail", reader->last_query_value);
+    EXPECT_EQ(0, reader->query_calls);
 
     auto weight = query->weight(false);
     ASSERT_NE(nullptr, weight);
-    inverted_index::query_v2::QueryExecutionContext exec_ctx;
-    exec_ctx.segment_num_rows = 4;
-    auto scorer = weight->scorer(exec_ctx, binding_key);
+    VariantSearchNullBitmapAdapter nulls(resolver);
+    auto scorer = weight->scorer(build_variant_search_query_execution_context(4, resolver, &nulls),
+                                 binding_key);
     ASSERT_NE(nullptr, scorer);
     expect_bitmap_eq(collect_docs(scorer), {0, 2});
+    EXPECT_EQ(std::vector<std::string> {"fail"}, reader->fake_source->expanded);
 
     scoped_policy_mgr.apply_policy_changes({}, {tokenizer.id, analyzer.id});
 }
@@ -2282,14 +2333,20 @@ static void search_snii_prefix(const std::map<std::string, std::string>& propert
     field_binding.__isset.index_properties = true;
     FieldReaderResolver resolver(data_type_with_names, iterators, context, {field_binding});
 
-    const int calls = reader->query_calls;
+    const size_t expansions = reader->fake_source->expanded.size();
     inverted_index::query_v2::QueryPtr query;
     std::string binding_key;
     auto status = FunctionSearch().build_query_recursive(
             make_leaf_clause("PREFIX", value), context, resolver, &query, &binding_key, "OR", 0, 4);
     ASSERT_TRUE(status.ok()) << status.to_string();
-    EXPECT_EQ(calls + 1, reader->query_calls) << value;
-    EXPECT_EQ(InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, reader->last_query_type) << value;
+    EXPECT_EQ(0, reader->query_calls) << value;
+    // The scorer enumerates the stem on the source; the reader itself is never asked.
+    auto weight = query->weight(true);
+    ASSERT_NE(nullptr, weight);
+    auto scorer = weight->scorer(build_variant_search_query_execution_context(4, resolver, nullptr),
+                                 binding_key);
+    ASSERT_NE(nullptr, scorer);
+    ASSERT_EQ(expansions + 1, reader->fake_source->expanded.size()) << value;
 }
 
 // SEARCH PREFIX follows Elasticsearch's query_string: the stem is normalized, not analyzed, and
@@ -2311,8 +2368,7 @@ TEST_F(FunctionSearchTest, TestSniiNativePrefixIsAnUnscoredPrefixOfTheNormalized
     for (const auto& [value, stem] : std::vector<std::pair<std::string, std::string>> {
                  {"Foo-Ba*", "foo-ba"}, {"The*", "the"}}) {
         search_snii_prefix(properties, context, value, reader);
-        EXPECT_EQ(stem, reader->last_query_value) << value;
-        EXPECT_FALSE(reader->last_query_scored) << value;
+        EXPECT_EQ(stem, reader->fake_source->expanded.back()) << value;
     }
 }
 
@@ -2342,7 +2398,7 @@ TEST_F(FunctionSearchTest, TestSniiNativePrefixNormalizesWithTheAnalyzersPerChar
     auto reader = std::make_shared<RecordingNativeInvertedIndexReader>(
             &index_meta, std::make_shared<RejectingCluceneIndexFileReader>());
     search_snii_prefix(properties, context, "Café-Au*", reader);
-    EXPECT_EQ("cafe-au", reader->last_query_value);
+    EXPECT_EQ("cafe-au", reader->fake_source->expanded.back());
 
     scoped_policy_mgr.apply_policy_changes({}, {analyzer.id});
 }
@@ -2363,10 +2419,9 @@ TEST_F(FunctionSearchTest, TestBuildLeafQueryClucenePrefixOfAStopwordStaysAPrefi
                                 {INVERTED_INDEX_PARSER_LOWERCASE_KEY, INVERTED_INDEX_PARSER_TRUE}};
     binding.query_type = InvertedIndexQueryType::MATCH_ANY_QUERY;
     binding.binding_key = resolver.binding_key_for("body", InvertedIndexQueryType::MATCH_ANY_QUERY);
-    binding.leaf_compiler = std::make_shared<CluceneLeafCompiler>(L"body", binding.binding_key);
-    auto* dummy_reader = reinterpret_cast<lucene::index::IndexReader*>(0x1);
-    binding.lucene_reader = std::shared_ptr<lucene::index::IndexReader>(
-            dummy_reader, [](lucene::index::IndexReader* /*ptr*/) {});
+    binding.index_source = std::make_shared<index_query::testing::FakeIndexSource>();
+    binding.leaf_compiler =
+            std::make_shared<LazyLeafCompiler>(L"body", binding.binding_key, binding.index_source);
     resolver._cache[binding.binding_key] = binding;
 
     inverted_index::query_v2::QueryPtr query;
@@ -2534,7 +2589,7 @@ TEST_F(FunctionSearchTest, TestSniiNativeDocSetCollectionScoresEachDocumentOnce)
 // pin which query types the production is_need_similarity_score gate rejects.
 TEST_F(FunctionSearchTest, TestSniiNativeLeafWithoutPublishedScoresKeepsConstantScore) {
     SniiScoringFixture fixture(43, 4);
-    fixture.reader->set_query_result("alpha*", make_bitmap({0, 2}));
+    fixture.reader->fake_source->add("alpha", {0, 2});
 
     inverted_index::query_v2::QueryPtr query;
     std::string binding_key;
@@ -2878,9 +2933,9 @@ TEST_F(FunctionSearchTest, TestSniiNativeOptionalTermsThatDecideTheMatchJoin) {
 // rows match.
 TEST_F(FunctionSearchTest, TestSniiNativeUnscoredQuerySkipsOptionalTerms) {
     SniiScoringFixture fixture(60, 4);
-    fixture.reader->set_query_result("alpha", make_bitmap({1, 2}));
-    fixture.reader->set_query_result("beta", make_bitmap({2, 3}));
-    fixture.reader->set_query_result("gamma", make_bitmap({0, 2}));
+    fixture.reader->fake_source->add("alpha", {1, 2});
+    fixture.reader->fake_source->add("beta", {2, 3});
+    fixture.reader->fake_source->add("gamma", {0, 2});
     fixture.reader->set_null_bitmap(make_bitmap({3}));
 
     inverted_index::query_v2::QueryPtr query;
@@ -2895,8 +2950,8 @@ TEST_F(FunctionSearchTest, TestSniiNativeUnscoredQuerySkipsOptionalTerms) {
             /*scoring=*/false);
 
     ASSERT_TRUE(status.ok()) << status.to_string();
-    EXPECT_EQ((std::vector<AnalyzedCall> {{InvertedIndexQueryType::MATCH_ANY_QUERY, "alpha"}}),
-              fixture.reader->calls);
+    EXPECT_EQ((std::vector<std::vector<std::string>> {{"alpha"}}),
+              fixture.reader->fake_source->prepared);
     auto weight = query->weight(false);
     ASSERT_NE(nullptr, weight);
     auto scorer = weight->scorer(fixture.exec_context(), binding_key);
@@ -2918,9 +2973,9 @@ TEST_F(FunctionSearchTest, TestOccurBooleanTreatsNullFieldsAsNotMatching) {
     auto content = std::make_shared<RecordingNativeInvertedIndexReader>(
             &content_meta, std::make_shared<RejectingCluceneIndexFileReader>(
                                    InvertedIndexStorageFormatPB::SNII, "/tmp/search_content_idx"));
-    title->set_query_result("philosophy", make_bitmap({0, 1, 2, 3}));
+    title->fake_source->add("philosophy", {0, 1, 2, 3});
     title->set_null_bitmap(make_bitmap({4, 5}));
-    content->set_query_result("news", make_bitmap({4}));
+    content->fake_source->add("news", {4});
     content->set_null_bitmap(make_bitmap({0, 1, 2, 3, 5}));
     segment_v2::InvertedIndexIterator title_iterator;
     title_iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, title);
@@ -3260,8 +3315,7 @@ TEST_F(FunctionSearchTest, TestSniiNativeJoinedAndKeepsReaderScores) {
 // discarded, such as a nested search, does not have its leaves scored.
 TEST_F(FunctionSearchTest, TestUnscoredCompileHidesTheSimilarityFromSniiLeaves) {
     SniiScoringFixture fixture(58, 4);
-    fixture.reader->set_query_result("alpha", make_bitmap({1, 2}));
-    fixture.reader->set_query_scores("alpha", {{1, 3.5F}, {2, 1.25F}});
+    fixture.reader->fake_source->add("alpha", {1, 2});
 
     inverted_index::query_v2::QueryPtr query;
     std::string binding_key;
@@ -3269,7 +3323,7 @@ TEST_F(FunctionSearchTest, TestUnscoredCompileHidesTheSimilarityFromSniiLeaves) 
             make_leaf_clause("TERM", "alpha"), fixture.context, *fixture.resolver, &query,
             &binding_key, "OR", 0, fixture.num_rows, /*scoring=*/false);
     ASSERT_TRUE(status.ok()) << status.to_string();
-    EXPECT_FALSE(fixture.reader->last_query_scored);
+    EXPECT_EQ(0, fixture.reader->query_calls);
 
     auto weight = query->weight(false);
     ASSERT_NE(nullptr, weight);

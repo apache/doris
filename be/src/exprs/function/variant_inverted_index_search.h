@@ -77,7 +77,7 @@ struct FieldReaderBinding {
     DataTypePtr column_type;
     InvertedIndexQueryType query_type;
     InvertedIndexReaderPtr inverted_reader;
-    std::shared_ptr<lucene::index::IndexReader> lucene_reader;
+    index_query::IndexSourcePtr index_source;
     std::map<std::string, std::string> index_properties;
     std::string binding_key;
     std::string analyzer_key;
@@ -88,7 +88,7 @@ struct FieldReaderBinding {
 
     bool is_bound() const {
         return state == SearchFieldBindingState::BOUND || inverted_reader != nullptr ||
-               lucene_reader != nullptr;
+               index_source != nullptr;
     }
 };
 
@@ -99,6 +99,7 @@ public:
             const std::unordered_map<std::string, IndexIterator*>& iterators,
             std::shared_ptr<IndexQueryContext> context,
             const std::vector<TSearchFieldBinding>& field_bindings = {});
+    ~FieldReaderResolver();
 
     Status resolve(const std::string& field_name, InvertedIndexQueryType query_type,
                    FieldReaderBinding* binding);
@@ -167,7 +168,8 @@ private:
     std::vector<index_query::IndexSourcePtr> _sources;
     std::unordered_map<std::string, index_query::IndexSourcePtr> _binding_sources;
     std::unordered_map<std::wstring, index_query::IndexSourcePtr> _field_sources;
-    std::vector<segment_v2::InvertedIndexCacheHandle> _searcher_cache_handles;
+    // The indexes the sources read, closed after them and latest first.
+    std::vector<std::unique_ptr<segment_v2::OpenedIndex>> _opened_indexes;
     SearchLeafQueryMapper _leaf_query_mapper;
 };
 

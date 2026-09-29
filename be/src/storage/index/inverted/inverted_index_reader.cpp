@@ -421,6 +421,14 @@ index_query::TermPatternKind pattern_kind(logical::ExpandKind kind) {
 
 } // namespace
 
+Status TextIndexReader::open_source(const IndexQueryContextPtr& context, const std::wstring& field,
+                                    std::unique_ptr<OpenedIndex>* opened,
+                                    index_query::IndexSourcePtr* source) {
+    RETURN_IF_ERROR(_open_index(context, opened));
+    *source = _bind_source(context, field, **opened);
+    return Status::OK();
+}
+
 Status run_clucene_leaf(const IndexQueryContextPtr& context, const std::wstring& field,
                         const logical::Node& leaf, const roaring::Roaring* candidates, bool scoring,
                         const FulltextIndexSearcherPtr& searcher,
@@ -436,7 +444,7 @@ Status run_clucene_leaf(const IndexQueryContextPtr& context, const std::wstring&
         {
             SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_init_timer);
             query_v2::QueryPtr query;
-            RETURN_IF_ERROR(plan_clucene_query(leaf, context, field, "", candidates, &query));
+            RETURN_IF_ERROR(plan_query(leaf, context, field, "", candidates, &query));
             weight = query->weight(scoring);
         }
         SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_exec_timer);
@@ -456,9 +464,9 @@ Status run_clucene_leaf(const IndexQueryContextPtr& context, const std::wstring&
     return Status::OK();
 }
 
-Status plan_clucene_query(const logical::Node& leaf, const IndexQueryContextPtr& context,
-                          const std::wstring& field, const std::string& binding_key,
-                          const roaring::Roaring* candidates, query_v2::QueryPtr* out) {
+Status plan_query(const logical::Node& leaf, const IndexQueryContextPtr& context,
+                  const std::wstring& field, const std::string& binding_key,
+                  const roaring::Roaring* candidates, query_v2::QueryPtr* out) {
     if (const auto* term = leaf.as<logical::Term>()) {
         *out = term_query(context, field, term->term);
     } else if (const auto* set = leaf.as<logical::TermSet>()) {
@@ -898,6 +906,12 @@ Status CluceneTextIndexReader::_open_index(const IndexQueryContextPtr& context,
     RETURN_IF_ERROR(open_searcher(context, &opened->handle, &opened->searcher));
     *out = std::move(opened);
     return Status::OK();
+}
+
+index_query::IndexSourcePtr CluceneTextIndexReader::_bind_source(
+        const IndexQueryContextPtr& context, const std::wstring& field, OpenedIndex& index) {
+    auto* reader = static_cast<CluceneOpenedIndex&>(index).searcher->getReader();
+    return clucene_index_source(non_owning_reader(reader), field, context->io_ctx);
 }
 
 Status CluceneTextIndexReader::_term_document_frequency(const std::string& column_name,

@@ -40,9 +40,9 @@ struct SearchLeafContext {
     const roaring::Roaring* domain = nullptr;
 };
 
-// Turns one lowered leaf into a query_v2 query on the index its field was bound
-// to. An index that answers leaves eagerly returns the rows it matched as a
-// bit-set query; CLucene returns a lazy query the engine drives.
+// Turns one lowered leaf into a query_v2 query on the index its field was bound to: the lazy
+// query the engine drives on the field's source, or, for a scored leaf of an index that still
+// scores itself, the rows and scores it answered as a scored bit-set query.
 class SearchLeafCompiler {
 public:
     virtual ~SearchLeafCompiler() = default;

@@ -19,9 +19,8 @@
 
 #include <CLucene/config/repl_wchar.h>
 
-#include "storage/index/inverted/spi/clucene_index_source.h"
 // clang-format off
-#include "exprs/function/clucene_leaf_compiler.h"
+#include "exprs/function/lazy_leaf_compiler.h"
 #include "exprs/function/native_leaf_compiler.h"
 #include "exprs/function/scalar_leaf_compiler.h"
 // clang-format on
@@ -275,45 +274,21 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
         return Status::OK();
     }
 
+    // The index opens through the reader's own cache path, the one MATCH opens with, and binds
+    // the field as the engine's source; an SNII index still answers its scored leaves itself.
+    std::unique_ptr<segment_v2::OpenedIndex> opened;
+    index_query::IndexSourcePtr source;
+    RETURN_IF_ERROR(
+            inverted_reader->open_source(_context, resolved.stored_field_wstr, &opened, &source));
+    _opened_indexes.push_back(std::move(opened));
+    resolved.index_source = source;
+    auto lazy = std::make_shared<LazyLeafCompiler>(resolved.stored_field_wstr, binding_key, source);
     if (index_file_reader->get_storage_format() == InvertedIndexStorageFormatPB::SNII) {
-        resolved.leaf_compiler =
-                std::make_shared<NativeLeafCompiler>(inverted_reader, stored_field_name);
-        _cache.emplace(binding_key, resolved);
-        if (is_variant_sub) {
-            add_search_binding_diagnostic(
-                    _context,
-                    fmt::format("[VariantSearchBinding] phase=field_resolve "
-                                "result=selected_snii_native logical_field={} stored_field={} "
-                                "query_type={} effective_query_type={} index_id={} suffix={} "
-                                "reader_type={} analyzer_key={} index_file={}",
-                                field_name, stored_field_name, query_type_to_string(query_type),
-                                query_type_to_string(effective_query_type),
-                                inverted_reader->get_index_id(),
-                                inverted_reader->get_index_meta().get_index_suffix(),
-                                reader_type_to_string(inverted_reader->type()),
-                                resolved.analyzer_key,
-                                index_file_reader->get_index_file_path(
-                                        &inverted_reader->get_index_meta())));
-        }
-        *binding = resolved;
-        return Status::OK();
+        resolved.leaf_compiler = std::make_shared<NativeLeafCompiler>(
+                inverted_reader, stored_field_name, std::move(lazy));
+    } else {
+        resolved.leaf_compiler = std::move(lazy);
     }
-
-    // The searcher comes through the reader's cache path, the one MATCH opens with.
-    auto text_reader =
-            std::dynamic_pointer_cast<segment_v2::CluceneTextIndexReader>(inverted_reader);
-    DORIS_CHECK(text_reader != nullptr);
-    InvertedIndexCacheHandle searcher_cache_handle;
-    FulltextIndexSearcherPtr searcher;
-    RETURN_IF_ERROR(text_reader->open_searcher(_context, &searcher_cache_handle, &searcher));
-    std::shared_ptr<lucene::index::IndexReader> reader_holder(searcher->getReader(),
-                                                              [](lucene::index::IndexReader*) {});
-    _searcher_cache_handles.push_back(std::move(searcher_cache_handle));
-
-    resolved.lucene_reader = reader_holder;
-    resolved.leaf_compiler =
-            std::make_shared<CluceneLeafCompiler>(resolved.stored_field_wstr, binding_key);
-    auto source = clucene_index_source(reader_holder, resolved.stored_field_wstr, _context->io_ctx);
     _binding_sources[binding_key] = source;
     _field_sources[resolved.stored_field_wstr] = source;
     _sources.emplace_back(std::move(source));
@@ -340,6 +315,18 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     }
     *binding = resolved;
     return Status::OK();
+}
+
+FieldReaderResolver::~FieldReaderResolver() {
+    // The sources borrow the opened indexes, and each index's I/O scope restores the one it
+    // replaced, so the sources go first and the indexes latest first.
+    _cache.clear();
+    _sources.clear();
+    _binding_sources.clear();
+    _field_sources.clear();
+    while (!_opened_indexes.empty()) {
+        _opened_indexes.pop_back();
+    }
 }
 
 Status FieldReaderResolver::analyzer_context_for(const std::string& binding_key,

@@ -91,6 +91,9 @@ private:
     Status _read_null_bitmap(const IndexQueryContextPtr& context,
                              InvertedIndexQueryCacheHandle* cache_handle,
                              OpenedIndex* index) override;
+    index_query::IndexSourcePtr _bind_source(const IndexQueryContextPtr& context,
+                                             const std::wstring& field,
+                                             OpenedIndex& index) override;
     Status _get_logical_reader(
             const IndexQueryContextPtr& context, InvertedIndexCacheHandle* searcher_cache_handle,
             std::unique_ptr<::doris::snii::reader::LogicalIndexReader>* uncached_reader,

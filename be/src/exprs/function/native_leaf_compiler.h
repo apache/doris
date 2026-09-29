@@ -17,19 +17,22 @@
 
 #pragma once
 
+#include <memory>
 #include <string>
 
+#include "exprs/function/lazy_leaf_compiler.h"
 #include "exprs/function/search_leaf_compiler.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 
 namespace doris {
 
-// Answers a leaf through the analyzed-query API of an index reader that runs
-// queries itself (SNII today) and wraps the rows it matched, their null bitmap
-// and any scores it published as a bit-set query.
+// Compiles the leaves of an index that still scores itself (SNII): a scored term or phrase leaf
+// runs through the reader, which publishes its BM25 values, and becomes a scored bit-set query;
+// every other leaf compiles lazily on the bound source, like any index's.
 class NativeLeafCompiler final : public SearchLeafCompiler {
 public:
-    NativeLeafCompiler(segment_v2::InvertedIndexReaderPtr reader, std::string stored_field_name);
+    NativeLeafCompiler(segment_v2::InvertedIndexReaderPtr reader, std::string stored_field_name,
+                       std::shared_ptr<LazyLeafCompiler> lazy);
 
     Status compile(const index_query::logical::Node& leaf, const SearchLeafContext& ctx,
                    segment_v2::inverted_index::query_v2::QueryPtr* out) override;
@@ -37,8 +40,12 @@ public:
     bool joins_term_sets() const override { return true; }
 
 private:
+    Status _compile_scored(const index_query::logical::Node& leaf, const SearchLeafContext& ctx,
+                           segment_v2::inverted_index::query_v2::QueryPtr* out);
+
     segment_v2::InvertedIndexReaderPtr _reader;
     std::string _stored_field_name;
+    std::shared_ptr<LazyLeafCompiler> _lazy;
 };
 
 } // namespace doris
