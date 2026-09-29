@@ -59,10 +59,19 @@ struct PostingsBlock {
     }
 };
 
-// The positions of chosen documents of a block: the i-th holds flat[offsets[i], offsets[i + 1]).
+// The positions of chosen documents of a block. The i-th holds flat[offsets[k], offsets[k + 1]),
+// where k is i, or its ordinal in the block when `by_ordinal`: an adapter hands over the positions
+// of the whole block that way rather than copying the chosen ones out.
 struct BlockPositions {
     std::span<const uint32_t> flat;
     std::span<const uint32_t> offsets;
+    bool by_ordinal = false;
+
+    // The positions of the i-th of the chosen `ordinals`.
+    std::span<const uint32_t> of(size_t i, std::span<const uint32_t> ordinals) const {
+        const size_t k = by_ordinal ? ordinals[i] : i;
+        return flat.subspan(offsets[k], offsets[k + 1] - offsets[k]);
+    }
 };
 
 // The buffers an adapter copying positions fills; a caller keeps them across blocks.

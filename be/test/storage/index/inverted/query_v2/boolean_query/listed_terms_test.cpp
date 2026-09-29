@@ -163,7 +163,7 @@ TEST_F(ListedTermsTest, AGroupListsWithTheFieldsNullRows) {
     group.add(2, "b");
     EXPECT_TRUE(group.holds(2));
     EXPECT_FALSE(group.holds(1));
-    group.open();
+    group.open(/*conjunctive=*/true);
     EXPECT_FALSE(group.has_absent_term());
     EXPECT_EQ(group.cheapest_doc_freq(), 4U);
     const auto rows = group.conjunction(nullptr);
@@ -172,10 +172,22 @@ TEST_F(ListedTermsTest, AGroupListsWithTheFieldsNullRows) {
     ListedTerms any(listed, nulls);
     any.add(0, "a");
     any.add(1, "c");
-    any.open();
+    any.open(/*conjunctive=*/false);
     const auto union_rows = any.disjunction();
     EXPECT_EQ(union_rows.true_rows, roaring::Roaring::bitmapOf(6, 1U, 2U, 3U, 5U, 8U, 20U));
     EXPECT_EQ(union_rows.null_rows, roaring::Roaring::bitmapOf(2, 40U, 41U));
+}
+
+// A conjunction holding a term the source surely lacks opens none of its terms.
+TEST_F(ListedTermsTest, AConjunctionWithAnAbsentTermOpensNothing) {
+    auto listed = source(true);
+    ListedTerms group(listed, nullptr);
+    group.add(0, "a");
+    group.add(1, "absent");
+    group.open(/*conjunctive=*/true);
+    EXPECT_TRUE(group.has_absent_term());
+    EXPECT_TRUE(group.conjunction(nullptr).true_rows.isEmpty());
+    EXPECT_TRUE(listed->opened_together.empty());
 }
 
 TEST_F(ListedTermsTest, AConjunctionChainsItsTermsFromTheCheapest) {

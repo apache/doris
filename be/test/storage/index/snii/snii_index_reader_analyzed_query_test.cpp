@@ -38,6 +38,8 @@
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/query/query_info.h"
 #include "storage/index/inverted/similarity/collection_statistics.h"
+#include "storage/index/query/spi/index_source.h"
+#include "storage/index/query/spi/postings_cursor.h"
 #include "storage/index/snii/io/local_file.h"
 #include "storage/index/snii/query/bm25_scorer.h"
 #include "storage/index/snii/snii_index_reader.h"
@@ -413,7 +415,7 @@ TEST_F(SniiIndexReaderAnalyzedQueryTest, WildcardAndRegexpTakeTheTermAsThePatter
               docids_where(every_doc));
 }
 
-TEST_F(SniiIndexReaderAnalyzedQueryTest, RejectsNoTermsAndMultiTermSlots) {
+TEST_F(SniiIndexReaderAnalyzedQueryTest, RejectsNoTermsAndAnswersMultiTermSlots) {
     QueryExecution execution;
     std::shared_ptr<roaring::Roaring> bitmap;
     // A leaf without terms is not a MATCH value that analyzed to nothing, so it is an error.
@@ -421,14 +423,45 @@ TEST_F(SniiIndexReaderAnalyzedQueryTest, RejectsNoTermsAndMultiTermSlots) {
                                 terms({}), &bitmap)
                         .is<ErrorCode::INVERTED_INDEX_NO_TERMS>());
 
+    // A slot holding several terms matches any of them at its position: "alpha" followed by
+    // "beta" or "betamax".
     InvertedIndexQueryInfo synonyms = terms({"alpha"});
     TermInfo slot;
     slot.term = std::vector<std::string> {"beta", "betamax"};
     slot.position = 2;
     synonyms.term_infos.push_back(std::move(slot));
-    EXPECT_TRUE(analyzed_status(*_reader, execution, InvertedIndexQueryType::MATCH_PHRASE_QUERY,
-                                synonyms, &bitmap)
-                        .is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
+    QueryExecution synonym_run;
+    EXPECT_EQ(analyzed(synonym_run, InvertedIndexQueryType::MATCH_PHRASE_QUERY, synonyms),
+              docids_where(has_beta_prefix));
+}
+
+// A source bound the way SEARCH binds its leaves reports the PRX frames its cursors decode to the
+// query's statistics when its opened index closes.
+TEST_F(SniiIndexReaderAnalyzedQueryTest, BoundSourceReportsItsPrxDecodes) {
+    QueryExecution execution;
+    std::unique_ptr<OpenedIndex> opened;
+    index_query::IndexSourcePtr source;
+    assert_ok(_reader->open_source(execution.context, L"content", &opened, &source));
+    std::unique_ptr<index_query::PostingsCursor> cursor;
+    assert_ok(source->open_term("beta", /*positions=*/true, /*scoring=*/false, &cursor));
+    ASSERT_NE(cursor, nullptr);
+    index_query::PostingsBlock block;
+    bool eof = false;
+    assert_ok(cursor->next_block(&block, &eof));
+    ASSERT_FALSE(eof);
+    std::vector<uint32_t> positions;
+    assert_ok(cursor->append_positions(0, 0, positions));
+    EXPECT_EQ(positions, (std::vector<uint32_t> {1}));
+    cursor.reset();
+    source.reset();
+    EXPECT_EQ(execution.stats.snii_stats.prx_total_docs, 0);
+
+    opened.reset();
+    const auto& stats = execution.stats.snii_stats;
+    EXPECT_GT(stats.prx_raw_frames + stats.prx_zstd_frames + stats.prx_pfor_frames, 0);
+    EXPECT_GT(stats.prx_plaintext_bytes, 0);
+    EXPECT_GT(stats.prx_total_docs, 0);
+    EXPECT_EQ(stats.prx_selected_docs, stats.prx_total_docs);
 }
 
 TEST_F(SniiIndexReaderAnalyzedQueryTest, StringTypeReaderSkipsATermLongerThanIgnoreAbove) {

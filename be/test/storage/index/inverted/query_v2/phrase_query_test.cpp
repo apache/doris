@@ -31,6 +31,8 @@
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/query/query_info.h"
+#include "storage/index/inverted/query_v2/phrase_prefix_query/phrase_prefix_query.h"
+#include "storage/index/inverted/query_v2/phrase_query/multi_phrase_query.h"
 #include "storage/index/inverted/query_v2/phrase_query/phrase_scorer.h"
 #include "storage/index/inverted/query_v2/phrase_query/phrase_weight.h"
 #include "storage/index/inverted/spi/clucene_index_source.h"
@@ -841,6 +843,21 @@ TEST_F(PhraseQueryV2Test, AListedPhraseReadsItsTermsTogether) {
     EXPECT_EQ(source->fetches, 1U);
 }
 
+// Candidates far more than the rarest term's documents filter the phrase's rows rather than
+// seed its chain.
+TEST_F(PhraseQueryV2Test, AListedPhraseFiltersByManyCandidates) {
+    auto source = fake_phrase_source(true);
+    source->set_doc_count(64);
+    roaring::Roaring candidates;
+    candidates.addRange(1, 64);
+    EXPECT_EQ(fake_phrase_docs(source, {"quick", "brown"}, {.candidates = &candidates}),
+              (std::set<uint32_t> {1, 8}));
+    EXPECT_TRUE(source->prefetches["quick"][0].whole);
+    // The first term's rows among the candidates seed the second.
+    EXPECT_EQ(source->prefetches["brown"][0].candidates, (std::vector<uint32_t> {1, 5, 8, 11}));
+    EXPECT_EQ(source->prefetches["quick"][1].candidates, (std::vector<uint32_t> {1, 5, 8}));
+}
+
 TEST_F(PhraseQueryV2Test, AListedPhraseListsItsRowsForAConjunction) {
     const std::wstring field = L"content";
     query_v2::PhraseQuery query(std::make_shared<IndexQueryContext>(), field,
@@ -865,6 +882,126 @@ TEST_F(PhraseQueryV2Test, AListedPhraseListsItsRowsForAConjunction) {
     EXPECT_TRUE(rows.null_rows.isEmpty());
     // The chain started from the candidates.
     EXPECT_EQ(listed->prefetches["quick"][0].candidates, (std::vector<uint32_t> {1, 8, 12}));
+}
+
+// "quick bro*" also matches "quick bronze" in docs 5 and 11, and "*ick bro*" also matches
+// "thick bronze" in doc 12.
+static std::shared_ptr<index_query::testing::FakeIndexSource> fake_prefix_source(bool batches) {
+    auto source = fake_phrase_source(batches);
+    source->add("bronze", {posting(5, {5}), posting(11, {1}), posting(12, {3})});
+    source->add("thick", {posting(12, {2})});
+    return source;
+}
+
+static std::set<uint32_t> fake_docs(
+        query_v2::Query& query,
+        const std::shared_ptr<index_query::testing::FakeIndexSource>& source) {
+    query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = source->doc_count();
+    exec_ctx.field_sources.emplace(L"content", source);
+    auto scorer = query.weight(false)->scorer(exec_ctx);
+    std::set<uint32_t> docs;
+    for (uint32_t doc = scorer->doc(); doc != query_v2::TERMINATED; doc = scorer->advance()) {
+        docs.insert(doc);
+    }
+    return docs;
+}
+
+TEST_F(PhraseQueryV2Test, AListedPhrasePrefixMatchesTheStreamedOne) {
+    for (const bool batches : {false, true}) {
+        auto source = fake_prefix_source(batches);
+        query_v2::PhrasePrefixQuery prefix(std::make_shared<IndexQueryContext>(), L"content",
+                                           phrase_terms({"quick", "bro"}));
+        EXPECT_EQ(fake_docs(prefix, source), (std::set<uint32_t> {0, 1, 5, 8, 11})) << batches;
+        query_v2::PhrasePrefixQuery edge(std::make_shared<IndexQueryContext>(), L"content",
+                                         phrase_terms({"ick", "bro"}), nullptr, /*suffix=*/true);
+        EXPECT_EQ(fake_docs(edge, source), (std::set<uint32_t> {0, 1, 5, 8, 11, 12})) << batches;
+        query_v2::PhrasePrefixQuery none(std::make_shared<IndexQueryContext>(), L"content",
+                                         phrase_terms({"quick", "zz"}));
+        EXPECT_TRUE(fake_docs(none, source).empty()) << batches;
+    }
+}
+
+TEST_F(PhraseQueryV2Test, AListedPhrasePrefixReadsItsTermsTogether) {
+    auto source = fake_prefix_source(true);
+    query_v2::PhrasePrefixQuery query(std::make_shared<IndexQueryContext>(), L"content",
+                                      phrase_terms({"quick", "bro"}));
+    EXPECT_EQ(fake_docs(query, source), (std::set<uint32_t> {0, 1, 5, 8, 11}));
+    // The exact term opens first, then the terms the prefix expands to.
+    EXPECT_EQ(source->opened_together,
+              (std::vector<std::vector<std::string>> {{"quick"}, {"bronze", "brown"}}));
+    EXPECT_TRUE(source->opened.empty());
+    // "quick" lists whole and the expansions on its rows; then every term reads the positions of
+    // the rows it holds among those holding a term of every slot, in one round.
+    auto& prefetches = source->prefetches;
+    ASSERT_EQ(prefetches["quick"].size(), 2U);
+    ASSERT_EQ(prefetches["bronze"].size(), 2U);
+    ASSERT_EQ(prefetches["brown"].size(), 2U);
+    EXPECT_TRUE(prefetches["quick"][0].whole);
+    EXPECT_EQ(prefetches["bronze"][0].candidates, (std::vector<uint32_t> {0, 1, 5, 8, 11}));
+    EXPECT_EQ(prefetches["brown"][0].candidates, (std::vector<uint32_t> {0, 1, 5, 8, 11}));
+    EXPECT_EQ(prefetches["quick"][1].candidates, (std::vector<uint32_t> {0, 1, 5, 8, 11}));
+    EXPECT_TRUE(prefetches["quick"][1].positions);
+    EXPECT_EQ(prefetches["bronze"][1].candidates, (std::vector<uint32_t> {5, 11}));
+    EXPECT_EQ(prefetches["brown"][1].candidates, (std::vector<uint32_t> {0, 1, 5, 8}));
+    EXPECT_EQ(source->fetches, 1U);
+}
+
+// A phrase prefix missing one of its exact terms ends before any expansion runs.
+TEST_F(PhraseQueryV2Test, AListedPhrasePrefixMissingATermExpandsNothing) {
+    auto source = fake_prefix_source(true);
+    query_v2::PhrasePrefixQuery edge(std::make_shared<IndexQueryContext>(), L"content",
+                                     phrase_terms({"ick", "absent", "bro"}), nullptr,
+                                     /*suffix=*/true);
+    EXPECT_TRUE(fake_docs(edge, source).empty());
+    EXPECT_TRUE(source->expanded.empty());
+    EXPECT_TRUE(source->opened_together.empty());
+}
+
+// The expansions list after the exact term, on the rows it kept, even when they hold fewer
+// documents.
+TEST_F(PhraseQueryV2Test, AListedPhrasePrefixListsItsExpansionsLast) {
+    auto source = fake_prefix_source(true);
+    source->add("brief", {posting(11, {1})});
+    source->add("brisk", {posting(5, {5})});
+    query_v2::PhrasePrefixQuery query(std::make_shared<IndexQueryContext>(), L"content",
+                                      phrase_terms({"quick", "bri"}));
+    EXPECT_EQ(fake_docs(query, source), (std::set<uint32_t> {5, 11}));
+    EXPECT_TRUE(source->prefetches["quick"][0].whole);
+    EXPECT_EQ(source->prefetches["brief"][0].candidates, (std::vector<uint32_t> {0, 1, 5, 8, 11}));
+    EXPECT_EQ(source->prefetches["brisk"][0].candidates, (std::vector<uint32_t> {0, 1, 5, 8, 11}));
+}
+
+// Expansions holding far fewer documents than every exact term list first, and the exact terms
+// on their rows.
+TEST_F(PhraseQueryV2Test, AListedPhrasePrefixListsRareExpansionsFirst) {
+    auto source = std::make_shared<index_query::testing::FakeIndexSource>();
+    source->batches = true;
+    source->set_doc_count(16);
+    std::vector<index_query::testing::FakeIndexSource::Posting> common;
+    for (uint32_t doc = 0; doc < 16; ++doc) {
+        common.push_back(posting(doc, {0}));
+    }
+    source->add("common", std::move(common));
+    source->add("rabbit", {posting(3, {1})});
+    source->add("raven", {posting(7, {2})});
+    query_v2::PhrasePrefixQuery query(std::make_shared<IndexQueryContext>(), L"content",
+                                      phrase_terms({"common", "ra"}));
+    EXPECT_EQ(fake_docs(query, source), (std::set<uint32_t> {3}));
+    EXPECT_TRUE(source->prefetches["rabbit"][0].whole);
+    EXPECT_TRUE(source->prefetches["raven"][0].whole);
+    EXPECT_EQ(source->prefetches["common"][0].candidates, (std::vector<uint32_t> {3, 7}));
+}
+
+TEST_F(PhraseQueryV2Test, AListedMultiPhraseMatchesTheStreamedOne) {
+    std::vector<TermInfo> term_infos = phrase_terms({"quick", "brown"});
+    term_infos[1].term = std::vector<std::string> {"brown", "bronze"};
+    for (const bool batches : {false, true}) {
+        auto source = fake_prefix_source(batches);
+        query_v2::MultiPhraseQuery query(std::make_shared<IndexQueryContext>(), L"content",
+                                         term_infos);
+        EXPECT_EQ(fake_docs(query, source), (std::set<uint32_t> {0, 1, 5, 8, 11})) << batches;
+    }
 }
 
 } // namespace doris::segment_v2

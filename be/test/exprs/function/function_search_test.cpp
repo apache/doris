@@ -2201,6 +2201,44 @@ TEST_F(FunctionSearchTest, TestSniiNativeKeywordPrefixIsALiteralStem) {
     EXPECT_EQ(std::vector<std::string> {"al"}, reader->fake_source->expanded);
 }
 
+// An error a lazy leaf throws while the result is listed comes back as the evaluation's status.
+TEST_F(FunctionSearchTest, AnErrorThrownWhileListingIsReturned) {
+    OlapReaderStatistics stats;
+    auto context = std::make_shared<IndexQueryContext>();
+    context->stats = &stats;
+    auto index_meta = make_test_inverted_index(23);
+    auto index_file_reader = std::make_shared<RejectingCluceneIndexFileReader>();
+    auto reader =
+            std::make_shared<RecordingNativeInvertedIndexReader>(&index_meta, index_file_reader);
+    reader->fake_source->add("alpha", {0, 2});
+    reader->fake_source->expand_status =
+            Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>("the expansion reaches internal terms");
+    segment_v2::InvertedIndexIterator iterator;
+    iterator.add_reader(segment_v2::InvertedIndexReaderType::FULLTEXT, reader);
+
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> data_type_with_names;
+    data_type_with_names.emplace(
+            "body", IndexFieldNameAndTypePair {"body", std::make_shared<DataTypeString>()});
+    std::unordered_map<std::string, IndexIterator*> iterators;
+    iterators["body"] = &iterator;
+    TSearchFieldBinding field_binding;
+    field_binding.field_name = "body";
+    field_binding.index_properties = index_meta.properties();
+    field_binding.__isset.index_properties = true;
+    TSearchParam search_param;
+    search_param.original_dsl = "body:al*";
+    search_param.root = make_leaf_clause("PREFIX", "al*");
+    search_param.field_bindings = {field_binding};
+
+    InvertedIndexResultBitmap bitmap_result;
+    Status status;
+    EXPECT_NO_THROW(status = function_search->evaluate_inverted_index_with_search_param(
+                            search_param, data_type_with_names, iterators, 4, bitmap_result,
+                            /*enable_cache=*/false, nullptr, {}, context));
+    EXPECT_TRUE(status.is<ErrorCode::INVERTED_INDEX_BYPASS>()) << status;
+    EXPECT_EQ(std::vector<std::string> {"al"}, reader->fake_source->expanded);
+}
+
 TEST_F(FunctionSearchTest, TestSniiNativeRegexpMatchesWholeTerms) {
     OlapReaderStatistics stats;
     auto context = std::make_shared<IndexQueryContext>();

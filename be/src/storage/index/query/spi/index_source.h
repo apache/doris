@@ -70,9 +70,9 @@ public:
     // one document at a time across them.
     virtual bool batches_reads() const { return false; }
 
-    // Opens several terms at once, so a batching source resolves them and reads their
-    // preludes in one round each; a term the dictionary lacks yields a null cursor at its
-    // index.
+    // Opens several terms at once, so a batching source resolves them in one round and reads
+    // their preludes in one round when a cursor first needs one; a term the dictionary lacks
+    // yields a null cursor at its index.
     virtual Status open_terms(std::span<const std::string> terms, bool positions, bool scoring,
                               std::vector<std::unique_ptr<PostingsCursor>>* out) {
         out->clear();
@@ -81,6 +81,13 @@ public:
             RETURN_IF_ERROR(open_term(term, positions, scoring, &cursor));
             out->push_back(std::move(cursor));
         }
+        return Status::OK();
+    }
+
+    // Whether the index may hold `term`, answered without reading its dictionary: false only
+    // when it surely does not. A source with no such test answers true.
+    virtual Status may_hold(std::string_view /*term*/, bool* held) {
+        *held = true;
         return Status::OK();
     }
 

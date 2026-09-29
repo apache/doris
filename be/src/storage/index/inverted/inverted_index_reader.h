@@ -478,9 +478,15 @@ Status plan_query(const index_query::logical::Node& leaf, const IndexQueryContex
                   const roaring::Roaring* candidates,
                   std::shared_ptr<inverted_index::query_v2::Query>* out);
 
-// Adds the rows a logical leaf matches on the CLucene field `field` of `searcher` to `result`, and
-// with `scoring` their BM25 values to the context's similarity. With `candidates`, a phrase only
-// matches those rows.
+// Adds the rows a logical leaf matches on `source`, the index of `field` over `doc_count`
+// documents, to `result`, and with `scoring` their BM25 values to the context's similarity. With
+// `candidates`, a phrase only matches those rows. What the engine throws is left to the caller.
+Status run_leaf(const IndexQueryContextPtr& context, const std::wstring& field,
+                const index_query::logical::Node& leaf, const roaring::Roaring* candidates,
+                bool scoring, index_query::IndexSourcePtr source, uint32_t doc_count,
+                const std::shared_ptr<roaring::Roaring>& result);
+
+// run_leaf on the CLucene field `field` of `searcher`, its errors reported as CLucene ones.
 Status run_clucene_leaf(const IndexQueryContextPtr& context, const std::wstring& field,
                         const index_query::logical::Node& leaf, const roaring::Roaring* candidates,
                         bool scoring, const FulltextIndexSearcherPtr& searcher,

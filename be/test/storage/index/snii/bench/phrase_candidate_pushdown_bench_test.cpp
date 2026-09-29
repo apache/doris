@@ -31,8 +31,10 @@
 // PHRASE_CANDIDATE_BENCH_DOCS sets the segment size (default 200000),
 // PHRASE_CANDIDATE_BENCH_ITERATIONS the samples per measurement (default 10) and
 // PHRASE_CANDIDATE_BENCH_CASES, a comma-separated list of query labels, the queries to run (default
-// all). Times are medians of per-query thread CPU time, which moves far less than wall time on a
-// shared machine.
+// all), and PHRASE_CANDIDATE_BENCH_VARIANTS, a comma-separated list such as "random/0.500", the
+// candidate variants to run (default all; a phrase then runs over the whole segment once, for the
+// result check, unless "full" is listed). Times are medians of per-query thread CPU time, which
+// moves far less than wall time on a shared machine.
 
 #include <fmt/format.h>
 #include <gen_cpp/PaloInternalService_types.h>
@@ -484,11 +486,17 @@ void benchmark_reader(InvertedIndexReader* reader, std::string_view format_name,
         }
         roaring::Roaring full;
         const std::string full_label = fmt::format("reader/{}/{}/full", format_name, query.label);
-        const double full_ms =
-                median_query_ms(reader, query, nullptr, iterations, &full, full_label);
+        const double full_ms = median_query_ms(
+                reader, query, nullptr,
+                selected("PHRASE_CANDIDATE_BENCH_VARIANTS", "full") ? iterations : 1, &full,
+                full_label);
         for (const bool clustered : {false, true}) {
             const std::string_view shape_name = clustered ? "range" : "random";
             for (const double ratio : kCandidateRatios) {
+                if (!selected("PHRASE_CANDIDATE_BENCH_VARIANTS",
+                              fmt::format("{}/{:.3f}", shape_name, ratio))) {
+                    continue;
+                }
                 const roaring::Roaring candidates = make_candidates(doc_count, ratio, clustered);
                 roaring::Roaring restricted;
                 const std::string label = fmt::format("reader/{}/{}/{}/{:.3f}", format_name,

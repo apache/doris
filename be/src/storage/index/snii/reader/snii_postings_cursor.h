@@ -31,6 +31,7 @@
 #include "storage/index/snii/format/dict_entry.h"
 #include "storage/index/snii/format/frq_prelude.h"
 #include "storage/index/snii/format/norms_pod.h"
+#include "storage/index/snii/format/prx_decode_stats.h"
 #include "storage/index/snii/io/batch_range_fetcher.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 
@@ -48,7 +49,8 @@ public:
     // batch it registered into.
     void after_fetch(const void* owner,
                      std::function<Status(const io::BatchRangeFetcher&)> completion);
-    // Forgets the completions of `owner`; its ranges are still read.
+    // Forgets the completions of `owner`. Its ranges are still read with the others', and the
+    // open round is forgotten once no completion waits for it.
     void drop(const void* owner);
     bool pending() const { return _open != nullptr && _open->pending() > 0; }
     // Issues the registered reads in one round and runs the completions.
@@ -80,12 +82,14 @@ private:
 // reads only the windows covering them in one round, and a window no read covered on demand.
 // A cursor opened on a wave registers its reads there instead, so several cursors' reads make
 // one round; it fetches the wave itself if it needs the bytes before the wave was fetched.
+// Given `prx_stats`, it adds the work of every PRX frame it decodes there.
 class SniiPostingsCursor final : public index_query::PostingsCursor,
                                  public index_query::PositionCursor {
 public:
     SniiPostingsCursor(const LogicalIndexReader& idx, format::DictEntry entry, uint64_t frq_base,
                        uint64_t prx_base, bool positions, bool scoring,
-                       const format::NormsPodReader* norms, SniiReadWave* wave = nullptr);
+                       const format::NormsPodReader* norms, SniiReadWave* wave = nullptr,
+                       format::PrxDecodeStats* prx_stats = nullptr);
     ~SniiPostingsCursor() override;
 
     // A prelude the caller already read; call before the first read.
@@ -94,6 +98,8 @@ public:
     const std::shared_ptr<const format::FrqPreludeReader>& prelude() const { return _prelude; }
     // Reads (or registers) the prelude of a windowed term, so prefetch can select windows.
     Status open_prelude();
+    // Whether the prelude this cursor registered on its wave is still to arrive.
+    bool prelude_pending() const { return _prelude_pending; }
     // Reads (or registers) the whole posting span; the block methods call it on first use.
     Status open();
 
@@ -168,6 +174,7 @@ private:
     const bool _scoring;
     const format::NormsPodReader* _norms;
     SniiReadWave* _wave;
+    format::PrxDecodeStats* _prx_stats;
     Kind _kind;
 
     std::shared_ptr<const format::FrqPreludeReader> _prelude;

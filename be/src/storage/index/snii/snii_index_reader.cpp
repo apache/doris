@@ -31,6 +31,7 @@
 #include <utility>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_profile.h"
@@ -418,19 +419,24 @@ Status SniiIndexReader::_get_logical_reader(
 namespace {
 
 struct SniiOpenedIndex : OpenedIndex {
-    explicit SniiOpenedIndex(const io::IOContext* io_ctx) : io_scope(io_ctx) {}
+    SniiOpenedIndex(const io::IOContext* io_ctx, OlapReaderStatistics* query_stats)
+            : io_scope(io_ctx), stats(query_stats) {}
+    // The PRX frames the cursors of the index's sources decoded join the query's statistics.
+    ~SniiOpenedIndex() override { ::doris::snii::add_prx_decode_stats(stats, prx_decode_stats); }
 
     snii_doris::DorisSniiFileReader::ScopedIOContext io_scope;
     InvertedIndexCacheHandle searcher_cache_handle;
     std::unique_ptr<::doris::snii::reader::LogicalIndexReader> uncached_reader;
     const ::doris::snii::reader::LogicalIndexReader* reader = nullptr;
+    OlapReaderStatistics* stats;
+    ::doris::snii::format::PrxDecodeStats prx_decode_stats;
 };
 
 } // namespace
 
 Status SniiIndexReader::_open_index(const IndexQueryContextPtr& context,
                                     std::unique_ptr<OpenedIndex>* out) {
-    auto opened = std::make_unique<SniiOpenedIndex>(context->io_ctx);
+    auto opened = std::make_unique<SniiOpenedIndex>(context->io_ctx, context->stats);
     RETURN_IF_ERROR(_get_logical_reader(context, &opened->searcher_cache_handle,
                                         &opened->uncached_reader, &opened->reader));
     *out = std::move(opened);
@@ -440,8 +446,9 @@ Status SniiIndexReader::_open_index(const IndexQueryContextPtr& context,
 index_query::IndexSourcePtr SniiIndexReader::_bind_source(const IndexQueryContextPtr& /*context*/,
                                                           const std::wstring& /*field*/,
                                                           OpenedIndex& index) {
-    return std::make_shared<::doris::snii::reader::SniiIndexSource>(
-            *static_cast<SniiOpenedIndex&>(index).reader);
+    auto& opened = static_cast<SniiOpenedIndex&>(index);
+    return std::make_shared<::doris::snii::reader::SniiIndexSource>(*opened.reader,
+                                                                    &opened.prx_decode_stats);
 }
 
 Status SniiIndexReader::_term_document_frequency(const std::string& /*column_name*/,
@@ -462,6 +469,20 @@ Status SniiIndexReader::_run_leaf(const IndexQueryContextPtr& context,
                                   const roaring::Roaring* candidates, bool scoring,
                                   std::shared_ptr<roaring::Roaring>* out) {
     const auto* logical_reader = static_cast<SniiOpenedIndex&>(index).reader;
+    if (!scoring) {
+        // An unscored leaf runs on the shared engine, keeping the codes of what it throws, so a
+        // bypass or a corrupted image still downgrades to rows.
+        const std::wstring field = StringUtil::string_to_wstring(column_name);
+        auto source = _bind_source(context, field, index);
+        const uint32_t doc_count = source->doc_count();
+        auto result = std::make_shared<roaring::Roaring>();
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(run_leaf(context, field, leaf, candidates,
+                                                    /*scoring=*/false, std::move(source), doc_count,
+                                                    result));
+        result->runOptimize();
+        *out = std::move(result);
+        return Status::OK();
+    }
     NativeQuery planned;
     RETURN_IF_ERROR(plan_native_query(index_query::logical::Node(leaf), &planned));
     const InvertedIndexQueryType query_type = planned.query_type;
@@ -612,7 +633,7 @@ Status SniiIndexReader::_try_count_only_fastpath(
     }
     std::unique_ptr<OpenedIndex> index;
     if (preopened_reader != nullptr) {
-        auto opened = std::make_unique<SniiOpenedIndex>(context->io_ctx);
+        auto opened = std::make_unique<SniiOpenedIndex>(context->io_ctx, context->stats);
         opened->reader = preopened_reader;
         index = std::move(opened);
     } else {

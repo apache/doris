@@ -193,6 +193,11 @@ public:
         return Status::OK();
     }
 
+    Status may_hold(std::string_view term, bool* held) override {
+        *held = _terms.contains(std::string(term));
+        return Status::OK();
+    }
+
     Status fetch_pending() override {
         ++fetches;
         return Status::OK();
@@ -202,6 +207,7 @@ public:
                         std::vector<std::string>* out) override {
         expanded.push_back(pattern.enumeration_prefix());
         out->clear();
+        RETURN_IF_ERROR(expand_status);
         if (!pattern.can_match()) {
             return Status::OK();
         }
@@ -220,6 +226,8 @@ public:
     bool is_live(uint32_t doc) const override { return !_deleted.contains(doc); }
 
     bool batches = false;
+    // What every expansion returns before it enumerates.
+    Status expand_status = Status::OK();
     // Every dictionary batch, every term opened (alone or together), every pattern's
     // enumeration prefix, every prefetch by term and the rounds fetched, in order.
     std::vector<std::vector<std::string>> prepared;

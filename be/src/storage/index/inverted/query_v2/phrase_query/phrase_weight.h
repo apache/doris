@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <roaring/roaring.hh>
 #include <string>
 #include <vector>
@@ -29,21 +30,27 @@
 #include "storage/index/query/phrase/phrase_verifier.h"
 #include "storage/index/query/spi/index_source.h"
 #include "storage/index/query/spi/scoring_context.h"
+#include "storage/index/query/term_pattern.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-// A phrase of single terms. It runs one document at a time over the terms' postings, except
-// unscored on a source batching its reads: there it lists the rows holding every term as a
-// chain, reads their positions in one round and verifies the phrase row by row on what it
-// read, so a conjunction can hand it the rows its other clauses kept.
-class PhraseWeight : public Weight {
-public:
-    PhraseWeight(std::wstring field, std::vector<TermInfo> term_infos,
-                 index_query::PhraseQueryOptions options,
-                 index_query::ScoringContextPtr<float> similarity, bool enable_scoring,
-                 bool nullable);
-    ~PhraseWeight() override = default;
+// The terms a phrase clause at `offset` matches: `terms`, or with `expand` the first
+// `max_expansions` terms (every one when not positive) that its one text matches as that
+// pattern, in dictionary order.
+struct PhraseSlot {
+    uint32_t offset = 0;
+    std::vector<std::string> terms;
+    std::optional<index_query::TermPatternKind> expand = std::nullopt;
+    int32_t max_expansions = 0;
+};
 
+// A phrase whose every clause matches one of the terms of its slot. Scored, or on a source that
+// reads terms one at a time, it runs one document at a time over the slots' postings. Unscored
+// on a source batching its reads, it lists the rows holding a term of every slot as a chain,
+// reads their positions in one round and verifies the phrase row by row on what it read, so a
+// conjunction can hand it the rows its other clauses kept.
+class SlotPhraseWeight : public Weight {
+public:
     ScorerPtr scorer(const QueryExecutionContext& ctx, const std::string& binding_key) override;
     bool lists_rows(const QueryExecutionContext& ctx,
                     const std::string& binding_key) const override;
@@ -51,21 +58,43 @@ public:
                                       const std::string& binding_key,
                                       const roaring::Roaring* candidates) override;
 
+protected:
+    SlotPhraseWeight(std::wstring field, index_query::PhraseQueryOptions options,
+                     bool enable_scoring, bool nullable);
+
+    // The phrase's slots, in clause order.
+    virtual std::vector<PhraseSlot> _slots() const = 0;
+    // The phrase run one document at a time over the slots' postings.
+    virtual ScorerPtr _streamed_scorer(index_query::IndexSource& source, uint32_t num_docs) = 0;
+
+    std::wstring _field;
+    index_query::PhraseQueryOptions _options;
+    bool _enable_scoring = false;
+    bool _nullable = true;
+
 private:
     index_query::IndexSourcePtr _source(const QueryExecutionContext& ctx,
                                         const std::string& binding_key) const;
     bool _lists(const index_query::IndexSource& source) const {
         return !_enable_scoring && source.batches_reads();
     }
-    ScorerPtr _streamed_scorer(index_query::IndexSource& source, uint32_t num_docs);
     ScorerPtr _listed_scorer(index_query::IndexSource& source, const roaring::Roaring* candidates);
+};
 
-    std::wstring _field;
+// A phrase of single terms.
+class PhraseWeight final : public SlotPhraseWeight {
+public:
+    PhraseWeight(std::wstring field, std::vector<TermInfo> term_infos,
+                 index_query::PhraseQueryOptions options,
+                 index_query::ScoringContextPtr<float> similarity, bool enable_scoring,
+                 bool nullable);
+
+private:
+    std::vector<PhraseSlot> _slots() const override;
+    ScorerPtr _streamed_scorer(index_query::IndexSource& source, uint32_t num_docs) override;
+
     std::vector<TermInfo> _term_infos;
-    index_query::PhraseQueryOptions _options;
     index_query::ScoringContextPtr<float> _similarity;
-    bool _enable_scoring = false;
-    bool _nullable = true;
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

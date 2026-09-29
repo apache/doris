@@ -60,6 +60,13 @@ void intersect_block(std::span<const uint32_t> docs, std::span<const uint32_t> c
         out->insert(out->end(), candidates.begin(), candidates.end());
         return;
     }
+    // The candidates lie within the block's span, so as many as its width fill it and hold every
+    // document of the block.
+    const uint64_t width = static_cast<uint64_t>(docs.back()) - docs.front() + 1;
+    if (candidates.size() == width) {
+        out->insert(out->end(), docs.begin(), docs.end());
+        return;
+    }
     const size_t probes_per_candidate = std::bit_width(docs.size()) + 1;
     if (candidates.size() < docs.size() / probes_per_candidate) {
         for (const uint32_t candidate : candidates) {
@@ -69,7 +76,15 @@ void intersect_block(std::span<const uint32_t> docs, std::span<const uint32_t> c
         }
         return;
     }
-    const uint64_t width = static_cast<uint64_t>(docs.back()) - docs.front() + 1;
+    const size_t probes_per_doc = std::bit_width(candidates.size()) + 1;
+    if (docs.size() < candidates.size() / probes_per_doc) {
+        for (const uint32_t doc : docs) {
+            if (std::ranges::binary_search(candidates, doc)) {
+                out->push_back(doc);
+            }
+        }
+        return;
+    }
     if (candidates.size() >= kBitSetMinInput && docs.size() >= kBitSetMinInput &&
         width <= kBitSetDocs) {
         intersect_through_bit_set(docs, candidates, out);

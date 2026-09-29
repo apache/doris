@@ -429,6 +429,27 @@ Status TextIndexReader::open_source(const IndexQueryContextPtr& context, const s
     return Status::OK();
 }
 
+Status run_leaf(const IndexQueryContextPtr& context, const std::wstring& field,
+                const logical::Node& leaf, const roaring::Roaring* candidates, bool scoring,
+                index_query::IndexSourcePtr source, uint32_t doc_count,
+                const std::shared_ptr<roaring::Roaring>& result) {
+    SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_timer);
+    query_v2::WeightPtr weight;
+    {
+        SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_init_timer);
+        query_v2::QueryPtr query;
+        RETURN_IF_ERROR(plan_query(leaf, context, field, "", candidates, &query));
+        weight = query->weight(scoring);
+    }
+    SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_exec_timer);
+    query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = doc_count;
+    exec_ctx.field_sources.emplace(field, std::move(source));
+    query_v2::collect_multi_segment_doc_set(weight, exec_ctx, "", result,
+                                            context->collection_similarity, scoring);
+    return Status::OK();
+}
+
 Status run_clucene_leaf(const IndexQueryContextPtr& context, const std::wstring& field,
                         const logical::Node& leaf, const roaring::Roaring* candidates, bool scoring,
                         const FulltextIndexSearcherPtr& searcher,
@@ -439,21 +460,10 @@ Status run_clucene_leaf(const IndexQueryContextPtr& context, const std::wstring&
         reader->setCompatibleRead(true);
     }
     try {
-        SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_timer);
-        query_v2::WeightPtr weight;
-        {
-            SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_init_timer);
-            query_v2::QueryPtr query;
-            RETURN_IF_ERROR(plan_query(leaf, context, field, "", candidates, &query));
-            weight = query->weight(scoring);
-        }
-        SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_exec_timer);
-        query_v2::QueryExecutionContext exec_ctx;
-        exec_ctx.segment_num_rows = reader->maxDoc();
-        exec_ctx.field_sources.emplace(
-                field, clucene_index_source(non_owning_reader(reader), field, context->io_ctx));
-        query_v2::collect_multi_segment_doc_set(weight, exec_ctx, "", result,
-                                                context->collection_similarity, scoring);
+        RETURN_IF_ERROR(
+                run_leaf(context, field, leaf, candidates, scoring,
+                         clucene_index_source(non_owning_reader(reader), field, context->io_ctx),
+                         reader->maxDoc(), result));
     } catch (const CLuceneError& e) {
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("CLuceneError occurred: {}",
                                                                       e.what());

@@ -44,8 +44,9 @@ public:
     // Whether the boolean's clause `clause` is listed here.
     bool holds(size_t clause) const;
 
-    // Opens every term together; the listings and the costs below need it.
-    void open();
+    // Opens every term together; the listings and the costs below need it. A conjunction opens
+    // none when the source surely lacks one of its terms.
+    void open(bool conjunctive);
     // Whether the dictionary lacks a term, so the conjunction is FALSE everywhere.
     bool has_absent_term() const;
     // The fewest documents any term holds: what the conjunction's first term lists.

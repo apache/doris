@@ -523,7 +523,7 @@ TEST(SniiPostingsCursor, ChainedCursorsListTheIntersectionLikeTheDecoder) {
 }
 
 // Every third document of a block decodes alone; the other two thirds and the whole block
-// decode the frame, the former copying the chosen documents; all give the decoder's positions.
+// decode the frame, which answers by ordinal; all give the decoder's positions.
 TEST(SniiPostingsCursor, BlockPositionsMatchTheDecoderForAnySelection) {
     Fixture fixture;
     assert_ok(fixture.open_standard());
@@ -536,10 +536,10 @@ TEST(SniiPostingsCursor, BlockPositionsMatchTheDecoderForAnySelection) {
         size_t doc_index = 0;
         index_query::PositionsBuffer buffer;
         index_query::BlockPositions view;
-        // The positions of the i-th chosen document of the last call.
-        const auto chosen = [&view](size_t i) {
-            return std::vector<uint32_t>(view.flat.begin() + view.offsets[i],
-                                         view.flat.begin() + view.offsets[i + 1]);
+        // The positions of the i-th of the `ordinals` the last call chose.
+        const auto chosen = [&view](size_t i, const std::vector<uint32_t>& ordinals) {
+            const auto positions = view.of(i, ordinals);
+            return std::vector<uint32_t>(positions.begin(), positions.end());
         };
         while (true) {
             assert_ok(cursor->next_block(&block, &eof));
@@ -552,21 +552,19 @@ TEST(SniiPostingsCursor, BlockPositionsMatchTheDecoderForAnySelection) {
                 (ordinal % 3 == 0 ? sparse : most).push_back(ordinal);
             }
             assert_ok(cursor->block_positions(sparse, &buffer, &view));
-            ASSERT_EQ(view.offsets.size(), sparse.size() + 1) << name;
             for (size_t i = 0; i < sparse.size(); ++i) {
-                EXPECT_EQ(chosen(i), expected[doc_index + sparse[i]]) << name;
+                EXPECT_EQ(chosen(i, sparse), expected[doc_index + sparse[i]]) << name;
             }
             assert_ok(cursor->block_positions(most, &buffer, &view));
-            ASSERT_EQ(view.offsets.size(), most.size() + 1) << name;
+            EXPECT_TRUE(view.by_ordinal) << name;
             for (size_t i = 0; i < most.size(); ++i) {
-                EXPECT_EQ(chosen(i), expected[doc_index + most[i]]) << name;
+                EXPECT_EQ(chosen(i, most), expected[doc_index + most[i]]) << name;
             }
             std::vector<uint32_t> all(block.size());
             std::iota(all.begin(), all.end(), 0);
             assert_ok(cursor->block_positions(all, &buffer, &view));
-            ASSERT_EQ(view.offsets.size(), all.size() + 1) << name;
             for (size_t i = 0; i < all.size(); ++i) {
-                EXPECT_EQ(chosen(i), expected[doc_index + i]) << name;
+                EXPECT_EQ(chosen(i, all), expected[doc_index + i]) << name;
             }
             doc_index += block.size();
         }

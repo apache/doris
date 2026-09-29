@@ -449,6 +449,23 @@ thread_local uint64_t g_window_probes = 0;
 inline void note_window_probe() {
     ++g_window_probes;
 }
+
+// The first index at or after `from` whose candidate is past `last`, found by galloping, so a
+// window holding many candidates is passed in logarithmic steps.
+size_t gallop_past_docid(const std::vector<uint32_t>& candidates, size_t from, uint32_t last) {
+    size_t low = from;
+    size_t probe = from;
+    size_t step = 1;
+    while (probe < candidates.size() && candidates[probe] <= last) {
+        low = probe + 1;
+        probe = low + step;
+        step <<= 1;
+    }
+    const auto high =
+            candidates.begin() + static_cast<std::ptrdiff_t>(std::min(probe, candidates.size()));
+    return std::upper_bound(candidates.begin() + static_cast<std::ptrdiff_t>(low), high, last) -
+           candidates.begin();
+}
 } // namespace
 
 Status FrqPreludeReader::memory_required(Slice prelude, uint64_t* retained, uint64_t* temporary) {
@@ -566,11 +583,11 @@ void select_covering_windows_cursor(const uint32_t* win_last_docid, uint32_t n_w
     if (n_windows == 0) {
         return; // empty-windows guard (mirrors locate_window's windows_.empty() early-out).
     }
-    uint32_t sb = 0;                    // monotonic super-block cursor
-    uint32_t w = 0;                     // monotonic window cursor
-    uint32_t last_emitted = UINT32_MAX; // last window pushed (run-collapse dedup)
-    for (uint32_t d : candidates) {
-        const uint64_t target = d; // widen once; keeps the comparisons template-bracket free
+    uint32_t sb = 0; // monotonic super-block cursor
+    uint32_t w = 0;  // monotonic window cursor
+    size_t next = 0;
+    while (next < candidates.size()) {
+        const uint64_t target = candidates[next]; // widen once; keeps the comparisons bracket free
         // Level 1: first super-block whose absolute last docid >= d. sb only advances
         // forward, so across the whole call it steps at most n_super times.
         while (sb < n_super && sb_last_docid[sb] < target) {
@@ -588,7 +605,7 @@ void select_covering_windows_cursor(const uint32_t* win_last_docid, uint32_t n_w
         // plus one hit per candidate => probe_count <= candidates + n_windows.
         while (w < n_windows) {
             note_window_probe();
-            if (d <= win_last_docid[w]) {
+            if (target <= win_last_docid[w]) {
                 break;
             }
             ++w;
@@ -596,10 +613,9 @@ void select_covering_windows_cursor(const uint32_t* win_last_docid, uint32_t n_w
         if (w == n_windows) {
             break; // defensive: invariants guarantee a hit once sb < n_super.
         }
-        if (w != last_emitted) {
-            windows->push_back(w);
-            last_emitted = w;
-        }
+        windows->push_back(w);
+        // The later candidates this window covers need no probe of their own.
+        next = gallop_past_docid(candidates, next + 1, win_last_docid[w]);
     }
 }
 

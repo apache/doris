@@ -25,6 +25,7 @@
 
 #include "storage/index/query/exec/block_doc_set.h"
 #include "storage/index/query/term_pattern.h"
+#include "storage/index/snii/format/phrase_bigram.h"
 #include "storage/index/snii/io/metered_file_reader.h"
 #include "storage/index/snii/query/internal/docid_posting_reader.h"
 #include "storage/index/snii/writer/snii_compound_writer.h"
@@ -143,6 +144,69 @@ TEST_F(SniiIndexSourceTest, ScoredPostingsCarryFrequenciesAndPositions) {
     EXPECT_EQ(out, (std::vector<uint32_t> {0, 1, 2}));
 }
 
+// A term or an expansion that reaches the dictionary's internal phrase-bigram namespace bypasses
+// the index, as the SNII format requires.
+TEST_F(SniiIndexSourceTest, TermsReachingTheInternalNamespaceBypass) {
+    const std::string internal = std::string(format::kPhraseBigramTermMarker) + "retry attempt";
+    std::unique_ptr<index_query::PostingsCursor> cursor;
+    EXPECT_TRUE(_source->open_term(internal, false, false, &cursor)
+                        .is<ErrorCode::INVERTED_INDEX_BYPASS>());
+    const std::vector<std::string> terms = {"needle", internal};
+    EXPECT_TRUE(_source->prepare_terms(terms).is<ErrorCode::INVERTED_INDEX_BYPASS>());
+    std::vector<std::unique_ptr<index_query::PostingsCursor>> cursors;
+    EXPECT_TRUE(_source->open_terms(terms, false, false, &cursors)
+                        .is<ErrorCode::INVERTED_INDEX_BYPASS>());
+    index_query::TermPattern pattern;
+    assert_ok(index_query::TermPattern::create(index_query::TermPatternKind::kPrefix,
+                                               std::string(format::kPhraseBigramTermMarker, 0, 4),
+                                               &pattern));
+    std::vector<std::string> expanded;
+    EXPECT_TRUE(
+            _source->expand_terms(pattern, 0, &expanded).is<ErrorCode::INVERTED_INDEX_BYPASS>());
+    // This corpus holds no internal term, so an expansion from the start runs.
+    using index_query::TermPatternKind;
+    EXPECT_EQ(expand(TermPatternKind::kContains, "ar", 0),
+              (std::vector<std::string> {"sparse_left", "sparse_right"}));
+}
+
+// An older image may hold internal terms: an expansion enumerating from the dictionary's start
+// then bypasses, and one with a user prefix still runs.
+TEST_F(SniiIndexSourceTest, AnExpansionFromTheStartBypassesAnIndexWithInternalTerms) {
+    MemoryFile file;
+    writer::SniiIndexInput input;
+    input.index_id = 5;
+    input.index_suffix = "legacy";
+    input.config = format::IndexConfig::kDocsPositions;
+    input.doc_count = 10;
+    input.terms = {
+            make_term(std::string(format::kPhraseBigramTermMarker) + "alpha beta",
+                      {{.docid = 1, .positions = {0}}}),
+            make_term("alpha", {{.docid = 1, .positions = {0}}, {.docid = 4, .positions = {0}}}),
+            make_term("beta", {{.docid = 1, .positions = {1}}})};
+    writer::SniiCompoundWriter compound_writer(&file);
+    assert_ok(compound_writer.add_logical_index(input));
+    assert_ok(compound_writer.finish());
+    SniiSegmentReader segment;
+    LogicalIndexReader index;
+    assert_ok(SniiSegmentReader::open(&file, &segment));
+    assert_ok(segment.open_index(5, "legacy", &index));
+    SniiIndexSource source(index);
+
+    std::vector<std::string> terms;
+    index_query::TermPattern contains;
+    assert_ok(index_query::TermPattern::create(index_query::TermPatternKind::kContains, "a",
+                                               &contains));
+    EXPECT_TRUE(source.expand_terms(contains, 0, &terms).is<ErrorCode::INVERTED_INDEX_BYPASS>());
+    index_query::TermPattern prefix;
+    assert_ok(
+            index_query::TermPattern::create(index_query::TermPatternKind::kPrefix, "al", &prefix));
+    assert_ok(source.expand_terms(prefix, 0, &terms));
+    EXPECT_EQ(terms, (std::vector<std::string> {"alpha"}));
+    std::unique_ptr<index_query::PostingsCursor> cursor;
+    assert_ok(source.open_term("beta", false, false, &cursor));
+    EXPECT_NE(cursor, nullptr);
+}
+
 TEST_F(SniiIndexSourceTest, PositionsNeedAPositionedIndex) {
     MemoryFile file;
     writer::SniiIndexInput input;
@@ -224,26 +288,57 @@ TEST_F(SniiIndexSourceRoundsTest, TermsOpenedTogetherReadInSharedRounds) {
     ASSERT_EQ(cursors.size(), 4U);
     EXPECT_EQ(cursors[1], nullptr);
     const uint64_t opened = rounds();
-    // Every span registers on the wave and one round reads them all.
+    // The first cursor needing its prelude reads every opened term's in one round; then every
+    // span registers on the wave and one round reads them all.
     for (const auto& cursor : cursors) {
         if (cursor != nullptr) {
             assert_ok(cursor->prefetch(nullptr, /*positions=*/false));
         }
     }
-    EXPECT_EQ(rounds(), opened);
-    assert_ok(_source->fetch_pending());
     EXPECT_EQ(rounds(), opened + 1);
+    assert_ok(_source->fetch_pending());
+    EXPECT_EQ(rounds(), opened + 2);
     EXPECT_EQ(list(*cursors[0]), oracle("sparse_left"));
     EXPECT_EQ(list(*cursors[2]), oracle("sparse_right"));
     EXPECT_EQ(list(*cursors[3]), oracle("failed"));
-    EXPECT_EQ(rounds(), opened + 1);
+    EXPECT_EQ(rounds(), opened + 2);
     EXPECT_EQ(_source->wave_rounds(), 2U);
+}
+
+// Opening terms reads no prelude, so a caller that finds one of them missing and gives up reads
+// nothing past the dictionary, even when a later fetch serves another caller.
+TEST_F(SniiIndexSourceRoundsTest, OpeningTermsReadsNoPrelude) {
+    const std::vector<std::string> terms = {"failed", "absent"};
+    std::vector<std::unique_ptr<index_query::PostingsCursor>> cursors;
+    assert_ok(_source->open_terms(terms, /*positions=*/false, /*scoring=*/false, &cursors));
+    ASSERT_NE(cursors[0], nullptr);
+    EXPECT_EQ(cursors[1], nullptr);
+    const uint64_t resolved = rounds();
+    cursors.clear();
+    assert_ok(_source->fetch_pending());
+    EXPECT_EQ(rounds(), resolved);
+    EXPECT_EQ(_source->wave_rounds(), 0U);
+}
+
+// Whether the index may hold a term is answered without reading the dictionary.
+TEST_F(SniiIndexSourceRoundsTest, MayHoldReadsNoDictionary) {
+    const uint64_t before = rounds();
+    bool held = false;
+    assert_ok(_source->may_hold("failed", &held));
+    EXPECT_TRUE(held);
+    assert_ok(_source->may_hold("absent", &held));
+    EXPECT_FALSE(held);
+    EXPECT_EQ(rounds(), before);
+    const std::string internal = std::string(format::kPhraseBigramTermMarker) + "a b";
+    EXPECT_TRUE(_source->may_hold(internal, &held).is<ErrorCode::INVERTED_INDEX_BYPASS>());
 }
 
 TEST_F(SniiIndexSourceRoundsTest, ALaterOpenOfATermStartsFromItsPrelude) {
     const std::vector<std::string> terms = {"sparse_left", "failed"};
     std::vector<std::unique_ptr<index_query::PostingsCursor>> cursors;
     assert_ok(_source->open_terms(terms, false, false, &cursors));
+    // Listing one cursor reads the preludes of every term opened with it.
+    EXPECT_EQ(list(*cursors[1]), oracle("failed"));
     const uint64_t opened = rounds();
     // Neither the dictionary nor the prelude is read again: only the span, in one round.
     std::unique_ptr<index_query::PostingsCursor> again;
@@ -267,8 +362,9 @@ TEST_F(SniiIndexSourceRoundsTest, ExpandedTermsOpenWithoutALookup) {
     const uint64_t expanded = rounds();
     std::vector<std::unique_ptr<index_query::PostingsCursor>> cursors;
     assert_ok(_source->open_terms(terms, false, false, &cursors));
-    // The dictionary answered the terms while enumerating; one round reads their preludes.
-    EXPECT_EQ(rounds(), expanded + 1);
+    // The dictionary answered the terms while enumerating, and their preludes wait for a cursor
+    // to need one.
+    EXPECT_EQ(rounds(), expanded);
     EXPECT_EQ(list(*cursors[0]), oracle("sparse_left"));
     EXPECT_EQ(list(*cursors[1]), oracle("sparse_right"));
 }

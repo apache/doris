@@ -57,6 +57,10 @@ void SniiReadWave::after_fetch(const void* owner,
 void SniiReadWave::drop(const void* owner) {
     std::erase_if(_completions,
                   [owner](const Completion& completion) { return completion.owner == owner; });
+    // Every read on the open round came with a completion, so a round none waits for is dropped.
+    if (_completions.empty()) {
+        _open.reset();
+    }
 }
 
 Status SniiReadWave::fetch() {
@@ -80,7 +84,7 @@ Status SniiReadWave::fetch() {
 SniiPostingsCursor::SniiPostingsCursor(const LogicalIndexReader& idx, format::DictEntry entry,
                                        uint64_t frq_base, uint64_t prx_base, bool positions,
                                        bool scoring, const format::NormsPodReader* norms,
-                                       SniiReadWave* wave)
+                                       SniiReadWave* wave, format::PrxDecodeStats* prx_stats)
         : _idx(idx),
           _entry(std::move(entry)),
           _frq_base(frq_base),
@@ -89,6 +93,7 @@ SniiPostingsCursor::SniiPostingsCursor(const LogicalIndexReader& idx, format::Di
           _scoring(scoring),
           _norms(norms),
           _wave(wave),
+          _prx_stats(prx_stats),
           _kind(_posting_kind(_entry)) {}
 
 SniiPostingsCursor::~SniiPostingsCursor() {
@@ -428,7 +433,8 @@ Status SniiPostingsCursor::_fill_positions() {
     const uint32_t window = _current_window;
     RETURN_IF_ERROR(_ensure_prx(window));
     ByteSource source(_windows[window].prx);
-    RETURN_IF_ERROR(format::read_prx_window_csr(&source, &_pos_flat, &_pos_off));
+    format::PrxDecodeContext context {.stats = _prx_stats};
+    RETURN_IF_ERROR(format::read_prx_window_csr(&source, &_pos_flat, &_pos_off, &context));
     if (!source.eof()) {
         return posting_corrupted("snii postings: trailing bytes after prx frame");
     }
@@ -648,10 +654,10 @@ Status SniiPostingsCursor::append_positions(uint32_t ordinal, uint32_t offset,
     return Status::OK();
 }
 
-// The whole block is the decoded frame as it is. Fewer than half of its documents decode
-// alone; more decode the whole frame once and copy the chosen ones.
+// Fewer than half of the block's documents decode alone; more decode the whole frame once, which
+// answers by ordinal as it is.
 Status SniiPostingsCursor::block_positions(std::span<const uint32_t> ordinals,
-                                           index_query::PositionsBuffer* buffer,
+                                           index_query::PositionsBuffer* /*buffer*/,
                                            index_query::BlockPositions* out) {
     if (!_positions_wanted) {
         return Status::NotSupported("This posting type does not support positions");
@@ -662,18 +668,7 @@ Status SniiPostingsCursor::block_positions(std::span<const uint32_t> ordinals,
         return _decode_selected(ordinals, out);
     }
     RETURN_IF_ERROR(_ensure_positions());
-    if (ordinals.size() == _doc_count) {
-        *out = {.flat = _pos_flat, .offsets = _pos_off};
-        return Status::OK();
-    }
-    buffer->flat.clear();
-    buffer->offsets.assign(1, 0);
-    for (const uint32_t ordinal : ordinals) {
-        const auto positions = _positions_of(ordinal);
-        buffer->flat.insert(buffer->flat.end(), positions.begin(), positions.end());
-        buffer->offsets.push_back(static_cast<uint32_t>(buffer->flat.size()));
-    }
-    *out = {.flat = buffer->flat, .offsets = buffer->offsets};
+    *out = {.flat = _pos_flat, .offsets = _pos_off, .by_ordinal = true};
     return Status::OK();
 }
 
@@ -682,7 +677,7 @@ Status SniiPostingsCursor::_decode_selected(std::span<const uint32_t> ordinals,
     RETURN_IF_ERROR(_ensure_prx(_current_window));
     ByteSource source(_windows[_current_window].prx);
     format::PrxDecodedShape shape;
-    format::PrxDecodeContext context {.shape = &shape};
+    format::PrxDecodeContext context {.stats = _prx_stats, .shape = &shape};
     RETURN_IF_ERROR(format::read_prx_window_csr_selective(&source, ordinals, &_selected_flat,
                                                           &_selected_off, &context));
     if (!source.eof()) {

@@ -102,6 +102,16 @@ public:
                                  inverted_index::query_v2::QueryPtr* out, std::string* binding_key,
                                  const std::string& default_operator, int32_t minimum_should_match,
                                  uint32_t num_rows = 0, bool scoring = true) const;
+
+private:
+    Status _evaluate_search_param(
+            const TSearchParam& search_param,
+            const std::unordered_map<std::string, IndexFieldNameAndTypePair>& data_type_with_names,
+            std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
+            InvertedIndexResultBitmap& bitmap_result, bool enable_cache,
+            const IndexExecContext* index_exec_ctx,
+            const std::unordered_map<std::string, int>& field_name_to_column_id,
+            const std::shared_ptr<IndexQueryContext>& index_query_context) const;
 };
 
 } // namespace doris

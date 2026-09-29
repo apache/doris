@@ -41,7 +41,17 @@ bool ListedTerms::holds(size_t clause) const {
     return std::ranges::find(_clauses, clause) != _clauses.end();
 }
 
-void ListedTerms::open() {
+void ListedTerms::open(bool conjunctive) {
+    if (conjunctive) {
+        for (const std::string& term : _terms) {
+            bool held = false;
+            THROW_IF_ERROR(_source->may_hold(term, &held));
+            if (!held) {
+                _cursors.resize(_terms.size());
+                return;
+            }
+        }
+    }
     THROW_IF_ERROR(_source->open_terms(_terms, /*positions=*/false, /*scoring=*/false, &_cursors));
 }
 

@@ -537,7 +537,25 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
             enable_cache, nullptr, empty_field_to_column_id);
 }
 
+// A lazy leaf reads its index while the result is listed; what it throws is returned like the
+// errors the evaluation returns.
 Status FunctionSearch::evaluate_inverted_index_with_search_param(
+        const TSearchParam& search_param,
+        const std::unordered_map<std::string, IndexFieldNameAndTypePair>& data_type_with_names,
+        std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
+        InvertedIndexResultBitmap& bitmap_result, bool enable_cache,
+        const IndexExecContext* index_exec_ctx,
+        const std::unordered_map<std::string, int>& field_name_to_column_id,
+        const std::shared_ptr<IndexQueryContext>& index_query_context) const {
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_evaluate_search_param(
+            search_param, data_type_with_names, std::move(iterators), num_rows, bitmap_result,
+            enable_cache, index_exec_ctx, field_name_to_column_id, index_query_context));
+    return Status::OK();
+}
+
+// The evaluation keeps its result cache, the tree's compile and the collection in one path.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity,readability-function-size)
+Status FunctionSearch::_evaluate_search_param(
         const TSearchParam& search_param,
         const std::unordered_map<std::string, IndexFieldNameAndTypePair>& data_type_with_names,
         std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,

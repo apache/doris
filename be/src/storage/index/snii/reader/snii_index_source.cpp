@@ -21,10 +21,24 @@
 #include <utility>
 
 #include "storage/index/query/term_pattern.h"
+#include "storage/index/snii/format/phrase_bigram.h"
 
 namespace doris::snii::reader {
 
-SniiIndexSource::SniiIndexSource(const LogicalIndexReader& idx) : _idx(idx), _wave(idx.reader()) {}
+namespace {
+
+Status check_user_term(std::string_view term) {
+    if (format::term_overlaps_internal_namespace(term)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
+                "SNII raw term overlaps an internal term namespace");
+    }
+    return Status::OK();
+}
+
+} // namespace
+
+SniiIndexSource::SniiIndexSource(const LogicalIndexReader& idx, format::PrxDecodeStats* prx_stats)
+        : _idx(idx), _prx_stats(prx_stats), _wave(idx.reader()) {}
 
 uint32_t SniiIndexSource::doc_count() const {
     return static_cast<uint32_t>(_idx.stats().doc_count);
@@ -33,6 +47,7 @@ uint32_t SniiIndexSource::doc_count() const {
 Status SniiIndexSource::prepare_terms(std::span<const std::string> terms) {
     std::vector<std::string> sorted;
     for (const std::string& term : terms) {
+        RETURN_IF_ERROR(check_user_term(term));
         if (!_terms.contains(term)) {
             sorted.push_back(term);
         }
@@ -79,7 +94,8 @@ Status SniiIndexSource::_cursor(Term& term, bool positions, bool scoring, SniiRe
         RETURN_IF_ERROR(_open_norms(&norms));
     }
     *out = std::make_unique<SniiPostingsCursor>(_idx, term.hit.entry, term.hit.frq_base,
-                                                term.hit.prx_base, positions, scoring, norms, wave);
+                                                term.hit.prx_base, positions, scoring, norms, wave,
+                                                _prx_stats);
     if (term.prelude != nullptr) {
         (*out)->set_prelude(term.prelude);
     }
@@ -92,6 +108,7 @@ Status SniiIndexSource::open_term(std::string_view term, bool positions, bool sc
     if (positions && !_idx.has_positions()) {
         return Status::NotSupported("snii: the index holds no positions");
     }
+    RETURN_IF_ERROR(check_user_term(term));
     Term* resolved = nullptr;
     RETURN_IF_ERROR(_resolve(term, &resolved));
     if (!resolved->hit.found) {
@@ -110,7 +127,6 @@ Status SniiIndexSource::open_terms(std::span<const std::string> terms, bool posi
         return Status::NotSupported("snii: the index holds no positions");
     }
     RETURN_IF_ERROR(prepare_terms(terms));
-    std::vector<std::pair<Term*, SniiPostingsCursor*>> opened;
     for (const std::string& term : terms) {
         Term* resolved = nullptr;
         RETURN_IF_ERROR(_resolve(term, &resolved));
@@ -118,19 +134,26 @@ Status SniiIndexSource::open_terms(std::span<const std::string> terms, bool posi
         if (resolved->hit.found) {
             RETURN_IF_ERROR(_cursor(*resolved, positions, scoring, &_wave, &cursor));
             RETURN_IF_ERROR(cursor->open_prelude());
-            opened.emplace_back(resolved, cursor.get());
+            if (cursor->prelude_pending()) {
+                // Later cursors of the term start from the prelude this one reads.
+                _wave.after_fetch(cursor.get(),
+                                  [resolved, opened = cursor.get()](const io::BatchRangeFetcher&) {
+                                      if (resolved->prelude == nullptr) {
+                                          resolved->prelude = opened->prelude();
+                                      }
+                                      return Status::OK();
+                                  });
+            }
         }
         out->push_back(std::move(cursor));
     }
-    // The preludes of the windowed terms arrive in one round; later cursors of the same terms
-    // start from them.
-    RETURN_IF_ERROR(_wave.fetch());
-    for (auto& [term, cursor] : opened) {
-        if (term->prelude == nullptr) {
-            term->prelude = cursor->prelude();
-        }
-    }
     return Status::OK();
+}
+
+// The dictionary's bloom filter and sparse term index answer without a dictionary read.
+Status SniiIndexSource::may_hold(std::string_view term, bool* held) {
+    RETURN_IF_ERROR(check_user_term(term));
+    return _idx.may_contain(term, held);
 }
 
 Status SniiIndexSource::expand_terms(index_query::TermPattern& pattern, int32_t max_expansions,
@@ -139,6 +162,7 @@ Status SniiIndexSource::expand_terms(index_query::TermPattern& pattern, int32_t 
     if (!pattern.can_match()) {
         return Status::OK();
     }
+    RETURN_IF_ERROR(_check_enumeration(pattern.enumeration_prefix()));
     const std::string& required = pattern.required_text();
     return _idx.visit_prefix_terms(
             pattern.enumeration_prefix(),
@@ -159,6 +183,34 @@ Status SniiIndexSource::expand_terms(index_query::TermPattern& pattern, int32_t 
                 *stop = max_expansions > 0 && out->size() == static_cast<size_t>(max_expansions);
                 return Status::OK();
             });
+}
+
+// A prefix reaching the marker enumerates internal terms; an empty one does when the dictionary
+// holds any.
+Status SniiIndexSource::_check_enumeration(std::string_view prefix) {
+    if (!prefix.empty()) {
+        if (format::prefix_overlaps_internal_namespace(prefix)) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
+                    "SNII raw expansion overlaps an internal term namespace");
+        }
+        return Status::OK();
+    }
+    if (!_has_internal_terms.has_value()) {
+        bool found = false;
+        RETURN_IF_ERROR(_idx.visit_prefix_terms(
+                format::kPhraseBigramTermMarker,
+                [&found](LogicalIndexReader::PrefixHit&&, bool* stop) -> Status {
+                    found = true;
+                    *stop = true;
+                    return Status::OK();
+                }));
+        _has_internal_terms = found;
+    }
+    if (*_has_internal_terms) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
+                "SNII raw expansion overlaps an existing internal term namespace");
+    }
+    return Status::OK();
 }
 
 } // namespace doris::snii::reader

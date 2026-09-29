@@ -194,6 +194,26 @@ TEST(CursorChainedPostings, CollectsThroughEveryIntersection) {
     EXPECT_EQ(collected(searched, {3, 4, 2997}), (std::vector<uint32_t> {3, 2997}));
 }
 
+// A run of candidates filling a block's span keeps every document of the block.
+TEST(CursorChainedPostings, ACandidateRunFillingABlockKeepsItsDocuments) {
+    BlockedCursor cursor(
+            {BlockedCursor::listed({10, 13, 20}), BlockedCursor::listed({30, 31, 40})});
+    EXPECT_EQ(collected(cursor, {10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 31, 35}),
+              (std::vector<uint32_t> {10, 13, 20, 31}));
+}
+
+// A block of a few documents among many candidates searches the candidates for each.
+TEST(CursorChainedPostings, AFewDocumentsAmongManyCandidatesAreSearched) {
+    BlockedCursor cursor({BlockedCursor::listed({100, 5000, 9000})});
+    std::vector<uint32_t> candidates;
+    for (uint32_t doc = 100; doc <= 9000; doc += 2) {
+        candidates.push_back(doc);
+    }
+    EXPECT_EQ(collected(cursor, candidates), (std::vector<uint32_t> {100, 5000, 9000}));
+    BlockedCursor odd({BlockedCursor::listed({101, 5001, 9000})});
+    EXPECT_EQ(collected(odd, candidates), (std::vector<uint32_t> {9000}));
+}
+
 TEST(CursorChainedPostings, ChainsCursorsThroughTheSharedConjunction) {
     std::vector<FakePostingsCursor::Prefetch> rare_prefetches;
     std::vector<FakePostingsCursor::Prefetch> wide_prefetches;
@@ -230,6 +250,7 @@ TEST(CursorChainedPostings, BlockPositionsByDefaultReadEachDocument) {
     BlockPositions view;
     const std::vector<uint32_t> ordinals = {0, 2};
     ASSERT_TRUE(cursor.block_positions(ordinals, &buffer, &view).ok());
+    EXPECT_FALSE(view.by_ordinal);
     EXPECT_EQ(std::vector<uint32_t>(view.flat.begin(), view.flat.end()),
               (std::vector<uint32_t> {1, 4, 3, 6, 8}));
     EXPECT_EQ(std::vector<uint32_t>(view.offsets.begin(), view.offsets.end()),

@@ -180,7 +180,7 @@ private:
             group->add(i, term->term());
         }
         for (ListedTerms& group : groups) {
-            group.open();
+            group.open(_type == OperatorType::OP_AND);
         }
         return groups;
     }
