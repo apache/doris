@@ -4,12 +4,10 @@
 2026-02-10	2	20
 2026-03-10	3	30
 
--- !strict_task --
-FAILED	BINLOG_BROKEN	true
+-- !strict_rebuild_task --
+SUCCESS	NONE
 
--- !after_strict_failure --
-2026-01-10	1	10
-2026-02-10	2	20
+-- !after_strict_rebuild --
 2026-03-10	3	30
 
 -- !after_auto_recovery --
