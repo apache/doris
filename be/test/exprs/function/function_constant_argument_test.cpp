@@ -196,14 +196,23 @@ TEST_F(FunctionConstantArgumentTest, date_trunc_unit) {
                       .get_element(0),
               year);
 
-    // an illegal time unit is still reported
-    Block illegal_block;
-    illegal_block.insert({ColumnHelper::create_column<DataTypeDateV2>({date}), date_type, "d"});
-    illegal_block.insert({strings({"x"}), string_type, "unit"});
-    status = execute("date_trunc", illegal_block, date_type, {nullptr, nullptr});
-    EXPECT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("Illegal second argument"), std::string::npos)
-            << status.to_string();
+    // an illegal time unit is still reported, including one that only starts with a legal unit
+    for (std::string unit : {"x", "month0", "days"}) {
+        Block illegal_block;
+        illegal_block.insert({ColumnHelper::create_column<DataTypeDateV2>({date}), date_type, "d"});
+        illegal_block.insert({strings({unit}), string_type, "unit"});
+        status = execute("date_trunc", illegal_block, date_type, {nullptr, nullptr});
+        EXPECT_FALSE(status.ok()) << unit;
+        EXPECT_NE(status.to_string().find("Illegal second argument"), std::string::npos)
+                << status.to_string();
+
+        Block illegal_unit_first_block;
+        illegal_unit_first_block.insert({strings({unit}), string_type, "unit"});
+        illegal_unit_first_block.insert(
+                {ColumnHelper::create_column<DataTypeDateV2>({date}), date_type, "d"});
+        status = execute("date_trunc", illegal_unit_first_block, date_type, {nullptr, nullptr});
+        EXPECT_FALSE(status.ok()) << unit;
+    }
 
     // an empty block does not read the time unit
     Block empty_block;
@@ -309,6 +318,109 @@ TEST_F(FunctionConstantArgumentTest, array_apply_op_and_value) {
     const auto& result = *block.get_by_position(3).column;
     EXPECT_EQ(array_type->to_string(result, 0), "[3]");
     EXPECT_EQ(array_type->to_string(result, 1), "[3, 4]");
+}
+
+// A constant argument that BE evaluates to a full column may come with constant arguments that are
+// ColumnConst, over several rows.
+TEST_F(FunctionConstantArgumentTest, sha2_constant_input) {
+    auto string_type = std::make_shared<DataTypeString>();
+    auto int_type = std::make_shared<DataTypeInt32>();
+    Block block;
+    block.insert({ColumnConst::create(strings({"abc"}), 2), string_type, "s"});
+    block.insert({ColumnHelper::create_column<DataTypeInt32>({256, 256}), int_type, "length"});
+    Status status = execute("sha2", block, string_type, {nullptr, nullptr});
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& result = *block.get_by_position(2).column;
+    ASSERT_EQ(result.size(), 2);
+    for (size_t i = 0; i < result.size(); ++i) {
+        EXPECT_EQ(result.get_data_at(i).to_string(),
+                  "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    }
+}
+
+TEST_F(FunctionConstantArgumentTest, split_by_regexp_limit) {
+    auto string_type = std::make_shared<DataTypeString>();
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto return_type = std::make_shared<DataTypeArray>(make_nullable(string_type));
+
+    // the source and the pattern are ColumnConst beside a full column limit
+    Block block;
+    block.insert({ColumnConst::create(strings({"a,b,c"}), 3), string_type, "s"});
+    block.insert({ColumnConst::create(strings({","}), 3), string_type, "pattern"});
+    block.insert({ColumnHelper::create_column<DataTypeInt32>({2, 2, 2}), int_type, "limit"});
+    Status status = execute("split_by_regexp", block, return_type, {nullptr, nullptr, nullptr});
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& result = *block.get_by_position(3).column;
+    ASSERT_EQ(result.size(), 3);
+    for (size_t i = 0; i < result.size(); ++i) {
+        EXPECT_EQ(return_type->to_string(result, i), R"(["a", "b,c"])");
+    }
+
+    // a negative limit is reported
+    Block negative_block;
+    negative_block.insert({strings({"a,b,c"}), string_type, "s"});
+    negative_block.insert({ColumnConst::create(strings({","}), 1), string_type, "pattern"});
+    negative_block.insert({ColumnHelper::create_column<DataTypeInt32>({-1}), int_type, "limit"});
+    status = execute("split_by_regexp", negative_block, return_type, {nullptr, nullptr, nullptr});
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("must be a positive constant"), std::string::npos)
+            << status.to_string();
+}
+
+TEST_F(FunctionConstantArgumentTest, tokenize_properties) {
+    auto string_type = std::make_shared<DataTypeString>();
+    // every property is a key-value pair, and spaces around them are allowed
+    for (std::string properties :
+         {"", "parser='none'", " \"parser\" = \"none\" , lower_case=true "}) {
+        Block block;
+        block.insert({strings({"hello world"}), string_type, "s"});
+        block.insert({strings({properties}), string_type, "properties"});
+        Status status = execute("tokenize", block, string_type, {nullptr, nullptr});
+        ASSERT_TRUE(status.ok()) << properties << ": " << status.to_string();
+    }
+
+    // malformed properties are reported instead of being ignored
+    for (std::string properties :
+         {"x", "parser='none' x", "parser='none',", "parser='none';a=b", ",parser='none'",
+          "parser='none',parser='english'", "parser='none',' parser '='english'"}) {
+        Block block;
+        block.insert({strings({"hello world"}), string_type, "s"});
+        block.insert({strings({properties}), string_type, "properties"});
+        Status status = execute("tokenize", block, string_type, {nullptr, nullptr});
+        EXPECT_FALSE(status.ok()) << properties;
+        EXPECT_NE(status.to_string().find("must be properties format"), std::string::npos)
+                << status.to_string();
+    }
+
+    // the char filter properties are validated as FE validates literal ones
+    for (std::string properties :
+         {"char_filter_type=x", "char_filter_type=char_replace",
+          "char_filter_type=char_replace,char_filter_pattern=''",
+          "char_filter_type=char_replace,char_filter_pattern=a,char_filter_replacement=ab",
+          "char_filter_type=char_replace,char_filter_pattern=a,char_filter_replacement=''"}) {
+        Block block;
+        block.insert({strings({"hello world"}), string_type, "s"});
+        block.insert({strings({properties}), string_type, "properties"});
+        Status status = execute("tokenize", block, string_type, {nullptr, nullptr});
+        EXPECT_FALSE(status.ok()) << properties;
+        EXPECT_NE(status.to_string().find("char_filter"), std::string::npos) << status.to_string();
+    }
+    // a quoted key is trimmed as FE does, so the char filter type is still checked
+    Block trimmed_key_block;
+    trimmed_key_block.insert({strings({"hello world"}), string_type, "s"});
+    trimmed_key_block.insert({strings({"' char_filter_type '='x'"}), string_type, "properties"});
+    Status status = execute("tokenize", trimmed_key_block, string_type, {nullptr, nullptr});
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("Invalid 'char_filter_type'"), std::string::npos)
+            << status.to_string();
+
+    Block char_filter_block;
+    char_filter_block.insert({strings({"a_b"}), string_type, "s"});
+    char_filter_block.insert(
+            {strings({"parser=unicode,char_filter_type=char_replace,char_filter_pattern=_"}),
+             string_type, "properties"});
+    status = execute("tokenize", char_filter_block, string_type, {nullptr, nullptr});
+    ASSERT_TRUE(status.ok()) << status.to_string();
 }
 
 } // namespace doris

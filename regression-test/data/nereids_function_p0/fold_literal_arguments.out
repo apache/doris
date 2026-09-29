@@ -138,23 +138,16 @@ true
 -- !topn_weighted_be --
 ["x", "ab"]
 
--- !split_by_regexp_negative_be --
-["a", "b", "c"]
-
--- !tokenize_malformed_be --
-[{\n        "token": "hello world"\n    }]
-
--- !sequence_invalid_pattern_be --
-false	0
-
--- !topn_zero_be --
-{}	[]	[]
-
 -- !open_non_constant_be --
 true	true	true	bbc	2024-03-01T00:00
 
 -- !non_column_const_be --
 [2, 3]	true
+
+-- !full_column_constant_be --
+0	ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad	["a", "b,c"]	true
+1	ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad	["a", "b,c"]	true
+2	ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad	["a", "b,c"]	true
 
 -- !date_trunc_open_non_constant_be --
 1	2024-03-01T00:00

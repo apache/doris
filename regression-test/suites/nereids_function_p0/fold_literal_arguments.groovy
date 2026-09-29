@@ -145,16 +145,52 @@ suite("fold_literal_arguments") {
             (select 'a' s union all select 'a' union all select 'b' union all select 'b' union all select 'b' union all select 'c') t"""
     qt_topn_weighted_be "select topn_weighted(s, k, 2 + crc32('')) from fold_literal_arguments_t"
 
-    // values FE rejects as literals keep the BE semantics: a negative limit means no limit, malformed tokenize
-    // properties are ignored, an invalid sequence pattern matches nothing, and a non-positive topn count is empty
-    qt_split_by_regexp_negative_be "select split_by_regexp('a,b,c', ',', crc32('') - 1)"
-    qt_tokenize_malformed_be "select tokenize('hello world', lpad('x', 1, 'x'))"
-    qt_sequence_invalid_pattern_be """select sequence_match(lpad('(?9)', 4, '('), dt, k = 1, k = 2),
-            sequence_count(lpad('(?9)', 4, '('), dt, k = 1, k = 2) from fold_literal_arguments_t"""
-    qt_topn_zero_be """select topn(s, crc32('')), topn_array(s, crc32('')), topn_weighted(s, k, crc32(''))
-            from fold_literal_arguments_t"""
-
     // BE validates the value it evaluates
+    test {
+        sql "select split_by_regexp('a,b,c', ',', crc32('') - 1)"
+        exception "must be a positive constant"
+    }
+    test {
+        sql "select tokenize('hello world', lpad('x', 1, 'x'))"
+        exception "tokenize second argument must be properties format"
+    }
+    test {
+        sql "select sequence_match(lpad('(?9)', 4, '('), dt, k = 1, k = 2) from fold_literal_arguments_t"
+        exception "Event number 9 is out of range"
+    }
+    test {
+        sql "select sequence_count(lpad('(?9)', 4, '('), dt, k = 1, k = 2) from fold_literal_arguments_t"
+        exception "Event number 9 is out of range"
+    }
+    test {
+        // FE accepts this pattern, but BE cannot parse two consecutive time conditions
+        sql "select sequence_match('(?1)(?t>1)(?t<5)(?2)', dt, k = 1, k = 2) from fold_literal_arguments_t"
+        exception "Temporal condition should be preceded by an event condition"
+    }
+    test {
+        sql """select tokenize('hello world', concat('"char_filter_type"="x', lpad('', 0, ' '), '"'))"""
+        exception "Invalid 'char_filter_type'"
+    }
+    test {
+        sql "select topn(s, crc32('')) from fold_literal_arguments_t"
+        exception "must be a constant positive integer"
+    }
+    test {
+        sql "select topn_array(s, crc32('') - 1) from fold_literal_arguments_t"
+        exception "must be a constant positive integer"
+    }
+    test {
+        sql "select topn_weighted(s, k, crc32('')) from fold_literal_arguments_t"
+        exception "must be a constant positive integer"
+    }
+    test {
+        sql "select date_trunc(cast('2024-03-15' as date), concat('month', crc32('')))"
+        exception "Illegal second argument"
+    }
+    test {
+        sql "select date_trunc(concat('month', crc32('')), cast('2024-03-15' as date))"
+        exception "Illegal second argument"
+    }
     test {
         sql "select sha2('abc', 300 + crc32(''))"
         exception "sha2's digest length only support"
@@ -184,6 +220,11 @@ suite("fold_literal_arguments") {
     // array_apply and uniform read an IF or size expression, which is not a ColumnConst, from the first row
     qt_non_column_const_be """select array_apply([1, 2, 3], if(1 + crc32('') > 0, '>', '<'), if(1 + crc32('') > 0, 1, 2)),
             uniform(1, size(array(crc32(''))) + 9, crc32('x')) between 1 and 10"""
+    // a constant argument BE evaluates to a full column beside constant ones, over several rows
+    order_qt_full_column_constant_be """select number, sha2('abc', if(crc32('') = 0, 256, 224)),
+            split_by_regexp('a,b,c', ',', if(crc32('') = 0, 2, 3)),
+            split_by_regexp('a,b,c', ',', uniform(1, 10, crc32('x'))) is not null
+            from numbers('number' = '3')"""
     order_qt_date_trunc_open_non_constant_be """select k, date_trunc(dt, if(1 + crc32('') > 0, 'month', 'x'))
             from fold_literal_arguments_t"""
 

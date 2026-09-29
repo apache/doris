@@ -218,9 +218,11 @@ struct ExecuteImpl {
         opts.set_dot_nl(true);
         // split_by_regexp(ColumnString, "xxx")
         if (right_const) {
+            // The source is a constant too when the limit is a constant BE evaluates to a full
+            // column, such as uniform(...).
             RETURN_IF_ERROR(_execute_constant_pattern(
-                    src_column, pattern_column.get_data_at(0), dest_column_string, dest_offsets,
-                    dest_nested_null_map, limit_value, input_rows_count, &opts));
+                    src_column, left_const, pattern_column.get_data_at(0), dest_column_string,
+                    dest_offsets, dest_nested_null_map, limit_value, input_rows_count, &opts));
         } else if (left_const) {
             // split_by_regexp("xxx", ColumnString)
             _execute_constant_src_string(src_column.get_data_at(0), pattern_column,
@@ -237,7 +239,7 @@ struct ExecuteImpl {
     }
 
 private:
-    static Status _execute_constant_pattern(const ColumnString& src_column_string,
+    static Status _execute_constant_pattern(const ColumnString& src_column_string, bool src_const,
                                             const StringRef& pattern_ref,
                                             ColumnString& dest_column_string,
                                             ColumnArray::Offsets64& dest_offsets,
@@ -253,7 +255,7 @@ private:
         RegexpSplit RegexpSplit;
         RegexpSplit.init(re2_ptr.get(), limit_value);
         for (int row = 0; row < input_rows_count; ++row) {
-            auto str_data = src_column_string.get_data_at(row);
+            auto str_data = src_column_string.get_data_at(index_check_const(row, src_const));
             RegexpSplit.set(str_data.begin(), str_data.end());
             while (RegexpSplit.get(token_begin, token_end)) {
                 size_t token_size = token_end - token_begin;
@@ -366,6 +368,14 @@ struct ThreeArgumentImpl {
                                const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         DCHECK_EQ(arguments.size(), 3);
+        // FE checks a literal limit, and a constant limit only BE can evaluate is checked here
+        const auto limit_value = block.get_by_position(arguments[2]).column->get_int(0);
+        if (limit_value < 0) {
+            return Status::InvalidArgument(
+                    "the third parameter of split_by_regexp function must be a positive constant, "
+                    "but got {}",
+                    limit_value);
+        }
         return ExecuteImpl::execute_impl(context, block, arguments, result, input_rows_count);
     }
 };

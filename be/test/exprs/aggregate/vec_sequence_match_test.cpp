@@ -64,9 +64,8 @@ public:
 
     void TearDown() {}
 
-    template <typename ResultColumn>
-    void assert_invalid_pattern_returns_zero(const AggregateFunctionPtr& agg_function,
-                                             const std::string& pattern, size_t event_count) {
+    void assert_invalid_pattern_throws(const AggregateFunctionPtr& agg_function,
+                                       const std::string& pattern, size_t event_count) {
         auto column_pattern = ColumnString::create();
         column_pattern->insert(Field::create_field<TYPE_STRING>(pattern));
 
@@ -89,11 +88,7 @@ public:
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
         AggregateDataPtr place = memory.get();
         agg_function->create(place);
-        EXPECT_NO_THROW(agg_function->add(place, columns.data(), 0, arena));
-
-        ResultColumn column_result;
-        agg_function->insert_result_into(place, column_result);
-        EXPECT_EQ(column_result.get_data()[0], 0);
+        EXPECT_THROW(agg_function->add(place, columns.data(), 0, arena), Exception);
         agg_function->destroy(place);
     }
 
@@ -168,7 +163,7 @@ TEST_F(VSequenceMatchTest, testCountEmpty) {
 }
 
 TEST_F(VSequenceMatchTest, testMatchInvalidEventNumber) {
-    assert_invalid_pattern_returns_zero<ColumnUInt8>(agg_function_sequence_match, "(?0)", 3);
+    assert_invalid_pattern_throws(agg_function_sequence_match, "(?0)", 3);
 
     AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
     DataTypes data_types = {std::make_shared<DataTypeString>(),
@@ -178,11 +173,11 @@ TEST_F(VSequenceMatchTest, testMatchInvalidEventNumber) {
     }
     auto agg_function = factory.get("sequence_match", data_types, nullptr, false, -1);
     ASSERT_NE(agg_function, nullptr);
-    assert_invalid_pattern_returns_zero<ColumnUInt8>(agg_function, "(?33)", MAX_EVENTS);
+    assert_invalid_pattern_throws(agg_function, "(?33)", MAX_EVENTS);
 }
 
 TEST_F(VSequenceMatchTest, testCountInvalidEventNumber) {
-    assert_invalid_pattern_returns_zero<ColumnInt64>(agg_function_sequence_count, "(?0)", 3);
+    assert_invalid_pattern_throws(agg_function_sequence_count, "(?0)", 3);
 
     AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
     DataTypes data_types = {std::make_shared<DataTypeString>(),
@@ -192,7 +187,7 @@ TEST_F(VSequenceMatchTest, testCountInvalidEventNumber) {
     }
     auto agg_function = factory.get("sequence_count", data_types, nullptr, false, -1);
     ASSERT_NE(agg_function, nullptr);
-    assert_invalid_pattern_returns_zero<ColumnInt64>(agg_function, "(?33)", MAX_EVENTS);
+    assert_invalid_pattern_throws(agg_function, "(?33)", MAX_EVENTS);
 }
 
 TEST_F(VSequenceMatchTest, testMatchSerialize) {
@@ -505,13 +500,7 @@ TEST_F(VSequenceMatchTest, testMatchMalformedTimeConditionNumber) {
     agg_function_sequence_match->create(place);
     const IColumn* column[5] = {column_pattern.get(), column_timestamp.get(), column_event1.get(),
                                 column_event2.get(), column_event3.get()};
-    for (int i = 0; i < NUM_CONDS; i++) {
-        agg_function_sequence_match->add(place, column, i, arena);
-    }
-
-    ColumnUInt8 column_result;
-    agg_function_sequence_match->insert_result_into(place, column_result);
-    EXPECT_EQ(column_result.get_data()[0], 0);
+    EXPECT_THROW(agg_function_sequence_match->add(place, column, 0, arena), Exception);
     agg_function_sequence_match->destroy(place);
 }
 
