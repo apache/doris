@@ -236,6 +236,15 @@ public class AIResource extends Resource {
             throw new NumberFormatException("Failed to parse dimensions: "
                                             + properties.get(AIProperties.DIMENSIONS));
         }
+        // Resources persisted before this property existed carry no value: BE treats absent as 1.
+        if (properties.containsKey(AIProperties.MAX_CONCURRENCY)) {
+            try {
+                tAIResource.setMaxConcurrency(Integer.parseInt(properties.get(AIProperties.MAX_CONCURRENCY)));
+            } catch (NumberFormatException e) {
+                throw new NumberFormatException("Failed to parse max_concurrency: "
+                                                + properties.get(AIProperties.MAX_CONCURRENCY));
+            }
+        }
 
         return tAIResource;
     }
