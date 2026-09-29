@@ -24,12 +24,15 @@ import org.apache.doris.jni.toolkit.vec.NestedProjection;
 
 import org.apache.fluss.client.Connection;
 import org.apache.fluss.client.ConnectionFactory;
+import org.apache.fluss.client.FlussConnection;
 import org.apache.fluss.client.table.Table;
 import org.apache.fluss.client.table.scanner.batch.BatchScanner;
+import org.apache.fluss.config.ConfigOptions;
 import org.apache.fluss.config.Configuration;
 import org.apache.fluss.metadata.TableBucket;
 import org.apache.fluss.metadata.TablePath;
 import org.apache.fluss.row.InternalRow;
+import org.apache.fluss.rpc.protocol.FetchLogReadPreference;
 import org.apache.fluss.types.DataType;
 import org.apache.fluss.types.RowType;
 import org.apache.fluss.utils.CloseableIterator;
@@ -94,8 +97,8 @@ public class FlussJniScanner extends JniScanner {
     private static final String RANGE_TYPE_PK_TAIL = "PK_TAIL";
 
     /**
-     * How long one poll waits for data. Only affects how often the loop spins, never correctness: the
-     * loop keeps polling until the scanner reports it has reached the end of the range.
+     * How long one poll waits for data. Empty polls also let the bounded reader check whether the
+     * requested offset is still log-readable, rather than waiting forever on a lake-only offset.
      */
     private static final Duration POLL_TIMEOUT = Duration.ofSeconds(1);
 
@@ -235,11 +238,12 @@ public class FlussJniScanner extends JniScanner {
             case RANGE_TYPE_PK_FULL:
                 return primaryKeyScanner(tableBucket, projection);
             case RANGE_TYPE_PK_TAIL:
-                tailScanner = new PkTailBatchScanner(table, tableBucket, projection,
+                tailScanner = new PkTailBatchScanner((FlussConnection) connection, table, tableBucket, projection,
                         logStartOffset, logStopOffset, maxTailRows);
                 return tailScanner;
             default:
-                return new BoundedLogBatchScanner(table, tableBucket, scanProjection(projection),
+                return new BoundedLogBatchScanner((FlussConnection) connection, table, tableBucket,
+                        scanProjection(projection),
                         logStartOffset, logStopOffset);
         }
     }
@@ -301,6 +305,13 @@ public class FlussJniScanner extends JniScanner {
             if (entry.getKey().startsWith(CLIENT_PREFIX)) {
                 config.setString(entry.getKey().substring(CLIENT_PREFIX.length()), entry.getValue());
             }
+        }
+        if (!RANGE_TYPE_PK_FULL.equals(rangeType)) {
+            // Local-first mistakes lake-covered offsets for readable local log. Remote-first first
+            // tries a retained remote segment, then falls back to local; a missing segment is
+            // diagnosed by BoundedLogRecords instead of leaving the bounded scan polling forever.
+            config.set(ConfigOptions.CLIENT_SCANNER_LOG_READ_PREFERENCE,
+                    FetchLogReadPreference.REMOTE_FIRST);
         }
         return config;
     }

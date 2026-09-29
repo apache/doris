@@ -17,6 +17,7 @@
 
 package org.apache.doris.fluss;
 
+import org.apache.fluss.client.FlussConnection;
 import org.apache.fluss.client.table.Table;
 import org.apache.fluss.client.table.scanner.ScanRecord;
 import org.apache.fluss.client.table.scanner.batch.BatchScanner;
@@ -48,14 +49,14 @@ class BoundedLogBatchScanner implements BatchScanner {
      *                       not be empty, which fluss rejects outright
      * @param logStartOffset a real offset, or fluss's {@code LogScanner.EARLIEST_OFFSET} sentinel
      */
-    BoundedLogBatchScanner(Table table, TableBucket tableBucket, int[] projection,
+    BoundedLogBatchScanner(FlussConnection connection, Table table, TableBucket tableBucket, int[] projection,
             long logStartOffset, long logStopOffset) {
-        this.records = new BoundedLogRecords(table, tableBucket, projection,
+        this.records = new BoundedLogRecords(connection, table, tableBucket, projection,
                 logStartOffset, logStopOffset);
     }
 
     @Override
-    public CloseableIterator<InternalRow> pollBatch(Duration timeout) {
+    public CloseableIterator<InternalRow> pollBatch(Duration timeout) throws IOException {
         if (records.isFinished()) {
             return null;
         }

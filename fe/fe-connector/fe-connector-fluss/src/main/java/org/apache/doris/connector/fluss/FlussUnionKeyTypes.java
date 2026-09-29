@@ -58,7 +58,7 @@ final class FlussUnionKeyTypes {
      * before it existed. {@link FlussUnionKeyTypesTest} fails the build when that happens, so the
      * refusal is a stopgap, not the answer.
      */
-    static String keyColumnRejection(DataType type) {
+    static String keyColumnRejection(DataType type, boolean mapTimestampTz) {
         switch (type.getTypeRoot()) {
             case BOOLEAN:
             case TINYINT:
@@ -75,6 +75,12 @@ final class FlussUnionKeyTypes {
             case TIMESTAMP_WITHOUT_TIME_ZONE:
                 return timestampRejection(((TimestampType) type).getPrecision());
             case TIMESTAMP_WITH_LOCAL_TIME_ZONE:
+                if (!mapTimestampTz) {
+                    // DATETIMEV2 keeps only the session's wall clock. At a daylight-saving overlap,
+                    // two different instants become the same key and suppression drops a lake row.
+                    return "Doris maps it to DATETIMEV2, where distinct instants can have the same"
+                            + " local time at a daylight-saving overlap";
+                }
                 return timestampRejection(((LocalZonedTimestampType) type).getPrecision());
             case FLOAT:
             case DOUBLE:

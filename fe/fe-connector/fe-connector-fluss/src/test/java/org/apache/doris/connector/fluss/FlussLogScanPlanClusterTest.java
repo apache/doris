@@ -158,22 +158,26 @@ public class FlussLogScanPlanClusterTest {
 
         Map<Integer, Long> latest = admin.listOffsets(tablePath, allBuckets(), new OffsetSpec.LatestSpec())
                 .all().get();
+        Map<Integer, Long> earliest = admin.listOffsets(tablePath, allBuckets(), new OffsetSpec.EarliestSpec())
+                .all().get();
         List<ConnectorScanRange> ranges = plan("log_table");
 
         Map<Integer, Long> planned = new HashMap<>();
         for (ConnectorScanRange range : ranges) {
             Map<String, String> props = range.getProperties();
             Assertions.assertEquals("LOG", props.get("fluss.range_type"));
-            // The earliest sentinel goes out verbatim; only fluss resolves it.
-            Assertions.assertEquals("-2", props.get("fluss.log_start_offset"));
-            planned.put(Integer.parseInt(props.get("fluss.bucket_id")),
+            int bucket = Integer.parseInt(props.get("fluss.bucket_id"));
+            // The concrete earliest is pinned with the stop. A sentinel re-resolved after retention
+            // could silently skip a part of the range this statement planned to read.
+            Assertions.assertEquals(String.valueOf(earliest.get(bucket)), props.get("fluss.log_start_offset"));
+            planned.put(bucket,
                     Long.parseLong(props.get("fluss.log_stop_offset")));
         }
 
         // Every non-empty bucket, and only those, with exactly the cluster's offset.
         Map<Integer, Long> expected = new HashMap<>();
         latest.forEach((bucket, offset) -> {
-            if (offset > 0) {
+            if (offset > 0 && earliest.get(bucket) < offset) {
                 expected.put(bucket, offset);
             }
         });

@@ -113,6 +113,7 @@ The fixtures recreate database `fluss_test` from scratch on every start:
 | `log_basic` | log table, 3 rows, table and column comments |
 | `log_types` | log table, one column per mapped fluss type, plus an all-NULL row |
 | `log_part` | log table partitioned by `dt`, partitions `20260101`, `20260102`, `20260103` |
+| `log_comma_part` | log table whose quoted partition key is `region,code`, with ordinary `region` and `code` columns beside it |
 | `log_empty` | log table with no rows at all (planning must emit zero scan ranges) |
 | `log_nested` | log table whose complex types are nested inside complex types, plus rows with NULLs at every level |
 | `log_time` | log table carrying a fluss TIME column, the one type Doris cannot represent |
@@ -129,6 +130,7 @@ The fixtures recreate database `fluss_test` from scratch on every start:
 | `lake_part` | lake table partitioned by `dt`; `20260101` has a log tail, while `20260102` remains only in the readable lake snapshot after its live Fluss partition is dropped to model retention |
 | `lake_pk` | primary-key lake table, one bucket; its tail updates one tiered row, deletes another and adds a key the lake never saw |
 | `lake_pk_comma` | primary-key lake table whose composite key includes quoted `region,code` plus `region` and `code`; its tail updates one row while another shares the latter two values |
+| `lake_pk_ltz` | primary-key lake table with two different LTZ instants that render as the same local time at a DST overlap, one in the lake and one in the tail |
 | `lake_pk_multi` | primary-key lake table over 3 buckets; the tail reaches some buckets and not others, which is what makes per-bucket binding observable |
 | `lake_pk_part` | primary-key lake table partitioned by `dt`: `20260101` is lake + tail, `20260102` remains only in the readable lake snapshot after its live Fluss partition is dropped, and `20260103` was written after tiering stopped so the lake has never seen it |
 | `lake_pk_cold` | primary-key lake table read entirely from the lake — no tail, so nothing to merge |

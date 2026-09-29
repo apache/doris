@@ -17,6 +17,7 @@
 
 package org.apache.doris.fluss;
 
+import org.apache.fluss.client.FlussConnection;
 import org.apache.fluss.client.table.Table;
 import org.apache.fluss.client.table.scanner.ScanRecord;
 import org.apache.fluss.client.table.scanner.batch.BatchScanner;
@@ -89,7 +90,7 @@ class PkTailBatchScanner implements BatchScanner {
      * @param logStartOffset  where the lake snapshot this tail follows left off
      * @param maxTailRows     how many change log records this range may hold before it is refused
      */
-    PkTailBatchScanner(Table table, TableBucket tableBucket, int[] projection,
+    PkTailBatchScanner(FlussConnection connection, Table table, TableBucket tableBucket, int[] projection,
             long logStartOffset, long logStopOffset, long maxTailRows) {
         TableInfo tableInfo = table.getTableInfo();
         if (!tableInfo.hasPrimaryKey()) {
@@ -135,7 +136,7 @@ class PkTailBatchScanner implements BatchScanner {
         for (int i = 0; i < fields.length; i++) {
             fields[i] = scanProjection.get(i);
         }
-        this.records = new BoundedLogRecords(table, tableBucket, fields,
+        this.records = new BoundedLogRecords(connection, table, tableBucket, fields,
                 logStartOffset, logStopOffset);
     }
 

@@ -17,6 +17,7 @@
 
 package org.apache.doris.fluss;
 
+import org.apache.fluss.client.FlussConnection;
 import org.apache.fluss.client.table.Table;
 import org.apache.fluss.client.table.scanner.ScanRecord;
 import org.apache.fluss.client.table.scanner.log.LogScanner;
@@ -28,6 +29,7 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.LongSupplier;
 
 /**
  * One bucket's log over {@code [logStartOffset, logStopOffset)}, polled in batches.
@@ -51,28 +53,70 @@ import java.util.List;
  * rules would be a second chance to get one of them wrong, and the one they exist for (the third)
  * only shows itself as a query that never returns.
  *
+ * <p>Fluss 1.0 discards a successful empty fetch when its requested offset is now covered only by
+ * the lake. After polls make no progress, a direct non-consuming fetch checks that state. An absent
+ * local/remote segment is an error for a pinned range; an available remote segment keeps waiting.
+ *
  * <p>Records are handed out as fluss returned them, and the caller may hold them past the next poll:
  * that is what fluss's own bounded primary-key reader does while it collects a whole range before
  * merging it.
  */
 class BoundedLogRecords implements Closeable {
 
+    private static final long PROBE_AFTER_NANOS = Duration.ofSeconds(5).toNanos();
+
+    interface LogRangeProbe {
+        ProbeResult probe(long offset) throws IOException;
+    }
+
+    static final class ProbeResult {
+        final boolean mayBeReadable;
+        final long highWatermark;
+
+        ProbeResult(boolean mayBeReadable, long highWatermark) {
+            this.mayBeReadable = mayBeReadable;
+            this.highWatermark = highWatermark;
+        }
+    }
+
     private final LogScanner logScanner;
     private final TableBucket tableBucket;
     private final long logStopOffset;
+    private final long logStartOffset;
+    private final boolean lakeEnabled;
+    private final String tablePath;
+    private final LogRangeProbe probe;
+    private final LongSupplier nanoTime;
 
     private boolean finished;
+    private long nextOffset;
+    private long lastProbeAt;
 
     /**
      * @param projection     table field indexes to read, in the order the caller wants them back; must
      *                       not be empty, which fluss rejects outright
      * @param logStartOffset a real offset, or fluss's {@code LogScanner.EARLIEST_OFFSET} sentinel
      */
-    BoundedLogRecords(Table table, TableBucket tableBucket, int[] projection,
+    BoundedLogRecords(FlussConnection connection, Table table, TableBucket tableBucket, int[] projection,
             long logStartOffset, long logStopOffset) {
+        this(table.newScan().project(projection).createLogScanner(), tableBucket, logStartOffset,
+                logStopOffset, table.getTableInfo().getTableConfig().isDataLakeEnabled(),
+                table.getTableInfo().getTablePath().toString(),
+                new FlussLogRangeProbe(connection, tableBucket), System::nanoTime);
+    }
+
+    BoundedLogRecords(LogScanner scanner, TableBucket tableBucket, long logStartOffset,
+            long logStopOffset, boolean lakeEnabled, String tablePath, LogRangeProbe probe,
+            LongSupplier nanoTime) {
         this.tableBucket = tableBucket;
+        this.logStartOffset = logStartOffset;
         this.logStopOffset = logStopOffset;
-        LogScanner scanner = table.newScan().project(projection).createLogScanner();
+        this.lakeEnabled = lakeEnabled;
+        this.tablePath = tablePath;
+        this.probe = probe;
+        this.nanoTime = nanoTime;
+        this.nextOffset = logStartOffset;
+        this.lastProbeAt = nanoTime.getAsLong();
         try {
             Long partitionId = tableBucket.getPartitionId();
             if (partitionId == null) {
@@ -102,7 +146,7 @@ class BoundedLogRecords implements Closeable {
      * The next records of the range, in log order. May be empty while the fetch is still on its way,
      * which says nothing about whether the range is done — {@link #isFinished()} does.
      */
-    List<ScanRecord> poll(Duration timeout) {
+    List<ScanRecord> poll(Duration timeout) throws IOException {
         if (finished) {
             return new ArrayList<>();
         }
@@ -116,6 +160,7 @@ class BoundedLogRecords implements Closeable {
                 break;
             }
             records.add(record);
+            nextOffset = offset + 1;
             if (offset >= logStopOffset - 1) {
                 // The last record of the range. Do not poll again: the record AT the stopping offset
                 // may not exist, and waiting for it never returns.
@@ -124,13 +169,44 @@ class BoundedLogRecords implements Closeable {
             }
         }
         Long consumedUpToOffset = scanRecords.consumedUpToOffset(tableBucket);
+        boolean madeProgress = !records.isEmpty();
+        if (consumedUpToOffset != null) {
+            madeProgress |= consumedUpToOffset > nextOffset;
+            nextOffset = Math.max(nextOffset, consumedUpToOffset);
+        }
         if (consumedUpToOffset != null && consumedUpToOffset >= logStopOffset) {
             // The fetch reached the end of the range without necessarily yielding a record there — the
             // tail can be control records, which take offsets but are never scanned. Without this the
             // loop would poll for a row that is never coming.
             finished = true;
         }
+        if (madeProgress) {
+            lastProbeAt = nanoTime.getAsLong();
+        } else if (!finished) {
+            checkStalledRange();
+        }
         return records;
+    }
+
+    private void checkStalledRange() throws IOException {
+        long now = nanoTime.getAsLong();
+        if (now - lastProbeAt < PROBE_AFTER_NANOS) {
+            return;
+        }
+        ProbeResult result = probe.probe(nextOffset);
+        lastProbeAt = now;
+        if (!result.mayBeReadable && result.highWatermark >= logStopOffset) {
+            if (!lakeEnabled && logStartOffset == LogScanner.EARLIEST_OFFSET) {
+                // Old FE plans used the sentinel. When a non-lake bucket ages out between planning
+                // and execution, its current earliest offset is stop and there is nothing to read.
+                finished = true;
+                return;
+            }
+            throw new IOException("Cannot read fluss table '" + tablePath + "' bucket "
+                    + tableBucket.getBucket() + " over [" + logStartOffset + ", " + logStopOffset
+                    + "): offset " + nextOffset + " is no longer available in the local or remote"
+                    + " log; it may now be covered only by the lake or have expired");
+        }
     }
 
     @Override

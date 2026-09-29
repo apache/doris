@@ -30,7 +30,7 @@ ZK_SERVER=${ZK_SERVER:-doris--fluss-zookeeper:2181}
 ZK_ROOT=${ZK_ROOT:-/fluss}
 ZK_CLI=${ZK_CLI:-/apache-zookeeper-3.9.2-bin/bin/zkCli.sh}
 ZK_COMMAND_TIMEOUT_SECONDS=20
-TABLES=(lake_log lake_cold lake_types lake_part lake_pk lake_pk_comma lake_pk_multi
+TABLES=(lake_log lake_cold lake_types lake_part lake_pk lake_pk_comma lake_pk_ltz lake_pk_multi
     lake_pk_part lake_pk_cold lake_nested lake_part_int lake_pk_part_int
     big_log big_pk)
 

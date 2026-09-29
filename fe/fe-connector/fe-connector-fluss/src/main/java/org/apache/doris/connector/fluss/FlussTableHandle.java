@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.fluss;
 
+import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 
 import org.apache.fluss.metadata.DataLakeFormat;
@@ -163,6 +164,13 @@ public class FlussTableHandle implements ConnectorTableHandle {
     /** Snapshots {@code tableInfo} into a handle. */
     public static FlussTableHandle of(TableInfo tableInfo) {
         TablePath path = tableInfo.getTablePath();
+        for (String partitionKey : tableInfo.getPartitionKeys()) {
+            if (partitionKey.indexOf(',') >= 0) {
+                throw new DorisConnectorException("Cannot read fluss table '" + path
+                        + "': partition column '" + partitionKey + "' contains a comma, which Doris"
+                        + " would interpret as multiple partition columns");
+            }
+        }
         TablePath lakePath = tableInfo.getLakeTablePath();
         DataLakeFormat lakeFormat = tableInfo.getTableConfig().getDataLakeFormat().orElse(null);
         return new FlussTableHandle(

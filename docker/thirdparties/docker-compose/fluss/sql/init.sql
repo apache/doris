@@ -172,6 +172,21 @@ INSERT INTO log_part VALUES
     (3, 'p2a', '20260102'),
     (4, 'p3a', '20260103');
 
+-- The comma is part of one quoted partition-column name. Fluss accepts it,
+-- while Doris's current generic partition-name properties cannot encode it.
+CREATE TABLE log_comma_part (
+    `region,code` STRING NOT NULL,
+    region STRING,
+    code STRING,
+    id INT
+) PARTITIONED BY (`region,code`)
+WITH (
+    'bucket.num' = '1',
+    'bucket.key' = 'region'
+);
+
+INSERT INTO log_comma_part VALUES ('us', 'ordinary-region', 'ordinary-code', 1);
+
 -- ---------------------------------------------------------------------------
 -- log_empty: never written to. Every bucket's latest offset is 0, so planning
 -- must emit no scan range at all rather than ranges that read nothing.
@@ -686,6 +701,21 @@ CREATE TABLE lake_pk_comma (
 INSERT INTO lake_pk_comma VALUES
     ('key-a', 'same', 'same', 'lake-a'),
     ('key-b', 'same', 'same', 'lake-b');
+
+-- Both LTZ keys render as 01:30 in America/New_York after the autumn clock
+-- change, but they are different instants. One is tiered; the other is a tail.
+CREATE TABLE lake_pk_ltz (
+    event_time TIMESTAMP_LTZ(3) NOT NULL,
+    name STRING,
+    PRIMARY KEY (event_time) NOT ENFORCED
+) WITH (
+    'bucket.num' = '1',
+    'table.datalake.enabled' = 'true',
+    'table.datalake.freshness' = '30s'
+);
+
+INSERT INTO lake_pk_ltz VALUES
+    (TO_TIMESTAMP_LTZ(1793511000000, 3), 'first-instant');
 
 -- ---------------------------------------------------------------------------
 -- lake_pk_multi: the same table over three buckets. A primary-key table is

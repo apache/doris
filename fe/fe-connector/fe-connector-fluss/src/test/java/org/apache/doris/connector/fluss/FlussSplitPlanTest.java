@@ -31,7 +31,6 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.apache.fluss.client.metadata.KvSnapshots;
 import org.apache.fluss.client.metadata.LakeSnapshot;
-import org.apache.fluss.client.table.scanner.log.LogScanner;
 import org.apache.fluss.metadata.PartitionInfo;
 import org.apache.fluss.metadata.ResolvedPartitionSpec;
 import org.apache.fluss.metadata.TableBucket;
@@ -105,9 +104,9 @@ public class FlussSplitPlanTest {
         List<ConnectorScanRange> ranges = plan(LOG_TABLE, catalog());
 
         Assertions.assertEquals(3, ranges.size());
-        assertLogRange(ranges.get(0), 0, -2L, 10L);
-        assertLogRange(ranges.get(1), 1, -2L, 25L);
-        assertLogRange(ranges.get(2), 2, -2L, 7L);
+        assertLogRange(ranges.get(0), 0, 0L, 10L);
+        assertLogRange(ranges.get(1), 1, 0L, 25L);
+        assertLogRange(ranges.get(2), 2, 0L, 7L);
     }
 
     /**
@@ -115,16 +114,17 @@ public class FlussSplitPlanTest {
      * would let a bucket planned later include rows written after the query started.
      */
     @Test
-    public void offsetsAreTakenOncePerPartition() {
+    public void eachOffsetKindIsTakenOncePerPartition() {
         registerLogTable(LOG_TABLE, 4);
         latestOffsets(null, 1L, 1L, 1L, 1L);
 
         plan(LOG_TABLE, catalog());
 
         long offsetCalls = adminOps.calls.stream().filter(c -> c.startsWith("listOffsets(")).count();
-        Assertions.assertEquals(1, offsetCalls, adminOps.calls.toString());
+        Assertions.assertEquals(2, offsetCalls, adminOps.calls.toString());
         Assertions.assertTrue(adminOps.calls.get(0).contains("[0, 1, 2, 3]"), adminOps.calls.toString());
         Assertions.assertTrue(adminOps.calls.get(0).contains("LatestSpec"), adminOps.calls.toString());
+        Assertions.assertTrue(adminOps.calls.get(1).contains("EarliestSpec"), adminOps.calls.toString());
     }
 
     /** A bucket nobody has written to yields no range: an empty scanner would only cost a round trip. */
@@ -136,7 +136,19 @@ public class FlussSplitPlanTest {
         List<ConnectorScanRange> ranges = plan(LOG_TABLE, catalog());
 
         Assertions.assertEquals(1, ranges.size());
-        assertLogRange(ranges.get(0), 1, -2L, 12L);
+        assertLogRange(ranges.get(0), 1, 0L, 12L);
+    }
+
+    @Test
+    public void expiredBucketWithPositiveStopPlansNoLogRange() {
+        registerLogTable(LOG_TABLE, 2);
+        latestOffsets(null, 12L, 7L);
+        earliestOffsets(null, 12L, 3L);
+
+        List<ConnectorScanRange> ranges = plan(LOG_TABLE, catalog());
+
+        Assertions.assertEquals(1, ranges.size());
+        assertLogRange(ranges.get(0), 1, 3L, 7L);
     }
 
     @Test
@@ -189,7 +201,9 @@ public class FlussSplitPlanTest {
         // ranges alone cannot show that the 2-bucket partition was not asked for a third: the calls can.
         Assertions.assertEquals(Arrays.asList(
                 "listOffsets(db.log_tbl, 20260101, [0, 1], LatestSpec)",
-                "listOffsets(db.log_tbl, 20260102, [0, 1, 2, 3], LatestSpec)"),
+                "listOffsets(db.log_tbl, 20260101, [0, 1], EarliestSpec)",
+                "listOffsets(db.log_tbl, 20260102, [0, 1, 2, 3], LatestSpec)",
+                "listOffsets(db.log_tbl, 20260102, [0, 1, 2, 3], EarliestSpec)"),
                 offsetCalls(), adminOps.calls.toString());
     }
 
@@ -204,7 +218,7 @@ public class FlussSplitPlanTest {
         Assertions.assertEquals(1, ranges.size());
         assertPartition(ranges.get(0), "dt=20260102", 101L, 0, 9L);
         // The other two partitions must not even be asked for their offsets.
-        Assertions.assertEquals(1,
+        Assertions.assertEquals(2,
                 adminOps.calls.stream().filter(c -> c.startsWith("listOffsets(")).count(),
                 adminOps.calls.toString());
     }
@@ -528,7 +542,20 @@ public class FlussSplitPlanTest {
 
         Assertions.assertEquals(2, ranges.size());
         assertLogRange(ranges.get(0), 0, 4L, 6L);
-        assertLogRange(ranges.get(1), 1, -2L, 8L);
+        assertLogRange(ranges.get(1), 1, 0L, 8L);
+    }
+
+    @Test
+    public void bucketAbsentFromLakeSnapshotAndExpiredFromLogPlansNoRange() {
+        registerLakeTable(2);
+        lakeSnapshotAt(7L, offsets(4L, null));
+        latestOffsets(null, 6L, 8L);
+        earliestOffsets(null, 0L, 8L);
+
+        List<ConnectorScanRange> ranges = plan(LOG_TABLE, catalog());
+
+        Assertions.assertEquals(1, ranges.size());
+        assertLogRange(ranges.get(0), 0, 4L, 6L);
     }
 
     /** A bucket whose log has not moved past the lake needs no log range at all. */
@@ -859,7 +886,7 @@ public class FlussSplitPlanTest {
         // The base table under 'disabled' reads each bucket from its earliest retained Fluss offset.
         List<ConnectorScanRange> baseRanges = plan(LOG_TABLE, disabled);
         Assertions.assertEquals(2, baseRanges.size());
-        assertLogRange(baseRanges.get(0), 0, LogScanner.EARLIEST_OFFSET, 9L);
+        assertLogRange(baseRanges.get(0), 0, 0L, 9L);
 
         List<ConnectorScanRange> ranges = planLogOnly(LOG_TABLE, disabled);
         Assertions.assertEquals(2, ranges.size());
@@ -1858,6 +1885,30 @@ public class FlussSplitPlanTest {
     }
 
     @Test
+    public void localTimestampKeyFallsBackUnlessCatalogPreservesItsInstant() {
+        registerPkLakeTableKeyedBy(DataTypes.TIMESTAMP_LTZ(6));
+        kvSnapshots(null, new long[] {4L}, new long[] {10L});
+        latestOffsets(null, 105L);
+
+        List<ConnectorScanRange> fallback = plan(PK_TABLE, catalog());
+        Assertions.assertEquals(1, fallback.size());
+        assertPkRange(fallback.get(0), 0, 4L, 10L, 105L);
+
+        DorisConnectorException required = Assertions.assertThrows(DorisConnectorException.class,
+                () -> plan(PK_TABLE, catalog(FlussCatalogProperties.UNION_READ_MODE, "required")));
+        Assertions.assertTrue(required.getMessage().contains("DATETIMEV2"), required.getMessage());
+
+        lakeSnapshotAt(9L, offsets(100L));
+        earliestOffsets(null, 0L);
+        lakeSplits(RecordingLakeSibling.LakeRange.inBucket(0));
+        List<ConnectorScanRange> mapped = plan(PK_TABLE,
+                catalog(FlussCatalogProperties.ENABLE_MAPPING_TIMESTAMP_TZ, "true"));
+        Assertions.assertEquals(2, mapped.size());
+        assertSuppressed(mapped.get(0), 0, 100L, 105L);
+        assertTailRange(mapped.get(1), 0, 100L, 105L);
+    }
+
+    @Test
     public void requiredModeRefusesAKeyColumnThatCannotBeComparedExactly() {
         registerPkLakeTableKeyedBy(DataTypes.DOUBLE());
 
@@ -2520,7 +2571,7 @@ public class FlussSplitPlanTest {
         Assertions.assertEquals(partitionName.substring(partitionName.indexOf('=') + 1),
                 range.getPartitionValues().get("dt"));
         Assertions.assertEquals(String.valueOf(partitionId), props.get("fluss.partition_id"));
-        assertLogRange(range, bucket, -2L, stop);
+        assertLogRange(range, bucket, 0L, stop);
     }
 
     // ---------------------------------------------------------------- union-read fixtures

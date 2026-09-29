@@ -83,6 +83,9 @@ INSERT INTO lake_pk VALUES
 INSERT INTO lake_pk_comma VALUES
     ('key-a', 'same', 'same', 'tail-a');
 
+INSERT INTO lake_pk_ltz VALUES
+    (TO_TIMESTAMP_LTZ(1793514600000, 3), 'second-instant');
+
 -- Three keys out of nine, so the tail reaches some buckets and not others --
 -- which is the whole point of this table. Key 10 is new here, so it also lands
 -- in a bucket the lake already holds rows for and must be added to that bucket

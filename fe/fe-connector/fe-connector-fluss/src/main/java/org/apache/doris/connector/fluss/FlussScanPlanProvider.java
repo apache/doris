@@ -981,14 +981,15 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
      * The key is the primary key minus the partition columns, because a bucket lives inside one partition
      * and the partition columns are equal for every row in it.
      */
-    private static String keyColumnRejection(FlussTableHandle handle) {
+    private String keyColumnRejection(FlussTableHandle handle) {
         for (String column : handle.getPhysicalPrimaryKeys()) {
             DataType type = handle.getKeyColumnTypes().get(column);
             if (type == null) {
                 // The handle names a key column the schema it was built from does not have.
                 return "its primary key names column '" + column + "', which the table does not have";
             }
-            String rejection = FlussUnionKeyTypes.keyColumnRejection(type);
+            String rejection = FlussUnionKeyTypes.keyColumnRejection(type,
+                    catalogProperties.getTypeMappingOptions().isMapTimestampTz());
             if (rejection != null) {
                 return "primary-key column '" + column + "' has type " + type + ", and " + rejection;
             }
@@ -1043,10 +1044,10 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         TablePath tablePath = handle.toTablePath();
         if (!handle.hasPrimaryKey()) {
             Map<Integer, Long> stopping = latestOffsets(tablePath, flussPartitionName, buckets);
+            Map<Integer, Long> earliest = earliestOffsets(tablePath, flussPartitionName, buckets);
             if (union == null) {
-                appendLogRanges(ranges, partition, buckets, stopping);
+                appendLogRanges(ranges, handle, partition, buckets, stopping, earliest);
             } else {
-                Map<Integer, Long> earliest = earliestOffsets(tablePath, flussPartitionName, buckets);
                 appendUnionLogRanges(ranges, handle, union, partition, buckets, stopping, earliest);
             }
             return;
@@ -1111,18 +1112,21 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         return selected;
     }
 
-    private static void appendLogRanges(List<ConnectorScanRange> ranges,
-            FlussScanRange.Partition partition, List<Integer> buckets, Map<Integer, Long> stopping) {
+    private static void appendLogRanges(List<ConnectorScanRange> ranges, FlussTableHandle handle,
+            FlussScanRange.Partition partition, List<Integer> buckets, Map<Integer, Long> stopping,
+            Map<Integer, Long> earliest) {
         for (int bucket : buckets) {
             Long stop = stopping.get(bucket);
             if (stop == null || stop <= 0) {
-                // Never written to: no range at all rather than an empty one for BE to open and close.
-                // A bucket whose records have all aged out of the log is NOT this case — its latest
-                // offset stayed where it was — and still gets a range that reads nothing, which costs
-                // one scanner rather than an extra round trip for every bucket to find out.
                 continue;
             }
-            ranges.add(FlussScanRange.log(partition, bucket, LogScanner.EARLIEST_OFFSET, stop));
+            long start = requireEarliestOffset(handle, bucket, earliest);
+            if (start >= stop) {
+                // A previously written bucket can become empty after retention. A bounded scanner
+                // starting at stop has no record or consumed-offset event from which to infer EOF.
+                continue;
+            }
+            ranges.add(FlussScanRange.log(partition, bucket, start, stop));
         }
     }
 
@@ -1131,9 +1135,9 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
      * saw the log. The snapshot's offset is exclusive — it is the first offset NOT in the lake — so the two
      * halves meet exactly, with no row read twice and none skipped.
      *
-     * <p>A bucket the snapshot does not mention has never been tiered, so its log is read from the earliest
-     * offset fluss still holds; a bucket whose snapshot offset has caught up with the stopping offset has
-     * nothing left outside the lake and yields no range at all.
+     * <p>A bucket the snapshot does not mention is read from the earliest offset fluss reported during
+     * planning. It yields no range if retention has already advanced that offset to the stop. A bucket
+     * whose snapshot offset has caught up with the stopping offset has nothing left outside the lake.
      */
     private static void appendUnionLogRanges(List<ConnectorScanRange> ranges, FlussTableHandle handle,
             UnionRead union, FlussScanRange.Partition partition, List<Integer> buckets,
@@ -1148,7 +1152,10 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                     : new TableBucket(handle.getTableId(), bucket);
             Long lakeEnd = union.logOffsets.get(tableBucket);
             if (lakeEnd == null) {
-                ranges.add(FlussScanRange.log(partition, bucket, LogScanner.EARLIEST_OFFSET, stop));
+                long start = requireEarliestOffset(handle, bucket, earliest);
+                if (start < stop) {
+                    ranges.add(FlussScanRange.log(partition, bucket, start, stop));
+                }
             } else if (lakeEnd < stop) {
                 Long earliestOffset = earliest.get(bucket);
                 if (earliestOffset == null || earliestOffset > lakeEnd) {
@@ -1164,6 +1171,17 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
                 ranges.add(FlussScanRange.log(partition, bucket, lakeEnd, stop));
             }
         }
+    }
+
+    private static long requireEarliestOffset(FlussTableHandle handle, int bucket,
+            Map<Integer, Long> earliest) {
+        Long start = earliest.get(bucket);
+        if (start == null) {
+            throw new DorisConnectorException("Cannot read fluss table '" + handle.getDatabaseName()
+                    + "." + handle.getTableName() + "': Fluss did not report the earliest offset"
+                    + " for bucket " + bucket);
+        }
+        return start;
     }
 
     /**

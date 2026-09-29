@@ -56,7 +56,7 @@ public class FlussUnionKeyTypesTest {
         expected.put(DataTypes.BYTES(), true);
         expected.put(DataTypes.DATE(), true);
         expected.put(DataTypes.TIMESTAMP(6), true);
-        expected.put(DataTypes.TIMESTAMP_LTZ(6), true);
+        expected.put(DataTypes.TIMESTAMP_LTZ(6), false);
         // Refused, each for its own reason: two encodings of one number and a NaN that equals nothing;
         // a type Doris cannot represent at all; and the three fluss itself already refuses as a key,
         // covered here so the switch stays exhaustive rather than relying on that.
@@ -75,7 +75,7 @@ public class FlussUnionKeyTypesTest {
         for (Map.Entry<DataType, Boolean> entry : keyVerdicts().entrySet()) {
             DataType type = entry.getKey();
             covered.add(type.getTypeRoot());
-            boolean allowed = FlussUnionKeyTypes.keyColumnRejection(type) == null;
+            boolean allowed = FlussUnionKeyTypes.keyColumnRejection(type, false) == null;
             Assertions.assertEquals(entry.getValue(), allowed, "key verdict for " + type);
             // Every root is also asked the partition question, so neither switch can be the one that
             // silently falls through on a type fluss adds.
@@ -95,18 +95,25 @@ public class FlussUnionKeyTypesTest {
     @Test
     public void timestampFinerThanDorisCanHoldIsRefused() {
         for (int precision = 0; precision <= 6; precision++) {
-            Assertions.assertNull(FlussUnionKeyTypes.keyColumnRejection(DataTypes.TIMESTAMP(precision)),
+            Assertions.assertNull(FlussUnionKeyTypes.keyColumnRejection(DataTypes.TIMESTAMP(precision), false),
                     "TIMESTAMP(" + precision + ")");
-            Assertions.assertNull(FlussUnionKeyTypes.keyColumnRejection(DataTypes.TIMESTAMP_LTZ(precision)),
+            Assertions.assertNull(FlussUnionKeyTypes.keyColumnRejection(DataTypes.TIMESTAMP_LTZ(precision), true),
                     "TIMESTAMP_LTZ(" + precision + ")");
         }
         for (int precision = 7; precision <= 9; precision++) {
-            Assertions.assertNotNull(FlussUnionKeyTypes.keyColumnRejection(DataTypes.TIMESTAMP(precision)),
+            Assertions.assertNotNull(FlussUnionKeyTypes.keyColumnRejection(DataTypes.TIMESTAMP(precision), false),
                     "TIMESTAMP(" + precision + ")");
             Assertions.assertNotNull(
-                    FlussUnionKeyTypes.keyColumnRejection(DataTypes.TIMESTAMP_LTZ(precision)),
+                    FlussUnionKeyTypes.keyColumnRejection(DataTypes.TIMESTAMP_LTZ(precision), true),
                     "TIMESTAMP_LTZ(" + precision + ")");
         }
+    }
+
+    @Test
+    public void localTimestampKeyNeedsInstantPreservingMapping() {
+        Assertions.assertTrue(FlussUnionKeyTypes.keyColumnRejection(DataTypes.TIMESTAMP_LTZ(6), false)
+                .contains("DATETIMEV2"));
+        Assertions.assertNull(FlussUnionKeyTypes.keyColumnRejection(DataTypes.TIMESTAMP_LTZ(6), true));
     }
 
     /**
@@ -129,7 +136,7 @@ public class FlussUnionKeyTypesTest {
     /** Nullability is not part of the question — a key column is NOT NULL in fluss either way. */
     @Test
     public void nullabilityDoesNotChangeTheVerdict() {
-        Assertions.assertNull(FlussUnionKeyTypes.keyColumnRejection(DataTypes.INT().copy(false)));
+        Assertions.assertNull(FlussUnionKeyTypes.keyColumnRejection(DataTypes.INT().copy(false), false));
         Assertions.assertNull(FlussUnionKeyTypes.partitionColumnRejection(DataTypes.STRING().copy(false)));
     }
 }

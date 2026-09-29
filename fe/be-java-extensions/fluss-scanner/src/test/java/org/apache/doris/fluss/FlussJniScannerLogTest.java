@@ -22,12 +22,14 @@ import org.apache.doris.jni.spi.vec.VectorTable;
 
 import org.apache.fluss.client.Connection;
 import org.apache.fluss.client.ConnectionFactory;
+import org.apache.fluss.client.FlussConnection;
 import org.apache.fluss.client.admin.Admin;
 import org.apache.fluss.client.table.Table;
 import org.apache.fluss.client.table.writer.AppendWriter;
 import org.apache.fluss.metadata.DatabaseDescriptor;
 import org.apache.fluss.metadata.PartitionSpec;
 import org.apache.fluss.metadata.Schema;
+import org.apache.fluss.metadata.TableBucket;
 import org.apache.fluss.metadata.TableDescriptor;
 import org.apache.fluss.metadata.TablePath;
 import org.apache.fluss.row.BinaryString;
@@ -86,6 +88,25 @@ public class FlussJniScannerLogTest {
     private static String bootstrapServers;
 
     private String db;
+
+    @Test
+    public void directProbeDistinguishesReadableLogFromEmptyEndOffset() throws Exception {
+        TablePath tablePath = TablePath.of(db, "probe_log");
+        admin.createTable(tablePath, TableDescriptor.builder()
+                .schema(Schema.newBuilder().column("id", DataTypes.INT()).build())
+                .distributedBy(BUCKETS)
+                .build(), true).get();
+        appendRows(tablePath, GenericRow.of(1));
+        Table table = connection.getTable(tablePath);
+        TableBucket bucket = new TableBucket(table.getTableInfo().getTableId(), 0);
+        FlussLogRangeProbe probe = new FlussLogRangeProbe(
+                (FlussConnection) connection, bucket);
+
+        Assertions.assertTrue(probe.probe(0L).mayBeReadable);
+        BoundedLogRecords.ProbeResult atEnd = probe.probe(1L);
+        Assertions.assertFalse(atEnd.mayBeReadable);
+        Assertions.assertTrue(atEnd.highWatermark >= 1L);
+    }
 
     @BeforeAll
     public static void connectToCluster() {

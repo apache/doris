@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.fluss;
 
+import org.apache.doris.connector.spi.DorisConnectorException;
+
 import org.apache.fluss.metadata.TablePath;
 import org.apache.fluss.types.DataType;
 import org.apache.fluss.types.DataTypes;
@@ -120,6 +122,21 @@ public class FlussTableHandleTest {
         assertLakePath("archive", null, "archive", "orders");
         assertLakePath(null, "orders_lake", "db", "orders_lake");
         assertLakePath("archive", "orders_lake", "archive", "orders_lake");
+    }
+
+    @Test
+    public void commaBearingPartitionKeyIsRejectedBeforeItsNameCanBeSplit() {
+        FlussTestTables.Builder builder = FlussTestTables.builder(TablePath.of("db", "quoted_partition"))
+                .column("region,code", DataTypes.STRING())
+                .column("region", DataTypes.STRING())
+                .column("code", DataTypes.STRING())
+                .partitionedBy("region,code")
+                .buckets(1, "region");
+
+        DorisConnectorException failure = Assertions.assertThrows(DorisConnectorException.class,
+                () -> FlussTableHandle.of(builder.build()));
+        Assertions.assertTrue(failure.getMessage().contains("quoted_partition"), failure.getMessage());
+        Assertions.assertTrue(failure.getMessage().contains("region,code"), failure.getMessage());
     }
 
     /**
