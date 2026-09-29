@@ -210,6 +210,56 @@ TEST(QuantileStateTest, ConcurrentReadsSerializationAndIndependentWrites) {
     EXPECT_EQ(10, source.get_value_by_percentile(1));
 }
 
+TEST(QuantileStateTest, SharedSourceDetachesAndReadsCanOverlap) {
+    auto source = constant_state(10);
+    // A processed query only needs a shared lock; compression still needs an exclusive lock.
+    ASSERT_EQ(10, source.get_value_by_percentile(0.5));
+    auto first = source;
+    auto second = source;
+    std::promise<void> first_entered;
+    std::promise<void> release_first;
+    auto released = release_first.get_future();
+    std::atomic<int> arrivals {0};
+    auto* sync = SyncPoint::get_instance();
+    SyncPoint::CallbackGuard guard;
+    sync->set_call_back(
+            "QuantileState::detach:source_locked",
+            [&](auto&&) {
+                if (arrivals.fetch_add(1) == 0) {
+                    first_entered.set_value();
+                    released.wait();
+                }
+            },
+            &guard);
+    sync->enable_processing();
+    std::thread first_thread([&] { first.add_value(-10); });
+    auto first_ready = first_entered.get_future().wait_for(std::chrono::seconds(10));
+    std::promise<void> second_finished;
+    std::thread second_thread([&] {
+        second.add_value(110);
+        second_finished.set_value();
+    });
+    std::promise<double> read_finished;
+    auto read_result = read_finished.get_future();
+    std::thread reader([&] { read_finished.set_value(source.get_value_by_percentile(0.5)); });
+    auto second_ready = second_finished.get_future().wait_for(std::chrono::seconds(10));
+    auto read_ready = read_result.wait_for(std::chrono::seconds(10));
+    release_first.set_value();
+    first_thread.join();
+    second_thread.join();
+    reader.join();
+    sync->disable_processing();
+    EXPECT_EQ(std::future_status::ready, first_ready);
+    EXPECT_EQ(std::future_status::ready, second_ready);
+    EXPECT_EQ(std::future_status::ready, read_ready);
+    EXPECT_EQ(10, read_result.get());
+    EXPECT_EQ(-10, first.get_value_by_percentile(0));
+    EXPECT_EQ(10, first.get_value_by_percentile(1));
+    EXPECT_EQ(10, second.get_value_by_percentile(0));
+    EXPECT_EQ(110, second.get_value_by_percentile(1));
+    EXPECT_EQ(10, source.get_value_by_percentile(0.5));
+}
+
 TEST(QuantileStateTest, SharedSourceMergesCanOverlap) {
     auto source = constant_state(10);
     auto first = constant_state(-10);

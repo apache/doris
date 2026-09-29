@@ -125,7 +125,8 @@ TEST(AggregateFunctionQuantileStateTest, GrowingWindowKeepsResultsCompact) {
     Arena arena;
     auto input = ColumnQuantileState::create();
     QuantileState seed(10000);
-    for (int i = 0; i < 4096; ++i) {
+    constexpr size_t seed_count = 4096;
+    for (size_t i = 0; i < seed_count; ++i) {
         seed.add_value(10);
     }
     input->insert_value(std::move(seed));
@@ -135,20 +136,26 @@ TEST(AggregateFunctionQuantileStateTest, GrowingWindowKeepsResultsCompact) {
     using Data = AggregateFunctionQuantileStateData<AggregateFunctionQuantileStateUnionOp>;
     auto& accumulator = reinterpret_cast<Data*>(place)->value;
     auto* original = accumulator._tdigest_ptr.get();
+    const size_t initial_unprocessed = accumulator._mutable_tdigest().unprocessed().size();
     auto results = ColumnQuantileState::create();
     constexpr size_t result_count = 1000;
     results->reserve(result_count);
     bool reused_accumulator = true;
+    size_t unprocessed_centroids = 0;
     for (size_t row = 0; row < result_count; ++row) {
         QuantileState value;
         value.add_value(20 + row);
         input->clear();
         input->insert_value(std::move(value));
         function->add(place, columns, 0, arena);
+        unprocessed_centroids += accumulator._mutable_tdigest().unprocessed().size();
         function->insert_result_into(place, *results);
         reused_accumulator &= accumulator._tdigest_ptr.get() == original;
     }
     EXPECT_TRUE(reused_accumulator);
+    // Each sample should enter result-insertion sorting only once across the window.
+    EXPECT_EQ(initial_unprocessed + result_count, unprocessed_centroids);
+    RecordProperty("unprocessed_centroids", std::to_string(unprocessed_centroids));
     EXPECT_NE(accumulator._tdigest_ptr, results->get_element(result_count - 1)._tdigest_ptr);
     // Inspect actual capacities as well as accounting, so undercounting cannot hide retention.
     size_t digest_bytes = 0;
@@ -166,10 +173,18 @@ TEST(AggregateFunctionQuantileStateTest, GrowingWindowKeepsResultsCompact) {
         EXPECT_EQ(0, result._mutable_tdigest().unprocessed().capacity());
         EXPECT_EQ(10, result.get_value_by_percentile(0));
         EXPECT_EQ(20 + row, result.get_value_by_percentile(1));
+        std::vector<double> values(seed_count, 10);
+        for (size_t i = 0; i <= row; ++i) {
+            values.push_back(20 + i);
+        }
+        const std::vector<double> quantiles {0.5, 0.9, 0.99};
+        const auto expected = expected_quantiles(values, quantiles, 10000);
+        for (size_t i = 0; i < quantiles.size(); ++i) {
+            EXPECT_NEAR(expected[i], result.get_value_by_percentile(quantiles[i]), 1.0);
+        }
     }
     EXPECT_GE(accumulator._mutable_tdigest().unprocessed().capacity(), 80001);
-    // Saving results must not force compression of the live accumulator.
-    EXPECT_TRUE(accumulator._mutable_tdigest().have_unprocessed());
+    EXPECT_FALSE(accumulator._mutable_tdigest().have_unprocessed());
 }
 
 class AggregateFunctionQuantileStateRangeTest : public testing::TestWithParam<bool> {};

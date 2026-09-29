@@ -69,10 +69,10 @@ QuantileState QuantileState::copy_for_result() const {
     QuantileState result(_compression);
     result._type = TDIGEST;
     {
-        std::shared_lock lock(_tdigest_ptr->mutex);
+        // Reuse processed centroids on the next row instead of sorting the prefix again.
+        auto lock = _tdigest_ptr->lock_processed_digest();
         result._tdigest_ptr = std::make_shared<TDigestHolder>(*_tdigest_ptr);
     }
-    result._tdigest_ptr->digest.compact();
     return result;
 }
 
@@ -91,12 +91,15 @@ size_t QuantileState::allocated_bytes(const std::vector<QuantileState>& states) 
 }
 
 TDigest& QuantileState::_mutable_tdigest() {
+    if (_tdigest_ptr.use_count() == 1) {
+        return _tdigest_ptr->digest;
+    }
     std::shared_ptr<TDigestHolder> detached;
     {
-        std::unique_lock lock(_tdigest_ptr->mutex);
-        if (_tdigest_ptr.use_count() == 1) {
-            return _tdigest_ptr->digest;
-        }
+        std::shared_lock lock(_tdigest_ptr->mutex);
+#ifdef BE_TEST
+        TEST_SYNC_POINT("QuantileState::detach:source_locked");
+#endif
         detached = std::make_shared<TDigestHolder>(*_tdigest_ptr);
     }
     _tdigest_ptr = std::move(detached);

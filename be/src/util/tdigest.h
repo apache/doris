@@ -172,16 +172,6 @@ public:
 
     TDigest(const TDigest&) = default;
 
-    // Compact an independently owned result, leaving no spare write buffer.
-    void compact() {
-        if (have_unprocessed()) {
-            compress();
-        }
-        std::vector<Centroid>().swap(_unprocessed);
-        _processed.shrink_to_fit();
-        _cumulative.shrink_to_fit();
-    }
-
     size_t allocated_bytes() const {
         return (_processed.capacity() + _unprocessed.capacity()) * sizeof(Centroid) +
                _cumulative.capacity() * sizeof(Weight);

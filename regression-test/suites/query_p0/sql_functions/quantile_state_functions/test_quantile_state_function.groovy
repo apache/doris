@@ -85,8 +85,8 @@ suite("test_quantile_state_function") {
         CREATE TABLE test_quantile_state_cow (
             topic INT NOT NULL,
             chunk INT NOT NULL,
-            q QUANTILE_STATE NOT NULL
-        ) DUPLICATE KEY(topic, chunk)
+            q QUANTILE_STATE QUANTILE_UNION NOT NULL
+        ) AGGREGATE KEY(topic, chunk)
         DISTRIBUTED BY HASH(topic, chunk) BUCKETS 4
         PROPERTIES("replication_num" = "1")
     """
