@@ -142,7 +142,7 @@ public class IndexDefinition {
         return columnType.isDateLikeType() || columnType.isDecimalLikeType()
                 || columnType.isIntegralType() || columnType.isStringLikeType()
                 || columnType.isBooleanType() || columnType.isVariantType()
-                || columnType.isIPType() || columnType.isFloatLikeType();
+                || columnType.isIPType() || columnType.isUuidType() || columnType.isFloatLikeType();
     }
 
     /**
@@ -167,7 +167,7 @@ public class IndexDefinition {
         }
         return columnType.isDateLikeType() || columnType.isDecimalLikeType()
                 || columnType.isIntegralType() || columnType.isBooleanType()
-                || columnType.isIPType() || columnType.isFloatLikeType();
+                || columnType.isIPType() || columnType.isUuidType() || columnType.isFloatLikeType();
     }
 
     /**

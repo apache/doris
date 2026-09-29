@@ -15,8 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_show_data_types", "types") {
+#include "core/data_type/data_type_uuid.h"
 
-    qt_sql """show data types"""
+#include "core/column/column_vector.h"
 
+namespace doris {
+
+bool DataTypeUUID::equals(const IDataType& rhs) const {
+    return typeid(rhs) == typeid(*this);
 }
+
+MutableColumnPtr DataTypeUUID::create_column() const {
+    return ColumnUUID::create();
+}
+
+} // namespace doris
