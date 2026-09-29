@@ -702,3 +702,21 @@ struct TLanceIndexJobDispatch {
     18: optional i32 max_num_partitions
     19: optional i32 max_num_sub_vectors
 }
+
+// Internal supervisor-worker pipe protocol handshake, never an RPC surface.
+// The isolated worker emits exactly one of these frames on its stdout pipe before
+// any result frame, carrying its self-observed confinement facts (own cgroup path
+// and limits, own rlimits). The supervisor never trusts the reported values: it
+// compares them against its own cgroup write/read-back and kills the worker on a
+// mismatch. protocol_magic/protocol_version pin the frame layout.
+struct TLanceIndexWorkerHandshake {
+    1: required i64 protocol_magic
+    2: required i32 protocol_version
+    3: required string cgroup_path
+    4: required i64 memory_max_bytes
+    5: required i64 pids_max
+    6: required i64 rlimit_as_bytes
+    7: required i64 rlimit_cpu_seconds
+    8: required i64 rlimit_nofile
+    9: required i64 rlimit_core
+}

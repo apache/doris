@@ -227,19 +227,27 @@ public final class LanceIndexAdmission {
             }
             rejectInvalid("index '" + indexName + "' not found");
         }
+        // A DROP persists the same recomputable schema contract v1 a CREATE persists, so the
+        // worker revalidates one contract path for all three mutation types against the pinned
+        // admission snapshot (no second metadata read: the binding facts all ride this snapshot).
+        String storedColumnName = resolveDropContractField(snapshot, storedName);
+        LanceIndexSchemaContract contract =
+                LanceSchemaContractBuilder.build(snapshot.getTopLevelFields(), storedColumnName);
         String locator = normalizeLocator(snapshot);
         assertPositiveQuotas();
         return catalogMgr.withLanceIndexAdmission(catalog, target, () -> {
             long jobId = Env.getCurrentEnv().getNextId();
             String creator = ConnectContext.get().getQualifiedUser();
             // DROP only runs past the preflight with a unique match, so the stored display name is
-            // always persisted (section 4.1); definition fields stay null on a DROP job record.
+            // always persisted (section 4.1); the resolved column name and schema contract are
+            // persisted too, while indexType and propertiesJson stay null because a DROP carries
+            // no build definition.
             LanceIndexJob job;
             try {
                 job = new LanceIndexJob(jobId, creator, catalog.getId(), db.getFullName(), table.getName(),
                         LanceIndexFenceKey.PROVIDER_DIRECTORY, locator, storedName, normalizedName,
-                        LanceIndexJobMutationType.DROP, false, ifExists, null, null, null,
-                        snapshot.getDatasetVersion(), null);
+                        LanceIndexJobMutationType.DROP, false, ifExists, null, storedColumnName, null,
+                        snapshot.getDatasetVersion(), contract);
                 snapshotEffectiveBounds(job);
             } catch (IllegalArgumentException e) {
                 throw invalidAdmission(e.getMessage());
@@ -250,6 +258,50 @@ public final class LanceIndexAdmission {
                     Config.lance_index_job_max_unresolved_global);
             return new Outcome(jobId);
         });
+    }
+
+    /**
+     * Resolves the single indexed column of a matched DROP target to the raw name of the
+     * top-level Lance field it binds, so the DROP record persists the same recomputable
+     * contract a CREATE persists. The logical column is a loader path segment — field names
+     * containing characters outside [A-Za-z0-9_] are backtick-escaped (embedded backticks
+     * doubled) — so every top-level field name is formatted with the same rule and compared
+     * exactly; the raw {@link LanceField#getName()} is what the contract builder keys on.
+     * A composite index, a column bound to a nested field or a path no top-level field
+     * produces, and a schema with two fields formatting to that path all fail admission
+     * closed: Doris DDL only ever admits a top-level single-column index, so anything else
+     * is provider state outside the supported matrix rather than a DROP to guess at.
+     */
+    private static String resolveDropContractField(LanceIndexAdmissionSnapshot snapshot,
+            String storedName) throws AnalysisException {
+        LanceShowIndexInfo logical = null;
+        for (LanceShowIndexInfo index : snapshot.getLogicalIndexes()) {
+            if (index.getName().equals(storedName)) {
+                logical = index;
+                break;
+            }
+        }
+        if (logical == null || logical.getColumns().size() != 1) {
+            // A null logical is unreachable (storedName was resolved from the same list); the
+            // composite case is the real guard and follows the matchesExistingDefinition rule.
+            rejectInvalid("index '" + storedName + "' is not a single-column index");
+        }
+        String columnPath = logical.getColumns().get(0);
+        String resolved = null;
+        for (LanceField field : snapshot.getTopLevelFields()) {
+            if (LanceIndexInspection.formatFieldPathSegment(field.getName()).equals(columnPath)) {
+                if (resolved != null) {
+                    rejectInvalid("index column of index '" + storedName
+                            + "' is ambiguous: multiple Lance fields share its path segment");
+                }
+                resolved = field.getName();
+            }
+        }
+        if (resolved == null) {
+            rejectInvalid("index column of index '" + storedName
+                    + "' does not resolve to a top-level Lance field");
+        }
+        return resolved;
     }
 
     /**

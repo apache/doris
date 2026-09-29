@@ -938,6 +938,41 @@ public class LanceIndexJobDispatcherTest {
         Assertions.assertFalse(request.isSetMaxNumSubVectors());
     }
 
+    @Test
+    public void createDispatchCarriesThePersistedSchemaContract() throws Exception {
+        admitWithContract(1L, "IdxA", LOCATOR, LanceIndexJobMutationType.CREATE, false, true);
+
+        dispatcher.runAfterCatalogReady();
+
+        Assertions.assertEquals(1, dispatcher.sends.size());
+        TLanceIndexJobDispatch request = dispatcher.sends.get(0);
+        Assertions.assertFalse(request.getSchemaContractJson().isEmpty());
+        // The wire form is exactly the Gson serialization of the durable contract.
+        Assertions.assertEquals(GsonUtils.GSON.toJson(manager.getJob(1L).getSchemaContract()),
+                request.getSchemaContractJson());
+        Assertions.assertEquals("IVF_PQ", request.getIndexType());
+        Assertions.assertEquals("v", request.getColumnName());
+    }
+
+    @Test
+    public void dropDispatchCarriesThePersistedSchemaContract() throws Exception {
+        admitWithContract(1L, "IdxA", LOCATOR, LanceIndexJobMutationType.DROP, true, false);
+
+        dispatcher.runAfterCatalogReady();
+
+        Assertions.assertEquals(1, dispatcher.sends.size());
+        TLanceIndexJobDispatch request = dispatcher.sends.get(0);
+        Assertions.assertEquals(TLanceIndexMutationType.DROP, request.getMutationType());
+        // A DROP with a persisted contract sends it like a CREATE; only the build-definition
+        // fields a DROP never carries travel as the empty string.
+        Assertions.assertFalse(request.getSchemaContractJson().isEmpty());
+        Assertions.assertEquals(GsonUtils.GSON.toJson(manager.getJob(1L).getSchemaContract()),
+                request.getSchemaContractJson());
+        Assertions.assertEquals("v", request.getColumnName());
+        Assertions.assertEquals("", request.getIndexType());
+        Assertions.assertFalse(request.isSetPropertiesJson());
+    }
+
     // ------------------------------------------------------------------
     // Backpressure
     // ------------------------------------------------------------------
@@ -1500,6 +1535,19 @@ public class LanceIndexJobDispatcherTest {
         job.setAdmittedMaxNumPartitions(maxNumPartitions);
         job.setAdmittedMaxNumSubVectors(maxNumSubVectors);
         manager.createJob(job, 100, 100, 100);
+    }
+
+    private void admitWithContract(long jobId, String displayName, String locator,
+            LanceIndexJobMutationType mutationType, boolean ifExists, boolean withIndexType)
+            throws Exception {
+        LanceIndexSchemaContract contract = new LanceIndexSchemaContract(Collections.singletonList(
+                new LanceIndexSchemaContract.IndexedField(1, "v", "fixed_size_list", false, 4,
+                        "float32", true)));
+        manager.createJob(new LanceIndexJob(jobId, "tester", CATALOG_ID, "db1", "tbl1",
+                LanceIndexFenceKey.PROVIDER_DIRECTORY, locator,
+                displayName, LanceIndexNameNormalizer.normalize(displayName),
+                mutationType, false, ifExists, withIndexType ? "IVF_PQ" : null, "v",
+                null, 7L, contract), 100, 100, 100);
     }
 
     private static TLanceIndexJobDispatch minimalDispatch(long jobId) {

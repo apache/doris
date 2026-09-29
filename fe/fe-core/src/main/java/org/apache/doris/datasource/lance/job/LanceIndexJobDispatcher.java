@@ -752,9 +752,13 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
      * durable record landed with exactly this identity). The invocation secret
      * completes that identity on the wire: the selected BE is the only party
      * that ever receives it, so its echo in the result report is what proves
-     * the reporter is the dispatched BE. Definition fields a DROP never carries
-     * travel as the empty string: the wire marks them required, and the worker
-     * only reads them for CREATE and REPLACE.
+     * the reporter is the dispatched BE. Definition fields a
+     * DROP never carries (index type, build properties) travel as the empty
+     * string or stay unset: the wire marks the name strings required, and the
+     * worker only reads them for CREATE and REPLACE. A DROP admitted with
+     * contract persistence carries its column name and schema contract like a
+     * CREATE; a DROP record replayed from before that change still sends the
+     * empty contract string, which a new worker safely rejects.
      */
     private TLanceIndexJobDispatch buildDispatch(LanceIndexJob job, long dispatchRevision, String invocationId,
             String invocationSecret, long deadlineMs, long beProcessEpoch, Map<String, String> storageOptions) {

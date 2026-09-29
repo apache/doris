@@ -142,7 +142,12 @@ public class LanceIndexJob implements Writable {
     @SerializedName(value = "adv")
     private long admittedDatasetVersion;
 
-    /** Nullable only for DROP, which does not revalidate an indexed-field contract. */
+    /**
+     * Non-null for every new admission, DROP included: the worker revalidates one
+     * contract path for all three mutation types. Null only in records replayed from
+     * before DROP admissions persisted a contract; the dispatcher sends those as an
+     * empty contract string and a new worker safely rejects that dispatch.
+     */
     @SerializedName(value = "sc")
     private LanceIndexSchemaContract schemaContract;
 
