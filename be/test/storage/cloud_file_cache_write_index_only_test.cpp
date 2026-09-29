@@ -699,7 +699,6 @@ TEST_F(CloudFileCacheWriteIndexOnlyTest,
     auto writer_result = RowsetFactory::create_rowset_writer(*_engine, context, true);
     ASSERT_TRUE(writer_result.has_value()) << writer_result.error();
     auto rowset_writer = std::move(writer_result).value();
-
     std::vector<uint32_t> key_column_ids = {0};
     auto key_block = create_column_block(tablet_schema, key_column_ids, 8, 1);
     auto st = rowset_writer->add_columns(&key_block, key_column_ids, true, 4, false);
