@@ -16,6 +16,8 @@
 // under the License.
 
 #include <brpc/server.h>
+#include <bvar/bvar.h>
+#include <bvar/multi_dimension.h>
 #include <fcntl.h> // ::open
 #include <gen_cpp/cloud_version.h>
 #include <unistd.h> // ::lockf
@@ -27,9 +29,11 @@
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <list>
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <string>
 #include <thread>
 
 #include "common/arg_parser.h"
@@ -151,8 +155,9 @@ static std::string build_info() {
     return ss.str();
 }
 
-// TODO(gavin): add doris cloud role to the metrics name
-bvar::Status<uint64_t> doris_cloud_version_metrics("doris_cloud_version", [] {
+namespace {
+
+uint64_t get_doris_cloud_version_metric_value() {
     std::stringstream ss;
     ss << DORIS_CLOUD_BUILD_VERSION_MAJOR << 0 << DORIS_CLOUD_BUILD_VERSION_MINOR << 0
        << DORIS_CLOUD_BUILD_VERSION_PATCH;
@@ -160,7 +165,25 @@ bvar::Status<uint64_t> doris_cloud_version_metrics("doris_cloud_version", [] {
         ss << 0 << DORIS_CLOUD_BUILD_VERSION_HOTFIX;
     }
     return std::strtoul(ss.str().c_str(), nullptr, 10);
-}());
+}
+
+// Keep the metric name role-neutral because one doris_cloud process can run meta-service,
+// recycler, or both. Runtime roles should be represented by scrape target labels.
+bvar::MultiDimension<bvar::Status<uint64_t>> doris_cloud_version_metrics(
+        "doris_cloud_version", {"version", "major", "minor", "patch", "hotfix", "short_hash"});
+
+[[maybe_unused]] const bool doris_cloud_version_metrics_initialized = [] {
+    auto* metric = doris_cloud_version_metrics.get_stats(std::list<std::string> {
+            DORIS_CLOUD_BUILD_VERSION, std::to_string(DORIS_CLOUD_BUILD_VERSION_MAJOR),
+            std::to_string(DORIS_CLOUD_BUILD_VERSION_MINOR),
+            std::to_string(DORIS_CLOUD_BUILD_VERSION_PATCH),
+            std::to_string(DORIS_CLOUD_BUILD_VERSION_HOTFIX), DORIS_CLOUD_BUILD_SHORT_HASH});
+    CHECK(metric != nullptr);
+    metric->set_value(get_doris_cloud_version_metric_value());
+    return true;
+}();
+
+} // namespace
 
 namespace brpc {
 DECLARE_uint64(max_body_size);
