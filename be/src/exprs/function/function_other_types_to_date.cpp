@@ -499,21 +499,21 @@ struct DateTrunc {
         std::shared_ptr<State> state = std::make_shared<State>();
         state->timezone = context->state()->timezone_obj();
         state->clamp_to_timestamp_ns_min = context->is_auto_partition_boundary_context();
-        if (std::strncmp("year", lower_str.data(), 4) == 0) {
+        if (lower_str == "year") {
             state->callback_function = &execute_impl_right_const<TimeUnit::YEAR>;
-        } else if (std::strncmp("quarter", lower_str.data(), 7) == 0) {
+        } else if (lower_str == "quarter") {
             state->callback_function = &execute_impl_right_const<TimeUnit::QUARTER>;
-        } else if (std::strncmp("month", lower_str.data(), 5) == 0) {
+        } else if (lower_str == "month") {
             state->callback_function = &execute_impl_right_const<TimeUnit::MONTH>;
-        } else if (std::strncmp("week", lower_str.data(), 4) == 0) {
+        } else if (lower_str == "week") {
             state->callback_function = &execute_impl_right_const<TimeUnit::WEEK>;
-        } else if (std::strncmp("day", lower_str.data(), 3) == 0) {
+        } else if (lower_str == "day") {
             state->callback_function = &execute_impl_right_const<TimeUnit::DAY>;
-        } else if (std::strncmp("hour", lower_str.data(), 4) == 0) {
+        } else if (lower_str == "hour") {
             state->callback_function = &execute_impl_right_const<TimeUnit::HOUR>;
-        } else if (std::strncmp("minute", lower_str.data(), 6) == 0) {
+        } else if (lower_str == "minute") {
             state->callback_function = &execute_impl_right_const<TimeUnit::MINUTE>;
-        } else if (std::strncmp("second", lower_str.data(), 6) == 0) {
+        } else if (lower_str == "second") {
             state->callback_function = &execute_impl_right_const<TimeUnit::SECOND>;
         } else {
             return Status::RuntimeError(
