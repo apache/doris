@@ -42,7 +42,7 @@ import org.junit.Assert;
  * The IVM side of the same change, where the state is what escalates the next refresh to a whole-MV
  * COMPLETE, is pinned in the ivm directory.
  */
-suite("test_drop_unreferenced_column_mtmv", "mtmv") {
+suite("test_drop_unreferenced_column_mtmv") {
     String dbName = context.config.getDbNameByFile(context.file)
     String suiteName = "test_drop_unreferenced_column_mtmv"
 
