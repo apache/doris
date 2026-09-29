@@ -20,7 +20,6 @@
 #include <vector>
 
 #include "core/field.h"
-#include "storage/index/analyzer_key_matcher.h"
 #include "storage/index/index_iterator.h"
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/inverted_index_reader.h"
@@ -36,17 +35,11 @@ struct InvertedIndexParam {
     uint32_t num_rows;
     std::shared_ptr<roaring::Roaring> roaring;
     bool skip_try = false;
+    // Non-null only when the caller consumes both the query result and this reader's null bitmap.
+    InvertedIndexQueryCacheHandle* null_bitmap_cache_handle = nullptr;
     // Pointer to analyzer context (can be nullptr if not needed)
     // Used by FullTextIndexReader for tokenization
     const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr;
-};
-
-// Entry representing an inverted index reader with its type and analyzer key.
-// Used by InvertedIndexIterator and AnalyzerKeyMatcher for reader selection.
-struct ReaderEntry {
-    InvertedIndexReaderType type;
-    std::string analyzer_key;
-    InvertedIndexReaderPtr reader;
 };
 
 class InvertedIndexIterator : public IndexIterator {

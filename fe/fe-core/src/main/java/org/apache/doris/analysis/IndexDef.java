@@ -237,6 +237,16 @@ public class IndexDef {
                 || primitiveType.isVariantType() || primitiveType.isIPType();
     }
 
+    private boolean isSupportSniiIdxType(Type colType) {
+        if (colType.isArrayType()) {
+            Type itemType = ((ArrayType) colType).getItemType();
+            return !itemType.isArrayType() && (itemType.isStringType()
+                    || InvertedIndexUtil.isSupportSniiNumericIdxType(itemType.getPrimitiveType()));
+        }
+        return colType.isStringType() || colType.isVariantType()
+                || InvertedIndexUtil.isSupportSniiNumericIdxType(colType.getPrimitiveType());
+    }
+
     public void checkColumn(Column column, KeysType keysType, boolean enableUniqueKeyMergeOnWrite,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
         if (indexType == IndexType.ANN) {
@@ -273,7 +283,13 @@ public class IndexDef {
             caseSensitivityColumns.add(indexColName);
             PrimitiveType colType = column.getDataType();
             Type columnType = column.getType();
-            if (!isSupportIdxType(columnType)) {
+            boolean isSniiInvertedIndex = indexType == IndexType.INVERTED
+                    && invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.SNII;
+            if (isSniiInvertedIndex && !isSupportSniiIdxType(columnType)) {
+                throw new AnalysisException("SNII inverted index storage format does not support index on column: "
+                        + indexColName);
+            }
+            if (!isSniiInvertedIndex && !isSupportIdxType(columnType)) {
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString() + " index. "
                         + "invalid index: " + indexName);
             }

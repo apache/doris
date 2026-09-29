@@ -19,6 +19,12 @@
 
 #include <gtest/gtest.h>
 
+#include <exception>
+#include <future>
+#include <latch>
+#include <thread>
+
+#include "common/config.h"
 #include "runtime/exec_env.h"
 #include "storage/index/inverted/analysis_factory_mgr.h"
 #include "storage/index/inverted/analyzer/analyzer.h"

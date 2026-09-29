@@ -23,6 +23,11 @@
 
 namespace doris::segment_v2::inverted_index {
 
+namespace char_tokenizer_testing {
+uint64_t non_ascii_decode_count();
+void reset_non_ascii_decode_count();
+} // namespace char_tokenizer_testing
+
 class CharGroupTokenizerTest : public ::testing::Test {
 protected:
     std::vector<std::string> tokenize(CharGroupTokenizerFactory& factory, const std::string& text) {
@@ -63,6 +68,22 @@ TEST_F(CharGroupTokenizerTest, TokenizeOnSpace) {
     auto tokens = tokenize(factory, "Hello World\tTab\nNewline");
     std::vector<std::string> expected = {"Hello", "World", "Tab", "Newline"};
     ASSERT_EQ(tokens, expected);
+}
+
+TEST_F(CharGroupTokenizerTest, ASCIIUsesPrecomputedClassification) {
+    CharGroupTokenizerFactory factory;
+    Settings settings;
+    settings.set("tokenize_on_chars", "[whitespace], [punctuation]");
+    factory.initialize(settings);
+
+    char_tokenizer_testing::reset_non_ascii_decode_count();
+    EXPECT_EQ(tokenize(factory, "Hello, ASCII world!"),
+              (std::vector<std::string> {"Hello", "ASCII", "world"}));
+    EXPECT_EQ(char_tokenizer_testing::non_ascii_decode_count(), 0);
+
+    EXPECT_EQ(tokenize(factory, "Hello \xE4\xB8\x96\xE7\x95\x8C"),
+              (std::vector<std::string> {"Hello", "\xE4\xB8\x96\xE7\x95\x8C"}));
+    EXPECT_EQ(char_tokenizer_testing::non_ascii_decode_count(), 2);
 }
 
 TEST_F(CharGroupTokenizerTest, TokenizeOnLetter) {

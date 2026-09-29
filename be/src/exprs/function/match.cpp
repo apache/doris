@@ -36,7 +36,7 @@ const InvertedIndexAnalyzerCtx* get_match_analyzer_ctx(FunctionContext* context)
     if (context == nullptr) {
         return nullptr;
     }
-    auto* analyzer_ctx = reinterpret_cast<const InvertedIndexAnalyzerCtx*>(
+    const auto* analyzer_ctx = reinterpret_cast<const InvertedIndexAnalyzerCtx*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
     if (analyzer_ctx == nullptr) {
         analyzer_ctx = reinterpret_cast<const InvertedIndexAnalyzerCtx*>(
@@ -82,6 +82,8 @@ Status FunctionMatchBase::evaluate_inverted_index(
     param.query_type = get_query_type_from_fn_name();
     param.num_rows = num_rows;
     param.roaring = std::make_shared<roaring::Roaring>();
+    segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+    param.null_bitmap_cache_handle = &null_bitmap_cache_handle;
     param.analyzer_ctx = analyzer_ctx;
     if (is_string_type(param_type)) {
         RETURN_IF_ERROR(iter->read_from_index(&param));
@@ -90,11 +92,11 @@ Status FunctionMatchBase::evaluate_inverted_index(
                 "invalid params type for FunctionMatchBase::evaluate_inverted_index {}",
                 param_type);
     }
-    std::shared_ptr<roaring::Roaring> null_bitmap = std::make_shared<roaring::Roaring>();
-    if (iter->has_null()) {
-        segment_v2::InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-        RETURN_IF_ERROR(iter->read_null_bitmap(&null_bitmap_cache_handle));
-        null_bitmap = null_bitmap_cache_handle.get_bitmap();
+    std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
+    if (null_bitmap == nullptr) {
+        // query_with_null_bitmap leaves the handle empty only when the selected reader proves that
+        // the index has no null rows.
+        null_bitmap = std::make_shared<roaring::Roaring>();
     }
     segment_v2::InvertedIndexResultBitmap result(param.roaring, null_bitmap);
     bitmap_result = result;
@@ -117,7 +119,7 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
     std::string column_name = block.get_by_position(arguments[0]).name;
     VLOG_DEBUG << "begin to execute match directly, column_name=" << column_name
                << ", match_query_str=" << match_query_str;
-    auto* analyzer_ctx = get_match_analyzer_ctx(context);
+    const auto* analyzer_ctx = get_match_analyzer_ctx(context);
     const ColumnPtr source_col =
             block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
     const auto* values = check_and_get_column<ColumnString>(source_col.get());
@@ -192,7 +194,7 @@ std::vector<segment_v2::TermInfo> FunctionMatchBase::analyse_query_str_token(
     VLOG_DEBUG << "begin to run " << get_name() << ", parser_type: "
                << inverted_index_parser_type_to_string(analyzer_ctx->parser_type);
 
-    // A named analyzer also requires analysis when the parser is none.
+    // Raw execution is valid only when neither a named analyzer nor a builtin parser is active.
     if (!analyzer_ctx->requires_analysis()) {
         // Keyword index: all strings (including empty) are valid tokens for exact match.
         // Empty string is a valid value in keyword index and should be matchable.

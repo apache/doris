@@ -246,8 +246,8 @@ protected:
         EXPECT_TRUE(_fs->create_file(segment_path, &file_writer).ok());
         SegmentWriterOptions writer_options;
         writer_options.num_rows_per_block = 1024;
-        TestSegmentWriter writer(file_writer.get(), 0, tablet_schema, nullptr, nullptr, writer_options,
-                                 nullptr);
+        TestSegmentWriter writer(file_writer.get(), 0, tablet_schema, nullptr, nullptr,
+                                 writer_options, nullptr);
         EXPECT_TRUE(writer.init().ok());
 
         RowCursor row;

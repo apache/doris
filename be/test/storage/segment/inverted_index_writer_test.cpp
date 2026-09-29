@@ -28,6 +28,7 @@
 #include <cstring>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -38,16 +39,23 @@
 #include "core/data_type/data_type_number.h"
 #include "core/field.h"
 #include "io/fs/local_file_system.h"
+#include "runtime/index_policy/index_policy_mgr.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
+#include "storage/index/inverted/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/snii/query/bm25_scorer.h"
+#include "storage/index/snii/query/term_query.h"
+#include "storage/index/snii/snii_index_writer.h"
+#include "storage/index/snii/stats/snii_stats_provider.h"
 #include "storage/iterator/olap_data_convertor.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
+#include "util/defer_op.h"
 #include "util/faststring.h"
 #include "util/slice.h"
 
@@ -389,6 +397,49 @@ public:
 
     std::string local_segment_path(std::string base, std::string_view rowset_id, int64_t seg_id) {
         return fmt::format("{}/{}_{}.dat", base, rowset_id, seg_id);
+    }
+
+    template <typename FeedValues>
+    void write_snii_keyword_index(
+            const TabletColumn& column, std::string_view rowset_id, uint32_t ignore_above,
+            FeedValues&& feed_values, std::unique_ptr<IndexFileReader>* file_reader,
+            std::unique_ptr<snii::reader::LogicalIndexReader>* logical_reader) {
+        TabletIndexPB index_pb;
+        index_pb.set_index_type(IndexType::INVERTED);
+        index_pb.set_index_id(1);
+        index_pb.set_index_name("idx_keyword");
+        index_pb.add_col_unique_id(column.unique_id());
+        index_pb.mutable_properties()->insert({"parser", "none"});
+        index_pb.mutable_properties()->insert({"ignore_above", std::to_string(ignore_above)});
+        TabletIndex index_meta;
+        index_meta.init_from_pb(index_pb);
+
+        const std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+                local_segment_path(kTestDir, rowset_id, 0))};
+        const std::string index_path =
+                InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+        io::FileWriterPtr compound_file;
+        io::FileWriterOptions opts;
+        auto fs = io::global_local_filesystem();
+        ASSERT_TRUE(fs->create_file(index_path, &compound_file, &opts).ok());
+        IndexFileWriter index_file_writer(fs, index_path_prefix, std::string(rowset_id), 0,
+                                          InvertedIndexStorageFormatPB::SNII,
+                                          std::move(compound_file));
+
+        std::unique_ptr<IndexColumnWriter> writer;
+        ASSERT_TRUE(
+                IndexColumnWriter::create(&column, &writer, &index_file_writer, &index_meta).ok());
+        feed_values(writer.get());
+        ASSERT_TRUE(writer->finish().ok());
+        ASSERT_TRUE(index_file_writer.begin_close().ok());
+        ASSERT_TRUE(index_file_writer.finish_close().ok());
+
+        *file_reader = std::make_unique<IndexFileReader>(fs, index_path_prefix,
+                                                         InvertedIndexStorageFormatPB::SNII);
+        ASSERT_TRUE((*file_reader)->init().ok());
+        auto logical_result = (*file_reader)->open_snii_index(&index_meta);
+        ASSERT_TRUE(logical_result.has_value()) << logical_result.error();
+        *logical_reader = std::move(logical_result.value());
     }
 
     // Check if .nrm file exists in the inverted index
@@ -1639,6 +1690,100 @@ TEST_F(InvertedIndexWriterTest, FileCreationAndOutputErrorHandling) {
     status = column_writer->finish();
     // The finish might succeed or fail depending on implementation,
     // but it should not crash
+}
+
+TEST_F(InvertedIndexWriterTest, SniiCharKeywordUsesLogicalValue) {
+    TabletColumn column;
+    column.set_name("c_char");
+    column.set_unique_id(1);
+    column.set_type(FieldType::OLAP_FIELD_TYPE_CHAR);
+    column.set_length(10);
+    column.set_is_nullable(false);
+
+    std::string padded_value = "abc";
+    padded_value.resize(column.length(), '\0');
+    std::unique_ptr<IndexFileReader> file_reader;
+    std::unique_ptr<snii::reader::LogicalIndexReader> logical;
+    write_snii_keyword_index(
+            column, "snii_char_keyword_logical_value", 3,
+            [&](IndexColumnWriter* writer) {
+                const Slice value(padded_value);
+                ASSERT_TRUE(writer->add_values(column.name(), &value, 1).ok());
+            },
+            &file_reader, &logical);
+
+    std::vector<uint32_t> docids;
+    ASSERT_TRUE(snii::query::term_query(*logical, "abc", &docids).ok());
+    EXPECT_EQ(docids, (std::vector<uint32_t> {0}));
+    ASSERT_TRUE(snii::query::term_query(*logical, padded_value, &docids).ok());
+    EXPECT_TRUE(docids.empty());
+}
+
+TEST_F(InvertedIndexWriterTest, SniiArrayCharKeywordUsesLogicalValue) {
+    TabletColumn array_column;
+    array_column.set_name("c_array_char");
+    array_column.set_unique_id(1);
+    array_column.set_type(FieldType::OLAP_FIELD_TYPE_ARRAY);
+    array_column.set_is_nullable(false);
+    TabletColumn item_column;
+    item_column.set_name("item");
+    item_column.set_type(FieldType::OLAP_FIELD_TYPE_CHAR);
+    item_column.set_length(10);
+    item_column.set_is_nullable(false);
+    array_column.add_sub_column(item_column);
+
+    std::vector<std::string> padded_values {"abc", "xyz"};
+    std::vector<Slice> values;
+    values.reserve(padded_values.size());
+    for (auto& value : padded_values) {
+        value.resize(item_column.length(), '\0');
+        values.emplace_back(value);
+    }
+    const std::vector<uint64_t> offsets {0, values.size()};
+    std::unique_ptr<IndexFileReader> file_reader;
+    std::unique_ptr<snii::reader::LogicalIndexReader> logical;
+    write_snii_keyword_index(
+            array_column, "snii_array_char_keyword_logical_value", 3,
+            [&](IndexColumnWriter* writer) {
+                ASSERT_TRUE(writer->add_array_values(
+                                          field_type_size(item_column.type()), values.data(),
+                                          nullptr, reinterpret_cast<const uint8_t*>(offsets.data()),
+                                          1)
+                                    .ok());
+            },
+            &file_reader, &logical);
+
+    std::vector<uint32_t> docids;
+    ASSERT_TRUE(snii::query::term_query(*logical, "abc", &docids).ok());
+    EXPECT_EQ(docids, (std::vector<uint32_t> {0}));
+    ASSERT_TRUE(snii::query::term_query(*logical, "xyz", &docids).ok());
+    EXPECT_EQ(docids, (std::vector<uint32_t> {0}));
+}
+
+TEST_F(InvertedIndexWriterTest, SniiVarcharKeywordPreservesNulBytes) {
+    TabletColumn column;
+    column.set_name("c_varchar");
+    column.set_unique_id(1);
+    column.set_type(FieldType::OLAP_FIELD_TYPE_VARCHAR);
+    column.set_length(32);
+    column.set_is_nullable(false);
+
+    const std::string value_with_nul("abc\0tail", 8);
+    std::unique_ptr<IndexFileReader> file_reader;
+    std::unique_ptr<snii::reader::LogicalIndexReader> logical;
+    write_snii_keyword_index(
+            column, "snii_varchar_keyword_preserves_nul", 32,
+            [&](IndexColumnWriter* writer) {
+                const Slice value(value_with_nul);
+                ASSERT_TRUE(writer->add_values(column.name(), &value, 1).ok());
+            },
+            &file_reader, &logical);
+
+    std::vector<uint32_t> docids;
+    ASSERT_TRUE(snii::query::term_query(*logical, value_with_nul, &docids).ok());
+    EXPECT_EQ(docids, (std::vector<uint32_t> {0}));
+    ASSERT_TRUE(snii::query::term_query(*logical, "abc", &docids).ok());
+    EXPECT_TRUE(docids.empty());
 }
 
 // Norms take one byte per segment row for every indexed path, so an index on a variant path (a

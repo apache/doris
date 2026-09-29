@@ -542,6 +542,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String FILE_CACHE_QUERY_LIMIT_BYTES =
             "file_cache_query_limit_bytes";
 
+    public static final String INVERTED_INDEX_SNII_READ_NO_WRITE_FILE_CACHE =
+            "inverted_index_snii_read_no_write_file_cache";
+
     public static final String FILE_CACHE_BASE_PATH = "file_cache_base_path";
 
     public static final String ENABLE_INVERTED_INDEX_QUERY = "enable_inverted_index_query";
@@ -3248,6 +3251,13 @@ public class SessionVariable implements Serializable, Writable {
                             + "< 0 disables it, = 0 disables file cache writes from query start, "
                             + "> 0 disables file cache writes after the threshold is reached."})
     public long fileCacheQueryLimitBytes = -1;
+
+    @VariableMgr.VarAttr(name = INVERTED_INDEX_SNII_READ_NO_WRITE_FILE_CACHE, needForward = true,
+            description = {
+                    "Serve SNII index cache hits; read misses remotely without writing to the cache.",
+                    "Serve SNII index cache hits; read misses remotely without writing to the cache."
+            })
+    public boolean invertedIndexSniiReadNoWriteFileCache = false;
 
     public void setAggPhase(int phase) {
         aggPhase = phase;
@@ -5978,6 +5988,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setIcebergWriteTargetFileSizeBytes(icebergWriteTargetFileSizeBytes);
 
         tResult.setFileCacheQueryLimitBytes(fileCacheQueryLimitBytes);
+        tResult.setInvertedIndexSniiReadNoWriteFileCache(invertedIndexSniiReadNoWriteFileCache);
         return tResult;
     }
 

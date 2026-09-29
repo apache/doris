@@ -249,6 +249,9 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     case TInvertedIndexFileStorageFormat::V3:
         schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
         break;
+    case TInvertedIndexFileStorageFormat::SNII:
+        schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::SNII);
+        break;
     default:
         schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
         break;

@@ -46,6 +46,10 @@
 #include "runtime/descriptors.h"
 #include "runtime/query_context.h"
 #include "runtime/task_execution_context.h"
+#include "storage/options.h"
+#include "storage/storage_engine.h"
+#include "storage/tablet/tablet.h"
+#include "storage/tablet/tablet_meta.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "util/countdown_latch.h"
 #include "util/debug_points.h"
@@ -243,6 +247,85 @@ TEST_F(ScannerContextTest, test_init) {
 
     st = scanner_context->init();
     ASSERT_TRUE(st.ok());
+}
+
+TEST_F(ScannerContextTest, inverted_index_profile_collection_is_additive_and_idempotent) {
+    auto engine = std::make_unique<StorageEngine>(EngineOptions {});
+    auto tablet_meta = std::make_shared<TabletMeta>(1, 2, 15673, 15674, 4, 5, TTabletSchema {}, 6,
+                                                    std::unordered_map<uint32_t, uint32_t> {{7, 8}},
+                                                    UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
+                                                    TCompressionType::LZ4F);
+    auto tablet = std::make_shared<Tablet>(*engine, std::move(tablet_meta), nullptr);
+    const int parallel_tasks = 1;
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
+    auto local_state = OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+    const std::vector<TScanRangeParams> scan_ranges;
+    const std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
+                                  std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
+    LocalStateInfo local_state_info {profile.get(), scan_ranges, nullptr, shared_state_map, 0};
+    const Status init_status = local_state->init(state.get(), local_state_info);
+    ASSERT_TRUE(init_status.ok()) << init_status.to_string();
+
+    auto make_scanner = [&]() {
+        OlapScanner::Params params;
+        params.state = state.get();
+        params.profile = profile.get();
+        params.version = 0;
+        params.limit = -1;
+        params.aggregation = false;
+        return OlapScanner::create_shared(local_state.get(), std::move(params));
+    };
+    auto scanner1 = make_scanner();
+    auto scanner2 = make_scanner();
+    scanner1->_tablet_reader_params.tablet = tablet;
+    scanner2->_tablet_reader_params.tablet = tablet;
+    scanner1->_tablet_reader = std::make_unique<TabletReader>();
+    scanner2->_tablet_reader = std::make_unique<TabletReader>();
+    auto* stats1 = scanner1->_tablet_reader->mutable_stats();
+    stats1->snii_stats.prx_raw_frames = 1;
+    stats1->snii_stats.prx_plaintext_bytes = 10;
+    stats1->snii_stats.prx_decode_ns = 100;
+    stats1->snii_stats.phrase_candidate_docs = 3;
+    auto* stats2 = scanner2->_tablet_reader->mutable_stats();
+    stats2->snii_stats.prx_raw_frames = 2;
+    stats2->snii_stats.prx_plaintext_bytes = 20;
+    stats2->snii_stats.prx_decode_ns = 200;
+    stats2->snii_stats.phrase_candidate_docs = 4;
+
+    RuntimeProfile* index_filter = local_state->_index_filter_profile.get();
+    ASSERT_NE(index_filter, nullptr);
+    auto* raw_frames = index_filter->get_counter("SniiPrxRawFrames");
+    auto* plaintext_bytes = index_filter->get_counter("SniiPrxPlaintextBytes");
+    auto* decode_time = index_filter->get_counter("SniiPrxInclusiveDecodeTime");
+    auto* phrase_candidate_docs = index_filter->get_counter("SniiPhraseCandidateDocs");
+
+    std::vector<TRuntimeProfileNode> zero_nodes;
+    index_filter->to_thrift(&zero_nodes);
+    ASSERT_EQ(zero_nodes.size(), 1U);
+    ASSERT_NE(raw_frames, nullptr);
+    ASSERT_NE(plaintext_bytes, nullptr);
+    ASSERT_NE(decode_time, nullptr);
+    ASSERT_NE(phrase_candidate_docs, nullptr);
+
+    scanner1->_collect_profile_before_close();
+    EXPECT_EQ(raw_frames->value(), 1);
+    EXPECT_EQ(plaintext_bytes->value(), 10);
+    EXPECT_EQ(decode_time->value(), 100);
+    EXPECT_EQ(phrase_candidate_docs->value(), 3);
+
+    scanner1->_collect_profile_before_close();
+    EXPECT_EQ(raw_frames->value(), 1);
+    EXPECT_EQ(plaintext_bytes->value(), 10);
+    EXPECT_EQ(decode_time->value(), 100);
+    EXPECT_EQ(phrase_candidate_docs->value(), 3);
+
+    scanner2->_collect_profile_before_close();
+    EXPECT_EQ(raw_frames->value(), 3);
+    EXPECT_EQ(plaintext_bytes->value(), 30);
+    EXPECT_EQ(decode_time->value(), 300);
+    EXPECT_EQ(phrase_candidate_docs->value(), 7);
 }
 
 TEST_F(ScannerContextTest, test_serial_run) {

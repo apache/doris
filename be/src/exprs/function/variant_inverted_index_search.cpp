@@ -36,6 +36,7 @@
 #include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/inverted_index_searcher.h"
+#include "storage/index/inverted/inverted_index_selector.h"
 #include "storage/index/inverted/query_v2/bit_set_query/bit_set_scorer.h"
 #include "storage/index/inverted/query_v2/doc_set.h"
 #include "storage/index/inverted/query_v2/scorer.h"
@@ -175,18 +176,18 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
 
     InvertedIndexQueryType effective_query_type = query_type;
     const auto& column_type = data_it->second.second;
-    const bool is_text_field =
-            column_type != nullptr && is_string_type(column_type->get_storage_field_type());
+    const bool is_text_field = column_type != nullptr &&
+                               is_string_type(get_inverted_index_leaf_field_type(column_type));
     auto fb_it = _field_binding_map.find(field_name);
     std::string analyzer_key;
-    if (is_text_field && is_variant_sub && fb_it != _field_binding_map.end() &&
-        fb_it->second->__isset.index_properties && !fb_it->second->index_properties.empty()) {
+    if (is_text_field && effective_query_type != InvertedIndexQueryType::EQUAL_QUERY &&
+        fb_it != _field_binding_map.end() && fb_it->second->__isset.index_properties &&
+        !fb_it->second->index_properties.empty()) {
         analyzer_key = normalize_analyzer_key(
                 build_analyzer_key_from_properties(fb_it->second->index_properties));
         if (inverted_index::InvertedIndexAnalyzer::should_analyzer(
                     fb_it->second->index_properties) &&
-            (effective_query_type == InvertedIndexQueryType::EQUAL_QUERY ||
-             effective_query_type == InvertedIndexQueryType::WILDCARD_QUERY)) {
+            effective_query_type == InvertedIndexQueryType::WILDCARD_QUERY) {
             effective_query_type = InvertedIndexQueryType::MATCH_ANY_QUERY;
         }
     }
@@ -237,12 +238,7 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     resolved.inverted_reader = inverted_reader;
     resolved.binding_key = binding_key;
     resolved.state = SearchFieldBindingState::BOUND;
-    if (fb_it != _field_binding_map.end() && fb_it->second->__isset.index_properties &&
-        !fb_it->second->index_properties.empty()) {
-        resolved.index_properties = fb_it->second->index_properties;
-    } else {
-        resolved.index_properties = inverted_reader->get_index_properties();
-    }
+    resolved.index_properties = inverted_reader->get_index_properties();
     resolved.analyzer_key =
             normalize_analyzer_key(build_analyzer_key_from_properties(resolved.index_properties));
 
@@ -262,6 +258,7 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     }
 
     if (inverted_reader->type() == InvertedIndexReaderType::BKD) {
+        resolved.execution_mode = SearchFieldExecutionMode::DIRECT_INDEX;
         _cache.emplace(binding_key, resolved);
         if (is_variant_sub) {
             bool index_file_exists = false;
@@ -279,6 +276,29 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
                                 inverted_reader->get_index_meta().get_index_suffix(),
                                 reader_type_to_string(inverted_reader->type()), index_file_exists,
                                 probe_status.ok() ? "OK" : probe_status.to_string(),
+                                index_file_reader->get_index_file_path(
+                                        &inverted_reader->get_index_meta())));
+        }
+        *binding = resolved;
+        return Status::OK();
+    }
+
+    if (index_file_reader->get_storage_format() == InvertedIndexStorageFormatPB::SNII) {
+        resolved.execution_mode = SearchFieldExecutionMode::SNII_NATIVE;
+        _cache.emplace(binding_key, resolved);
+        if (is_variant_sub) {
+            add_search_binding_diagnostic(
+                    _context,
+                    fmt::format("[VariantSearchBinding] phase=field_resolve "
+                                "result=selected_snii_native logical_field={} stored_field={} "
+                                "query_type={} effective_query_type={} index_id={} suffix={} "
+                                "reader_type={} analyzer_key={} index_file={}",
+                                field_name, stored_field_name, query_type_to_string(query_type),
+                                query_type_to_string(effective_query_type),
+                                inverted_reader->get_index_id(),
+                                inverted_reader->get_index_meta().get_index_suffix(),
+                                reader_type_to_string(inverted_reader->type()),
+                                resolved.analyzer_key,
                                 index_file_reader->get_index_file_path(
                                         &inverted_reader->get_index_meta())));
         }
@@ -328,7 +348,6 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
                 index_file_reader->init(config::inverted_index_read_buffer_size, _context->io_ctx));
         auto directory = DORIS_TRY(
                 index_file_reader->open(&inverted_reader->get_index_meta(), _context->io_ctx));
-
         auto index_searcher_builder = DORIS_TRY(
                 IndexSearcherBuilder::create_index_searcher_builder(inverted_reader->type()));
         auto searcher_result =
@@ -371,6 +390,7 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     _searcher_cache_handles.push_back(std::move(searcher_cache_handle));
 
     resolved.lucene_reader = reader_holder;
+    resolved.execution_mode = SearchFieldExecutionMode::CLUCENE;
     _binding_readers[binding_key] = reader_holder;
     _field_readers[resolved.stored_field_wstr] = reader_holder;
     _readers.emplace_back(reader_holder);
@@ -398,6 +418,24 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
                                 &inverted_reader->get_index_meta())));
     }
     *binding = resolved;
+    return Status::OK();
+}
+
+Status FieldReaderResolver::resolve_with_analyzer_context(const std::string& field_name,
+                                                          InvertedIndexQueryType query_type,
+                                                          FieldReaderBinding* binding) {
+    RETURN_IF_ERROR(resolve(field_name, query_type, binding));
+    if (!binding->use_snii_native_reader() || binding->analyzer_context != nullptr) {
+        return Status::OK();
+    }
+
+    auto built_context =
+            build_search_analyzer_context(binding->index_properties, binding->analyzer_key);
+    if (!built_context.has_value()) {
+        return built_context.error();
+    }
+    binding->analyzer_context = std::move(built_context.value());
+    _cache.at(binding->binding_key).analyzer_context = binding->analyzer_context;
     return Status::OK();
 }
 

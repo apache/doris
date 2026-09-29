@@ -44,6 +44,7 @@
 #include "core/type_limit.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
+#include "storage/index/bkd_field_encoding.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_reader_helper.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
@@ -85,36 +86,11 @@ static void bkd_encode_max(const doris::KeyCoder* coder, std::string* out) {
     coder->full_encode_ascending(&v, out);
 }
 
-static doris::Status encode_bkd_field_ascending(doris::FieldType ft, const doris::Field& field,
-                                                const doris::KeyCoder* coder, std::string* out) {
-    // `actual` is the primitive type of the query Field from the caller; `PrimitiveType::PT` is the
-    // scalar type the BKD index stores (e.g. INT for an INT column or ARRAY<INT> index).
-    // Normally they match: `int_col = 1` -> both INT; `array_contains(int_arr, 2)` -> both INT.
-    // Mismatch happens when the query Field carries a non-scalar while BKD records the inner scalar:
-    // `arr = []` reaches here via `FunctionComparison<EqualsOp>` with the entire const ARRAY literal
-    // as the query Field, so `actual = TYPE_ARRAY` while PT is the inner scalar -- the predicate
-    // cannot be answered by BKD. Return INVERTED_INDEX_EVALUATE_SKIPPED so `_apply_index_expr`
-    // downgrades to scalar evaluation instead of crashing on `Field::get<PT>()` DCHECK below.
-#define CASE(FT, PT)                                                                               \
-    case doris::FieldType::FT: {                                                                   \
-        const auto actual = field.get_type();                                                      \
-        if (actual != doris::PrimitiveType::PT && actual != doris::PrimitiveType::TYPE_NULL &&     \
-            !(doris::is_string_type(actual) && doris::is_string_type(doris::PrimitiveType::PT))) { \
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED, false>( \
-                    "BKD query value type {} does not match index type {}",                        \
-                    static_cast<int>(actual), static_cast<int>(ft));                               \
-        }                                                                                          \
-        doris::full_encode_field_as_key<doris::PrimitiveType::PT>(field, coder, out);              \
-        return doris::Status::OK();                                                                \
-    }
-    switch (ft) {
-        DORIS_APPLY_FOR_KEY_ENCODABLE_NON_STRING_TYPES(CASE)
-    default:
-        break;
-    }
-#undef CASE
-    return doris::Status::InternalError("unsupported BKD field type {}", static_cast<int>(ft));
-}
+// encode_bkd_field_ascending now lives in storage/index/bkd_field_encoding.h so
+// the SNII-native BKD reader encodes query values through the exact same
+// definition (INV-1); only the +/- infinity sentinels below stay here, being an
+// artifact of this visitor's always-closed bounds.
+using doris::encode_bkd_field_ascending;
 
 static doris::Status encode_bkd_min_ascending(doris::FieldType ft, const doris::KeyCoder* coder,
                                               std::string* out) {
@@ -153,6 +129,20 @@ namespace doris::segment_v2 {
 
 std::string InvertedIndexReader::get_index_file_path() {
     return _index_file_reader->get_index_file_path(&_index_meta);
+}
+
+Status InvertedIndexReader::query_with_null_bitmap(
+        const IndexQueryContextPtr& context, const std::string& column_name,
+        const Field& query_value, InvertedIndexQueryType query_type,
+        std::shared_ptr<roaring::Roaring>& bit_map,
+        InvertedIndexQueryCacheHandle* null_bitmap_cache_handle,
+        const InvertedIndexAnalyzerCtx* analyzer_ctx) {
+    DORIS_CHECK(null_bitmap_cache_handle != nullptr);
+    RETURN_IF_ERROR(query(context, column_name, query_value, query_type, bit_map, analyzer_ctx));
+    if (!has_null()) {
+        return Status::OK();
+    }
+    return read_null_bitmap(context, null_bitmap_cache_handle);
 }
 
 Status InvertedIndexReader::read_null_bitmap(const IndexQueryContextPtr& context,
@@ -220,15 +210,16 @@ bool InvertedIndexReader::handle_query_cache(const IndexQueryContextPtr& context
                                              InvertedIndexQueryCache* cache,
                                              const InvertedIndexQueryCache::CacheKey& cache_key,
                                              InvertedIndexQueryCacheHandle* cache_handler,
-                                             std::shared_ptr<roaring::Roaring>& bit_map) {
+                                             std::shared_ptr<roaring::Roaring>& bit_map,
+                                             bool enabled) {
     const auto& query_options = context->runtime_state->query_options();
-
-    bool cache_hit = false;
-    if (query_options.enable_inverted_index_query_cache) {
-        SCOPED_RAW_TIMER(&context->stats->inverted_index_lookup_timer);
-        cache_hit = cache->lookup(cache_key, cache_handler);
+    if (!enabled || !query_options.enable_inverted_index_query_cache) {
+        return false;
     }
 
+    context->stats->inverted_index_query_cache_lookup++;
+    SCOPED_RAW_TIMER(&context->stats->inverted_index_lookup_timer);
+    const bool cache_hit = cache->lookup(cache_key, cache_handler);
     if (cache_hit) {
         DBUG_EXECUTE_IF("InvertedIndexReader.handle_query_cache_hit", {
             return Status::Error<ErrorCode::INTERNAL_ERROR>("handle query cache hit");
@@ -244,6 +235,19 @@ bool InvertedIndexReader::handle_query_cache(const IndexQueryContextPtr& context
     });
     context->stats->inverted_index_query_cache_miss++;
     return false;
+}
+
+void InvertedIndexReader::insert_query_cache(const IndexQueryContextPtr& context,
+                                             InvertedIndexQueryCache* cache,
+                                             const InvertedIndexQueryCache::CacheKey& cache_key,
+                                             std::shared_ptr<roaring::Roaring> bit_map,
+                                             InvertedIndexQueryCacheHandle* cache_handler,
+                                             bool enabled) {
+    if (!enabled || !context->runtime_state->query_options().enable_inverted_index_query_cache) {
+        return;
+    }
+    cache->insert(cache_key, std::move(bit_map), cache_handler);
+    context->stats->inverted_index_query_cache_insert++;
 }
 
 Status InvertedIndexReader::handle_searcher_cache(
@@ -344,6 +348,10 @@ Status InvertedIndexReader::match_index_search(
         context->runtime_state->query_options().inverted_index_compatible_read) {
         reader->setCompatibleRead(true);
     }
+    // Fresh per-search reply: only the query about to run decides whether it
+    // consumes the candidate set (and thus produces an uncacheable partial
+    // result); a consumed flag left by an earlier search must not leak in.
+    context->candidate_rows_consumed = false;
     try {
         SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_timer);
         auto query = QueryFactory::create(query_type, index_searcher, context);
@@ -474,7 +482,13 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
             RETURN_IF_ERROR(match_index_search(context, query_type, query_info, *searcher_ptr,
                                                term_match_bitmap));
             term_match_bitmap->runOptimize();
-            cache->insert(cache_key, term_match_bitmap, &cache_handler);
+            // Only a bitmap whose query actually joined the candidate set is
+            // partial and must stay out of the cache; a non-consuming query
+            // (MATCH_ANY/ALL, term, regexp, single-term phrase) computed the
+            // full-segment result even while candidate_rows was published.
+            if (!context->candidate_rows_consumed) {
+                insert_query_cache(context, cache, cache_key, term_match_bitmap, &cache_handler);
+            }
             bit_map = term_match_bitmap;
         }
         return Status::OK();
@@ -540,6 +554,10 @@ Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
         query_info.field_name = column_name_ws;
         query_info.term_infos.emplace_back(search_str, 0);
 
+        // Fresh per-search reply (the range-query cases below never pass
+        // through match_index_search, so a stale consumed flag from an
+        // earlier fulltext search must be cleared here too).
+        context->candidate_rows_consumed = false;
         auto result = std::make_shared<roaring::Roaring>();
         FulltextIndexSearcherPtr* searcher_ptr = nullptr;
         InvertedIndexCacheHandle inverted_index_cache_handle;
@@ -598,9 +616,11 @@ Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
                         "invalid query type when query untokenized inverted index");
             }
         }
-        // add to cache
+        // add to cache (unless a candidate-consuming query made it partial)
         result->runOptimize();
-        cache->insert(cache_key, result, &cache_handler);
+        if (!context->candidate_rows_consumed) {
+            insert_query_cache(context, cache, cache_key, result, &cache_handler);
+        }
 
         bit_map = result;
         return Status::OK();

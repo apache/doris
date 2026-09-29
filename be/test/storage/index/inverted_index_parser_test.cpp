@@ -266,8 +266,7 @@ TEST_F(InvertedIndexParserTest, TestGetAnalyzerNameFromProperties) {
 TEST_F(InvertedIndexParserTest, TestInvertedIndexAnalyzerCtxRequiresAnalysis) {
     InvertedIndexAnalyzerCtx ctx;
 
-    // New design: should_tokenize() only depends on parser_type
-    // PARSER_NONE means no tokenization (keyword index)
+    // PARSER_NONE without a custom analyzer uses raw string matching.
     ctx.parser_type = InvertedIndexParserType::PARSER_NONE;
     ctx.analyzer_name.clear();
     EXPECT_FALSE(ctx.requires_analysis());
@@ -282,7 +281,7 @@ TEST_F(InvertedIndexParserTest, TestInvertedIndexAnalyzerCtxRequiresAnalysis) {
     ctx.parser_type = InvertedIndexParserType::PARSER_STANDARD;
     EXPECT_TRUE(ctx.requires_analysis());
 
-    // Even with custom_analyzer name, PARSER_NONE means no tokenization
+    // A custom analyzer must execute even when its legacy parser type is NONE.
     ctx.parser_type = InvertedIndexParserType::PARSER_NONE;
     ctx.analyzer_name = "custom_analyzer";
     EXPECT_TRUE(ctx.requires_analysis());
@@ -413,8 +412,6 @@ TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_ParserKeyAlias) {
 TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_ParserNone) {
     std::map<std::string, std::string> properties;
     properties[INVERTED_INDEX_PARSER_KEY] = "none";
-    // "none" is a distinct analyzer key - it means no tokenization (keyword analyzer)
-    // This is different from __default__ which means use default behavior
     EXPECT_EQ(build_analyzer_key_from_properties(properties), "none");
 }
 
@@ -422,7 +419,6 @@ TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_CustomOverridesPa
     std::map<std::string, std::string> properties;
     properties[INVERTED_INDEX_ANALYZER_NAME_KEY] = "my_custom";
     properties[INVERTED_INDEX_PARSER_KEY] = "chinese";
-    // Custom analyzer takes precedence
     EXPECT_EQ(build_analyzer_key_from_properties(properties), "my_custom");
 }
 
@@ -449,7 +445,7 @@ TEST_F(InvertedIndexParserTest, BuildAnalyzerKeyFromProperties_AnalyzerOverrides
 
 TEST_F(InvertedIndexParserTest, AnalyzerConfigParser_EmptyInput) {
     auto config = AnalyzerConfigParser::parse("", "");
-    // New design: empty input gives empty analyzer_key (means "user did not specify")
+    // Empty selection keeps the legacy default analyzer execution semantics.
     EXPECT_EQ(config.analyzer_key, "");
     EXPECT_EQ(config.parser_type, InvertedIndexParserType::PARSER_UNKNOWN);
     EXPECT_TRUE(config.provider_name.empty());
@@ -494,10 +490,15 @@ TEST_F(InvertedIndexParserTest, AnalyzerConfigParser_OnlyParserTypeStr) {
     EXPECT_TRUE(config.analyzer_key.empty());
     EXPECT_EQ(config.parser_type, InvertedIndexParserType::PARSER_STANDARD);
     EXPECT_FALSE(config.uses_provider());
+
+    config = AnalyzerConfigParser::parse("", "none");
+    EXPECT_TRUE(config.provider_name.empty());
+    EXPECT_TRUE(config.analyzer_key.empty());
+    EXPECT_EQ(config.parser_type, InvertedIndexParserType::PARSER_NONE);
+    EXPECT_FALSE(config.uses_provider());
 }
 
 TEST_F(InvertedIndexParserTest, AnalyzerConfigParser_BothAnalyzerAndParser) {
-    // parser_type_str takes precedence for determining parser_type
     auto config = AnalyzerConfigParser::parse("ik", "chinese");
     EXPECT_TRUE(config.provider_name.empty());
     EXPECT_EQ(config.parser_type, InvertedIndexParserType::PARSER_IK);
@@ -515,10 +516,10 @@ TEST_F(InvertedIndexParserTest, AnalyzerConfigParser_AnalyzerNameOverridesParser
     EXPECT_EQ(config.parser_type, InvertedIndexParserType::PARSER_IK);
     EXPECT_EQ(config.analyzer_key, build_analyzer_key_from_properties({{"analyzer", "ik"}}));
 
-    config = AnalyzerConfigParser::parse("customer_analyzer", "english");
-    EXPECT_EQ(config.provider_name, "customer_analyzer");
+    config = AnalyzerConfigParser::parse("custom_analyzer", "english");
+    EXPECT_EQ(config.provider_name, "custom_analyzer");
     EXPECT_EQ(config.parser_type, InvertedIndexParserType::PARSER_NONE);
-    EXPECT_EQ(config.analyzer_key, "customer_analyzer");
+    EXPECT_EQ(config.analyzer_key, "custom_analyzer");
 }
 
 TEST_F(InvertedIndexParserTest, AnalyzerConfigParser_CaseDistinctNameUsesProvider) {

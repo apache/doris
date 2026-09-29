@@ -43,7 +43,6 @@
 
 namespace doris::segment_v2::inverted_index {
 #include "common/compile_check_begin.h"
-
 namespace {
 
 class BuiltinAnalyzerProvider final : public AnalyzerProvider {

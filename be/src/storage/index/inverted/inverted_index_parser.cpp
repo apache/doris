@@ -118,6 +118,13 @@ bool get_index_norms_from_properties(const std::map<std::string, std::string>& p
     return true;
 }
 
+bool should_write_index_norms(const TabletIndex& index_meta) {
+    const bool variant_path_index =
+            !index_meta.get_index_suffix().empty() || !index_meta.field_pattern().empty();
+    return !(variant_path_index && config::inverted_index_skip_norms_for_variant) &&
+           get_index_norms_from_properties(index_meta.properties());
+}
+
 CharFilterMap get_parser_char_filter_map_from_properties(
         const std::map<std::string, std::string>& properties) {
     if (!properties.contains(INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE)) {
