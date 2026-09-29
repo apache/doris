@@ -1,0 +1,421 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "storage/index/snii/reader/snii_postings_cursor.h"
+
+#include <gtest/gtest.h>
+
+#include <algorithm>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include "storage/index/query/exec/block_doc_set.h"
+#include "storage/index/snii/encoding/byte_source.h"
+#include "storage/index/snii/format/prx_pod.h"
+#include "storage/index/snii/io/metered_file_reader.h"
+#include "storage/index/snii/query/internal/docid_posting_reader.h"
+#include "storage/index/snii/reader/windowed_posting.h"
+#include "storage/index/snii/writer/snii_compound_writer.h"
+#include "storage/index/snii_query_test_util.h"
+
+namespace doris::snii::reader {
+namespace {
+
+using snii_test::assert_ok;
+using snii_test::make_term;
+using snii_test::MemoryFile;
+using snii_test::PostingDoc;
+
+struct Term {
+    format::DictEntry entry;
+    uint64_t frq_base = 0;
+    uint64_t prx_base = 0;
+};
+
+// An index reopened through a metered reader, with the decoders as oracles.
+class Fixture {
+public:
+    // The shared 9000-document corpus of the SNII query tests.
+    Status open_standard() {
+        SniiSegmentReader written;
+        LogicalIndexReader written_index;
+        RETURN_IF_ERROR(snii_test::build_reader(&file, &written, &written_index));
+        return _reopen(7, "Body");
+    }
+
+    // Every posting kind with norms: "wide" is windowed, "mid" slim and "rare" inline.
+    Status open_scored() {
+        constexpr uint32_t kDocCount = 20000;
+        std::vector<PostingDoc> wide;
+        for (uint32_t doc = 0; doc < kDocCount; doc += 2) {
+            std::vector<uint32_t> positions;
+            for (uint32_t p = 0; p <= doc % 3; ++p) {
+                positions.push_back(p * 2);
+            }
+            wide.push_back({doc, std::move(positions)});
+        }
+        std::vector<PostingDoc> mid;
+        uint32_t docid = 0;
+        for (uint32_t i = 0; i < 500; ++i) {
+            docid += 1 + ((i * 2654435761U) >> 16) % 32;
+            mid.push_back({docid, {i % 2 + 1, 7}});
+        }
+        std::vector<PostingDoc> rare {{.docid = 4444, .positions = {3, 5, 9}}};
+        writer::SniiIndexInput input;
+        input.index_id = 9;
+        input.index_suffix = "body";
+        input.config = format::IndexConfig::kDocsPositions;
+        input.doc_count = kDocCount;
+        input.encoded_norms.resize(kDocCount);
+        for (uint32_t doc = 0; doc < kDocCount; ++doc) {
+            input.encoded_norms[doc] = static_cast<uint8_t>(doc % 251 + 1);
+        }
+        input.terms = {make_term("mid", std::move(mid)), make_term("rare", std::move(rare)),
+                       make_term("wide", std::move(wide))};
+        writer::SniiCompoundWriter compound_writer(&file);
+        RETURN_IF_ERROR(compound_writer.add_logical_index(input));
+        RETURN_IF_ERROR(compound_writer.finish());
+        return _reopen(9, "body");
+    }
+
+    Term lookup(std::string_view name) const {
+        Term term;
+        bool found = false;
+        EXPECT_TRUE(index.lookup(name, &found, &term.entry, &term.frq_base, &term.prx_base).ok());
+        EXPECT_TRUE(found) << name;
+        return term;
+    }
+
+    std::vector<uint32_t> oracle_docids(const Term& term) const {
+        std::vector<uint32_t> docids;
+        EXPECT_TRUE(query::internal::read_docid_posting(index, term.entry, term.frq_base,
+                                                        term.prx_base, &docids)
+                            .ok());
+        return docids;
+    }
+
+    std::vector<std::vector<uint32_t>> oracle_positions(const Term& term) const {
+        if (term.entry.kind == format::DictEntryKind::kPodRef &&
+            term.entry.enc == format::DictEntryEnc::kWindowed) {
+            DecodedPosting posting;
+            EXPECT_TRUE(read_windowed_posting(index, term.entry, term.frq_base, term.prx_base,
+                                              /*want_positions=*/true, &posting)
+                                .ok());
+            return posting.positions;
+        }
+        std::vector<uint8_t> frame_bytes;
+        Slice frame(term.entry.prx_bytes);
+        if (term.entry.kind == format::DictEntryKind::kPodRef) {
+            uint64_t offset = 0;
+            uint64_t length = 0;
+            EXPECT_TRUE(index.resolve_prx_window(term.entry, term.prx_base, &offset, &length).ok());
+            EXPECT_TRUE(index.reader()->read_at(offset, length, &frame_bytes).ok());
+            frame = Slice(frame_bytes);
+        }
+        std::vector<std::vector<uint32_t>> positions;
+        ByteSource source(frame);
+        EXPECT_TRUE(format::read_prx_window(&source, &positions).ok());
+        return positions;
+    }
+
+    std::unique_ptr<SniiPostingsCursor> cursor(
+            const Term& term, bool positions = false, bool scoring = false,
+            const format::NormsPodReader* norms = nullptr) const {
+        auto result = std::make_unique<SniiPostingsCursor>(
+                index, term.entry, term.frq_base, term.prx_base, positions, scoring, norms);
+        EXPECT_TRUE(result->open().ok());
+        return result;
+    }
+
+    uint64_t rounds() const { return metered.metrics().serial_rounds; }
+    uint64_t bytes() const { return metered.metrics().total_request_bytes; }
+
+    MemoryFile file;
+    io::MeteredFileReader metered {&file, /*block_size=*/256};
+    SniiSegmentReader segment;
+    LogicalIndexReader index;
+
+private:
+    Status _reopen(uint64_t index_id, const std::string& suffix) {
+        RETURN_IF_ERROR(SniiSegmentReader::open(&metered, &segment));
+        RETURN_IF_ERROR(segment.open_index(index_id, suffix, &index));
+        metered.reset_metrics();
+        return Status::OK();
+    }
+};
+
+std::vector<uint32_t> list_docs(SniiPostingsCursor& cursor) {
+    std::vector<uint32_t> docs;
+    index_query::BlockDocSet set(cursor);
+    while (!set.exhausted()) {
+        docs.push_back(set.doc());
+        set.advance();
+    }
+    return docs;
+}
+
+std::vector<uint32_t> positions_of(SniiPostingsCursor& cursor, uint32_t ordinal) {
+    index_query::PositionCursor* positions = nullptr;
+    EXPECT_TRUE(cursor.open_positions(ordinal, &positions).ok());
+    std::vector<uint32_t> out;
+    EXPECT_TRUE(positions->append_remaining_positions(0, out).ok());
+    return out;
+}
+
+// Compares every block's positions with the decoder's, in listing order.
+void expect_positions(const Fixture& fixture, const Term& term, const char* name) {
+    const auto expected = fixture.oracle_positions(term);
+    auto cursor = fixture.cursor(term, /*positions=*/true);
+    index_query::PostingsBlock block;
+    bool eof = false;
+    size_t doc_index = 0;
+    while (true) {
+        assert_ok(cursor->next_block(&block, &eof));
+        if (eof) {
+            break;
+        }
+        for (uint64_t ordinal = 0; ordinal < block.size(); ++ordinal, ++doc_index) {
+            ASSERT_LT(doc_index, expected.size()) << name;
+            EXPECT_EQ(positions_of(*cursor, static_cast<uint32_t>(ordinal)), expected[doc_index])
+                    << name << " doc " << block.doc_at(ordinal);
+        }
+    }
+    EXPECT_EQ(doc_index, expected.size()) << name;
+}
+
+TEST(SniiPostingsCursor, ListsEveryPostingKindLikeTheDecoder) {
+    Fixture fixture;
+    assert_ok(fixture.open_standard());
+    for (const char* name : {"123", "needle", "sparse_left", "sparse_right", "failed", "driver",
+                             "almost", "repeat", "order", "trace"}) {
+        const Term term = fixture.lookup(name);
+        auto cursor = fixture.cursor(term);
+        EXPECT_EQ(cursor->doc_freq(), term.entry.df) << name;
+        EXPECT_EQ(list_docs(*cursor), fixture.oracle_docids(term)) << name;
+    }
+}
+
+TEST(SniiPostingsCursor, DenseFullWindowsAreDenseBlocks) {
+    Fixture fixture;
+    assert_ok(fixture.open_standard());
+    const Term term = fixture.lookup("driver");
+    auto cursor = fixture.cursor(term);
+    std::vector<uint32_t> docs;
+    size_t dense_blocks = 0;
+    index_query::PostingsBlock block;
+    bool eof = false;
+    while (true) {
+        assert_ok(cursor->next_block(&block, &eof));
+        if (eof) {
+            break;
+        }
+        dense_blocks += block.dense ? 1 : 0;
+        for (uint64_t i = 0; i < block.size(); ++i) {
+            docs.push_back(block.doc_at(i));
+        }
+    }
+    EXPECT_GT(dense_blocks, 0U);
+    EXPECT_EQ(docs, fixture.oracle_docids(term));
+}
+
+TEST(SniiPostingsCursor, PositionsMatchTheDecoder) {
+    Fixture fixture;
+    assert_ok(fixture.open_standard());
+    for (const char* name : {"needle", "failed", "repeat", "order", "almost"}) {
+        expect_positions(fixture, fixture.lookup(name), name);
+    }
+}
+
+TEST(SniiPostingsCursor, SeeksLikeTheDecodedList) {
+    Fixture fixture;
+    assert_ok(fixture.open_standard());
+    for (const char* name : {"sparse_left", "failed", "needle"}) {
+        const Term term = fixture.lookup(name);
+        const auto expected = fixture.oracle_docids(term);
+        auto cursor = fixture.cursor(term);
+        index_query::BlockDocSet set(*cursor);
+        for (const uint32_t target :
+             {0U, 1U, 2U, 3U, 7U, 8U, 101U, 4000U, 4001U, 4002U, 8997U, 8998U, 8999U, 9000U}) {
+            const auto it = std::ranges::lower_bound(expected, target);
+            const bool found = set.seek(target);
+            EXPECT_EQ(found, it != expected.end()) << name << " target " << target;
+            if (found) {
+                EXPECT_EQ(set.doc(), *it) << name << " target " << target;
+            }
+        }
+    }
+}
+
+TEST(SniiPostingsCursor, ShallowSeekPositionsTheBoundWithoutDecoding) {
+    Fixture fixture;
+    assert_ok(fixture.open_standard());
+    const Term term = fixture.lookup("failed");
+    auto cursor = fixture.cursor(term);
+    bool moved = false;
+    assert_ok(cursor->shallow_seek(5000, &moved));
+    EXPECT_TRUE(moved);
+    const auto bound = cursor->current_block_bound();
+    EXPECT_TRUE(bound.last_doc_known);
+    EXPECT_GE(bound.last_doc, 5000U);
+    index_query::PostingsBlock block;
+    bool eof = false;
+    assert_ok(cursor->next_block(&block, &eof));
+    ASSERT_FALSE(eof);
+    EXPECT_LE(block.doc_at(0), 5000U);
+    EXPECT_EQ(block.doc_at(block.size() - 1), bound.last_doc);
+    assert_ok(cursor->shallow_seek(5001, &moved));
+    EXPECT_FALSE(moved);
+}
+
+TEST(SniiPostingsCursor, CandidatesReadOnlyTheirCoveringWindows) {
+    Fixture fixture;
+    assert_ok(fixture.open_standard());
+    const Term term = fixture.lookup("sparse_left");
+    fixture.metered.reset_metrics();
+    auto whole = fixture.cursor(term);
+    // The prelude, then the whole dd-block.
+    EXPECT_EQ(fixture.rounds(), 2U);
+    const uint64_t whole_bytes = fixture.bytes();
+
+    // Candidates in the first two windows: same-term reads coalesce across a 16 KiB gap, so
+    // windows far apart in this small posting would read the whole block anyway.
+    const std::vector<uint32_t> candidates = {9, 702, 1500};
+    fixture.metered.reset_metrics();
+    SniiPostingsCursor restricted(fixture.index, term.entry, term.frq_base, term.prx_base,
+                                  /*positions=*/false, /*scoring=*/false, nullptr);
+    assert_ok(restricted.prefetch(candidates, /*positions=*/false));
+    // The prelude, then the covering windows in one batch.
+    EXPECT_EQ(fixture.rounds(), 2U);
+    EXPECT_LT(fixture.bytes(), whole_bytes);
+    index_query::BlockDocSet set(restricted);
+    for (const uint32_t candidate : candidates) {
+        ASSERT_TRUE(set.seek(candidate));
+        EXPECT_EQ(set.doc(), candidate);
+    }
+    EXPECT_EQ(fixture.rounds(), 2U);
+
+    // Windows the batch did not cover are read on demand, so the full listing still holds.
+    SniiPostingsCursor again(fixture.index, term.entry, term.frq_base, term.prx_base,
+                             /*positions=*/false, /*scoring=*/false, nullptr);
+    assert_ok(again.prefetch(candidates, /*positions=*/false));
+    fixture.metered.reset_metrics();
+    EXPECT_EQ(list_docs(again), fixture.oracle_docids(term));
+    EXPECT_GT(fixture.rounds(), 0U);
+}
+
+TEST(SniiPostingsCursor, InlineTermReadsNothing) {
+    Fixture fixture;
+    assert_ok(fixture.open_standard());
+    const Term term = fixture.lookup("123");
+    ASSERT_EQ(term.entry.kind, format::DictEntryKind::kInline);
+    fixture.metered.reset_metrics();
+    auto cursor = fixture.cursor(term, /*positions=*/true);
+    EXPECT_EQ(fixture.rounds(), 0U);
+    index_query::PostingsBlock block;
+    bool eof = false;
+    assert_ok(cursor->next_block(&block, &eof));
+    ASSERT_FALSE(eof);
+    EXPECT_EQ(block.size(), 1U);
+    EXPECT_EQ(block.doc_at(0), 42U);
+    EXPECT_EQ(positions_of(*cursor, 0), (std::vector<uint32_t> {1}));
+    EXPECT_EQ(fixture.rounds(), 0U);
+    assert_ok(cursor->next_block(&block, &eof));
+    EXPECT_TRUE(eof);
+}
+
+TEST(SniiPostingsCursor, SlimTermReadsItsRegionsInOneRound) {
+    Fixture fixture;
+    assert_ok(fixture.open_scored());
+    const Term term = fixture.lookup("mid");
+    ASSERT_EQ(term.entry.kind, format::DictEntryKind::kPodRef);
+    ASSERT_EQ(term.entry.enc, format::DictEntryEnc::kSlim);
+    const auto expected_docs = fixture.oracle_docids(term);
+    const auto expected_positions = fixture.oracle_positions(term);
+    fixture.metered.reset_metrics();
+    auto cursor = fixture.cursor(term, /*positions=*/true);
+    EXPECT_EQ(fixture.rounds(), 1U);
+    index_query::PostingsBlock block;
+    bool eof = false;
+    assert_ok(cursor->next_block(&block, &eof));
+    ASSERT_FALSE(eof);
+    ASSERT_EQ(block.size(), expected_docs.size());
+    for (uint64_t ordinal = 0; ordinal < block.size(); ++ordinal) {
+        EXPECT_EQ(block.doc_at(ordinal), expected_docs[ordinal]);
+        EXPECT_EQ(positions_of(*cursor, static_cast<uint32_t>(ordinal)),
+                  expected_positions[ordinal]);
+    }
+    EXPECT_EQ(fixture.rounds(), 1U);
+}
+
+TEST(SniiPostingsCursor, FrequenciesAndNormsWhenScoring) {
+    Fixture fixture;
+    assert_ok(fixture.open_scored());
+    ASSERT_TRUE(fixture.index.has_norms());
+    format::NormsPodReader norms;
+    assert_ok(fixture.index.open_norms(&norms));
+    for (const char* name : {"wide", "mid", "rare"}) {
+        const Term term = fixture.lookup(name);
+        const auto expected = fixture.oracle_positions(term);
+        auto cursor = fixture.cursor(term, /*positions=*/true, /*scoring=*/true, &norms);
+        index_query::PostingsBlock block;
+        bool eof = false;
+        size_t doc_index = 0;
+        while (true) {
+            assert_ok(cursor->next_block(&block, &eof));
+            if (eof) {
+                break;
+            }
+            ASSERT_EQ(block.freqs.size(), block.size()) << name;
+            ASSERT_EQ(block.norms.size(), block.size()) << name;
+            for (uint64_t ordinal = 0; ordinal < block.size(); ++ordinal, ++doc_index) {
+                const uint32_t doc = block.doc_at(ordinal);
+                EXPECT_EQ(block.freq_at(ordinal), expected[doc_index].size()) << name;
+                EXPECT_EQ(block.norm_at(ordinal), norms.encoded_norm(doc)) << name;
+                index_query::PositionCursor* positions = nullptr;
+                assert_ok(cursor->open_positions(static_cast<uint32_t>(ordinal), &positions));
+                ASSERT_TRUE(positions->view().has_value());
+                EXPECT_EQ(
+                        std::vector<uint32_t>(positions->view()->begin(), positions->view()->end()),
+                        expected[doc_index]);
+                EXPECT_EQ(positions->frequency(), expected[doc_index].size());
+                assert_ok(positions->finish_doc());
+            }
+        }
+        EXPECT_EQ(doc_index, expected.size()) << name;
+    }
+}
+
+TEST(SniiPostingsCursor, AGivenPreludeMakesTheSpanOneRound) {
+    Fixture fixture;
+    assert_ok(fixture.open_standard());
+    const Term term = fixture.lookup("failed");
+    auto prelude = std::make_shared<format::FrqPreludeReader>();
+    assert_ok(fetch_windowed_prelude(fixture.index, term.entry, term.frq_base, prelude.get()));
+    fixture.metered.reset_metrics();
+    SniiPostingsCursor cursor(fixture.index, term.entry, term.frq_base, term.prx_base,
+                              /*positions=*/true, /*scoring=*/false, nullptr);
+    cursor.set_prelude(prelude);
+    assert_ok(cursor.open());
+    EXPECT_EQ(fixture.rounds(), 1U);
+    EXPECT_EQ(list_docs(cursor), fixture.oracle_docids(term));
+}
+
+} // namespace
+} // namespace doris::snii::reader

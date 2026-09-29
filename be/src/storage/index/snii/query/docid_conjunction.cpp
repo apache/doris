@@ -504,16 +504,6 @@ Status intersect_window_candidate_range_with_ordinals(CandidateIt begin, Candida
     return Status::OK();
 }
 
-bool should_scan_all_windows(const LogicalIndexReader& idx, const TermPlan& p,
-                             size_t candidate_count) {
-    const size_t window_count = p.prelude.n_windows();
-    if (candidate_count > window_count * 64) return true;
-
-    const uint64_t doc_count = idx.stats().doc_count;
-    const bool near_full = doc_count != 0 && static_cast<uint64_t>(p.df) * 10 >= doc_count * 9;
-    return near_full && candidate_count > window_count * 4;
-}
-
 Status decode_flat_docids_only(const io::BatchRangeFetcher& round1, const TermPlan& p,
                                std::vector<uint32_t>* docids) {
     Slice dd;
@@ -628,7 +618,9 @@ public:
         if (!_plan.windowed) {
             return Status::OK();
         }
-        if (candidates == nullptr || should_scan_all_windows(_idx, _plan, candidates->size())) {
+        if (candidates == nullptr ||
+            reader::scan_all_windows(_idx, _plan.df, _plan.prelude.n_windows(),
+                                     candidates->size())) {
             // Dense candidate sets cover most windows; for near-full terms this also
             // avoids a thousands-to-millions probe covering-window cursor pass with no
             // byte win.

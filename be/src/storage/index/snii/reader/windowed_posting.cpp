@@ -160,13 +160,8 @@ Status windowed_window_range(const LogicalIndexReader& idx, const DictEntry& ent
 Status decode_window_slices(const WindowMeta& meta, Slice dd_region, Slice prx_window,
                             bool want_positions, std::vector<uint32_t>* docids,
                             std::vector<std::vector<uint32_t>>* positions) {
-    FrqRegionMeta dd_meta;
-    dd_meta.zstd = meta.dd_zstd;
-    dd_meta.uncomp_len = meta.dd_uncomp_len;
-    dd_meta.disk_len = meta.dd_disk_len;
-    dd_meta.crc = meta.crc_dd;
-    dd_meta.verify_crc = meta.verify_crc;
-    RETURN_IF_ERROR(format::decode_dd_region(dd_region, dd_meta, meta.win_base, docids));
+    RETURN_IF_ERROR(
+            format::decode_dd_region(dd_region, dd_region_meta(meta), meta.win_base, docids));
     if (docids->size() != meta.doc_count) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "windowed_posting: frq doc_count mismatch");
@@ -244,6 +239,24 @@ Status read_windowed_posting(const LogicalIndexReader& idx, const DictEntry& ent
         RETURN_IF_ERROR(append_window(ws, want_positions, out));
     }
     return Status::OK();
+}
+
+FrqRegionMeta dd_region_meta(const WindowMeta& meta) {
+    return {.zstd = meta.dd_zstd,
+            .uncomp_len = meta.dd_uncomp_len,
+            .disk_len = meta.dd_disk_len,
+            .crc = meta.crc_dd,
+            .verify_crc = meta.verify_crc};
+}
+
+bool scan_all_windows(const LogicalIndexReader& idx, uint32_t df, uint32_t window_count,
+                      size_t candidate_count) {
+    if (candidate_count > static_cast<size_t>(window_count) * 64) {
+        return true;
+    }
+    const uint64_t doc_count = idx.stats().doc_count;
+    const bool near_full = doc_count != 0 && static_cast<uint64_t>(df) * 10 >= doc_count * 9;
+    return near_full && candidate_count > static_cast<size_t>(window_count) * 4;
 }
 
 Status prelude_abs_offset(const LogicalIndexReader& idx, const DictEntry& entry, uint64_t frq_base,

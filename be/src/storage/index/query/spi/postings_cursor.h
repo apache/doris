@@ -76,6 +76,13 @@ public:
     // Moves only the skip cursor. moved invalidates any previously returned block.
     virtual Status shallow_seek(uint32_t target, bool* moved) = 0;
     virtual BlockBound current_block_bound() const = 0;
+    // A hint that only the ascending `candidates` will be asked for, with their positions when
+    // `positions`: an adapter may read what they need in one round. Ignored by default.
+    virtual Status prefetch(const std::vector<uint32_t>& candidates, bool positions) {
+        (void)candidates;
+        (void)positions;
+        return Status::OK();
+    }
     // Ordinals advance within the decoded block; each document is opened at most once.
     virtual Status open_positions(uint32_t ordinal, PositionCursor** out) {
         *out = nullptr;

@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/format/dict_entry.h"
+#include "storage/index/snii/format/frq_pod.h"
 #include "storage/index/snii/format/frq_prelude.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 
@@ -86,6 +87,11 @@ struct WindowAbsRange {
 Status fetch_windowed_prelude(const LogicalIndexReader& idx, const format::DictEntry& entry,
                               uint64_t frq_base, format::FrqPreludeReader* prelude);
 
+// The dd region codec of window `meta`, as decode_dd_region takes it.
+format::FrqRegionMeta dd_region_meta(const format::WindowMeta& meta);
+// Whether a candidate set is dense enough that every window of the term is read.
+bool scan_all_windows(const LogicalIndexReader& idx, uint32_t df, uint32_t window_count,
+                      size_t candidate_count);
 // The absolute file offset of a windowed entry's prelude, checked for overflow.
 Status prelude_abs_offset(const LogicalIndexReader& idx, const format::DictEntry& entry,
                           uint64_t frq_base, uint64_t* out);
