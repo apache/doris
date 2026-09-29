@@ -101,7 +101,7 @@ public class AuditLogScanner {
     private static final String ORDER_BY =
             " ORDER BY `time` DESC, `query_time` DESC, `query_id` DESC, `client_ip` DESC,"
                     + " `sql_hash` DESC, `scan_rows` DESC, `return_rows` DESC, " + STMT_HASH_EXPR
-                    + " DESC ";
+                    + " DESC, `catalog` DESC, `db` DESC, `sql_mode` DESC ";
 
     /**
      * Tail of the pagination cursor AFTER (query_time, time, query_id): client_ip,
@@ -119,14 +119,43 @@ public class AuditLogScanner {
         private final String scanRows;
         private final String returnRows;
         private final String stmtHash;
+        /** The row's namespace + parser mode: two NaN-id rows otherwise identical in
+         * client / metrics can still be SEPARATE capture identities (toBatch dedupes by
+         * catalog+db+sql_mode+identity), so the ordered cursor must reach them too -
+         * without these keys the strict after-cursor chain excluded the second row on
+         * every later page. */
+        private final String catalog;
+        private final String db;
+        private final String sqlMode;
+        /** Whether catalog / db / sql_mode are PART of this tail. A legacy
+         * five-element tail (written by a pre-upgrade leader) has no namespace keys:
+         * treating its absent keys as NULL values would extend the resume chain with
+         * three NULL comparisons and then terminate it - skipping the group's
+         * remaining rows, where the old chain still reached them. */
+        private final boolean hasNamespaceKeys;
 
         CursorTail(String clientIp, String sqlHash, String scanRows, String returnRows,
                 String stmtHash) {
+            this(clientIp, sqlHash, scanRows, returnRows, stmtHash, null, null, null, false);
+        }
+
+        CursorTail(String clientIp, String sqlHash, String scanRows, String returnRows,
+                String stmtHash, String catalog, String db, String sqlMode) {
+            this(clientIp, sqlHash, scanRows, returnRows, stmtHash, catalog, db, sqlMode, true);
+        }
+
+        private CursorTail(String clientIp, String sqlHash, String scanRows, String returnRows,
+                String stmtHash, String catalog, String db, String sqlMode,
+                boolean hasNamespaceKeys) {
             this.clientIp = clientIp;
             this.sqlHash = sqlHash;
             this.scanRows = scanRows;
             this.returnRows = returnRows;
             this.stmtHash = stmtHash;
+            this.catalog = catalog;
+            this.db = db;
+            this.sqlMode = sqlMode;
+            this.hasNamespaceKeys = hasNamespaceKeys;
         }
 
         String getClientIp() {
@@ -148,6 +177,23 @@ public class AuditLogScanner {
         String getStmtHash() {
             return stmtHash;
         }
+
+        String getCatalog() {
+            return catalog;
+        }
+
+        String getDb() {
+            return db;
+        }
+
+        String getSqlMode() {
+            return sqlMode;
+        }
+
+        /** Whether the namespace / mode keys are part of this tail (see the field). */
+        boolean hasNamespaceKeys() {
+            return hasNamespaceKeys;
+        }
     }
 
     /** Encodes a cursor tail as a compact JSON list (null-safe; empty text = absent). */
@@ -155,15 +201,23 @@ public class AuditLogScanner {
         if (tail == null
                 || (tail.getClientIp() == null && tail.getSqlHash() == null
                 && tail.getScanRows() == null && tail.getReturnRows() == null
-                && tail.getStmtHash() == null)) {
+                && tail.getStmtHash() == null && tail.getCatalog() == null
+                && tail.getDb() == null && tail.getSqlMode() == null)) {
             // no tail information at all (a row without the appended columns - e.g. a
             // pre-column audit row or a fabricated test row): treat it as a PREFIX-only
             // cursor; a JSON array of nulls would otherwise extend the resume chain with
             // all-NULL keys and terminate it immediately.
             return "";
         }
+        if (!tail.hasNamespaceKeys()) {
+            // a legacy tail round-trips as five elements so the decoder marks it legacy
+            // again (the namespace keys were never observed)
+            return new Gson().toJson(Arrays.asList(tail.getClientIp(), tail.getSqlHash(),
+                    tail.getScanRows(), tail.getReturnRows(), tail.getStmtHash()));
+        }
         return new Gson().toJson(Arrays.asList(tail.getClientIp(), tail.getSqlHash(),
-                tail.getScanRows(), tail.getReturnRows(), tail.getStmtHash()));
+                tail.getScanRows(), tail.getReturnRows(), tail.getStmtHash(),
+                tail.getCatalog(), tail.getDb(), tail.getSqlMode()));
     }
 
     /** Decodes a cursor tail; blank / broken / all-null text decodes to null (legacy cursor). */
@@ -187,8 +241,16 @@ public class AuditLogScanner {
             if (!hasAnyValue) {
                 return null;
             }
+            if (values.size() < 8) {
+                // five (or partially extended) element tail written before the
+                // namespace / mode keys existed: it carries NO information about them,
+                // so the resume chain keeps the legacy prefix comparison
+                return new CursorTail(values.get(0), values.get(1), values.get(2),
+                        values.get(3), values.get(4));
+            }
             return new CursorTail(values.get(0), values.get(1), values.get(2),
-                    values.get(3), values.get(4));
+                    values.get(3), values.get(4), values.get(5), values.get(6),
+                    values.get(7));
         } catch (RuntimeException e) {
             return null;
         }
@@ -356,7 +418,8 @@ public class AuditLogScanner {
             // (time, query_time, query_id) either repeated forever (NULL query_id group)
             // or was skipped after the first LIMIT (duplicate non-NULL tuples)
             lastTail = new CursorTail(valueAt(row, 12), valueAt(row, 5), valueAt(row, 2),
-                    valueAt(row, 3), valueAt(row, 13));
+                    valueAt(row, 3), valueAt(row, 13), valueAt(row, 7), valueAt(row, 6),
+                    valueAt(row, 11));
             CapturedQuery candidate = rowToCapturedQuery(row);
             if (candidate == null || candidate.getStmt() == null || candidate.getStmt().isEmpty()) {
                 continue;
@@ -372,7 +435,8 @@ public class AuditLogScanner {
             // (the digest masks literals, so explode(split(s,',')) and explode(split(s,';'))
             // would otherwise collapse although they are different baselines).
             String key = candidate.getCatalog() + '\u0001' + candidate.getDb() + '\u0001'
-                    + candidate.getSqlMode() + '\u0001' + dedupIdentity(candidate.getStmt(), digest);
+                    + candidate.getSqlMode() + '\u0001'
+                    + dedupIdentity(candidate.getStmt(), digest, candidate.getSqlMode());
             deduped.merge(key, candidate, (a, b) -> b.getQueryTimeMs() >= a.getQueryTimeMs() ? b : a);
         }
         return new ScanBatch(new ArrayList<>(deduped.values()), rows.size() < maxBatchSize,
@@ -386,15 +450,21 @@ public class AuditLogScanner {
      * keeps LATERAL VIEW / UNNEST arguments concrete and compares them exactly, so two
      * same-digest statements with different arguments are different baselines. A row
      * without an audit digest falls back to its text (never coarser than SPM).
+     *
+     * The generator arguments are parsed under the row's ORIGINATING mode: the capture
+     * daemon's ambient mode can differ (a NO_BACKSLASH_ESCAPES session's split '\a'
+     * means backslash + a, while the default mode reads '\a' as 'a'), and parsing both
+     * rows in the daemon's mode made their fingerprints equal although SPM compares
+     * them concretely - one eligible row was discarded as a duplicate.
      */
-    private static String dedupIdentity(String stmt, String digest) {
+    private static String dedupIdentity(String stmt, String digest, long sqlMode) {
         if (digest == null || digest.isEmpty()) {
             return stmt;
         }
         if (!mentionsGenerator(stmt)) {
             return digest;
         }
-        return digest + '\u0001' + generatorFingerprint(stmt);
+        return digest + '\u0001' + generatorFingerprint(stmt, sqlMode);
     }
 
     private static boolean mentionsGenerator(String stmt) {
@@ -406,25 +476,28 @@ public class AuditLogScanner {
     }
 
     /** The concrete generator arguments of the statement (the full text when unparsable). */
-    private static String generatorFingerprint(String stmt) {
+    private static String generatorFingerprint(String stmt, long sqlMode) {
         try {
-            org.apache.doris.nereids.trees.plans.Plan parsed =
-                    new org.apache.doris.nereids.parser.NereidsParser().parseSingle(stmt);
-            StringBuilder sb = new StringBuilder();
-            org.apache.doris.nereids.spm.SPMPlanTreeSupport.<RuntimeException>walkPlans(
-                    parsed, node -> {
-                        if (node instanceof org.apache.doris.nereids.trees.plans.logical
-                                .LogicalGenerate) {
-                            org.apache.doris.nereids.trees.plans.logical.LogicalGenerate<?> generate =
-                                    (org.apache.doris.nereids.trees.plans.logical.LogicalGenerate<?>)
-                                            node;
-                            for (org.apache.doris.nereids.trees.expressions.Expression generator
-                                    : generate.getGenerators()) {
-                                sb.append(generator.toSql()).append('|');
+            String fingerprint = org.apache.doris.qe.SqlModeHelper.withSqlMode(sqlMode, () -> {
+                org.apache.doris.nereids.trees.plans.Plan parsed =
+                        new org.apache.doris.nereids.parser.NereidsParser().parseSingle(stmt);
+                StringBuilder sb = new StringBuilder();
+                org.apache.doris.nereids.spm.SPMPlanTreeSupport.<RuntimeException>walkPlans(
+                        parsed, node -> {
+                            if (node instanceof org.apache.doris.nereids.trees.plans.logical
+                                    .LogicalGenerate) {
+                                org.apache.doris.nereids.trees.plans.logical.LogicalGenerate<?> generate =
+                                        (org.apache.doris.nereids.trees.plans.logical.LogicalGenerate<?>)
+                                                node;
+                                for (org.apache.doris.nereids.trees.expressions.Expression generator
+                                        : generate.getGenerators()) {
+                                    sb.append(generator.toSql()).append('|');
+                                }
                             }
-                        }
-                    });
-            return sb.toString();
+                        });
+                return sb.toString();
+            });
+            return fingerprint;
         } catch (Throwable t) {
             // unparsable: keep the full-text identity, never a coarser one
             return stmt;
@@ -517,6 +590,16 @@ public class AuditLogScanner {
             keys.add(new CursorKey("`scan_rows`", emptyToNull(tail.getScanRows()), true));
             keys.add(new CursorKey("`return_rows`", emptyToNull(tail.getReturnRows()), true));
             keys.add(new CursorKey(STMT_HASH_EXPR, emptyToNull(tail.getStmtHash()), false));
+            if (tail.hasNamespaceKeys()) {
+                // namespace + parser mode: two NaN-id rows otherwise equal on every ordered
+                // key can still be SEPARATE capture identities (see toBatch's dedup key);
+                // without these keys the strict chain excluded the second row on every page.
+                // A legacy tail never observed them, so its chain keeps the old prefix - an
+                // appended NULL comparison would skip the group's remaining rows.
+                keys.add(new CursorKey("`catalog`", emptyToNull(tail.getCatalog()), false));
+                keys.add(new CursorKey("`db`", emptyToNull(tail.getDb()), false));
+                keys.add(new CursorKey("`sql_mode`", emptyToNull(tail.getSqlMode()), true));
+            }
         }
         return " AND (" + renderAfter(keys, 0) + ") ";
     }

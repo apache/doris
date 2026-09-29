@@ -444,4 +444,85 @@ public class BaselineManagerConcurrencyTest {
             manager.clearForTest();
         }
     }
+
+    // ==================== status publishes only after durable success (round-14) ====================
+
+    /**
+     * The live object must NOT flip before the durable row exists: matching readers do
+     * not take the writer lock, so an early setStatus would let a concurrent query
+     * replay a baseline that remains DISABLED durably when the INSERT later fails -
+     * while ALTER still reports failure.
+     */
+    @Test
+    public void testStatusIsNotPublishedBeforeDurableSuccess() throws Exception {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        CountDownLatch insertEntered = new CountDownLatch(1);
+        CountDownLatch insertRelease = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        try {
+            BaselineManager.statusProtocolStoreForTest =
+                    new BaselineManager.StatusProtocolStoreForTest() {
+                        @Override
+                        public void insert(BaselinePlan plan) {
+                            // ONLY the status-update INSERT blocks: the CREATE-time
+                            // DISABLED insert must complete, otherwise the test would
+                            // block itself before the update thread ever starts
+                            if (plan.getStatus() != BaselineStatus.ENABLED) {
+                                return;
+                            }
+                            insertEntered.countDown();
+                            try {
+                                insertRelease.await();
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                            }
+                            throw new RuntimeException("INSERT failed");
+                        }
+
+                        @Override
+                        public void deleteByIdAndStatus(long id, BaselineStatus status) {
+                            // the repair delete after the failure: no-op
+                        }
+
+                        @Override
+                        public int countByIdAndStatus(long id, BaselineStatus status) {
+                            // the OLD row is still durable: the reconcile must NOT keep
+                            // the new status
+                            return status == BaselineStatus.DISABLED ? 1 : 0;
+                        }
+                    };
+            BaselinePlan disabled = baseline("d-status", "p-status");
+            disabled.setStatus(BaselineStatus.DISABLED);
+            long id = manager.createBaseline(disabled);
+
+            Thread updater = new Thread(() -> {
+                try {
+                    manager.updateStatus(id, BaselineStatus.ENABLED);
+                    failure.set(null);
+                } catch (RuntimeException e) {
+                    failure.set(e);
+                }
+            });
+            updater.start();
+            Assertions.assertTrue(insertEntered.await(5, TimeUnit.SECONDS),
+                    "the durable INSERT must be in flight");
+
+            Assertions.assertEquals(BaselineStatus.DISABLED,
+                    manager.getBaseline(id).getStatus(),
+                    "the new status must not be published before the durable row exists");
+
+            insertRelease.countDown();
+            updater.join(10_000);
+            Assertions.assertNotNull(failure.get(),
+                    "the failed INSERT must surface (ALTER reports failure)");
+            Assertions.assertEquals(BaselineStatus.DISABLED,
+                    manager.getBaseline(id).getStatus(),
+                    "a failed durable change must leave the baseline DISABLED in memory"
+                            + " too (it would keep replaying otherwise)");
+        } finally {
+            BaselineManager.statusProtocolStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
 }

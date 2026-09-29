@@ -903,6 +903,25 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             }
             SQLRelation outer = new SQLRelation();
             String alias = outer.newAlias();
+            // A TOP-LEVEL ORDER BY / LIMIT pair is a semantic user clause: matching
+            // deliberately ignores its LIMIT value, and mergeLimits adopts the user's value
+            // by position - but a limit left INSIDE the derived table can never be reached
+            // by that positional merge (the frozen root would have no Limit node next to
+            // the user's Limit), so a matched LIMIT 200 query kept the captured 100-row
+            // cap. This wrapper is a PURE output relabelling (it neither filters nor
+            // aggregates), so hoisting the pair onto it is semantically identical and
+            // makes the frozen root a Limit node again.
+            // The ORDER BY moves WITH the LIMIT: a derived-table ORDER BY WITHOUT its
+            // LIMIT is only a hint the optimizer is free to drop, and the outer SELECT
+            // would then return an arbitrary LIMIT slice (a q02-style query replayed as
+            // unordered rows). Clear both BEFORE rendering the child text - toSQL()
+            // captures them into the string.
+            if (!child.getLimit().isEmpty()) {
+                outer.setOrderBy(child.getOrderBy());
+                outer.setLimit(child.getLimit());
+                child.setOrderBy("");
+                child.setLimit("");
+            }
             outer.setFrom("(" + child.toSQL() + ") " + alias);
             outer.setSelects(ordered);
             return outer;
@@ -1343,14 +1362,31 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // The analyzer may name a generator output with an internal column name
         // ("$c$N"); such a name cannot be referenced in SQL, so give it a generated
         // visible name and register the slot under that name for the parent operators.
+        // A generator output may also COLLIDE with a name the child already exports
+        // (SELECT t.x, lv.x FROM t LATERAL VIEW explode(t.arr) lv AS x is valid: the two
+        // slots carry different qualifiers, but the frozen SQL references a derived
+        // relation's columns by name) - registering both as bare x made the parent emit
+        // SELECT x, x ..., which fails binding as ambiguous after reload. Rename the
+        // generator output to a unique visible name and register THAT for the slot.
+        Set<String> takenNames = new HashSet<>();
+        for (String existing : childRelation.getColumnNames().values()) {
+            if (existing != null) {
+                takenNames.add(existing.replace("`", ""));
+            }
+        }
         List<String> columnNames = new ArrayList<>(outputs.size());
         for (Slot slot : outputs) {
             String alias = slot.getQualifier().isEmpty()
                     ? "" : slot.getQualifier().get(slot.getQualifier().size() - 1);
             aliases.add(alias.isEmpty() ? "lv_" + (lateralViewSeq++) : alias);
             String name = slot.getName();
-            columnNames.add(name == null || name.startsWith("$c$")
-                    ? "lv_col_" + (lateralViewSeq++) : name);
+            String visible = name == null || name.startsWith("$c$")
+                    ? "lv_col_" + (lateralViewSeq++) : name;
+            while (takenNames.contains(visible)) {
+                visible = visible + "_";
+            }
+            takenNames.add(visible);
+            columnNames.add(visible);
         }
         StringBuilder from = new StringBuilder(baseSql);
         for (int i = 0; i < generators.size(); i++) {
@@ -2874,7 +2910,16 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             // reference, only its EXPORTED name changes, so the upper references of that
             // intermediate slot (its registered name is updated here) stay resolvable.
             Pair<ExprId, String> first = selects.get(previous);
-            if (!isPlainReference(first.value())) {
+            // Works for COMPUTED items too: "k + 1 AS x" and "v + 1 AS x" for two
+            // distinct ExprIds (a derived table with ORDER BY ... LIMIT consumed by an
+            // upper star/join) both exported x, and a parent selecting x, x from the
+            // two x columns failed as ambiguous after reload. The earlier item keeps
+            // its expression (a previous alias is stripped first) and gains a unique
+            // exported name; the later item keeps the shared name upper layers use.
+            String value = first.value();
+            int asIdx = value.toLowerCase(java.util.Locale.ROOT).lastIndexOf(" as ");
+            String core = asIdx >= 0 ? value.substring(0, asIdx).trim() : value;
+            if (core.isEmpty()) {
                 continue;
             }
             String unique = "c_" + first.key();
@@ -2882,7 +2927,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 unique = unique + "_";
             }
             usedNames.add(unique);
-            selects.set(previous, Pair.of(first.key(), first.value() + " AS " + unique));
+            selects.set(previous, Pair.of(first.key(), core + " AS " + unique));
             relation.registerRef(first.key(), unique);
         }
     }
@@ -3038,6 +3083,13 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             selects.add(Pair.of(windowExpr.getExprId(), sql + " AS " + ref));
             emitted.add(windowExpr.getExprId());
         }
+        // An input column and a window OUTPUT can share a visible name
+        // (SELECT t.x, row_number() OVER (...) AS x FROM t): both would export bare x
+        // and the parent's SELECT x, x fails as ambiguous after reload. Unlike the
+        // intermediate Project this visitor had no duplicate repair - run the same one
+        // here: the earlier pass-through keeps its value under a unique c_ reference,
+        // the window output keeps the shared name upper layers resolve against.
+        dedupeSelectOutputNames(selects, relation);
         relation.setSelects(selects);
         relation.newAlias();
         return relation;
@@ -3088,16 +3140,23 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // could never reference such a column by name either. Such outputs are aliased
         // to their positional reference (c_<output id>) instead; every branch exposes
         // that reference locally, so no further renaming is needed.
+        // Case-INSENSITIVE counting: Doris identifiers are case-insensitive, so `a` and
+        // `A` are the SAME output name - two raw names each counted once left both
+        // branches exporting a / A and the result sink's SELECT a, A ... was rejected
+        // as ambiguous after reload. Every duplicate (by normalized name) is aliased to
+        // its positional reference instead.
         Map<String, Integer> outputNameCounts = new HashMap<>();
         for (int j = 0; j < outputs.size(); j++) {
-            outputNameCounts.merge(outputs.get(j).getName(), 1, Integer::sum);
+            outputNameCounts.merge(normalizedOutputName(outputs.get(j).getName()), 1,
+                    Integer::sum);
         }
         List<String> registeredOutputNames = new ArrayList<>();
         for (int j = 0; j < outputs.size(); j++) {
             Slot output = outputs.get(j);
-            registeredOutputNames.add(outputNameCounts.getOrDefault(output.getName(), 0) > 1
-                    ? quoteIdentifier("c_" + output.getExprId())
-                    : quoteIdentifier(output.getName()));
+            registeredOutputNames.add(
+                    outputNameCounts.getOrDefault(normalizedOutputName(output.getName()), 0) > 1
+                            ? quoteIdentifier("c_" + output.getExprId())
+                            : quoteIdentifier(output.getName()));
         }
         List<String> branchSqls = Lists.newArrayList();
         for (int i = 0; i < set.children().size(); i++) {
@@ -3125,7 +3184,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 String outputName = j < outputs.size() ? outputs.get(j).getName() : slot.getName();
                 String item;
                 if (j < outputs.size()
-                        && outputNameCounts.getOrDefault(outputName, 0) > 1) {
+                        && outputNameCounts.getOrDefault(normalizedOutputName(outputName), 0) > 1) {
                     // duplicated output name: alias the branch to the UNIQUE positional
                     // reference registered for the set (see above)
                     item = columnRef + " AS " + registeredOutputNames.get(j);
@@ -3158,7 +3217,13 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     NamedExpression project = row.get(j);
                     String item = exprSqlBuilder.print(project, branch);
                     String outputName = outputs.get(j).getName();
-                    if (!item.equals(outputName)) {
+                    if (outputNameCounts.getOrDefault(normalizedOutputName(outputName), 0) > 1) {
+                        // duplicated output name: use the UNIQUE positional reference the
+                        // set registered (the result sink selects THAT name from the
+                        // derived union; emitting `AS x` twice left its c_<ExprId>
+                        // references pointing at nonexistent columns)
+                        item = item + " AS " + registeredOutputNames.get(j);
+                    } else if (!item.equals(outputName)) {
                         item = item + " AS " + quoteIdentifier(outputName);
                     }
                     selects.add(Pair.of(project.getExprId(), item));
@@ -3183,6 +3248,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             setRelation.registerRef(outputs.get(j).getExprId(), registeredOutputNames.get(j));
         }
         return setRelation;
+    }
+
+    /** Normalized key of one set-output name: identifiers are case-insensitive. */
+    private static String normalizedOutputName(String name) {
+        return name == null ? "" : name.toLowerCase(java.util.Locale.ROOT);
     }
 
     // ==================== GROUPING SETS (PhysicalRepeat) ====================

@@ -1062,10 +1062,22 @@ public class StmtExecutor {
             // The journal sync that guards this sequence now runs ABOVE, before the SPM
             // rewrite's metadata lookups (see the comment there): by the time the planner
             // is created the catalog is already up to date.
-            planner = new NereidsPlanner(statementContext);
+            NereidsPlanner nereidsPlanner = new NereidsPlanner(statementContext);
+            planner = nereidsPlanner;
             try {
                 checkBlockRulesByRegex(originStmt);
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
+                if (spmRewriteApplied) {
+                    // Revalidate the frozen baseline against the metadata the REPLAYED
+                    // plan was actually planned with: the pre-match fingerprint guard
+                    // ran BEFORE the planner took its metadata locks, so an ALTER TABLE
+                    // committing in between would drift between validation and
+                    // planning. A mismatch throws into the catch below, which applies
+                    // the normal fallback / surfacing policy.
+                    SPMPlanner.verifyReplayMetadata(context,
+                            statementContext.getSpmUsedBaselineId(),
+                            nereidsPlanner.getPhysicalPlan());
+                }
                 checkBlockRulesByScan(planner);
             } catch (Exception e) {
                 if (spmRewriteApplied
@@ -1088,6 +1100,14 @@ public class StmtExecutor {
                     // Reset the flag so the fallback is authorized exactly like a normal
                     // execution of the original statement.
                     statementContext.setPrivChecked(false);
+                    // Drop the abandoned pass's OTHER planner-owned state as well: the
+                    // rewritten pass could have set hintForcePreAggOn from a plan-side
+                    // PREAGGOPEN hint (the original t@incr(...) query would then fail
+                    // with a spurious PREAGGOPEN error), and its resolved-table cache
+                    // still binds the first pass's TableIf objects - after the first
+                    // pass's locks were released, a concurrent DROP / CREATE of t would
+                    // make this fallback plan the OLD table.
+                    statementContext.resetPlannerStateForReplan();
                     planner = new NereidsPlanner(statementContext);
                     try {
                         checkBlockRulesByRegex(originStmt);

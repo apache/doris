@@ -735,4 +735,42 @@ public class PlanCaptureTest {
         } finally {
             manager.resetForTest();
         }
-    }}
+    }
+
+    /**
+     * The synthetic retry key must include the ORIGINATING parser mode: the scanner keeps
+     * same-text default / PIPES_AS_CONCAT executions separate (a || b has different
+     * semantics), and without the mode the first capture consumed the shared key - the
+     * second row was skipped as already processed while the cursor advanced, or two
+     * failures overwrote each other in the retry queue.
+     */
+    @Test
+    public void testSyntheticRetryKeyIncludesSqlMode() {
+        String stmt = "SELECT t1.a FROM t1 JOIN t2 ON t1.a = t2.a WHERE t1.b = 7";
+        CapturedQuery defaultMode = new CapturedQuery(stmt, 5000, 100000, 0, "digest-mode",
+                "hash", "db", "internal", "NaN");
+        CapturedQuery concatMode = new CapturedQuery(stmt, 5000, 100000, 0, "digest-mode",
+                "hash", "db", "internal", "NaN", false,
+                org.apache.doris.qe.SqlModeHelper.MODE_PIPES_AS_CONCAT);
+        Assertions.assertNotEquals(PlanCaptureManager.retryKeyOf(defaultMode),
+                PlanCaptureManager.retryKeyOf(concatMode),
+                "same-text executions under different parser modes must get different"
+                        + " synthetic retry keys");
+
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            manager.handleCandidateForTest(defaultMode);
+            manager.handleCandidateForTest(concatMode);
+            Assertions.assertTrue(manager.isQueuedForTest(
+                    PlanCaptureManager.retryKeyOf(defaultMode)));
+            Assertions.assertTrue(manager.isQueuedForTest(
+                    PlanCaptureManager.retryKeyOf(concatMode)),
+                    "the second mode's failure must not be skipped as already processed");
+            Assertions.assertEquals(1, manager.failedAttemptsForTest(
+                    PlanCaptureManager.retryKeyOf(concatMode)));
+        } finally {
+            manager.resetForTest();
+        }
+    }
+}

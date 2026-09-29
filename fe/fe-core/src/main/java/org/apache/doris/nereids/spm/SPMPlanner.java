@@ -204,6 +204,12 @@ public class SPMPlanner {
             // matches fails closed (the user query keeps its own plan); pre-column rows
             // without a fingerprint skip the check. The current fingerprint is computed
             // once per query, and only after a structural match (hot path pays nothing).
+            // The stored fingerprint is the BIND-SIDE tables UNION the PLAN-side tables
+            // of the frozen plan; here - BEFORE the query is planned - only the bind side
+            // can be recomputed, so the guard checks that every current bind-side entry is
+            // still present (a DROP + CREATE / ALTER REPLACES its entry, so drift is still
+            // caught). The full comparison, plan side included, runs after planning
+            // (see verifyReplayMetadata).
             String bindFingerprint = candidate.getSchemaFingerprint();
             if (bindFingerprint != null && !bindFingerprint.isEmpty()) {
                 if (!schemaChecked) {
@@ -211,7 +217,8 @@ public class SPMPlanner {
                     currentSchemaFingerprint =
                             SPMPlanTreeSupport.schemaFingerprint(ctx, userPlan);
                 }
-                if (!bindFingerprint.equals(currentSchemaFingerprint)) {
+                if (!SPMPlanTreeSupport.schemaFingerprintBindSideContained(
+                        bindFingerprint, currentSchemaFingerprint)) {
                     LOG.info("SPM tryRewritePlan: baseline {} skipped: the referenced table"
                             + " schema changed since the baseline was created", candidate.getId());
                     continue;
@@ -381,6 +388,49 @@ public class SPMPlanner {
      */
     private static LogicalPlan stripSelectHints(LogicalPlan plan) {
         return SPMPlanTreeSupport.stripSelectHints(plan);
+    }
+
+    /**
+     * Post-planning metadata revalidation of a replayed baseline (the replay-side half
+     * of the frozen-metadata binding, see
+     * SPMPlanTreeSupport#schemaFingerprintForCreate): the pre-match fingerprint guard
+     * runs BEFORE the query planner takes its metadata locks, so an ALTER TABLE
+     * committing in between would let the frozen SQL be planned against a DIFFERENT
+     * schema than the one it was validated against (and than the one its output slots
+     * were frozen with). This re-checks the stored fingerprint against the metadata
+     * the REPLAYED plan was actually planned with - the planned PhysicalPlan's catalog
+     * relations plus the baseline's own bind tree resolved in this context. A mismatch
+     * surfaces as a rewrite failure; the caller's enable_spm_fallback policy decides
+     * whether to re-plan the original query (enabled) or surface the error (disabled).
+     *
+     * @param ctx         the replaying session
+     * @param baselineId  the baseline the rewritten tree came from (-1 = none)
+     * @param plannedPlan the replayed plan after planning
+     */
+    public static void verifyReplayMetadata(ConnectContext ctx, long baselineId,
+            Plan plannedPlan) {
+        if (ctx == null || plannedPlan == null || baselineId < 0) {
+            return;
+        }
+        BaselinePlan baseline = ctx.getSessionBaselineStore() == null
+                ? null : ctx.getSessionBaselineStore().getBaseline(baselineId);
+        if (baseline == null) {
+            baseline = BaselineManager.getInstance().getBaseline(baselineId);
+        }
+        if (baseline == null) {
+            return;
+        }
+        String stored = baseline.getSchemaFingerprint();
+        if (stored == null || stored.isEmpty()) {
+            return;
+        }
+        String current = SPMPlanTreeSupport.schemaFingerprintForReplay(
+                ctx, baseline.getParameterizedBindPlan(), plannedPlan);
+        if (!stored.equals(current)) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "SPM replay metadata changed between validation and planning; keeping"
+                            + " the original query for baseline " + baselineId);
+        }
     }
 
     // ==================== baseline creation ====================
@@ -620,9 +670,13 @@ public class SPMPlanner {
                 captureCatalogName(ctx), captureDatabaseName(ctx), creatorMode);
         baseline.setPlanFrozen(planFrozen);
         baseline.setPlanSqlMode(planSqlMode);
-        // Schema identity of the referenced base tables, validated again before every
-        // replay (see SPMPlanTreeSupport#schemaFingerprint).
-        baseline.setSchemaFingerprint(SPMPlanTreeSupport.schemaFingerprint(ctx, bindPlan));
+        // Schema identity of the referenced tables, validated again before every replay
+        // (see SPMPlanTreeSupport#schemaFingerprintForCreate): the PLAN side comes from
+        // the OPTIMIZED plan's own relations - the under-lock metadata snapshot the
+        // frozen output slots were built from - and the BIND side keeps the bind-tree
+        // resolution; the union also covers tables only the stored plan uses.
+        baseline.setSchemaFingerprint(SPMPlanTreeSupport.schemaFingerprintForCreate(
+                ctx, bindPlan, optimizeResult.getPhysicalPlan()));
         return baseline;
     }
 

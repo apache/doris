@@ -22,9 +22,12 @@ import org.apache.doris.statistics.repository.ResultRow;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Tenth review round: the durable checkpoint must never step over retries it cannot
@@ -149,5 +152,86 @@ public class PlanCaptureCheckpointTruncationTest {
         } finally {
             manager.resetForTest();
         }
+    }
+
+    /**\n     * The retry replay must NOT reorder the queue: the old remove-before-retry moved a
+     * replayed page-1 failure BEHIND the entries a later page queued, so the "first
+     * entry = earliest anchor" assumption broke - persistCheckpoint then saved the LATER
+     * page's cursor while encodeRetryQueue dropped the older page-1 entries whose rows
+     * sat before it (unrecoverable on handoff).
+     */
+    @Test
+    public void testReplayKeepsFirstSeenOrderForAnchors() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            // cycle 1: page 1 state; 70 failures queue with PAGE 1 anchors
+            manager.seedCheckpointStateForTest(100L, 200L, -1L, "cursor-page1", "qid-page1",
+                    0, 50L, 999L, "cursor-z1", "qid-z1", "tail-page1", "tail-z1");
+            List<String> page1Keys = new ArrayList<>();
+            for (int i = 0; i < 70; i++) {
+                CapturedQuery candidate = failingCandidate(i);
+                page1Keys.add(PlanCaptureManager.retryKeyOf(candidate));
+                manager.handleCandidateForTest(candidate);
+            }
+            Assertions.assertTrue(manager.isQueuedForTest(page1Keys.get(0)));
+
+            // cycle 2: a LATER page queues 70 NEW failures (its state is past page 1)
+            manager.seedCheckpointStateForTest(100L, 200L, -1L, "cursor-page2", "qid-page2",
+                    0, 90L, 999L, "cursor-z2", "qid-z2", "tail-page2", "tail-z2");
+            Set<String> page2Keys = new HashSet<>();
+            for (int i = 70; i < 140; i++) {
+                CapturedQuery candidate = failingCandidate(i);
+                page2Keys.add(PlanCaptureManager.retryKeyOf(candidate));
+                manager.handleCandidateForTest(candidate);
+            }
+
+            // the page did not contain the page-1 rows: they are replayed now (attempt 2)
+            manager.replayQueuedFailuresForTest(page2Keys);
+            Assertions.assertEquals(2, manager.failedAttemptsForTest(page1Keys.get(0)),
+                    "a replayed failure must still get its bounded attempt");
+            Assertions.assertTrue(manager.isQueuedForTest(page1Keys.get(0)));
+
+            Map<String, String> params = persist(manager);
+            Assertions.assertEquals("cursor-page1", params.get("cursorTime"),
+                    "the durable cursor must stay before PAGE 1 (the oldest queued retry),"
+                            + " not move to the later page: " + params.get("cursorTime"));
+            Assertions.assertEquals("tail-page1", params.get("cursorTail"));
+            Assertions.assertEquals("49", params.get("lastScan"));
+        } finally {
+            manager.resetForTest();
+        }
+    }
+
+    /**
+     * A failure cap must never drop entries before their bounded retries are spent: a
+     * page-1 failure evicted here has its audit row behind the LIVE cursor (and may be
+     * older than the overlap window), so the running leader could never retry it even
+     * without handoff / checkpoint truncation.
+     */
+    @Test
+    public void testFailuresAreNotEvictedBeforeTheirRetriesAreSpent() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            // more than the old 10k cap, e.g. two 6000-row failing pages
+            manager.seedCheckpointStateForTest(100L, 200L, -1L, "cursor-a", "qid-a",
+                    10_050, 50L, 999L, "cursor-z", "qid-z", "tail-a", "tail-z");
+            manager.handleCandidateForTest(failingCandidate(1));
+            Assertions.assertTrue(manager.isQueuedForTest("seed-failed-0"),
+                    "the oldest failure must not be evicted before its bounded retries"
+                            + " are spent (its row is unreachable from the live cursor)");
+            Assertions.assertEquals(1, manager.failedAttemptsForTest("seed-failed-0"));
+        } finally {
+            manager.resetForTest();
+        }
+    }
+
+    /** One candidate that FAILS to capture (retryable) in the unit-test environment. */
+    private static CapturedQuery failingCandidate(int i) {
+        return new CapturedQuery(
+                "SELECT t1.a FROM t1 JOIN t2 ON t1.a = t2.a WHERE t1.b = " + i,
+                5000, 100000 + i, 0, "digest-" + i, "hash", "db", "internal",
+                "qid-" + i);
     }
 }
