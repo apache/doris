@@ -193,7 +193,7 @@ public class ShowColumnsCommand extends ShowCommand {
             boolean mysqlCompatible = ctx.getSessionVariable().enableMysqlCompatibleIndexMetadata();
             Map<String, String> columnKeys = mysqlCompatible
                     ? TableKeyMeta.buildColumnKeys(table) : Collections.emptyMap();
-            List<Column> columns = table.getBaseSchema();
+            List<Column> columns = table.getBaseSchemaForDisplay();
             for (Column col : columns) {
                 if (matcher != null && !matcher.match(col.getName())) {
                     continue;
