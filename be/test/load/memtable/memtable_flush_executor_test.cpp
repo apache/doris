@@ -59,11 +59,12 @@ namespace {
 
 class FlushOrderTask final : public Runnable {
 public:
-    explicit FlushOrderTask(std::vector<int>* order) : _order(order) {}
-    void run() override { _order->push_back(3); }
+    FlushOrderTask(std::vector<int>* order, int value) : _order(order), _value(value) {}
+    void run() override { _order->push_back(_value); }
 
 private:
     std::vector<int>* _order;
+    int _value;
 };
 
 class MockRowsetWriter final : public RowsetWriter {
@@ -340,9 +341,9 @@ void tear_down() {
                         .ok());
 }
 
-TEST(MemTableFlushExecutorTest, GlobalPriorityForMowAndNonMowFlushes) {
+TEST(MemTableFlushExecutorTest, AllFlushesUseLowPriority) {
     using namespace std::chrono_literals;
-    // UNIQUE_KEYS without MoW must be treated like DUP/AGG, not like a MoW writer.
+    // All key types and MoW modes use P3, including grouped data/binlog flushes.
     for (auto [keys_type, is_mow] : {std::pair {DUP_KEYS, false},
                                      {UNIQUE_KEYS, false},
                                      {UNIQUE_KEYS, true},
@@ -385,22 +386,24 @@ TEST(MemTableFlushExecutorTest, GlobalPriorityForMowAndNonMowFlushes) {
                                 release.wait();
                             }).ok());
             EXPECT_TRUE(entered.wait_for(5s));
+            EXPECT_TRUE(pool->submit_load(std::make_shared<FlushOrderTask>(&order, 30), 5,
+                                          LoadTaskPriority::LOW)
+                                .ok());
             EXPECT_TRUE(write_end_bitmap->submit_func([&] { order.push_back(10); }).ok());
-            EXPECT_TRUE(
-                    flush->_submit_sub_tasks(pool.get(), {std::make_shared<FlushOrderTask>(&order),
-                                                          std::make_shared<FlushOrderTask>(&order)})
-                            .ok());
+            EXPECT_TRUE(flush->_submit_sub_tasks(pool.get(),
+                                                 {std::make_shared<FlushOrderTask>(&order, 31),
+                                                  std::make_shared<FlushOrderTask>(&order, 32)})
+                                .ok());
+            EXPECT_TRUE(pool->submit_load(std::make_shared<FlushOrderTask>(&order, 33), 6,
+                                          LoadTaskPriority::LOW)
+                                .ok());
             EXPECT_TRUE(write_end_bitmap->submit_func([&] { order.push_back(11); }).ok());
             EXPECT_TRUE(write_bitmap->submit_func([&] { order.push_back(2); }).ok());
             EXPECT_TRUE(commit_bitmap->submit_func([&] { order.push_back(0); }).ok());
             release.count_down();
             pool->wait();
-            if (is_mow) {
-                EXPECT_EQ(order, (std::vector<int> {0, 10, 11, 2, 3, 3}));
-            } else {
-                // Non-MoW flushes share P1 FIFO with write-end bitmaps, below P0.
-                EXPECT_EQ(order, (std::vector<int> {0, 10, 3, 3, 11, 2}));
-            }
+            // Bitmap stages run first; all flush tasks retain global P3 FIFO order.
+            EXPECT_EQ(order, (std::vector<int> {0, 10, 11, 2, 30, 31, 32, 33}));
         }
     }
 }

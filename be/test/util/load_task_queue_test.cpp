@@ -30,12 +30,12 @@ TEST(LoadTaskQueueTest, PriorityAcrossLoads) {
     queue.push(2, 2, 22);
     queue.push(3, 1, 31);
     queue.push(4, 0, 40);
-    queue.push(5, 1, 51); // Non-MoW flush shares P1 with write-end bitmap.
+    queue.push(5, 3, 53); // All memtable flushes share P3 across loads.
     std::vector<int> actual;
     while (!queue.empty()) {
         actual.push_back(queue.pop());
     }
-    EXPECT_EQ(actual, (std::vector<int> {40, 31, 51, 22, 13}));
+    EXPECT_EQ(actual, (std::vector<int> {40, 31, 22, 13, 53}));
 }
 
 TEST(LoadTaskQueueTest, SamePriorityIsGlobalFifoWithoutTransactionTurns) {

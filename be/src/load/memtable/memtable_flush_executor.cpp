@@ -133,10 +133,8 @@ SharedMemtable::~SharedMemtable() {
 Status FlushToken::_submit_sub_tasks(ThreadPool* pool,
                                      std::vector<std::shared_ptr<Runnable>> sub_tasks) {
     const auto& context = _rowset_writer->context();
-    // Non-MoW flushes have no write-stage bitmap work to yield to. Grouped data/binlog
-    // flushes use the owning table's MoW mode so a MoW binlog cannot bypass P2 backpressure.
-    const auto priority = context.enable_unique_key_merge_on_write ? LoadTaskPriority::LOW
-                                                                   : LoadTaskPriority::HIGH;
+    // All memtable flushes, including data/binlog subtasks, share P3 FIFO so ready
+    // bitmap work takes precedence regardless of the flushing table's MoW mode.
     for (int i = 0; i < sub_tasks.size(); ++i) {
         {
             std::shared_lock rdlk(_flush_status_lock);
@@ -150,7 +148,8 @@ Status FlushToken::_submit_sub_tasks(ThreadPool* pool,
                 return _flush_status;
             }
         }
-        Status submit_st = pool->submit_load(std::move(sub_tasks[i]), context.txn_id, priority);
+        Status submit_st =
+                pool->submit_load(std::move(sub_tasks[i]), context.txn_id, LoadTaskPriority::LOW);
         if (UNLIKELY(!submit_st.ok())) {
             {
                 std::lock_guard wrlk(_flush_status_lock);
