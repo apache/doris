@@ -392,8 +392,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             // gates are enforced by ChildrenPropertiesRegulator), apply a discount
             // to prefer this path over two-phase aggregation.
             if (aggregate.getAggMode() == AggMode.INPUT_TO_RESULT
-                    && AggregateUtils.isBucketedHashAggEnabled(
-                        aggregate.getGroupByExpressions().size())) {
+                    && AggregateUtils.isBucketedHashAggEnabled(aggregate)) {
                 rowCost *= BUCKETED_AGG_COST_DISCOUNT;
             }
             return Cost.of(context.getSessionVariable(),

@@ -3209,8 +3209,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      */
     private boolean shouldUseBucketedFusion(PhysicalHashAggregate<? extends Plan> aggregate,
             PlanTranslatorContext context) {
-        // Shared eligibility: session var, single-BE, GROUP BY, smooth upgrade
-        if (!AggregateUtils.isBucketedHashAggEnabled(aggregate.getGroupByExpressions().size())) {
+        // Shared eligibility: session var, single-BE, GROUP BY, smooth upgrade, no UDAF
+        if (!AggregateUtils.isBucketedHashAggEnabled(aggregate)) {
             return false;
         }
         // Must be one-phase: GLOBAL + INPUT_TO_RESULT
