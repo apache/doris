@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
 #include <gtest/gtest.h>
 
 #include <atomic>

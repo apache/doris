@@ -16,6 +16,8 @@
 // under the License.
 
 #include <bthread/bthread.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/types.pb.h>
 #include <gtest/gtest.h>
 
 #include <cerrno>
