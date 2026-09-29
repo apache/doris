@@ -29,6 +29,7 @@ import java.net.InetAddress;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 // Data types that are supported as return or argument types in Java UDFs.
 public class JavaUdfDataType {
@@ -59,6 +60,7 @@ public class JavaUdfDataType {
 
     public static final JavaUdfDataType IPV4 = new JavaUdfDataType("IPV4", TPrimitiveType.IPV4, 4);
     public static final JavaUdfDataType IPV6 = new JavaUdfDataType("IPV6", TPrimitiveType.IPV6, 16);
+    public static final JavaUdfDataType UUID = new JavaUdfDataType("UUID", TPrimitiveType.UUID, 16);
     public static final JavaUdfDataType ARRAY_TYPE = new JavaUdfArrayType("ARRAY_TYPE", TPrimitiveType.ARRAY, 0);
     public static final JavaUdfDataType MAP_TYPE = new JavaUdfMapType("MAP_TYPE", TPrimitiveType.MAP, 0);
     public static final JavaUdfDataType STRUCT_TYPE = new JavaUdfStructType("STRUCT_TYPE", TPrimitiveType.STRUCT, 0);
@@ -96,6 +98,7 @@ public class JavaUdfDataType {
         addJavaUdfDataType(STRUCT_TYPE);
         addJavaUdfDataType(IPV4);
         addJavaUdfDataType(IPV6);
+        addJavaUdfDataType(UUID);
         addJavaUdfDataType(VARBINARY_TYPE);
     }
 
@@ -169,6 +172,8 @@ public class JavaUdfDataType {
             return Sets.newHashSet(JavaUdfDataType.MAP_TYPE);
         } else if (c == InetAddress.class) {
             return Sets.newHashSet(JavaUdfDataType.IPV4, JavaUdfDataType.IPV6);
+        } else if (c == UUID.class) {
+            return Sets.newHashSet(JavaUdfDataType.UUID);
         } else if (c == Byte[].class || c == byte[].class) {
             return Sets.newHashSet(JavaUdfDataType.VARBINARY_TYPE);
         }

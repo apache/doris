@@ -28,10 +28,11 @@ namespace doris::iceberg {
 class IcebergArrowSchemaConvertor final : public ArrowSchemaConvertor {
 public:
     IcebergArrowSchemaConvertor(const Schema& schema, std::string timezone,
-                                std::string schema_json = {})
+                                std::string schema_json = {}, bool use_uuid_extension = false)
             : _schema(schema),
               _timezone(std::move(timezone)),
-              _schema_json(std::move(schema_json)) {}
+              _schema_json(std::move(schema_json)),
+              _use_uuid_extension(use_uuid_extension) {}
     Status get_arrow_schema(std::shared_ptr<arrow::Schema>* result) const override;
     Status convert_fields(std::vector<std::shared_ptr<arrow::Field>>& fields) const;
 
@@ -46,6 +47,7 @@ private:
     const Schema& _schema;
     const std::string _timezone;
     const std::string _schema_json;
+    const bool _use_uuid_extension;
 };
 
 #include "common/compile_check_end.h"
