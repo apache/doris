@@ -288,6 +288,14 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
         long id = Env.getCurrentEnv().getNextId();
         CatalogIf catalog = CatalogFactory.createFromCommand(id, cmd);
+        if (catalog instanceof ExternalCatalog) {
+            try {
+                ((ExternalCatalog) catalog).checkProperties();
+            } catch (DdlException | RuntimeException e) {
+                catalog.onCreateFailure();
+                throw e;
+            }
+        }
         createCatalogImpl(catalog, cmd.getCatalogName(), cmd.isSetIfNotExists());
     }
 
@@ -553,14 +561,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     private void createCatalogInternal(CatalogIf catalog, boolean isReplay) throws DdlException {
         writeLock();
         try {
-            if (!isReplay && catalog instanceof ExternalCatalog) {
-                try {
-                    ((ExternalCatalog) catalog).checkProperties();
-                } catch (DdlException | RuntimeException e) {
-                    catalog.onCreateFailure();
-                    throw e;
-                }
-            }
             Map<String, String> props = catalog.getProperties();
             if (props.containsKey(METADATA_REFRESH_INTERVAL_SEC)) {
                 // need refresh

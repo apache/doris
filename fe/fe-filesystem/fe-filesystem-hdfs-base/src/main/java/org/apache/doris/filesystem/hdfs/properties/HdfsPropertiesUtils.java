@@ -218,9 +218,8 @@ public class HdfsPropertiesUtils {
             // No nameservice configured => HA is not enabled, nothing to validate
             return;
         }
-        if (Arrays.stream(dfsNameservices.split(",", -1)).anyMatch(StringUtils::isBlank)) {
-            throw new IllegalArgumentException("Property dfs.nameservices must not contain empty nameservice");
-        }
+        // Keep runtime binding compatible with catalogs written by older versions. Hadoop also
+        // ignores empty tokens produced by a trailing comma in dfs.nameservices.
         List<String> services = splitAndTrim(dfsNameservices);
         if (services.isEmpty()) {
             throw new IllegalArgumentException("Property dfs.nameservices must contain a nameservice");
