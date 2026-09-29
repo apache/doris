@@ -97,7 +97,7 @@ protected:
 
 TEST_F(ExternalTableSinkHashPartitionerTest, DirectHashKeepsOneKeyOnOneWriter) {
     TExternalTableSinkHashPartitionInfo info;
-    info.__set_algorithm(TExternalTableSinkHashAlgorithm::DIRECT_HASH);
+    info.__set_partition_function("direct_hash");
     info.__set_writer_assignment(TExternalTableSinkWriterAssignment::IDENTITY);
     ExternalTableSinkHashPartitioner partitioner(8, ShuffleHashMethod::CRC32, info);
     ASSERT_TRUE(partitioner.init({slot_ref()}).ok());
@@ -115,31 +115,21 @@ TEST_F(ExternalTableSinkHashPartitionerTest, DirectHashKeepsOneKeyOnOneWriter) {
     ASSERT_TRUE(partitioner.close(&_state).ok());
 }
 
-TEST_F(ExternalTableSinkHashPartitionerTest, OldFePayloadMissingWriterAssignmentFailsClosed) {
+TEST_F(ExternalTableSinkHashPartitionerTest, UnknownPartitionFunctionFailsClosed) {
     TExternalTableSinkHashPartitionInfo info;
-    info.__set_algorithm(TExternalTableSinkHashAlgorithm::DIRECT_HASH);
-    ExternalTableSinkHashPartitioner partitioner(8, ShuffleHashMethod::CRC32, info);
-
-    Status status = partitioner.init({slot_ref()});
-    ASSERT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("writer assignment is missing"), std::string::npos);
-}
-
-TEST_F(ExternalTableSinkHashPartitionerTest, NewerFeHashAlgorithmFailsClosed) {
-    TExternalTableSinkHashPartitionInfo info;
-    info.__set_algorithm(static_cast<TExternalTableSinkHashAlgorithm::type>(99));
+    info.__set_partition_function("unknown");
     info.__set_writer_assignment(TExternalTableSinkWriterAssignment::IDENTITY);
     ExternalTableSinkHashPartitioner partitioner(8, ShuffleHashMethod::CRC32, info);
 
     Status status = partitioner.init({slot_ref()});
     ASSERT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("Unsupported external sink hash algorithm 99"),
+    EXPECT_NE(status.to_string().find("Unsupported external sink partition function 'unknown'"),
               std::string::npos);
 }
 
 TEST_F(ExternalTableSinkHashPartitionerTest, DirectHashSupportsSkewedWriterAssignment) {
     TExternalTableSinkHashPartitionInfo info;
-    info.__set_algorithm(TExternalTableSinkHashAlgorithm::DIRECT_HASH);
+    info.__set_partition_function("direct_hash");
     info.__set_writer_assignment(TExternalTableSinkWriterAssignment::SKEWED);
     ExternalTableSinkHashPartitioner partitioner(4, ShuffleHashMethod::CRC32C, info);
     ASSERT_TRUE(partitioner.init({slot_ref()}).ok());
@@ -160,15 +150,11 @@ TEST_F(ExternalTableSinkHashPartitionerTest, DirectHashSupportsSkewedWriterAssig
 }
 
 TEST_F(ExternalTableSinkHashPartitionerTest, PaimonFixedBucketUsesSdkCompatibleChannel) {
-    TPaimonFixedBucketInfo fixed_bucket_info;
-    fixed_bucket_info.__set_num_buckets(4);
-    fixed_bucket_info.__set_partition_field_indexes({});
-    fixed_bucket_info.__set_bucket_field_indexes({0});
-
     TExternalTableSinkHashPartitionInfo info;
-    info.__set_algorithm(TExternalTableSinkHashAlgorithm::PAIMON_FIXED_BUCKET);
+    info.__set_partition_function("paimon_fixed_bucket");
+    info.__set_partition_function_options(
+            {{"num_buckets", "4"}, {"partition_field_indexes", ""}, {"bucket_field_indexes", "0"}});
     info.__set_writer_assignment(TExternalTableSinkWriterAssignment::IDENTITY);
-    info.__set_paimon_fixed_bucket_info(fixed_bucket_info);
     ExternalTableSinkHashPartitioner partitioner(8, ShuffleHashMethod::CRC32, info);
     ASSERT_TRUE(partitioner.init({slot_ref()}).ok());
     ASSERT_TRUE(partitioner.prepare(&_state, *_row_descriptor).ok());
@@ -185,15 +171,12 @@ TEST_F(ExternalTableSinkHashPartitionerTest, PaimonFixedBucketUsesSdkCompatibleC
 }
 
 TEST_F(ExternalTableSinkHashPartitionerTest, PaimonFixedBucketIncludesPartitionHash) {
-    TPaimonFixedBucketInfo fixed_bucket_info;
-    fixed_bucket_info.__set_num_buckets(4);
-    fixed_bucket_info.__set_partition_field_indexes({0});
-    fixed_bucket_info.__set_bucket_field_indexes({0});
-
     TExternalTableSinkHashPartitionInfo info;
-    info.__set_algorithm(TExternalTableSinkHashAlgorithm::PAIMON_FIXED_BUCKET);
+    info.__set_partition_function("paimon_fixed_bucket");
+    info.__set_partition_function_options({{"num_buckets", "4"},
+                                           {"partition_field_indexes", "0"},
+                                           {"bucket_field_indexes", "0"}});
     info.__set_writer_assignment(TExternalTableSinkWriterAssignment::IDENTITY);
-    info.__set_paimon_fixed_bucket_info(fixed_bucket_info);
     ExternalTableSinkHashPartitioner partitioner(8, ShuffleHashMethod::CRC32, info);
     ASSERT_TRUE(partitioner.init({slot_ref()}).ok());
     ASSERT_TRUE(partitioner.prepare(&_state, *_row_descriptor).ok());
@@ -211,63 +194,13 @@ TEST_F(ExternalTableSinkHashPartitionerTest, PaimonFixedBucketIncludesPartitionH
 
 TEST_F(ExternalTableSinkHashPartitionerTest, PaimonFixedBucketRejectsMissingMetadata) {
     TExternalTableSinkHashPartitionInfo info;
-    info.__set_algorithm(TExternalTableSinkHashAlgorithm::PAIMON_FIXED_BUCKET);
+    info.__set_partition_function("paimon_fixed_bucket");
     info.__set_writer_assignment(TExternalTableSinkWriterAssignment::IDENTITY);
     ExternalTableSinkHashPartitioner partitioner(8, ShuffleHashMethod::CRC32, info);
 
     Status status = partitioner.init({slot_ref()});
     ASSERT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("routing metadata is missing"), std::string::npos);
-}
-
-TEST_F(ExternalTableSinkHashPartitionerTest, PaimonFixedBucketRejectsEmptyTransformMetadata) {
-    TPaimonFixedBucketInfo fixed_bucket_info;
-    fixed_bucket_info.__set_num_buckets(4);
-    fixed_bucket_info.__set_partition_field_indexes({});
-    fixed_bucket_info.__set_bucket_field_indexes({0});
-
-    TExternalTableSinkHashPartitionInfo info;
-    info.__set_algorithm(TExternalTableSinkHashAlgorithm::PAIMON_FIXED_BUCKET);
-    info.__set_writer_assignment(TExternalTableSinkWriterAssignment::IDENTITY);
-    info.__set_partition_transforms({});
-    info.__set_paimon_fixed_bucket_info(fixed_bucket_info);
-    ExternalTableSinkHashPartitioner partitioner(8, ShuffleHashMethod::CRC32, info);
-
-    Status status = partitioner.init({slot_ref()});
-    ASSERT_FALSE(status.ok());
-    EXPECT_NE(status.to_string().find("contains incompatible metadata"), std::string::npos);
-}
-
-TEST_F(ExternalTableSinkHashPartitionerTest, IcebergTransformHashesTransformedValue) {
-    TExternalTableSinkHashPartitionInfo info;
-    info.__set_algorithm(TExternalTableSinkHashAlgorithm::ICEBERG_TRANSFORM);
-    info.__set_writer_assignment(TExternalTableSinkWriterAssignment::SKEWED);
-    info.__set_partition_transforms({"truncate[10]"});
-    ExternalTableSinkHashPartitioner partitioner(64, ShuffleHashMethod::CRC32, info);
-    ASSERT_TRUE(partitioner.init({slot_ref()}).ok());
-    ASSERT_TRUE(partitioner.prepare(&_state, *_row_descriptor).ok());
-    ASSERT_TRUE(partitioner.open(&_state).ok());
-
-    Block input = block({11, 19, 20, 29});
-    ASSERT_TRUE(partitioner.do_partitioning(&_state, &input).ok());
-    const auto& channels = partitioner.get_channel_ids();
-    ASSERT_EQ(4, channels.size());
-    EXPECT_EQ(channels[0], channels[1]);
-    EXPECT_EQ(channels[2], channels[3]);
-    EXPECT_EQ(1, input.columns());
-
-    ASSERT_TRUE(partitioner.close(&_state).ok());
-}
-
-TEST_F(ExternalTableSinkHashPartitionerTest, UnsupportedTransformFailsClosed) {
-    TExternalTableSinkHashPartitionInfo info;
-    info.__set_algorithm(TExternalTableSinkHashAlgorithm::ICEBERG_TRANSFORM);
-    info.__set_writer_assignment(TExternalTableSinkWriterAssignment::IDENTITY);
-    info.__set_partition_transforms({"unsupported"});
-    ExternalTableSinkHashPartitioner partitioner(4, ShuffleHashMethod::CRC32, info);
-    ASSERT_TRUE(partitioner.init({slot_ref()}).ok());
-    ASSERT_TRUE(partitioner.prepare(&_state, *_row_descriptor).ok());
-    EXPECT_FALSE(partitioner.open(&_state).ok());
+    EXPECT_NE(status.to_string().find("requires options"), std::string::npos);
 }
 
 } // namespace doris

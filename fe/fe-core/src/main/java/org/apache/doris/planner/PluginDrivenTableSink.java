@@ -263,8 +263,9 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         // source-agnostic. This runs before the write plan is bound (planWrite has not run yet for an
         // EXPLAIN), so the connector derives the detail from the write handle.
         ConnectorWriteHandle handle = new PluginDrivenWriteHandle(
-                tableHandle, connectorColumns, boundTargetColumns, false, Collections.emptyMap(), null,
-                null, Optional.empty(), writeOperation, writesDataFiles, requireMergeCardinalityCheck);
+                tableHandle, connectorColumns, boundTargetColumns, false, Collections.emptyMap(),
+                Collections.emptySet(), null, null, Optional.empty(), writeOperation,
+                writesDataFiles, requireMergeCardinalityCheck);
         writePlanProvider.appendExplainInfo(sb, prefix, connectorSession, handle);
         return sb.toString();
     }

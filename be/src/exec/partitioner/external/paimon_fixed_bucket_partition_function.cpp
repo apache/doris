@@ -22,17 +22,20 @@
 namespace doris {
 
 PaimonFixedBucketPartitionFunction::PaimonFixedBucketPartitionFunction(
-        HashValType partition_count, TPaimonFixedBucketInfo fixed_bucket_info)
+        HashValType partition_count, int32_t num_buckets,
+        std::vector<int32_t> partition_field_indexes, std::vector<int32_t> bucket_field_indexes)
         : PaimonRowHashPartitionFunction(partition_count),
-          _fixed_bucket_info(std::move(fixed_bucket_info)) {}
+          _num_buckets(num_buckets),
+          _partition_field_indexes(std::move(partition_field_indexes)),
+          _bucket_field_indexes(std::move(bucket_field_indexes)) {}
 
 Status PaimonFixedBucketPartitionFunction::init(const std::vector<TExpr>& texprs) {
     RETURN_IF_ERROR(PaimonRowHashPartitionFunction::init(texprs));
-    if (_fixed_bucket_info.num_buckets <= 0) {
+    if (_num_buckets <= 0) {
         return Status::InvalidArgument("Paimon fixed-bucket count must be positive");
     }
-    RETURN_IF_ERROR(_validate_field_indexes(_fixed_bucket_info.partition_field_indexes, false));
-    return _validate_field_indexes(_fixed_bucket_info.bucket_field_indexes, true);
+    RETURN_IF_ERROR(_validate_field_indexes(_partition_field_indexes, false));
+    return _validate_field_indexes(_bucket_field_indexes, true);
 }
 
 Status PaimonFixedBucketPartitionFunction::get_partitions(
@@ -52,13 +55,11 @@ Status PaimonFixedBucketPartitionFunction::get_partitions(
     RETURN_IF_ERROR(_evaluate_fields(block, fields));
     std::vector<int32_t> partition_hashes;
     std::vector<int32_t> bucket_hashes;
-    RETURN_IF_ERROR(
-            _hash_fields(_fixed_bucket_info.partition_field_indexes, fields, partition_hashes));
-    RETURN_IF_ERROR(_hash_fields(_fixed_bucket_info.bucket_field_indexes, fields, bucket_hashes));
+    RETURN_IF_ERROR(_hash_fields(_partition_field_indexes, fields, partition_hashes));
+    RETURN_IF_ERROR(_hash_fields(_bucket_field_indexes, fields, bucket_hashes));
     partitions.resize(rows);
     for (size_t row = 0; row < rows; ++row) {
-        auto bucket =
-                paimon_native::default_bucket(bucket_hashes[row], _fixed_bucket_info.num_buckets);
+        auto bucket = paimon_native::default_bucket(bucket_hashes[row], _num_buckets);
         if (!bucket.has_value()) {
             return Status::InternalError("Failed to compute Paimon fixed bucket");
         }
@@ -74,8 +75,8 @@ Status PaimonFixedBucketPartitionFunction::get_partitions(
 
 Status PaimonFixedBucketPartitionFunction::clone(
         RuntimeState* state, std::unique_ptr<PartitionFunction>& function) const {
-    auto cloned = std::make_unique<PaimonFixedBucketPartitionFunction>(_partition_count,
-                                                                       _fixed_bucket_info);
+    auto cloned = std::make_unique<PaimonFixedBucketPartitionFunction>(
+            _partition_count, _num_buckets, _partition_field_indexes, _bucket_field_indexes);
     RETURN_IF_ERROR(_clone_expr_ctxs(state, cloned->_field_expr_ctxs));
     function = std::move(cloned);
     return Status::OK();

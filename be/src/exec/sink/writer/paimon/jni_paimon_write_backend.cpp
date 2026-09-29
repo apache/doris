@@ -35,7 +35,7 @@
 #include "common/logging.h"
 #include "exec/sink/writer/paimon/paimon_jni_memory_manager.h"
 #include "exec/spill/spill_file_manager.h"
-#include "format/arrow/arrow_block_convertor.h"
+#include "format/table/paimon/paimon_arrow_block_convertor.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
@@ -471,8 +471,9 @@ Status JniPaimonWriter::write(RuntimeState* state, Block& block) {
     // Variant layout are fixed before the first write. Arrow builders remain on the Doris side and
     // are charged to the current query's MemTracker through ArrowMemoryPool.
     std::shared_ptr<arrow::RecordBatch> record_batch;
-    RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema, &_arrow_pool, &record_batch,
-                                           state->timezone_obj()));
+    paimon::PaimonArrowBlockConvertor converter(_arrow_schema, state->timezone_obj());
+    RETURN_IF_ERROR(converter.init());
+    RETURN_IF_ERROR(converter.convert_to_arrow(block, &_arrow_pool, &record_batch));
 
     ArrowArray c_array {};
     ArrowSchema c_schema {};

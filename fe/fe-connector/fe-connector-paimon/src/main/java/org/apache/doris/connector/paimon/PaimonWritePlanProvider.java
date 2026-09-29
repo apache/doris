@@ -59,6 +59,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.stream.Collectors;
 
 /** Builds the JNI-backed Paimon sink and binds it to the active connector transaction. */
 public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
@@ -364,8 +365,16 @@ public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
         if (partitionIndexes == null || bucketIndexes == null || bucketIndexes.isEmpty()) {
             return null;
         }
-        return ConnectorWriteDistribution.paimonFixedBucket(
-                routeColumns, schema.numBuckets(), partitionIndexes, bucketIndexes);
+        Map<String, String> functionOptions = new LinkedHashMap<>();
+        functionOptions.put("num_buckets", Integer.toString(schema.numBuckets()));
+        functionOptions.put("partition_field_indexes", joinIndexes(partitionIndexes));
+        functionOptions.put("bucket_field_indexes", joinIndexes(bucketIndexes));
+        return ConnectorWriteDistribution.externalHash(routeColumns, "paimon_fixed_bucket",
+                functionOptions, ConnectorWriteDistribution.WriterAssignment.IDENTITY);
+    }
+
+    private String joinIndexes(List<Integer> indexes) {
+        return indexes.stream().map(String::valueOf).collect(Collectors.joining(","));
     }
 
     private List<Integer> appendRouteFields(List<String> fieldNames,

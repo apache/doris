@@ -23,6 +23,7 @@
 #include "core/block/materialize_block.h"
 #include "exprs/vexpr_context.h"
 #include "runtime/runtime_state.h"
+#include "util/thrift_util.h"
 
 namespace doris {
 
@@ -147,8 +148,13 @@ Status PaimonTableWriter::close(Status status) {
             DORIS_CHECK(msg.__isset.payload);
             COUNTER_UPDATE(_commit_payload_bytes_counter, static_cast<int64_t>(msg.payload.size()));
         }
+        ThriftSerializer serializer(false, 256);
+        for (auto& message : messages) {
+            std::string commit_data;
+            RETURN_IF_ERROR(serializer.serialize(&message, &commit_data));
+            RETURN_IF_ERROR(_state->add_connector_commit_data(std::move(commit_data)));
+        }
         if (!messages.empty()) {
-            _state->add_paimon_commit_messages(messages);
             LOG(INFO) << "Paimon writer closed: " << messages.size()
                       << " commit messages, total rows=" << _written_rows;
         }

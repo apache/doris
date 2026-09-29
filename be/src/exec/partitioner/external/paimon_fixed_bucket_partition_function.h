@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <gen_cpp/Partitions_types.h>
-
 #include "exec/partitioner/external/paimon_row_hash_partition_function.h"
 
 namespace doris {
@@ -27,8 +25,9 @@ namespace doris {
 // explicitly supported primitive routing types.
 class PaimonFixedBucketPartitionFunction final : public PaimonRowHashPartitionFunction {
 public:
-    PaimonFixedBucketPartitionFunction(HashValType partition_count,
-                                       TPaimonFixedBucketInfo fixed_bucket_info);
+    PaimonFixedBucketPartitionFunction(HashValType partition_count, int32_t num_buckets,
+                                       std::vector<int32_t> partition_field_indexes,
+                                       std::vector<int32_t> bucket_field_indexes);
 
     Status init(const std::vector<TExpr>& texprs) override;
     Status get_partitions(RuntimeState* state, Block* block, size_t partition_count,
@@ -36,7 +35,9 @@ public:
     Status clone(RuntimeState* state, std::unique_ptr<PartitionFunction>& function) const override;
 
 private:
-    TPaimonFixedBucketInfo _fixed_bucket_info;
+    int32_t _num_buckets;
+    std::vector<int32_t> _partition_field_indexes;
+    std::vector<int32_t> _bucket_field_indexes;
 };
 
 } // namespace doris
