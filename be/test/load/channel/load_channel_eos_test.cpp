@@ -26,8 +26,12 @@
 #include <thread>
 #include <utility>
 
+#include "agent/be_exec_version_manager.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablets_channel.h"
+#include "core/block/block.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_number.h"
 #include "cpp/sync_point.h"
 #include "load/channel/eos_completion.h"
 #include "load/channel/load_channel.h"
@@ -75,6 +79,7 @@ protected:
         channel->_state = BaseTabletsChannel::kOpened;
         channel->_num_remaining_senders = senders;
         channel->_closed_senders.Reset(senders);
+        channel->_next_seqs.resize(senders);
         _load->_tablets_channels.emplace(10, channel);
         _load->_opened = true;
         return channel;
@@ -90,6 +95,106 @@ protected:
         request.set_eos(true);
         request.set_hang_wait(hang_wait);
         return request;
+    }
+
+    static PTabletWriterAddBlockRequest eos_with_block(int sender) {
+        auto request = eos(sender);
+        request.set_packet_seq(7);
+        request.add_tablet_ids(123);
+        auto column = ColumnInt32::create();
+        column->insert_value(42);
+        Block block {{std::move(column), std::make_shared<DataTypeInt32>(), "value"}};
+        size_t uncompressed_bytes = 0;
+        size_t compressed_bytes = 0;
+        int64_t compress_time = 0;
+        EXPECT_TRUE(block.serialize(BeExecVersionManager::get_newest_version(),
+                                    request.mutable_block(), &uncompressed_bytes, &compressed_bytes,
+                                    &compress_time, segment_v2::CompressionTypePB::SNAPPY)
+                            .ok());
+        return request;
+    }
+
+    void check_final_sender_retry(bool with_block, bool close_fails) {
+        auto channel = make_channel(2);
+        auto request = with_block ? eos_with_block(1) : eos(1);
+        // Model the packet already accepted by add_batch before entering EOS
+        // accounting. No writer is installed: reaching the writer lookup on a
+        // retry would fail with "unknown tablet" instead of succeeding silently.
+        channel->_next_seqs[1] = 8;
+        PTabletWriterAddBlockResult first_response;
+        std::shared_ptr<EosCompletion> first;
+        ASSERT_TRUE(_load->add_batch(eos(0), &first_response, &first).ok());
+
+        CountDownLatch arrival_callback(1);
+        CountDownLatch finish_callback(1);
+        CountDownLatch retry_waiting(1);
+        first->add_waiter([&](const Status& status) {
+            EXPECT_TRUE(status.ok());
+            arrival_callback.count_down();
+            finish_callback.wait();
+        });
+        auto* sp = SyncPoint::get_instance();
+        SyncPoint::CallbackGuard wait_guard;
+        SyncPoint::CallbackGuard close_guard;
+        sp->set_call_back(
+                "BaseTabletsChannel::close.wait_for_final_result",
+                [&](auto&&) { retry_waiting.count_down(); }, &wait_guard);
+        int final_closes = 0;
+        sp->set_call_back(
+                before_flush_sync_point(),
+                [&](auto&& args) {
+                    ++final_closes;
+                    auto* response = try_any_cast<PTabletWriterAddBlockResult*>(args[0]);
+                    auto* tablet = response->add_tablet_vec();
+                    tablet->set_tablet_id(123);
+                    tablet->set_schema_hash(0);
+                    tablet->set_received_rows(1);
+                    if (close_fails) {
+                        auto* ret = try_any_cast_ret<Status>(args);
+                        ret->first = Status::InternalError("final commit failed");
+                        ret->second = true;
+                    }
+                },
+                &close_guard);
+        sp->enable_processing();
+        Defer disable_sync_points {[&] { sp->disable_processing(); }};
+
+        Status final_status;
+        PTabletWriterAddBlockResult final_response;
+        std::thread finalizer([&] {
+            std::shared_ptr<EosCompletion> completion;
+            final_status = _load->add_batch(request, &final_response, &completion);
+        });
+        bool arrived = arrival_callback.wait_for(std::chrono::seconds(10));
+        EXPECT_TRUE(arrived);
+        Status retry_status;
+        PTabletWriterAddBlockResult retry_response;
+        std::atomic<bool> retry_returned {false};
+        std::thread retry([&] {
+            std::shared_ptr<EosCompletion> completion;
+            retry_status = _load->add_batch(request, &retry_response, &completion);
+            retry_returned = true;
+        });
+        // The finalizer is still inside an arrival callback, with _lock released.
+        // Require the retry to actually enter this window before allowing close.
+        EXPECT_TRUE(retry_waiting.wait_for(std::chrono::seconds(10)));
+        EXPECT_FALSE(retry_returned.load());
+        finish_callback.count_down();
+        finalizer.join();
+        retry.join();
+        EXPECT_TRUE(retry_returned.load());
+        EXPECT_EQ(final_closes, 1);
+        EXPECT_EQ(channel->_num_remaining_senders, 0);
+        EXPECT_EQ(channel->_next_seqs[1], 8);
+        EXPECT_EQ(final_status.ok(), !close_fails);
+        EXPECT_EQ(retry_status.to_string(), final_status.to_string());
+        EXPECT_EQ(retry_response.tablet_errors_size(), 0);
+        ASSERT_EQ(retry_response.tablet_vec_size(), 1);
+        EXPECT_EQ(retry_response.tablet_vec(0).tablet_id(), 123);
+        EXPECT_EQ(retry_response.tablet_vec(0).received_rows(), 1);
+        if (close_fails) {
+            EXPECT_NE(retry_status.to_string().find("final commit failed"), std::string::npos);
+        }
     }
 
     const char* before_flush_sync_point() const {
@@ -371,6 +476,70 @@ TEST_P(LoadChannelEosTest, ArrivalCallbacksCanReenterCloseAndCancel) {
     EXPECT_EQ(final_closes, 1);
     EXPECT_TRUE(_load->is_cancelled());
     EXPECT_TRUE(_load->is_finished());
+}
+
+TEST_P(LoadChannelEosTest, FinalSenderRetryWaitsForCommitFailure) {
+    check_final_sender_retry(false, true);
+}
+
+TEST_P(LoadChannelEosTest, FinalSenderRetryReceivesTabletResults) {
+    check_final_sender_retry(false, false);
+}
+
+TEST_P(LoadChannelEosTest, FinalSenderBlockRetryWaitsForCommitFailure) {
+    check_final_sender_retry(true, true);
+}
+
+TEST_P(LoadChannelEosTest, FinalSenderBlockRetryReceivesTabletResults) {
+    check_final_sender_retry(true, false);
+}
+
+TEST_P(LoadChannelEosTest, EarlierSenderBlockRetryDoesNotWriteDuringArrivalCallback) {
+    auto channel = make_channel(2);
+    channel->_next_seqs[0] = 8;
+    auto request = eos_with_block(0);
+    PTabletWriterAddBlockResult response;
+    std::shared_ptr<EosCompletion> first;
+    ASSERT_TRUE(_load->add_batch(request, &response, &first).ok());
+    int replies = 0;
+    first->add_waiter([&](const Status& status) {
+        EXPECT_TRUE(status.ok());
+        PTabletWriterAddBlockResult retry_response;
+        std::shared_ptr<EosCompletion> retry;
+        auto retry_status = _load->add_batch(request, &retry_response, &retry);
+        EXPECT_TRUE(retry_status.ok()) << retry_status;
+        EXPECT_EQ(retry_response.tablet_errors_size(), 0);
+        EXPECT_EQ(channel->_next_seqs[0], 8);
+        ASSERT_NE(retry, nullptr);
+        retry->add_waiter([&](const Status& st) {
+            EXPECT_TRUE(st.ok());
+            ++replies;
+        });
+    });
+    std::shared_ptr<EosCompletion> last;
+    EXPECT_TRUE(_load->add_batch(eos(1), &response, &last).ok());
+    EXPECT_EQ(replies, 1);
+}
+
+TEST_P(LoadChannelEosTest, PacketSequenceAdmission) {
+    auto channel = make_channel(1);
+    channel->_next_seqs[0] = 8;
+    auto request = eos_with_block(0);
+    int64_t current_seq = 0;
+    bool should_write = true;
+    ASSERT_TRUE(channel->_get_current_seq(current_seq, request, should_write).ok());
+    EXPECT_FALSE(should_write);
+    EXPECT_EQ(current_seq, 8);
+    request.set_packet_seq(8);
+    ASSERT_TRUE(channel->_get_current_seq(current_seq, request, should_write).ok());
+    EXPECT_TRUE(should_write);
+    request.set_packet_seq(9);
+    EXPECT_FALSE(channel->_get_current_seq(current_seq, request, should_write).ok());
+    EXPECT_FALSE(should_write);
+    EXPECT_TRUE(channel->cancel().ok());
+    request.set_packet_seq(8);
+    ASSERT_TRUE(channel->_get_current_seq(current_seq, request, should_write).ok());
+    EXPECT_FALSE(should_write);
 }
 
 INSTANTIATE_TEST_SUITE_P(LocalAndCloud, LoadChannelEosTest, testing::Bool());

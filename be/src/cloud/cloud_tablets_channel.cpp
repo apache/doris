@@ -84,15 +84,10 @@ Status CloudTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& reques
         _add_batch_number_counter->update(1);
     }
 
-    auto status = _get_current_seq(cur_seq, request);
-    if (UNLIKELY(!status.ok())) {
+    bool should_write = false;
+    auto status = _get_current_seq(cur_seq, request, should_write);
+    if (UNLIKELY(!status.ok()) || !should_write) {
         return status;
-    }
-
-    if (request.packet_seq() < cur_seq) {
-        LOG(INFO) << "packet has already recept before, expect_seq=" << cur_seq
-                  << ", recept_seq=" << request.packet_seq();
-        return Status::OK();
     }
 
     if (request.is_adaptive_random_bucket()) {
@@ -169,7 +164,7 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
     // FIXME(plat1ko): Too many duplicate code with `TabletsChannel`
     std::unique_lock l(_lock);
     if (_state == kFinished) {
-        return _close_status;
+        return _get_close_result(l, req.sender_id(), res);
     }
 
     auto sender_id = req.sender_id();
@@ -195,9 +190,12 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
         return Status::OK();
     }
 
+    return _close_and_notify(l, sender_id, res);
+}
+
+Status CloudTabletsChannel::_close_writers(PTabletWriterAddBlockResult* res) {
     auto* tablet_errors = res->mutable_tablet_errors();
     auto* tablet_vec = res->mutable_tablet_vec();
-    _notify_all_senders_closed(l);
     TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudTabletsChannel::close.before_flush", Status::OK(), res);
 
     // All senders are closed
