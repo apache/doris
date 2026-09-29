@@ -123,17 +123,18 @@ suite("test_iceberg_runtime_filter_partition_pruning_transform", "p0,external,do
                  order by partition_key desc limit 2);
         """
 
+        // These binary fixtures contain UTF-8 text; compare their explicit STRING representation.
         qt_bucket_binary_eq """
-            select count(*) from bucket_binary_4 where partition_key =
-                (select partition_key from bucket_binary_4
-                 group by partition_key having count(*) > 0
-                 order by partition_key desc limit 1);
+            select count(*) from bucket_binary_4 where cast(partition_key as string) =
+                (select cast(partition_key as string) from bucket_binary_4
+                 group by cast(partition_key as string) having count(*) > 0
+                 order by cast(partition_key as string) desc limit 1);
         """
         qt_bucket_binary_in """
-            select count(*) from bucket_binary_4 where partition_key in
-                (select partition_key from bucket_binary_4
-                 group by partition_key having count(*) > 0
-                 order by partition_key desc limit 2);
+            select count(*) from bucket_binary_4 where cast(partition_key as string) in
+                (select cast(partition_key as string) from bucket_binary_4
+                 group by cast(partition_key as string) having count(*) > 0
+                 order by cast(partition_key as string) desc limit 2);
         """
 
         // Truncate partitions
@@ -151,16 +152,16 @@ suite("test_iceberg_runtime_filter_partition_pruning_transform", "p0,external,do
         """
 
         qt_trunc_binary_eq """
-            select count(*) from truncate_binary_4 where partition_key =
-                (select partition_key from truncate_binary_4
-                 group by partition_key having count(*) > 0
-                 order by partition_key desc limit 1);
+            select count(*) from truncate_binary_4 where cast(partition_key as string) =
+                (select cast(partition_key as string) from truncate_binary_4
+                 group by cast(partition_key as string) having count(*) > 0
+                 order by cast(partition_key as string) desc limit 1);
         """
         qt_trunc_binary_in """
-            select count(*) from truncate_binary_4 where partition_key in
-                (select partition_key from truncate_binary_4
-                 group by partition_key having count(*) > 0
-                 order by partition_key desc limit 2);
+            select count(*) from truncate_binary_4 where cast(partition_key as string) in
+                (select cast(partition_key as string) from truncate_binary_4
+                 group by cast(partition_key as string) having count(*) > 0
+                 order by cast(partition_key as string) desc limit 2);
         """
 
         qt_trunc_int_eq """

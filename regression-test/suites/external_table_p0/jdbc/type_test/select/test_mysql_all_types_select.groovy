@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_mysql_all_types_select", "p0,external,mysql,external_docker,external_docker_mysql") {
+    // Zoned JDBC types preserve instants; pin their display zone independently of the runner.
+    sql "SET time_zone = '+08:00'"
+
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String s3_endpoint = getS3Endpoint()
@@ -50,6 +53,9 @@ suite("test_mysql_all_types_select", "p0,external,mysql,external_docker,external
 
 
         sql """use mysql_all_type_test.test_varbinary_db"""
+        // Remove only rows owned by this round trip so reruns retain the original seed data.
+        sql """CALL EXECUTE_STMT('mysql_all_type_test',
+                'DELETE FROM test_varbinary_db.test_varbinary WHERE id IN (3, 4, 5)')"""
         qt_desc_varbinary_type """desc test_varbinary;"""
         qt_select_varbinary_type """select * from test_varbinary order by id;"""
         qt_select_varbinary_type2 """insert into test_varbinary values(3, X'48656C6C6F20576F726C6421');"""
@@ -72,6 +78,9 @@ suite("test_mysql_all_types_select", "p0,external,mysql,external_docker,external
         );"""
         sql """SET time_zone = '+08:00';"""
         sql """use mysql_timestamp_tz_type_test.test_timestamp_tz_db"""
+        // Keep the write round trip repeatable without changing the preinstalled seed rows.
+        sql """CALL EXECUTE_STMT('mysql_timestamp_tz_type_test',
+                'DELETE FROM test_timestamp_tz_db.ts_test WHERE id IN (3, 4)')"""
         qt_desc_timestamp_tz """desc ts_test;"""
         qt_select_timestamp_tz """select * from ts_test order by id;"""
         qt_select_timestamp_tz2 """insert into ts_test values(3,"1999-10-10 12:00:00+08:00","1999-10-10 12:00:00");"""

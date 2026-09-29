@@ -320,8 +320,8 @@ public class JdbcMySQLClient extends JdbcClient {
                 if (convertDateToNull) {
                     fieldSchema.setAllowNull(true);
                 }
-                return enableMappingTimestampTz ? ScalarType.createTimeStampTzType(scale)
-                        : ScalarType.createDatetimeV2Type(scale);
+                // MySQL TIMESTAMP is an instant; DATETIME below remains a wall-clock value.
+                return ScalarType.createTimeStampTzType(scale);
             }
             case "DATETIME": {
                 // mysql can support microsecond
@@ -355,8 +355,7 @@ public class JdbcMySQLClient extends JdbcClient {
             case "LONGBLOB":
             case "BINARY":
             case "VARBINARY":
-                return enableMappingVarbinary ? ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize())
-                        : ScalarType.createStringType();
+                return ScalarType.createVarbinaryType(fieldSchema.requiredColumnSize());
             case "BIT":
                 if (fieldSchema.requiredColumnSize() == 1) {
                     return Type.BOOLEAN;

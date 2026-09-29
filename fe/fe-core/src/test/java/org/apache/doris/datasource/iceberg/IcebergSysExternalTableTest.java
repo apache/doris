@@ -107,7 +107,7 @@ public class IcebergSysExternalTableTest {
     }
 
     @Test
-    public void testMetadataSchemaUsesMappingOptionsFromRetainedGeneration() {
+    public void testMetadataSchemaUsesLogicalTypesWithLegacyGenerationFlags() {
         IcebergExternalTable sourceTable = Mockito.mock(IcebergExternalTable.class);
         IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
         Mockito.when(sourceTable.getId()).thenReturn(1L);
@@ -125,7 +125,8 @@ public class IcebergSysExternalTableTest {
                 Types.NestedField.optional(2, "timestamptz_col", Types.TimestampType.withZone())));
         IcebergSnapshotCacheValue snapshotValue = Mockito.mock(IcebergSnapshotCacheValue.class);
         Mockito.when(snapshotValue.getIcebergTable()).thenReturn(Optional.of(frozenBaseTable));
-        Mockito.when(snapshotValue.isEnableMappingVarbinary()).thenReturn(true);
+        // Retained generations may carry old flags; metadata columns still keep their logical types.
+        Mockito.when(snapshotValue.isEnableMappingVarbinary()).thenReturn(false);
         Mockito.when(snapshotValue.isEnableMappingTimestampTz()).thenReturn(false);
         Optional<MvccSnapshot> relationSnapshot = Optional.of(new IcebergMvccSnapshot(snapshotValue));
         IcebergSysExternalTable sysTable = Mockito.spy(new IcebergSysExternalTable(
@@ -149,7 +150,7 @@ public class IcebergSysExternalTableTest {
 
         Assertions.assertEquals(org.apache.doris.catalog.PrimitiveType.VARBINARY,
                 columns.get(0).getType().getPrimitiveType());
-        Assertions.assertEquals(org.apache.doris.catalog.PrimitiveType.DATETIMEV2,
+        Assertions.assertEquals(org.apache.doris.catalog.PrimitiveType.TIMESTAMPTZ,
                 columns.get(1).getType().getPrimitiveType());
         Mockito.verify(catalog, Mockito.never()).getEnableMappingVarbinary();
         Mockito.verify(catalog, Mockito.never()).getEnableMappingTimestampTz();

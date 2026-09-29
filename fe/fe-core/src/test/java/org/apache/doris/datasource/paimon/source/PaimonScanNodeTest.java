@@ -142,6 +142,12 @@ public class PaimonScanNodeTest {
     }
 
     @Test
+    public void testDoesNotUseHiveParquetInt96TimeZone() {
+        PaimonScanNode node = Mockito.mock(PaimonScanNode.class, Mockito.CALLS_REAL_METHODS);
+        Assert.assertEquals("", node.getHiveParquetTimeZone());
+    }
+
+    @Test
     public void testVariantProjectionRequiresVariantV2Recursively() throws UserException {
         List<Type> variantTypes = Arrays.asList(
                 VariantType.COMPUTE_V2_INSTANCE,
@@ -1526,6 +1532,99 @@ public class PaimonScanNodeTest {
     }
 
     @Test
+    public void testLegacyOrcTimestampLtzRequiresSdkReaderRecursively() throws Exception {
+        org.apache.paimon.types.DataType ltz = DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6);
+        for (org.apache.paimon.types.DataType type : Arrays.asList(
+                ltz, DataTypes.ARRAY(ltz), DataTypes.MULTISET(ltz), DataTypes.MAP(ltz, DataTypes.INT()),
+                DataTypes.MAP(DataTypes.INT(), ltz), DataTypes.ROW(DataTypes.FIELD(1, "ts", ltz)))) {
+            for (Map<String, String> options : Arrays.asList(Collections.<String, String>emptyMap(),
+                    Collections.singletonMap("orc.timestamp-ltz.legacy.type", "true"))) {
+                PaimonScanNode node = legacyOrcRoutingNode(DataTypes.ROW(type), options, null);
+                Assert.assertFalse(node.supportNativeReader(rawFiles("data.orc")));
+                Assert.assertFalse(node.supportNativeReader(rawFiles("data.parquet", "data.orc")));
+                Assert.assertTrue(node.supportNativeReader(rawFiles("data.parquet")));
+            }
+        }
+    }
+
+    @Test
+    public void testModernOrcTimestampAndNtzOnlyFilesKeepNativeReader() throws Exception {
+        RowType ltz = DataTypes.ROW(DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6));
+        PaimonScanNode modern = legacyOrcRoutingNode(ltz,
+                Collections.singletonMap("orc.timestamp-ltz.legacy.type", "false"), null);
+        Assert.assertTrue(modern.supportNativeReader(rawFiles("data.orc")));
+
+        RowType ntz = DataTypes.ROW(DataTypes.TIMESTAMP(6));
+        TableSchema history = Mockito.mock(TableSchema.class);
+        Mockito.lenient().when(history.logicalRowType()).thenReturn(ntz);
+        PaimonScanNode nativeNtz = legacyOrcRoutingNode(ntz, Collections.emptyMap(), history);
+        Assert.assertTrue(nativeNtz.supportNativeReader(rawFiles("data.orc")));
+        Assert.assertFalse(nativeNtz.supportNativeReader(Optional.empty()));
+        Assert.assertFalse(nativeNtz.supportNativeReader(rawFiles("data.avro")));
+    }
+
+    @Test
+    public void testLegacyOrcRoutingUsesHistoricalTypesAndEffectiveOptions() throws Exception {
+        RowType ltz = DataTypes.ROW(DataTypes.ARRAY(DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(6)));
+        TableSchema history = Mockito.mock(TableSchema.class);
+        Mockito.lenient().when(history.logicalRowType()).thenReturn(ltz);
+        PaimonScanNode historicalLtz = legacyOrcRoutingNode(DataTypes.ROW(DataTypes.TIMESTAMP(6)),
+                Collections.emptyMap(), history);
+        Assert.assertFalse(historicalLtz.supportNativeReader(rawFiles("data.orc")));
+
+        PaimonScanNode optionsOverride = legacyOrcRoutingNode(ltz, Collections.emptyMap(), null);
+        Table effectiveTable = Mockito.mock(Table.class);
+        Mockito.lenient().when(effectiveTable.options())
+                .thenReturn(Collections.singletonMap("orc.timestamp-ltz.legacy.type", "false"));
+        Mockito.lenient().when(effectiveTable.rowType()).thenReturn(ltz);
+        setField(PaimonScanNode.class, optionsOverride, "processedTable", effectiveTable);
+        Assert.assertTrue(optionsOverride.supportNativeReader(rawFiles("data.orc")));
+    }
+
+    @Test
+    public void testLegacyOrcHistoryLookupUsesResolvedRelationAndIsCached() throws Exception {
+        RowType ntz = DataTypes.ROW(DataTypes.TIMESTAMP(6));
+        PaimonScanNode node = legacyOrcRoutingNode(ntz, Collections.emptyMap(), null);
+        DataTable effectiveTable = Mockito.mock(DataTable.class, Mockito.RETURNS_DEEP_STUBS);
+        Mockito.when(effectiveTable.options()).thenReturn(Collections.emptyMap());
+        Mockito.when(effectiveTable.rowType()).thenReturn(ntz);
+        TableSchema history = Mockito.mock(TableSchema.class);
+        Mockito.when(history.logicalRowType()).thenReturn(ntz);
+        Mockito.when(effectiveTable.schemaManager().schema(7L)).thenReturn(history);
+        setField(PaimonScanNode.class, node, "processedTable", effectiveTable);
+
+        Assert.assertTrue(node.supportNativeReader(rawFiles("first.orc", "second.orc")));
+        Assert.assertTrue(node.supportNativeReader(rawFiles("third.orc")));
+        Mockito.verify(effectiveTable.schemaManager(), Mockito.times(1)).schema(7L);
+    }
+
+    private PaimonScanNode legacyOrcRoutingNode(RowType rowType, Map<String, String> options,
+            TableSchema history) {
+        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)),
+                false, new SessionVariable(), ScanContext.EMPTY);
+        DataTable table = Mockito.mock(DataTable.class, Mockito.RETURNS_DEEP_STUBS);
+        Mockito.lenient().when(table.options()).thenReturn(options);
+        Mockito.lenient().when(table.rowType()).thenReturn(rowType);
+        Mockito.lenient().when(table.schemaManager().schema(7L)).thenReturn(history);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Mockito.lenient().when(source.getPaimonTable()).thenReturn(table);
+        Mockito.lenient().when(source.getExternalTable()).thenReturn(Mockito.mock(PaimonExternalTable.class));
+        node.setSource(source);
+        return node;
+    }
+
+    private Optional<List<RawFile>> rawFiles(String... paths) {
+        List<RawFile> files = new ArrayList<>();
+        for (String path : paths) {
+            RawFile file = Mockito.mock(RawFile.class);
+            Mockito.when(file.path()).thenReturn(path);
+            Mockito.lenient().when(file.schemaId()).thenReturn(7L);
+            files.add(file);
+        }
+        return Optional.of(files);
+    }
+
+    @Test
     public void testGetBackendPaimonOptionsForJdbcCatalog() throws Exception {
         String driverUrl = "file:///tmp/postgresql-42.5.0.jar";
         Map<String, String> props = new HashMap<>();
@@ -1697,6 +1796,7 @@ public class PaimonScanNodeTest {
         PaimonScanNode node = newTestNode(new PlanNodeId(0), new TupleId(0), sv);
         PaimonScanNode spyNode = Mockito.spy(node);
         PaimonSource source = Mockito.mock(PaimonSource.class);
+        Mockito.when(source.getCatalog()).thenReturn(Mockito.mock(PaimonExternalCatalog.class));
         Table table = Mockito.mock(Table.class);
         PaimonSysExternalTable externalTable = Mockito.mock(PaimonSysExternalTable.class);
         Mockito.when(source.getPaimonTable()).thenReturn(table);

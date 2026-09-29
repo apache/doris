@@ -178,13 +178,13 @@ class IcebergSchemaDisplayTest {
     }
 
     @Test
-    void testDisplayUsesMappingOptionsFromRetainedGeneration() {
+    void testDisplayUsesLogicalTypesWithLegacyGenerationFlags() {
         icebergUtils.when(() -> IcebergUtils.withIcebergTableGeneration(
                         Mockito.eq(table),
                         Mockito.<IcebergExternalMetaCache.TableGenerationAction<Object>>any()))
                 .thenAnswer(invocation -> {
-                    // Model an ALTER/reset from G1(true, false) to G2(false, true) after the
-                    // table generation is retained but before display conversion starts.
+                    // A reset must retain the table generation, but legacy mapping flags
+                    // cannot downgrade logical binary or instant types in display schemas.
                     Mockito.doReturn(false).when(catalog).getEnableMappingVarbinary();
                     Mockito.doReturn(true).when(catalog).getEnableMappingTimestampTz();
                     IcebergExternalMetaCache.TableGenerationAction<Object> action = invocation.getArgument(1);
@@ -194,7 +194,7 @@ class IcebergSchemaDisplayTest {
 
         List<Column> displayed = table.getBaseSchemaForDisplay(true);
 
-        Assertions.assertEquals(org.apache.doris.catalog.PrimitiveType.DATETIMEV2,
+        Assertions.assertEquals(org.apache.doris.catalog.PrimitiveType.TIMESTAMPTZ,
                 displayed.get(4).getType().getPrimitiveType());
         Assertions.assertEquals(org.apache.doris.catalog.PrimitiveType.VARBINARY,
                 displayed.get(5).getType().getPrimitiveType());
