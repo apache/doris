@@ -285,7 +285,8 @@ public class FlightSqlSchemaHelper {
             Integer tableOffset = describeTablesResult.getTablesOffset().get(tableIndex);
             for (; columnIndex < tableOffset; columnIndex++) {
                 TColumnDef columnDef = describeTablesResult.getColumns().get(columnIndex);
-                fields.add(buildField(dbName, tableName, columnDef.getColumnDesc()));
+                fields.add(buildField(dbName, tableName, columnDef.getColumnDesc(),
+                        ctx.getSessionVariable().arrowFlightSqlMapAsList));
             }
             tableToFields.put(tableName, fields);
         }
@@ -293,12 +294,16 @@ public class FlightSqlSchemaHelper {
     }
 
     /** One column, with its nested types described down to the leaves. */
-    private static Field buildField(String dbName, String tableName, TColumnDesc desc) {
+    private static Field buildField(String dbName, String tableName, TColumnDesc desc, boolean mapAsList) {
         ArrowType arrowType = columnDescToArrowType(desc);
+        List<Field> children = arrowChildren(dbName, tableName, desc, arrowType, mapAsList);
+        if (mapAsList && arrowType instanceof ArrowType.Map) {
+            arrowType = new ArrowType.List();
+        }
         return new Field(desc.getColumnName(),
                 new FieldType(desc.isIsAllowNull(), arrowType, null,
                         createFlightSqlColumnMetadata(dbName, tableName, desc)),
-                arrowChildren(dbName, tableName, desc, arrowType));
+                children);
     }
 
     /**
@@ -317,7 +322,7 @@ public class FlightSqlSchemaHelper {
      * that cannot describe its nested types is no worse off than before.
      */
     private static List<Field> arrowChildren(String dbName, String tableName, TColumnDesc desc,
-            ArrowType arrowType) {
+            ArrowType arrowType, boolean mapAsList) {
         List<TColumnDesc> children = desc.isSetChildren() ? desc.getChildren() : Collections.emptyList();
         switch (arrowType.getTypeID()) {
             case List:
@@ -328,7 +333,7 @@ public class FlightSqlSchemaHelper {
                             Field.notNullable(BaseRepeatedValueVector.DATA_VECTOR_NAME,
                                     ZeroVector.INSTANCE.getField().getType()));
                 }
-                return Collections.singletonList(buildField(dbName, tableName, children.get(0)));
+                return Collections.singletonList(buildField(dbName, tableName, children.get(0), mapAsList));
             case Map:
                 // Arrow spells a map as list<entries: struct<key, value>>, with the entries struct and
                 // the key both non-nullable -- the descriptor's key nullability is not carried over,
@@ -337,8 +342,15 @@ public class FlightSqlSchemaHelper {
                     return Collections.singletonList(
                             Field.notNullable(MapVector.DATA_VECTOR_NAME, new ArrowType.List()));
                 }
-                Field key = buildField(dbName, tableName, children.get(0));
-                Field value = buildField(dbName, tableName, children.get(1));
+                Field key = buildField(dbName, tableName, children.get(0), mapAsList);
+                Field value = buildField(dbName, tableName, children.get(1), mapAsList);
+                if (mapAsList) {
+                    // Match BE's stable LIST schema; NULL keys remain ordinary nullable struct fields.
+                    Field nullableKey = new Field(key.getName(),
+                            new FieldType(true, key.getType(), null), key.getChildren());
+                    return Collections.singletonList(new Field("item",
+                            new FieldType(true, new ArrowType.Struct(), null), Arrays.asList(nullableKey, value)));
+                }
                 Field entries = new Field(MapVector.DATA_VECTOR_NAME,
                         new FieldType(false, new ArrowType.Struct(), null),
                         Arrays.asList(new Field(key.getName(),
@@ -351,7 +363,7 @@ public class FlightSqlSchemaHelper {
                 }
                 List<Field> structFields = new ArrayList<>(children.size());
                 for (TColumnDesc child : children) {
-                    structFields.add(buildField(dbName, tableName, child));
+                    structFields.add(buildField(dbName, tableName, child, mapAsList));
                 }
                 return structFields;
             default:

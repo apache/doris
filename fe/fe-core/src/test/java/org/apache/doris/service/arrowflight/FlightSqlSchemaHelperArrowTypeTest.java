@@ -18,6 +18,7 @@
 package org.apache.doris.service.arrowflight;
 
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TColumnDesc;
 import org.apache.doris.thrift.TPrimitiveType;
 
@@ -74,7 +75,7 @@ public class FlightSqlSchemaHelperArrowTypeTest {
     }
 
     private static Field buildField(TColumnDesc columnDesc) {
-        return Deencapsulation.invoke(FlightSqlSchemaHelper.class, "buildField", DB, TABLE, columnDesc);
+        return Deencapsulation.invoke(FlightSqlSchemaHelper.class, "buildField", DB, TABLE, columnDesc, false);
     }
 
     /**
@@ -205,5 +206,41 @@ public class FlightSqlSchemaHelperArrowTypeTest {
         Field array = schema.getFields().get(0);
         Assertions.assertEquals(ArrowType.ArrowTypeID.List, array.getType().getTypeID());
         Assertions.assertEquals(new ArrowType.Int(32, true), array.getChildren().get(0).getType());
+    }
+
+    @Test
+    public void mapListModePreservesNullableKeysRecursively() throws IOException {
+        TColumnDesc nestedMap = desc("value", TPrimitiveType.MAP,
+                desc("key", TPrimitiveType.INT), desc("value", TPrimitiveType.INT));
+        TColumnDesc column = desc("maps", TPrimitiveType.ARRAY,
+                desc("item", TPrimitiveType.STRUCT,
+                        desc("m", TPrimitiveType.MAP, desc("key", TPrimitiveType.INT), nestedMap)));
+        Field field = Deencapsulation.invoke(FlightSqlSchemaHelper.class, "buildField", DB, TABLE, column, true);
+        Field map = field.getChildren().get(0).getChildren().get(0);
+        Assertions.assertEquals(ArrowType.ArrowTypeID.List, map.getType().getTypeID());
+        Field pair = map.getChildren().get(0);
+        Assertions.assertEquals("item", pair.getName());
+        Assertions.assertEquals(ArrowType.ArrowTypeID.Struct, pair.getType().getTypeID());
+        Assertions.assertTrue(pair.getChildren().get(0).isNullable());
+        Field innerMap = pair.getChildren().get(1);
+        Assertions.assertEquals(ArrowType.ArrowTypeID.List, innerMap.getType().getTypeID());
+        Assertions.assertTrue(innerMap.getChildren().get(0).getChildren().get(0).isNullable());
+        byte[] bytes = Deencapsulation.invoke(FlightSqlSchemaHelper.class,
+                "getSerializedSchema", Collections.singletonList(field));
+        Schema restored = MessageSerializer.deserializeSchema(
+                new ReadChannel(Channels.newChannel(new ByteArrayInputStream(bytes))));
+        Assertions.assertEquals(new Schema(Collections.singletonList(field)), restored);
+        Field nativeMap = buildField(column).getChildren().get(0).getChildren().get(0);
+        Assertions.assertEquals(ArrowType.ArrowTypeID.Map, nativeMap.getType().getTypeID());
+        Assertions.assertFalse(nativeMap.getChildren().get(0).getChildren().get(0).isNullable());
+    }
+
+    @Test
+    public void mapListModeIsOptInAndForwardedToBackend() {
+        SessionVariable session = new SessionVariable();
+        Assertions.assertFalse(session.arrowFlightSqlMapAsList);
+        Assertions.assertFalse(session.toThrift().isArrowFlightSqlMapAsList());
+        session.arrowFlightSqlMapAsList = true;
+        Assertions.assertTrue(session.toThrift().isArrowFlightSqlMapAsList());
     }
 }

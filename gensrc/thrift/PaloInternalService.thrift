@@ -511,6 +511,9 @@ struct TQueryOptions {
   // Fall back to RE2 when Hyperscan cannot compile a regular expression.
   228: optional bool enable_hyperscan_fallback = true;
 
+  // Preserve nullable MAP keys using LIST<STRUCT<key, value>> in Flight SQL results.
+  229: optional bool arrow_flight_sql_map_as_list = false;
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

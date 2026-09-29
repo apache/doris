@@ -44,6 +44,10 @@
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
+#include "core/column/column_array.h"
+#include "core/column/column_map.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_struct.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
@@ -74,6 +78,55 @@ int hex_value(char c) {
         return c - 'A' + 10;
     }
     return -1;
+}
+
+// Build immutable views over the original buffers: preserving null keys must not require
+// copying every entry or changing the columns shared with the result buffer.
+std::pair<DataTypePtr, ColumnPtr> maps_as_lists(const DataTypePtr& type, const ColumnPtr& column) {
+    if (type->is_nullable()) {
+        const auto& nullable = assert_cast<const ColumnNullable&>(*column);
+        auto [nested_type, nested_column] =
+                maps_as_lists(remove_nullable(type), nullable.get_nested_column_ptr());
+        return {make_nullable(nested_type),
+                ColumnNullable::create(nested_column, nullable.get_null_map_column_ptr())};
+    }
+    switch (type->get_primitive_type()) {
+    case TYPE_MAP: {
+        const auto& map_type = assert_cast<const DataTypeMap&>(*type);
+        const auto& map = assert_cast<const ColumnMap&>(*column);
+        auto [key_type, keys] = maps_as_lists(map_type.get_key_type(), map.get_keys_ptr());
+        auto [value_type, values] = maps_as_lists(map_type.get_value_type(), map.get_values_ptr());
+        auto pair_type = std::make_shared<DataTypeStruct>(DataTypes {key_type, value_type},
+                                                          Strings {"key", "value"});
+        // DataTypeArray always makes its elements nullable, even though every map entry exists.
+        ColumnPtr pairs = make_nullable(ColumnStruct::create(Columns {keys, values}));
+        return {std::make_shared<DataTypeArray>(pair_type),
+                ColumnArray::create(pairs, map.get_offsets_ptr())};
+    }
+    case TYPE_ARRAY: {
+        const auto& array_type = assert_cast<const DataTypeArray&>(*type);
+        const auto& array = assert_cast<const ColumnArray&>(*column);
+        auto [item_type, items] = maps_as_lists(array_type.get_nested_type(), array.get_data_ptr());
+        return {std::make_shared<DataTypeArray>(item_type),
+                ColumnArray::create(items, array.get_offsets_ptr())};
+    }
+    case TYPE_STRUCT: {
+        const auto& struct_type = assert_cast<const DataTypeStruct&>(*type);
+        const auto& structure = assert_cast<const ColumnStruct&>(*column);
+        DataTypes types;
+        Columns columns;
+        for (size_t i = 0; i < structure.tuple_size(); ++i) {
+            auto [child_type, child] =
+                    maps_as_lists(struct_type.get_element(i), structure.get_column_ptr(i));
+            types.push_back(std::move(child_type));
+            columns.push_back(std::move(child));
+        }
+        return {std::make_shared<DataTypeStruct>(types, struct_type.get_element_names()),
+                ColumnStruct::create(columns)};
+    }
+    default:
+        return {type, column};
+    }
 }
 
 bool contains_extension_type(const std::shared_ptr<arrow::DataType>& type) {
@@ -332,6 +385,23 @@ Status DorisArrowBlockConvertor::write_column(const std::shared_ptr<const IDataT
                                               int64_t end, const cctz::time_zone& ctz) const {
     return write_plain_arrow_column(type, serde, column, null_map, field, array_builder, start, end,
                                     ctz);
+}
+
+Status ArrowFlightArrowBlockConvertor::write_column(const DataTypePtr& type,
+                                                    const DataTypeSerDe& serde,
+                                                    const IColumn& column, const NullMap* null_map,
+                                                    const std::shared_ptr<arrow::Field>& field,
+                                                    arrow::ArrayBuilder* array_builder,
+                                                    int64_t start, int64_t end,
+                                                    const cctz::time_zone& ctz) const {
+    std::shared_ptr<arrow::DataType> plain_type;
+    RETURN_IF_ERROR(convert_to_arrow_type(type, &plain_type, ctz.name()));
+    if (is_declared_plain_arrow_binding(type, plain_type, field->type())) {
+        return serde.write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
+    }
+    auto [list_type, list_column] = maps_as_lists(type, column.get_ptr());
+    return write_plain_arrow_column(list_type, *list_type->get_serde(), *list_column, null_map,
+                                    field, array_builder, start, end, ctz);
 }
 
 Status ArrowBlockConvertor::init() {

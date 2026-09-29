@@ -115,6 +115,12 @@ private:
 class ArrowFlightArrowBlockConvertor final : public DorisArrowBlockConvertor {
 public:
     using DorisArrowBlockConvertor::DorisArrowBlockConvertor;
+
+protected:
+    Status write_column(const DataTypePtr& type, const DataTypeSerDe& serde, const IColumn& column,
+                        const NullMap* null_map, const std::shared_ptr<arrow::Field>& field,
+                        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                        const cctz::time_zone& ctz) const override;
 };
 
 class PythonArrowBlockConvertor final : public DorisArrowBlockConvertor {

@@ -50,7 +50,7 @@ namespace doris {
 
 Status convert_to_arrow_type(const DataTypePtr& origin_type,
                              std::shared_ptr<arrow::DataType>* result, const std::string& timezone,
-                             bool datetime_naive) {
+                             bool datetime_naive, bool map_as_list) {
     auto type = get_serialized_type(origin_type);
     switch (type->get_primitive_type()) {
     case TYPE_NULL:
@@ -137,7 +137,7 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         const auto* type_arr = assert_cast<const DataTypeArray*>(remove_nullable(type).get());
         std::shared_ptr<arrow::DataType> item_type;
         RETURN_IF_ERROR(convert_to_arrow_type(type_arr->get_nested_type(), &item_type, timezone,
-                                              datetime_naive));
+                                              datetime_naive, map_as_list));
         *result = std::make_shared<arrow::ListType>(item_type);
         break;
     }
@@ -146,10 +146,17 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         std::shared_ptr<arrow::DataType> key_type;
         std::shared_ptr<arrow::DataType> val_type;
         RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_key_type(), &key_type, timezone,
-                                              datetime_naive));
+                                              datetime_naive, map_as_list));
         RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_value_type(), &val_type, timezone,
-                                              datetime_naive));
-        *result = std::make_shared<arrow::MapType>(key_type, val_type);
+                                              datetime_naive, map_as_list));
+        // Arrow MAP forbids null keys. A session-selected LIST representation must be
+        // fixed before reading any batches, including batches without null keys.
+        if (map_as_list) {
+            *result = arrow::list(arrow::struct_(
+                    {arrow::field("key", key_type), arrow::field("value", val_type)}));
+        } else {
+            *result = std::make_shared<arrow::MapType>(key_type, val_type);
+        }
         break;
     }
     case TYPE_STRUCT: {
@@ -158,7 +165,7 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         for (size_t i = 0; i < type_struct->get_elements().size(); i++) {
             std::shared_ptr<arrow::DataType> field_type;
             RETURN_IF_ERROR(convert_to_arrow_type(type_struct->get_element(i), &field_type,
-                                                  timezone, datetime_naive));
+                                                  timezone, datetime_naive, map_as_list));
             fields.push_back(
                     std::make_shared<arrow::Field>(type_struct->get_element_name(i), field_type,
                                                    type_struct->get_element(i)->is_nullable()));
@@ -206,12 +213,13 @@ std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
 }
 
 Status get_arrow_schema_from_block(const Block& block, std::shared_ptr<arrow::Schema>* result,
-                                   const std::string& timezone, bool datetime_naive) {
+                                   const std::string& timezone, bool datetime_naive,
+                                   bool map_as_list) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
     for (const auto& type_and_name : block) {
         std::shared_ptr<arrow::DataType> arrow_type;
-        RETURN_IF_ERROR(
-                convert_to_arrow_type(type_and_name.type, &arrow_type, timezone, datetime_naive));
+        RETURN_IF_ERROR(convert_to_arrow_type(type_and_name.type, &arrow_type, timezone,
+                                              datetime_naive, map_as_list));
         auto field = create_arrow_field_with_metadata(type_and_name.name, arrow_type,
                                                       type_and_name.type->is_nullable(),
                                                       type_and_name.type->get_primitive_type());
@@ -223,13 +231,14 @@ Status get_arrow_schema_from_block(const Block& block, std::shared_ptr<arrow::Sc
 
 Status get_arrow_schema_from_expr_ctxs(const VExprContextSPtrs& output_vexpr_ctxs,
                                        std::shared_ptr<arrow::Schema>* result,
-                                       const std::string& timezone, bool datetime_naive) {
+                                       const std::string& timezone, bool datetime_naive,
+                                       bool map_as_list) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
     for (int i = 0; i < output_vexpr_ctxs.size(); i++) {
         std::shared_ptr<arrow::DataType> arrow_type;
         auto root_expr = output_vexpr_ctxs.at(i)->root();
         RETURN_IF_ERROR(convert_to_arrow_type(root_expr->data_type(), &arrow_type, timezone,
-                                              datetime_naive));
+                                              datetime_naive, map_as_list));
         auto field_name = root_expr->is_slot_ref() && !root_expr->expr_label().empty()
                                   ? root_expr->expr_label()
                                   : fmt::format("{}_{}", root_expr->data_type()->get_name(), i);

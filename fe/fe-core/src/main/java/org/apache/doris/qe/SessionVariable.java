@@ -275,6 +275,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String RUNTIME_FILTER_TREE_PUBLISH_MAX_SEND_BYTES =
             "runtime_filter_tree_publish_max_send_bytes";
 
+    public static final String ARROW_FLIGHT_SQL_MAP_AS_LIST = "arrow_flight_sql_map_as_list";
+
     public static final String ENABLE_PARALLEL_RESULT_SINK = "enable_parallel_result_sink";
 
     public static final String HIVE_TEXT_COMPRESSION = "hive_text_compression";
@@ -1835,6 +1837,11 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = "runtime_filter_max_build_row_count", needForward = true, fuzzy = false)
     public long runtimeFilterMaxBuildRowCount = 64L * 1024L * 1024L;
+
+    @VariableMgr.VarAttr(name = ARROW_FLIGHT_SQL_MAP_AS_LIST, needForward = true,
+            description = {"Return Flight SQL MAP values as lists of key/value structs to preserve NULL keys.",
+                    "Return Flight SQL MAP values as lists of key/value structs to preserve NULL keys."})
+    public boolean arrowFlightSqlMapAsList = false;
 
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_RESULT_SINK, needForward = true, fuzzy = true)
     private boolean enableParallelResultSink = true;
@@ -5879,6 +5886,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableSharedExchangeSinkBuffer(enableSharedExchangeSinkBuffer);
         tResult.setEnableParallelResultSink(enableParallelResultSink);
+        tResult.setArrowFlightSqlMapAsList(arrowFlightSqlMapAsList);
         tResult.setEnableParallelOutfile(enableParallelOutfile);
         tResult.setEnableShortCircuitQueryAccessColumnStore(enableShortCircuitQueryAcessColumnStore);
         tResult.setReadCsvEmptyLineAsNull(readCsvEmptyLineAsNull);

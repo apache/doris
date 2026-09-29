@@ -23,6 +23,7 @@
 #include <arrow/ipc/api.h>
 #include <gtest/gtest.h>
 
+#include "core/column/column_const.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
@@ -30,6 +31,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
+#include "format/arrow/arrow_row_batch.h"
 #include "format/parquet/parquet_arrow_block_convertor.h"
 #include "format/table/hive/hive_arrow_block_convertor.h"
 #include "format/table/iceberg/iceberg_arrow_block_convertor.h"
@@ -286,6 +288,145 @@ TEST_F(ArrowBlockConvertorTest, TableConvertersRejectMismatchedNestedSchemas) {
                 EXPECT_EQ(nullptr, batch);
             }
         }
+    }
+}
+
+TEST_F(ArrowBlockConvertorTest, FlightMapListPreservesNullKeysAcrossBatches) {
+    auto integer = make_nullable(std::make_shared<DataTypeInt32>());
+    auto type = make_nullable(std::make_shared<DataTypeMap>(integer, integer));
+    auto column = type->create_column();
+    auto add_map = [&](Array keys, Array values) {
+        Map map;
+        map.push_back(Field::create_field<TYPE_ARRAY>(keys));
+        map.push_back(Field::create_field<TYPE_ARRAY>(values));
+        column->insert(Field::create_field<TYPE_MAP>(map));
+    };
+    add_map({Field::create_field<TYPE_INT>(1)}, {Field::create_field<TYPE_INT>(10)});
+    add_map({Field(), Field::create_field<TYPE_INT>(2)},
+            {Field::create_field<TYPE_INT>(100), Field()});
+    add_map({}, {});
+    column->insert_default();
+    Block block;
+    block.insert({std::move(column), type, "m"});
+    auto entries = arrow::struct_(
+            {arrow::field("key", arrow::int32()), arrow::field("value", arrow::int32())});
+    std::shared_ptr<arrow::Schema> schema;
+    ASSERT_TRUE(get_arrow_schema_from_block(block, &schema, "UTC", true, true).ok());
+    EXPECT_TRUE(schema->field(0)->type()->Equals(arrow::list(entries)));
+    std::shared_ptr<arrow::Schema> native_schema;
+    ASSERT_TRUE(get_arrow_schema_from_block(block, &native_schema, "UTC", true).ok());
+    ASSERT_EQ(arrow::Type::MAP, native_schema->field(0)->type()->id());
+    ArrowFlightArrowBlockConvertor native(native_schema, cctz::utc_time_zone());
+    std::shared_ptr<arrow::RecordBatch> native_batch;
+    ASSERT_TRUE(
+            native.convert_to_arrow(block, arrow::default_memory_pool(), &native_batch, 0, 1).ok());
+    EXPECT_FALSE(native.convert_to_arrow(block, arrow::default_memory_pool(), &native_batch).ok());
+    ArrowFlightArrowBlockConvertor converter(schema, cctz::utc_time_zone());
+    auto sink = arrow::io::BufferOutputStream::Create().ValueOrDie();
+    auto writer = arrow::ipc::MakeStreamWriter(sink, schema).ValueOrDie();
+    for (const auto& range : {std::pair<size_t, size_t> {0, 1}, {1, 4}}) {
+        std::shared_ptr<arrow::RecordBatch> batch;
+        auto status = converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch,
+                                                 range.first, range.second);
+        ASSERT_TRUE(status.ok()) << status;
+        ASSERT_TRUE(batch->ValidateFull().ok());
+        ASSERT_TRUE(batch->schema()->Equals(*schema));
+        ASSERT_TRUE(writer->WriteRecordBatch(*batch).ok());
+    }
+    ASSERT_TRUE(writer->Close().ok());
+    auto source = std::make_shared<arrow::io::BufferReader>(sink->Finish().ValueOrDie());
+    auto reader = arrow::ipc::RecordBatchStreamReader::Open(source).ValueOrDie();
+    std::shared_ptr<arrow::RecordBatch> batch;
+    ASSERT_TRUE(reader->ReadNext(&batch).ok());
+    ASSERT_TRUE(reader->ReadNext(&batch).ok());
+    const auto& lists = static_cast<const arrow::ListArray&>(*batch->column(0));
+    EXPECT_EQ(2, lists.value_length(0));
+    EXPECT_EQ(0, lists.value_length(1));
+    EXPECT_TRUE(lists.IsNull(2));
+    const auto& pairs = static_cast<const arrow::StructArray&>(*lists.values());
+    EXPECT_TRUE(pairs.field(0)->IsNull(0));
+    EXPECT_EQ(2, static_cast<const arrow::Int32Array&>(*pairs.field(0)).Value(1));
+    EXPECT_EQ(100, static_cast<const arrow::Int32Array&>(*pairs.field(1)).Value(0));
+    EXPECT_TRUE(pairs.field(1)->IsNull(1));
+    // A Flight-specific representation must not relax another consumer's binding contract.
+    PythonArrowBlockConvertor python(schema, cctz::utc_time_zone());
+    EXPECT_FALSE(python.convert_to_arrow(block, arrow::default_memory_pool(), &batch).ok());
+}
+
+TEST_F(ArrowBlockConvertorTest, FlightMapListHandlesNestedMapsAndNullableContainers) {
+    auto integer = make_nullable(std::make_shared<DataTypeInt32>());
+    auto inner_type = make_nullable(std::make_shared<DataTypeMap>(integer, integer));
+    auto outer_type = make_nullable(std::make_shared<DataTypeMap>(integer, inner_type));
+    auto array_type = std::make_shared<DataTypeArray>(outer_type);
+    auto type = make_nullable(
+            std::make_shared<DataTypeStruct>(DataTypes {array_type}, Strings {"maps"}));
+    auto make_map = [](Array keys, Array values) {
+        Map map;
+        map.push_back(Field::create_field<TYPE_ARRAY>(keys));
+        map.push_back(Field::create_field<TYPE_ARRAY>(values));
+        return Field::create_field<TYPE_MAP>(map);
+    };
+    auto inner = make_map({Field()}, {Field::create_field<TYPE_INT>(100)});
+    auto outer = make_map({Field(), Field::create_field<TYPE_INT>(2)}, {inner, Field()});
+    auto column = type->create_column();
+    column->insert(Field::create_field<TYPE_STRUCT>(
+            Struct {Field::create_field<TYPE_ARRAY>(Array {outer, Field()})}));
+    column->insert_default();
+    Block block;
+    block.insert({std::move(column), type, "nested"});
+    std::shared_ptr<arrow::Schema> schema;
+    ASSERT_TRUE(get_arrow_schema_from_block(block, &schema, "UTC", true, true).ok());
+    ArrowFlightArrowBlockConvertor converter(schema, cctz::utc_time_zone());
+    std::shared_ptr<arrow::RecordBatch> batch;
+    auto status = converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_TRUE(batch->ValidateFull().ok());
+    const auto& root = static_cast<const arrow::StructArray&>(*batch->column(0));
+    EXPECT_TRUE(root.IsNull(1));
+    const auto& arrays = static_cast<const arrow::ListArray&>(*root.field(0));
+    const auto& maps = static_cast<const arrow::ListArray&>(*arrays.values());
+    EXPECT_TRUE(maps.IsNull(1));
+    const auto& pairs = static_cast<const arrow::StructArray&>(*maps.values());
+    EXPECT_TRUE(pairs.field(0)->IsNull(0));
+    const auto& inner_maps = static_cast<const arrow::ListArray&>(*pairs.field(1));
+    EXPECT_TRUE(inner_maps.IsNull(1));
+    const auto& inner_pairs = static_cast<const arrow::StructArray&>(*inner_maps.values());
+    EXPECT_TRUE(inner_pairs.field(0)->IsNull(0));
+    EXPECT_EQ(100, static_cast<const arrow::Int32Array&>(*inner_pairs.field(1)).Value(0));
+}
+
+TEST_F(ArrowBlockConvertorTest, FlightMapListPreservesConstantDatetimeValues) {
+    auto integer = make_nullable(std::make_shared<DataTypeInt32>());
+    auto datetime = make_nullable(
+            DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6));
+    auto type = std::make_shared<DataTypeMap>(integer, datetime);
+    DateV2Value<DateTimeV2ValueType> value;
+    value.unchecked_set_time(2023, 4, 20, 0, 0, 0, 123456);
+    Map map;
+    map.push_back(Field::create_field<TYPE_ARRAY>(Array {Field()}));
+    map.push_back(
+            Field::create_field<TYPE_ARRAY>(Array {Field::create_field<TYPE_DATETIMEV2>(value)}));
+    auto column = type->create_column();
+    column->insert(Field::create_field<TYPE_MAP>(map));
+    Block block;
+    block.insert({ColumnConst::create(std::move(column), 3), type, "m"});
+    std::shared_ptr<arrow::Schema> schema;
+    ASSERT_TRUE(get_arrow_schema_from_block(block, &schema, "Asia/Shanghai", true, true).ok());
+    cctz::time_zone timezone;
+    ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("Asia/Shanghai", timezone));
+    ArrowFlightArrowBlockConvertor converter(schema, timezone);
+    std::shared_ptr<arrow::RecordBatch> batch;
+    auto status = converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_TRUE(batch->ValidateFull().ok());
+    const auto& lists = static_cast<const arrow::ListArray&>(*batch->column(0));
+    const auto& pairs = static_cast<const arrow::StructArray&>(*lists.values());
+    const auto& timestamps = static_cast<const arrow::TimestampArray&>(*pairs.field(1));
+    EXPECT_TRUE(static_cast<const arrow::TimestampType&>(*timestamps.type()).timezone().empty());
+    ASSERT_EQ(3, batch->num_rows());
+    for (int i = 0; i < 3; ++i) {
+        EXPECT_TRUE(pairs.field(0)->IsNull(i));
+        EXPECT_EQ(1681948800123456LL, timestamps.Value(i));
     }
 }
 
