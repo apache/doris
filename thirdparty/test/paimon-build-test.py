@@ -53,7 +53,7 @@ class PaimonBuildTest(unittest.TestCase):
         return subprocess.run(["bash", "-ec", script], env=self.env,
                               cwd=self.work, text=True, capture_output=True)
 
-    def check_install(self, system, missing, clean=0, empty=None, expect_rebuild=False):
+    def check_install(self, system, missing, clean=0, empty=None, expect_rebuild=False, installed_only=False):
         script = (ROOT / "build.sh").read_text()
         gate = script[script.index("# build thirdparty libraries if necessary."):
                       script.index("update_submodule() {")]
@@ -66,10 +66,16 @@ class PaimonBuildTest(unittest.TestCase):
             if name != missing:
                 self.write("installed/" + name, "" if name == empty else "complete")
         # Execute the real installation gate, replacing only the expensive build.
-        self.executable("build-thirdparty.sh", 'printf "%s\\n" "$*" > "$BUILD_LOG"\n')
+        if not installed_only:
+            self.executable("build-thirdparty.sh", 'printf "%s\\n" "$*" > "$BUILD_LOG"\n')
         self.env.update(DORIS_THIRDPARTY=str(self.work), TARGET_SYSTEM=system,
                         CLEAN=str(clean), PARALLEL="2", BUILD_LOG=str(self.work / "build.log"))
         result = self.run_bash(gate)
+        if installed_only and (missing is not None or expect_rebuild):
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Refresh the compilation image", result.stderr)
+            self.assertEqual((self.work / "installed/lib64/liblance_c.a").read_text(), "complete")
+            return
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.work / "build.log").exists(), missing is not None or expect_rebuild)
         if missing is not None or expect_rebuild:
@@ -95,6 +101,16 @@ class PaimonBuildTest(unittest.TestCase):
 
     def test_complete_install_is_reused(self):
         self.check_install("Linux", None)
+
+    def test_installed_only_image_preserves_dependencies(self):
+        self.check_install("Linux", "lib64/libpaimon_c.a", installed_only=True)
+
+    def test_installed_only_complete_image_is_reused(self):
+        self.check_install("Linux", None, installed_only=True)
+
+    def test_installed_only_interrupted_pair_preserves_dependencies(self):
+        self.write("installed/lib64/.paimon-installing")
+        self.check_install("Linux", None, expect_rebuild=True, installed_only=True)
 
     def test_incomplete_pair_rebuilds(self):
         self.write("installed/lib64/.paimon-installing")
