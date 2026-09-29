@@ -67,6 +67,8 @@ void AnalyticLocalState::_finish_spill_batch() {
     COUNTER_UPDATE(_memory_used_counter, -_in_memory_batch_bytes);
     _in_memory_batch_bytes = 0;
     _current_batch.reset();
+    _replay_block.clear();
+    _replay_block_position = 0;
     _peer_group_block.clear();
 }
 
@@ -133,6 +135,35 @@ Status AnalyticLocalState::_read_batch_block(RuntimeState* state, Block* block, 
     _in_memory_batch_bytes -= block_bytes;
     block->swap(std::move(next_block));
     *batch_eos = false;
+    return Status::OK();
+}
+
+Status AnalyticLocalState::_next_replay_rows(RuntimeState* state, Block* block, bool* batch_eos) {
+    while (_replay_block_position >= _replay_block.rows()) {
+        _replay_block.clear();
+        _replay_block_position = 0;
+        RETURN_IF_ERROR(_read_batch_block(state, &_replay_block, batch_eos));
+        if (*batch_eos) {
+            return Status::OK();
+        }
+    }
+    *batch_eos = false;
+    // Spilled Blocks are coalesced up to the spill buffer size, so a replayed Block can be much
+    // larger than the batch size expected by downstream operators.
+    DCHECK_GT(state->batch_size(), 0);
+    const auto batch_size = static_cast<size_t>(state->batch_size());
+    const size_t rows = std::min(batch_size, _replay_block.rows() - _replay_block_position);
+    if (_replay_block_position == 0 && rows == _replay_block.rows()) {
+        block->swap(_replay_block);
+        _replay_block.clear();
+        return Status::OK();
+    }
+    Block slice;
+    for (const auto& column : _replay_block) {
+        slice.insert({column.column->cut(_replay_block_position, rows), column.type, column.name});
+    }
+    block->swap(slice);
+    _replay_block_position += rows;
     return Status::OK();
 }
 
@@ -340,13 +371,10 @@ Status AnalyticLocalState::_get_spill_block(RuntimeState* state, Block* block, b
         }
 
         bool batch_eos = false;
-        RETURN_IF_ERROR(_read_batch_block(state, block, &batch_eos));
+        RETURN_IF_ERROR(_next_replay_rows(state, block, &batch_eos));
         if (batch_eos) {
             DORIS_CHECK_EQ(_batch_output_position, _current_batch->rows);
             _finish_spill_batch();
-            continue;
-        }
-        if (block->empty()) {
             continue;
         }
         RETURN_IF_ERROR(_append_spill_results(state, block));

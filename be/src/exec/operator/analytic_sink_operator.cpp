@@ -800,9 +800,12 @@ Status AnalyticSinkLocalState::_append_spill_rows(RuntimeState* state, Block* in
             RETURN_IF_ERROR(_batch_store->append_block(state, mutable_block.to_block()));
         }
         _update_spill_memory_usage();
-        if (state->enable_force_spill() ||
-            std::cmp_greater_equal(_batch_store->revocable_mem_size(),
-                                   state->spill_analytic_sink_mem_limit_bytes())) {
+        // Once spilled, the store bounds its own write buffer by the spill buffer size. Forcing a
+        // spill for every append would flush that buffer and write every small Block separately.
+        if (!_batch_store->is_spilled() &&
+            (state->enable_force_spill() ||
+             std::cmp_greater_equal(_batch_store->revocable_mem_size(),
+                                    state->spill_analytic_sink_mem_limit_bytes()))) {
             RETURN_IF_ERROR(_spill_batch_store(state));
         }
         offset += rows;
