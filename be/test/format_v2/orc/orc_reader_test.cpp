@@ -11217,8 +11217,8 @@ TEST_F(NewOrcReaderTest, ReadDateRejectsUnrepresentableOrdinals) {
 // 0000-01-01 -- a value present in no row at all.
 TEST_F(NewOrcReaderTest, AggregatePushdownDateMinMaxAgreesWithRowDecode) {
     const auto file_path = (_test_dir / "date_year_zero_minmax.orc").string();
-    write_date_orc_file(file_path, {orc_date_offset(0, 1, 1), orc_date_offset(0, 2, 28),
-                                    std::nullopt, orc_date_offset(2024, 1, 1)});
+    write_date_orc_file(file_path, {orc_date_offset(0, 1, 1), orc_date_offset(0, 2, 1),
+                                    std::nullopt, orc_date_offset(0, 2, 28)});
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
 
     auto reader = create_reader_for_path(file_path);
@@ -11241,7 +11241,7 @@ TEST_F(NewOrcReaderTest, AggregatePushdownDateMinMaxAgreesWithRowDecode) {
     ASSERT_TRUE(aggregate_result.columns[0].has_min);
     ASSERT_TRUE(aggregate_result.columns[0].has_max);
     EXPECT_EQ(aggregate_result.columns[0].min_value.get<TYPE_DATEV2>(), make_date_v2(0, 1, 1));
-    EXPECT_EQ(aggregate_result.columns[0].max_value.get<TYPE_DATEV2>(), make_date_v2(2024, 1, 1));
+    EXPECT_EQ(aggregate_result.columns[0].max_value.get<TYPE_DATEV2>(), make_date_v2(0, 2, 28));
 }
 
 TEST_F(NewOrcReaderTest, AggregatePushdownDateMinMaxFallsBackForUnrepresentableBound) {
@@ -11731,6 +11731,45 @@ TEST_F(NewOrcReaderTest, ReadProjectedComplexChildrenWithNulls) {
     ASSERT_EQ(value_a.size(), 2);
     EXPECT_EQ(value_a.get_element(0), 101);
     EXPECT_EQ(value_a.get_element(1), 202);
+}
+
+TEST_F(NewOrcReaderTest, DateInteriorLeapDayDisablesAggregateAndSarg) {
+    const auto path = (_test_dir / "date_interior_leap_day.orc").string();
+    write_date_orc_file(path, {-719528, -719469, -719468});
+    for (bool pruning : {false, true}) {
+        auto reader = create_reader_for_path(path);
+        TQueryOptions options;
+        options.__set_enable_orc_filter_by_min_max(pruning);
+        RuntimeState state {options, TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->predicate_columns = {field_projection(1)};
+        request->conjuncts = {
+                VExprContext::create_shared(std::make_shared<NullableGreaterThanExpr<TYPE_DATEV2>>(
+                        0, remove_nullable(schema[1].type),
+                        Field::create_field<TYPE_DATEV2>(make_date_v2(1, 1, 1)), "d"))};
+        ASSERT_TRUE(reader->open(request).ok());
+        Block block = build_file_block({schema[1]});
+        size_t rows = 0;
+        bool eof = false;
+        const auto status = reader->get_block(&block, &rows, &eof);
+        EXPECT_FALSE(status.ok()) << "pruning=" << pruning;
+        EXPECT_NE(status.to_string().find("-719469"), std::string::npos);
+    }
+    auto reader = create_reader_for_path(path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(1)};
+    ASSERT_TRUE(reader->open(request).ok());
+    format::FileAggregateRequest aggregate;
+    aggregate.agg_type = TPushAggOp::type::MINMAX;
+    aggregate.columns.push_back({.projection = field_projection(1)});
+    format::FileAggregateResult result;
+    EXPECT_TRUE(reader->get_aggregate_result(aggregate, &result)
+                        .is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
 }
 
 } // namespace

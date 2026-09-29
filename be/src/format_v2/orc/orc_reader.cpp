@@ -487,6 +487,10 @@ bool set_date_zone_map(const ::orc::ColumnStatistics& statistics, segment_v2::Zo
         !date_statistics->hasMaximum()) {
         return false;
     }
+    if (!epoch_days_range_is_representable(date_statistics->getMinimum(),
+                                           date_statistics->getMaximum())) {
+        return false;
+    }
     // ORC DATE statistics are proleptic-Gregorian day ordinals, the same domain the row decoder
     // (DataTypeDateV2SerDe::read_column_from_orc) interprets. Converting them through
     // `date_day_offset_dict` instead would put the year-zero window one day off the rows and let a
@@ -1518,6 +1522,37 @@ Status OrcReader::_init_search_argument_from_local_filters() {
     }
 
     try {
+        // SARG can skip rows before DATE decoding detects an invalid ordinal. File statistics
+        // must prove the selected DATE domains are representable before enabling SDK pruning.
+        const auto dates_are_representable = [&](const auto& self,
+                                                 const ::orc::Type& type) -> bool {
+            if (type.getKind() == ::orc::TypeKind::DATE) {
+                const auto stats =
+                        _state->reader->getColumnStatistics(cast_set<uint32_t>(type.getColumnId()));
+                if (stats == nullptr) {
+                    return false;
+                }
+                if (stats->getNumberOfValues() == 0) {
+                    return true;
+                }
+                segment_v2::ZoneMap zone_map;
+                return set_date_zone_map(*stats, &zone_map);
+            }
+            for (uint64_t child = 0; child < type.getSubtypeCount(); ++child) {
+                if (!self(self, *type.getSubtype(child))) {
+                    return false;
+                }
+            }
+            return true;
+        };
+        for (const auto column_id : _state->read_columns) {
+            if (!is_virtual_column(column_id) &&
+                !dates_are_representable(
+                        dates_are_representable,
+                        *_state->root_type->getSubtype(static_cast<uint64_t>(column_id.value())))) {
+                return Status::OK();
+            }
+        }
         auto builder = ::orc::SearchArgumentFactory::newBuilder();
         bool has_pushdown = false;
         builder->startAnd();

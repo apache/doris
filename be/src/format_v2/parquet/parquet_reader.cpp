@@ -1175,6 +1175,28 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
         }
         const auto& count_projection = request.columns[0].projection;
         const auto& root_schema = projected_root_schema(_state->file_schema, count_projection);
+        if (remove_nullable(root_schema.type)->get_primitive_type() == TYPE_DATEV2) {
+            // Definition levels count physical NULLs only. DATE conversion can add logical NULLs
+            // or raise an error, so keep the shortcut only when every selected range is decodable.
+            for (const auto& row_group_plan : _state->scan_plan->row_groups) {
+                const auto& group = _state->file_context.native_metadata->to_thrift()
+                                            .row_groups[row_group_plan.row_group_id];
+                const auto& chunk = group.columns[root_schema.leaf_column_id];
+                if (!chunk.__isset.meta_data || !chunk.meta_data.__isset.statistics) {
+                    return Status::NotSupported("Parquet DATE COUNT requires value validation");
+                }
+                const auto stats = detail::sanitize_native_footer_statistics(
+                        root_schema.type_descriptor, chunk.meta_data.statistics,
+                        detail::has_supported_type_defined_order(
+                                _state->file_context.native_metadata->to_thrift(),
+                                root_schema.leaf_column_id));
+                const auto decoded = ParquetStatisticsUtils::TransformColumnStatistics(
+                        root_schema, &stats, chunk.meta_data.num_values, _state->timezone);
+                if (!decoded.has_min_max && !(decoded.has_null_count && !decoded.has_not_null)) {
+                    return Status::NotSupported("Parquet DATE COUNT requires value validation");
+                }
+            }
+        }
         // A required primitive COUNT(col) still carries its projection so the unsupported-type
         // validation above cannot be bypassed. Once validated, its definition level proves that
         // every selected row is non-NULL, so preserve the already-computed footer row count and

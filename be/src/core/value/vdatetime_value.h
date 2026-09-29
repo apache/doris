@@ -1815,6 +1815,13 @@ inline constexpr int64_t epoch_days_to_daynr(int64_t epoch_days) {
     return epoch_days + DAYNR_OF_UNIX_EPOCH + (epoch_days < EPOCH_DAYS_0000_02_29 ? 1 : 0);
 }
 
+// Valid endpoints alone do not prove a DATE range is decodable: it may enclose the
+// Gregorian-only leap day. Metadata shortcuts require every ordinal in the range to be valid.
+inline constexpr bool epoch_days_range_is_representable(int64_t min, int64_t max) {
+    return min <= max && epoch_days_to_daynr(min) != 0 && epoch_days_to_daynr(max) != 0 &&
+           (max < EPOCH_DAYS_0000_02_29 || min > EPOCH_DAYS_0000_02_29);
+}
+
 // DAY / WEEK fast path. Real workloads hold dates that cluster in a narrow range, so the two
 // dictionary lookups below (`daynr(y, m, d)` and `daynr -> date`) are L1-resident; measured about
 // 3x faster than the generic `date_add_interval<DAY>` (no TimeInterval, no second-level
