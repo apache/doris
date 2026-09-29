@@ -271,7 +271,7 @@ jobs:
             'openjdk@17'
             'maven'
             'node'
-            'llvm@20'
+            'llvm@22'
           )
 
           # Install packages except cmake
@@ -368,7 +368,7 @@ jobs:
             'openjdk@17'
             'maven'
             'node'
-            'llvm@20'
+            'llvm@22'
           )
 
           # Install packages except cmake

@@ -467,7 +467,16 @@ if (COMPILER_CLANG)
                         # clang's -Wpass-failed turns that missed *hint* into an
                         # -Werror failure. The diagnostic carries no correctness
                         # signal, so drop it.
-                        -Wno-pass-failed)
+                        -Wno-pass-failed
+                        # clang 22 reports __COUNTER__ under -Wpedantic as a C2y
+                        # extension (-Wc2y-extensions). runtime_profile.h expands it to
+                        # give two SCOPED_TIMER / SCOPED_RAW_TIMER uses on the same
+                        # line distinct names -- a long-standing clang/gcc/MSVC
+                        # extension that only reached the standard in C23, and the
+                        # diagnostic carries no correctness signal. clang 20 accepts
+                        # the -Wno- for an unknown warning option silently, so this
+                        # needs no version guard.
+                        -Wno-c2y-extensions)
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         add_definitions(-DUSE_LIBCPP)
