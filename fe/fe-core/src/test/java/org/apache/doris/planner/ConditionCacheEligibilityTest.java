@@ -109,6 +109,30 @@ class ConditionCacheEligibilityTest extends TestWithFeService {
         }
     }
 
+    @Test
+    void testNullExpressionsRemainCacheable() throws Exception {
+        boolean enabled = connectContext.getSessionVariable().isEnableSqlCache();
+        connectContext.getSessionVariable().setEnableSqlCache(true);
+        try {
+            for (String expression : ImmutableList.of("cast(cast(null as time) as date)",
+                    "cast(cast(null as time) as datetime)",
+                    "array_shuffle(cast(null as array<int>))",
+                    "array_shuffle(cast(null as array<int>), 1)",
+                    "shuffle(cast(null as array<int>), 1)", "array_shuffle(a, null)")) {
+                NereidsPlanner planner = (NereidsPlanner) getSqlStmtExecutor(
+                        "select k, sum(k) from t where " + expression + " is null group by k").planner();
+                Assertions.assertTrue(planner.getStatementContext().getSqlCacheContext().orElseThrow()
+                        .supportSqlCache(), expression);
+                Assertions.assertTrue(scans(planner).get(0).isEnableConditionCache(), expression);
+                Assertions.assertTrue(planner.getFragments().stream().anyMatch(fragment ->
+                        new QueryCacheNormalizer(fragment, planner.getDescTable())
+                                .normalize(connectContext).isPresent()), expression);
+            }
+        } finally {
+            connectContext.getSessionVariable().setEnableSqlCache(enabled);
+        }
+    }
+
     private List<TPlanNode> scans(Planner planner) {
         List<TPlanNode> scans = new ArrayList<>();
         for (PlanFragment fragment : planner.getFragments()) {
