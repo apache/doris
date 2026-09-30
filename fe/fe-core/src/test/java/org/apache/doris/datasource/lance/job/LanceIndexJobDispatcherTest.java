@@ -582,11 +582,16 @@ public class LanceIndexJobDispatcherTest {
 
         // A clean error status proves the dispatch was never enqueued, so the
         // invocation is known never to have executed: NOT_COMMITTED, no refresh owed,
-        // and the possible-live slot released in the same durable transition.
+        // and the possible-live slot released in the same durable transition. The
+        // bounded status-code name survives in the persisted reason, so SHOW can tell
+        // an unavailable worker from a resource rejection; the raw backend message
+        // never reaches the durable record.
         LanceIndexJob stored = manager.getJob(1L);
         Assertions.assertEquals(LanceIndexJobMutationState.NOT_COMMITTED, stored.getMutationState());
         Assertions.assertEquals(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED,
                 stored.getResult().getResultCode());
+        Assertions.assertTrue(stored.getResult().getSanitizedMessage().contains("INTERNAL_ERROR"),
+                stored.getResult().getSanitizedMessage());
         Assertions.assertEquals(LanceIndexJobRefreshState.NOT_REQUIRED, stored.getRefreshState());
         Assertions.assertFalse(stored.holdsPossibleLiveSlot());
         Assertions.assertEquals(LanceIndexTerminationProof.NOT_ENQUEUED, stored.getTerminationProof());
@@ -776,6 +781,37 @@ public class LanceIndexJobDispatcherTest {
         dispatcher.runAfterCatalogReady();
 
         Assertions.assertEquals(3, dispatcher.sends.size());
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, manager.getJob(3L).getMutationState());
+    }
+
+    @Test
+    public void stalledSendBoundsTheRoundsBlockingDispatchWork() throws Exception {
+        Config.lance_index_job_max_inflight_per_backend = 8;
+        admit(1L, "IdxA", LOCATOR);
+        admit(2L, "IdxB", LOCATOR);
+        admit(3L, "IdxC", LOCATOR);
+        // Job 1's RPC stalls for just over one backend RPC timeout (the client-pool
+        // default the round budget is taken from); the seam clock jumps inside the
+        // send, so no real sleeping is involved.
+        dispatcher.onSend = () -> dispatcher.nowOffsetMs += 61_000L;
+
+        dispatcher.runAfterCatalogReady();
+
+        // The stalled send alone exhausts the round's blocking budget: jobs 2 and 3 are
+        // deferred to the next round instead of compounding up to the per-round cap
+        // times the timeout on the one thread that also runs the sweeps and the
+        // refresh driver.
+        Assertions.assertEquals(1, dispatcher.sends.size());
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, manager.getJob(1L).getMutationState());
+        Assertions.assertEquals(LanceIndexJobMutationState.PENDING, manager.getJob(2L).getMutationState());
+        Assertions.assertEquals(LanceIndexJobMutationState.PENDING, manager.getJob(3L).getMutationState());
+
+        dispatcher.onSend = null;
+        dispatcher.runAfterCatalogReady();
+
+        // A fresh round gets a fresh budget, so the deferred jobs dispatch normally.
+        Assertions.assertEquals(3, dispatcher.sends.size());
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, manager.getJob(2L).getMutationState());
         Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, manager.getJob(3L).getMutationState());
     }
 
