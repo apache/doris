@@ -48,20 +48,21 @@ public class LanceIndexJobManagerPersistTest {
     private static final long BACKEND_ID = 1001L;
     private static final long BE_EPOCH = 55L;
     private static final String INVOCATION_ID = "invocation-1";
+    private static final String INVOCATION_SECRET = "a3f1c02d97b64e8fad0c31b9e75d2468";
 
     @Test
     public void managerImageRoundtripRebuildsDerivedFenceAndQuota() throws Exception {
         TestManager source = new TestManager();
         source.createJob(newCreateJob(1L, "IdxPending"), 100, 100, 100);
         source.createJob(newCreateJob(2L, "IdxRunning"), 100, 100, 100);
-        source.markRunning(2L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, 9999L);
+        source.markRunning(2L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, 9999L);
         source.createJob(newCreateJob(3L, "IdxCommitted"), 100, 100, 100);
-        source.markRunning(3L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, 9999L);
+        source.markRunning(3L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, 9999L);
         source.completeWithResult(3L, 1L, INVOCATION_ID, BE_EPOCH,
                 new LanceIndexJobResult(LanceIndexJobResultCode.NATIVE_OK,
                         LanceIndexJobCompletionReason.NONE, "ok", false));
         source.createJob(newCreateJob(4L, "IdxUnknown"), 100, 100, 100);
-        source.markRunning(4L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, 9999L);
+        source.markRunning(4L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, 9999L);
         source.completeWithResult(4L, 1L, INVOCATION_ID, BE_EPOCH,
                 new LanceIndexJobResult(LanceIndexJobResultCode.NO_TRUSTED_RESULT,
                         LanceIndexJobCompletionReason.NONE, "lost", false));
@@ -383,6 +384,7 @@ public class LanceIndexJobManagerPersistTest {
         job.setBeProcessEpoch(BE_EPOCH);
         job.setDispatchRevision(7L);
         job.setInvocationId(INVOCATION_ID);
+        job.setInvocationSecret(INVOCATION_SECRET);
         job.setDeadlineMs(123456L);
         job.setPossibleLiveOwned(true);
         job.setTerminationProof(LanceIndexTerminationProof.NONE);
@@ -433,6 +435,7 @@ public class LanceIndexJobManagerPersistTest {
         Assertions.assertEquals(expected.getBeProcessEpoch(), actual.getBeProcessEpoch());
         Assertions.assertEquals(expected.getDispatchRevision(), actual.getDispatchRevision());
         Assertions.assertEquals(expected.getInvocationId(), actual.getInvocationId());
+        Assertions.assertEquals(expected.getInvocationSecret(), actual.getInvocationSecret());
         Assertions.assertEquals(expected.getDeadlineMs(), actual.getDeadlineMs());
         Assertions.assertEquals(expected.isPossibleLiveOwned(), actual.isPossibleLiveOwned());
         Assertions.assertEquals(expected.getTerminationProof(), actual.getTerminationProof());

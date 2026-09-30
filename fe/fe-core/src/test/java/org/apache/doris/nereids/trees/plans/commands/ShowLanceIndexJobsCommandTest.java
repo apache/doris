@@ -74,6 +74,9 @@ import java.util.List;
  * handed to the command (the forwarded original user identity in proxy mode).
  */
 public class ShowLanceIndexJobsCommandTest {
+    /** Marker that must never surface in any rendered cell: it authorizes reports. */
+    private static final String INVOCATION_SECRET = "a3f1c02d97b64e8fad0c31b9e75d2468";
+
     @Mocked
     private Env env;
     @Mocked
@@ -276,6 +279,28 @@ public class ShowLanceIndexJobsCommandTest {
         Assertions.assertEquals("NO", row.get(colIndex(resultSet, "PossibleLive")));
         Assertions.assertEquals(TimeUtils.longToTimeString(1000L), row.get(colIndex(resultSet, "CreateTime")));
         Assertions.assertEquals(TimeUtils.longToTimeString(2000L), row.get(colIndex(resultSet, "UpdateTime")));
+    }
+
+    @Test
+    public void testInvocationSecretNeverReachesTheListingRows() throws Exception {
+        // A dispatched job carrying the report-authorizing secret: no listing column may
+        // disclose it, since it is the only identity half a report caller cannot read.
+        LanceIndexJob dispatched = newJob(1L, 10L, "db1", "tbl1", "idx1");
+        dispatched.setInvocationSecret(INVOCATION_SECRET);
+        expectEnv(Collections.singletonList(dispatched));
+        expectResolvableCatalog(true);
+
+        ShowResultSet resultSet = new ShowLanceIndexJobsCommand(null, null).doRun(connectContext, null);
+        Assertions.assertEquals(1, resultSet.getResultRows().size());
+        for (int i = 0; i < resultSet.getMetaData().getColumns().size(); i++) {
+            Assertions.assertFalse(resultSet.getMetaData().getColumns().get(i).getName().toLowerCase()
+                    .contains("secret"));
+        }
+        for (List<String> row : resultSet.getResultRows()) {
+            for (String cell : row) {
+                Assertions.assertNotEquals(INVOCATION_SECRET, cell);
+            }
+        }
     }
 
     @Test

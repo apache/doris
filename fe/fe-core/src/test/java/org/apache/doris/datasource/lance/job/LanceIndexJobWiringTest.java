@@ -19,20 +19,27 @@ package org.apache.doris.datasource.lance.job;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.io.CountingDataOutputStream;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.meta.MetaPersistMethod;
 import org.apache.doris.persist.meta.PersistMetaModules;
 
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Supplier;
 
 public class LanceIndexJobWiringTest {
     private static final short LANCE_INDEX_JOB_OPCODE = 500;
@@ -74,5 +81,84 @@ public class LanceIndexJobWiringTest {
         Assertions.assertEquals(expectedWriteMethod, persistMethod.writeMethod);
         Assertions.assertEquals(long.class, persistMethod.readMethod.getReturnType());
         Assertions.assertEquals(long.class, persistMethod.writeMethod.getReturnType());
+    }
+
+    /**
+     * The dispatcher is wired as a master-only daemon: an instance field on {@link Env},
+     * of a {@link MasterDaemon} subclass. It takes the job manager through a supplier so
+     * an image load that replaces the Env-owned manager is picked up on the next round;
+     * the manager constructor overload survives as the test seam.
+     */
+    @Test
+    public void lanceIndexJobDispatcherIsAWiredMasterDaemon() throws Exception {
+        Field field = Env.class.getDeclaredField("lanceIndexJobDispatcher");
+        Assertions.assertFalse(Modifier.isStatic(field.getModifiers()), "one dispatcher per Env instance");
+        Assertions.assertEquals(LanceIndexJobDispatcher.class, field.getType());
+        Assertions.assertTrue(MasterDaemon.class.isAssignableFrom(field.getType()),
+                "the dispatcher must start through the master-only MasterDaemon machinery");
+        Assertions.assertNotNull(
+                LanceIndexJobDispatcher.class.getDeclaredConstructor(Supplier.class),
+                "the dispatcher resolves the Env-owned manager per round through a supplier:"
+                        + " loadLanceIndexJobManager replaces it on every image load");
+        Assertions.assertNotNull(
+                LanceIndexJobDispatcher.class.getDeclaredConstructor(LanceIndexJobManager.class),
+                "the constant-manager constructor remains as the unit-test seam");
+    }
+
+    /**
+     * Source-order wiring of the dispatch lifecycle in Env.java: the constructor creates
+     * the dispatcher on a per-round manager supplier (an image load replaces the manager,
+     * so the captured instance would be orphaned), only {@code startMasterOnlyDaemonThreads}
+     * starts it
+     * (never the non-master path), and the master-transfer sweep of the job manager runs
+     * before that start, so no dispatcher round can ever observe a durable RUNNING left by
+     * the old master. Reflection cannot see call sites, so this reads the source; it is
+     * skipped when sources are not next to the test run (jar-only environment).
+     */
+    @Test
+    public void dispatcherStartsInStartMasterOnlyDaemonThreadsAfterTheTransferSweep() throws Exception {
+        String source = readEnvSource();
+
+        Assertions.assertTrue(source.contains(
+                "this.lanceIndexJobDispatcher = new LanceIndexJobDispatcher(() -> lanceIndexJobManager);"),
+                "the Env constructor must wire the dispatcher with a per-round manager supplier,"
+                        + " never the captured instance an image load would orphan");
+
+        String masterOnlyBody = methodBody(source, "protected void startMasterOnlyDaemonThreads() {");
+        Assertions.assertTrue(masterOnlyBody.contains("lanceIndexJobDispatcher.start();"),
+                "the dispatcher must be started in startMasterOnlyDaemonThreads");
+        Assertions.assertFalse(
+                methodBody(source, "protected void startNonMasterDaemonThreads() {").contains(
+                        "lanceIndexJobDispatcher"),
+                "the dispatcher must never start on a non-master FE");
+
+        int sweep = source.indexOf("lanceIndexJobManager.onTransferToMaster();");
+        int daemonStart = source.indexOf("startMasterOnlyDaemonThreads();");
+        Assertions.assertTrue(sweep >= 0, "the master-transfer sweep call was not found");
+        Assertions.assertTrue(daemonStart > sweep,
+                "the RUNNING-to-UNKNOWN sweep must run before any master-only daemon starts");
+    }
+
+    private static String readEnvSource() throws Exception {
+        // Surefire runs with the module directory as the working directory; also try the
+        // checkout root so an IDE run from fe/ resolves the same file.
+        for (Path candidate : new Path[]{
+                Paths.get("src/main/java/org/apache/doris/catalog/Env.java"),
+                Paths.get("fe-core/src/main/java/org/apache/doris/catalog/Env.java")}) {
+            if (Files.exists(candidate)) {
+                return new String(Files.readAllBytes(candidate), StandardCharsets.UTF_8);
+            }
+        }
+        Assumptions.assumeTrue(false, "Env.java source is not available next to the test run; skipping");
+        throw new IllegalStateException("unreachable");
+    }
+
+    /** Extracts one method's source from its definition down to its closing brace. */
+    private static String methodBody(String source, String definition) {
+        int signature = source.indexOf(definition);
+        Assertions.assertTrue(signature >= 0, "method definition not found in Env.java: " + definition);
+        int end = source.indexOf("\n    }", signature);
+        Assertions.assertTrue(end > signature, "no closing brace found for method " + definition);
+        return source.substring(signature, end);
     }
 }
