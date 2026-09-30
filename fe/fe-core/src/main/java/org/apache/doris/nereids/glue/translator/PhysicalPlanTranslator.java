@@ -3226,16 +3226,21 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      */
     private boolean shouldUseBucketedFusion(PhysicalHashAggregate<? extends Plan> aggregate,
             PlanTranslatorContext context) {
-        // Shared eligibility (also used by the regulator, the output property deriver
-        // and the cost model): session var, single-BE, GROUP BY, spill / query cache
-        // off, smooth upgrade, no UDAF, one-phase GLOBAL INPUT_TO_RESULT, no partial
-        // (buffer-producing) function, two-phase capable functions, no pushed TopN.
-        if (!AggregateUtils.isBucketedHashAggFusible(aggregate)) {
-            return false;
-        }
         // Child must be PhysicalDistribute with hash distribution matching group keys
         Plan child = aggregate.child(0);
         if (!(child instanceof PhysicalDistribute)) {
+            return false;
+        }
+        // Shared eligibility (also used by the regulator and the output property
+        // deriver; the cost model uses the part that only depends on the aggregate):
+        // session var, single-BE, GROUP BY, spill / query cache off, smooth upgrade,
+        // no UDAF, one-phase GLOBAL INPUT_TO_RESULT, no partial (buffer-producing)
+        // function, two-phase capable functions, no pushed TopN, child hash-distributed
+        // by exactly the GROUP BY keys. A distribute on a strict subset of them
+        // (agg_shuffle_use_parent_key) must be kept: the parent consumes the aggregate
+        // without an exchange and relies on that distribution.
+        if (!AggregateUtils.isBucketedHashAggFusible(aggregate,
+                ((PhysicalDistribute<?>) child).getDistributionSpec())) {
             return false;
         }
         // Bucketed fusion bypasses the distribute/exchange and builds directly on the
@@ -3262,20 +3267,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // up in the same fragment and the scan-assignment would fail. A distribute
         // between the merging node and this aggregate clears the context (see
         // visitPhysicalDistribute), because its exchange keeps the fused fragment apart.
-        if (context.isInFragmentMergeChild()) {
-            return false;
-        }
-        DistributionSpec distSpec = ((PhysicalDistribute<?>) child).getDistributionSpec();
-        if (!(distSpec instanceof DistributionSpecHash)) {
-            return false;
-        }
-        List<ExprId> distKeys = ((DistributionSpecHash) distSpec).getOrderedShuffledColumns();
-        List<ExprId> groupByKeys = aggregate.getGroupByExpressions().stream()
-                .filter(SlotReference.class::isInstance)
-                .map(SlotReference.class::cast)
-                .map(SlotReference::getExprId)
-                .collect(Collectors.toList());
-        return distKeys.equals(groupByKeys);
+        return !context.isInFragmentMergeChild();
     }
 
     /** Returns true if the plan subtree contains a physical CTE consumer. */

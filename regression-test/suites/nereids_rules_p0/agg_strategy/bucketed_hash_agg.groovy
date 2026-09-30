@@ -378,4 +378,33 @@ suite("bucketed_hash_agg") {
     sql "set enable_bucketed_hash_agg=false"
     order_qt_union_children_regular_result "${unionChildrenQuery}"
     sql "set agg_phase=0"
+
+    // ============================================================
+    // Test 11: Window partitioned by a strict subset of the GROUP BY keys. With
+    //          agg_shuffle_use_parent_key the aggregate can also shuffle its
+    //          input by the window's key, which the window consumes without an
+    //          exchange and the translator therefore never fuses. That
+    //          alternative is a regular one-phase aggregate over a raw-row
+    //          exchange and must not be exempted as a bucketed candidate: the
+    //          aggregate is fused on the GROUP BY keys and feeds the window
+    //          through the exchange above it.
+    // ============================================================
+    sql "set enable_bucketed_hash_agg=true"
+    sql "set agg_shuffle_use_parent_key=true"
+    String windowSubsetKeyQuery = """
+        SELECT grp, val, s, SUM(s) OVER (PARTITION BY grp) AS total
+        FROM (SELECT grp, val, SUM(id) AS s FROM bucketed_agg_reg_test GROUP BY grp, val) a
+    """
+    explain {
+        sql(windowSubsetKeyQuery)
+        contains("BUCKETED AGGREGATE")
+    }
+    order_qt_window_subset_key_bucketed_result "${windowSubsetKeyQuery}"
+    sql "set enable_bucketed_hash_agg=false"
+    explain {
+        sql(windowSubsetKeyQuery)
+        notContains("BUCKETED AGGREGATE")
+    }
+    order_qt_window_subset_key_regular_result "${windowSubsetKeyQuery}"
+    sql "set enable_bucketed_hash_agg=true"
 }

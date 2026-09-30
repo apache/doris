@@ -19,6 +19,7 @@ package org.apache.doris.nereids.glue.translator;
 
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.planner.AggregationNode;
+import org.apache.doris.planner.AnalyticEvalNode;
 import org.apache.doris.planner.BucketedAggregationNode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
@@ -421,6 +422,86 @@ public class BucketedAggregateTranslatorTest extends TestWithFeService {
             sessionVariable.bucketedAggMaxGroupKeys = oldBucketedAggMaxGroupKeys;
             sessionVariable.bucketedAggHighCardThreshold = oldBucketedAggHighCardThreshold;
             sessionVariable.enableBucketedHashAgg = oldEnableBucketedHashAgg;
+        }
+    }
+
+    @Test
+    public void testParentKeyShuffledAggregateIsNotExemptedAsBucketed() throws Exception {
+        // The window partitions by kbint, a strict subset of the GROUP BY keys, so with
+        // agg_shuffle_use_parent_key the aggregate also asks its child for HASH(kbint). That
+        // distribution satisfies the window without an exchange above the aggregate, but the
+        // translator only fuses an aggregate whose distribute child hashes exactly the GROUP BY
+        // keys. The parent-key alternative is therefore a regular one-phase aggregate over a
+        // raw-row exchange, and the regulator must keep banning it instead of exempting it as a
+        // bucketed candidate; otherwise it wins with the bucketed cost discount and without the
+        // exchange above the aggregate.
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        int oldAggPhase = sessionVariable.aggPhase;
+        int oldBeNumberForTest = sessionVariable.getBeNumberForTest();
+        long oldBucketedAggMinInputRows = sessionVariable.bucketedAggMinInputRows;
+        long oldBucketedAggMaxGroupKeys = sessionVariable.bucketedAggMaxGroupKeys;
+        double oldBucketedAggHighCardThreshold = sessionVariable.bucketedAggHighCardThreshold;
+        boolean oldEnableBucketedHashAgg = sessionVariable.enableBucketedHashAgg;
+        boolean oldAggShuffleUseParentKey = sessionVariable.aggShuffleUseParentKey;
+        double oldCboNetWeight = sessionVariable.getCboNetWeight();
+        try {
+            // Let the optimizer choose between the one-phase and the two-phase plans.
+            sessionVariable.aggPhase = 0;
+            sessionVariable.setBeNumberForTest(1);
+            sessionVariable.bucketedAggMinInputRows = 0;
+            sessionVariable.bucketedAggMaxGroupKeys = 0;
+            sessionVariable.bucketedAggHighCardThreshold = 1.0;
+            sessionVariable.enableBucketedHashAgg = true;
+            sessionVariable.aggShuffleUseParentKey = true;
+
+            String sql = "SELECT kbint, kstr, s, sum(s) OVER (PARTITION BY kbint)"
+                    + " FROM (SELECT kbint, kstr, sum(kint) AS s"
+                    + " FROM bucketed_aggregate_translator_test.agg_group_concat_table"
+                    + " GROUP BY kbint, kstr) a";
+            // The full-key alternative is the one the translator fuses.
+            assertFusedBelowWindowExchange(getSQLPlanner(sql));
+
+            // The ban does not depend on the cost: an expensive network makes the exchange
+            // above the fused aggregate dearer, which favors the parent-key alternative.
+            sessionVariable.setCboNetWeight(100);
+            assertFusedBelowWindowExchange(getSQLPlanner(sql));
+            sessionVariable.setCboNetWeight(oldCboNetWeight);
+
+            // Without the parent-key request only the full-key alternative exists: same plan.
+            sessionVariable.aggShuffleUseParentKey = false;
+            assertFusedBelowWindowExchange(getSQLPlanner(sql));
+        } finally {
+            sessionVariable.aggPhase = oldAggPhase;
+            sessionVariable.setBeNumberForTest(oldBeNumberForTest);
+            sessionVariable.bucketedAggMinInputRows = oldBucketedAggMinInputRows;
+            sessionVariable.bucketedAggMaxGroupKeys = oldBucketedAggMaxGroupKeys;
+            sessionVariable.bucketedAggHighCardThreshold = oldBucketedAggHighCardThreshold;
+            sessionVariable.enableBucketedHashAgg = oldEnableBucketedHashAgg;
+            sessionVariable.aggShuffleUseParentKey = oldAggShuffleUseParentKey;
+            sessionVariable.setCboNetWeight(oldCboNetWeight);
+        }
+    }
+
+    /**
+     * Asserts the plan Window <- Exchange <- BucketedAggregation <- OlapScan: the aggregate is
+     * fused, and because a fused aggregate is not distributed by the window's partition key the
+     * window is fed through an exchange.
+     */
+    private void assertFusedBelowWindowExchange(Planner planner) {
+        String explain = explain(planner);
+        Assertions.assertEquals(1, collectNodes(planner, AnalyticEvalNode.class).size(), explain);
+        assertNoRawScanExchange(planner);
+        List<BucketedAggregationNode> bucketedNodes = collectNodes(planner, BucketedAggregationNode.class);
+        Assertions.assertEquals(1, bucketedNodes.size(), explain);
+        Assertions.assertTrue(collectNodes(planner, AggregationNode.class).isEmpty(), explain);
+        Assertions.assertTrue(bucketedNodes.get(0).getChild(0) instanceof OlapScanNode, explain);
+        Assertions.assertTrue(bucketedNodes.get(0).getFragment().getDestNode() instanceof ExchangeNode, explain);
+    }
+
+    private void assertNoRawScanExchange(Planner planner) {
+        for (ExchangeNode exchange : collectNodes(planner, ExchangeNode.class)) {
+            Assertions.assertFalse(exchange.getChild(0) instanceof OlapScanNode,
+                    "raw scan rows must not be exchanged: " + explain(planner));
         }
     }
 

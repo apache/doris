@@ -221,7 +221,7 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                 // the output is NOT hash-distributed (256-bucket internal hash is
                 // not shuffle-compatible). Advertise ANY to prevent parent operators
                 // from incorrectly skipping exchanges.
-                if (AggregateUtils.isBucketedHashAggFusible(agg)
+                if (AggregateUtils.isBucketedHashAggFusible(agg, childOutputProperty.getDistributionSpec())
                         && isShuffleCompatible(childOutputProperty.getDistributionSpec())) {
                     return PhysicalProperties.ANY;
                 }

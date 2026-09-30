@@ -393,6 +393,11 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             // the translator keeps on the regular AggregationNode path (e.g. the dedup
             // aggregate of a mixed DISTINCT / non-DISTINCT query, whose non-distinct
             // functions are partial) still pay for their exchange, so they get no discount.
+            // The cost model does not see the aggregate's child, so the translator's
+            // conditions on it (a distribute on exactly the GROUP BY keys over a single
+            // scan) are not checked here: the full-key and the parent-key alternatives
+            // of one aggregate get the same factor, which keeps their relative order, and
+            // ChildrenPropertiesRegulator bans the distribute the translator cannot fuse.
             if (AggregateUtils.isBucketedHashAggFusible(aggregate)) {
                 rowCost *= BUCKETED_AGG_COST_DISCOUNT;
             }

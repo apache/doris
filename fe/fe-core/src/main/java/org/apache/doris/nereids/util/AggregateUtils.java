@@ -17,14 +17,18 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.properties.DistributionSpec;
+import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
@@ -52,6 +56,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 /**
  * Utils for aggregate
@@ -194,7 +199,8 @@ public class AggregateUtils {
     /**
      * Check the basic environmental conditions for bucketed hash aggregation.
      * This is the environment part of the shared eligibility gate; the physical
-     * plan shape part is {@link #isBucketedHashAggFusible(PhysicalHashAggregate)},
+     * plan shape part is {@link #isBucketedHashAggFusible(PhysicalHashAggregate)} and
+     * {@link #isBucketedHashAggFusible(PhysicalHashAggregate, DistributionSpec)},
      * which ChildrenPropertiesRegulator (to allow the one-phase-GLOBAL+distribute
      * pattern), ChildOutputPropertyDeriver, CostModel (for the cost discount) and
      * PhysicalPlanTranslator (for fusion into BucketedAggregationNode) all use.
@@ -280,8 +286,8 @@ public class AggregateUtils {
      * the environment gate above passes, it is the one-phase GLOBAL INPUT_TO_RESULT
      * aggregate, none of its functions produces a partial buffer, all of them support
      * two-phase execution and no TopN was pushed into it. The translator additionally
-     * requires a distribute child over a unary single-scan pipeline, which is not
-     * visible here.
+     * requires a distribute child on exactly the GROUP BY keys over a unary single-scan
+     * pipeline, which is not visible here.
      * <p>
      * The regulator, the output property deriver and the cost model must use this
      * gate rather than {@link #isBucketedHashAggEnabled(Aggregate)} alone: an aggregate
@@ -289,15 +295,19 @@ public class AggregateUtils {
      * INPUT_TO_RESULT dedup aggregate of a mixed DISTINCT / non-DISTINCT query, whose
      * non-distinct functions run in INPUT_TO_BUFFER mode) is translated into a regular
      * AggregationNode that keeps the exchange, so it must not receive the bucketed
-     * cost discount or the one-phase-with-distribute exemption.
+     * cost discount or the one-phase-with-distribute exemption. Callers that know the
+     * distribution of the aggregate's child use
+     * {@link #isBucketedHashAggFusible(PhysicalHashAggregate, DistributionSpec)}.
      */
     public static boolean isBucketedHashAggFusible(PhysicalHashAggregate<? extends Plan> aggregate) {
-        if (!isBucketedHashAggEnabled(aggregate)) {
-            return false;
-        }
-        // Must be one-phase: GLOBAL + INPUT_TO_RESULT
+        // Must be one-phase: GLOBAL + INPUT_TO_RESULT. Checked before the environment
+        // gate, which asks the cluster for its alive backends, because every aggregate
+        // alternative in the memo passes through here.
         if (aggregate.getAggPhase() != AggPhase.GLOBAL
                 || aggregate.getAggMode() != AggMode.INPUT_TO_RESULT) {
+            return false;
+        }
+        if (!isBucketedHashAggEnabled(aggregate)) {
             return false;
         }
         // BucketedAggregationNode always finalizes into the output tuple slot
@@ -323,6 +333,31 @@ public class AggregateUtils {
         // BucketedAggregationNode does not support sortByGroupKey (PushTopnToAgg
         // optimization). Regular AggregationNode fills sort info; fusing would drop it.
         return aggregate.getTopnPushInfo() == null;
+    }
+
+    /**
+     * {@link #isBucketedHashAggFusible(PhysicalHashAggregate)} plus the translator's
+     * condition on the aggregate's child: it is hash-distributed by exactly the GROUP BY
+     * keys. With agg_shuffle_use_parent_key the aggregate can also ask its child for the
+     * parent's keys, a strict subset of the GROUP BY keys. The parent then consumes the
+     * aggregate without an exchange and relies on that distribution, which a fused
+     * aggregate does not preserve, so that alternative stays a regular aggregate over a
+     * raw-row exchange and must not get the one-phase-with-distribute exemption.
+     *
+     * @param childDistribution the distribution of the aggregate's child
+     */
+    public static boolean isBucketedHashAggFusible(PhysicalHashAggregate<? extends Plan> aggregate,
+            DistributionSpec childDistribution) {
+        if (!(childDistribution instanceof DistributionSpecHash)) {
+            return false;
+        }
+        List<ExprId> distributeKeys = ((DistributionSpecHash) childDistribution).getOrderedShuffledColumns();
+        List<ExprId> groupByKeys = aggregate.getGroupByExpressions().stream()
+                .filter(SlotReference.class::isInstance)
+                .map(SlotReference.class::cast)
+                .map(SlotReference::getExprId)
+                .collect(Collectors.toList());
+        return distributeKeys.equals(groupByKeys) && isBucketedHashAggFusible(aggregate);
     }
 
     /**
