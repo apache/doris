@@ -4281,7 +4281,7 @@ public class Config extends ConfigBase {
             description = {"Lance 索引 job 派发器(含 deadline/possible-live 扫掠与 refresh 驱动)的轮询周期(秒)。",
                     "Polling interval in seconds of the Lance index job dispatcher "
                     + "(dispatch sweep, deadline/possible-live sweeps, and refresh driver)."})
-    public static int lance_index_job_dispatch_interval_second = 10;
+    public static volatile int lance_index_job_dispatch_interval_second = 10;
 
     @ConfField(mutable = true, masterOnly = true,
             callback = LanceIndexConfigValidator.PositiveLongConfigHandler.class,
@@ -4290,26 +4290,26 @@ public class Config extends ConfigBase {
                     "Wait bound in seconds for the result of one dispatched Lance index job. Expiry without "
                     + "a complete trusted result converges the job to UNKNOWN; the deadline bounds the wait "
                     + "only, never proves termination, and never releases a possible-live slot."})
-    public static long lance_index_job_execute_deadline_second = 3600;
+    public static volatile long lance_index_job_execute_deadline_second = 3600;
 
     @ConfField(mutable = true, masterOnly = true,
             callback = LanceIndexConfigValidator.PositiveIntConfigHandler.class,
             description = {"派发器单轮最多新派发的 Lance 索引 job 数(背压上限)。",
                     "Maximum number of Lance index jobs newly dispatched per dispatcher round (backpressure)."})
-    public static int lance_index_job_max_dispatch_per_round = 16;
+    public static volatile int lance_index_job_max_dispatch_per_round = 16;
 
     @ConfField(mutable = true, masterOnly = true,
             callback = LanceIndexConfigValidator.PositiveIntConfigHandler.class,
             description = {"单个 BE 上允许同时在途(RUNNING)的 Lance 索引 job 数上限。",
                     "Maximum number of in-flight (RUNNING) Lance index jobs per backend."})
-    public static int lance_index_job_max_inflight_per_backend = 2;
+    public static volatile int lance_index_job_max_inflight_per_backend = 2;
 
     @ConfField(mutable = true, masterOnly = true,
             callback = LanceIndexConfigValidator.PositiveIntConfigHandler.class,
             description = {"refresh 失败的 Lance 索引 job 的最小重试间隔(秒);首次刷新不受此间隔限制。",
                     "Minimum retry interval in seconds for a terminal Lance index job whose metadata "
                     + "refresh FAILED; the first refresh attempt is never delayed by this interval."})
-    public static int lance_index_job_refresh_retry_second = 300;
+    public static volatile int lance_index_job_refresh_retry_second = 300;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "暂停 Lance 索引 job 的派发阶段(运维与测试屏障,默认关闭)。暂停只影响派发:deadline 与 "
