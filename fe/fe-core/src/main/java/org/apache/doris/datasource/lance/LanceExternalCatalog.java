@@ -41,8 +41,13 @@ import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.lance.namespace.LanceNamespace;
+import org.lance.namespace.errors.NamespaceNotFoundException;
+import org.lance.namespace.errors.TableNotFoundException;
 import org.lance.namespace.model.ListNamespacesRequest;
 import org.lance.namespace.model.ListTablesRequest;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.List;
@@ -52,6 +57,8 @@ import java.util.function.Function;
 
 /** Read-only Lance Directory or REST Namespace catalog. */
 public class LanceExternalCatalog extends ExternalCatalog {
+    private static final Logger LOG = LogManager.getLogger(LanceExternalCatalog.class);
+
     public static final String LANCE_CATALOG_TYPE = AbstractLanceProperties.LANCE_CATALOG_TYPE;
     public static final String LANCE_FILESYSTEM = AbstractLanceProperties.LANCE_FILESYSTEM;
     public static final String LANCE_REST = AbstractLanceProperties.LANCE_REST;
@@ -100,7 +107,38 @@ public class LanceExternalCatalog extends ExternalCatalog {
         try {
             return withClient(current -> current.resolveCurrentIndexJobLocator(dbName, tableName));
         } catch (Exception e) {
+            LOG.warn("failed to resolve the current dataset locator of {}.{} in lance catalog {}",
+                    dbName, tableName, getName(), e);
             return null;
+        }
+    }
+
+    /**
+     * Three-valued resolution of the dataset the given names point at, for callers
+     * that take a durable action on the verdict and must not fold "verified gone"
+     * and "could not tell" together. {@link #resolveCurrentIndexJobLocator} returns
+     * null for both on purpose (SHOW's fail-closed rule folds them); this form
+     * distinguishes them: a {@code TableNotFound}/{@code NamespaceNotFound} answer
+     * from the namespace is positive evidence of absence, while any other failure is
+     * logged (the sanitized client chain already masks locators and credentials)
+     * and reported as {@link LanceIndexDatasetCheck.Outcome#UNRESOLVED}.
+     *
+     * <p>Callers must pass the REMOTE names of the relations when they hold the
+     * resolved objects (admission persists local names, and the namespace is
+     * case-sensitive); a caller with no resolved object falls back to its local
+     * names, which is correct whenever the local layer could not resolve them
+     * either — a case-mapped remote name resolves locally, so a local miss with a
+     * reachable namespace means no case-insensitive match exists at all.
+     */
+    public LanceIndexDatasetCheck checkIndexJobDataset(String dbName, String tableName) {
+        try {
+            String locator = withClient(current -> current.resolveCurrentIndexJobLocator(dbName, tableName));
+            return LanceIndexDatasetCheck.present(locator);
+        } catch (TableNotFoundException | NamespaceNotFoundException e) {
+            return LanceIndexDatasetCheck.verifiedAbsent();
+        } catch (Exception e) {
+            LOG.warn("failed to check the dataset of {}.{} in lance catalog {}", dbName, tableName, getName(), e);
+            return LanceIndexDatasetCheck.unresolved();
         }
     }
 

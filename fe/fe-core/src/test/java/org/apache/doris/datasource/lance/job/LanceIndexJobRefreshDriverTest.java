@@ -23,7 +23,10 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
+import org.apache.doris.datasource.lance.LanceIndexDatasetCheck;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.Frontend;
@@ -70,6 +73,7 @@ public class LanceIndexJobRefreshDriverTest {
     private final List<String> events = new ArrayList<>();
     private MockedStatic<Env> mockedEnv;
     private Env env;
+    private LanceExternalCatalog catalog;
     private RefreshManager refreshManager;
     private TestManager manager;
     private TestDispatcher dispatcher;
@@ -90,9 +94,16 @@ public class LanceIndexJobRefreshDriverTest {
         Mockito.when(env.getFrontends(Mockito.any()))
                 .thenReturn(Collections.singletonList(Mockito.mock(Frontend.class)));
 
-        LanceExternalCatalog catalog = Mockito.mock(LanceExternalCatalog.class);
+        catalog = Mockito.mock(LanceExternalCatalog.class);
         Mockito.when(catalog.getId()).thenReturn(CATALOG_ID);
         Mockito.when(catalog.getName()).thenReturn("lance_cat");
+        // The refresh driver proves DONE through the local db/table resolution before
+        // it refreshes: a resolvable target means the refresh really invalidates it.
+        @SuppressWarnings("unchecked")
+        ExternalDatabase<ExternalTable> db = Mockito.mock(ExternalDatabase.class);
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.doReturn(db).when(catalog).getDbNullable("db1");
+        Mockito.doReturn(table).when(db).getTableNullable("tbl1");
         CatalogMgr catalogMgr = new CatalogMgr();
         java.lang.reflect.Field catalogs = CatalogMgr.class.getDeclaredField("idToCatalog");
         catalogs.setAccessible(true);
@@ -321,12 +332,13 @@ public class LanceIndexJobRefreshDriverTest {
     }
 
     @Test
-    public void halfOrphanTargetRefreshesSilentlyAndStillCompletes() throws Exception {
+    public void verifiedAbsentHalfOrphanCompletesWithoutARefresh() throws Exception {
         admitTerminalCommitted(1L, "IdxA");
-        // The target db/table was already dropped externally: the refresh call is a
-        // silent no-op (nothing is left to invalidate), which is success here.
-        Mockito.doNothing().when(refreshManager).handleRefreshTable(Mockito.anyLong(), Mockito.anyString(),
-                Mockito.anyString(), Mockito.anyBoolean());
+        // The local db/table no longer resolve, and the namespace positively answers
+        // that they are gone: a real half-orphan, provable without any refresh.
+        Mockito.doReturn(null).when(catalog).getDbNullable("db1");
+        Mockito.doReturn(LanceIndexDatasetCheck.verifiedAbsent()).when(catalog)
+                .checkIndexJobDataset("db1", "tbl1");
         LanceIndexFenceKey fenceKey = manager.getJob(1L).fenceKey();
 
         dispatcher.runAfterCatalogReady();
@@ -336,6 +348,56 @@ public class LanceIndexJobRefreshDriverTest {
         Assertions.assertFalse(manager.isFenceHeld(fenceKey));
         Assertions.assertEquals(0L, manager.getQuota().getGlobalCount());
         Assertions.assertTrue(manager.getUnresolvedJobs().isEmpty());
+        Mockito.verify(refreshManager, Mockito.never()).handleRefreshTable(Mockito.anyLong(), Mockito.anyString(),
+                Mockito.anyString(), Mockito.anyBoolean());
+    }
+
+    @Test
+    public void unresolvedTargetLookupMarksTheRefreshFailedForRetry() throws Exception {
+        admitTerminalCommitted(1L, "IdxA");
+        // The local db/table do not resolve and the namespace cannot answer either
+        // (provider outage): "table gone" cannot be told apart from "network down",
+        // so DONE is out of the question — FAILED keeps the fence for a retry.
+        Mockito.doReturn(null).when(catalog).getDbNullable("db1");
+        Mockito.doReturn(LanceIndexDatasetCheck.unresolved()).when(catalog)
+                .checkIndexJobDataset("db1", "tbl1");
+        LanceIndexFenceKey fenceKey = manager.getJob(1L).fenceKey();
+
+        dispatcher.runAfterCatalogReady();
+
+        Assertions.assertEquals(LanceIndexJobRefreshState.FAILED, manager.getJob(1L).getRefreshState());
+        Assertions.assertTrue(manager.isFenceHeld(fenceKey));
+        Assertions.assertEquals(1L, manager.getQuota().getGlobalCount());
+        Mockito.verify(refreshManager, Mockito.never()).handleRefreshTable(Mockito.anyLong(), Mockito.anyString(),
+                Mockito.anyString(), Mockito.anyBoolean());
+    }
+
+    @Test
+    public void presentButLocallyColdTargetRetriesInsteadOfMarkingDone() throws Exception {
+        admitTerminalCommitted(1L, "IdxA");
+        // The namespace resolves the names but the local layer came back cold: the
+        // refresh could silently skip the invalidation, so the round marks FAILED and
+        // a later round (local cache warm) performs the verified refresh.
+        Mockito.doReturn(null).when(catalog).getDbNullable("db1");
+        Mockito.doReturn(LanceIndexDatasetCheck.present(LOCATOR)).when(catalog)
+                .checkIndexJobDataset("db1", "tbl1");
+        LanceIndexFenceKey fenceKey = manager.getJob(1L).fenceKey();
+        Config.lance_index_job_refresh_retry_second = 0;
+
+        dispatcher.runAfterCatalogReady();
+        Assertions.assertEquals(LanceIndexJobRefreshState.FAILED, manager.getJob(1L).getRefreshState());
+        Assertions.assertTrue(manager.isFenceHeld(fenceKey));
+
+        // The local cache warms up: the next round takes the verified refresh path.
+        @SuppressWarnings("unchecked")
+        ExternalDatabase<ExternalTable> warmDb = Mockito.mock(ExternalDatabase.class);
+        Mockito.doReturn(warmDb).when(catalog).getDbNullable("db1");
+        Mockito.doReturn(Mockito.mock(ExternalTable.class)).when(warmDb).getTableNullable("tbl1");
+        dispatcher.runAfterCatalogReady();
+        Assertions.assertEquals(LanceIndexJobRefreshState.DONE, manager.getJob(1L).getRefreshState());
+        Assertions.assertFalse(manager.isFenceHeld(fenceKey));
+        Mockito.verify(refreshManager, Mockito.times(1)).handleRefreshTable(Mockito.anyLong(), Mockito.anyString(),
+                Mockito.anyString(), Mockito.anyBoolean());
     }
 
     @Test
