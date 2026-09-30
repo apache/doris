@@ -21,6 +21,19 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." &>/dev/null && pwd)"
 ARCHIVE_DIR="${1:?Usage: $0 directory-containing-the-pinned-lance-c-archive}"
 ARCHIVE_DIR="$(cd "${ARCHIVE_DIR}" && pwd)"
+# Platform definitions must remain safe when this harness enables nounset.
+for test_arch in x86_64 arm64; do
+    bash -eu -c '
+        uname() { if [[ "$1" == -s ]]; then echo Darwin; else echo "$TEST_ARCH"; fi; }
+        unset ARROW_ADBC_FLIGHTSQL_SOURCE
+        TP_DIR="$1"
+        TEST_ARCH="$2"
+        source "$TP_DIR/vars.sh"
+        [[ " ${TP_ARCHIVES[*]} " != *" ARROW_ADBC_FLIGHTSQL "* ]]
+    ' _ "${ROOT}" "${test_arch}"
+done
+echo "PASS: macOS platform definitions under nounset"
+
 TP_DIR="${ROOT}"
 # Load only repository-owned definitions, never extracted dependency code.
 source "${ROOT}/vars.sh"

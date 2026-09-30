@@ -720,8 +720,8 @@ export TP_ARCHIVES=(
     'PAIMON_RUST'
 )
 
-# Only defined on the platforms upstream ships a prebuilt driver for (see above).
-if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE}" ]]; then
+# This variable is unset on macOS; callers may source this file with nounset.
+if [[ -n "${ARROW_ADBC_FLIGHTSQL_SOURCE:-}" ]]; then
     read -r -a TP_ARCHIVES <<<"${TP_ARCHIVES[*]} ARROW_ADBC_FLIGHTSQL"
     export TP_ARCHIVES
 fi
