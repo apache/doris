@@ -185,6 +185,29 @@ suite("bucketed_hash_agg") {
     ORDER BY grp;
     """
 
+    // The dedup aggregate of a mixed DISTINCT / non-DISTINCT query is a one-phase
+    // GLOBAL(INPUT_TO_RESULT) aggregate whose non-distinct functions run in
+    // INPUT_TO_BUFFER mode, so the translator keeps it on the regular
+    // AggregationNode path. The regulator and the cost model must not favour
+    // that one-phase shape either: the plan has to deduplicate locally before
+    // the exchange instead of shuffling the raw scan rows.
+    String mixedDistinctQuery = """
+    SELECT grp, STDDEV_POP(DISTINCT id), SUM(val)
+    FROM bucketed_agg_reg_test
+    GROUP BY grp
+    """
+    explain {
+        sql(mixedDistinctQuery)
+        notContains("BUCKETED AGGREGATE")
+    }
+    qt_mixed_distinct_shape """explain shape plan
+    ${mixedDistinctQuery}
+    """
+    order_qt_mixed_distinct_result """
+    ${mixedDistinctQuery}
+    ORDER BY grp
+    """
+
     // ============================================================
     // Test 6: DISTINCT stddev/var mixed with a non-distinct aggregate.
     //         3-phase DISTINCT plans build a one-phase GLOBAL(INPUT_TO_RESULT)

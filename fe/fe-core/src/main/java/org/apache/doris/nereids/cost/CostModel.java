@@ -37,7 +37,6 @@ import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
@@ -388,11 +387,13 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             int factor = aggregate.getGroupByExpressions().isEmpty() ? 1 : beNumber;
             double rowCost = inputStatistics.getRowCount() / factor;
             // Bucketed fusion discount: when the one-phase GLOBAL INPUT_TO_RESULT
-            // aggregate is eligible for translator fusion (correctness + data-volume
-            // gates are enforced by ChildrenPropertiesRegulator), apply a discount
-            // to prefer this path over two-phase aggregation.
-            if (aggregate.getAggMode() == AggMode.INPUT_TO_RESULT
-                    && AggregateUtils.isBucketedHashAggEnabled(aggregate)) {
+            // aggregate has the shape the translator fuses into BucketedAggregationNode
+            // (data-volume gates are enforced by ChildrenPropertiesRegulator), apply a
+            // discount to prefer this path over two-phase aggregation. Aggregates that
+            // the translator keeps on the regular AggregationNode path (e.g. the dedup
+            // aggregate of a mixed DISTINCT / non-DISTINCT query, whose non-distinct
+            // functions are partial) still pay for their exchange, so they get no discount.
+            if (AggregateUtils.isBucketedHashAggFusible(aggregate)) {
                 rowCost *= BUCKETED_AGG_COST_DISCOUNT;
             }
             return Cost.of(context.getSessionVariable(),

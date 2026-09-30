@@ -17,8 +17,11 @@
 
 package org.apache.doris.nereids.glue.translator;
 
+import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.BucketedAggregationNode;
+import org.apache.doris.planner.ExchangeNode;
+import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.Planner;
@@ -197,6 +200,52 @@ public class BucketedAggregateTranslatorTest extends TestWithFeService {
             sessionVariable.enableSpill = oldEnableSpill;
             sessionVariable.enableForceSpill = oldEnableForceSpill;
             sessionVariable.setEnableQueryCache(oldEnableQueryCache);
+        }
+    }
+
+    @Test
+    public void testMixedDistinctDedupAggregateIsNotPlannedAsBucketed() throws Exception {
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        int oldAggPhase = sessionVariable.aggPhase;
+        int oldBeNumberForTest = sessionVariable.getBeNumberForTest();
+        long oldBucketedAggMinInputRows = sessionVariable.bucketedAggMinInputRows;
+        long oldBucketedAggMaxGroupKeys = sessionVariable.bucketedAggMaxGroupKeys;
+        double oldBucketedAggHighCardThreshold = sessionVariable.bucketedAggHighCardThreshold;
+        boolean oldEnableBucketedHashAgg = sessionVariable.enableBucketedHashAgg;
+        try {
+            // Let the optimizer choose between the one-phase and the multi-phase plans.
+            sessionVariable.aggPhase = 0;
+            sessionVariable.setBeNumberForTest(1);
+            sessionVariable.bucketedAggMinInputRows = 0;
+            sessionVariable.bucketedAggMaxGroupKeys = 0;
+            sessionVariable.bucketedAggHighCardThreshold = 1.0;
+            sessionVariable.enableBucketedHashAgg = true;
+
+            // The dedup aggregate of a mixed DISTINCT / non-DISTINCT query is a one-phase
+            // GLOBAL INPUT_TO_RESULT aggregate whose non-distinct functions are partial, so
+            // the translator never fuses it. The regulator and the cost model must treat it
+            // the same way: neither exempt its one-phase-with-distribute shape from the ban
+            // nor discount its cost, otherwise the plan would exchange raw scan rows instead
+            // of deduplicating locally before the exchange.
+            Planner planner = planAggregate("stddev_pop(distinct kint), sum(kbint)");
+            Assertions.assertTrue(collectNodes(planner, BucketedAggregationNode.class).isEmpty());
+            for (ExchangeNode exchange : collectNodes(planner, ExchangeNode.class)) {
+                Assertions.assertFalse(exchange.getChild(0) instanceof OlapScanNode,
+                        "raw scan rows must not be exchanged: "
+                                + planner.getExplainString(new ExplainOptions(false, false, false)));
+            }
+            Assertions.assertTrue(collectNodes(planner, AggregationNode.class).stream()
+                    .anyMatch(node -> node.getChild(0) instanceof OlapScanNode));
+
+            // A fusible aggregate on the same shape is still fused.
+            Assertions.assertFalse(collectBucketedAggregationNodes("sum(kint)").isEmpty());
+        } finally {
+            sessionVariable.aggPhase = oldAggPhase;
+            sessionVariable.setBeNumberForTest(oldBeNumberForTest);
+            sessionVariable.bucketedAggMinInputRows = oldBucketedAggMinInputRows;
+            sessionVariable.bucketedAggMaxGroupKeys = oldBucketedAggMaxGroupKeys;
+            sessionVariable.bucketedAggHighCardThreshold = oldBucketedAggHighCardThreshold;
+            sessionVariable.enableBucketedHashAgg = oldEnableBucketedHashAgg;
         }
     }
 

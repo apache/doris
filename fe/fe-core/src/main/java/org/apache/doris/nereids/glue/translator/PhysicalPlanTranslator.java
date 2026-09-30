@@ -115,7 +115,6 @@ import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
@@ -285,7 +284,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -3209,38 +3207,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      */
     private boolean shouldUseBucketedFusion(PhysicalHashAggregate<? extends Plan> aggregate,
             PlanTranslatorContext context) {
-        // Shared eligibility: session var, single-BE, GROUP BY, smooth upgrade, no UDAF
-        if (!AggregateUtils.isBucketedHashAggEnabled(aggregate)) {
-            return false;
-        }
-        // Must be one-phase: GLOBAL + INPUT_TO_RESULT
-        if (aggregate.getAggPhase() != AggPhase.GLOBAL
-                || aggregate.getAggMode() != AggMode.INPUT_TO_RESULT) {
-            return false;
-        }
-        // BucketedAggregationNode always finalizes into the output tuple slot
-        // types (need_finalize=true, isPartial=false), so fusing an aggregate
-        // whose functions produce buffers (partial) would fail the BE
-        // result-type check: the slot type of a buffer-producing function is
-        // Varchar while the function's final return type (e.g. DOUBLE for
-        // stddev) is what insert_result_into writes. The one-phase GLOBAL
-        // dedup aggregate of a 3-phase DISTINCT plan has exactly this shape —
-        // the node itself is INPUT_TO_RESULT but its non-distinct functions
-        // run in INPUT_TO_BUFFER mode — and must stay on the regular
-        // AggregationNode path, which serializes when isPartial.
-        if (containsPartialAggFunction(aggregate)) {
-            return false;
-        }
-        // Exclude one-phase-only aggregates (e.g. GROUP_CONCAT with ORDER BY).
-        // BucketedAggregationNode has no sort-info field, so fusing would drop
-        // the aggregate ORDER BY contract. Only aggregates supporting two-phase
-        // execution can be safely fused.
-        if (!supportsTwoPhaseAgg(aggregate)) {
-            return false;
-        }
-        // BucketedAggregationNode does not support sortByGroupKey (PushTopnToAgg
-        // optimization). Regular AggregationNode fills sort info; fusing would drop it.
-        if (aggregate.getTopnPushInfo() != null) {
+        // Shared eligibility (also used by the regulator, the output property deriver
+        // and the cost model): session var, single-BE, GROUP BY, spill / query cache
+        // off, smooth upgrade, no UDAF, one-phase GLOBAL INPUT_TO_RESULT, no partial
+        // (buffer-producing) function, two-phase capable functions, no pushed TopN.
+        if (!AggregateUtils.isBucketedHashAggFusible(aggregate)) {
             return false;
         }
         // Child must be PhysicalDistribute with hash distribution matching group keys
@@ -3322,68 +3293,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         if (plan.children().size() == 1) {
             return isSingleOlapScanPipeline(plan.child(0));
-        }
-        return false;
-    }
-
-    /**
-     * Check whether all aggregate functions in this physical hash aggregate
-     * support two-phase execution. One-phase-only aggregates (e.g. GROUP_CONCAT
-     * with ORDER BY) cannot be bucketed because BucketedAggregationNode does not
-     * carry sort-info metadata (aggSortInfos); fusing them would drop the
-     * aggregate ORDER BY contract and produce unordered results.
-     */
-    private boolean supportsTwoPhaseAgg(PhysicalHashAggregate<? extends Plan> aggregate) {
-        for (NamedExpression o : aggregate.getOutputExpressions()) {
-            AtomicBoolean foundOnePhaseOnly = new AtomicBoolean(false);
-            o.foreach(c -> {
-                if (c instanceof OrderExpression) {
-                    // Any aggregate function with an internal ORDER BY
-                    // (e.g. GROUP_CONCAT(... ORDER BY ...)) needs sort-info
-                    // metadata, which BucketedAggregationNode does not carry.
-                    foundOnePhaseOnly.set(true);
-                    return true;
-                }
-                if (c instanceof AggregateExpression) {
-                    AggregateFunction func = ((AggregateExpression) c).getFunction();
-                    if (!func.supportAggregatePhase(AggregatePhase.TWO)) {
-                        foundOnePhaseOnly.set(true);
-                        return true;
-                    }
-                }
-                return false;
-            });
-            if (foundOnePhaseOnly.get()) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /**
-     * Check whether the aggregate's output contains any buffer-producing
-     * (partial) aggregate function, i.e. an AggregateExpression in a mode with
-     * productAggregateBuffer=true. BucketedAggregationNode cannot carry such
-     * functions: it always finalizes into the output tuple slot types, while a
-     * buffer-producing function's slot type is the serialized Varchar type
-     * (AggregateExpression.getDataType) — writing the final result (e.g. DOUBLE
-     * for stddev) into that String column fails the BE result-type check.
-     */
-    private boolean containsPartialAggFunction(PhysicalHashAggregate<? extends Plan> aggregate) {
-        for (NamedExpression o : aggregate.getOutputExpressions()) {
-            AtomicBoolean foundPartial = new AtomicBoolean(false);
-            o.foreach(c -> {
-                if (c instanceof AggregateExpression) {
-                    if (((AggregateExpression) c).getAggregateParam().aggMode.productAggregateBuffer) {
-                        foundPartial.set(true);
-                    }
-                    return true;
-                }
-                return false;
-            });
-            if (foundPartial.get()) {
-                return true;
-            }
         }
         return false;
     }

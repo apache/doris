@@ -39,6 +39,22 @@ a	4	200
 b	5	370
 c	4	340
 
+-- !mixed_distinct_shape --
+PhysicalResultSink
+--PhysicalDistribute[DistributionSpecGather]
+----PhysicalProject
+------hashAgg[DISTINCT_GLOBAL]
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute[DistributionSpecHash]
+------------hashAgg[LOCAL]
+--------------PhysicalProject
+----------------PhysicalOlapScan[bucketed_agg_reg_test]
+
+-- !mixed_distinct_result --
+a	1.920286436967152	200
+b	2.0591260281974	370
+c	2.29128784747792	340
+
 -- !distinct_stddev_pop_result --
 37.416573867739416	2.1289773081689303
 

@@ -19,20 +19,26 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.stats.ExpressionEstimation;
+import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SupportMultiDistinct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.plans.AggMode;
+import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
@@ -45,6 +51,7 @@ import com.google.common.collect.Lists;
 import java.util.Collection;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Utils for aggregate
@@ -186,9 +193,11 @@ public class AggregateUtils {
 
     /**
      * Check the basic environmental conditions for bucketed hash aggregation.
-     * This is the shared eligibility gate used by ChildrenPropertiesRegulator
-     * (to allow the one-phase-GLOBAL+distribute pattern), CostModel (for cost
-     * discount), and PhysicalPlanTranslator (for fusion into BucketedAggregationNode).
+     * This is the environment part of the shared eligibility gate; the physical
+     * plan shape part is {@link #isBucketedHashAggFusible(PhysicalHashAggregate)},
+     * which ChildrenPropertiesRegulator (to allow the one-phase-GLOBAL+distribute
+     * pattern), ChildOutputPropertyDeriver, CostModel (for the cost discount) and
+     * PhysicalPlanTranslator (for fusion into BucketedAggregationNode) all use.
      *
      * @return true if the session variable is enabled, there is exactly one alive BE,
      *         spill and the query cache are disabled, no smooth upgrade is in progress,
@@ -251,5 +260,118 @@ public class AggregateUtils {
             return false;
         }
         return true;
+    }
+
+    /**
+     * Check whether a physical hash aggregate has the shape that PhysicalPlanTranslator
+     * fuses into BucketedAggregationNode, as far as the aggregate itself is concerned:
+     * the environment gate above passes, it is the one-phase GLOBAL INPUT_TO_RESULT
+     * aggregate, none of its functions produces a partial buffer, all of them support
+     * two-phase execution and no TopN was pushed into it. The translator additionally
+     * requires a distribute child over a unary single-scan pipeline, which is not
+     * visible here.
+     * <p>
+     * The regulator, the output property deriver and the cost model must use this
+     * gate rather than {@link #isBucketedHashAggEnabled(Aggregate)} alone: an aggregate
+     * that passes the environment gate but not the shape gate (for example the GLOBAL
+     * INPUT_TO_RESULT dedup aggregate of a mixed DISTINCT / non-DISTINCT query, whose
+     * non-distinct functions run in INPUT_TO_BUFFER mode) is translated into a regular
+     * AggregationNode that keeps the exchange, so it must not receive the bucketed
+     * cost discount or the one-phase-with-distribute exemption.
+     */
+    public static boolean isBucketedHashAggFusible(PhysicalHashAggregate<? extends Plan> aggregate) {
+        if (!isBucketedHashAggEnabled(aggregate)) {
+            return false;
+        }
+        // Must be one-phase: GLOBAL + INPUT_TO_RESULT
+        if (aggregate.getAggPhase() != AggPhase.GLOBAL
+                || aggregate.getAggMode() != AggMode.INPUT_TO_RESULT) {
+            return false;
+        }
+        // BucketedAggregationNode always finalizes into the output tuple slot
+        // types (need_finalize=true, isPartial=false), so fusing an aggregate
+        // whose functions produce buffers (partial) would fail the BE
+        // result-type check: the slot type of a buffer-producing function is
+        // Varchar while the function's final return type (e.g. DOUBLE for
+        // stddev) is what insert_result_into writes. The one-phase GLOBAL
+        // dedup aggregate of a 3-phase DISTINCT plan has exactly this shape —
+        // the node itself is INPUT_TO_RESULT but its non-distinct functions
+        // run in INPUT_TO_BUFFER mode — and must stay on the regular
+        // AggregationNode path, which serializes when isPartial.
+        if (containsPartialAggFunction(aggregate)) {
+            return false;
+        }
+        // Exclude one-phase-only aggregates (e.g. GROUP_CONCAT with ORDER BY).
+        // BucketedAggregationNode has no sort-info field, so fusing would drop
+        // the aggregate ORDER BY contract. Only aggregates supporting two-phase
+        // execution can be safely fused.
+        if (!supportsTwoPhaseAgg(aggregate)) {
+            return false;
+        }
+        // BucketedAggregationNode does not support sortByGroupKey (PushTopnToAgg
+        // optimization). Regular AggregationNode fills sort info; fusing would drop it.
+        return aggregate.getTopnPushInfo() == null;
+    }
+
+    /**
+     * Check whether all aggregate functions in this physical hash aggregate
+     * support two-phase execution. One-phase-only aggregates (e.g. GROUP_CONCAT
+     * with ORDER BY) cannot be bucketed because BucketedAggregationNode does not
+     * carry sort-info metadata (aggSortInfos); fusing them would drop the
+     * aggregate ORDER BY contract and produce unordered results.
+     */
+    public static boolean supportsTwoPhaseAgg(PhysicalHashAggregate<? extends Plan> aggregate) {
+        for (NamedExpression o : aggregate.getOutputExpressions()) {
+            AtomicBoolean foundOnePhaseOnly = new AtomicBoolean(false);
+            o.foreach(c -> {
+                if (c instanceof OrderExpression) {
+                    // Any aggregate function with an internal ORDER BY
+                    // (e.g. GROUP_CONCAT(... ORDER BY ...)) needs sort-info
+                    // metadata, which BucketedAggregationNode does not carry.
+                    foundOnePhaseOnly.set(true);
+                    return true;
+                }
+                if (c instanceof AggregateExpression) {
+                    AggregateFunction func = ((AggregateExpression) c).getFunction();
+                    if (!func.supportAggregatePhase(AggregatePhase.TWO)) {
+                        foundOnePhaseOnly.set(true);
+                        return true;
+                    }
+                }
+                return false;
+            });
+            if (foundOnePhaseOnly.get()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Check whether the aggregate's output contains any buffer-producing
+     * (partial) aggregate function, i.e. an AggregateExpression in a mode with
+     * productAggregateBuffer=true. BucketedAggregationNode cannot carry such
+     * functions: it always finalizes into the output tuple slot types, while a
+     * buffer-producing function's slot type is the serialized Varchar type
+     * (AggregateExpression.getDataType) — writing the final result (e.g. DOUBLE
+     * for stddev) into that String column fails the BE result-type check.
+     */
+    public static boolean containsPartialAggFunction(PhysicalHashAggregate<? extends Plan> aggregate) {
+        for (NamedExpression o : aggregate.getOutputExpressions()) {
+            AtomicBoolean foundPartial = new AtomicBoolean(false);
+            o.foreach(c -> {
+                if (c instanceof AggregateExpression) {
+                    if (((AggregateExpression) c).getAggregateParam().aggMode.productAggregateBuffer) {
+                        foundPartial.set(true);
+                    }
+                    return true;
+                }
+                return false;
+            });
+            if (foundPartial.get()) {
+                return true;
+            }
+        }
+        return false;
     }
 }
