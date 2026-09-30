@@ -38,7 +38,8 @@ import java.util.Map;
  * the dispatcher's success-counted budget cannot be starved),
  * {@link LanceIndexJobManager#getExpiredRunningJobs(long)} (only RUNNING past the
  * deadline), {@link LanceIndexJobManager#getJobsHoldingPossibleLiveSlot()} (slot holders
- * with complete identity, regardless of mutation state), and the force-release filter of
+ * the termination-proof writer can address, regardless of mutation state), and the
+ * force-release filter of
  * {@link LanceIndexJobManager#getJobsNeedingRefresh()}.
  */
 public class LanceIndexJobManagerQueryTest {
@@ -205,7 +206,7 @@ public class LanceIndexJobManagerQueryTest {
     }
 
     @Test
-    public void possibleLiveQueryReturnsSlotHoldersWithCompleteIdentity() throws Exception {
+    public void possibleLiveQueryReturnsSlotHoldersTheProofWriterCanAddress() throws Exception {
         TestManager manager = new TestManager();
         // A RUNNING dispatch holds a slot.
         manager.replayUpsertJob(runningRecord(1L, "IdxRunning"));
@@ -231,9 +232,18 @@ public class LanceIndexJobManagerQueryTest {
         // by the epoch sweep and is skipped.
         manager.replayUpsertJob(GsonUtils.GSON.fromJson(
                 "{\"jid\":5,\"rev\":1,\"ms\":\"RUNNING\",\"plo\":true}", LanceIndexJob.class));
+        // A legacy holder without a dispatchRevision (recordTerminationProof falls back
+        // to the revision) and without the target fields the proof writer never reads
+        // (db/table/display name): it is charged by the capacity counter like any
+        // holder, so the sweep must be able to release it, or a replaced backend
+        // process could never free that capacity.
+        manager.replayUpsertJob(GsonUtils.GSON.fromJson(
+                "{\"jid\":6,\"rev\":4,\"cid\":10,\"prv\":\"directory\",\"loc\":\"s3://bucket/dataset\","
+                        + "\"nin\":\"idxlegacy\",\"ms\":\"RUNNING\",\"rs\":\"NOT_REQUIRED\",\"plo\":true,"
+                        + "\"bid\":1001,\"bpe\":55,\"iid\":\"invocation-1\"}", LanceIndexJob.class));
 
         List<LanceIndexJob> holders = manager.getJobsHoldingPossibleLiveSlot();
-        Assertions.assertEquals(2, holders.size());
+        Assertions.assertEquals(3, holders.size());
         // The query does not promise an order; assert membership and each state.
         List<Long> holderIds = new ArrayList<>();
         for (LanceIndexJob holder : holders) {
@@ -241,7 +251,7 @@ public class LanceIndexJobManagerQueryTest {
             Assertions.assertTrue(holder.holdsPossibleLiveSlot());
         }
         Collections.sort(holderIds);
-        Assertions.assertEquals(Arrays.asList(1L, 2L), holderIds);
+        Assertions.assertEquals(Arrays.asList(1L, 2L, 6L), holderIds);
         Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, manager.getJob(1L).getMutationState());
         Assertions.assertEquals(LanceIndexJobMutationState.UNKNOWN, manager.getJob(2L).getMutationState());
     }
