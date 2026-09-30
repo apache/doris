@@ -108,8 +108,8 @@ protected:
             const auto& [value, slot_desc] = value_it->second;
             auto column_guard = block->mutate_column_scoped(idx_it->second);
             auto& col_ptr = column_guard.mutable_column();
-            RETURN_IF_ERROR(fill_partition_column_from_path_value(*col_ptr, *slot_desc, value,
-                                                                 1, explicit_null_marker));
+            RETURN_IF_ERROR(fill_partition_column_from_path_value(*col_ptr, *slot_desc, value, 1,
+                                                                  explicit_null_marker));
         }
 
         *read_rows = 1;
