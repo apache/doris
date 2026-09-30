@@ -47,6 +47,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.NereidsException;
+import org.apache.doris.common.QueryLogContext;
 import org.apache.doris.common.QueryTimeoutException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
@@ -652,8 +653,10 @@ public class StmtExecutor {
     public void execute() throws Exception {
         TUniqueId queryId = UniqueIdUtils.fastUniqueId();
         if (Config.enable_print_request_before_execution) {
-            LOG.info("begin to execute query {} {}",
-                    DebugUtil.printId(queryId), getStmtForLoggingBeforeParse());
+            try (QueryLogContext ignored = QueryLogContext.open(queryId)) {
+                LOG.info("begin to execute query {} {}",
+                        DebugUtil.printId(queryId), getStmtForLoggingBeforeParse());
+            }
         }
         queryRetry(queryId);
     }
@@ -736,6 +739,7 @@ public class StmtExecutor {
     }
 
     public void execute(TUniqueId queryId) throws Exception {
+        context.setQueryId(queryId);
         SessionVariable sessionVariable = context.getSessionVariable();
         context.setEffectiveCloudCluster(null);
         externalDmlAuditCoordinator = null;
@@ -852,7 +856,6 @@ public class StmtExecutor {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Nereids start to execute query:\n {}", getStmtForLoggingBeforeParse());
         }
-        context.setQueryId(queryId);
         context.setStartTime();
 
         profile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());

@@ -58,6 +58,7 @@ public class Log4jConfig extends XmlConfiguration {
     }
 
     // Placeholders
+    private static final String QUERY_LOG_PLACEHOLDER = "<!--REPLACED BY QUERY LOG CONTEXT-->";
     private static final String RUNTIME_LOG_FORMAT_PLACEHOLDER = "<!--REPLACED BY LOG FORMAT-->";
     private static final String VERBOSE_MODULE_PLACEHOLDER = "<!--REPLACED BY AUDIT AND VERBOSE MODULE NAMES-->";
     private static final String CONSOLE_APPENDER_PLACEHOLDER = "<!--REPLACED BY CONSOLE APPENDER-->";
@@ -78,7 +79,7 @@ public class Log4jConfig extends XmlConfiguration {
     // Log patterns
     private static final String RUNTIME_LOG_PATTERN
             = RUNTIME_LOG_MARKER_PLACEHOLDER + "%d{yyyy-MM-dd HH:mm:ss,SSS} %p (%t|%tid)"
-            + RUNTIME_LOG_FORMAT_PLACEHOLDER + "%m%n";
+            + RUNTIME_LOG_FORMAT_PLACEHOLDER + QUERY_LOG_PLACEHOLDER + "%m%n";
     private static final String AUDIT_LOG_PATTERN
             = AUDIT_LOG_MARKER_PLACEHOLDER + "%d{yyyy-MM-dd HH:mm:ss,SSS} [%c{1}] %m%n";
 
@@ -251,6 +252,9 @@ public class Log4jConfig extends XmlConfiguration {
             sb.append("<Logger name='audit." + s + "' level='INFO'/>");
         }
         newXmlConfTemplate = newXmlConfTemplate.replaceAll(VERBOSE_MODULE_PLACEHOLDER, sb.toString());
+
+        newXmlConfTemplate = newXmlConfTemplate.replace(QUERY_LOG_PLACEHOLDER,
+                Config.sys_log_enable_query_id ? "%notEmpty{[query_id=%X{query_id}] }" : "");
 
         // BRIEF: async, no location
         // ASYNC: async, with location

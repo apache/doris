@@ -156,6 +156,7 @@ PipelineFragmentContext::PipelineFragmentContext(
 }
 
 PipelineFragmentContext::~PipelineFragmentContext() {
+    ScopedQueryLogContext query_log_scope {QueryLogIdentity(_query_id)};
     LOG_INFO("PipelineFragmentContext::~PipelineFragmentContext")
             .tag("query_id", print_id(_query_id))
             .tag("fragment_id", _fragment_id);
@@ -2665,6 +2666,7 @@ Status PipelineFragmentContext::send_report(bool done) {
     auto ctx = std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this());
     Status submit_status =
             _exec_env->fragment_mgr()->get_thread_pool()->submit_func([this, req, ctx]() {
+                ScopedQueryLogContext query_log_scope {QueryLogIdentity(req.query_id)};
                 SCOPED_ATTACH_TASK(ctx->get_query_ctx()->query_mem_tracker());
                 _coordinator_callback(req);
                 if (!req.done) {

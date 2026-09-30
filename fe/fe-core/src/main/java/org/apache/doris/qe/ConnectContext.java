@@ -46,6 +46,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.QueryLogContext;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
@@ -344,6 +345,7 @@ public class ConnectContext {
 
     public static void remove() {
         MoreFieldsThread.removeConnectContext();
+        QueryLogContext.clear();
     }
 
     public void addLastDBOfCatalog(String catalog, String db) {
@@ -373,6 +375,7 @@ public class ConnectContext {
         userVars = new HashMap<>();
         preparedStatementContextMap.clear();
         queryId = null;
+        updateQueryLogContext();
         lastQueryId = null;
         setTraceId(null);
         insertResult = null;
@@ -630,6 +633,7 @@ public class ConnectContext {
 
     public void setThreadLocalInfo() {
         MoreFieldsThread.setConnectContext(this);
+        QueryLogContext.setQueryId(queryId);
     }
 
     public long getCurrentDbId() {
@@ -1108,6 +1112,7 @@ public class ConnectContext {
     public void cleanup() {
         closeChannel();
         MoreFieldsThread.removeConnectContext();
+        QueryLogContext.clear();
         returnRows = 0;
         deleteTempTable();
         Env.getCurrentEnv().unregisterSessionInfo(this.sessionId);
@@ -1194,6 +1199,7 @@ public class ConnectContext {
             this.lastQueryId = this.queryId.deepCopy();
         }
         this.queryId = queryId;
+        updateQueryLogContext();
         if (connectScheduler != null && !Strings.isNullOrEmpty(traceId)) {
             connectScheduler.getConnectPoolMgr().putTraceId2QueryId(traceId, queryId);
         }
@@ -1204,6 +1210,14 @@ public class ConnectContext {
             this.lastQueryId = this.queryId.deepCopy();
         }
         this.queryId = null;
+        updateQueryLogContext();
+    }
+
+    private void updateQueryLogContext() {
+        // A connection can also be inspected or cancelled from another query's thread.
+        if (get() == this) {
+            QueryLogContext.setQueryId(queryId);
+        }
     }
 
     public void setNeedRegenerateInstanceId(TUniqueId needRegenerateInstanceId) {

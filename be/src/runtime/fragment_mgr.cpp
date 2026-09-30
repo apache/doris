@@ -639,6 +639,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                        QuerySource query_source, const FinishCallback& cb,
                                        const TPipelineFragmentParamsList& parent,
                                        std::shared_ptr<bool> is_prepare_success) {
+    ScopedQueryLogContext query_log_scope {QueryLogIdentity(params.query_id)};
     VLOG_ROW << "Query: " << print_id(params.query_id) << " exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(params).c_str();
     // sometimes TPipelineFragmentParams debug string is too long and glog
@@ -718,6 +719,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 }
 
 void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
+    ScopedQueryLogContext query_log_scope {QueryLogIdentity(query_id)};
     std::shared_ptr<QueryContext> query_ctx = nullptr;
     {
         if (auto q_ctx = get_query_ctx(query_id)) {

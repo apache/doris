@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.QueryLogContext;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
@@ -96,12 +97,8 @@ public final class QeProcessorImpl implements QeProcessor {
 
         // Update profile may cost a lot of time, use a separate pool to deal with it.
         try {
-            writeProfileExecutor.submit(new Runnable() {
-                @Override
-                public void run() {
-                    executionProfile.updateProfile(profile, address, isDone);
-                }
-            });
+            writeProfileExecutor.submit(QueryLogContext.wrap(
+                    () -> executionProfile.updateProfile(profile, address, isDone), profile.query_id));
         } catch (Exception e) {
             LOG.warn("Failed to submit profile write task, query {} be {}",
                                 DebugUtil.printId(profile.query_id), address.toString());
@@ -254,6 +251,16 @@ public final class QeProcessorImpl implements QeProcessor {
 
     @Override
     public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params, TNetworkAddress beAddr) {
+        // Profile-only reports deliberately carry a zero top-level query_id for protocol compatibility.
+        TUniqueId logQueryId = params.isSetQueryProfile()
+                ? params.getQueryProfile().getQueryId() : params.getQueryId();
+        try (QueryLogContext ignored = QueryLogContext.open(logQueryId)) {
+            return reportExecStatusWithQueryContext(params, beAddr);
+        }
+    }
+
+    private TReportExecStatusResult reportExecStatusWithQueryContext(
+            TReportExecStatusParams params, TNetworkAddress beAddr) {
         if (params.isSetQueryProfile()) {
             // Why not return response when process new profile failed?
             // First of all, we will do a refactor for report exec status in the future.

@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.QueryLogContext;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.ThreadPoolManager;
@@ -820,6 +821,12 @@ public class Coordinator implements CoordInterface {
 
     @Override
     public void close() {
+        try (QueryLogContext ignored = QueryLogContext.open(queryId)) {
+            closeQueryResources();
+        }
+    }
+
+    private void closeQueryResources() {
         // NOTE: all close method should be no exception
         if (queryQueue != null && queueToken != null) {
             try {
@@ -1409,6 +1416,12 @@ public class Coordinator implements CoordInterface {
 
     @Override
     public void cancel(Status cancelReason) {
+        try (QueryLogContext ignored = QueryLogContext.open(queryId)) {
+            cancelQuery(cancelReason);
+        }
+    }
+
+    private void cancelQuery(Status cancelReason) {
         if (queueToken != null) {
             queueToken.cancel();
         }
@@ -3544,7 +3557,7 @@ public class Coordinator implements CoordInterface {
                             LOG.warn("Failed to cancel query {} backend: {}, reason: {}",
                                     DebugUtil.printId(queryId), backend,  cancelReason.toString(), t);
                         }
-                    }, backendRpcCallbackExecutor);
+                    }, QueryLogContext.executor(backendRpcCallbackExecutor, queryId));
                     cancelInProcess = true;
                 } catch (RpcException e) {
                     LOG.warn("cancel plan fragment get a exception, address={}:{}", brpcAddr.getHostname(),

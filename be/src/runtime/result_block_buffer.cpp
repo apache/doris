@@ -46,6 +46,7 @@ template <typename ResultCtxType>
 ResultBlockBuffer<ResultCtxType>::ResultBlockBuffer(TUniqueId id, RuntimeState* state,
                                                     int buffer_size)
         : _fragment_id(std::move(id)),
+          _query_id(state->query_id()),
           _is_close(false),
           _batch_size(state->batch_size()),
           _timezone(state->timezone()),
@@ -60,6 +61,7 @@ ResultBlockBuffer<ResultCtxType>::ResultBlockBuffer(TUniqueId id, RuntimeState* 
 template <typename ResultCtxType>
 Status ResultBlockBuffer<ResultCtxType>::close(const TUniqueId& id, Status exec_status,
                                                int64_t num_rows, bool& is_fully_closed) {
+    ScopedQueryLogContext query_log_scope {QueryLogIdentity(_query_id, id)};
     std::unique_lock<std::mutex> l(_lock);
     _returned_rows.fetch_add(num_rows);
     // close will be called multiple times and error status needs to be collected.
@@ -104,6 +106,7 @@ Status ResultBlockBuffer<ResultCtxType>::close(const TUniqueId& id, Status exec_
 
 template <typename ResultCtxType>
 void ResultBlockBuffer<ResultCtxType>::cancel(const Status& reason) {
+    ScopedQueryLogContext query_log_scope {QueryLogIdentity(_query_id)};
     std::unique_lock<std::mutex> l(_lock);
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     if (_status.ok()) {
@@ -146,6 +149,7 @@ void ResultBlockBuffer<ResultCtxType>::_update_dependency() {
 
 template <typename ResultCtxType>
 Status ResultBlockBuffer<ResultCtxType>::get_batch(std::shared_ptr<ResultCtxType> ctx) {
+    ScopedQueryLogContext query_log_scope {QueryLogIdentity(_query_id)};
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_ATTACH_TASK(_mem_tracker);
     Defer defer {[&]() { _update_dependency(); }};

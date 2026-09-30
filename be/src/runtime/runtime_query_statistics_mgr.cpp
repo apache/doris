@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "common/logging.h"
+#include "common/query_log_context.h"
 #include "common/status.h"
 #include "core/block/block.h"
 #include "information_schema/schema_scanner_helper.h"
@@ -124,6 +125,7 @@ static void _report_query_profiles_function(
     // query_id -> {coordinator_addr, {fragment_id -> std::vectpr<pipeline_profile>}}
     for (auto& entry : profile_copy) {
         const auto& query_id = entry.first;
+        ScopedQueryLogContext query_log_scope {QueryLogIdentity(query_id)};
         const auto& coor_addr = std::get<0>(entry.second);
         auto& fragment_profile_map = std::get<1>(entry.second);
 
@@ -254,6 +256,8 @@ Status RuntimeQueryStatisticsMgr::start_report_thread() {
 // 3. unlock the profile_map.
 // 4. create a profile reporting task and add it to the thread pool.
 void RuntimeQueryStatisticsMgr::trigger_profile_reporting() {
+    // A reporting batch can contain queries other than the one that triggered it.
+    ScopedQueryLogContext query_log_scope {QueryLogIdentity {}};
     decltype(_profile_map) profile_copy;
     decltype(_load_channel_profile_map) load_channel_profile_copy;
 

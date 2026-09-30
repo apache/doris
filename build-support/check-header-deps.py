@@ -491,7 +491,7 @@ FORWARD_CLOSURE_BUDGETS = {
     "core/types.h": 35,
     "runtime/runtime_state.h": 43,
     "core/data_type/primitive_type.h": 44,
-    "runtime/thread_context.h": 55,
+    "runtime/thread_context.h": 56,  # lightweight query_log_context.h scope; no runtime dependencies
     "core/field.h": 60,
     "core/column/column.h": 66,
     "exprs/function/function.h": 106,
