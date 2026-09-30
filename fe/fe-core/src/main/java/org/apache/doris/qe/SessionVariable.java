@@ -805,6 +805,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String FORCE_JNI_SCANNER = "force_jni_scanner";
 
+    public static final String ENABLE_PAIMON_RUST_READER = "enable_paimon_rust_reader";
+
     public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
 
     public static final String FETCH_ALL_FE_FOR_SYSTEM_TABLE = "fetch_all_fe_for_system_table";
@@ -2934,6 +2936,11 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true,
             description = "Force the use of jni mode to read external table")
     private boolean forceJniScanner = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PAIMON_RUST_READER,
+            fuzzy = true,
+            description = "Use paimon-rust for eligible non-native Paimon reads")
+    private boolean enablePaimonRustReader = false;
 
     @VarAttrDef.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
             fuzzy = true,
@@ -5634,6 +5641,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setFilePresignedUrlTtlSeconds(filePresignedUrlTtlSeconds);
         tResult.setEmbedMaxBatchSize(embedMaxBatchSize);
         tResult.setAiContextWindowSize(aiContextWindowSize);
+        tResult.setEnablePaimonRustReader(enablePaimonRustReader);
         tResult.setCheckOrcInitSargsSuccess(checkOrcInitSargsSuccess);
 
         tResult.setTruncateCharOrVarcharColumns(truncateCharOrVarcharColumns);
@@ -6458,6 +6466,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isForceJniScanner() {
         return forceJniScanner;
+    }
+
+    public boolean isEnablePaimonRustReader() {
+        return enablePaimonRustReader;
     }
 
     public String getIgnoreSplitType() {

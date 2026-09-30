@@ -243,10 +243,10 @@ public final class PaimonTypeMapping {
             case "DOUBLE":
                 return new DoubleType();
             case "CHAR":
+                return new CharType(type.getPrecision());
             case "VARCHAR":
+                return new VarCharType(type.getPrecision());
             case "STRING":
-                // Legacy parity: all char-family types collapse to VarChar(MAX); declared
-                // length is intentionally dropped (DorisToPaimonTypeVisitor.atomic isCharFamily).
                 return new VarCharType(VarCharType.MAX_LENGTH);
             case "DATE":
             case "DATEV2":
@@ -259,11 +259,9 @@ public final class PaimonTypeMapping {
             case "DECIMAL256":
                 return new DecimalType(type.getPrecision(), type.getScale());
             case "DATETIME":
+                return new TimestampType(0);
             case "DATETIMEV2":
-                // Legacy parity: no-arg TimestampType (precision defaults to 6); the datetime
-                // scale is intentionally dropped to match DorisToPaimonTypeVisitor.atomic, and it
-                // is a plain timestamp (NOT LocalZonedTimestampType).
-                return new TimestampType();
+                return new TimestampType(type.getPrecision());
             case "VARBINARY":
                 return new VarBinaryType(VarBinaryType.MAX_LENGTH);
             case "VARIANT":
