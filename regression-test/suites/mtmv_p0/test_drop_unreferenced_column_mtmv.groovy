@@ -276,4 +276,51 @@ suite("test_drop_unreferenced_column_mtmv") {
     sql """ALTER TABLE ${qualOuter} ADD COLUMN flag INT DEFAULT 0"""
     order_qt_qualified_add_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${qualMv}'"
     order_qt_qualified_rows "SELECT id FROM ${qualMv}"
+
+    // ---- an add a job applies: there is no query to ask ----
+    // The hook of a change that is not a light one runs before the job has applied it, so the table is the one
+    // from before the change and every query is analysed against that. A column that is not in the table yet
+    // is one no query can be looked at for, and the MV is invalidated -- for a column added on its own and for
+    // a batch of them, which is how an add is written either way. What the add would do once the job lands is
+    // not readable here, and a name it may answer for is one the rows of these views were not computed under.
+    String jobAddTable = "${suiteName}_job_add_table"
+    String jobAddMv = "${suiteName}_job_add_mv"
+    String jobAddColsTable = "${suiteName}_job_add_cols_table"
+    String jobAddColsMv = "${suiteName}_job_add_cols_mv"
+    sql """drop materialized view if exists ${jobAddMv}"""
+    sql """drop materialized view if exists ${jobAddColsMv}"""
+    sql """drop table if exists ${jobAddTable}"""
+    sql """drop table if exists ${jobAddColsTable}"""
+    sql """
+        CREATE TABLE ${jobAddTable} (id INT, amount INT) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num" = "1", "light_schema_change" = "false")
+    """
+    sql """
+        CREATE TABLE ${jobAddColsTable} (id INT, amount INT) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num" = "1", "light_schema_change" = "false")
+    """
+    sql """INSERT INTO ${jobAddTable} VALUES (1, 100)"""
+    sql """INSERT INTO ${jobAddColsTable} VALUES (1, 100)"""
+    sql """
+        CREATE MATERIALIZED VIEW ${jobAddMv}
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+        AS SELECT id, SUM(amount) AS total FROM ${jobAddTable} GROUP BY id
+    """
+    sql """
+        CREATE MATERIALIZED VIEW ${jobAddColsMv}
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+        AS SELECT id, SUM(amount) AS total FROM ${jobAddColsTable} GROUP BY id
+    """
+    waitingMTMVTaskFinishedByMvName(jobAddMv)
+    waitingMTMVTaskFinishedByMvName(jobAddColsMv)
+    order_qt_job_add_baseline "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${jobAddMv}'"
+    order_qt_job_add_cols_baseline "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${jobAddColsMv}'"
+    sql """ALTER TABLE ${jobAddTable} ADD COLUMN spare INT"""
+    order_qt_job_add_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${jobAddMv}'"
+    sql """ALTER TABLE ${jobAddColsTable} ADD COLUMN (spare INT, other INT)"""
+    order_qt_job_add_cols_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${jobAddColsMv}'"
 }
