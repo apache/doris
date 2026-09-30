@@ -19,10 +19,12 @@
 
 #include <arrow/array/builder_binary.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <limits>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include "common/cast_set.h"
 #include "common/config.h"
@@ -54,6 +56,10 @@
 
 namespace doris {
 namespace {
+
+Status append_legacy_arrow_document(const ColumnVariant& column, size_t index,
+                                    VariantBatchBuilder::Row& output,
+                                    const DataTypeSerDe::FormatOptions& options, size_t depth);
 
 // Legacy CAST accepts more root families than V2 CAST. Encode their structure here so
 // Flight output does not reject valid roots or lose typed leaves through JSON reparsing.
@@ -89,11 +95,19 @@ Status append_legacy_arrow_value(const IColumn& column, const DataTypePtr& type,
     } else if (primitive == TYPE_TIMEV2) {
         // TIMEV2 already stores microseconds; treating its physical double as a number loses its type.
         const double micros = assert_cast<const ColumnTimeV2&>(column).get_data()[index];
-        if (!std::isfinite(micros) ||
-            std::abs(micros) >= static_cast<double>(std::numeric_limits<int64_t>::max())) {
-            return Status::InvalidArgument("Invalid native Arrow Variant TIMEV2 value");
+        // Parquet TIME is a time of day, whereas Doris TIME also represents signed durations.
+        // Reject unrepresentable durations instead of wrapping them or emitting invalid TIME values.
+        constexpr int64_t micros_per_day = 86400000000;
+        if (!std::isfinite(micros) || micros < 0 || micros >= micros_per_day ||
+            std::llround(micros) >= micros_per_day) {
+            return Status::NotSupported(
+                    "Native Arrow Variant TIMEV2 requires a time in [00:00:00, 24:00:00); "
+                    "use enable_arrow_flight_sql_native_variant=false for UTF8 output");
         }
         output.add_time_ntz_micros(std::llround(micros));
+    } else if (primitive == TYPE_VARBINARY) {
+        // Binary leaves must retain arbitrary bytes, including NUL and non-UTF8 data.
+        output.add_binary(column.get_data_at(index));
     } else if (primitive == TYPE_JSONB) {
         jsonb_to_variant(column.get_data_at(index), output);
     } else if (primitive == TYPE_ARRAY) {
@@ -113,11 +127,13 @@ Status append_legacy_arrow_value(const IColumn& column, const DataTypePtr& type,
         auto scope = output.start_object();
         for (size_t element = map.get_offsets()[static_cast<ssize_t>(index) - 1];
              element < map.get_offsets()[index]; ++element) {
-            // Variant objects have textual keys, matching the legacy document representation.
-            auto key =
-                    map.get_keys().is_null_at(element)
-                            ? std::string("null")
-                            : map_type.get_key_type()->to_string(map.get_keys(), element, options);
+            // Variant object keys cannot distinguish SQL NULL from the literal string "null".
+            if (map.get_keys().is_null_at(element)) {
+                return Status::NotSupported(
+                        "Native Arrow Variant cannot represent MAP with NULL keys; "
+                        "use enable_arrow_flight_sql_native_variant=false for UTF8 output");
+            }
+            auto key = map_type.get_key_type()->to_string(map.get_keys(), element, options);
             scope.add_key({key.data(), key.size()});
             RETURN_IF_ERROR(append_legacy_arrow_value(map.get_values(), map_type.get_value_type(),
                                                       element, output, options, depth + 1));
@@ -144,15 +160,7 @@ Status append_legacy_arrow_value(const IColumn& column, const DataTypePtr& type,
                 return append_legacy_arrow_value(*legacy->get_root(), legacy->get_root_type(),
                                                  index, output, options, depth);
             }
-            std::string json;
-            legacy->serialize_one_row_to_string(index, &json, options);
-            JsonToVariantOptions parse_options;
-            parse_options.throw_on_invalid_json = true;
-            parse_options.max_json_key_length = std::numeric_limits<uint32_t>::max();
-            JsonStringToVariantEncoder encoder(parse_options);
-            RETURN_IF_ERROR(encoder.try_add_json({json.data(), json.size()}));
-            auto encoded = encoder.finish_batch();
-            output.add_value(encoded.value_at(0));
+            RETURN_IF_ERROR(append_legacy_arrow_document(*legacy, index, output, options, depth));
         } else {
             visit_variant_v2_values(
                     column, index, index + 1, {}, [&](size_t) { output.add_null(); },
@@ -161,6 +169,94 @@ Status append_legacy_arrow_value(const IColumn& column, const DataTypePtr& type,
     } else {
         return Status::NotSupported("Native Arrow Variant does not support {} roots",
                                     type->get_name());
+    }
+    return Status::OK();
+}
+
+// Assemble the same flattened document paths as legacy JSON output, but encode each
+// leaf with its stored type. JSON reparsing loses decimal precision and date identity.
+Status append_legacy_arrow_document(const ColumnVariant& column, size_t index,
+                                    VariantBatchBuilder::Row& output,
+                                    const DataTypeSerDe::FormatOptions& options, size_t depth) {
+    struct Field {
+        std::string path;
+        ColumnPtr values;
+        DataTypePtr type;
+        size_t row;
+    };
+    std::vector<Field> fields;
+    auto append_serialized = [&](const ColumnMap& map) {
+        const auto& keys = assert_cast<const ColumnString&>(map.get_keys());
+        const auto& values = assert_cast<const ColumnString&>(map.get_values());
+        for (size_t i = map.get_offsets()[static_cast<ssize_t>(index) - 1];
+             i < map.get_offsets()[index]; ++i) {
+            ColumnVariant::Subcolumn subcolumn(0, true);
+            subcolumn.deserialize_from_binary_column(&values, i);
+            subcolumn.finalize();
+            fields.push_back({keys.get_data_at(i).to_string(), subcolumn.get_finalized_column_ptr(),
+                              subcolumn.get_least_common_type(), 0});
+        }
+    };
+    const auto& snapshot = assert_cast<const ColumnMap&>(*column.get_doc_value_column());
+    if (snapshot.get_offsets()[index] != 0) {
+        // Document snapshots are authoritative, including empty rows after a populated snapshot.
+        append_serialized(snapshot);
+    } else {
+        for (const auto& subcolumn : column.get_subcolumns()) {
+            if (subcolumn->path.empty() || subcolumn->data.is_null_at(index) ||
+                subcolumn->data.is_empty_nested(index)) {
+                continue;
+            }
+            fields.push_back({subcolumn->path.get_path(),
+                              subcolumn->data.get_finalized_column_ptr(),
+                              subcolumn->data.get_least_common_type(), index});
+        }
+        append_serialized(assert_cast<const ColumnMap&>(*column.get_sparse_column()));
+    }
+    std::sort(fields.begin(), fields.end(),
+              [](const auto& a, const auto& b) { return a.path < b.path; });
+    std::vector<std::string_view> prefix;
+    std::vector<VariantBatchBuilder::Row::ObjectScope> objects;
+    objects.push_back(output.start_object());
+    for (const auto& field : fields) {
+        std::vector<std::string_view> parts;
+        std::string_view path(field.path);
+        while (true) {
+            const auto dot = path.find('.');
+            parts.push_back(path.substr(0, dot));
+            if (depth + parts.size() > VARIANT_MAX_NESTING_DEPTH) {
+                return Status::NotSupported(
+                        "Native Arrow Variant nesting exceeds {}; "
+                        "use enable_arrow_flight_sql_native_variant=false for UTF8 output",
+                        VARIANT_MAX_NESTING_DEPTH);
+            }
+            if (dot == std::string_view::npos) {
+                break;
+            }
+            path.remove_prefix(dot + 1);
+        }
+        size_t common = 0;
+        while (common < prefix.size() && common + 1 < parts.size() &&
+               prefix[common] == parts[common]) {
+            ++common;
+        }
+        while (prefix.size() > common) {
+            objects.back().finish();
+            objects.pop_back();
+            prefix.pop_back();
+        }
+        for (size_t i = common; i + 1 < parts.size(); ++i) {
+            objects.back().add_key({parts[i].data(), parts[i].size()});
+            objects.push_back(output.start_object());
+            prefix.push_back(parts[i]);
+        }
+        objects.back().add_key({parts.back().data(), parts.back().size()});
+        RETURN_IF_ERROR(append_legacy_arrow_value(*field.values, field.type, field.row, output,
+                                                  options, depth + parts.size()));
+    }
+    while (!objects.empty()) {
+        objects.back().finish();
+        objects.pop_back();
     }
     return Status::OK();
 }
@@ -282,7 +378,7 @@ Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const 
                                                    const cctz::time_zone& ctz) const {
     const auto* var = check_and_get_column<ColumnVariant>(column);
     if (array_builder->type()->id() == arrow::Type::STRUCT) {
-        // Legacy documents need JSON conversion; typed scalar roots can keep their type.
+        // Keep legacy scalar and document leaves in their original types.
         // The outer null map must remain SQL NULL on the wire.
         if (start < 0 || end < start || end > column.size() ||
             (null_map != nullptr && end > null_map->size())) {
@@ -342,28 +438,20 @@ Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const 
         }
         ColumnPtr documents;
         if (has_documents || !has_roots) {
-            JsonToVariantOptions parse_options;
-            parse_options.throw_on_invalid_json = true;
-            // Stored keys were already accepted at ingestion; mutable parse limits must not reject reads.
-            parse_options.max_json_key_length = std::numeric_limits<uint32_t>::max();
-            JsonStringToVariantEncoder encoder(parse_options);
+            VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = rows});
             FormatOptions options;
             options.timezone = &ctz;
-            for (size_t row = 0; row < rows; ++row) {
-                std::string json = "null";
-                if (root_mask[row] && !selected_nulls[row]) {
-                    var->serialize_one_row_to_string(start + row, &json, options);
+            for (size_t index = 0; index < rows; ++index) {
+                auto row = builder.begin_row();
+                if (root_mask[index] && !selected_nulls[index]) {
+                    RETURN_IF_ERROR(
+                            append_legacy_arrow_document(*var, start + index, row, options, 0));
+                } else {
+                    row.add_null();
                 }
-                auto status = encoder.try_add_json({json.data(), json.size()});
-                if (!status.ok()) {
-                    return Status::NotSupported(
-                            "Cannot encode legacy document as native Arrow Variant: {}. "
-                            "Native documents are limited to {} nested levels; "
-                            "use enable_arrow_flight_sql_native_variant=false for UTF8 output",
-                            status.to_string(), VARIANT_MAX_NESTING_DEPTH);
-                }
+                row.finish();
             }
-            auto values = encoder.finish_batch();
+            auto values = builder.finish_batch();
             auto encoded = ColumnVariantV2::create();
             encoded->insert_encoded_batch(values);
             documents = std::move(encoded);

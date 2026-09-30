@@ -41,6 +41,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_time.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type_serde/data_type_serde.h"
@@ -78,6 +79,171 @@ VariantRef value_at(const arrow::Array& array, int row) {
     auto metadata = static_cast<const arrow::BinaryArray&>(*storage.field(0)).GetView(row);
     auto value = static_cast<const arrow::BinaryArray&>(*storage.field(1)).GetView(row);
     return {{metadata.data(), metadata.size()}, {value.data(), value.size()}};
+}
+
+Status convert_legacy_root(MutableColumnPtr column, DataTypePtr type, bool nested,
+                           std::shared_ptr<arrow::RecordBatch>* batch) {
+    if (nested) {
+        auto offsets = ColumnArray::ColumnOffsets::create();
+        offsets->get_data().push_back(column->size());
+        column = ColumnArray::create(make_nullable(std::move(column)), std::move(offsets));
+        type = std::make_shared<DataTypeArray>(type);
+    }
+    if (type->get_primitive_type() != TYPE_VARIANT) {
+        auto legacy = ColumnVariant::create(0);
+        legacy->create_root(type, std::move(column));
+        column = std::move(legacy);
+    }
+    assert_cast<ColumnVariant&>(*column).finalize();
+    Block block {{std::move(column), std::make_shared<DataTypeVariant>(), "v"}};
+    ArrowFlightArrowBlockConvertor converter(arrow::schema({arrow::field("v", native_variant())}),
+                                             cctz::utc_time_zone());
+    return converter.convert_to_arrow(block, arrow::default_memory_pool(), batch);
+}
+
+TEST(ArrowFlightVariantTest, LegacyTimeRejectsDurationsOutsideDay) {
+    for (double micros : {-3600000000.0, -1.0, 0.0, 86399999999.0, 86400000000.0, 90000000000.0}) {
+        for (bool nested : {false, true}) {
+            auto times = ColumnTimeV2::create();
+            times->insert_value(micros);
+            std::shared_ptr<arrow::RecordBatch> batch;
+            auto status = convert_legacy_root(std::move(times), std::make_shared<DataTypeTimeV2>(6),
+                                              nested, &batch);
+            if (micros < 0 || micros >= 86400000000.0) {
+                EXPECT_FALSE(status.ok());
+                EXPECT_NE(status.to_string().find("enable_arrow_flight_sql_native_variant=false"),
+                          std::string::npos);
+            } else {
+                ASSERT_TRUE(status.ok()) << status;
+                auto value = value_at(*batch->column(0), 0);
+                if (nested) {
+                    value = value.array_at(0);
+                }
+                EXPECT_EQ(value.get_time_ntz_micros(), static_cast<int64_t>(micros));
+            }
+        }
+    }
+}
+
+TEST(ArrowFlightVariantTest, LegacyMapRejectsNullKeysWithoutCollidingWithStrings) {
+    for (bool null_key : {false, true}) {
+        for (bool nested : {false, true}) {
+            auto keys = ColumnString::create();
+            keys->insert_data("key", 3);
+            keys->insert_data("null", 4);
+            auto nulls = ColumnUInt8::create();
+            nulls->get_data().assign({static_cast<UInt8>(null_key), 0});
+            auto values = ColumnInt32::create();
+            values->get_data().assign({1, 2});
+            auto offsets = ColumnArray::ColumnOffsets::create();
+            offsets->get_data().push_back(2);
+            auto map = ColumnMap::create(ColumnNullable::create(std::move(keys), std::move(nulls)),
+                                         make_nullable(std::move(values)), std::move(offsets));
+            auto type =
+                    std::make_shared<DataTypeMap>(make_nullable(std::make_shared<DataTypeString>()),
+                                                  make_nullable(std::make_shared<DataTypeInt32>()));
+            std::shared_ptr<arrow::RecordBatch> batch;
+            auto status = convert_legacy_root(std::move(map), type, nested, &batch);
+            if (null_key) {
+                EXPECT_FALSE(status.ok());
+                EXPECT_NE(status.to_string().find("MAP with NULL keys"), std::string::npos);
+                EXPECT_NE(status.to_string().find("enable_arrow_flight_sql_native_variant=false"),
+                          std::string::npos);
+            } else {
+                ASSERT_TRUE(status.ok()) << status;
+                auto value = value_at(*batch->column(0), 0);
+                if (nested) {
+                    value = value.array_at(0);
+                }
+                VariantRef child;
+                ASSERT_TRUE(value.object_find({"null", 4}, &child));
+                EXPECT_EQ(child.get_int(), 2);
+            }
+        }
+    }
+}
+
+TEST(ArrowFlightVariantTest, LegacyBinaryPreservesBytesInRootsAndArrays) {
+    for (bool nested : {false, true}) {
+        auto type = std::make_shared<DataTypeVarbinary>();
+        auto values = type->create_column();
+        const std::string bytes(
+                "\0\xff\x80"
+                "42",
+                5);
+        values->insert_data(bytes.data(), bytes.size());
+        values->insert_data("", 0);
+        std::shared_ptr<arrow::RecordBatch> batch;
+        auto status = convert_legacy_root(std::move(values), type, nested, &batch);
+        ASSERT_TRUE(status.ok()) << status;
+        for (int i = 0; i < 2; ++i) {
+            auto value = nested ? value_at(*batch->column(0), 0).array_at(i)
+                                : value_at(*batch->column(0), i);
+            EXPECT_EQ(value.get_binary().to_string(), i == 0 ? bytes : "");
+        }
+    }
+}
+
+TEST(ArrowFlightVariantTest, LegacyDocumentsPreserveTypedPaths) {
+    // Dense paths, sparse paths and document snapshots must all retain typed values.
+    for (int storage = 0; storage < 3; ++storage) {
+        for (bool nested : {false, true}) {
+            SCOPED_TRACE(::testing::Message() << "storage=" << storage << " nested=" << nested);
+            auto legacy = ColumnVariant::create(0);
+            auto root_type = make_nullable(std::make_shared<DataTypeString>());
+            auto roots = root_type->create_column();
+            roots->insert_default();
+            legacy->create_root(root_type, std::move(roots));
+            const Int128 exact = 900719925474099301LL;
+            auto decimal_type = make_nullable(std::make_shared<DataTypeDecimal128>(20, 2));
+            auto decimals = ColumnDecimal128V3::create(0, 2);
+            decimals->insert_value(Decimal128V3(exact));
+            auto decimal_column = make_nullable(std::move(decimals));
+            auto date_type = make_nullable(std::make_shared<DataTypeDateV2>());
+            auto dates = date_type->create_column();
+            DateV2Value<DateV2ValueType> date;
+            date.unchecked_set_time(2020, 1, 2, 0, 0, 0);
+            dates->insert(Field::create_field<TYPE_DATEV2>(date));
+            if (storage == 0) {
+                ASSERT_TRUE(legacy->add_sub_column(PathInData("nested.amount"),
+                                                   decimal_column->assert_mutable(), decimal_type));
+                ASSERT_TRUE(legacy->add_sub_column(PathInData("nested.date"), std::move(dates),
+                                                   date_type));
+            } else {
+                auto& map = assert_cast<ColumnMap&>(
+                        storage == 1 ? legacy->get_sparse_column_mutable()
+                                     : legacy->get_doc_value_column_mutable());
+                auto& keys = assert_cast<ColumnString&>(map.get_keys());
+                auto& values = assert_cast<ColumnString&>(map.get_values());
+                ColumnVariant::Subcolumn decimal(decimal_column->assert_mutable(), decimal_type,
+                                                 true);
+                ColumnVariant::Subcolumn date_column(std::move(dates), date_type, true);
+                decimal.serialize_to_binary_column(&keys, "nested.amount", &values, 0);
+                date_column.serialize_to_binary_column(&keys, "nested.date", &values, 0);
+                map.get_offsets()[0] = 2;
+            }
+            legacy->finalize();
+            std::shared_ptr<arrow::RecordBatch> batch;
+            auto status = convert_legacy_root(std::move(legacy),
+                                              std::make_shared<DataTypeVariant>(), nested, &batch);
+            ASSERT_TRUE(status.ok()) << status;
+            auto value = value_at(*batch->column(0), 0);
+            if (nested) {
+                value = value.array_at(0);
+            }
+            VariantRef object;
+            ASSERT_TRUE(value.object_find({"nested", 6}, &object));
+            VariantRef amount;
+            ASSERT_TRUE(object.object_find({"amount", 6}, &amount));
+            ASSERT_EQ(amount.primitive_id(), VariantPrimitiveId::DECIMAL16);
+            EXPECT_EQ(amount.get_decimal().unscaled, exact);
+            EXPECT_EQ(amount.get_decimal().scale, 2);
+            VariantRef day;
+            ASSERT_TRUE(object.object_find({"date", 4}, &day));
+            EXPECT_EQ(day.primitive_id(), VariantPrimitiveId::DATE);
+            EXPECT_EQ(day.get_date(), 18263);
+        }
+    }
 }
 
 TEST(ArrowFlightVariantTest, NativeResultPreservesValuesAndSqlNulls) {

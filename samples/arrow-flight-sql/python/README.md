@@ -56,9 +56,15 @@ VARIANT fields (including nested fields) use the `arrow.parquet.variant` extensi
 with `struct<metadata: binary not null, value: binary not null>` storage. SQL NULL is
 a null struct. V2 Variant null is a non-null struct containing the encoded null value.
 V2 values retain their binary representation. Legacy roots use recursive typed encoding,
-including MAP, STRUCT, ARRAY, TIMEV2 and nested VARIANT values. MAP keys become object
-field names; TIMEV2 retains its microseconds as a native Variant time value. Legacy
-documents use JSON conversion with the existing null/missing semantics. In particular,
+including MAP, STRUCT, ARRAY, VARBINARY, TIMEV2 and nested VARIANT values. VARBINARY
+retains its original bytes. MAP keys become object field names; NULL keys are rejected
+because they cannot be distinguished from a literal `"null"` object key. TIMEV2 values
+in `[00:00:00, 24:00:00)` retain their microseconds as a native Variant time value;
+negative and longer durations are rejected because Parquet TIME is a time of day.
+Use `enable_arrow_flight_sql_native_variant=false` to read these unsupported values.
+Legacy document fields also use typed encoding, preserving DECIMAL precision and
+DATE identity across dense paths, sparse paths and document snapshots. Existing
+null/missing semantics are retained. In particular,
 a legacy null root remains an empty object, including in a scalar-only batch; outer
 SQL NULL remains a null struct.
 Decimal256 scalar roots are rejected because the wire format has no Decimal256 primitive.
@@ -66,6 +72,9 @@ Native encoding currently accepts at most 128 nested levels. Deeper legacy docum
 remain readable with `enable_arrow_flight_sql_native_variant=false`.
 During a rolling upgrade, missing support on any registered BE keeps both query results
 and GetTables metadata in UTF8 mode, including when an older BE may proxy a result.
+A failed heartbeat clears the capability until a successful heartbeat advertises it
+again. This affects newly planned queries; outstanding Flight tickets are not migrated
+across BE replacement. Drain active queries before downgrading a BE.
 
 ADBC can transport this schema and its binary values. A client without a registered
 Variant extension exposes the struct with `ARROW:extension:name` field metadata.

@@ -18,6 +18,7 @@
 package org.apache.doris.service.arrowflight;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.PlanNodeId;
@@ -127,6 +128,37 @@ public class FlightSqlNativeVariantTest {
             if (previous != null) {
                 previous.setThreadLocalInfo();
             }
+        }
+    }
+
+    @Test
+    public void failedHeartbeatClearsCapabilityBeforeBackendIsMarkedDead() throws Exception {
+        SystemInfoService system = Env.getCurrentSystemInfo();
+        Object original = system.getAllBackendsByAllCluster();
+        long tolerance = Config.max_backend_heartbeat_failure_tolerance_count;
+        try {
+            Config.max_backend_heartbeat_failure_tolerance_count = 3;
+            Backend backend = new Backend(12348, "127.0.0.1", 9050);
+            Deencapsulation.setField(system, "idToBackendRef", ImmutableMap.of(backend.getId(), backend));
+            ConnectContext context = new ConnectContext();
+            context.getSessionVariable().setEnableArrowFlightSqlNativeVariant(true);
+            backend.handleHbResponse(heartbeat(backend.getId(), true), false);
+            Assert.assertTrue(FlightSqlNativeVariant.isEnabled(context));
+            BackendHbResponse failed = new BackendHbResponse(backend.getId(), "127.0.0.1", 1, "timeout");
+            // A capability change must be journaled even within the heartbeat failure tolerance.
+            Assert.assertTrue(backend.handleHbResponse(failed, false));
+            Assert.assertTrue(backend.isAlive());
+            Assert.assertFalse(backend.isArrowFlightNativeVariantSupported());
+            Assert.assertFalse(FlightSqlNativeVariant.isEnabled(context));
+            backend.handleHbResponse(heartbeat(backend.getId(), true), false);
+            Assert.assertTrue(FlightSqlNativeVariant.isEnabled(context));
+            backend.handleHbResponse(failed, true);
+            Assert.assertFalse(backend.isArrowFlightNativeVariantSupported());
+            backend.handleHbResponse(heartbeat(backend.getId(), false), false);
+            Assert.assertFalse(FlightSqlNativeVariant.isEnabled(context));
+        } finally {
+            Config.max_backend_heartbeat_failure_tolerance_count = tolerance;
+            Deencapsulation.setField(system, "idToBackendRef", original);
         }
     }
 
