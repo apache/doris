@@ -20,6 +20,7 @@
 #include <arrow/array/builder_binary.h>
 
 #include <cstdint>
+#include <limits>
 #include <string>
 
 #include "common/cast_set.h"
@@ -29,12 +30,17 @@
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_variant.h"
+#include "core/column/variant_v2/column_variant_v2.h"
+#include "core/column/variant_v2/column_variant_v2_typed_column.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "core/value/jsonb_value.h"
 #include "exec/common/variant_util.h"
+#include "exprs/function/parse/variant_string_parse.h"
 #include "util/json/json_parser.h"
 #include "util/jsonb_writer.h"
 
@@ -157,6 +163,64 @@ Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const 
                                                    int64_t start, int64_t end,
                                                    const cctz::time_zone& ctz) const {
     const auto* var = check_and_get_column<ColumnVariant>(column);
+    if (array_builder->type()->id() == arrow::Type::STRUCT) {
+        // Legacy documents need JSON conversion; typed scalar roots can keep their type.
+        // The outer null map must remain SQL NULL on the wire.
+        if (start < 0 || end < start || end > column.size() ||
+            (null_map != nullptr && end > null_map->size())) {
+            return Status::InvalidArgument("Invalid Variant Arrow row range [{}, {})", start, end);
+        }
+        if (var->is_scalar_variant()) {
+            auto scalar_type = remove_nullable(var->get_root_type());
+            if (scalar_type->get_primitive_type() == TYPE_DECIMAL256) {
+                return Status::NotSupported(
+                        "Native Arrow Variant does not support Decimal256 roots");
+            }
+            if (is_supported_variant_typed_identity(scalar_type->get_primitive_type())) {
+                // Avoid a JSON round trip that would turn exact decimal roots into doubles.
+                auto typed =
+                        ColumnVariantV2::create_typed(make_nullable(var->get_root()), scalar_type);
+                return DataTypeVariantV2SerDe().write_column_to_arrow(
+                        *typed, null_map, array_builder, start, end, ctz);
+            }
+        }
+        JsonToVariantOptions parse_options;
+        parse_options.throw_on_invalid_json = true;
+        // Stored keys were already accepted at ingestion; mutable parse limits must not reject reads.
+        parse_options.max_json_key_length = std::numeric_limits<uint32_t>::max();
+        parse_options.check_duplicate_json_path = false;
+        JsonStringToVariantEncoder encoder(parse_options);
+        FormatOptions options;
+        options.timezone = &ctz;
+        NullMap selected_nulls;
+        if (null_map != nullptr) {
+            selected_nulls.assign(null_map->begin() + start, null_map->begin() + end);
+        }
+        for (int64_t row = start; row < end; ++row) {
+            std::string json;
+            if (null_map != nullptr && (*null_map)[row]) {
+                json = "null";
+            } else {
+                var->serialize_one_row_to_string(row, &json, options);
+                if (var->get_root_type()->get_primitive_type() == TYPE_STRING &&
+                    !var->get_root()->is_null_at(row)) {
+                    // The legacy root string serializer emits raw text, not a JSON string literal.
+                    auto quoted = ColumnString::create();
+                    VectorBufferWriter writer(*quoted);
+                    writer.write_json_string(json);
+                    writer.commit();
+                    json = quoted->get_data_at(0).to_string();
+                }
+            }
+            encoder.add_json({json.data(), json.size()});
+        }
+        auto values = encoder.finish_batch();
+        auto encoded = ColumnVariantV2::create();
+        encoded->insert_encoded_batch(values);
+        return DataTypeVariantV2SerDe().write_column_to_arrow(
+                *encoded, null_map == nullptr ? nullptr : &selected_nulls, array_builder, 0,
+                end - start, ctz);
+    }
     if (array_builder->type()->id() == arrow::Type::LARGE_STRING) {
         auto& builder = assert_cast<arrow::LargeStringBuilder&>(*array_builder);
         return write_variant_column_to_arrow_impl(column, *var, null_map, builder, start, end, ctz);

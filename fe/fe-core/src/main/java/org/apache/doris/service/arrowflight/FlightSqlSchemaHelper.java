@@ -31,6 +31,7 @@ import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TListTableStatusResult;
+import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TTableStatus;
 
 import org.apache.arrow.flight.sql.FlightSqlColumnMetadata;
@@ -287,7 +288,8 @@ public class FlightSqlSchemaHelper {
             Integer tableOffset = describeTablesResult.getTablesOffset().get(tableIndex);
             for (; columnIndex < tableOffset; columnIndex++) {
                 TColumnDef columnDef = describeTablesResult.getColumns().get(columnIndex);
-                fields.add(buildField(dbName, tableName, columnDef.getColumnDesc()));
+                fields.add(buildField(dbName, tableName, columnDef.getColumnDesc(),
+                        ctx.getSessionVariable().isEnableArrowFlightSqlNativeVariant()));
             }
             tableToFields.put(tableName, fields);
         }
@@ -296,11 +298,25 @@ public class FlightSqlSchemaHelper {
 
     /** One column, with its nested types described down to the leaves. */
     private static Field buildField(String dbName, String tableName, TColumnDesc desc) {
+        return buildField(dbName, tableName, desc, false);
+    }
+
+    private static Field buildField(String dbName, String tableName, TColumnDesc desc, boolean nativeVariant) {
+        if (nativeVariant && desc.getColumnType() == TPrimitiveType.VARIANT) {
+            Map<String, String> metadata = new HashMap<>(createFlightSqlColumnMetadata(dbName, tableName, desc));
+            // Unknown Arrow extensions retain their storage fields and extension metadata in IPC.
+            metadata.put("ARROW:extension:name", "arrow.parquet.variant");
+            metadata.put("ARROW:extension:metadata", "");
+            return new Field(desc.getColumnName(),
+                    new FieldType(desc.isIsAllowNull(), new ArrowType.Struct(), null, metadata),
+                    Arrays.asList(Field.notNullable("metadata", new ArrowType.Binary()),
+                            Field.notNullable("value", new ArrowType.Binary())));
+        }
         ArrowType arrowType = columnDescToArrowType(desc);
         return new Field(desc.getColumnName(),
                 new FieldType(desc.isIsAllowNull(), arrowType, null,
                         createFlightSqlColumnMetadata(dbName, tableName, desc)),
-                arrowChildren(dbName, tableName, desc, arrowType));
+                arrowChildren(dbName, tableName, desc, arrowType, nativeVariant));
     }
 
     /**
@@ -319,7 +335,7 @@ public class FlightSqlSchemaHelper {
      * that cannot describe its nested types is no worse off than before.
      */
     private static List<Field> arrowChildren(String dbName, String tableName, TColumnDesc desc,
-            ArrowType arrowType) {
+            ArrowType arrowType, boolean nativeVariant) {
         List<TColumnDesc> children = desc.isSetChildren() ? desc.getChildren() : Collections.emptyList();
         switch (arrowType.getTypeID()) {
             case List:
@@ -330,7 +346,7 @@ public class FlightSqlSchemaHelper {
                             Field.notNullable(BaseRepeatedValueVector.DATA_VECTOR_NAME,
                                     ZeroVector.INSTANCE.getField().getType()));
                 }
-                return Collections.singletonList(buildField(dbName, tableName, children.get(0)));
+                return Collections.singletonList(buildField(dbName, tableName, children.get(0), nativeVariant));
             case Map:
                 // Arrow spells a map as list<entries: struct<key, value>>, with the entries struct and
                 // the key both non-nullable -- the descriptor's key nullability is not carried over,
@@ -339,12 +355,13 @@ public class FlightSqlSchemaHelper {
                     return Collections.singletonList(
                             Field.notNullable(MapVector.DATA_VECTOR_NAME, new ArrowType.List()));
                 }
-                Field key = buildField(dbName, tableName, children.get(0));
-                Field value = buildField(dbName, tableName, children.get(1));
+                Field key = buildField(dbName, tableName, children.get(0), nativeVariant);
+                Field value = buildField(dbName, tableName, children.get(1), nativeVariant);
                 Field entries = new Field(MapVector.DATA_VECTOR_NAME,
                         new FieldType(false, new ArrowType.Struct(), null),
                         Arrays.asList(new Field(key.getName(),
-                                        new FieldType(false, key.getType(), null), key.getChildren()),
+                                        new FieldType(false, key.getType(), null, key.getMetadata()),
+                                        key.getChildren()),
                                 value));
                 return Collections.singletonList(entries);
             case Struct:
@@ -353,7 +370,7 @@ public class FlightSqlSchemaHelper {
                 }
                 List<Field> structFields = new ArrayList<>(children.size());
                 for (TColumnDesc child : children) {
-                    structFields.add(buildField(dbName, tableName, child));
+                    structFields.add(buildField(dbName, tableName, child, nativeVariant));
                 }
                 return structFields;
             default:
