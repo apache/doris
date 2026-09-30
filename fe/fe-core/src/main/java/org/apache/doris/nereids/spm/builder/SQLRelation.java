@@ -188,6 +188,11 @@ public class SQLRelation {
         fromCarriesAlias = true;
     }
 
+    /** Whether the FROM fragment already carries its own alias (see toRelationSQL). */
+    boolean fromCarriesAlias() {
+        return fromCarriesAlias;
+    }
+
     /**
      * Returns the SQL fragment that a parent operator can reference; this is where
      * subquery nesting is generated. Two branches (design doc 6.2.1):

@@ -236,6 +236,16 @@ public class BaselineManager {
      */
     private static final int INTERNAL_QUERY_TIMEOUT_SECONDS = 10;
 
+    /**
+     * Statement timeout (seconds) of the SPM internal-table WRITES (INSERT / DELETE).
+     * createBaseline runs synchronously inside the single capture cycle under writerLock,
+     * so a stalled write with the default analyze timeout (43,200 s) would delay every
+     * later capture and every global baseline DDL for hours. A timeout is reconciled
+     * against the durable table (the statement may have committed before the error was
+     * reported).
+     */
+    private static final int BASELINE_WRITE_TIMEOUT_SECONDS = 10;
+
     /** How long a management caller waits for an in-flight background load. */
     private static final long MANAGEMENT_LOAD_WAIT_MILLIS = 5_000L;
 
@@ -1068,11 +1078,23 @@ public class BaselineManager {
     }
 
     /**
+     * Confirms the GLOBAL store is LOADED before a read whose answer must be
+     * authoritative (SHOW BASELINE PLANS). {@link #getAllBaselines()} only STARTS the
+     * asynchronous load and returns the current map, so at startup or right after a
+     * promotion - when that map was just cleared - SHOW reported ZERO global rows even
+     * though durable rows existed, and a pending or failed read never converged. This
+     * uses the same confirmed read (and retryable error) the mutating DDL relies on;
+     * query matching keeps ensureLoaded()'s nonblocking degradation.
+     */
+    public void ensureLoadedConfirmed() {
+        ensureLoadedOrThrow();
+    }
+
+    /**
      * Returns all baselines (for SHOW / tests).
      */
     public List<BaselinePlan> getAllBaselines() {
-        ensureLoaded();
-        List<BaselinePlan> all;
+        ensureLoaded();        List<BaselinePlan> all;
         stateLock.readLock().lock();
         try {
             all = new ArrayList<>(baselines.values());
@@ -1146,6 +1168,12 @@ public class BaselineManager {
         } finally {
             stateLock.writeLock().unlock();
         }
+    }
+
+    /** For tests: pins the table-persistence gate (see {@link #persistenceEnabled()}). */
+    @VisibleForTesting
+    void setPersistToTableForTest(boolean enabled) {
+        persistToTable = enabled;
     }
 
     /**
@@ -2003,11 +2031,39 @@ public class BaselineManager {
                         ? "" : p.getSchemaFingerprint()));
         try {
             inInternalIoMode(() -> {
-                StatisticsUtil.execUpdate(INSERT_SQL, params);
+                StatisticsUtil.execUpdate(INSERT_SQL, params, BASELINE_WRITE_TIMEOUT_SECONDS);
                 return null;
             });
         } catch (Exception e) {
+            // An INSERT that reports an error (typically a statement timeout) may still
+            // have COMMITTED: reconcile against the durable table before failing the
+            // CREATE - the row carrying this id + key is the proof it landed.
+            if (durableRowExists(p.getId(), p.getBindSqlDigest(), p.getPlanSql())) {
+                LOG.warn("SPM persist (insert) reported {} but the row is durable (id={});"
+                        + " keeping it", e.getMessage(), p.getId());
+                return;
+            }
             throw new RuntimeException("SPM persist (insert) failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Reconciles an ambiguous write: whether the durable table already holds the row with
+     * this (id, key). A read failure answers false - the caller then reports the original
+     * error, which the user / capture retry resolves.
+     */
+    private static boolean durableRowExists(long id, String bindSqlDigest, String planSql) {
+        try {
+            for (BaselinePlan row : readPersistedByKey(bindSqlDigest, planSql)) {
+                if (row.getId() == id) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (Throwable t) {
+            LOG.warn("SPM cannot reconcile the ambiguous write of baseline {}: {}",
+                    id, t.getMessage());
+            return false;
         }
     }
 
@@ -2025,10 +2081,19 @@ public class BaselineManager {
         params.put("planSql", StatisticsUtil.escapeSQL(p.getPlanSql()));
         try {
             inInternalIoMode(() -> {
-                StatisticsUtil.execUpdate(DELETE_BY_IDENTITY_SQL, params);
+                StatisticsUtil.execUpdate(DELETE_BY_IDENTITY_SQL, params,
+                        BASELINE_WRITE_TIMEOUT_SECONDS);
                 return null;
             });
         } catch (Exception e) {
+            // A reported error may hide a committed DELETE: the row being GONE is the
+            // proof the drop landed, so do not fail (and do not keep an in-memory row the
+            // durable table no longer has).
+            if (!durableRowExists(p.getId(), p.getBindSqlDigest(), p.getPlanSql())) {
+                LOG.warn("SPM persist (delete) reported {} but the row is gone (id={});"
+                        + " treating it as deleted", e.getMessage(), p.getId());
+                return;
+            }
             throw new RuntimeException("SPM persist (delete) failed: " + e.getMessage(), e);
         }
     }
@@ -2047,10 +2112,18 @@ public class BaselineManager {
         params.put("status", status.name());
         try {
             inInternalIoMode(() -> {
-                StatisticsUtil.execUpdate(DELETE_BY_ID_AND_STATUS_SQL, params);
+                StatisticsUtil.execUpdate(DELETE_BY_ID_AND_STATUS_SQL, params,
+                        BASELINE_WRITE_TIMEOUT_SECONDS);
                 return null;
             });
         } catch (Exception e) {
+            // Ambiguous commit: no durable row carries (id, status) any more -> the delete
+            // landed despite the error.
+            if (durableRowCount(id, status) == 0) {
+                LOG.warn("SPM persist (delete by status) reported {} but no row carries"
+                        + " ({}, {}); treating it as deleted", e.getMessage(), id, status);
+                return;
+            }
             throw new RuntimeException("SPM persist (delete by status) failed: " + e.getMessage(), e);
         }
     }

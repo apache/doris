@@ -26,7 +26,9 @@ import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
+import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
@@ -47,6 +49,7 @@ import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -836,8 +839,13 @@ public final class SPMPlanTreeSupport {
 
     /** Whether an expression tree contains a replay-time context expression. */
     public static boolean containsReplayContextExpression(Expression expr) {
-        if (expr instanceof Variable || expr instanceof CurrentUser || expr instanceof SessionUser
+        if (expr instanceof Variable || expr instanceof UnboundVariable
+                || expr instanceof CurrentUser || expr instanceof SessionUser
                 || expr instanceof Database || expr instanceof ConnectionId) {
+            // a PARSED "@v" is an UnboundVariable, not the analyzed Variable: the guard
+            // only knew the analyzed shape, so `WHERE k = @v` slipped through and the
+            // creator-context optimization froze the CREATOR's value into the planSql
+            // of a GLOBAL baseline.
             return true;
         }
         if (expr instanceof UnboundFunction) {
@@ -850,9 +858,26 @@ public final class SPMPlanTreeSupport {
                     case "session_user":
                     case "database":
                     case "connection_id":
+                    case "user":
+                    case "current_catalog":
+                    case "last_query_id":
+                    case "version":
+                        // user()/current_catalog()/last_query_id()/version() are the same
+                        // creator / environment values: freezing them served every other
+                        // session the creator's identity or an id that never repeats.
                         return true;
                     default:
                         break;
+                }
+            }
+        }
+        if (expr instanceof UnboundStar) {
+            // SELECT * REPLACE(f(@v) AS v): the replaced-alias payloads are NOT expression
+            // children of the star, so the recursive walk below never reached them and the
+            // statement passed the guard. Scan the payloads explicitly.
+            for (NamedExpression replaced : ((UnboundStar) expr).getReplacedAlias()) {
+                if (containsReplayContextExpression(replaced)) {
+                    return true;
                 }
             }
         }
@@ -1750,16 +1775,27 @@ public final class SPMPlanTreeSupport {
      * @param ctx           the creating session
      * @param bindPlan      the parsed (unbound) bind tree
      * @param optimizedPlan the SPM-optimized physical plan the frozen SQL came from
+     * @param storedPlanSql the planSql text that gets STORED (the decompiled frozen text
+     *                      or the user fallback) - its function names are fingerprinted
      * @return the fingerprint (possibly empty, never null)
      */
     public static String schemaFingerprintForCreate(ConnectContext ctx, Plan bindPlan,
-            Plan optimizedPlan) {
+            Plan optimizedPlan, String storedPlanSql) {
         if (bindPlan == null || ctx == null || ctx.getStatementContext() == null) {
             return "";
         }
         TreeSet<String> entries = new TreeSet<>();
         collectBindSideFingerprintEntries(ctx, bindPlan, entries);
         collectPhysicalTableEntries(optimizedPlan, entries);
+        // Functions used ONLY by the stored plan (bind "SELECT k FROM t", plan
+        // "SELECT f(k) AS k FROM t") must be pinned too: the bind side never mentions
+        // f, so redefining it (x+1 -> x+2) left this fingerprint - and the bind SQL -
+        // unchanged, and the replay guard accepted a frozen plan inlining the OLD body.
+        // The entries come from the STORED TEXT (not from the optimized plan's bound
+        // functions): the frozen text is the artifact every replay re-plans, and a
+        // re-plan may legally choose an equivalent builtin with another NAME
+        // (years_add vs date_add), which made a plan-side walk permanently mismatch.
+        collectPlanTextFunctionEntries(ctx, storedPlanSql, entries);
         return joinFingerprintEntries(entries);
     }
 
@@ -1775,10 +1811,12 @@ public final class SPMPlanTreeSupport {
      * @param ctx         the replaying session
      * @param bindPlan    the baseline's parameterized bind tree (may be null)
      * @param plannedPlan the replayed plan after planning (may be null)
+     * @param storedPlanSql the planSql text the replay was built from (same value the
+     *                    CREATE persisted, so the function entries match)
      * @return the fingerprint (possibly empty, never null)
      */
     public static String schemaFingerprintForReplay(ConnectContext ctx, Plan bindPlan,
-            Plan plannedPlan) {
+            Plan plannedPlan, String storedPlanSql) {
         if (ctx == null) {
             return "";
         }
@@ -1787,6 +1825,7 @@ public final class SPMPlanTreeSupport {
             collectBindSideFingerprintEntries(ctx, bindPlan, entries);
         }
         collectPhysicalTableEntries(plannedPlan, entries);
+        collectPlanTextFunctionEntries(ctx, storedPlanSql, entries);
         return joinFingerprintEntries(entries);
     }
 
@@ -1831,6 +1870,41 @@ public final class SPMPlanTreeSupport {
                 entries.add(describeTableForFingerprint(
                         ((org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation)
                                 node).getTable()));
+            }
+        });
+    }
+
+    /**
+     * Function entries of ONE stored plan TEXT - the exact names every replay of that
+     * text will resolve again, so both fingerprint computations (CREATE / replay) walk
+     * the SAME string and stay symmetric. The parse runs pinned to the DEFAULT mode
+     * (which is also the mode a frozen text is re-parsed with, see
+     * {@code BaselinePlan#getPlanSqlMode()}), so a session that carries another mode
+     * cannot produce a different name set.
+     */
+    private static void collectPlanTextFunctionEntries(ConnectContext ctx, String planSql,
+            TreeSet<String> entries) {
+        if (planSql == null || planSql.isEmpty()) {
+            return;
+        }
+        LogicalPlan plan;
+        try {
+            Plan parsed = org.apache.doris.qe.SqlModeHelper.withSqlMode(
+                    org.apache.doris.qe.SqlModeHelper.MODE_DEFAULT,
+                    () -> new org.apache.doris.nereids.parser.NereidsParser()
+                            .parseSingle(planSql));
+            if (!(parsed instanceof LogicalPlan)) {
+                return;
+            }
+            plan = (LogicalPlan) parsed;
+        } catch (RuntimeException e) {
+            // a text this SIDE cannot parse contributes no function names; the replay
+            // itself will fail loudly on it
+            return;
+        }
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
+            for (Expression expr : node.getExpressions()) {
+                collectFunctionDependencies(ctx, expr, entries);
             }
         });
     }
@@ -1899,6 +1973,15 @@ public final class SPMPlanTreeSupport {
             entries.add(describeFunctionDependency(ctx,
                     (org.apache.doris.nereids.analyzer.UnboundFunction) expr));
         }
+        if (expr instanceof UnboundStar) {
+            // UnboundStar has NO expression children: the payload of
+            // SELECT * REPLACE(f(k) AS k) lives in getReplacedAlias(), OUTSIDE children(),
+            // so the walk missed every function referenced there and a redefinition of f
+            // left the stored fingerprint unchanged while the frozen plan kept the old body.
+            for (NamedExpression replaced : ((UnboundStar) expr).getReplacedAlias()) {
+                collectFunctionDependencies(ctx, replaced, entries);
+            }
+        }
         for (Expression child : expr.children()) {
             collectFunctionDependencies(ctx, child, entries);
         }
@@ -1927,14 +2010,20 @@ public final class SPMPlanTreeSupport {
      */
     private static String describeFunctionDependency(ConnectContext ctx,
             org.apache.doris.nereids.analyzer.UnboundFunction function) {
+        return describeFunctionResolution(ctx, function.getDbName(), function.getName());
+    }
+
+    /** One dependency entry shared by the bind-side (unbound) and plan-text walkers. */
+    private static String describeFunctionResolution(ConnectContext ctx, String writtenDbRaw,
+            String nameRaw) {
         // normalized: the parser preserves the written case, SUM and sum are the same
         // function and must produce the same entry
-        String name = function.getName().toLowerCase(java.util.Locale.ROOT);
+        String name = nameRaw == null ? "" : nameRaw.toLowerCase(java.util.Locale.ROOT);
         if ("key".equals(name)) {
             return "fn:key|volatile";
         }
-        String writtenDb = function.getDbName();
-        boolean qualified = writtenDb != null && !writtenDb.isEmpty();
+        String writtenDb = writtenDbRaw == null || writtenDbRaw.isEmpty() ? null : writtenDbRaw;
+        boolean qualified = writtenDb != null;
         try {
             org.apache.doris.catalog.FunctionRegistry registry =
                     org.apache.doris.catalog.Env.getCurrentEnv().getFunctionRegistry();
@@ -2015,11 +2104,34 @@ public final class SPMPlanTreeSupport {
      * @param bindPlan the unbound bind plan
      */
     public static void rejectVolatileFunctionDependencies(LogicalPlan bindPlan) {
-        if (bindPlan == null) {
+        rejectVolatileFunctionDependencies(bindPlan, null);
+    }
+
+    /**
+     * Rejects creating a baseline whose BIND tree or PLAN tree references the VOLATILE
+     * key(...) dependency. Both inputs are checked before optimizing / storing: the plan
+     * text may be the only text carrying the secret, and {@code KEY db.key} parses
+     * straight to a bound {@link EncryptKeyRef} - the name-only UnboundFunction check
+     * missed it entirely, so the optimizer folded the key into the frozen plan and replay
+     * served the creator's secret.
+     *
+     * @param bindPlan the parsed bind tree (may be null)
+     * @param planPlan the parsed plan tree (may be null)
+     */
+    public static void rejectVolatileFunctionDependencies(LogicalPlan bindPlan,
+            LogicalPlan planPlan) {
+        rejectVolatileTree(bindPlan);
+        if (planPlan != null && planPlan != bindPlan) {
+            rejectVolatileTree(planPlan);
+        }
+    }
+
+    private static void rejectVolatileTree(LogicalPlan plan) {
+        if (plan == null) {
             return;
         }
         final boolean[] found = {false};
-        SPMPlanTreeSupport.<RuntimeException>walkPlans(bindPlan, (Plan node) -> {
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
             for (Expression expr : node.getExpressions()) {
                 if (referencesKeyFunction(expr)) {
                     found[0] = true;
@@ -2034,10 +2146,23 @@ public final class SPMPlanTreeSupport {
     }
 
     private static boolean referencesKeyFunction(Expression expr) {
+        // KEY db.key parses to EncryptKeyRef directly (no UnboundFunction on the path),
+        // so recognizing the resolved shape is what makes `SELECT KEY k.x ...` fail fast
+        // instead of storing a plan with the folded secret.
+        if (expr instanceof EncryptKeyRef) {
+            return true;
+        }
         if (expr instanceof org.apache.doris.nereids.analyzer.UnboundFunction
                 && "key".equalsIgnoreCase(
                         ((org.apache.doris.nereids.analyzer.UnboundFunction) expr).getName())) {
             return true;
+        }
+        if (expr instanceof UnboundStar) {
+            for (NamedExpression replaced : ((UnboundStar) expr).getReplacedAlias()) {
+                if (referencesKeyFunction(replaced)) {
+                    return true;
+                }
+            }
         }
         for (Expression child : expr.children()) {
             if (referencesKeyFunction(child)) {

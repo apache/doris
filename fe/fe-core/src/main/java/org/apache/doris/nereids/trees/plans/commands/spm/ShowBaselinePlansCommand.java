@@ -22,11 +22,10 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.PatternMatcher;
-import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.parser.Origin;
 import org.apache.doris.nereids.spm.BaselinePlan;
@@ -121,9 +120,34 @@ public class ShowBaselinePlansCommand extends ShowCommand {
     }
 
     /** Builds the LIKE matcher of one operand; {@code null} means "LIKE omitted". */
-    static PatternMatcher buildLikeMatcher(String pattern)
+    static java.util.regex.Pattern buildLikeMatcher(String pattern)
             throws org.apache.doris.common.AnalysisException {
-        return pattern == null ? null : PatternMatcherWrapper.createMysqlPattern(pattern, false);
+        if (pattern == null) {
+            return null;
+        }
+        // SHOW BASELINE PLANS searches STORED SQL TEXT. The shared MySQL-pattern helper
+        // (PatternMatcher) rejects the literal characters every statement contains
+        // ('*', '=', '('), so LIKE '%SELECT * FROM%' failed with an analysis error, and
+        // its '%' compiles to a regex '.' that does not span the NEWLINES the stored SQL
+        // is printed with. Escape every regex metacharacter and apply the MySQL
+        // wildcards explicitly: '%' -> any characters (DOTALL), '_' -> one character,
+        // whole-value, case-insensitive (the previous substring behaviour).
+        StringBuilder regex = new StringBuilder();
+        for (int i = 0; i < pattern.length(); i++) {
+            char c = pattern.charAt(i);
+            if (c == '%') {
+                regex.append(".*");
+            } else if (c == '_') {
+                regex.append('.');
+            } else {
+                if ("\\^$.|?*+()[]{}".indexOf(c) >= 0) {
+                    regex.append('\\');
+                }
+                regex.append(c);
+            }
+        }
+        return java.util.regex.Pattern.compile(regex.toString(),
+                java.util.regex.Pattern.DOTALL | java.util.regex.Pattern.CASE_INSENSITIVE);
     }
 
     @Override
@@ -149,18 +173,25 @@ public class ShowBaselinePlansCommand extends ShowCommand {
         // deterministic order and puts the SESSION rows (>= 2^62) after the GLOBAL ones
         List<BaselinePlan> all = Lists.newArrayList();
         all.addAll(ctx.getSessionBaselineStore().getAllBaselines());
+        // GLOBAL rows must be authoritative: getAllBaselines() only STARTS the
+        // asynchronous load and returns the current map, so right after startup / a
+        // promotion (which clears the map) SHOW reported ZERO rows although durable
+        // baselines existed, and a failed read never converged. Use the same confirmed
+        // read (with a retryable error) the mutating DDL relies on.
+        BaselineManager.getInstance().ensureLoadedConfirmed();
         all.addAll(BaselineManager.getInstance().getAllBaselines());
         all.sort(Comparator.comparingLong(BaselinePlan::getId));
 
         List<List<String>> rows = Lists.newArrayList();
         // LIKE operand: real MySQL wildcard semantics (% and _ are wildcards, the pattern
         // must match the WHOLE value), case-insensitive like the previous substring
-        // behavior - the same PatternMatcher path every other SHOW command uses.
+        // behavior. The matcher escapes literal regex characters so a SQL-shaped operand
+        // ('SELECT * FROM ...') is matchable (see buildLikeMatcher).
         // Only an OMITTED LIKE is "no filter": an empty pattern operand (LIKE '') is a
         // real pattern that matches only empty values - treating it as absent admitted
         // every baseline although none of the searched SQL / status / source fields is
         // empty.
-        PatternMatcher matcher = buildLikeMatcher(pattern);
+        java.util.regex.Pattern matcher = buildLikeMatcher(pattern);
         for (BaselinePlan baseline : all) {
             if (!matches(baseline, matcher)) {
                 continue;
@@ -179,7 +210,7 @@ public class ShowBaselinePlansCommand extends ShowCommand {
      * @param matcher  the LIKE pattern matcher (null when no LIKE pattern was given)
      * @return whether the baseline passes the filter
      */
-    private boolean matches(BaselinePlan baseline, PatternMatcher matcher) {
+    private boolean matches(BaselinePlan baseline, java.util.regex.Pattern matcher) {
         if (filterColumn != null) {
             String value = filterValue == null ? "" : filterValue;
             switch (filterColumn.toLowerCase()) {
@@ -206,13 +237,16 @@ public class ShowBaselinePlansCommand extends ShowCommand {
         if (matcher == null) {
             return true;
         }
-        // MySQL LIKE semantics: % and _ are wildcards and the pattern must match the WHOLE
-        // value. Previously % / _ were treated literally, so LIKE '%lineitem%' returned no
-        // row whose SQL merely CONTAINS lineitem.
-        return matcher.match(baseline.getBindSql() == null ? "" : baseline.getBindSql())
-                || matcher.match(baseline.getPlanSql() == null ? "" : baseline.getPlanSql())
-                || matcher.match(baseline.getSource().toString())
-                || matcher.match(baseline.getStatus().toString());
+        // MySQL LIKE semantics: % and _ are wildcards and the pattern must match the
+        // WHOLE value; the matcher escapes literal regex characters (see buildLikeMatcher),
+        // so a SQL-shaped operand like '%SELECT * FROM%' is matchable and % spans the
+        // newlines the stored SQL text is printed with.
+        return matcher.matcher(baseline.getBindSql() == null ? "" : baseline.getBindSql())
+                .matches()
+                || matcher.matcher(baseline.getPlanSql() == null ? "" : baseline.getPlanSql())
+                        .matches()
+                || matcher.matcher(baseline.getSource().toString()).matches()
+                || matcher.matcher(baseline.getStatus().toString()).matches();
     }
 
     /**

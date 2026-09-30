@@ -931,9 +931,25 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             // would then return an arbitrary LIMIT slice (a q02-style query replayed as
             // unordered rows). Clear both BEFORE rendering the child text - toSQL()
             // captures them into the string.
-            if (!child.getLimit().isEmpty()) {
-                outer.setOrderBy(child.getOrderBy());
-                outer.setLimit(child.getLimit());
+            String sinkOrderBy = child.getOrderBy();
+            String sinkLimit = child.getLimit();
+            if ((!sinkOrderBy.isEmpty() || !sinkLimit.isEmpty())
+                    && (sinkOrderBy.isEmpty() || canHoistOrderBy(child, sinkOrderBy))) {
+                // Independently of the LIMIT: "SELECT a FROM t ORDER BY b + 1"
+                // (no LIMIT at all) arrives here as a Sort under the final relabel wrapper,
+                // and leaving the ORDER BY inside the derived table was NOT safe - the
+                // frozen text is re-planned at replay, and a sort that the user asked for
+                // but that sits one level down came back as unordered rows (Nereids drops
+                // an inner sort it considers redundant). The wrapper is a pure output
+                // relabelling, so the user clause belongs on it. Hidden sort keys the
+                // child's SELECT list does not export are added to it first (see
+                // exportHoistedOrderByKeys); a key that cannot be exported keeps the
+                // clause inside the child.
+                if (!sinkOrderBy.isEmpty()) {
+                    exportHoistedOrderByKeys(child, sinkOrderBy);
+                }
+                outer.setOrderBy(sinkOrderBy);
+                outer.setLimit(sinkLimit);
                 child.setOrderBy("");
                 child.setLimit("");
             }
@@ -2653,7 +2669,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             if (name != null && name.matches("[A-Za-z_][A-Za-z0-9_]*")) {
                 // reserve the user alias too: a later generated c_N must not shadow it
                 reservedOutputNames.add(normalizeIdentifier(name));
-                return name;
+                // A RESERVED word (from, select, ...) is a legal QUOTED identifier but not
+                // an unquoted one: freezing "sum(v) AS from" produced text the parser
+                // rejects, and a persisted frozen row has no plan-tree fallback - the
+                // baseline could never replay. Keep the user's label quoted instead.
+                return NereidsParser.isValidUnquotedIdentifier(name) ? name : quoteIdentifier(name);
             }
         }
         return generatedColumnName(namedExpression.getExprId(), scope);
@@ -2925,6 +2945,39 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     public SQLRelation visitPhysicalProject(PhysicalProject<? extends Plan> project, Void context) {
         SQLRelation child = process(project.child(0));
         SQLRelation relation = new SQLRelation();
+        // A top-level ORDER BY / LIMIT pair must not end up INSIDE the derived table of this
+        // projection. NormalizeSort makes "SELECT a FROM t ORDER BY b + 1" a (final) Project
+        // over Sort, so inlining the child relation - which carries the clause as its own
+        // query block and is therefore wrapped by toRelationSQL() - buried the user's
+        // ORDER BY one level down: the replay planner is free to drop an ORDER BY that is
+        // not paired with a LIMIT, and for "ORDER BY ... LIMIT 20" the buried cap also hid
+        // the Limit from mergeLimitNode (the frozen root was a Project, so a matching
+        // LIMIT 20 could not replace the captured value and the query kept the old cap).
+        // This projection is row-wise with a 1:1 output relation, so keeping the pair on
+        // the OUTER query is semantically identical and preserves the user's clauses at the
+        // root. The ORDER BY keys stay resolvable: they name columns the child subquery
+        // exports (hidden sort keys are retained by the live-column analysis), which is why
+        // the clause text can move verbatim.
+        String childOrderBy = child.getOrderBy();
+        String childLimit = child.getLimit();
+        if (!childOrderBy.isEmpty() || !childLimit.isEmpty()) {
+            // Some shapes reference a HIDDEN sort key the child's own SELECT list does not
+            // export (a window / grouping ORDER BY column): moving the clause out is only
+            // possible when that key can be exported from the wrapper - otherwise the
+            // frozen ORDER BY would name a column the derived table does not have
+            // ("Unknown column c_N in SORT clause" at the next analysis). The clause then
+            // stays inside the child, where its scope still resolves it. ORDER BY and
+            // LIMIT always move TOGETHER: a limit without its order picks arbitrary rows.
+            if (childOrderBy.isEmpty() || canHoistOrderBy(child, childOrderBy)) {
+                child.setOrderBy("");
+                child.setLimit("");
+                if (!childOrderBy.isEmpty() && embedsAsSubquery(child)) {
+                    exportHoistedOrderByKeys(child, childOrderBy);
+                }
+                relation.setOrderBy(childOrderBy);
+                relation.setLimit(childLimit);
+            }
+        }
         relation.setFrom(child.toRelationSQL());
         relation.getColumnNames().putAll(child.getColumnNames());
 
@@ -2982,14 +3035,18 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      */
     private static void dedupeSelectOutputNames(List<Pair<ExprId, String>> selects,
             SQLRelation relation) {
+        // Names compare CASE-INSENSITIVELY: a derived table that exported both `x` and `X`
+        // for two distinct ExprIds made every upper reference ambiguous after reload
+        // (Doris resolves column names case-insensitively), so the pass-through item must
+        // be renamed whenever the shared name collides in ANY case.
         Set<String> usedNames = new HashSet<>();
         for (Pair<ExprId, String> select : selects) {
-            usedNames.add(selectOutputName(select.value()));
+            usedNames.add(selectOutputName(select.value()).toLowerCase(java.util.Locale.ROOT));
         }
         Map<String, Integer> firstOwner = new HashMap<>();
         for (int i = 0; i < selects.size(); i++) {
             Pair<ExprId, String> select = selects.get(i);
-            String name = selectOutputName(select.value());
+            String name = selectOutputName(select.value()).toLowerCase(java.util.Locale.ROOT);
             Integer previous = firstOwner.putIfAbsent(name, i);
             if (previous == null) {
                 continue;
@@ -3013,10 +3070,10 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 continue;
             }
             String unique = "c_" + first.key();
-            while (usedNames.contains(unique)) {
+            while (usedNames.contains(unique.toLowerCase(java.util.Locale.ROOT))) {
                 unique = unique + "_";
             }
-            usedNames.add(unique);
+            usedNames.add(unique.toLowerCase(java.util.Locale.ROOT));
             selects.set(previous, Pair.of(first.key(), core + " AS " + unique));
             relation.registerRef(first.key(), unique);
         }
@@ -3033,6 +3090,67 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     private static boolean isPlainReference(String item) {
         return !item.contains("(") && !item.contains(" ") && !item.contains(".")
                 && !item.contains("'");
+    }
+
+    /** Whether the child relation is embedded as a (SELECT ...) subquery (toRelationSQL). */
+    private static boolean embedsAsSubquery(SQLRelation child) {
+        if (child.getRelationName() == null) {
+            return child.getFrom().isEmpty() || child.hasOwnBlock();
+        }
+        return !(child.fromCarriesAlias() && !child.hasOwnBlock());
+    }
+
+    /**
+     * Whether every HIDDEN sort-key reference of the child's ORDER BY can be moved to an
+     * outer wrapper: keys are registered column references, and a quoted / qualified
+     * reference (which only the child scope resolves) forces the clause to stay inside.
+     */
+    private static boolean canHoistOrderBy(SQLRelation child, String orderBy) {
+        for (Map.Entry<ExprId, String> entry : child.getColumnNames().entrySet()) {
+            String name = entry.getValue();
+            if (name == null || !referencesName(orderBy, name)) {
+                continue;
+            }
+            if (!isPlainReference(name)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Exports the HIDDEN sort keys of a hoisted ORDER BY from the child subquery: the
+     * clause now belongs to the OUTER wrapper, so every name it references must be an
+     * exported column of the derived table (otherwise the next analysis fails with
+     * "Unknown column c_N in SORT clause"). The outer SELECT lists its own columns
+     * explicitly, so the extra column cannot surface in the result.
+     */
+    private static void exportHoistedOrderByKeys(SQLRelation child, String orderBy) {
+        if (orderBy.isEmpty() || child.getSelects() == null || child.getSelects().isEmpty()) {
+            return;
+        }
+        Set<String> exported = new HashSet<>();
+        for (Pair<ExprId, String> select : child.getSelects()) {
+            exported.add(selectOutputName(select.value()).toLowerCase(java.util.Locale.ROOT));
+        }
+        for (Map.Entry<ExprId, String> entry : child.getColumnNames().entrySet()) {
+            String name = entry.getValue();
+            if (name == null || !isPlainReference(name) || !referencesName(orderBy, name)
+                    || exported.contains(name.toLowerCase(java.util.Locale.ROOT))) {
+                continue;
+            }
+            child.getSelects().add(Pair.of(entry.getKey(), name));
+            exported.add(name.toLowerCase(java.util.Locale.ROOT));
+        }
+    }
+
+    /** Whether an ORDER BY text references the name as a standalone identifier. */
+    private static boolean referencesName(String sql, String name) {
+        return java.util.regex.Pattern
+                .compile("(?<![A-Za-z0-9_`])" + java.util.regex.Pattern.quote(name)
+                        + "(?![A-Za-z0-9_])")
+                .matcher(sql)
+                .find();
     }
 
     /**

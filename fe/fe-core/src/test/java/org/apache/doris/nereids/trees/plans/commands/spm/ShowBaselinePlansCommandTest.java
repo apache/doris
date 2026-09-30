@@ -33,11 +33,48 @@ public class ShowBaselinePlansCommandTest {
     public void testEmptyLikeIsARealPattern() throws Exception {
         Assertions.assertNull(ShowBaselinePlansCommand.buildLikeMatcher(null),
                 "an omitted LIKE means no filter");
-        var matcher = ShowBaselinePlansCommand.buildLikeMatcher("");
+        java.util.regex.Pattern matcher = ShowBaselinePlansCommand.buildLikeMatcher("");
         Assertions.assertNotNull(matcher, "LIKE '' is a real pattern, not an omitted filter");
-        Assertions.assertFalse(matcher.match("select 1"),
+        Assertions.assertFalse(matcher.matcher("select 1").matches(),
                 "LIKE '' matches only empty values, so no baseline row passes it");
-        Assertions.assertTrue(matcher.match(""),
+        Assertions.assertTrue(matcher.matcher("").matches(),
                 "the empty pattern matches the empty value");
+    }
+
+    /**
+     * #9: the LIKE operand searches STORED SQL TEXT. The shared MySQL-pattern helper
+     * (PatternMatcher) REJECTED the literal characters every statement contains ('*',
+     * '=', '('), so the most natural operand LIKE '%SELECT * FROM%' failed with an
+     * analysis error, and its '%' compiled to a non-DOTALL '.' that could not span the
+     * newlines the stored SQL is printed with.
+     */
+    @Test
+    public void testSqlShapedPatternsAreMatchable() throws Exception {
+        java.util.regex.Pattern sqlPattern =
+                ShowBaselinePlansCommand.buildLikeMatcher("%select * from%");
+        Assertions.assertTrue(sqlPattern.matcher("SELECT * FROM t1\nWHERE k = 1").matches(),
+                "'%' must span the newlines of the stored SQL text");
+        Assertions.assertTrue(sqlPattern.matcher(" SELECT * FROM t1").matches(),
+                "the pattern must match case-insensitively across the whole value");
+        Assertions.assertFalse(sqlPattern.matcher("SELECT k FROM t1").matches());
+
+        // regex metacharacters stay LITERAL: a broken operator's "(a)+" must not turn
+        // into a quantified group that matches "aa"
+        java.util.regex.Pattern literal = ShowBaselinePlansCommand.buildLikeMatcher("sum(a)+1");
+        Assertions.assertTrue(literal.matcher("sum(a)+1").matches());
+        Assertions.assertFalse(literal.matcher("sumaa1").matches(),
+                "the parentheses / plus must be escaped, not interpreted");
+        Assertions.assertFalse(literal.matcher("sum a 1").matches());
+    }
+
+    @Test
+    public void testUnderscoreMatchesExactlyOneCharacter() throws Exception {
+        java.util.regex.Pattern pattern = ShowBaselinePlansCommand.buildLikeMatcher("ab_d");
+        Assertions.assertTrue(pattern.matcher("abxd").matches());
+        Assertions.assertTrue(pattern.matcher("ABYD").matches(),
+                "matching stays case-insensitive");
+        Assertions.assertFalse(pattern.matcher("abd").matches(),
+                "'_' is exactly one character");
+        Assertions.assertFalse(pattern.matcher("abxyd").matches());
     }
 }

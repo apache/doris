@@ -148,10 +148,10 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
 
     /**
      * Safety net of the generic toSql() fallback: rejects the expression when any slot
-     * below it is registered under a reference that no longer denotes the slot's own
-     * column (the collision-renaming / qualification case), because toSql() would emit
-     * the STALE column name. A registered reference that still names the column (plain
-     * or qualified, optionally backtick-quoted) is renderable. Public for tests.
+     * below it is registered under a reference that toSql() would NOT reproduce (the
+     * collision-renaming / quoting / qualification case), because toSql() would then emit
+     * a stale or differently-shaped name. Only a byte-identical registered reference is
+     * renderable through the fallback. Public for tests.
      *
      * @param expr    the expression about to fall back to toSql()
      * @param context the relation carrying the ExprId -> column-reference mapping
@@ -161,7 +161,15 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         if (expr instanceof SlotReference) {
             SlotReference slot = (SlotReference) expr;
             String mapped = context.getColumnNames().get(slot.getExprId());
-            if (mapped != null && !isSameReferenceTail(mapped, slot.getName())) {
+            // toSql() prints the BARE slot name, so a registered reference is only safe
+            // when it is byte-identical to that rendering. A special-character column
+            // maps to a QUOTED reference (`a-b`) and a disambiguated one to a QUALIFIED
+            // reference (l.x): both still "name" the column, but freezing their unquoted /
+            // unqualified toSql() text produces SQL that no longer resolves after reload
+            // ("a-b MATCH 'foo'" parses as a subtraction; a bare x may be ambiguous).
+            // Reject the generic fallback for those shapes - CREATE keeps the user planSql
+            // and the rewrite degrades to the parameterized-tree path.
+            if (mapped != null && !mapped.equals(slot.getName())) {
                 throw new UnsupportedOperationException(
                         "SPM decompile: expression " + expr.toSql() + " needs column remapping ("
                                 + mapped + " -> " + slot.getName() + ") which toSql() cannot apply");
@@ -170,17 +178,6 @@ public class SPMExprSqlBuilder extends ExpressionVisitor<String, SQLRelation> {
         for (Expression child : expr.children()) {
             ensureNoRemappedSlots(child, context);
         }
-    }
-
-    /** Whether a registered reference still denotes the given column name (possibly
-     *  qualified by a relation alias and/or backtick-quoted). */
-    private static boolean isSameReferenceTail(String reference, String columnName) {
-        int dot = reference.lastIndexOf('.');
-        String tail = dot >= 0 ? reference.substring(dot + 1) : reference;
-        if (tail.length() >= 2 && tail.charAt(0) == '`' && tail.charAt(tail.length() - 1) == '`') {
-            tail = tail.substring(1, tail.length() - 1).replace("``", "`");
-        }
-        return tail.equals(columnName);
     }
 
     // ==================== column references ====================
