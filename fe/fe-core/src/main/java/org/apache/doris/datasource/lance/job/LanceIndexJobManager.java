@@ -636,11 +636,16 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
     /**
      * Retention GC of resolved job records, master-only: every record that
      * stayed resolved for longer than {@code keepMs} (measured on the durable
-     * update time, bumped by every durable transition including the force
-     * release) is removed on all FEs through one batch edit-log record per
-     * round, so every FE serves the same SHOW LANCE INDEX JOBS view. An
-     * unresolved record is never removed, no matter its age (fail-closed). At
-     * most {@code maxPerRound} jobs are removed per round, oldest first.
+     * update time, bumped by every durable transition) is removed on all FEs
+     * through one batch edit-log record per call, so every FE serves the same
+     * SHOW LANCE INDEX JOBS view. An unresolved record is never removed, no
+     * matter its age (fail-closed), and neither is a resolved record that
+     * still owns a possible-live slot: a normal report can finish the refresh
+     * without a termination proof, and deleting the only record counted by the
+     * per-backend capacity limit would both free a slot a worker may still
+     * occupy and drop the record a later proof would need to land on. The keep
+     * window therefore starts at the slot's release, the final transition.
+     * At most {@code maxPerRound} jobs are removed per call, oldest first.
      *
      * @return the ids actually removed, in oldest-first order
      */
@@ -650,7 +655,8 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
             long now = System.currentTimeMillis();
             List<LanceIndexJob> expired = new ArrayList<>();
             for (LanceIndexJob job : jobs.values()) {
-                if (job != null && !job.isUnresolved() && now - job.getUpdateTimeMs() > keepMs) {
+                if (job != null && !job.isUnresolved() && !job.holdsPossibleLiveSlot()
+                        && now - job.getUpdateTimeMs() > keepMs) {
                     expired.add(job);
                 }
             }

@@ -31,8 +31,10 @@ import java.util.Collections;
 /**
  * Retention-cleaner wiring coverage for {@link LanceIndexJobCleaner}: every clean
  * round hands the manager the keep window converted from seconds to milliseconds
- * and the per-round removal cap; a manager failure is swallowed so the daemon
- * survives to its next round; and a round that removed jobs only logs the ids.
+ * and the per-batch removal cap; a full batch repeats until the expired backlog
+ * drains (bounded batches per round); a manager failure is swallowed so the daemon
+ * survives to its next round; and the second-to-millisecond conversion saturates
+ * instead of overflowing a validator-legal Long.MAX_VALUE into a negative window.
  */
 public class LanceIndexJobCleanerTest {
     @Mocked
@@ -106,5 +108,61 @@ public class LanceIndexJobCleanerTest {
                 times = 1;
             }
         };
+    }
+
+    @Test
+    public void cleanRoundDrainsAFullBacklogInRepeatedBatches() {
+        // One batch per round removes less than the dispatcher can resolve per hour,
+        // so a full batch must repeat: the round keeps batching until a batch comes
+        // back under the cap, draining the expired backlog instead of leaving a
+        // growing residue.
+        java.util.List<Long> full = new java.util.ArrayList<>();
+        for (long id = 0; id < 1024; id++) {
+            full.add(id);
+        }
+        expectEnv();
+        new Expectations() {
+            {
+                lanceIndexJobManager.removeResolvedJobsOlderThan(anyLong, anyInt);
+                minTimes = 0;
+                result = full;
+                result = Arrays.asList(5000L);
+            }
+        };
+        new LanceIndexJobCleaner().runAfterCatalogReady();
+        new Verifications() {
+            {
+                lanceIndexJobManager.removeResolvedJobsOlderThan(anyLong, 1024);
+                times = 2;
+            }
+        };
+    }
+
+    @Test
+    public void keepWindowConversionSaturatesInsteadOfOverflowing() {
+        // The positive-long validator accepts Long.MAX_VALUE seconds; multiplying it
+        // by 1000 must saturate to Long.MAX_VALUE milliseconds (retention effectively
+        // forever) instead of wrapping negative and expiring fresh audit records.
+        long originalKeep = Config.lance_index_job_keep_max_second;
+        Config.lance_index_job_keep_max_second = Long.MAX_VALUE;
+        try {
+            expectEnv();
+            new Expectations() {
+                {
+                    lanceIndexJobManager.removeResolvedJobsOlderThan(anyLong, anyInt);
+                    minTimes = 0;
+                    result = Collections.emptyList();
+                }
+            };
+            new LanceIndexJobCleaner().runAfterCatalogReady();
+            new Verifications() {
+                {
+                    lanceIndexJobManager.removeResolvedJobsOlderThan(Long.MAX_VALUE, 1024);
+                    times = 1;
+                }
+            };
+        } finally {
+            Config.lance_index_job_keep_max_second = originalKeep;
+        }
     }
 }
