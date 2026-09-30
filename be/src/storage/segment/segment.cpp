@@ -125,6 +125,13 @@ Status build_segment_zonemap_context(Segment* segment, const ReadSchema& schema,
         }
         ZoneMapEvalContext::SlotZoneMap slot_zone_map;
         slot_zone_map.data_type = data_type;
+        // Read-time-substituted hidden columns (version / commit-tso / binlog-tso) carry only a
+        // placeholder in their on-disk zone map, so exclude them from expr zone-map pruning: add
+        // the slot with no zone map, which leaves any referencing conjunct to row-level eval.
+        if (segment->is_read_time_substituted_col(slot_index, schema)) {
+            ctx->slots.emplace(slot_index, std::move(slot_zone_map));
+            continue;
+        }
         std::shared_ptr<ColumnReader> reader;
         Status st = segment->get_column_reader(*tablet_column, &reader, read_options.stats,
                                                &read_options.io_ctx);
@@ -408,6 +415,13 @@ bool Segment::is_tso_placeholder_col(int cid, const ReadSchema& schema,
     }
     // tso_ordinal() is -1 for non-binlog schemas, so this returns false there.
     return cid == schema.tso_ordinal();
+}
+
+bool Segment::is_read_time_substituted_col(int cid, const ReadSchema& schema) const {
+    // The ordinal accessors return -1 when the column is absent, and cid is a valid ordinal (>= 0),
+    // so an absent hidden column never matches.
+    return cid == schema.version_ordinal() || cid == schema.commit_tso_ordinal() ||
+           cid == schema.tso_ordinal();
 }
 
 Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& read_options,
