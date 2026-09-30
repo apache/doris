@@ -261,7 +261,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
      * before this is reached, see {@code constructTableWithPredicates}.
      */
     private static Set<Expression> constructPredicatesOfBasePartitions(Set<PartitionItem> partitions,
-            OlapTable baseTable, String colName) throws AnalysisException {
+            OlapTable baseTable, String colName) {
         List<Column> partitionColumns = baseTable.getPartitionColumns();
         List<Type> partitionColumnTypes = Lists.transform(partitionColumns, Column::getType);
         if (!(partitions.iterator().next() instanceof ListPartitionItem)) {
@@ -505,10 +505,25 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                         predicates.setNeedAddFilter(false);
                     }
                     if (!partitionHasDataItems.isEmpty()) {
+                        // The partitions are pinned the way a refresh pins them: the whole key of each, at
+                        // the partition column's own type. A predicate on the MV's partition column alone
+                        // reads the partitions that differ in the other keys too, and those rows are ones
+                        // this branch must not add -- the MV branch of the union already supplies them, or
+                        // the compensation would count them twice -- while a key written with a scale has to
+                        // be compared at that scale or its rows are read as none.
+                        // A list partitioned table's default partition is not pinned the way the others
+                        // are: its own key is the sentinel the rows no other partition claims were placed
+                        // by, so pinning it to that key reads none of them. It is read the way it was
+                        // before the whole key was pinned -- on the MV's partition column alone -- which
+                        // can be seen to be too wide rather than one that drops its rows.
+                        boolean hasDefaultPartition = partitionHasDataItems.stream()
+                                .anyMatch(PartitionItem::isDefaultPartition);
+                        Set<Expression> preds = targetTable instanceof OlapTable && !hasDefaultPartition
+                                ? constructPredicatesOfBasePartitions(partitionHasDataItems,
+                                        (OlapTable) targetTable, relatedTableColumnInfo.getColName())
+                                : constructPredicates(partitionHasDataItems, partitionSlot);
                         return new LogicalFilter<>(
-                                ExpressionUtils.extractConjunctionToSet(
-                                        ExpressionUtils.or(constructPredicates(partitionHasDataItems, partitionSlot))
-                                ),
+                                ExpressionUtils.extractConjunctionToSet(ExpressionUtils.or(preds)),
                                 catalogRelation
                         );
                     }
