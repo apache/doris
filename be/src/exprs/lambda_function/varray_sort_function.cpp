@@ -36,6 +36,7 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/primitive_type.h"
+#include "core/value/large_int_value.h"
 #include "exec/common/util.hpp"
 #include "exprs/lambda_function/lambda_execution_context.h"
 #include "exprs/lambda_function/lambda_function.h"
@@ -97,8 +98,8 @@ public:
 
         DCHECK_EQ(children.size(), 2);
 
-        // The comparator returns -1, 0 or 1, and only its sign is used. FE rejects a non-integer
-        // comparator, but an older FE does not check it.
+        // The comparator must return -1, 0 or 1. FE rejects a non-integer comparator, but an older
+        // FE does not check it.
         const auto& comparator_type = children[0]->get_child(0)->data_type();
         const auto comparator_result_type = remove_nullable(comparator_type)->get_primitive_type();
         if (!is_int(comparator_result_type)) {
@@ -274,7 +275,8 @@ public:
     }
 
 private:
-    // Returns whether the comparator result in the first row is negative.
+    // Returns whether the comparator result in the first row is -1. Any value other than -1, 0 or 1
+    // fails the query.
     static bool _is_negative_comparator_result(const IColumn& column, PrimitiveType type) {
         const IColumn* values = &column;
         if (const auto* nullable = check_and_get_column<ColumnNullable>(&column)) {
@@ -284,21 +286,32 @@ private:
             }
             values = &nullable->get_nested_column();
         }
+        Int128 result = 0;
         switch (type) {
         case TYPE_TINYINT:
-            return assert_cast<const ColumnInt8&>(*values).get_element(0) < 0;
+            result = assert_cast<const ColumnInt8&>(*values).get_element(0);
+            break;
         case TYPE_SMALLINT:
-            return assert_cast<const ColumnInt16&>(*values).get_element(0) < 0;
+            result = assert_cast<const ColumnInt16&>(*values).get_element(0);
+            break;
         case TYPE_INT:
-            return assert_cast<const ColumnInt32&>(*values).get_element(0) < 0;
+            result = assert_cast<const ColumnInt32&>(*values).get_element(0);
+            break;
         case TYPE_BIGINT:
-            return assert_cast<const ColumnInt64&>(*values).get_element(0) < 0;
+            result = assert_cast<const ColumnInt64&>(*values).get_element(0);
+            break;
         case TYPE_LARGEINT:
-            return assert_cast<const ColumnInt128&>(*values).get_element(0) < 0;
+            result = assert_cast<const ColumnInt128&>(*values).get_element(0);
+            break;
         default:
             DORIS_CHECK(false) << "array_sort comparator must return -1, 0 or 1";
-            return false;
         }
+        if (result != -1 && result != 0 && result != 1) {
+            throw Exception(Status::InvalidArgument(
+                    "array_sort comparator returns {}, but it must return -1, 0 or 1",
+                    LargeIntValue::to_string(result)));
+        }
+        return result < 0;
     }
 
     Status _set_comparator_argument_gap(const VExprSPtr& expr,

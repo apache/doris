@@ -31,19 +31,28 @@ suite("test_array_sort_comparator_type") {
         exception "the lambda must return -1, 0 or 1"
     }
 
-    // Any integer type works, and only the sign of the result is used. The differences of
-    // [256, 128, 0] do not fit in TINYINT.
+    // Any integer type works if the comparator returns -1, 0 or 1. The elements of an array are
+    // nullable, so sign(x - y) returns a nullable TINYINT.
     order_qt_integer_comparator """
-        SELECT array_sort((x, y) -> x - y, [3, 1, 2]),
-               array_sort((x, y) -> y - x, [3, 1, 2]),
-               array_sort((x, y) -> x - y, [256, 128, 0]),
-               array_sort((x, y) -> IF(x < y, -1000, 1000), [3, 1, 2]),
-               array_sort((x, y) -> cast(x - y AS LARGEINT), [3, 1, 2])
+        SELECT array_sort((x, y) -> sign(x - y), [3, 1, 2]),
+               array_sort((x, y) -> sign(y - x), [3, 1, 2]),
+               array_sort((x, y) -> sign(x - y), [256, 128, 0]),
+               array_sort((x, y) -> cast(sign(x - y) AS INT), [3, 1, 2]),
+               array_sort((x, y) -> cast(sign(x - y) AS BIGINT), [3, 1, 2]),
+               array_sort((x, y) -> cast(sign(x - y) AS LARGEINT), [3, 1, 2])
     """
 
-    // A comparator that returns NULL fails the query.
+    // A comparator that returns another value or NULL fails the query.
     test {
-        sql "SELECT array_sort((x, y) -> x - y, [3, NULL, 1])"
+        sql "SELECT array_sort((x, y) -> 5, [3, 1, 2])"
+        exception "array_sort comparator returns 5, but it must return -1, 0 or 1"
+    }
+    test {
+        sql "SELECT array_sort((x, y) -> x - y, [30, 10, 20])"
+        exception "but it must return -1, 0 or 1"
+    }
+    test {
+        sql "SELECT array_sort((x, y) -> sign(x - y), [3, NULL, 1])"
         exception "array_sort comparator returns NULL"
     }
 
@@ -67,7 +76,11 @@ suite("test_array_sort_comparator_type") {
     // The elements of a table column are nullable, so the comparator result is nullable too. It
     // works as long as the comparator does not return NULL.
     order_qt_integer_comparator_table """
-        SELECT id, array_sort((x, y) -> x - y, a), array_sort((x, y) -> y - x, b)
+        SELECT id, array_sort((x, y) -> sign(x - y), a), array_sort((x, y) -> sign(y - x), b)
         FROM test_array_sort_comparator_type
     """
+    test {
+        sql "SELECT id, array_sort((x, y) -> x - y, a) FROM test_array_sort_comparator_type"
+        exception "but it must return -1, 0 or 1"
+    }
 }

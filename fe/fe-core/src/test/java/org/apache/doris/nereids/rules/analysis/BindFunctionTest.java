@@ -148,7 +148,7 @@ public class BindFunctionTest extends TestWithFeService implements MemoPatternMa
         Assertions.assertTrue(exception.getMessage().contains("the lambda must return -1, 0 or 1 for less than,"
                 + " equal to or greater than, but it returns BOOLEAN"), exception.getMessage());
 
-        // Any integer type works, because only the sign of the result is used.
+        // Any integer type passes analysis. BE checks that the value is -1, 0 or 1.
         PlanChecker.from(connectContext).analyze("SELECT array_sort((x, y) -> x - y, arr2) FROM t_arr");
     }
 
