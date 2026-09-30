@@ -32,7 +32,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * What the closer promises a scanner: it does not wait for its connection to close, and connections do
- * not pile up behind it. Every step here waits on a latch rather than on the clock.
+ * not pile up behind it. Every step here waits on a latch rather than on the clock; the clock only
+ * bounds how long a closer that never does its part is waited for.
  */
 public class FlussConnectionCloserTest {
 
@@ -42,23 +43,32 @@ public class FlussConnectionCloserTest {
     @Test
     public void theCallerDoesNotWaitForItsConnectionToClose() throws Exception {
         Thread caller = Thread.currentThread();
-        CountDownLatch closing = new CountDownLatch(1);
         CountDownLatch mayFinish = new CountDownLatch(1);
-        AtomicReference<Thread> closedBy = new AtomicReference<>();
         try {
-            // The connection's close() stays blocked until the end of this test, so close() below
-            // can only return if something else is running it.
-            FlussConnectionCloser.close(new StubConnection(() -> {
-                closedBy.set(Thread.currentThread());
-                closing.countDown();
-                if (Thread.currentThread() != caller) {
-                    mayFinish.await();
-                }
-            }));
-            Assertions.assertTrue(closing.await(PATIENCE_SECONDS, TimeUnit.SECONDS),
-                    "the connection was never closed");
-            Assertions.assertNotSame(caller, closedBy.get(),
-                    "the connection was closed on the thread that handed it over");
+            // A connection closed off this thread stays blocked in close() until the end of this
+            // test, so close() below can only return if something else is running it. The test
+            // before this one leaves every closer thread on its way back from a connection, and
+            // until one of them is free again the caller closes its own - which is what the closer
+            // promises, and says nothing about this test. So hand connections over until one is
+            // taken; only a closer that never takes any runs into the deadline.
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(PATIENCE_SECONDS);
+            Thread closedBy = caller;
+            while (closedBy == caller) {
+                Assertions.assertTrue(System.nanoTime() < deadline,
+                        "every connection was closed on the thread that handed it over");
+                CountDownLatch closing = new CountDownLatch(1);
+                AtomicReference<Thread> closer = new AtomicReference<>();
+                FlussConnectionCloser.close(new StubConnection(() -> {
+                    closer.set(Thread.currentThread());
+                    closing.countDown();
+                    if (Thread.currentThread() != caller) {
+                        mayFinish.await();
+                    }
+                }));
+                Assertions.assertTrue(closing.await(PATIENCE_SECONDS, TimeUnit.SECONDS),
+                        "the connection was never closed");
+                closedBy = closer.get();
+            }
         } finally {
             mayFinish.countDown();
         }
