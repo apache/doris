@@ -25,6 +25,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Everything the engine knows about one scan when it asks a connector to plan it:
@@ -51,10 +52,12 @@ public final class ConnectorScanRequest {
     private final boolean partitionsPrunedToEmpty;
     private final boolean countPushdown;
     private final boolean explainOnly;
+    private final Set<String> backendCapabilities;
 
     private ConnectorScanRequest(ConnectorTableHandle tableHandle, List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter, long limit, List<String> requiredPartitions,
-            boolean partitionsPrunedToEmpty, boolean countPushdown, boolean explainOnly) {
+            boolean partitionsPrunedToEmpty, boolean countPushdown, boolean explainOnly,
+            Set<String> backendCapabilities) {
         this.tableHandle = tableHandle;
         this.columns = columns;
         this.filter = filter;
@@ -63,6 +66,7 @@ public final class ConnectorScanRequest {
         this.partitionsPrunedToEmpty = partitionsPrunedToEmpty;
         this.countPushdown = countPushdown;
         this.explainOnly = explainOnly;
+        this.backendCapabilities = backendCapabilities;
     }
 
     /**
@@ -147,10 +151,20 @@ public final class ConnectorScanRequest {
         return explainOnly;
     }
 
+    /** Capabilities shared by every backend eligible to execute this scan. */
+    public Set<String> getBackendCapabilities() {
+        return backendCapabilities;
+    }
+
+    public boolean allBackendsSupport(String capability) {
+        return backendCapabilities.contains(capability);
+    }
+
     /** This request with the partition set replaced — the batched scan's per-batch request. */
     public ConnectorScanRequest withRequiredPartitions(List<String> partitions) {
         return new ConnectorScanRequest(tableHandle, columns, filter, limit,
-                normalizePartitions(partitions), partitionsPrunedToEmpty, countPushdown, explainOnly);
+                normalizePartitions(partitions), partitionsPrunedToEmpty, countPushdown, explainOnly,
+                backendCapabilities);
     }
 
     private static List<String> normalizePartitions(List<String> partitions) {
@@ -168,6 +182,7 @@ public final class ConnectorScanRequest {
         private boolean partitionsPrunedToEmpty;
         private boolean countPushdown;
         private boolean explainOnly;
+        private Set<String> backendCapabilities = Collections.emptySet();
 
         private Builder(ConnectorTableHandle tableHandle, List<ConnectorColumnHandle> columns) {
             this.tableHandle = Objects.requireNonNull(tableHandle, "tableHandle");
@@ -207,9 +222,17 @@ public final class ConnectorScanRequest {
             return this;
         }
 
+        /** Capabilities shared by every backend eligible to execute this scan. */
+        public Builder backendCapabilities(Set<String> backendCapabilities) {
+            this.backendCapabilities = Collections.unmodifiableSet(
+                    new java.util.HashSet<>(Objects.requireNonNull(backendCapabilities, "backendCapabilities")));
+            return this;
+        }
+
         public ConnectorScanRequest build() {
             return new ConnectorScanRequest(tableHandle, columns, filter, limit,
-                    requiredPartitions, partitionsPrunedToEmpty, countPushdown, explainOnly);
+                    requiredPartitions, partitionsPrunedToEmpty, countPushdown, explainOnly,
+                    backendCapabilities);
         }
     }
 }
