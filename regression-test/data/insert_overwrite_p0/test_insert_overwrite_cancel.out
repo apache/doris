@@ -7,3 +7,6 @@
 3	2026-01-20	300
 4	2026-02-20	400
 
+-- !dst_after_the_cancelled_empty_overwrite --
+1	2026-01-10	100
+

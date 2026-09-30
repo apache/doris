@@ -23,4 +23,21 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
  */
 public abstract class InsertCommandContext {
 
+    /**
+     * Set when the insert that ran under this context finished on the path that begins no transaction at
+     * all: its plan folded to an empty relation and there was no table stream offset to commit. Nothing
+     * such an insert did is durable -- no row, no offset -- which is what a caller that owns what happens
+     * next has to know before it decides whether a cancellation arriving from there on still has anything
+     * to take back. See {@link InsertIntoTableCommand#runInternal} for the one path that sets it and
+     * {@code InsertOverwriteTableCommand#run} for the caller that reads it.
+     */
+    private boolean committedNothing = false;
+
+    public boolean hasCommittedNothing() {
+        return committedNothing;
+    }
+
+    public void setCommittedNothing(boolean committedNothing) {
+        this.committedNothing = committedNothing;
+    }
 }

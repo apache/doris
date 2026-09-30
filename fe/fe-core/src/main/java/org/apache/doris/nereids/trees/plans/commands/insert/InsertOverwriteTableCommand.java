@@ -112,21 +112,29 @@ public class InsertOverwriteTableCommand extends Command
             "InsertOverwriteTableCommand.failBetweenTheTwoHalvesOfAnOverwrite";
 
     /**
-     * Cancels the overwrite at a chosen point of the command, so that both halves of what a cancellation means
-     * can be pinned by a test: one that lands before the rows are committed takes the statement back and the
-     * statement has to fail, one that lands after them cannot take anything back and the overwrite has to
-     * complete. See test_insert_overwrite_cancel.
+     * Cancels the overwrite before it has committed anything, so that the half of a cancellation's meaning
+     * that takes the statement back can be pinned by a test: nothing durable happened, so the statement has
+     * to fail rather than report the success of an overwrite that did not run. See test_insert_overwrite_cancel.
      *
-     * <p>The point's {@code stage} parameter is {@code beforeTheInsert} or {@code afterTheInsert}, and its
-     * {@code table_name} parameter names the one table the point may disturb: the read below answers with the
-     * default when the point is not enabled or carries no such parameter, and no table is named by an empty
-     * string, so an enabled point cannot disturb an overwrite that is not the one under test.
+     * <p>Its {@code table_name} parameter names the one table the point may disturb: the read below answers
+     * with the default when the point is not enabled or carries no such parameter, and no table is named by an
+     * empty string, so an enabled point cannot disturb an overwrite that is not the one under test.
      */
-    public static final String DEBUG_POINT_CANCEL_AN_OVERWRITE =
-            "InsertOverwriteTableCommand.cancelAnOverwrite";
+    public static final String DEBUG_POINT_CANCEL_BEFORE_THE_INSERT_OF_AN_OVERWRITE =
+            "InsertOverwriteTableCommand.cancelBeforeTheInsertOfAnOverwrite";
 
-    private static final String STAGE_BEFORE_THE_INSERT = "beforeTheInsert";
-    private static final String STAGE_AFTER_THE_INSERT = "afterTheInsert";
+    /**
+     * Cancels the overwrite in the window between its two halves -- after the insert, before the swap -- so
+     * that the other half of a cancellation's meaning can be pinned: where the rows are durable, the swap runs
+     * and the statement reports the success it is; where the insert committed nothing, the cancellation still
+     * has everything to take back. See test_insert_overwrite_cancel.
+     *
+     * <p>Separate from the point above rather than one point with a stage parameter: a point is consumed by
+     * the first lookup that reads it (see {@code DebugPointUtil#getDebugPoint}), so a shared name would let
+     * the check at one site spend the other site's allowance and make an armed point silently not fire.
+     */
+    public static final String DEBUG_POINT_CANCEL_BETWEEN_THE_HALVES_OF_AN_OVERWRITE =
+            "InsertOverwriteTableCommand.cancelBetweenTheTwoHalvesOfAnOverwrite";
 
     private static final Logger LOG = LogManager.getLogger(InsertOverwriteTableCommand.class);
 
@@ -278,12 +286,18 @@ public class InsertOverwriteTableCommand extends Command
                 // When inserting, BE will call to replace partition by FrontendService. FE will register new temp
                 // partitions and return. for transactional, the replacement will really occur when insert successed,
                 // i.e. `insertInto` finished. then we call taskGroupSuccess to make replacement.
-                insertIntoAutoDetect(ctx, executor, taskId);
+                InsertCommandContext insertCtx = insertIntoAutoDetect(ctx, executor, taskId);
+                if (isCancelled.get() && insertCtx.hasCommittedNothing()) {
+                    // The load committed no row, so the cancellation still has everything to take back: the
+                    // catch drops the group's temp partitions (there are none), and the statement fails
+                    // rather than publishing a replacement the client cancelled.
+                    throw cancelledBeforeTheRowsWereCommitted("after a load that committed nothing", ctx);
+                }
                 insertOverwriteManager.taskGroupSuccess(taskId, (OlapTable) targetTable, isForceDropPartition());
             } else {
                 // it's overwrite table(as all partitions) or specific partition(s)
                 List<String> tempPartitionNames = InsertOverwriteUtil.generateTempPartitionNames(partitionNames);
-                cancelTheOverwriteAt(STAGE_BEFORE_THE_INSERT, targetTable);
+                cancelTheOverwriteAt(DEBUG_POINT_CANCEL_BEFORE_THE_INSERT_OF_AN_OVERWRITE, targetTable);
                 if (isCancelled.get()) {
                     // Nothing durable happened: no task is registered, no temp partition exists, no row was
                     // written and nothing was committed. The statement is a plain failure, like the one the
@@ -303,9 +317,17 @@ public class InsertOverwriteTableCommand extends Command
                     throw cancelledBeforeTheRowsWereCommitted("before insertInto", ctx);
                 }
                 // todo: need to refresh remote target table after add temp partitions
-                insertIntoPartitions(ctx, executor, tempPartitionNames, wholeTable);
-                cancelTheOverwriteAt(STAGE_AFTER_THE_INSERT, targetTable);
+                InsertCommandContext insertCtx = insertIntoPartitions(ctx, executor, tempPartitionNames, wholeTable);
+                cancelTheOverwriteAt(DEBUG_POINT_CANCEL_BETWEEN_THE_HALVES_OF_AN_OVERWRITE, targetTable);
                 if (isCancelled.get()) {
+                    if (insertCtx.hasCommittedNothing()) {
+                        // The insert took the path that begins no transaction -- its plan folded to an empty
+                        // relation and there was no stream offset to commit -- so this window holds no durable
+                        // work at all. Completing the swap would publish an empty table for a statement the
+                        // client cancelled; the catch drops the empty temp partitions instead and the
+                        // statement fails, which is the same boundary the cancellations above sit on.
+                        throw cancelledBeforeTheRowsWereCommitted("after an insert that committed nothing", ctx);
+                    }
                     // Too late to cancel: insertIntoPartitions returns only once its transaction has committed
                     // and published the rows into the temp partitions, and everything the read consumed -- the
                     // base table stream offsets among it -- was committed with that same transaction. Dropping
@@ -410,30 +432,28 @@ public class InsertOverwriteTableCommand extends Command
     }
 
     /**
-     * Cancels this overwrite when the debug point names the stage and the table it targets; see the constant
-     * above. Nothing here decides what a cancelled overwrite means -- the two call sites do, and they differ:
-     * one takes the statement back, the other cannot.
+     * Cancels this overwrite when the debug point names the table it targets; see the constants above.
+     * Nothing here decides what a cancelled overwrite means -- the call sites do, and they differ: the ones
+     * before the rows are durable take the statement back, the one after them does not.
+     *
+     * <p>One lookup, because a point is consumed by the lookup that reads it: reading it twice with
+     * {@code execute=1} armed would have the first read spend the allowance and the point be gone before the
+     * second, which would silently leave the overwrite uncancelled.
      */
-    private void cancelTheOverwriteAt(String stage, TableIf targetTable) {
-        if (!stage.equals(DebugPointUtil.getDebugParamOrDefault(
-                DEBUG_POINT_CANCEL_AN_OVERWRITE, "stage", ""))) {
-            return;
-        }
+    private void cancelTheOverwriteAt(String debugPointName, TableIf targetTable) {
         if (!targetTable.getName().equals(DebugPointUtil.getDebugParamOrDefault(
-                DEBUG_POINT_CANCEL_AN_OVERWRITE, "table_name", ""))) {
+                debugPointName, "table_name", ""))) {
             return;
         }
-        LOG.info("debug point {} cancels the overwrite of {} at {}", DEBUG_POINT_CANCEL_AN_OVERWRITE,
-                targetTable.getName(), stage);
+        LOG.info("debug point {} cancels the overwrite of {}", debugPointName, targetTable.getName());
         cancel();
     }
 
     /**
-     * The failure a cancellation that landed before anything durable is reported as. The caller wrote and
-     * committed nothing, and the offsets of the streams it was about to read are where they were, so a re-run
-     * reads the same rows -- which is why this is a failure rather than the success of an overwrite that never
-     * ran. The other half of the decision, a cancellation that lands after the rows are committed, is taken
-     * where the swap runs.
+     * The failure a cancellation that found nothing durable is reported as. No row and no stream offset was
+     * committed, so a re-run reads the same rows -- which is why this is a failure rather than the success of
+     * an overwrite that never ran. What a cancellation means on the other side of that boundary, where the
+     * rows are durable, is decided where the swap runs.
      */
     private static UserException cancelledBeforeTheRowsWereCommitted(String stage, ConnectContext ctx) {
         return new UserException("insert overwrite is cancelled " + stage + ", queryId: "
@@ -459,9 +479,11 @@ public class InsertOverwriteTableCommand extends Command
      * @param executor           executor
      * @param tempPartitionNames tempPartitionNames
      * @param wholeTable         overwrite target is the whole table. not one by one by partitions(...)
+     * @return the context the inner insert ran under, which says whether it committed anything; see
+     *         {@link InsertCommandContext#hasCommittedNothing()}
      */
-    private void insertIntoPartitions(ConnectContext ctx, StmtExecutor executor, List<String> tempPartitionNames,
-            boolean wholeTable)
+    private InsertCommandContext insertIntoPartitions(ConnectContext ctx, StmtExecutor executor,
+            List<String> tempPartitionNames, boolean wholeTable)
             throws Exception {
         // copy sink tot replace by tempPartitions
         UnboundLogicalSink<?> copySink;
@@ -512,6 +534,7 @@ public class InsertOverwriteTableCommand extends Command
             throw new UserException("Current catalog does not support insert overwrite yet.");
         }
         runInsertCommand(copySink, insertCtx, ctx, executor);
+        return insertCtx;
     }
 
     /**
@@ -519,8 +542,11 @@ public class InsertOverwriteTableCommand extends Command
      *
      * @param ctx ctx
      * @param executor executor
+     * @return the context the inner insert ran under, which says whether it committed anything; see
+     *         {@link InsertCommandContext#hasCommittedNothing()}
      */
-    private void insertIntoAutoDetect(ConnectContext ctx, StmtExecutor executor, long groupId) throws Exception {
+    private InsertCommandContext insertIntoAutoDetect(ConnectContext ctx, StmtExecutor executor, long groupId)
+            throws Exception {
         InsertCommandContext insertCtx;
         LogicalPlan logicalQuery = getLogicalQuery();
         if (logicalQuery instanceof UnboundTableSink) {
@@ -533,6 +559,7 @@ public class InsertOverwriteTableCommand extends Command
             throw new UserException("Current catalog does not support insert overwrite with auto-detect partition.");
         }
         runInsertCommand(logicalQuery, insertCtx, ctx, executor);
+        return insertCtx;
     }
 
     @Override
