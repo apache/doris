@@ -82,8 +82,10 @@ import java.nio.charset.StandardCharsets;
  * response naming only the job id. The 5104 state rejection and the 5105 resolution failure
  * are only visible to an already authorized caller.
  *
- * <p>Success returns an OK packet carrying one warning row with {@link #LATE_COMMIT_WARNING},
- * the same text persisted as the job's durable {@code forceWarning}: the old worker may still
+ * <p>Success returns an OK packet carrying {@link #LATE_COMMIT_WARNING} in its info field
+ * (the warning count stays 0 — SHOW WARNINGS is a stub in the new planner, so the OK packet
+ * is the only working warning channel), the same text persisted as the job's durable
+ * {@code forceWarning}: the old worker may still
  * overwrite, remove, or reintroduce the index name; the mutation outcome remains UNKNOWN.
  * Retrying FORCE on an already released job is an idempotent success returning the existing
  * release record, never an error.
