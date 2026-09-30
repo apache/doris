@@ -233,6 +233,8 @@ struct TResultSink {
     3: optional TFetchOption fetch_option;
     // Absent for old FEs, whose Flight schema comparison requires legacy field metadata.
     4: optional bool enable_arrow_type_metadata = false;
+    // Freeze the Flight result representation independently of logical type metadata.
+    5: optional bool native_variant = false;
 }
 
 struct TResultFileSink {

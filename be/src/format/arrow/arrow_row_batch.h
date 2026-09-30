@@ -63,8 +63,8 @@ public:
                                        std::shared_ptr<arrow::Schema>* result) const;
     Status get_arrow_schema_from_expr_ctxs(const VExprContextSPtrs& output_vexpr_ctxs,
                                            std::shared_ptr<arrow::Schema>* result) const;
-    Status convert_to_arrow_type(const DataTypePtr& type,
-                                 std::shared_ptr<arrow::DataType>* result) const;
+    virtual Status convert_to_arrow_type(const DataTypePtr& type,
+                                         std::shared_ptr<arrow::DataType>* result) const;
 
 protected:
     virtual std::string timestamp_timezone(PrimitiveType type) const;
@@ -82,10 +82,21 @@ private:
 
 class ArrowFlightSchemaConvertor : public DorisArrowSchemaConvertor {
 public:
-    using DorisArrowSchemaConvertor::DorisArrowSchemaConvertor;
+    explicit ArrowFlightSchemaConvertor(std::string timezone, bool native_variant = false)
+            : DorisArrowSchemaConvertor(std::move(timezone)), _native_variant(native_variant) {}
+    ArrowFlightSchemaConvertor(const Block& header, std::string timezone,
+                               bool native_variant = false)
+            : DorisArrowSchemaConvertor(header, std::move(timezone)),
+              _native_variant(native_variant) {}
+
+    Status convert_to_arrow_type(const DataTypePtr& type,
+                                 std::shared_ptr<arrow::DataType>* result) const override;
 
 protected:
     std::string timestamp_timezone(PrimitiveType type) const override;
+
+private:
+    const bool _native_variant;
 };
 
 // Old FEs require the pre-capability metadata layout, including metadata-free nested fields.
@@ -102,6 +113,8 @@ protected:
                                                    bool nullable,
                                                    PrimitiveType primitive) const override;
 };
+
+Status register_arrow_variant_extension();
 
 std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
         const std::string& field_name, const std::shared_ptr<arrow::DataType>& arrow_type,

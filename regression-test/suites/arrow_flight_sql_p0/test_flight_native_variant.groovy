@@ -1,0 +1,125 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.CallOptions
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.FlightClient
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.Location
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.sql.FlightSqlClient
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.memory.RootAllocator
+
+import java.util.concurrent.TimeUnit
+
+suite("test_flight_native_variant", "arrow_flight_sql") {
+    def frontend = jdbc_sql_return_maparray("SHOW FRONTENDS").find {
+        it.IsMaster.toString().equalsIgnoreCase("true") && it.Alive.toString().equalsIgnoreCase("true")
+    }
+    assertNotNull(frontend)
+    assertTrue(frontend.ArrowFlightSqlPort.toString().toInteger() > 0)
+    def database = jdbc_sql("SELECT DATABASE()")[0][0]
+    def table = "${database}.flight_native_variant_input"
+    def allocator = new RootAllocator(Long.MAX_VALUE)
+    def feClient = FlightClient.builder(allocator,
+            Location.forGrpcInsecure(frontend.Host.toString(), frontend.ArrowFlightSqlPort.toString().toInteger())).build()
+    def client = new FlightSqlClient(feClient)
+    def auth
+    def read = { String query, Closure inspect ->
+        int count = 0
+        client.execute(query, auth).endpoints.each { endpoint ->
+            FlightClient.builder(allocator, endpoint.locations[0]).build().withCloseable { beClient ->
+                beClient.getStream(endpoint.ticket, auth, CallOptions.timeout(30, TimeUnit.SECONDS)).withCloseable { stream ->
+                    while (stream.next()) {
+                        inspect(stream.root)
+                        count += stream.root.rowCount
+                    }
+                }
+            }
+        }
+        count
+    }
+    def executeSetting = { String query -> read(query, { root -> }) }
+    try {
+        auth = feClient.authenticateBasicToken(context.config.otherConfigs.get("extArrowFlightSqlUser"),
+                context.config.otherConfigs.get("extArrowFlightSqlPassword")).get()
+        executeSetting("SET enable_sql_cache=false")
+        jdbc_sql("DROP TABLE IF EXISTS ${table}")
+        jdbc_sql("""CREATE TABLE ${table} (id INT, v VARIANT)
+            DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 3
+            PROPERTIES("replication_num"="1")""")
+        jdbc_sql("""INSERT INTO ${table} VALUES
+            (1, CAST(42 AS VARIANT)), (2, CAST('text' AS VARIANT)),
+            (3, parse_to_variant('{"a":[1,null,"x"]}')), (4, NULL)""")
+        [false, true].each { parallel ->
+            executeSetting("SET enable_parallel_result_sink=${parallel}")
+            [false, true, false].each { nativeVariant ->
+                executeSetting("SET enable_arrow_flight_sql_native_variant=${nativeVariant}")
+                def seen = []
+                assertEquals(4, read("SELECT id, v FROM ${table}", { root ->
+                    def vector = root.getVector(1)
+                    def field = vector.field
+                    if (nativeVariant) {
+                        assertEquals("arrow.parquet.variant", field.metadata.get("ARROW:extension:name"))
+                        assertEquals("Struct", field.type.toString())
+                        assertEquals(["metadata", "value"], field.children.collect { it.name })
+                        field.children.each { child ->
+                            assertFalse(child.nullable)
+                            assertEquals("Binary", child.type.toString())
+                        }
+                    } else {
+                        assertEquals("Utf8", field.type.toString())
+                    }
+                    for (int i = 0; i < root.rowCount; i++) {
+                        int id = root.getVector(0).get(i)
+                        seen.add(id)
+                        assertEquals(id == 4, vector.isNull(i))
+                        if (nativeVariant && id != 4) {
+                            assertTrue(vector.getChild("metadata").get(i).length > 0)
+                            assertTrue(vector.getChild("value").get(i).length > 0)
+                            if (id == 1) {
+                                assertEquals([12, 42], vector.getChild("value").get(i).collect { it & 0xff })
+                            }
+                        } else if (!nativeVariant && id == 1) {
+                            assertEquals("42", vector.getObject(i).toString())
+                        }
+                    }
+                }))
+                assertEquals([1, 2, 3, 4], seen.sort())
+            }
+        }
+        executeSetting("SET enable_arrow_flight_sql_native_variant=true")
+        // A folded constant must use the same wire representation as a scanned Variant column.
+        assertEquals(1, read("SELECT CAST(42 AS VARIANT) AS v", { root ->
+            assertEquals("arrow.parquet.variant", root.getVector(0).field.metadata.get("ARROW:extension:name"))
+        }))
+        assertEquals(0, read("SELECT v FROM ${table} WHERE id < 0", { root -> }))
+    } finally {
+        try {
+            if (auth != null) {
+                feClient.closeSession(new org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.CloseSessionRequest(), auth)
+            }
+        } finally {
+            try {
+                client.close()
+            } finally {
+                try {
+                    allocator.close()
+                } finally {
+                    jdbc_sql("DROP TABLE IF EXISTS ${table}")
+                }
+            }
+        }
+    }
+}

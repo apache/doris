@@ -18,6 +18,7 @@
 #include "format/arrow/arrow_row_batch.h"
 
 #include <arrow/buffer.h>
+#include <arrow/extension/parquet_variant.h>
 #include <arrow/io/memory.h>
 #include <arrow/ipc/writer.h>
 #include <arrow/record_batch.h>
@@ -47,6 +48,20 @@
 #include "runtime/descriptors.h"
 
 namespace doris {
+
+Status register_arrow_variant_extension() {
+    // Remote Flight readers must restore the extension before decoding the result schema.
+    static const auto status = [] {
+        if (arrow::GetExtensionType("arrow.parquet.variant") != nullptr) {
+            return arrow::Status::OK();
+        }
+        return arrow::RegisterExtensionType(
+                std::static_pointer_cast<arrow::ExtensionType>(arrow::extension::variant(
+                        arrow::struct_({arrow::field("metadata", arrow::binary(), false),
+                                        arrow::field("value", arrow::binary(), false)}))));
+    }();
+    return status.ok() ? Status::OK() : Status::InternalError(status.ToString());
+}
 
 Status DorisArrowSchemaConvertor::convert_to_arrow_type(
         const DataTypePtr& origin_type, std::shared_ptr<arrow::DataType>* result) const {
@@ -157,10 +172,9 @@ Status DorisArrowSchemaConvertor::convert_to_arrow_type(
         *result = std::make_shared<arrow::StructType>(fields);
         break;
     }
-    case TYPE_VARIANT: {
+    case TYPE_VARIANT:
         *result = arrow::utf8();
         break;
-    }
     case TYPE_QUANTILE_STATE:
     case TYPE_BITMAP:
     case TYPE_HLL: {
@@ -227,6 +241,19 @@ Status DorisArrowSchemaConvertor::get_arrow_schema(std::shared_ptr<arrow::Schema
 std::string DorisArrowSchemaConvertor::timestamp_timezone(PrimitiveType) const {
     // Arrow clients expect a timezone name rather than the ISO-8601 UTC alias.
     return _timezone == "Z" ? "UTC" : _timezone;
+}
+
+Status ArrowFlightSchemaConvertor::convert_to_arrow_type(
+        const DataTypePtr& type, std::shared_ptr<arrow::DataType>* result) const {
+    // Keep native Variant opt-in scoped to Flight, including recursively converted children.
+    if (_native_variant && type->get_primitive_type() == TYPE_VARIANT) {
+        RETURN_IF_ERROR(register_arrow_variant_extension());
+        *result = arrow::extension::variant(
+                arrow::struct_({arrow::field("metadata", arrow::binary(), false),
+                                arrow::field("value", arrow::binary(), false)}));
+        return Status::OK();
+    }
+    return DorisArrowSchemaConvertor::convert_to_arrow_type(type, result);
 }
 
 std::string ArrowFlightSchemaConvertor::timestamp_timezone(PrimitiveType type) const {

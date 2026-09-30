@@ -116,6 +116,13 @@ public:
     Status convert_to_arrow(const Block& block, arrow::MemoryPool* pool,
                             std::shared_ptr<arrow::RecordBatch>* result, size_t start_row = 0,
                             size_t end_row = 0) const override;
+
+protected:
+    Status write_column(const std::shared_ptr<const IDataType>& type, const DataTypeSerDe& serde,
+                        const IColumn& column, const NullMap* null_map,
+                        const std::shared_ptr<arrow::Field>& field,
+                        arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
+                        const cctz::time_zone& ctz) const override;
 };
 
 class PythonArrowBlockConvertor final : public DorisArrowBlockConvertor {

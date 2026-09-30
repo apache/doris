@@ -102,6 +102,7 @@ ResultSinkOperatorX::ResultSinkOperatorX(int operator_id, int node_id,
           _sink_type(!sink.__isset.type || sink.type == TResultSinkType::MYSQL_PROTOCOL
                              ? TResultSinkType::MYSQL_PROTOCOL
                              : sink.type),
+          _native_variant(sink.native_variant),
           _enable_arrow_type_metadata(sink.__isset.enable_arrow_type_metadata &&
                                       sink.enable_arrow_type_metadata),
           _result_sink_buffer_size_rows(_sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCOL
@@ -124,11 +125,11 @@ Status ResultSinkOperatorX::prepare(RuntimeState* state) {
     if (_sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCOL) {
         // Capability negotiation selects one immutable policy for schema fetches and batches.
         if (_enable_arrow_type_metadata) {
-            _arrow_schema_convertor =
-                    std::make_shared<ArrowFlightSchemaConvertor>(state->timezone());
+            _arrow_schema_convertor = std::make_shared<ArrowFlightSchemaConvertor>(
+                    state->timezone(), _native_variant);
         } else {
-            _arrow_schema_convertor =
-                    std::make_shared<LegacyArrowFlightSchemaConvertor>(state->timezone());
+            _arrow_schema_convertor = std::make_shared<LegacyArrowFlightSchemaConvertor>(
+                    state->timezone(), _native_variant);
         }
     }
 
