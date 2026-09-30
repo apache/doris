@@ -39,6 +39,17 @@ inline constexpr int32_t HANDSHAKE_PROTOCOL_VERSION = 1;
 // rechecks getppid() against this value to close the arm-after-death race.
 inline constexpr const char* WORKER_EXPECTED_PPID_ENV = "DORIS_LANCE_WORKER_PPID";
 
+// Controlled-environment variable through which the supervisor hands the worker
+// its active fault-injection debug points (comma-separated names): snapshotted
+// by build_child_env in index_job_supervisor.cpp and re-registered by
+// run_index_worker in index_worker.cpp through this one shared spelling, so
+// the two sides cannot drift. The exec'd image starts with a default-off
+// debug-point gate and an empty registry, so without this handoff the
+// worker-side points could never fire outside unit tests. The fake worker's
+// own literal (be/test/lance/fake_worker/lance_fake_worker.c) is deliberately
+// separate: pure C, it cannot include this header.
+inline constexpr const char* WORKER_DEBUG_POINTS_ENV = "DORIS_LANCE_WORKER_DEBUG_POINTS";
+
 // Pure library entry of the isolated one-shot index worker: reads one
 // length-prefixed thrift-compact TLanceIndexJobDispatch frame from dispatch_fd,
 // writes one handshake frame followed by at most one result frame

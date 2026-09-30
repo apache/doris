@@ -70,14 +70,6 @@ constexpr const char* DIAG_UNKNOWN_NATIVE_CODE = "lance worker: unmapped native 
 constexpr const char* DIAG_RESULT_WRITE_FAILED = "lance worker: result write failed\n";
 constexpr const char* DIAG_PARENT_GUARD = "lance worker: parent-death guard tripped\n";
 
-// Controlled-environment variable through which the supervisor hands the worker
-// its active fault-injection debug points (comma-separated names; snapshotted
-// by build_child_env in index_job_supervisor.cpp — keep the two spellings in
-// sync). The exec'd worker starts with a default-off debug-point gate and an
-// empty registry, so without this handoff the worker-side points could never
-// fire outside unit tests.
-constexpr const char* WORKER_DEBUG_POINTS_ENV = "DORIS_LANCE_WORKER_DEBUG_POINTS";
-
 // Bounded best-effort diagnostic write. Never carries dynamic content.
 void diag(int fd, const char* message) {
     if (fd < 0 || message == nullptr) {
