@@ -51,7 +51,9 @@ void expect_legacy_batch(const Block& block, const std::shared_ptr<arrow::Record
                 VSlotRef::create_shared(i, i, -1, column.type, column.name)));
     }
     std::shared_ptr<arrow::Schema> schema;
-    ASSERT_TRUE(get_arrow_schema_from_expr_ctxs(expressions, &schema, "UTC", true, false).ok());
+    ASSERT_TRUE(LegacyArrowFlightSchemaConvertor("UTC")
+                        .get_arrow_schema_from_expr_ctxs(expressions, &schema)
+                        .ok());
     // Synthetic slot references have no expression labels; compare batches using the same names.
     schema = schema->WithNames(extended->schema()->field_names()).ValueOrDie();
     std::shared_ptr<arrow::RecordBatch> batch;
@@ -70,6 +72,33 @@ void expect_legacy_batch(const Block& block, const std::shared_ptr<arrow::Record
     EXPECT_TRUE(extended->Equals(*batch, false));
 }
 
+TEST(ArrowSchemaConvertorTest, ProtocolsKeepNestedTimestampAndMetadataPoliciesSeparate) {
+    const auto datetime =
+            DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6);
+    const auto largeint = std::make_shared<DataTypeInt128>();
+    const auto nested = std::make_shared<DataTypeStruct>(DataTypes {datetime, largeint},
+                                                         Strings {"time", "number"});
+    Block block;
+    block.insert({nested->create_column(), nested, "value"});
+    std::vector<std::unique_ptr<ArrowSchemaConvertor>> convertors;
+    convertors.push_back(std::make_unique<DorisArrowSchemaConvertor>(block, "Asia/Shanghai"));
+    convertors.push_back(std::make_unique<ArrowFlightSchemaConvertor>(block, "Asia/Shanghai"));
+    convertors.push_back(
+            std::make_unique<LegacyArrowFlightSchemaConvertor>(block, "Asia/Shanghai"));
+    for (size_t i = 0; i < convertors.size(); ++i) {
+        std::shared_ptr<arrow::Schema> schema;
+        ASSERT_TRUE(convertors[i]->get_arrow_schema(&schema).ok());
+        const auto& fields = schema->field(0)->type()->fields();
+        const auto& timestamp = static_cast<const arrow::TimestampType&>(*fields[0]->type());
+        EXPECT_EQ(i == 0 ? "Asia/Shanghai" : "", timestamp.timezone());
+        if (i == 2) {
+            EXPECT_EQ(nullptr, fields[1]->metadata());
+        } else {
+            expect_logical_type(fields[1], "LARGEINT");
+        }
+    }
+}
+
 class ArrowLogicalTypeMetadataTest
         : public testing::TestWithParam<std::pair<PrimitiveType, const char*>> {};
 
@@ -86,7 +115,7 @@ TEST_P(ArrowLogicalTypeMetadataTest, PreservesTopLevelAndNestedFields) {
         block.insert({types[i]->create_column(), types[i], std::to_string(i)});
     }
     std::shared_ptr<arrow::Schema> schema;
-    ASSERT_TRUE(get_arrow_schema_from_block(block, &schema, "UTC", true).ok());
+    ASSERT_TRUE(ArrowFlightSchemaConvertor("UTC").get_arrow_schema_from_block(block, &schema).ok());
     expect_logical_type(schema->field(0), name);
     expect_logical_type(schema->field(1)->type()->field(0), name);
     expect_logical_type(schema->field(2)->type()->field(0), name);
@@ -113,10 +142,14 @@ TEST_P(ArrowLogicalTypeMetadataTest, OldFeReceivesLegacySchema) {
     }
     std::shared_ptr<arrow::Schema> legacy;
     std::shared_ptr<arrow::Schema> extended;
-    ASSERT_TRUE(get_arrow_schema_from_expr_ctxs(expressions, &legacy, "UTC", true, false).ok());
-    ASSERT_TRUE(get_arrow_schema_from_expr_ctxs(expressions, &extended, "UTC", true, true).ok());
+    ASSERT_TRUE(LegacyArrowFlightSchemaConvertor("UTC")
+                        .get_arrow_schema_from_expr_ctxs(expressions, &legacy)
+                        .ok());
+    ASSERT_TRUE(ArrowFlightSchemaConvertor("UTC")
+                        .get_arrow_schema_from_expr_ctxs(expressions, &extended)
+                        .ok());
     std::shared_ptr<arrow::DataType> storage;
-    ASSERT_TRUE(convert_to_arrow_type(type, &storage, "UTC", true).ok());
+    ASSERT_TRUE(ArrowFlightSchemaConvertor("UTC").convert_to_arrow_type(type, &storage).ok());
     auto scalar = arrow::field(legacy->field(0)->name(), storage, type->is_nullable());
     if (primitive != TYPE_JSONB && primitive != TYPE_VARIANT) {
         scalar = scalar->WithMetadata(arrow::key_value_metadata({"doris_type"}, {name}));
@@ -156,7 +189,7 @@ TEST(ArrowRowBatchMetadataTest, PreservesMapKeysAndDeepNestingThroughIpc) {
     Block block;
     block.insert({type->create_column(), type, "m"});
     std::shared_ptr<arrow::Schema> schema;
-    ASSERT_TRUE(get_arrow_schema_from_block(block, &schema, "UTC").ok());
+    ASSERT_TRUE(DorisArrowSchemaConvertor("UTC").get_arrow_schema_from_block(block, &schema).ok());
     std::string serialized;
     ASSERT_TRUE(serialize_arrow_schema(&schema, &serialized).ok());
     auto source = std::make_shared<arrow::io::BufferReader>(arrow::Buffer::FromString(serialized));
@@ -184,7 +217,7 @@ TEST(ArrowRowBatchMetadataTest, KeepsNativeTypesUnannotated) {
             DataTypes {std::make_shared<DataTypeInt32>(), std::make_shared<DataTypeString>()},
             Strings {"number", "text"});
     std::shared_ptr<arrow::DataType> arrow_type;
-    ASSERT_TRUE(convert_to_arrow_type(type, &arrow_type, "UTC").ok());
+    ASSERT_TRUE(DorisArrowSchemaConvertor("UTC").convert_to_arrow_type(type, &arrow_type).ok());
     for (const auto& field : arrow_type->fields()) {
         EXPECT_EQ(nullptr, field->metadata());
         EXPECT_FALSE(field->nullable());
@@ -202,7 +235,7 @@ TEST(ArrowRowBatchMetadataTest, PreservesLargeintExtremesAndNullsInRecordBatches
     Block block;
     block.insert({std::move(column), array_type, "numbers"});
     std::shared_ptr<arrow::Schema> schema;
-    ASSERT_TRUE(get_arrow_schema_from_block(block, &schema, "UTC", true).ok());
+    ASSERT_TRUE(ArrowFlightSchemaConvertor("UTC").get_arrow_schema_from_block(block, &schema).ok());
     ArrowFlightArrowBlockConvertor converter(schema, cctz::utc_time_zone());
     std::shared_ptr<arrow::RecordBatch> batch;
     auto status = converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch);
@@ -241,7 +274,7 @@ TEST(ArrowRowBatchMetadataTest, PreservesNestedMapMetadataAndValuesInRecordBatch
     Block block;
     block.insert({std::move(column), type, "nested"});
     std::shared_ptr<arrow::Schema> schema;
-    ASSERT_TRUE(get_arrow_schema_from_block(block, &schema, "UTC", true).ok());
+    ASSERT_TRUE(ArrowFlightSchemaConvertor("UTC").get_arrow_schema_from_block(block, &schema).ok());
     ArrowFlightArrowBlockConvertor converter(schema, cctz::utc_time_zone());
     std::shared_ptr<arrow::RecordBatch> batch;
     auto status = converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch);

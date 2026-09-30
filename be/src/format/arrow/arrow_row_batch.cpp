@@ -48,9 +48,8 @@
 
 namespace doris {
 
-Status convert_to_arrow_type(const DataTypePtr& origin_type,
-                             std::shared_ptr<arrow::DataType>* result, const std::string& timezone,
-                             bool datetime_naive) {
+Status DorisArrowSchemaConvertor::convert_to_arrow_type(
+        const DataTypePtr& origin_type, std::shared_ptr<arrow::DataType>* result) const {
     auto type = get_serialized_type(origin_type);
     switch (type->get_primitive_type()) {
     case TYPE_NULL:
@@ -107,18 +106,8 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         } else {
             time_unit = arrow::TimeUnit::SECOND;
         }
-        // Doris DATETIMEV2 represents a wall-clock value without a timezone. Arrow Flight
-        // exposes it as a timezone-naive timestamp so clients do not interpret it as an instant.
-        // This option only changes the DATETIMEV2 output schema. TIMESTAMPTZ remains timezone-aware,
-        // and Arrow-to-Doris conversions are unaffected.
-        if (type->get_primitive_type() == TYPE_DATETIMEV2 && datetime_naive) {
-            *result = std::make_shared<arrow::TimestampType>(time_unit);
-        } else {
-            // Arrow clients resolve timezone metadata as an IANA name; use the canonical UTC
-            // name instead of the ISO-8601 "Z" alias without changing the encoded instant.
-            *result = std::make_shared<arrow::TimestampType>(time_unit,
-                                                             timezone == "Z" ? "UTC" : timezone);
-        }
+        *result = std::make_shared<arrow::TimestampType>(
+                time_unit, timestamp_timezone(type->get_primitive_type()));
         break;
     }
     case TYPE_DECIMALV2:
@@ -136,10 +125,9 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
     case TYPE_ARRAY: {
         const auto* type_arr = assert_cast<const DataTypeArray*>(remove_nullable(type).get());
         std::shared_ptr<arrow::DataType> item_type;
-        RETURN_IF_ERROR(convert_to_arrow_type(type_arr->get_nested_type(), &item_type, timezone,
-                                              datetime_naive));
+        RETURN_IF_ERROR(convert_to_arrow_type(type_arr->get_nested_type(), &item_type));
         // Arrow stores metadata on fields, so implicit child fields lose the Doris logical type.
-        *result = std::make_shared<arrow::ListType>(create_arrow_field_with_metadata(
+        *result = std::make_shared<arrow::ListType>(make_child_field(
                 "item", item_type, true, type_arr->get_nested_type()->get_primitive_type()));
         break;
     }
@@ -147,14 +135,12 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         const auto* type_map = assert_cast<const DataTypeMap*>(remove_nullable(type).get());
         std::shared_ptr<arrow::DataType> key_type;
         std::shared_ptr<arrow::DataType> val_type;
-        RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_key_type(), &key_type, timezone,
-                                              datetime_naive));
-        RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_value_type(), &val_type, timezone,
-                                              datetime_naive));
-        auto key_field = create_arrow_field_with_metadata(
-                "key", key_type, false, type_map->get_key_type()->get_primitive_type());
-        auto value_field = create_arrow_field_with_metadata(
-                "value", val_type, true, type_map->get_value_type()->get_primitive_type());
+        RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_key_type(), &key_type));
+        RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_value_type(), &val_type));
+        auto key_field = make_child_field("key", key_type, false,
+                                          type_map->get_key_type()->get_primitive_type());
+        auto value_field = make_child_field("value", val_type, true,
+                                            type_map->get_value_type()->get_primitive_type());
         *result = std::make_shared<arrow::MapType>(key_field, value_field);
         break;
     }
@@ -163,12 +149,10 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         std::vector<std::shared_ptr<arrow::Field>> fields;
         for (size_t i = 0; i < type_struct->get_elements().size(); i++) {
             std::shared_ptr<arrow::DataType> field_type;
-            RETURN_IF_ERROR(convert_to_arrow_type(type_struct->get_element(i), &field_type,
-                                                  timezone, datetime_naive));
-            fields.push_back(create_arrow_field_with_metadata(
-                    type_struct->get_element_name(i), field_type,
-                    type_struct->get_element(i)->is_nullable(),
-                    type_struct->get_element(i)->get_primitive_type()));
+            RETURN_IF_ERROR(convert_to_arrow_type(type_struct->get_element(i), &field_type));
+            fields.push_back(make_child_field(type_struct->get_element_name(i), field_type,
+                                              type_struct->get_element(i)->is_nullable(),
+                                              type_struct->get_element(i)->get_primitive_type()));
         }
         *result = std::make_shared<arrow::StructType>(fields);
         break;
@@ -222,78 +206,74 @@ std::shared_ptr<arrow::Field> create_arrow_field_with_metadata(
     return std::make_shared<arrow::Field>(field_name, arrow_type, is_nullable, metadata);
 }
 
-Status get_arrow_schema_from_block(const Block& block, std::shared_ptr<arrow::Schema>* result,
-                                   const std::string& timezone, bool datetime_naive) {
+Status DorisArrowSchemaConvertor::get_arrow_schema_from_block(
+        const Block& block, std::shared_ptr<arrow::Schema>* result) const {
     std::vector<std::shared_ptr<arrow::Field>> fields;
     for (const auto& type_and_name : block) {
         std::shared_ptr<arrow::DataType> arrow_type;
-        RETURN_IF_ERROR(
-                convert_to_arrow_type(type_and_name.type, &arrow_type, timezone, datetime_naive));
-        auto field = create_arrow_field_with_metadata(type_and_name.name, arrow_type,
-                                                      type_and_name.type->is_nullable(),
-                                                      type_and_name.type->get_primitive_type());
+        RETURN_IF_ERROR(convert_to_arrow_type(type_and_name.type, &arrow_type));
+        auto field = make_field(type_and_name.name, arrow_type, type_and_name.type->is_nullable(),
+                                type_and_name.type->get_primitive_type());
         fields.push_back(field);
     }
     *result = arrow::schema(std::move(fields));
     return Status::OK();
 }
 
-namespace {
-std::shared_ptr<arrow::Field> legacy_arrow_field(const std::shared_ptr<arrow::Field>& field,
-                                                 bool top_level) {
-    auto type = field->type();
-    switch (type->id()) {
-    case arrow::Type::LIST:
-        type = arrow::list(legacy_arrow_field(type->field(0), false));
-        break;
-    case arrow::Type::MAP:
-        type = std::make_shared<arrow::MapType>(
-                legacy_arrow_field(type->field(0), false),
-                static_cast<const arrow::MapType&>(*type).keys_sorted());
-        break;
-    case arrow::Type::STRUCT: {
-        arrow::FieldVector children;
-        for (const auto& child : type->fields()) {
-            children.push_back(legacy_arrow_field(child, false));
-        }
-        type = arrow::struct_(children);
-        break;
-    }
-    default:
-        break;
-    }
-    auto result = field->WithType(type);
-    if (field->metadata() && field->metadata()->Contains("doris_type")) {
-        const auto marker = field->metadata()->Get("doris_type").ValueOrDie();
-        if (!top_level || marker == "JSON" || marker == "VARIANT") {
-            auto metadata = field->metadata()->Copy();
-            (void)metadata->Delete("doris_type");
-            result = result->WithMetadata(metadata->size() == 0 ? nullptr : metadata);
-        }
-    }
-    return result;
+Status DorisArrowSchemaConvertor::get_arrow_schema(std::shared_ptr<arrow::Schema>* result) const {
+    return get_arrow_schema_from_block(_header, result);
 }
-} // namespace
 
-Status get_arrow_schema_from_expr_ctxs(const VExprContextSPtrs& output_vexpr_ctxs,
-                                       std::shared_ptr<arrow::Schema>* result,
-                                       const std::string& timezone, bool datetime_naive,
-                                       bool enable_arrow_type_metadata) {
+std::string DorisArrowSchemaConvertor::timestamp_timezone(PrimitiveType) const {
+    // Arrow clients expect a timezone name rather than the ISO-8601 UTC alias.
+    return _timezone == "Z" ? "UTC" : _timezone;
+}
+
+std::string ArrowFlightSchemaConvertor::timestamp_timezone(PrimitiveType type) const {
+    // DATETIMEV2 is wall-clock time; TIMESTAMPTZ must still describe an instant.
+    return type == TYPE_DATETIMEV2 ? "" : DorisArrowSchemaConvertor::timestamp_timezone(type);
+}
+
+std::shared_ptr<arrow::Field> DorisArrowSchemaConvertor::make_field(
+        const std::string& name, const std::shared_ptr<arrow::DataType>& type, bool nullable,
+        PrimitiveType primitive) const {
+    return create_arrow_field_with_metadata(name, type, nullable, primitive);
+}
+
+std::shared_ptr<arrow::Field> DorisArrowSchemaConvertor::make_child_field(
+        const std::string& name, const std::shared_ptr<arrow::DataType>& type, bool nullable,
+        PrimitiveType primitive) const {
+    return create_arrow_field_with_metadata(name, type, nullable, primitive);
+}
+
+std::shared_ptr<arrow::Field> LegacyArrowFlightSchemaConvertor::make_field(
+        const std::string& name, const std::shared_ptr<arrow::DataType>& type, bool nullable,
+        PrimitiveType primitive) const {
+    if (primitive == TYPE_JSONB || primitive == TYPE_VARIANT) {
+        return arrow::field(name, type, nullable);
+    }
+    return DorisArrowSchemaConvertor::make_field(name, type, nullable, primitive);
+}
+
+std::shared_ptr<arrow::Field> LegacyArrowFlightSchemaConvertor::make_child_field(
+        const std::string& name, const std::shared_ptr<arrow::DataType>& type, bool nullable,
+        PrimitiveType) const {
+    return arrow::field(name, type, nullable);
+}
+
+Status DorisArrowSchemaConvertor::get_arrow_schema_from_expr_ctxs(
+        const VExprContextSPtrs& output_vexpr_ctxs, std::shared_ptr<arrow::Schema>* result) const {
     std::vector<std::shared_ptr<arrow::Field>> fields;
     for (int i = 0; i < output_vexpr_ctxs.size(); i++) {
         std::shared_ptr<arrow::DataType> arrow_type;
         auto root_expr = output_vexpr_ctxs.at(i)->root();
-        RETURN_IF_ERROR(convert_to_arrow_type(root_expr->data_type(), &arrow_type, timezone,
-                                              datetime_naive));
+        RETURN_IF_ERROR(convert_to_arrow_type(root_expr->data_type(), &arrow_type));
         auto field_name = root_expr->is_slot_ref() && !root_expr->expr_label().empty()
                                   ? root_expr->expr_label()
                                   : fmt::format("{}_{}", root_expr->data_type()->get_name(), i);
-        auto field =
-                create_arrow_field_with_metadata(field_name, arrow_type, root_expr->is_nullable(),
-                                                 root_expr->data_type()->get_primitive_type());
-        // Old FEs compare full schemas during BE-first rolling upgrades. Use the legacy
-        // metadata for both schema fetch and result batches until the FE opts in.
-        fields.push_back(enable_arrow_type_metadata ? field : legacy_arrow_field(field, true));
+        auto field = make_field(field_name, arrow_type, root_expr->is_nullable(),
+                                root_expr->data_type()->get_primitive_type());
+        fields.push_back(std::move(field));
     }
     *result = arrow::schema(std::move(fields));
     return Status::OK();

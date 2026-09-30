@@ -57,9 +57,8 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
     } else {
         std::shared_ptr<arrow::Schema> arrow_schema;
         if (p._sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCOL) {
-            RETURN_IF_ERROR(get_arrow_schema_from_expr_ctxs(
-                    _output_vexpr_ctxs, &arrow_schema, state->timezone(),
-                    /*datetime_naive=*/true, p._enable_arrow_type_metadata));
+            RETURN_IF_ERROR(p._arrow_schema_convertor->get_arrow_schema_from_expr_ctxs(
+                    _output_vexpr_ctxs, &arrow_schema));
         }
         VLOG_DEBUG << "create sender in INIT with instance id " << fragment_instance_id;
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
@@ -122,12 +121,22 @@ Status ResultSinkOperatorX::prepare(RuntimeState* state) {
     // Prepare the exprs to run.
     RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
 
+    if (_sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCOL) {
+        // Capability negotiation selects one immutable policy for schema fetches and batches.
+        if (_enable_arrow_type_metadata) {
+            _arrow_schema_convertor =
+                    std::make_shared<ArrowFlightSchemaConvertor>(state->timezone());
+        } else {
+            _arrow_schema_convertor =
+                    std::make_shared<LegacyArrowFlightSchemaConvertor>(state->timezone());
+        }
+    }
+
     if (state->query_options().enable_parallel_result_sink) {
         std::shared_ptr<arrow::Schema> arrow_schema;
         if (_sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCOL) {
-            RETURN_IF_ERROR(get_arrow_schema_from_expr_ctxs(
-                    _output_vexpr_ctxs, &arrow_schema, state->timezone(),
-                    /*datetime_naive=*/true, _enable_arrow_type_metadata));
+            RETURN_IF_ERROR(_arrow_schema_convertor->get_arrow_schema_from_expr_ctxs(
+                    _output_vexpr_ctxs, &arrow_schema));
         }
         VLOG_DEBUG << "create sender in prepare with query id " << state->query_id();
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(

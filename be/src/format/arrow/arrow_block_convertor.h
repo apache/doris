@@ -89,11 +89,10 @@ class DorisArrowBlockConvertor : public ArrowBlockConvertor {
 public:
     using ArrowBlockConvertor::ArrowBlockConvertor;
     DorisArrowBlockConvertor(const Block& header, std::string timezone_name,
-                             const cctz::time_zone& timezone, bool datetime_naive = false)
+                             const cctz::time_zone& timezone)
             : ArrowBlockConvertor(nullptr, timezone),
               _header(header.clone_empty()),
-              _timezone_name(std::move(timezone_name)),
-              _datetime_naive(datetime_naive) {}
+              _timezone_name(std::move(timezone_name)) {}
 
     Status init() override;
     Status convert_from_arrow(const std::shared_ptr<arrow::RecordBatch>& batch,
@@ -106,16 +105,14 @@ protected:
                         arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                         const cctz::time_zone& ctz) const override;
 
-private:
     Block _header;
     std::string _timezone_name;
-    bool _datetime_naive = false;
 };
 
 class ArrowFlightArrowBlockConvertor final : public DorisArrowBlockConvertor {
 public:
     using DorisArrowBlockConvertor::DorisArrowBlockConvertor;
-
+    Status init() override;
     Status convert_to_arrow(const Block& block, arrow::MemoryPool* pool,
                             std::shared_ptr<arrow::RecordBatch>* result, size_t start_row = 0,
                             size_t end_row = 0) const override;
