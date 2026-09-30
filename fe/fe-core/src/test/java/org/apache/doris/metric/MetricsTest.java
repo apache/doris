@@ -83,8 +83,8 @@ public class MetricsTest {
                 + "\"} " + Long.parseLong(value.toString());
 
         String metricResult = getPrometheusMetrics();
-        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_version gauge"), metricResult);
-        Assertions.assertTrue(metricResult.contains(expectedSample), metricResult);
+        Assert.assertTrue(metricResult, metricResult.contains("# TYPE doris_fe_version gauge"));
+        Assert.assertTrue(metricResult, metricResult.contains(expectedSample));
     }
 
     @Test
