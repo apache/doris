@@ -24,6 +24,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.GenericPool;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.persist.EditLog;
@@ -44,6 +46,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -132,6 +135,13 @@ public class LanceIndexJobDispatcherTest {
         catalog = Mockito.mock(LanceExternalCatalog.class);
         Mockito.when(catalog.getId()).thenReturn(CATALOG_ID);
         Mockito.when(catalog.getName()).thenReturn("lance_cat");
+        // The refresh driver proves DONE through the local db/table resolution before
+        // it refreshes; the resolved target also keeps the dispatch-side storage-option
+        // resolution unaffected (it reads the catalog property, not the relations).
+        @SuppressWarnings("unchecked")
+        ExternalDatabase<ExternalTable> catalogDb = Mockito.mock(ExternalDatabase.class);
+        Mockito.doReturn(catalogDb).when(catalog).getDbNullable("db1");
+        Mockito.doReturn(Mockito.mock(ExternalTable.class)).when(catalogDb).getTableNullable("tbl1");
         AbstractS3CompatibleProperties storageProperties = Mockito.mock(AbstractS3CompatibleProperties.class);
         Mockito.when(storageProperties.getAccessKey()).thenReturn(FAKE_ACCESS_KEY);
         Mockito.when(storageProperties.getSecretKey()).thenReturn(FAKE_SECRET_KEY);
@@ -782,6 +792,41 @@ public class LanceIndexJobDispatcherTest {
 
         Assertions.assertEquals(3, dispatcher.sends.size());
         Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, manager.getJob(3L).getMutationState());
+    }
+
+    @Test
+    public void noEnqueueRejectionReclaimsTheRoundsCapacity() throws Exception {
+        Config.lance_index_job_max_inflight_per_backend = 1;
+        admit(1L, "IdxA", LOCATOR);
+        admit(2L, "IdxB", LOCATOR);
+        // The shipped stub answers every dispatch with a clean rejection: the durable
+        // no-enqueue transition releases the slot, and the round must hand its local
+        // capacity straight back or only one of these jobs would dispatch per round.
+        dispatcher.statusToReturn = new TStatus(TStatusCode.NOT_IMPLEMENTED_ERROR);
+
+        dispatcher.runAfterCatalogReady();
+
+        Assertions.assertEquals(2, dispatcher.sends.size());
+        Assertions.assertEquals(LanceIndexJobMutationState.NOT_COMMITTED, manager.getJob(1L).getMutationState());
+        Assertions.assertEquals(LanceIndexJobMutationState.NOT_COMMITTED, manager.getJob(2L).getMutationState());
+        Assertions.assertFalse(manager.getJob(1L).holdsPossibleLiveSlot());
+        Assertions.assertFalse(manager.getJob(2L).holdsPossibleLiveSlot());
+    }
+
+    @Test
+    public void selectionPolicyIncludesSameHostAndComputeBackends() throws Exception {
+        admit(1L, "IdxA", LOCATOR);
+        ArgumentCaptor<BeSelectionPolicy> policy = ArgumentCaptor.forClass(BeSelectionPolicy.class);
+
+        dispatcher.runAfterCatalogReady();
+
+        Mockito.verify(systemInfo).selectBackendIdsByPolicy(policy.capture(), Mockito.eq(-1));
+        // Every usable worker must be selectable: the policy defaults hide all but one
+        // backend per host and filter every compute-role backend out.
+        Assertions.assertTrue(policy.getValue().needScheduleAvailable);
+        Assertions.assertTrue(policy.getValue().allowOnSameHost);
+        Assertions.assertTrue(policy.getValue().preferComputeNode);
+        Assertions.assertEquals(1, dispatcher.sends.size());
     }
 
     @Test

@@ -18,11 +18,14 @@
 package org.apache.doris.datasource.lance.job;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
+import org.apache.doris.datasource.lance.LanceIndexDatasetCheck;
 import org.apache.doris.datasource.lance.storage.LanceStorageOptions;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Backend;
@@ -291,13 +294,42 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             finishRefreshTransition(jobManager, job.getJobId(), refreshRevision, false);
             return;
         }
+        // DONE is reserved for a refresh that verifiably did its work: a null db/table
+        // lookup is NOT that evidence (a cold cache or a transient remote failure also
+        // yields null and handleRefreshTable would silently skip the invalidation and
+        // the journal), so the local resolution decides how completion is proven.
+        DatabaseIf<? extends TableIf> db;
+        TableIf table;
         try {
-            // A half-orphan target (its db or table already dropped externally) is a
-            // silent no-op: nothing is left to invalidate, and DONE is the correct end
-            // state for the job. The refresh is addressed by the persisted catalog id,
-            // never by the mutable name: a rename that hands this catalog's old name
-            // to a different catalog between the two resolutions must not refresh
-            // that one and bill the outcome to this job.
+            db = catalog.getDbNullable(job.getDbName());
+            table = db == null ? null : db.getTableNullable(job.getTableName());
+        } catch (Throwable t) {
+            LOG.warn("target of lance index job {} could not be resolved for its refresh; retrying later",
+                    job.getJobId(), t);
+            finishRefreshTransition(jobManager, job.getJobId(), refreshRevision, false);
+            return;
+        }
+        if (db == null || table == null) {
+            // Positively verify the half-orphan through the namespace before DONE: only
+            // a VERIFIED_ABSENT answer is "nothing is left to invalidate". PRESENT with
+            // a cold local cache, or an UNRESOLVED check, marks the refresh FAILED and
+            // retries — never DONE without evidence.
+            if (catalog instanceof LanceExternalCatalog && ((LanceExternalCatalog) catalog).checkIndexJobDataset(
+                    job.getDbName(), job.getTableName()).outcome
+                    == LanceIndexDatasetCheck.Outcome.VERIFIED_ABSENT) {
+                LOG.info("refresh of lance index job {} skipped: the target is verified absent", job.getJobId());
+                finishRefreshTransition(jobManager, job.getJobId(), refreshRevision, true);
+                return;
+            }
+            LOG.warn("refresh of lance index job {} cannot be verified this round; retrying later", job.getJobId());
+            finishRefreshTransition(jobManager, job.getJobId(), refreshRevision, false);
+            return;
+        }
+        try {
+            // The target resolves: this refresh actually invalidates it. It is addressed
+            // by the persisted catalog id, never by the mutable name: a rename that
+            // hands this catalog's old name to a different catalog between the two
+            // resolutions must not refresh that one and bill the outcome to this job.
             Env.getCurrentEnv().getRefreshManager().handleRefreshTable(job.getCatalogId(),
                     job.getDbName(), job.getTableName(), true);
         } catch (Throwable t) {
@@ -436,12 +468,16 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             return false;
         }
         SystemInfoService systemInfo = Env.getCurrentSystemInfo();
-        // All schedule-available backends, shuffled by the selection policy: the
-        // first one with a free possible-live slot takes the job, so a full
-        // backend defers this attempt only when every selectable backend is at
-        // the cap, never just because the randomly picked one is.
+        // Every schedule-available worker, shuffled by the selection policy: the first
+        // one with a free possible-live slot takes the job, so a full backend defers
+        // this attempt only when every selectable backend is at the cap, never just
+        // because the randomly picked one is. allowOnSameHost keeps co-located
+        // backends visible (the policy default hides all but one per host), and
+        // preferComputeNode lets compute-only clusters serve Lance dispatch at all —
+        // the policy default filters every compute-role backend out.
         List<Long> backendIds = systemInfo.selectBackendIdsByPolicy(
-                new BeSelectionPolicy.Builder().needScheduleAvailable().build(), -1);
+                new BeSelectionPolicy.Builder().needScheduleAvailable().allowOnSameHost()
+                        .preferComputeNode(true).build(), -1);
         int perBackendCap = Math.max(1, Config.lance_index_job_max_inflight_per_backend);
         Backend backend = null;
         for (Long backendId : backendIds) {
@@ -506,9 +542,13 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
         } catch (PreInvocationSendException e) {
             // Proven never enqueued: converge through the no-enqueue channel, which
             // releases the possible-live slot this attempt took with markRunning in
-            // the same durable transition.
+            // the same durable transition — and hands this round's local capacity
+            // straight back, so later jobs are not deferred behind a slot that no
+            // longer exists (the shipped not-implemented stub hits this every time).
             LOG.warn("dispatch of lance index job {} provably never enqueued: {}", job.getJobId(), e.getMessage());
-            completePreInvocationRejected(jobManager, fresh, e.getMessage());
+            if (completePreInvocationRejected(jobManager, fresh, e.getMessage())) {
+                inflightByBackend.merge(backend.getId(), -1, Integer::sum);
+            }
             return true;
         } catch (Exception e) {
             // The request may have reached the backend, so its outcome cannot be trusted.
@@ -530,10 +570,14 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             // name travels into the log and the persisted reason, so SHOW can tell an
             // unavailable worker (NOT_IMPLEMENTED_ERROR) from a resource or policy
             // rejection; the free-form backend error message stays out unless sanitized.
+            // The released slot is reclaimed for this round exactly like the exception
+            // path above.
             LOG.warn("backend {} rejected the dispatch of lance index job {} before enqueueing: {}",
                     backend.getId(), job.getJobId(), status.getStatusCode());
-            completePreInvocationRejected(jobManager, fresh,
-                    "backend rejected the dispatch before enqueueing it: " + status.getStatusCode());
+            if (completePreInvocationRejected(jobManager, fresh,
+                    "backend rejected the dispatch before enqueueing it: " + status.getStatusCode())) {
+                inflightByBackend.merge(backend.getId(), -1, Integer::sum);
+            }
         }
         // OK: enqueued exactly once. The result arrives through the report callback;
         // nothing more is done here, and the deadline sweep bounds the wait.
@@ -665,7 +709,13 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
         }
     }
 
-    private void completePreInvocationRejected(LanceIndexJobManager jobManager, LanceIndexJob job, String reason) {
+    /**
+     * Converges a proven no-enqueue attempt. Returns whether the durable transition
+     * landed: only then was the possible-live slot really released, and only then may
+     * the caller reclaim this round's local capacity for that backend.
+     */
+    private boolean completePreInvocationRejected(LanceIndexJobManager jobManager, LanceIndexJob job,
+            String reason) {
         boolean completed = jobManager.completeProvenNoEnqueue(job.getJobId(),
                 dispatchRevisionOf(job), job.getInvocationId(), job.getBeProcessEpoch(),
                 new LanceIndexJobResult(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED,
@@ -674,6 +724,7 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             LOG.warn("rejection convergence skipped for lance index job {}: already converged by a callback or sweep",
                     job.getJobId());
         }
+        return completed;
     }
 
     /**
