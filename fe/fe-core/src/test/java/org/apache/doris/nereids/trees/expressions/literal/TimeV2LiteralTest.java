@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
+import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -25,6 +26,9 @@ import org.apache.doris.nereids.types.TimeV2Type;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 
 public class TimeV2LiteralTest {
 
@@ -186,4 +190,25 @@ public class TimeV2LiteralTest {
         Assertions.assertEquals(59, dateTime.getSecond());
     }
 
+    @Test
+    public void testFromMysqlBinaryTimeParameter() throws AnalysisException {
+        // Protocol::MYSQL_TYPE_TIME, 12 bytes: is_negative, days, hours, minutes, seconds, microseconds
+        ByteBuffer data = ByteBuffer.allocate(13).order(ByteOrder.LITTLE_ENDIAN);
+        data.put((byte) 12).put((byte) 0).putInt(0).put((byte) 12).put((byte) 34).put((byte) 56).putInt(123456).flip();
+        Literal literal = Literal.getLiteralByMysqlType(MysqlColType.MYSQL_TYPE_TIME, false, data);
+        TimeV2Literal time = Assertions.assertInstanceOf(TimeV2Literal.class, literal);
+        Assertions.assertEquals("12:34:56.123456", time.getStringValue());
+
+        // 8 bytes: no microseconds; negative, and the days fold into the hours
+        data = ByteBuffer.allocate(9).order(ByteOrder.LITTLE_ENDIAN);
+        data.put((byte) 8).put((byte) 1).putInt(1).put((byte) 1).put((byte) 2).put((byte) 3).flip();
+        time = (TimeV2Literal) Literal.getLiteralByMysqlType(MysqlColType.MYSQL_TYPE_TIME2, false, data);
+        Assertions.assertEquals("-25:02:03.000000", time.getStringValue());
+
+        // 0 bytes: 00:00:00
+        data = ByteBuffer.allocate(1).order(ByteOrder.LITTLE_ENDIAN);
+        data.put((byte) 0).flip();
+        time = (TimeV2Literal) Literal.getLiteralByMysqlType(MysqlColType.MYSQL_TYPE_TIME, false, data);
+        Assertions.assertEquals("00:00:00.000000", time.getStringValue());
+    }
 }

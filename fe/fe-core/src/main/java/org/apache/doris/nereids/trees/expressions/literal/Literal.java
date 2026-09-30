@@ -573,6 +573,10 @@ public abstract class Literal extends Expression implements LeafExpression {
             case MYSQL_TYPE_TIMESTAMP2:
                 literal = handleDateTimeLiteral(data);
                 break;
+            case MYSQL_TYPE_TIME:
+            case MYSQL_TYPE_TIME2:
+                literal = handleTimeLiteral(data);
+                break;
             case MYSQL_TYPE_STRING:
             case MYSQL_TYPE_VARSTRING:
                 literal = handleStringLiteral(data);
@@ -649,6 +653,22 @@ public abstract class Literal extends Expression implements LeafExpression {
             }
             return new DateTimeLiteral(0, 1, 1, 0, 0, 0);
         }
+    }
+
+    // Protocol::MYSQL_TYPE_TIME: length 0 is 00:00:00; 8 carries is_negative, days, hours,
+    // minutes, seconds; 12 adds microseconds.
+    private static Literal handleTimeLiteral(ByteBuffer data) throws AnalysisException {
+        int len = getParmLen(data);
+        if (len == 0) {
+            return new TimeV2Literal(0, 0, 0, 0, 6, false);
+        }
+        boolean negative = data.get() != 0;
+        int days = data.getInt();
+        int hour = (int) data.get();
+        int minute = (int) data.get();
+        int second = (int) data.get();
+        int microsecond = len > 8 ? data.getInt() : 0;
+        return new TimeV2Literal(days * 24 + hour, minute, second, microsecond, 6, negative);
     }
 
     private static Literal handleStringLiteral(ByteBuffer data) {
