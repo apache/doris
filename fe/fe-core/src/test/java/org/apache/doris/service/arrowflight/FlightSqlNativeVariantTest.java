@@ -17,16 +17,22 @@
 
 package org.apache.doris.service.arrowflight;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ResultSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.BackendHbResponse;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TColumnDesc;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TResultSinkType;
 
+import com.google.common.collect.ImmutableMap;
 import org.apache.arrow.vector.ipc.ReadChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
 import org.apache.arrow.vector.types.pojo.ArrowType;
@@ -68,8 +74,41 @@ public class FlightSqlNativeVariantTest {
     }
 
     @Test
-    public void sinkCapturesOptInWithoutChangingMysql() {
+    public void unknownBackendKeepsUtf8DuringUpgrade() throws Exception {
+        ConnectContext previous = ConnectContext.get();
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        SystemInfoService system = Env.getCurrentSystemInfo();
+        Object original = system.getAllBackendsByAllCluster();
+        try {
+            Backend upgraded = new Backend(12346, "127.0.0.1", 9051);
+            upgraded.handleHbResponse(heartbeat(upgraded.getId(), true), true);
+            Deencapsulation.setField(system, "idToBackendRef", ImmutableMap.of(upgraded.getId(), upgraded));
+            context.getSessionVariable().setEnableArrowFlightSqlNativeVariant(true);
+            Assert.assertTrue(FlightSqlNativeVariant.isEnabled(context));
+            system.addBackend(new Backend(12345, "127.0.0.1", 9050));
+            Assert.assertFalse(FlightSqlNativeVariant.isEnabled(context));
+            ResultSink flight = new ResultSink(new PlanNodeId(0), TResultSinkType.ARROW_FLIGHT_PROTOCOL);
+            TDataSink thrift = Deencapsulation.invoke(flight, "toThrift");
+            Assert.assertFalse(thrift.getResultSink().isNativeVariant());
+        } finally {
+            Deencapsulation.setField(system, "idToBackendRef", original);
+            ConnectContext.remove();
+            if (previous != null) {
+                previous.setThreadLocalInfo();
+            }
+        }
+    }
+
+    @Test
+    public void sinkCapturesOptInWithoutChangingMysql() throws Exception {
         Assert.assertFalse(new SessionVariable().isEnableArrowFlightSqlNativeVariant());
+        SystemInfoService system = Env.getCurrentSystemInfo();
+        Object original = system.getAllBackendsByAllCluster();
+        Backend backend = new Backend(12346, "127.0.0.1", 9050);
+        BackendHbResponse heartbeat = heartbeat(backend.getId(), true);
+        backend.handleHbResponse(heartbeat, true);
+        Deencapsulation.setField(system, "idToBackendRef", ImmutableMap.of(backend.getId(), backend));
         ConnectContext previous = ConnectContext.get();
         ConnectContext context = new ConnectContext();
         context.setThreadLocalInfo();
@@ -83,10 +122,33 @@ public class FlightSqlNativeVariantTest {
             Assert.assertTrue(flightSink.getResultSink().isNativeVariant());
             Assert.assertFalse(mysqlSink.getResultSink().isNativeVariant());
         } finally {
+            Deencapsulation.setField(system, "idToBackendRef", original);
             ConnectContext.remove();
             if (previous != null) {
                 previous.setThreadLocalInfo();
             }
         }
     }
+
+    private static BackendHbResponse heartbeat(long id, boolean supported) {
+        BackendHbResponse response = new BackendHbResponse(id, 9060, 8040, 8060,
+                1, 1, "test", "mix", 0, 0, false, 8815);
+        response.setArrowFlightNativeVariantSupported(supported);
+        return response;
+    }
+
+    @Test
+    public void heartbeatCapabilitySurvivesReplayAndClearsOnDowngrade() {
+        Backend backend = new Backend(12347, "127.0.0.1", 9050);
+        Assert.assertFalse(backend.isArrowFlightNativeVariantSupported());
+        BackendHbResponse advertised = heartbeat(backend.getId(), true);
+        String serialized = GsonUtils.GSON.toJson(advertised);
+        backend.handleHbResponse(GsonUtils.GSON.fromJson(serialized, BackendHbResponse.class), true);
+        Assert.assertTrue(backend.isArrowFlightNativeVariantSupported());
+        // An old BE omits the new heartbeat field after a rollback.
+        String oldHeartbeat = serialized.replace(",\"arrowFlightNativeVariantSupported\":true", "");
+        backend.handleHbResponse(GsonUtils.GSON.fromJson(oldHeartbeat, BackendHbResponse.class), true);
+        Assert.assertFalse(backend.isArrowFlightNativeVariantSupported());
+    }
+
 }

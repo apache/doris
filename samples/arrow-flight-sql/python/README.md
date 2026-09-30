@@ -72,13 +72,19 @@ SET enable_arrow_flight_sql_native_variant = true;
 SELECT variant_column FROM example_table;
 ```
 
-The default is `false`, which retains the existing UTF8 representation. When enabled,
+The default is `false`, which retains the existing UTF8 representation. When enabled
+and every registered BE has advertised native Variant support in its heartbeat,
 VARIANT fields (including nested fields) use the `arrow.parquet.variant` extension
 with `struct<metadata: binary not null, value: binary not null>` storage. SQL NULL is
 a null struct. V2 Variant null is a non-null struct containing the encoded null value.
 V2 values retain their binary representation. Supported legacy scalar roots use typed
-encoding; legacy documents use JSON conversion with the existing null/missing semantics.
+encoding (also for arrays and visible roots in mixed document batches); legacy documents
+use JSON conversion with the existing null/missing semantics.
 Decimal256 scalar roots are rejected because the wire format has no Decimal256 primitive.
+Native encoding currently accepts at most 128 nested levels. Deeper legacy documents
+remain readable with `enable_arrow_flight_sql_native_variant=false`.
+During a rolling upgrade, missing support on any registered BE keeps both query results
+and GetTables metadata in UTF8 mode, including when an older BE may proxy a result.
 
 ADBC can transport this schema and its binary values. A client without a registered
 Variant extension exposes the struct with `ARROW:extension:name` field metadata.

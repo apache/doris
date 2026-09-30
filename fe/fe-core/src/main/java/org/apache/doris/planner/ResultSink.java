@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.service.arrowflight.FlightSqlNativeVariant;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -47,8 +48,8 @@ public class ResultSink extends DataSink {
         this.resultSinkType = resultSinkType;
         ConnectContext context = ConnectContext.get();
         // The session may change before deferred result fetching; pin the format during planning.
-        nativeVariant = resultSinkType == TResultSinkType.ARROW_FLIGHT_PROTOCOL && context != null
-                && context.getSessionVariable().isEnableArrowFlightSqlNativeVariant();
+        nativeVariant = resultSinkType == TResultSinkType.ARROW_FLIGHT_PROTOCOL
+                && FlightSqlNativeVariant.isEnabled(context);
     }
 
     @Override

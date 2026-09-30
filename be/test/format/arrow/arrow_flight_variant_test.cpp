@@ -31,9 +31,12 @@
 #include "core/column/column_variant.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
@@ -189,6 +192,162 @@ TEST(ArrowFlightVariantTest, LegacyTypedDecimalDoesNotRoundThroughDouble) {
     auto decimal = value_at(*batch->column(0), 0).get_decimal();
     EXPECT_EQ(decimal.unscaled, unscaled);
     EXPECT_EQ(decimal.scale, 2);
+}
+
+TEST(ArrowFlightVariantTest, LegacyArrayPreservesExactDecimal) {
+    auto decimal_type = std::make_shared<DataTypeDecimal128>(20, 2);
+    auto decimals = ColumnDecimal128V3::create(0, 2);
+    const __int128 unscaled = 900719925474099301LL;
+    decimals->insert_value(Decimal128V3(unscaled));
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->get_data().push_back(1);
+    auto values = ColumnVariant::create(0);
+    values->create_root(
+            std::make_shared<DataTypeArray>(decimal_type),
+            ColumnArray::create(make_nullable(std::move(decimals)), std::move(offsets)));
+    values->finalize();
+    Block block {{std::move(values), std::make_shared<DataTypeVariant>(), "v"}};
+    ArrowFlightArrowBlockConvertor converter(
+            arrow::schema({arrow::field("v", native_variant(), false)}), cctz::utc_time_zone());
+    std::shared_ptr<arrow::RecordBatch> batch;
+    auto status = converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch);
+    ASSERT_TRUE(status.ok()) << status;
+    auto element = value_at(*batch->column(0), 0).array_at(0);
+    ASSERT_EQ(element.primitive_id(), VariantPrimitiveId::DECIMAL16);
+    EXPECT_EQ(element.get_decimal().unscaled, unscaled);
+    EXPECT_EQ(element.get_decimal().scale, 2);
+}
+
+TEST(ArrowFlightVariantTest, LegacyArrayPreservesNonFiniteNumbers) {
+    auto numbers = ColumnFloat64::create();
+    numbers->insert_value(std::numeric_limits<double>::quiet_NaN());
+    numbers->insert_value(std::numeric_limits<double>::infinity());
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->get_data().push_back(2);
+    auto values = ColumnVariant::create(0);
+    values->create_root(std::make_shared<DataTypeArray>(std::make_shared<DataTypeFloat64>()),
+                        ColumnArray::create(make_nullable(std::move(numbers)), std::move(offsets)));
+    values->finalize();
+    Block block {{std::move(values), std::make_shared<DataTypeVariant>(), "v"}};
+    ArrowFlightArrowBlockConvertor converter(
+            arrow::schema({arrow::field("v", native_variant(), false)}), cctz::utc_time_zone());
+    std::shared_ptr<arrow::RecordBatch> batch;
+    auto status = converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch);
+    ASSERT_TRUE(status.ok()) << status;
+    auto array = value_at(*batch->column(0), 0);
+    EXPECT_TRUE(std::isnan(array.array_at(0).get_double()));
+    EXPECT_TRUE(std::isinf(array.array_at(1).get_double()));
+}
+
+TEST(ArrowFlightVariantTest, MixedDateRootRetainsDateIdentityAndSlices) {
+    auto date_type = make_nullable(std::make_shared<DataTypeDateV2>());
+    auto dates = date_type->create_column();
+    DateV2Value<DateV2ValueType> date;
+    date.unchecked_set_time(2020, 1, 2, 0, 0, 0);
+    dates->insert(Field::create_field<TYPE_DATEV2>(date));
+    dates->insert_default();
+    auto values = ColumnVariant::create(0);
+    values->create_root(date_type, std::move(dates));
+    auto object_type = make_nullable(std::make_shared<DataTypeInt32>());
+    auto object = object_type->create_column();
+    object->insert_default();
+    object->insert(Field::create_field<TYPE_INT>(7));
+    ASSERT_TRUE(values->add_sub_column(PathInData("a"), std::move(object), object_type));
+    values->finalize();
+    ASSERT_FALSE(values->is_scalar_variant());
+    Block block {{std::move(values), std::make_shared<DataTypeVariant>(), "v"}};
+    ArrowFlightArrowBlockConvertor converter(
+            arrow::schema({arrow::field("v", native_variant(), false)}), cctz::utc_time_zone());
+    std::shared_ptr<arrow::RecordBatch> batch;
+    auto status = converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(value_at(*batch->column(0), 0).get_date(), 18263);
+    EXPECT_EQ(value_at(*batch->column(0), 1).basic_type(), VariantBasicType::OBJECT);
+    ASSERT_TRUE(converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch, 1, 2).ok());
+    EXPECT_EQ(value_at(*batch->column(0), 0).basic_type(), VariantBasicType::OBJECT);
+}
+
+TEST(ArrowFlightVariantTest, MixedStringRootsKeepStringIdentity) {
+    for (auto primitive : {TYPE_CHAR, TYPE_VARCHAR, TYPE_STRING}) {
+        auto type = std::make_shared<DataTypeString>(-1, primitive);
+        auto root = type->create_column();
+        for (const auto& text : {"hello", "true", "42", ""}) {
+            root->insert_data(text, strlen(text));
+        }
+        auto root_nulls = ColumnUInt8::create();
+        root_nulls->get_data().assign({0, 0, 0, 1});
+        auto values = ColumnVariant::create(0);
+        values->create_root(make_nullable(type),
+                            ColumnNullable::create(std::move(root), std::move(root_nulls)));
+        auto object_type = make_nullable(std::make_shared<DataTypeInt32>());
+        auto object = object_type->create_column();
+        object->insert_default();
+        object->insert_default();
+        object->insert_default();
+        object->insert(Field::create_field<TYPE_INT>(7));
+        ASSERT_TRUE(values->add_sub_column(PathInData("a"), std::move(object), object_type));
+        values->finalize();
+        ASSERT_FALSE(values->is_scalar_variant());
+        Block block {{std::move(values), std::make_shared<DataTypeVariant>(), "v"}};
+        ArrowFlightArrowBlockConvertor converter(
+                arrow::schema({arrow::field("v", native_variant(), false)}), cctz::utc_time_zone());
+        std::shared_ptr<arrow::RecordBatch> batch;
+        auto status = converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ(value_at(*batch->column(0), 0).get_string().to_string(), "hello");
+        EXPECT_EQ(value_at(*batch->column(0), 1).get_string().to_string(), "true");
+        EXPECT_EQ(value_at(*batch->column(0), 2).get_string().to_string(), "42");
+        EXPECT_EQ(value_at(*batch->column(0), 3).basic_type(), VariantBasicType::OBJECT);
+    }
+}
+
+TEST(ArrowFlightVariantTest, NestedTimezoneAliasesMatchPublishedSchema) {
+    TimezoneUtils::load_timezones_to_cache();
+    auto variant = std::make_shared<DataTypeVariantV2>();
+    auto timestamp = DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMPTZ, false, 0, 6);
+    auto type =
+            std::make_shared<DataTypeStruct>(DataTypes {variant, timestamp}, Strings {"v", "t"});
+    auto times = timestamp->create_column();
+    for (int i = 0; i < 4; ++i) {
+        times->insert_default();
+    }
+    Block block {{ColumnStruct::create(Columns {documents(variant), std::move(times)}), type, "s"}};
+    for (const std::string zone : {"+08:00", "+05:45", "-03:30"}) {
+        cctz::time_zone timezone;
+        ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(zone, timezone));
+        std::shared_ptr<arrow::DataType> mapped;
+        ASSERT_TRUE(convert_to_arrow_type(type, &mapped, zone, true, true).ok());
+        ArrowFlightArrowBlockConvertor converter(arrow::schema({arrow::field("s", mapped, false)}),
+                                                 timezone);
+        std::shared_ptr<arrow::RecordBatch> batch;
+        auto status = converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_TRUE(batch->schema()->field(0)->type()->Equals(mapped));
+    }
+}
+
+TEST(ArrowFlightVariantTest, LegacyDepthLimitExplainsNativeModeRestriction) {
+    std::string json = "1";
+    for (int i = 0; i < 129; ++i) {
+        json = R"({"a":)" + json + "}";
+    }
+    auto type = std::make_shared<DataTypeVariant>();
+    auto values = type->create_column();
+    Slice slice(json.data(), json.size());
+    DataTypeSerDe::FormatOptions options;
+    ASSERT_TRUE(type->get_serde()->deserialize_one_cell_from_json(*values, slice, options).ok());
+    assert_cast<ColumnVariant&>(*values).finalize();
+    Block block {{std::move(values), type, "v"}};
+    ArrowFlightArrowBlockConvertor utf8(block, "UTC", cctz::utc_time_zone());
+    ASSERT_TRUE(utf8.init().ok());
+    std::shared_ptr<arrow::RecordBatch> batch;
+    ASSERT_TRUE(utf8.convert_to_arrow(block, arrow::default_memory_pool(), &batch).ok());
+    ArrowFlightArrowBlockConvertor native(
+            arrow::schema({arrow::field("v", native_variant(), false)}), cctz::utc_time_zone());
+    auto status = native.convert_to_arrow(block, arrow::default_memory_pool(), &batch);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("enable_arrow_flight_sql_native_variant=false"),
+              std::string::npos);
 }
 
 TEST(ArrowFlightVariantTest, EmptyResultHasNativeSchema) {

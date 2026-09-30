@@ -73,6 +73,8 @@ public class Backend implements Writable {
     @SerializedName("host")
     private volatile String host;
     private String version;
+    @SerializedName("arrowFlightNativeVariantSupported")
+    private volatile boolean arrowFlightNativeVariantSupported;
 
     @SerializedName("heartbeatPort")
     private int heartbeatPort; // heartbeat
@@ -253,6 +255,10 @@ public class Backend implements Writable {
 
     public String getHost() {
         return host;
+    }
+
+    public boolean isArrowFlightNativeVariantSupported() {
+        return arrowFlightNativeVariantSupported;
     }
 
     public String getVersion() {
@@ -881,6 +887,11 @@ public class Backend implements Writable {
             if (supportsPaimonRustReader != hbResponse.isPaimonRustReaderSupported()) {
                 isChanged = true;
                 supportsPaimonRustReader = hbResponse.isPaimonRustReaderSupported();
+            }
+            // An absent capability bit from an older BE must also clear previously advertised support.
+            if (arrowFlightNativeVariantSupported != hbResponse.isArrowFlightNativeVariantSupported()) {
+                arrowFlightNativeVariantSupported = hbResponse.isArrowFlightNativeVariantSupported();
+                isChanged = true;
             }
             if (!this.version.equals(hbResponse.getVersion())) {
                 isChanged = true;

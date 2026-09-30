@@ -326,6 +326,7 @@ public class FlightSqlSchemaHelper {
     private Map<String, List<Field>> buildTableToFields(String dbName, TDescribeTablesResult describeTablesResult,
             List<String> tablesName) {
         Map<String, List<Field>> tableToFields = new HashMap<>();
+        boolean nativeVariant = FlightSqlNativeVariant.isEnabled(ctx);
         int columnIndex = 0;
         for (int tableIndex = 0; tableIndex < describeTablesResult.getTablesOffsetSize(); tableIndex++) {
             String tableName = tablesName.get(tableIndex);
@@ -333,8 +334,7 @@ public class FlightSqlSchemaHelper {
             Integer tableOffset = describeTablesResult.getTablesOffset().get(tableIndex);
             for (; columnIndex < tableOffset; columnIndex++) {
                 TColumnDef columnDef = describeTablesResult.getColumns().get(columnIndex);
-                fields.add(buildField(dbName, tableName, columnDef.getColumnDesc(),
-                        ctx.getSessionVariable().isEnableArrowFlightSqlNativeVariant()));
+                fields.add(buildField(dbName, tableName, columnDef.getColumnDesc(), nativeVariant));
             }
             tableToFields.put(tableName, fields);
         }
