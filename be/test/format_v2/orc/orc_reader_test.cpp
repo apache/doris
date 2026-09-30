@@ -11772,5 +11772,124 @@ TEST_F(NewOrcReaderTest, DateInteriorLeapDayDisablesAggregateAndSarg) {
                         .is<ErrorCode::NOT_IMPLEMENTED_ERROR>());
 }
 
+TEST_F(NewOrcReaderTest, DateCountValidatesScalarAndNestedValues) {
+    const std::vector<std::vector<std::optional<int64_t>>> cases = {
+            {-719528, -719469, -719468},
+            {-719530, 0, 1},
+            {0, 1, 2932897},
+            {-719528, -719470, -719470},
+            {-719468, 0, 1},
+            {std::nullopt, std::nullopt, std::nullopt}};
+    for (size_t case_id = 0; case_id < cases.size(); ++case_id) {
+        SCOPED_TRACE(case_id);
+        const auto& days = cases[case_id];
+        const auto path = (_test_dir / "count_nested_dates.orc").string();
+        auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString(
+                "struct<d:date,a:array<date>,s:struct<d:date>,m:map<int,date>>"));
+        MemoryOutputStream stream(1024 * 1024);
+        auto writer = ::orc::createWriter(*type, &stream, ::orc::WriterOptions());
+        auto batch = writer->createRowBatch(days.size());
+        auto& root = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+        auto fill = [&](auto&& self, ::orc::ColumnVectorBatch& column) -> void {
+            column.numElements = days.size();
+            if (auto* record = dynamic_cast<::orc::StructVectorBatch*>(&column)) {
+                for (auto* field : record->fields) {
+                    self(self, *field);
+                }
+            } else if (auto* list = dynamic_cast<::orc::ListVectorBatch*>(&column)) {
+                for (size_t i = 0; i <= days.size(); ++i) {
+                    list->offsets[i] = i;
+                }
+                self(self, *list->elements);
+            } else if (auto* map = dynamic_cast<::orc::MapVectorBatch*>(&column)) {
+                for (size_t i = 0; i <= days.size(); ++i) {
+                    map->offsets[i] = i;
+                }
+                auto& keys = dynamic_cast<::orc::LongVectorBatch&>(*map->keys);
+                keys.numElements = days.size();
+                for (size_t i = 0; i < days.size(); ++i) {
+                    keys.data[i] = i;
+                }
+                self(self, *map->elements);
+            } else {
+                auto& dates = dynamic_cast<::orc::LongVectorBatch&>(column);
+                dates.hasNulls = true;
+                for (size_t i = 0; i < days.size(); ++i) {
+                    dates.notNull[i] = days[i].has_value();
+                    dates.data[i] = days[i].value_or(0);
+                }
+            }
+        };
+        fill(fill, root);
+        writer->add(*batch);
+        writer->close();
+        std::ofstream out(path, std::ios::binary);
+        out.write(stream.getData(), static_cast<std::streamsize>(stream.getLength()));
+        out.close();
+
+        for (int column_id = 0; column_id < 4; ++column_id) {
+            SCOPED_TRACE(column_id);
+            auto reader = create_reader_for_path(path);
+            RuntimeState state {TQueryOptions(), TQueryGlobals()};
+            ASSERT_TRUE(reader->init(&state).ok());
+            std::vector<format::ColumnDefinition> schema;
+            ASSERT_TRUE(reader->get_schema(&schema).ok());
+            auto request = std::make_shared<format::FileScanRequest>();
+            request->non_predicate_columns = {field_projection(column_id)};
+            ASSERT_TRUE(reader->open(request).ok());
+            format::FileAggregateRequest aggregate;
+            aggregate.agg_type = TPushAggOp::type::COUNT;
+            format::FileAggregateResult result;
+            ASSERT_TRUE(reader->get_aggregate_result(aggregate, &result).ok());
+            EXPECT_EQ(result.count, 3);
+            aggregate.columns.push_back({.projection = field_projection(column_id)});
+            const auto status = reader->get_aggregate_result(aggregate, &result);
+            const bool invalid = case_id < 3;
+            if (invalid) {
+                EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+            } else {
+                ASSERT_TRUE(status.ok()) << status;
+                EXPECT_EQ(result.count, column_id == 0 && case_id == 5 ? 0 : 3);
+            }
+            auto block = build_file_block({schema[column_id]});
+            size_t rows = 0;
+            bool eof = false;
+            const auto scan_status = reader->get_block(&block, &rows, &eof);
+            if (invalid) {
+                EXPECT_TRUE(scan_status.is<ErrorCode::DATA_QUALITY_ERROR>()) << scan_status;
+                EXPECT_NE(scan_status.to_string().find("outside the Doris DATE range"),
+                          std::string::npos);
+            } else {
+                ASSERT_TRUE(scan_status.ok()) << scan_status;
+                EXPECT_EQ(rows, 3);
+            }
+        }
+    }
+}
+
+TEST_F(NewOrcReaderTest, ReadExternalMapDateRejectsOutOfRangeOrdinal) {
+    // Keep the external LZ4 fixture: the old offset dictionary silently replaced -719530
+    // with 1900-01-01, hiding an unrepresentable DATE inside the map values.
+    const auto path = find_repo_file("be/test/exec/test_data/orc_scanner/date_out_of_range.orc");
+    ASSERT_TRUE(std::filesystem::exists(path));
+    auto reader = create_reader_for_path(path.string());
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+    ASSERT_EQ(remove_nullable(schema[1].type)->get_primitive_type(), TYPE_MAP);
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0), field_projection(1)};
+    ASSERT_TRUE(reader->open(request).ok());
+    auto block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    const auto status = reader->get_block(&block, &rows, &eof);
+    EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>()) << status;
+    EXPECT_NE(status.to_string().find("DATE value -719530 is outside the Doris DATE range"),
+              std::string::npos);
+}
+
 } // namespace
 } // namespace doris

@@ -2326,6 +2326,17 @@ Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& reque
                 _state->root_type->getSubtype(static_cast<uint64_t>(count_projection.local_id()));
         DORIS_CHECK(count_type != nullptr);
 
+        std::vector<uint32_t> date_column_ids;
+        const auto collect_dates = [&](auto&& self, const ::orc::Type& type) -> void {
+            if (type.getKind() == ::orc::TypeKind::DATE) {
+                date_column_ids.push_back(cast_set<uint32_t>(type.getColumnId()));
+            }
+            for (uint64_t i = 0; i < type.getSubtypeCount(); ++i) {
+                self(self, *type.getSubtype(i));
+            }
+        };
+        collect_dates(collect_dates, *count_type);
+
         result->count = 0;
         const auto stripe_statistics_count = _state->reader->getNumberOfStripeStatistics();
         for (const auto stripe_index : selected_stripes) {
@@ -2344,6 +2355,19 @@ Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& reque
             if (stripe_statistics == nullptr) {
                 return Status::NotSupported("Missing ORC stripe statistics for stripe {}",
                                             stripe_index);
+            }
+            // COUNT skips decoding even for complex arguments. Every DATE leaf must be safe,
+            // including an unrepresentable day inside otherwise valid bounds, to preserve errors.
+            for (const auto column_id : date_column_ids) {
+                const auto* date_statistics = dynamic_cast<const ::orc::DateColumnStatistics*>(
+                        stripe_statistics->getColumnStatistics(column_id));
+                if (date_statistics == nullptr ||
+                    (date_statistics->getNumberOfValues() != 0 &&
+                     (!date_statistics->hasMinimum() || !date_statistics->hasMaximum() ||
+                      !epoch_days_range_is_representable(date_statistics->getMinimum(),
+                                                         date_statistics->getMaximum())))) {
+                    return Status::NotSupported("ORC DATE COUNT requires value validation");
+                }
             }
             const auto* column_statistics = stripe_statistics->getColumnStatistics(
                     cast_set<uint32_t>(count_type->getColumnId()));

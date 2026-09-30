@@ -1175,23 +1175,44 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
         }
         const auto& count_projection = request.columns[0].projection;
         const auto& root_schema = projected_root_schema(_state->file_schema, count_projection);
-        if (remove_nullable(root_schema.type)->get_primitive_type() == TYPE_DATEV2) {
+        std::vector<const ParquetColumnSchema*> date_leaves;
+        if (_state->enable_strict_mode ||
+            remove_nullable(root_schema.type)->get_primitive_type() == TYPE_DATEV2) {
+            const auto collect_dates = [&](auto&& self, const ParquetColumnSchema& schema,
+                                           const format::LocalColumnIndex* projection) -> void {
+                if (schema.kind == ParquetColumnSchemaKind::PRIMITIVE) {
+                    if (remove_nullable(schema.type)->get_primitive_type() == TYPE_DATEV2) {
+                        date_leaves.push_back(&schema);
+                    }
+                    return;
+                }
+                for (const auto& child : schema.children) {
+                    if (format::is_child_projected(projection, child->local_id)) {
+                        self(self, *child,
+                             format::find_child_projection(projection, child->local_id));
+                    }
+                }
+            };
+            collect_dates(collect_dates, root_schema, &count_projection);
+        }
+        for (const auto* date_leaf : date_leaves) {
             // Definition levels count physical NULLs only. DATE conversion can add logical NULLs
-            // or raise an error, so keep the shortcut only when every selected range is decodable.
+            // or raise an error, including for nested children in strict mode. Validate every
+            // projected DATE leaf before allowing a levels-only count to bypass conversion.
             for (const auto& row_group_plan : _state->scan_plan->row_groups) {
                 const auto& group = _state->file_context.native_metadata->to_thrift()
                                             .row_groups[row_group_plan.row_group_id];
-                const auto& chunk = group.columns[root_schema.leaf_column_id];
+                const auto& chunk = group.columns[date_leaf->leaf_column_id];
                 if (!chunk.__isset.meta_data || !chunk.meta_data.__isset.statistics) {
                     return Status::NotSupported("Parquet DATE COUNT requires value validation");
                 }
                 const auto stats = detail::sanitize_native_footer_statistics(
-                        root_schema.type_descriptor, chunk.meta_data.statistics,
+                        date_leaf->type_descriptor, chunk.meta_data.statistics,
                         detail::has_supported_type_defined_order(
                                 _state->file_context.native_metadata->to_thrift(),
-                                root_schema.leaf_column_id));
+                                date_leaf->leaf_column_id));
                 const auto decoded = ParquetStatisticsUtils::TransformColumnStatistics(
-                        root_schema, &stats, chunk.meta_data.num_values, _state->timezone);
+                        *date_leaf, &stats, chunk.meta_data.num_values, _state->timezone);
                 if (!decoded.has_min_max && !(decoded.has_null_count && !decoded.has_not_null)) {
                     return Status::NotSupported("Parquet DATE COUNT requires value validation");
                 }

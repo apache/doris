@@ -5743,5 +5743,100 @@ TEST_F(NewParquetReaderTest, DateCountKeepsSafeMetadataShortcut) {
     }
 }
 
+TEST_F(NewParquetReaderTest, NestedDateCountPreservesStrictConversionErrors) {
+    for (bool invalid : {false, true}) {
+        for (bool all_null : {false, true}) {
+            if (invalid && all_null) {
+                continue;
+            }
+            auto dates = std::make_shared<arrow::Date32Builder>();
+            arrow::ListBuilder lists(arrow::default_memory_pool(), dates);
+            for (int32_t day : {-719528, invalid ? -719469 : -719470, -719470}) {
+                ASSERT_TRUE(lists.Append().ok());
+                ASSERT_TRUE((all_null ? dates->AppendNull() : dates->Append(day)).ok());
+            }
+            const auto list = finish_array(&lists);
+            const auto values = std::static_pointer_cast<arrow::ListArray>(list)->values();
+            const auto record = arrow::StructArray::Make({values, build_int32_array({0, 1, 2})},
+                                                         {arrow::field("d", arrow::date32()),
+                                                          arrow::field("n", arrow::int32())})
+                                        .ValueOrDie();
+            const auto offsets = build_int32_array({0, 1, 2, 3});
+            const auto map =
+                    arrow::MapArray::FromArrays(offsets, build_int32_array({0, 1, 2}), values)
+                            .ValueOrDie();
+            const auto table = arrow::Table::Make(arrow::schema({arrow::field("a", list->type()),
+                                                                 arrow::field("s", record->type()),
+                                                                 arrow::field("m", map->type())}),
+                                                  {list, record, map});
+            auto output = arrow::io::FileOutputStream::Open(_file_path).ValueOrDie();
+            ::parquet::WriterProperties::Builder properties;
+            properties.disable_dictionary();
+            ASSERT_TRUE(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), output,
+                                                     3, properties.build())
+                                .ok());
+            ASSERT_TRUE(output->Close().ok());
+            for (bool strict : {false, true}) {
+                for (int column_id = 0; column_id < 3; ++column_id) {
+                    SCOPED_TRACE(testing::Message()
+                                 << "invalid=" << invalid << " all_null=" << all_null
+                                 << " strict=" << strict << " column=" << column_id);
+                    auto reader = create_reader();
+                    TQueryOptions options;
+                    options.__set_enable_strict_cast(strict);
+                    RuntimeState state {options, TQueryGlobals()};
+                    ASSERT_TRUE(reader->init(&state).ok());
+                    std::vector<format::ColumnDefinition> schema;
+                    ASSERT_TRUE(reader->get_schema(&schema).ok());
+                    const auto projection =
+                            format::LocalColumnIndex::top_level(format::LocalColumnId(column_id));
+                    auto request = std::make_shared<format::FileScanRequest>();
+                    request->non_predicate_columns = {projection};
+                    ASSERT_TRUE(reader->open(request).ok());
+                    format::FileAggregateRequest aggregate;
+                    aggregate.agg_type = TPushAggOp::type::COUNT;
+                    aggregate.columns.push_back({.projection = projection});
+                    format::FileAggregateResult result;
+                    const auto status = reader->get_aggregate_result(aggregate, &result);
+                    if (invalid && strict) {
+                        EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+                    } else {
+                        ASSERT_TRUE(status.ok()) << status;
+                        EXPECT_EQ(result.count, 3);
+                    }
+                    auto block = build_file_block(schema);
+                    size_t rows = 0;
+                    bool eof = false;
+                    const auto scan_status = reader->get_block(&block, &rows, &eof);
+                    if (invalid && strict) {
+                        EXPECT_TRUE(scan_status.is<ErrorCode::DATA_QUALITY_ERROR>()) << scan_status;
+                        EXPECT_NE(scan_status.to_string().find("-719469"), std::string::npos);
+                    } else {
+                        ASSERT_TRUE(scan_status.ok()) << scan_status;
+                        EXPECT_EQ(rows, 3);
+                    }
+                }
+            }
+            // An unprojected DATE sibling must not disable a safe shape-only COUNT.
+            auto reader = create_reader();
+            TQueryOptions options;
+            options.__set_enable_strict_cast(true);
+            RuntimeState state {options, TQueryGlobals()};
+            ASSERT_TRUE(reader->init(&state).ok());
+            auto projection = format::LocalColumnIndex::partial_local(1);
+            projection.children.push_back(format::LocalColumnIndex::local(1));
+            auto request = std::make_shared<format::FileScanRequest>();
+            request->non_predicate_columns = {projection};
+            ASSERT_TRUE(reader->open(request).ok());
+            format::FileAggregateRequest aggregate;
+            aggregate.agg_type = TPushAggOp::type::COUNT;
+            aggregate.columns.push_back({.projection = projection});
+            format::FileAggregateResult result;
+            ASSERT_TRUE(reader->get_aggregate_result(aggregate, &result).ok());
+            EXPECT_EQ(result.count, 3);
+        }
+    }
+}
+
 } // namespace
 } // namespace doris
