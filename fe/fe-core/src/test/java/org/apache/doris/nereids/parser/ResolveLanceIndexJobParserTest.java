@@ -93,6 +93,22 @@ public class ResolveLanceIndexJobParserTest extends ParserTestBase {
     }
 
     @Test
+    public void testEscapedCommentDecodes() {
+        // The note is persisted as durable audit text, so doubled quotes and backslash
+        // escapes decode to the literal value instead of being stored raw.
+        ResolveLanceIndexJobCommand command = parseResolve(
+                "RESOLVE LANCE INDEX JOB 7 AS FORCE_RELEASE COMMENT 'worker''s result unknown'");
+        Assertions.assertEquals("worker's result unknown", command.getComment());
+    }
+
+    @Test
+    public void testBackslashEscapedCommentDecodes() {
+        ResolveLanceIndexJobCommand command = parseResolve(
+                "RESOLVE LANCE INDEX JOB 7 AS FORCE_RELEASE COMMENT 'line1\\\\nline2'");
+        Assertions.assertEquals("line1\\nline2", command.getComment());
+    }
+
+    @Test
     public void testResolveAndForceReleaseStayUsableAsIdentifiers() {
         // Both new tokens are non-reserved: they must still work as column names.
         Plan plan = parser.parseSingle("SELECT resolve FROM t");
