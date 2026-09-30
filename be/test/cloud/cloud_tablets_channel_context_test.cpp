@@ -31,7 +31,6 @@
 #include "cloud/cloud_rowset_builder.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablets_channel.h"
-#include "common/signal_handler.h"
 #include "cpp/sync_point.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group.h"
@@ -123,8 +122,7 @@ TEST_P(CloudTabletsChannelContextTest, EmptyRowsetCommitInheritsLoadContext) {
                 EXPECT_EQ(thread_context()->resource_ctx(), ctx);
                 EXPECT_EQ(thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker(),
                           tracker.get());
-                EXPECT_EQ(signal::query_id_hi, task_id.hi);
-                EXPECT_EQ(signal::query_id_lo, task_id.lo);
+                EXPECT_EQ(thread_context()->resource_ctx()->task_controller()->task_id(), task_id);
                 auto token = engine.calc_delete_bitmap_executor()->create_load_token(
                         req.txn_id, LoadTaskPriority::HIGH, LoadTaskType::LEAF);
                 EXPECT_EQ(token->_thread_token->_pool, wg->get_memtable_flush_pool());
@@ -153,8 +151,9 @@ TEST_P(CloudTabletsChannelContextTest, EmptyRowsetCommitInheritsLoadContext) {
             EXPECT_EQ(thread_context()->resource_ctx(), ctx);
             EXPECT_EQ(thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker(),
                       tracker.get());
-            EXPECT_EQ(signal::query_id_hi, task_id.hi);
-            EXPECT_EQ(signal::query_id_lo, task_id.lo);
+            // A bthread may resume on another pthread after close waits. Check its
+            // resource context rather than the pthread-local signal task ID.
+            EXPECT_EQ(thread_context()->resource_ctx()->task_controller()->task_id(), task_id);
         }
         EXPECT_FALSE(thread_context()->is_attach_task());
     };
