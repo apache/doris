@@ -58,13 +58,26 @@ public class LanceIndexJobManagerGcTest {
         // Family (a): a force-released UNKNOWN job.
         createRunAndLoseResult(manager, 1L, "IdxForce");
         Assertions.assertTrue(manager.forceRelease(1L, 2L, "admin", "note", "warning"));
-        // Family (b): a terminal job whose refresh ran to DONE.
+        // Family (b): a terminal job whose refresh ran to DONE and whose worker was
+        // proven gone (the record holds no possible-live slot anymore).
         manager.createJob(newCreateJob(2L, "IdxDone"), 100, 100, 100);
         Assertions.assertTrue(manager.markRunning(2L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
         Assertions.assertTrue(manager.completeWithResult(2L, 1L, INVOCATION_ID, BE_EPOCH,
                 result(LanceIndexJobResultCode.NATIVE_OK)));
         Assertions.assertTrue(manager.markRefreshRunning(2L, 2L));
         Assertions.assertTrue(manager.markRefreshDone(2L, 3L));
+        Assertions.assertTrue(manager.recordTerminationProof(2L, 1L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                LanceIndexTerminationProof.CHILD_REAPED));
+        // Family (c): the same terminal shape but WITHOUT the proof — the record still
+        // owns the only count of a possibly live worker, so even a negative keep window
+        // must not collect it.
+        manager.createJob(newCreateJob(4L, "IdxSlotOwner"), 100, 100, 100);
+        Assertions.assertTrue(manager.markRunning(4L, 0L, BACKEND_ID, BE_EPOCH, "inv-4", DEADLINE_MS));
+        Assertions.assertTrue(manager.completeWithResult(4L, 1L, "inv-4", BE_EPOCH,
+                result(LanceIndexJobResultCode.NATIVE_OK)));
+        Assertions.assertTrue(manager.markRefreshRunning(4L, 2L));
+        Assertions.assertTrue(manager.markRefreshDone(4L, 3L));
+        Assertions.assertTrue(manager.getJob(4L).holdsPossibleLiveSlot());
         // A live unresolved job shares the round and must survive it.
         manager.createJob(newCreateJob(3L, "IdxPending"), 100, 100, 100);
 
@@ -73,7 +86,9 @@ public class LanceIndexJobManagerGcTest {
         LanceIndexJob forced = manager.getJob(1L);
         Assertions.assertEquals(forced.getForceTimeMs().longValue(), forced.getUpdateTimeMs());
 
-        // A negative keep window expires every resolved record regardless of its age.
+        // A negative keep window expires every resolved record regardless of its age —
+        // except the slot owner, which survives the round with its fence already
+        // released but its capacity record intact.
         List<Long> removed = manager.removeResolvedJobsOlderThan(-1L, 1024);
         Assertions.assertEquals(2, removed.size());
         Assertions.assertTrue(removed.containsAll(Arrays.asList(1L, 2L)));
@@ -83,11 +98,12 @@ public class LanceIndexJobManagerGcTest {
         Assertions.assertEquals(removed, manager.removeLog.get(0));
 
         // Memory converges with the journal: the removed jobs are gone, the survivor
-        // keeps its fence and quota charge.
+        // keeps its fence and quota charge, and the slot owner keeps its record.
         Assertions.assertNull(manager.getJob(1L));
         Assertions.assertNull(manager.getJob(2L));
         Assertions.assertNotNull(manager.getJob(3L));
-        Assertions.assertEquals(1, manager.getJobCount());
+        Assertions.assertNotNull(manager.getJob(4L));
+        Assertions.assertEquals(2, manager.getJobCount());
         Assertions.assertEquals(1L, manager.getQuota().getGlobalCount());
         Assertions.assertTrue(manager.isFenceHeld(manager.getJob(3L).fenceKey()));
 
@@ -151,6 +167,36 @@ public class LanceIndexJobManagerGcTest {
         Assertions.assertEquals(Collections.singletonList(1L), removed);
         Assertions.assertNull(manager.getJob(1L));
         Assertions.assertNotNull(manager.getJob(2L));
+    }
+
+    @Test
+    public void slotOwningResolvedJobsSurviveUntilTheSlotIsProvenGone() {
+        TestManager manager = new TestManager();
+        // A normal report can finish the refresh without a termination proof: the job is
+        // resolved (fence and quota released) yet its record still owns the only count
+        // of a possibly live worker. Deleting it would free a per-backend capacity slot
+        // a worker may still occupy and drop the record a late proof needs to land on,
+        // so retention holds it back no matter its age...
+        String json = "{\"jid\":5,\"cr\":\"tester\",\"rev\":2,\"ctm\":0,\"utm\":0,\"cid\":" + CATALOG_ID
+                + ",\"dbn\":\"db1\",\"tbn\":\"tbl1\",\"ms\":\"COMMITTED\",\"rs\":\"DONE\","
+                + "\"plo\":true,\"bid\":1001,\"bpe\":5,\"iid\":\"inv-5\"}";
+        LanceIndexJob slotOwner = GsonUtils.GSON.fromJson(json, LanceIndexJob.class);
+        Assertions.assertFalse(slotOwner.isUnresolved());
+        Assertions.assertTrue(slotOwner.holdsPossibleLiveSlot());
+        manager.replayUpsertJob(slotOwner);
+        Assertions.assertTrue(manager.removeResolvedJobsOlderThan(60_000L, 1024).isEmpty());
+        Assertions.assertNotNull(manager.getJob(5L));
+
+        // ...until the late termination proof releases the slot. That final transition
+        // also restarts the keep window, so the record ages out from the proof onward.
+        LanceIndexJob released = new LanceIndexJob(slotOwner);
+        released.setTerminationProof(LanceIndexTerminationProof.CHILD_REAPED);
+        released.setPossibleLiveOwned(false);
+        released.setRevision(3L);
+        released.setUpdateTimeMs(0L);
+        manager.replayUpsertJob(released);
+        Assertions.assertEquals(Collections.singletonList(5L), manager.removeResolvedJobsOlderThan(60_000L, 1024));
+        Assertions.assertNull(manager.getJob(5L));
     }
 
     @Test
