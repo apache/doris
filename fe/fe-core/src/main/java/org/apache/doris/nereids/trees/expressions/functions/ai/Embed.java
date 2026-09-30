@@ -103,7 +103,8 @@ public class Embed extends AIFunction {
 
     @Override
     public void checkLegalityAfterRewrite() {
-        checkArguments(getArgument(0));
+        // the name FE can evaluate is resolved here too, see AIFunction.checkLegalityAfterRewrite
+        checkArguments(ExpressionUtils.foldConstantArgument(getArgument(0)));
     }
 
     private void checkArguments(Expression firstArgument) {
