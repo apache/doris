@@ -258,7 +258,7 @@ public class RefreshManager {
                     Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(
                             catalog.getId(), db.get().getId(), db.get().getFullName());
                 }
-                invalidatePaimonCatalogForUnresolvedReplay(catalog);
+                invalidatePaimonCatalogForReplay(catalog);
                 return;
             }
             if (!Strings.isNullOrEmpty(log.getNewTableName())) {
@@ -378,7 +378,7 @@ public class RefreshManager {
         }
     }
 
-    private void invalidatePaimonCatalogForUnresolvedReplay(ExternalCatalog catalog) {
+    private void invalidatePaimonCatalogForReplay(ExternalCatalog catalog) {
         if (catalog instanceof PaimonExternalCatalog) {
             Env.getCurrentEnv().getExtMetaCacheMgr()
                     .invalidateCatalogByEngine(catalog.getId(), PaimonExternalMetaCache.ENGINE);
@@ -392,14 +392,34 @@ public class RefreshManager {
             // known. Retire only that database's engine entries and independent row counts.
             LOG.debug("database object is cold when replaying refresh in catalog {}, db {}",
                     catalog.getName(), identity.get().first);
-            Env.getCurrentEnv().getExtMetaCacheMgr()
-                    .invalidateDb(catalog.getId(), identity.get().second, identity.get().first);
+            // A mode-2 names refresh can rebind the logged Foo to a new FOO. The current
+            // identity cannot fence an SDK-only Foo handle or Foo's independent row counts.
+            boolean reboundPaimonName = catalog instanceof PaimonExternalCatalog
+                    && catalog.getLowerCaseDatabaseNames() == 2
+                    && !Strings.isNullOrEmpty(log.getDbName())
+                    && !identity.get().first.equals(log.getDbName());
+            ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+            if (reboundPaimonName) {
+                cacheMgr.invalidateRowCountCache(catalog.getId());
+            }
+            try {
+                cacheMgr.invalidateDb(catalog.getId(), identity.get().second, identity.get().first);
+            } finally {
+                if (reboundPaimonName) {
+                    try {
+                        invalidatePaimonCatalogForReplay(catalog);
+                    } finally {
+                        // Close the load window opened after the first fence.
+                        cacheMgr.invalidateRowCountCache(catalog.getId());
+                    }
+                }
+            }
         } else {
             // A lost mode-2 mapping cannot identify the database safely; widen the fence.
             LOG.warn("failed to resolve database identity when replaying refresh: {}",
                     log.debugForRefreshDb());
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(catalog.getId());
-            invalidatePaimonCatalogForUnresolvedReplay(catalog);
+            invalidatePaimonCatalogForReplay(catalog);
         }
     }
 

@@ -52,11 +52,12 @@ public class ExternalRowCountCache {
     private final ConcurrentHashMap<LoadKey, Set<LoadFence>> inFlightLoads = new ConcurrentHashMap<>();
     // A catalog refresh changes this generation in O(1). Old cache entries remain bounded by
     // Caffeine's size/expiry policy but are never addressable by a new metadata generation.
-    private final ConcurrentHashMap<Long, AtomicLong> catalogGenerations = new ConcurrentHashMap<>();
+    // A held table may issue a late read after permanent DROP releases its catalog generation.
+    // Keep even those post-DROP admissions bounded; eviction forces a fresh unique generation.
+    private final Cache<Long, AtomicLong> catalogGenerations;
     // Database generations are bounded independently of database CREATE/DROP churn. Eviction
     // merely forces a new, globally unique generation and makes the old entries unreachable.
-    private final Cache<DatabaseKey, Long> dbGenerations = Caffeine.newBuilder()
-            .maximumSize(Config.max_external_table_row_count_cache_num).build();
+    private final Cache<DatabaseKey, Long> dbGenerations;
     // Generations are globally unique: two catalog IDs with the same table ID must not alias
     // when one catalog has retired its old cache generation.
     private final AtomicLong nextCatalogGeneration = new AtomicLong();
@@ -73,6 +74,13 @@ public class ExternalRowCountCache {
     }
 
     ExternalRowCountCache(ExecutorService executor, Ticker ticker, RowCountCacheLoader loader) {
+        this(executor, ticker, loader, Config.max_external_table_row_count_cache_num);
+    }
+
+    ExternalRowCountCache(ExecutorService executor, Ticker ticker, RowCountCacheLoader loader,
+            long maxGenerationEntries) {
+        catalogGenerations = Caffeine.newBuilder().maximumSize(maxGenerationEntries).build();
+        dbGenerations = Caffeine.newBuilder().maximumSize(maxGenerationEntries).build();
         // 1. set expireAfterWrite to 1 day, avoid too many entries
         // 2. set refreshAfterWrite to 10min(default), so that the cache will be refreshed after 10min
         CacheFactory rowCountCacheFactory = new CacheFactory(
@@ -276,12 +284,12 @@ public class ExternalRowCountCache {
     }
 
     private long currentCatalogGeneration(long catalogId) {
-        return catalogGenerations.computeIfAbsent(catalogId,
+        return catalogGenerations.get(catalogId,
                 ignored -> new AtomicLong(nextCatalogGeneration.incrementAndGet())).get();
     }
 
     private boolean isCatalogGenerationCurrent(long catalogId, long generation) {
-        AtomicLong current = catalogGenerations.get(catalogId);
+        AtomicLong current = catalogGenerations.getIfPresent(catalogId);
         return current != null && current.get() == generation;
     }
 
@@ -296,7 +304,8 @@ public class ExternalRowCountCache {
     }
 
     int getCatalogGenerationCountForTest() {
-        return catalogGenerations.size();
+        catalogGenerations.cleanUp();
+        return catalogGenerations.asMap().size();
     }
 
     static Optional<Long> loadRowCount(RowCountKey rowCountKey, boolean fillMetaCache) {
@@ -380,7 +389,7 @@ public class ExternalRowCountCache {
             long dbGeneration;
             publicationLock.readLock().lock();
             try {
-                AtomicLong current = catalogGenerations.get(catalogId);
+                AtomicLong current = catalogGenerations.getIfPresent(catalogId);
                 if (current == null) {
                     return -1;
                 }
@@ -413,7 +422,7 @@ public class ExternalRowCountCache {
     void invalidateCatalog(long catalogId) {
         publicationLock.writeLock().lock();
         try {
-            AtomicLong current = catalogGenerations.get(catalogId);
+            AtomicLong current = catalogGenerations.getIfPresent(catalogId);
             if (current != null) {
                 current.set(nextCatalogGeneration.incrementAndGet());
             }
@@ -426,7 +435,7 @@ public class ExternalRowCountCache {
     void releaseCatalog(long catalogId) {
         publicationLock.writeLock().lock();
         try {
-            catalogGenerations.remove(catalogId);
+            catalogGenerations.invalidate(catalogId);
         } finally {
             publicationLock.writeLock().unlock();
         }
@@ -448,7 +457,7 @@ public class ExternalRowCountCache {
     void invalidateTable(long catalogId, long dbId, long tableId) {
         publicationLock.writeLock().lock();
         try {
-            AtomicLong current = catalogGenerations.get(catalogId);
+            AtomicLong current = catalogGenerations.getIfPresent(catalogId);
             if (current == null) {
                 return;
             }

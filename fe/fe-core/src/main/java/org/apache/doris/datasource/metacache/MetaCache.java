@@ -31,6 +31,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -560,8 +561,9 @@ public class MetaCache<T> {
 
     /** Snapshot resident object identities matching a DROP alias under the catalog's name mode. */
     public List<Pair<String, Long>> getCachedIdentitiesMatching(String name, boolean ignoreCase) {
+        String foldedName = ignoreCase ? name.toLowerCase(Locale.ROOT) : name;
         return withMetaObjLifecycleReadLock(() -> idToName.entrySet().stream()
-                .filter(entry -> ignoreCase ? entry.getValue().equalsIgnoreCase(name)
+                .filter(entry -> ignoreCase ? entry.getValue().toLowerCase(Locale.ROOT).equals(foldedName)
                         : entry.getValue().equals(name))
                 .map(entry -> Pair.of(entry.getValue(), entry.getKey()))
                 .collect(Collectors.toList()));

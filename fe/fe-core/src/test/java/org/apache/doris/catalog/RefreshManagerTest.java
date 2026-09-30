@@ -28,6 +28,8 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
+import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
+import org.apache.doris.datasource.paimon.PaimonExternalMetaCache;
 import org.apache.doris.persist.EditLog;
 
 import org.junit.jupiter.api.Assertions;
@@ -72,6 +74,35 @@ public class RefreshManagerTest {
         Mockito.verify(cacheMgr, Mockito.times(2)).invalidateDb(catalogId, coldDbId, "CanonicalDb");
         Mockito.verify(cacheMgr, Mockito.never()).invalidateCatalog(catalogId);
         Mockito.verify(hotDb, Mockito.never()).resetMetaToUninitialized();
+    }
+
+    @Test
+    void testColdReboundPaimonReplayFencesOldRowCountsAroundSdkInvalidation() {
+        long catalogId = 83L;
+        long replacementDbId = 84L;
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        Mockito.when(catalog.getId()).thenReturn(catalogId);
+        Mockito.when(catalog.getLowerCaseDatabaseNames()).thenReturn(2);
+        Mockito.when(catalog.getDbForReplay("Foo")).thenReturn(Optional.empty());
+        Mockito.when(catalog.getDbIdentityForReplay("Foo", 0L))
+                .thenReturn(Optional.of(Pair.of("FOO", replacementDbId)));
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Mockito.doReturn(catalog).when(catalogMgr).getCatalog(catalogId);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            new RefreshManager().replayRefreshDb(ExternalObjectLog.createForRefreshDb(catalogId, "Foo"));
+        }
+
+        InOrder order = Mockito.inOrder(cacheMgr);
+        order.verify(cacheMgr).invalidateRowCountCache(catalogId);
+        order.verify(cacheMgr).invalidateDb(catalogId, replacementDbId, "FOO");
+        order.verify(cacheMgr).invalidateCatalogByEngine(catalogId, PaimonExternalMetaCache.ENGINE);
+        order.verify(cacheMgr).invalidateRowCountCache(catalogId);
     }
 
     @Test

@@ -967,10 +967,13 @@ public class CatalogMgrTest {
                 ignored -> Collections.emptyList(), ignored -> Optional.empty(), (key, value, cause) -> { });
         long oldId = Util.genIdByName("testing_catalog", "Foo");
         long unrelatedId = Util.genIdByName("testing_catalog", "sales");
+        long turkishId = Util.genIdByName("testing_catalog", "I");
         ExternalDatabase<?> oldDb = Mockito.mock(ExternalDatabase.class);
         ExternalDatabase<?> unrelatedDb = Mockito.mock(ExternalDatabase.class);
+        ExternalDatabase<?> turkishDb = Mockito.mock(ExternalDatabase.class);
         metaCache.addObjForTest(oldId, "Foo", oldDb);
         metaCache.addObjForTest(unrelatedId, "sales", unrelatedDb);
+        metaCache.addObjForTest(turkishId, "I", turkishDb);
         catalog.installMetaCache(metaCache);
         Env env = Mockito.mock(Env.class);
         ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
@@ -979,12 +982,17 @@ public class CatalogMgrTest {
             mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
             catalog.retireCachedDatabaseForNoOp("absent");
             Assertions.assertSame(unrelatedDb, metaCache.tryGetMetaObj("sales").orElseThrow(AssertionError::new));
+            // Locale.ROOT distinguishes I (i) from dotless i. A no-op DROP of the latter
+            // must not retire the resident I database.
+            catalog.retireCachedDatabaseForNoOp("ı");
+            Assertions.assertSame(turkishDb, metaCache.tryGetMetaObj("I").orElseThrow(AssertionError::new));
             Mockito.verifyNoInteractions(cacheMgr);
 
             // A lost mode-2 mapping still permits narrow retirement of a retained historical ID.
             catalog.retireCachedDatabaseForNoOp("foo");
             Assertions.assertFalse(metaCache.tryGetMetaObj("Foo").isPresent());
             Assertions.assertSame(unrelatedDb, metaCache.tryGetMetaObj("sales").orElseThrow(AssertionError::new));
+            Assertions.assertSame(turkishDb, metaCache.tryGetMetaObj("I").orElseThrow(AssertionError::new));
             Mockito.verify(cacheMgr).invalidateDb(catalogId, oldId, "Foo");
             Mockito.verify(cacheMgr, Mockito.never()).invalidateCatalog(catalogId);
             Mockito.verify(cacheMgr, Mockito.never()).invalidateRowCountCache(catalogId, unrelatedId);

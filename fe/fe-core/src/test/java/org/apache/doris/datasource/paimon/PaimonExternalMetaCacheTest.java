@@ -2572,6 +2572,62 @@ public class PaimonExternalMetaCacheTest {
     }
 
     @Test
+    public void testMode2ColdReplayRefreshInvalidatesReboundSdkOnlyPaimonHandle() throws Exception {
+        java.io.File warehouse = temporaryFolder.newFolder("mode2_rebound_refresh_sdk_only");
+        Map<String, String> properties = new HashMap<>();
+        properties.put("type", "paimon");
+        properties.put(PaimonExternalCatalog.PAIMON_CATALOG_TYPE,
+                PaimonExternalCatalog.PAIMON_FILESYSTEM);
+        properties.put("warehouse", warehouse.toURI().toString());
+        properties.put(ExternalCatalog.LOWER_CASE_DATABASE_NAMES, "2");
+        long catalogId = 120L;
+        PaimonExternalCatalog dorisCatalog = new PaimonExternalCatalog(
+                catalogId, "mode2_rebound_refresh_test", null, properties, "");
+        dorisCatalog.makeSureInitialized();
+        dorisCatalog.catalog.createDatabase("Foo", false);
+        Identifier oldIdentifier = Identifier.create("Foo", "table");
+        Schema schema = Schema.newBuilder().column("id", DataTypes.INT()).build();
+        dorisCatalog.catalog.createTable(oldIdentifier, schema, false);
+
+        Map<String, String> externalProperties = new HashMap<>(properties);
+        externalProperties.put("paimon.cache-enabled", "false");
+        PaimonExternalCatalog externalCatalog = new PaimonExternalCatalog(
+                121L, "external_paimon", null, externalProperties, "");
+        externalCatalog.makeSureInitialized();
+
+        CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+        Mockito.when(env.getAccessManager()).thenReturn(Mockito.mock(AccessControllerManager.class));
+        ExternalMetaCacheMgr cacheMgr = new ExternalMetaCacheMgr(true);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr).getCatalog(catalogId);
+        Mockito.doReturn(dorisCatalog).when(catalogMgr)
+                .getCatalogOrException(Mockito.eq(catalogId), Mockito.any());
+        NameMapping oldMapping = new NameMapping(catalogId, "Foo", "table", "Foo", "table");
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            dorisCatalog.getPaimonTable(oldMapping);
+            externalCatalog.catalog.dropTable(oldIdentifier, false);
+            externalCatalog.catalog.dropDatabase("Foo", false, false);
+            externalCatalog.catalog.createDatabase("FOO", false);
+
+            Field mappingField = ExternalCatalog.class.getDeclaredField("lowerCaseToDatabaseName");
+            mappingField.setAccessible(true);
+            Map<String, String> reboundNames = new HashMap<>();
+            reboundNames.put("foo", "FOO");
+            mappingField.set(dorisCatalog, reboundNames);
+            Assert.assertFalse(dorisCatalog.getDbForReplay("Foo").isPresent());
+
+            new RefreshManager().replayRefreshDb(ExternalObjectLog.createForRefreshDb(catalogId, "Foo"));
+            assertPaimonCatalogTableMissing(dorisCatalog, oldMapping);
+        } finally {
+            dorisCatalog.catalog.close();
+            externalCatalog.catalog.close();
+        }
+    }
+
+    @Test
     public void testReplayDropInvalidatesSdkOnlyPaimonCache() throws Exception {
         java.io.File warehouse = temporaryFolder.newFolder("replay_drop_sdk_only");
         Map<String, String> properties = new HashMap<>();

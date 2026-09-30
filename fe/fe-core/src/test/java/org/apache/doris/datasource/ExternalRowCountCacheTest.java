@@ -446,6 +446,31 @@ public class ExternalRowCountCacheTest {
     }
 
     @Test
+    public void testLateReadsAfterPermanentRemovalDoNotGrowCatalogGenerations() {
+        java.util.Set<Long> activeCatalogs = new java.util.HashSet<>();
+        ExternalRowCountCache.RowCountCacheLoader loader = new ExternalRowCountCache.RowCountCacheLoader() {
+            @Override
+            protected Optional<Long> doLoad(ExternalRowCountCache.RowCountKey key) {
+                return activeCatalogs.contains(key.getCatalogId()) ? Optional.of(100L) : null;
+            }
+        };
+        ExternalRowCountCache cache = new ExternalRowCountCache(
+                MoreExecutors.newDirectExecutorService(), null, loader, 2);
+        for (long catalogId = 1; catalogId <= 5; catalogId++) {
+            activeCatalogs.add(catalogId);
+            Assertions.assertEquals(100L, cache.getCachedRowCount(catalogId, 10, 100, false));
+            activeCatalogs.remove(catalogId);
+            cache.invalidateCatalog(catalogId);
+            cache.releaseCatalog(catalogId);
+
+            // A statement retaining an old table can still enter the cache after DROP cleanup.
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT,
+                    cache.getCachedRowCount(catalogId, 10, 100, false));
+            Assertions.assertTrue(cache.getCatalogGenerationCountForTest() <= 2);
+        }
+    }
+
+    @Test
     public void testInvalidateWhileRefreshIsRunningDoesNotRepublishStaleValue() throws Exception {
         AtomicInteger loadCount = new AtomicInteger();
         CountDownLatch refreshStarted = new CountDownLatch(1);
