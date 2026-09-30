@@ -480,7 +480,13 @@ public class InsertOverwriteTableCommand extends Command
         }
         OlapTable olapTable = (OlapTable) targetTable;
         if (!olapTable.writeLockIfExist()) {
-            return;
+            // The target was dropped while this overwrite ran, so there is nothing to publish into and no swap
+            // to issue. Failing is also what the utility's own early return did for a dropped table -- its
+            // finally unlocks a lock that return never took, which raises -- and it is what a client whose
+            // swap never happened is owed: acknowledging the overwrite would claim rows the table cannot hold.
+            // The catch drops the temp partitions of the dropped table and takes the task back.
+            throw new UserException("insert overwrite could not publish its temporary partitions: table "
+                    + olapTable.getName() + " was dropped, queryId: " + ctx.getQueryIdentifier());
         }
         try {
             cancelTheOverwriteAt(DEBUG_POINT_CANCEL_WHILE_THE_SWAP_WAITS_FOR_THE_TABLE_LOCK, targetTable);
