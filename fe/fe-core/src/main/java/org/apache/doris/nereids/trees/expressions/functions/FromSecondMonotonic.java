@@ -17,20 +17,16 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
-import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.util.DateUtils;
 
 /** monotonicity for from_{xx}second */
 public interface FromSecondMonotonic extends Monotonic {
+    /** Number of input units in one epoch second. */
+    long getEpochUnitsPerSecond();
+
     @Override
     default boolean isMonotonic(Literal lower, Literal upper) {
-        if (lower instanceof BigIntLiteral) {
-            return ((BigIntLiteral) lower).getValue() >= 0
-                    && !DateUtils.hasFallbackTransition(TimeUtils.getDorisZoneId());
-        }
-        return false;
+        return MonotonicityUtils.isEpochToLocalMonotonic(lower, upper, getEpochUnitsPerSecond());
     }
 
     @Override

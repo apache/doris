@@ -50,18 +50,35 @@ class FromSecondMonotonicTest {
     }
 
     @Test
-    void testTimeZoneFallbackDisablesMonotonicity() {
+    void testTimeZoneFallbackWithinRangeDisablesMonotonicity() {
         List<FromSecondMonotonic> functions = Arrays.asList(
                 new FromSecond(epochSlot), new FromMillisecond(epochSlot), new FromMicrosecond(epochSlot));
-        for (String timeZone : Arrays.asList("America/New_York", "Asia/Shanghai")) {
-            ConnectContext.get().getSessionVariable().setTimeZone(timeZone);
+        long[] fallbackSeconds = {1730613600L, 684867600L};
+        List<String> timeZones = Arrays.asList("America/New_York", "Asia/Shanghai");
+        for (int i = 0; i < timeZones.size(); i++) {
+            ConnectContext.get().getSessionVariable().setTimeZone(timeZones.get(i));
             for (FromSecondMonotonic function : functions) {
-                // A fallback anywhere in the zone's rules disables monotonicity for every input interval.
-                Assertions.assertFalse(function.isMonotonic(new BigIntLiteral(1719792000),
-                        new BigIntLiteral(1719795600)));
+                long units = function.getEpochUnitsPerSecond();
+                Assertions.assertFalse(function.isMonotonic(
+                        new BigIntLiteral((fallbackSeconds[i] - 1) * units),
+                        new BigIntLiteral((fallbackSeconds[i] + 1) * units)));
+                Assertions.assertTrue(function.isMonotonic(
+                        new BigIntLiteral(1719792000L * units),
+                        new BigIntLiteral(1719795600L * units)));
                 Assertions.assertFalse(function.isMonotonic(new BigIntLiteral(1719792000), null));
             }
         }
+    }
+
+    @Test
+    void testShanghaiHistoricalFallbackAndEpochUnits() {
+        ConnectContext.get().getSessionVariable().setTimeZone("Asia/Shanghai");
+        Assertions.assertFalse(new FromMillisecond(epochSlot).isMonotonic(
+                new BigIntLiteral(100000), new BigIntLiteral(1000000009999L)));
+        Assertions.assertTrue(new FromMicrosecond(epochSlot).isMonotonic(
+                new BigIntLiteral(100000), new BigIntLiteral(1000000009999L)));
+        Assertions.assertFalse(new FromSecond(epochSlot).isMonotonic(
+                new BigIntLiteral(253402272000L), new BigIntLiteral(253402272001L)));
     }
 
     @Test
