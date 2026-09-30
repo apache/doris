@@ -22,7 +22,7 @@ suite("test_version_metrics") {
     def requiredVersionLabels = ["version", "major", "minor", "patch", "hotfix", "short_hash"] as Set
     def parseVersionMetric = { body, metricName ->
         def parsedMetric = null
-        Pattern pattern = Pattern.compile("^" + Pattern.quote(metricName) + "\\{([^}]*)}\\s+(\\d+)$")
+        Pattern pattern = Pattern.compile('^' + Pattern.quote(metricName) + '\\{([^}]*)}\\s+(\\d+)$')
         for (final def line in body.readLines()) {
             Matcher matcher = pattern.matcher(line)
             if (!matcher.matches()) {
