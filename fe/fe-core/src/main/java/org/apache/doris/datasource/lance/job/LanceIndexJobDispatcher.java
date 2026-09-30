@@ -501,16 +501,27 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             return false;
         }
         SystemInfoService systemInfo = Env.getCurrentSystemInfo();
-        // Every schedule-available worker, shuffled by the selection policy: the first
-        // one with a free possible-live slot takes the job, so a full backend defers
-        // this attempt only when every selectable backend is at the cap, never just
-        // because the randomly picked one is. allowOnSameHost keeps co-located
-        // backends visible (the policy default hides all but one per host), and
-        // preferComputeNode lets compute-only clusters serve Lance dispatch at all —
-        // the policy default filters every compute-role backend out.
+        // Every schedule-available worker — compute candidates plus the mix peers
+        // filled in behind them: the first candidate with a free possible-live slot
+        // takes the job, so a full backend defers this attempt only when every
+        // selectable backend is at the cap, never just because the randomly picked
+        // one is. (The policy shuffles its result; this loop scans every candidate,
+        // so inclusion is what matters, not the order.) allowOnSameHost keeps
+        // co-located backends visible (the policy default hides all but one per
+        // host), and preferComputeNode lets compute-only clusters serve Lance
+        // dispatch at all — the policy default filters every compute-role backend
+        // out. The expected count is the registered backend count on purpose:
+        // getCandidateBackends adds the compute candidates first and fills the
+        // remainder of that count with mix nodes, while its default expectation of
+        // zero returns only the compute candidates once any compute node exists —
+        // so with one compute backend at the possible-live cap and an idle mix peer,
+        // the default left this job PENDING every round despite the free backend.
+        // The method-arg stays -1 (return as many candidates as possible); the
+        // per-backend slot cap is applied by the local loop below, not by the policy.
         List<Long> backendIds = systemInfo.selectBackendIdsByPolicy(
                 new BeSelectionPolicy.Builder().needScheduleAvailable().allowOnSameHost()
-                        .preferComputeNode(true).build(), -1);
+                        .preferComputeNode(true)
+                        .assignExpectBeNum(systemInfo.getAllBackendIds(false).size()).build(), -1);
         int perBackendCap = Math.max(1, Config.lance_index_job_max_inflight_per_backend);
         Backend backend = null;
         for (Long backendId : backendIds) {
@@ -518,7 +529,7 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             if (candidate == null) {
                 continue;
             }
-            if (localDataset && !isOnlyAliveBackend(systemInfo, candidate.getId())) {
+            if (localDataset && !isOnlyRegisteredBackend(systemInfo, candidate.getId())) {
                 continue;
             }
             Integer inflight = inflightByBackend.get(candidate.getId());
@@ -772,9 +783,17 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
         return "file".equals(normalizedLocator.substring(0, separator).toLowerCase(Locale.ROOT));
     }
 
-    private static boolean isOnlyAliveBackend(SystemInfoService systemInfo, long backendId) {
-        List<Long> aliveBackendIds = systemInfo.getAllBackendIds(true);
-        return aliveBackendIds.size() == 1 && aliveBackendIds.get(0) == backendId;
+    /**
+     * True only when the deployment itself is single-BE: exactly one backend is
+     * registered, and it is the candidate. Heartbeat loss on a multi-BE deployment
+     * proves nothing about shared local-file identity — one FE and two registered
+     * BEs is still a multi-node cluster while one of them is down — so the guard
+     * reads the registered topology, not the alive one. (The candidate is alive by
+     * construction: it passed the policy's schedule-available filter.)
+     */
+    private static boolean isOnlyRegisteredBackend(SystemInfoService systemInfo, long backendId) {
+        List<Long> registeredBackendIds = systemInfo.getAllBackendIds(false);
+        return registeredBackendIds.size() == 1 && registeredBackendIds.get(0) == backendId;
     }
 
     private static long dispatchRevisionOf(LanceIndexJob job) {
