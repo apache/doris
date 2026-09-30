@@ -32,11 +32,13 @@ import org.apache.doris.nereids.lineage.LineageInfoExtractor;
 import org.apache.doris.nereids.rules.exploration.mv.PartitionCompensator;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
+import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -362,11 +364,11 @@ public class MTMVRelationManager implements MTMVHookService {
      * update mtmv status to `SCHEMA_CHANGE`.
      *
      * @param isReplace
-     * @param queryJudgedColumns the columns the alter takes away and leaves the judgement about each MV's
-     *                           state to that MV's own query, or null when the alter is not one a query
-     *                           decides. The columns are named rather than judged before the call because
-     *                           the judgement is about them; see
-     *                           {@code AlterOp#queryJudgedColumnName} for which operations name one, and
+     * @param queryJudgedColumns the names the alter gives the table or takes away from it, which leave the
+     *                           judgement about each MV's state to that MV's own query, or null when the
+     *                           alter is not one a query decides. The names are carried rather than judged
+     *                           before the call because the judgement is about them; see
+     *                           {@code AlterOp#queryJudgedColumnNames} for which operations name one, and
      *                           {@link #invalidateMvUnlessQueryHolds} for what is asked about it. A rename
      *                           of the base table names no column: it is left to the record below, which
      *                           says what the MV that keeps spelling the old name needs to hear
@@ -382,6 +384,85 @@ public class MTMVRelationManager implements MTMVHookService {
         processBaseTableChange(oldTableInfo, "The base table has been updated:", queryJudgedChange);
     }
 
+
+    /**
+     * Whether the query, as it is analysed now, reads a column of any of these names, and reads it where
+     * the change can reach it.
+     *
+     * <p>There are two such places, and they are the two ways a name is the change's to answer for. One is
+     * a column of the table the change is about: that is the column this view's rows were computed from, and
+     * the names are matched case-insensitively because a name is what moves. The other is a column the query
+     * reaches across a scope boundary -- the plan records those on the Apply that stands for the subquery,
+     * whose correlation slots are the outer columns its right side reads -- because such a name is the
+     * scopes' to answer for rather than the query's: the nearest column to the reference answers for it, so
+     * a column the change takes away from a scope inside leaves the name to one outside, and a column it
+     * gives to a scope inside takes the name over, while the query goes on producing the columns it always
+     * produced out of rows from somewhere else. A name reached with the qualifier of another table inside
+     * the query's own scope is neither: no later change can move it, so one to a column it does not name is
+     * one this view's rows do not depend on.
+     */
+    private static boolean reachesAnyColumnOf(Plan plan, BaseTableInfo baseTableInfo, Set<String> columnNames) {
+        if (plan == null) {
+            // A query whose plan was not kept is one this cannot be answered about, and "it does" is the
+            // answer that keeps the view safe.
+            return true;
+        }
+        Set<String> names = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        names.addAll(columnNames);
+        LineageInfo lineage = LineageInfoExtractor.extractLineageInfo(plan);
+        for (SetMultimap<?, Expression> byType : lineage.getDirectLineageMap().values()) {
+            if (reachesAnyColumn(byType.values(), names, baseTableInfo)) {
+                return true;
+            }
+        }
+        // The dataset predicates once, not once per output column: the per-output copy of them the lineage
+        // also offers holds the same expressions for every column the query produces, and scanning it would
+        // visit each of them once per column.
+        if (reachesAnyColumn(lineage.getDatasetIndirectLineageMap().values(), names, baseTableInfo)) {
+            return true;
+        }
+        return reachesAnyColumnAcrossScopes(plan, lineage, names, baseTableInfo);
+    }
+
+    /** Whether any of these expressions reads a column of one of these names from this table. */
+    private static boolean reachesAnyColumn(Collection<Expression> expressions, Set<String> names,
+            BaseTableInfo baseTableInfo) {
+        for (Expression expression : expressions) {
+            for (Slot slot : expression.getInputSlots()) {
+                if (names.contains(slot.getName()) && isColumnOf(slot, baseTableInfo)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** Whether this slot is a column of this table, through whatever views stand between the two. */
+    private static boolean isColumnOf(Slot slot, BaseTableInfo baseTableInfo) {
+        if (!(slot instanceof SlotReference)) {
+            return false;
+        }
+        return ((SlotReference) slot).getOriginalTable()
+                .map(table -> new BaseTableInfo(table).equals(baseTableInfo))
+                .orElse(false);
+    }
+
+    /**
+     * Whether the query resolves a column of one of these names across a scope boundary, which is a name
+     * the change can move whatever the query writes it against.
+     */
+    private static boolean reachesAnyColumnAcrossScopes(Plan plan, LineageInfo lineage, Set<String> names,
+            BaseTableInfo baseTableInfo) {
+        // A name is only one the change can move if the table it is about is one the query reads at all.
+        boolean isOneOfItsTables = lineage.getTableLineageSet().stream()
+                .anyMatch(table -> new BaseTableInfo(table).equals(baseTableInfo));
+        if (!isOneOfItsTables) {
+            return false;
+        }
+        return plan.anyMatch(node -> node instanceof LogicalApply
+                && ((LogicalApply<?, ?>) node).getCorrelationSlot().stream()
+                        .anyMatch(slot -> names.contains(slot.getName())));
+    }
 
     /**
      * An MV's query is only as good as the base table schema it was analyzed against, and a query that
@@ -411,46 +492,6 @@ public class MTMVRelationManager implements MTMVHookService {
      *         write, and writing the generic "the base table has been updated" anyway would stand for a
      *         rebuild the MV does not owe.
      */
-    /**
-     * Whether the query, as it is analysed now, reads a column of any of these names.
-     *
-     * <p>The names are matched rather than the columns, and matched case-insensitively, because a name is
-     * what the change moves: the column that goes away leaves its name to whatever else answers to it, and
-     * the query that reaches the name afterwards is reading a column this view's rows were not built from.
-     */
-    private static boolean reachesAnyColumnOf(Plan plan, Set<String> columnNames) {
-        if (plan == null) {
-            // A query whose plan was not kept is one this cannot be answered about, and "it does" is the
-            // answer that keeps the view safe.
-            return true;
-        }
-        Set<String> names = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-        names.addAll(columnNames);
-        LineageInfo lineage = LineageInfoExtractor.extractLineageInfo(plan);
-        for (SetMultimap<?, Expression> byType : lineage.getDirectLineageMap().values()) {
-            if (reachesAnyColumn(byType.values(), names)) {
-                return true;
-            }
-        }
-        for (SetMultimap<?, Expression> byType : lineage.getInDirectLineageMapByDataset().values()) {
-            if (reachesAnyColumn(byType.values(), names)) {
-                return true;
-            }
-        }
-        return reachesAnyColumn(lineage.getDatasetIndirectLineageMap().values(), names);
-    }
-
-    private static boolean reachesAnyColumn(Collection<Expression> expressions, Set<String> names) {
-        for (Expression expression : expressions) {
-            for (Slot slot : expression.getInputSlots()) {
-                if (names.contains(slot.getName())) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
     private boolean invalidateMvUnlessQueryHolds(BaseTableInfo baseTableInfo, Table mvTable,
             QueryJudgedChange queryJudgedChange) {
         if (!(mvTable instanceof MTMV)) {
@@ -487,11 +528,11 @@ public class MTMVRelationManager implements MTMVHookService {
         // columns the query really reaches -- through its projections, filters, joins and aggregation, and
         // through whatever views stand between them -- so an alias or a string that happens to read the same
         // is not one of them, and one reached inside a view is.
-        if (reachesAnyColumnOf(analyzedQueryInfo.getAnalyzedPlan(), queryJudgedChange.columns())) {
-            LOG.info("Invalidate MV, the MV query reads a column the change takes away. "
+        if (reachesAnyColumnOf(analyzedQueryInfo.getAnalyzedPlan(), baseTableInfo, queryJudgedChange.columns())) {
+            LOG.info("Invalidate MV, the MV query reads a column the change is about. "
                             + "baseTable={}, columns={}, mtmv={}", baseTableInfo, queryJudgedChange.columns(),
                     mtmv.getName());
-            mtmv.invalidateWholeMv("The MV query reads a column the change takes away: " + baseTableInfo)
+            mtmv.invalidateWholeMv("The MV query reads a column the change is about: " + baseTableInfo)
                     .await();
             return true;
         }

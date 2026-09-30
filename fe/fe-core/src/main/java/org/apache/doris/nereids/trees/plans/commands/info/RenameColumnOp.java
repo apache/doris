@@ -28,8 +28,8 @@ import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Sets;
 
-import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 
@@ -102,7 +102,9 @@ public class RenameColumnOp extends AlterTableOp {
 
     @Override
     public Set<String> queryJudgedColumnNames() {
-        return Collections.singleton(getColName());
+        // Both names: the column the query used to reach under the old one, and the name the new one takes
+        // over, which a query that reaches that name from anywhere else can be bound to from now on.
+        return Sets.newHashSet(getColName(), newColName);
     }
 
     @Override

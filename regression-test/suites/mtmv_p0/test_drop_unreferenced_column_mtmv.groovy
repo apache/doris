@@ -37,6 +37,12 @@ import org.junit.Assert;
  *       what every column change did before the queries were asked at all.</li>
  * </ol>
  *
+ * <p>The rest of the suite is about which column a name in the query answers for, because that is what
+ * makes a change to a column nothing reads. A name is a column of the table the change is about only where
+ * the query reads it from there, and it is the scopes' to answer for where the query resolves it across a
+ * scope boundary: what is left is a name bound to another table inside the query's own scope, which no
+ * later change can move.
+ *
  * <p>The second half is also where the consequence is observable: the rewrite reaches the MV on that table
  * and not on a merge-on-write one, so the state the change records is what is left to report on the first.
  * The IVM side of the same change, where the state is what escalates the next refresh to a whole-MV
@@ -198,4 +204,41 @@ suite("test_drop_unreferenced_column_mtmv") {
     order_qt_scope_add_unreached "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${scopeAddMv}'"
     sql """ALTER TABLE ${scopeAddInner} ADD COLUMN flag INT DEFAULT 0"""
     order_qt_scope_add_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${scopeAddMv}'"
+
+    // ---- a name another table answers for is not this one's to give or take ----
+    // `flag` here is written with the qualifier of the second table, so what the query reads does not turn
+    // on anything the first table does with a `flag` of its own: a name bound where it is written is one no
+    // later change can move. The first table's `flag` is 0 and the second's is 1, so the row the MV holds is
+    // the one the qualified binding produces -- a query that had read the first table's column would hold
+    // none -- and taking that column away, or giving it back, leaves this query and this MV alone.
+    String qualOuter = "${suiteName}_qual_outer"
+    String qualInner = "${suiteName}_qual_inner"
+    String qualMv = "${suiteName}_qual_mv"
+
+    sql """drop materialized view if exists ${qualMv}"""
+    sql """drop table if exists ${qualOuter}"""
+    sql """drop table if exists ${qualInner}"""
+    sql """
+        CREATE TABLE ${qualOuter} (id INT, flag INT) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        CREATE TABLE ${qualInner} (id INT, flag INT) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO ${qualOuter} VALUES (1, 0)"""
+    sql """INSERT INTO ${qualInner} VALUES (1, 1)"""
+    sql """
+        CREATE MATERIALIZED VIEW ${qualMv}
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+        AS SELECT a.id FROM ${qualOuter} a JOIN ${qualInner} b ON a.id = b.id WHERE b.flag = 1
+    """
+    waitingMTMVTaskFinishedByMvName(qualMv)
+    order_qt_qualified_baseline "SELECT id FROM ${qualMv}"
+    sql """ALTER TABLE ${qualOuter} DROP COLUMN flag"""
+    order_qt_qualified_drop_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${qualMv}'"
+    sql """ALTER TABLE ${qualOuter} ADD COLUMN flag INT DEFAULT 0"""
+    order_qt_qualified_add_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${qualMv}'"
+    order_qt_qualified_rows "SELECT id FROM ${qualMv}"
 }

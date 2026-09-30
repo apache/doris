@@ -128,6 +128,19 @@ public class AddColumnOp extends AlterTableOp {
     }
 
     @Override
+    public boolean hasReachedTheTable(OlapTable table) {
+        // The column has to be in the table: a change that is not a light one is applied by a job, and a
+        // query judged before that job has run is judged against the table from before the change -- which
+        // is the one that cannot be answered about at all.
+        for (String columnName : queryJudgedColumnNames()) {
+            if (table.getColumn(columnName) == null) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    @Override
     public Set<String> queryJudgedColumnNames() {
         return Collections.singleton(getColumnDef().getName());
     }

@@ -380,7 +380,7 @@ public class Alter {
             // about a type change -- and stays invalidated the way it was before the queries were asked at
             // all. Each of them also has to have reached the table. A schema change that is not a light one
             // is applied by a job, which may not have run where this hook runs: the table still holds the
-            // column the change takes away, every query still analyses against it, and an invalidation
+            // column the change is about, every query still analyses against it, and an invalidation
             // decided on that answer would be about the table from before the change. What is asked is
             // whether the change has reached the table, which is the same fact the re-analysis reads, so
             // the two answers cannot disagree.
