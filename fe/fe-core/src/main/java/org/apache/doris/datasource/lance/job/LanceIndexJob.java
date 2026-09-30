@@ -155,6 +155,16 @@ public class LanceIndexJob implements Writable {
     @SerializedName(value = "rs")
     private LanceIndexJobRefreshState refreshState = LanceIndexJobRefreshState.REQUIRED;
 
+    /**
+     * Wall time of the last FAILED refresh transition, the clock the retry throttle
+     * measures from. Null before any failure, on records that never failed, and on
+     * legacy records replayed before the field existed (which fall back to the
+     * generic update time). Kept apart from {@link #updateTimeMs} because unrelated
+     * transitions bump that time without attempting the refresh.
+     */
+    @SerializedName(value = "rft")
+    private Long refreshFailureTimeMs;
+
     // ------------------------------------------------------------------
     // Result
     // ------------------------------------------------------------------
@@ -279,6 +289,7 @@ public class LanceIndexJob implements Writable {
         this.schemaContract = other.schemaContract;
         this.mutationState = other.mutationState;
         this.refreshState = other.refreshState;
+        this.refreshFailureTimeMs = other.refreshFailureTimeMs;
         this.result = other.result;
         this.backendId = other.backendId;
         this.beProcessEpoch = other.beProcessEpoch;
@@ -551,6 +562,14 @@ public class LanceIndexJob implements Writable {
 
     public void setRefreshState(LanceIndexJobRefreshState refreshState) {
         this.refreshState = Objects.requireNonNull(refreshState, "refreshState");
+    }
+
+    public Long getRefreshFailureTimeMs() {
+        return refreshFailureTimeMs;
+    }
+
+    public void setRefreshFailureTimeMs(Long refreshFailureTimeMs) {
+        this.refreshFailureTimeMs = refreshFailureTimeMs;
     }
 
     public LanceIndexJobResult getResult() {
