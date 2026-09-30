@@ -26,6 +26,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_struct.h"
 #include "format/arrow/arrow_block_convertor.h"
+#include "format/arrow/arrow_row_batch.h"
 #include "util/timezone_utils.h"
 
 namespace doris {
@@ -59,7 +60,7 @@ TEST_F(ArrowFlightTimestampTest, RejectsOutOfRangeInEveryUnitWithoutPublishingBa
                                   make_datetime(10000, 1, 1, 0, 0, 0, 0)}) {
             SCOPED_TRACE(scale);
             auto block = timestamp_block(scale, {value});
-            ArrowFlightArrowBlockConvertor flight(block, "UTC", cctz::utc_time_zone(), true);
+            ArrowFlightArrowBlockConvertor flight(block, "UTC", cctz::utc_time_zone());
             ASSERT_TRUE(flight.init().ok());
             const ArrowBlockConvertor& converter = flight;
             std::shared_ptr<arrow::RecordBatch> batch;
@@ -72,7 +73,7 @@ TEST_F(ArrowFlightTimestampTest, RejectsOutOfRangeInEveryUnitWithoutPublishingBa
             EXPECT_EQ(nullptr, batch);
 
             // Other Arrow consumers retain their existing date semantics.
-            DorisArrowBlockConvertor ordinary(block, "UTC", cctz::utc_time_zone(), true);
+            DorisArrowBlockConvertor ordinary(flight.arrow_schema(), cctz::utc_time_zone());
             ASSERT_TRUE(ordinary.init().ok());
             ASSERT_TRUE(
                     ordinary.convert_to_arrow(block, arrow::default_memory_pool(), &batch).ok());
@@ -88,7 +89,7 @@ TEST_F(ArrowFlightTimestampTest, PreservesCalendarBoundariesAndPreEpochFractions
         auto block = timestamp_block(scale, {make_datetime(1, 1, 1, 0, 0, 0, 0),
                                              make_datetime(9999, 12, 31, 23, 59, 59, fraction),
                                              make_datetime(1969, 12, 31, 23, 59, 59, fraction)});
-        ArrowFlightArrowBlockConvertor converter(block, "UTC", cctz::utc_time_zone(), true);
+        ArrowFlightArrowBlockConvertor converter(block, "UTC", cctz::utc_time_zone());
         ASSERT_TRUE(converter.init().ok());
         std::shared_ptr<arrow::RecordBatch> batch;
         ASSERT_TRUE(converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch).ok());
@@ -101,7 +102,7 @@ TEST_F(ArrowFlightTimestampTest, PreservesCalendarBoundariesAndPreEpochFractions
 
 TEST_F(ArrowFlightTimestampTest, ChecksSlicesAndSubsequentBatches) {
     auto block = timestamp_block(6, {make_datetime(2024, 1, 1, 0, 0, 0, 0), DateTime {}});
-    ArrowFlightArrowBlockConvertor converter(block, "UTC", cctz::utc_time_zone(), true);
+    ArrowFlightArrowBlockConvertor converter(block, "UTC", cctz::utc_time_zone());
     ASSERT_TRUE(converter.init().ok());
     std::shared_ptr<arrow::RecordBatch> batch;
     ASSERT_TRUE(converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch, 0, 1).ok());
@@ -138,7 +139,7 @@ TEST_F(ArrowFlightTimestampTest, RejectsNestedTimestampValuesAndMapKeys) {
         column->insert_default();
         column->insert(fields[i]);
         Block block {{std::move(column), types[i], "nested"}};
-        ArrowFlightArrowBlockConvertor converter(block, "UTC", cctz::utc_time_zone(), true);
+        ArrowFlightArrowBlockConvertor converter(block, "UTC", cctz::utc_time_zone());
         ASSERT_TRUE(converter.init().ok());
         std::shared_ptr<arrow::RecordBatch> batch;
         const auto status =
@@ -161,7 +162,11 @@ TEST_F(ArrowFlightTimestampTest, ChecksBothUtcAndZonedCalendarBounds) {
         cctz::time_zone timezone;
         ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone(zone, timezone));
         auto block = timestamp_block(6, {value});
-        ArrowFlightArrowBlockConvertor converter(block, zone, timezone);
+        // Flight-generated DATETIMEV2 schemas are naive; keep an explicit zoned schema
+        // here so this test still checks both UTC and local calendar bounds.
+        std::shared_ptr<arrow::Schema> schema;
+        ASSERT_TRUE(DorisArrowSchemaConvertor(block, zone).get_arrow_schema(&schema).ok());
+        ArrowFlightArrowBlockConvertor converter(schema, timezone);
         ASSERT_TRUE(converter.init().ok());
         std::shared_ptr<arrow::RecordBatch> batch;
         const auto status = converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch);
@@ -179,7 +184,7 @@ TEST_F(ArrowFlightTimestampTest, NaiveBoundsDoNotDependOnSessionTimezone) {
     ASSERT_TRUE(TimezoneUtils::find_cctz_time_zone("+08:00", timezone));
     auto block = timestamp_block(6, {make_datetime(1, 1, 1, 0, 0, 0, 0),
                                      make_datetime(9999, 12, 31, 23, 59, 59, 999999)});
-    ArrowFlightArrowBlockConvertor converter(block, "+08:00", timezone, true);
+    ArrowFlightArrowBlockConvertor converter(block, "+08:00", timezone);
     ASSERT_TRUE(converter.init().ok());
     std::shared_ptr<arrow::RecordBatch> batch;
     ASSERT_TRUE(converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch).ok());
@@ -207,7 +212,7 @@ TEST_F(ArrowFlightTimestampTest, IgnoresTimestampsMaskedByNullParents) {
         nulls->insert_value(1);
         Block block {{ColumnNullable::create(std::move(data), std::move(nulls)),
                       make_nullable(types[i]), "masked"}};
-        ArrowFlightArrowBlockConvertor converter(block, "UTC", cctz::utc_time_zone(), true);
+        ArrowFlightArrowBlockConvertor converter(block, "UTC", cctz::utc_time_zone());
         ASSERT_TRUE(converter.init().ok());
         std::shared_ptr<arrow::RecordBatch> batch;
         const auto status = converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch);

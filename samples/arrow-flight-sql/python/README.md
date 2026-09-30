@@ -35,6 +35,28 @@ under the License.
     Section 6.1 of https://github.com/apache/doris/issues/25514 is the performance test
     results of the doris arrow flight sql using python.
 
+## Logical type metadata
+
+Some Doris types share an Arrow storage type with ordinary strings or integers.
+The `doris_type` field metadata identifies `LARGEINT`, `IPV4`, `IPV6`, `JSON`, and
+`VARIANT`, including fields nested in arrays, maps, and structs. Consumers should
+inspect each nested Arrow field instead of inferring a type from its value.
+
+LARGEINT retains its Arrow string encoding, including the full signed 128-bit
+range. PyArrow does not automatically convert custom metadata into Python types;
+a client can use `doris_type=LARGEINT` to safely convert that field's non-NULL
+values with `int(value)`, while leaving ordinary STRING fields unchanged.
+
+During rolling upgrades, queries planned by older FEs retain the legacy metadata
+layout. Upgraded FEs advertise complete logical type metadata in the FlightInfo
+schema even when some BEs are older. An older BE's DoGet stream may still omit
+these markers; use the FlightInfo schema as the logical type reference until the
+upgrade finishes. No session setting is required.
+
+Run `python test_nested_type_metadata.py` with `DORIS_FLIGHT_SQL_URI` and optional
+`DORIS_USER` / `DORIS_PASSWORD` to verify the metadata and values against a cluster.
+The tests execute only read-only queries.
+
 # Notes
 
      For more details, refer to [Python Usage] in the document https://doris.apache.org/zh-CN/docs/dev/db-connect/arrow-flight-sql-connect
