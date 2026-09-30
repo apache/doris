@@ -69,12 +69,6 @@ public class ResolveLanceIndexJobCommandTest {
     /** The fixture job's persisted normalized locator; locator stubs must return exactly this. */
     private static final String JOB_LOCATOR = "s3://bucket/dataset";
 
-    /** The authoritative read's answer for an unchanged target: the job's own dataset. */
-    private static LanceIndexAdmissionSnapshot jobSnapshot() {
-        return new LanceIndexAdmissionSnapshot(7L, JOB_LOCATOR, Collections.emptyList(),
-                Collections.emptyList(), Collections.emptyList());
-    }
-
     @Mocked
     private Env env;
     @Mocked
@@ -95,6 +89,12 @@ public class ResolveLanceIndexJobCommandTest {
     private ExternalDatabase database;
     @Mocked
     private ExternalTable table;
+
+    /** The authoritative read's answer for an unchanged target: the job's own dataset. */
+    private static LanceIndexAdmissionSnapshot jobSnapshot() {
+        return new LanceIndexAdmissionSnapshot(7L, JOB_LOCATOR, Collections.emptyList(),
+                Collections.emptyList(), Collections.emptyList());
+    }
 
     private static LanceIndexJob newUnknownJob(long jobId) {
         LanceIndexJob job = new LanceIndexJob(jobId, "creator", 10L, "db1", "tbl1",
