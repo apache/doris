@@ -95,6 +95,8 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
         heartbeat_result.backend_info.__set_fragment_last_active_time(
                 get_fragment_last_active_time());
         heartbeat_result.backend_info.__set_be_mem(MemInfo::physical_mem());
+        // Reader enum support cannot be inferred from a release version during rolling upgrades.
+        heartbeat_result.backend_info.__set_supports_paimon_rust_reader(true);
     }
     watch.stop();
     if (watch.elapsed_time() > 1000L * 1000L * 1000L) {

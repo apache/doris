@@ -585,6 +585,12 @@ LANCE_C_NAME="lance-c-v0.1.9.tar.gz"
 LANCE_C_SOURCE="lance-c-0.1.9"
 LANCE_C_MD5SUM="7138ed44e92d4bc91d5b522a6b92ed64"
 
+# paimon-rust
+PAIMON_RUST_DOWNLOAD="https://github.com/apache/paimon-rust/archive/refs/tags/v0.4.0-rc1.tar.gz"
+PAIMON_RUST_NAME="paimon-rust-v0.4.0-rc1.tar.gz"
+PAIMON_RUST_SOURCE="paimon-rust-0.4.0-rc1"
+PAIMON_RUST_MD5SUM="23cd0634692108debf77a26ef4dc20a7"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -672,6 +678,7 @@ export TP_ARCHIVES=(
     'JUICEFS'
     'PUGIXML'
     'LANCE_C'
+    'PAIMON_RUST'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

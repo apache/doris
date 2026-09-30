@@ -35,6 +35,7 @@ import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogProperty;
+import org.apache.doris.datasource.FederationBackendPolicy;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.hive.HMSExternalTable;
@@ -54,10 +55,12 @@ import org.apache.doris.datasource.paimon.PaimonUtils;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.metastore.PaimonJdbcMetaStoreProperties;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileScanRangeParams;
@@ -65,21 +68,26 @@ import org.apache.doris.thrift.TPaimonReaderType;
 import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.collect.ImmutableMap;
+import mockit.MockUp;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.io.DataFileMeta;
+import org.apache.paimon.io.DataInputDeserializer;
+import org.apache.paimon.io.DataOutputSerializer;
 import org.apache.paimon.manifest.FileSource;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.predicate.PredicateBuilder;
+import org.apache.paimon.rest.RESTTokenFileIO;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.stats.SimpleStats;
 import org.apache.paimon.table.AppendOnlyFileStoreTable;
 import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.CatalogEnvironment;
 import org.apache.paimon.table.DataTable;
+import org.apache.paimon.table.FallbackReadFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.DataSplit;
@@ -91,7 +99,9 @@ import org.apache.paimon.table.source.snapshot.SnapshotReader;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.types.IntType;
+import org.apache.paimon.types.LocalZonedTimestampType;
 import org.apache.paimon.types.RowType;
+import org.apache.paimon.types.TimestampType;
 import org.apache.paimon.utils.InstantiationUtil;
 import org.junit.After;
 import org.junit.Assert;
@@ -110,6 +120,7 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -117,6 +128,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 @RunWith(MockitoJUnitRunner.class)
 public class PaimonScanNodeTest {
@@ -134,6 +146,14 @@ public class PaimonScanNodeTest {
         // Statement-scoped scan task reuse is on by default; the mock's field would otherwise
         // read false and bypass the cache under test.
         sv.enableExternalScanTaskReuse = true;
+        // These routing fixtures bypass scan initialization and use an upgraded eligible BE.
+        Backend backend = GsonUtils.GSON.fromJson("{\"supportsPaimonRustReader\":true}", Backend.class);
+        new MockUp<FederationBackendPolicy>() {
+            @mockit.Mock
+            public Collection<Backend> getBackends() {
+                return Collections.singletonList(backend);
+            }
+        };
     }
 
     @After
@@ -471,6 +491,43 @@ public class PaimonScanNodeTest {
         List<org.apache.doris.spi.Split> splits = node.getSplits(1);
 
         Assert.assertEquals(1, splits.size());
+        Mockito.verify(dataSplit, Mockito.never()).mergedRowCount();
+    }
+
+    @Test
+    public void testRustEnabledKeepsNativeAggregateSplits() throws Exception {
+        SessionVariable session = new SessionVariable();
+        session.setEnablePaimonRustReader(true);
+        session.enableFileScannerV2 = true;
+        PaimonScanNode node = Mockito.spy(newTestNode(new PlanNodeId(1), new TupleId(3), session));
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        DataTable table = Mockito.mock(DataTable.class, Mockito.RETURNS_DEEP_STUBS);
+        RowType rowType = DataTypes.ROW(DataTypes.INT());
+        Mockito.when(table.partitionKeys()).thenReturn(Collections.emptyList());
+        Mockito.when(table.rowType()).thenReturn(rowType);
+        // Native ORC eligibility now inspects historical types even for file aggregates.
+        Mockito.when(table.schemaManager().schema(1L).logicalRowType()).thenReturn(rowType);
+        Mockito.when(source.getPaimonTable()).thenReturn(table);
+        Mockito.when(source.getExternalTable()).thenReturn(Mockito.mock(PaimonExternalTable.class));
+        node.setSource(source);
+        setField(FileQueryScanNode.class, node, "fileSplitter",
+                new FileSplitter(64L * 1024 * 1024, 64L * 1024 * 1024, 0));
+        setField(PaimonScanNode.class, node, "storagePropertiesMap", Collections.emptyMap());
+        DataSplit dataSplit = Mockito.spy(createDataSplit(Arrays.asList("first.parquet", "second.orc")));
+        Mockito.doReturn(Collections.singletonList(dataSplit)).when(node).getPaimonSplitFromAPI();
+
+        // File aggregates need native file readers; enabling Rust must not replace raw-file splits
+        // with logical DataSplits, which require row reads for COUNT(col) and MIN/MAX.
+        for (TPushAggOp aggregate : Arrays.asList(TPushAggOp.COUNT, TPushAggOp.MINMAX)) {
+            node.setPushDownAggNoGrouping(aggregate);
+            node.setPushDownCountSlotIds(Collections.singletonList(new SlotId(7)));
+            List<org.apache.doris.spi.Split> splits = node.getSplits(1);
+            Assert.assertEquals(2, splits.size());
+            for (org.apache.doris.spi.Split split : splits) {
+                Assert.assertNull(((PaimonSplit) split).getSplit());
+                Assert.assertFalse(((PaimonSplit) split).getRowCount().isPresent());
+            }
+        }
         Mockito.verify(dataSplit, Mockito.never()).mergedRowCount();
     }
 
@@ -1847,6 +1904,173 @@ public class PaimonScanNodeTest {
     }
 
     @Test
+    public void testRustReaderSelectionRequiresFileScannerV2() throws Exception {
+        // The V1 FileScanner explicitly rejects PAIMON_RUST, so a rust request may
+        // only be encoded when enable_file_scanner_v2 is on; with V2 disabled the
+        // split falls back to JNI so the selected scanner can consume it.
+        for (boolean scannerV2 : Arrays.asList(true, false)) {
+            SessionVariable vars = new SessionVariable();
+            vars.setEnablePaimonRustReader(true);
+            vars.enableFileScannerV2 = scannerV2;
+
+            PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                    new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+            PaimonSource source = Mockito.mock(PaimonSource.class);
+            FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
+            Mockito.when(paimonTable.schema()).thenReturn(new TableSchema(
+                    1, Collections.singletonList(new DataField(0, "id", new IntType())),
+                    0, Collections.emptyList(), Collections.emptyList(),
+                    Collections.emptyMap(), null));
+            PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+            Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+            Mockito.when(source.getTableLocation()).thenReturn("s3://warehouse/wh/db.db/t");
+            setField(PaimonScanNode.class, node, "backendStorageProperties",
+                    ImmutableMap.of("AWS_ACCESS_KEY", "example-key", "AWS_SECRET_KEY", "example-secret"));
+            Mockito.when(externalTable.getDbName()).thenReturn("db");
+            Mockito.when(externalTable.getName()).thenReturn("t");
+            node.setSource(source);
+            // The rust gate and schema serialization use doInitialize's cached
+            // getProcessedTable() result, not the raw source table.
+            setField(PaimonScanNode.class, node, "processedTable", paimonTable);
+            setField(PaimonScanNode.class, node, "storagePropertiesMap", Collections.emptyMap());
+
+            TFileRangeDesc rangeDesc = new TFileRangeDesc();
+            invokePrivateMethod(node, "setPaimonParams",
+                    new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                    rangeDesc, new PaimonSplit(createDataSplit("rust_gate.parquet")));
+
+            Assert.assertEquals(scannerV2 ? TPaimonReaderType.PAIMON_RUST : TPaimonReaderType.PAIMON_JNI,
+                    rangeDesc.getTableFormatParams().getPaimonParams().getReaderType());
+        }
+    }
+
+    @Test
+    public void testRustSchemaJsonShipsProcessedTableRelationOptions() throws Exception {
+        // Relation options such as t@options('read.batch-size'='1') are applied by
+        // getProcessedTable(); the JNI reader serializes that effective table, and the
+        // rust reader rebuilds its table from the shipped schema JSON, deriving its
+        // read batch size from the schema options. Only the processed table's schema
+        // carries the override here, and source.getPaimonTable() is deliberately left
+        // unstubbed (it returns null): if the serialization ever regresses to the raw
+        // cached table, the rust gate falls back to JNI and this test fails.
+        SessionVariable vars = new SessionVariable();
+        vars.setEnablePaimonRustReader(true);
+        vars.enableFileScannerV2 = true;
+
+        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+
+        // The processed table: the relation override is merged into its schema.
+        FileStoreTable processed = Mockito.mock(FileStoreTable.class);
+        Mockito.when(processed.schema()).thenReturn(new TableSchema(
+                1, Collections.singletonList(new DataField(0, "id", new IntType())),
+                0, Collections.emptyList(), Collections.emptyList(),
+                ImmutableMap.of("read.batch-size", "1"), null));
+
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+        Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+        Mockito.when(source.getTableLocation()).thenReturn("s3://warehouse/wh/db.db/t");
+        setField(PaimonScanNode.class, node, "backendStorageProperties",
+                ImmutableMap.of("AWS_ACCESS_KEY", "example-key", "AWS_SECRET_KEY", "example-secret"));
+        Mockito.when(externalTable.getDbName()).thenReturn("db");
+        Mockito.when(externalTable.getName()).thenReturn("t");
+        node.setSource(source);
+        setField(PaimonScanNode.class, node, "processedTable", processed);
+        setField(PaimonScanNode.class, node, "storagePropertiesMap", Collections.emptyMap());
+
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        invokePrivateMethod(node, "setPaimonParams",
+                new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                rangeDesc, new PaimonSplit(createDataSplit("relation_options.parquet")));
+
+        org.apache.doris.thrift.TPaimonFileDesc fileDesc =
+                rangeDesc.getTableFormatParams().getPaimonParams();
+        Assert.assertEquals(TPaimonReaderType.PAIMON_RUST, fileDesc.getReaderType());
+        TableSchema shipped = org.apache.paimon.utils.JsonSerdeUtil.fromJson(
+                fileDesc.getPaimonTableSchemaJson(), TableSchema.class);
+        Assert.assertEquals("1", shipped.options().get("read.batch-size"));
+    }
+
+    @Test
+    public void testRustSchemaJsonStripsTimeTravelSelectors() throws Exception {
+        // A statement fence pins the data snapshot by merging scan.snapshot-id into the
+        // schema options (isolateSnapshotRead) while the fields keep the latest schema —
+        // a schema-only ALTER after the last data commit must stay visible. The rust
+        // reader pins data via the serialized DataSplit and re-resolves a shipped
+        // selector in copy_with_time_travel, swapping the fields back to the pinned
+        // snapshot's older schema; the shipped JSON must therefore carry the resolved
+        // fields without the planning selectors, keeping every other option.
+        // The derived scan.mode is stripped with it in every spelling: paimon accepts
+        // enum option values case-insensitively but preserves the original string in
+        // the options map, so a table can persist scan.mode=FROM-SNAPSHOT — the rust
+        // reader recognizes the value case-insensitively and would reject the now-bare
+        // uppercase mode for lacking its selector, while JNI accepts the original
+        // option.
+        for (String scanMode : new String[] {"from-snapshot", "FROM-SNAPSHOT", " From-Snapshot "}) {
+            SessionVariable vars = new SessionVariable();
+            vars.setEnablePaimonRustReader(true);
+            vars.enableFileScannerV2 = true;
+
+            PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                    new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+
+            // Resolved (latest) schema: the column added after the last data commit is a
+            // field, and the fence snapshot id is only planning state in the options.
+            FileStoreTable processed = Mockito.mock(FileStoreTable.class);
+            Mockito.when(processed.schema()).thenReturn(new TableSchema(
+                    1, Arrays.asList(
+                            new DataField(0, "id", new IntType()),
+                            new DataField(1, "added_after", DataTypes.STRING())),
+                    1, Collections.emptyList(), Collections.emptyList(),
+                    ImmutableMap.of(
+                            "scan.snapshot-id", "3",
+                            "scan.tag-name", "stale-tag",
+                            // Paimon's copyInternal materializes the derived scan mode for
+                            // the merged selector; it dangles once the selector is stripped.
+                            "scan.mode", scanMode,
+                            "read.batch-size", "1"),
+                    null));
+
+            PaimonSource source = Mockito.mock(PaimonSource.class);
+            PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+            Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+            Mockito.when(source.getTableLocation()).thenReturn("s3://warehouse/wh/db.db/t");
+            setField(PaimonScanNode.class, node, "backendStorageProperties",
+                    ImmutableMap.of("AWS_ACCESS_KEY", "example-key", "AWS_SECRET_KEY", "example-secret"));
+            Mockito.when(externalTable.getDbName()).thenReturn("db");
+            Mockito.when(externalTable.getName()).thenReturn("t");
+            node.setSource(source);
+            setField(PaimonScanNode.class, node, "processedTable", processed);
+            setField(PaimonScanNode.class, node, "storagePropertiesMap", Collections.emptyMap());
+
+            TFileRangeDesc rangeDesc = new TFileRangeDesc();
+            invokePrivateMethod(node, "setPaimonParams",
+                    new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                    rangeDesc, new PaimonSplit(createDataSplit("strip_selectors.parquet")));
+
+            org.apache.doris.thrift.TPaimonFileDesc fileDesc =
+                    rangeDesc.getTableFormatParams().getPaimonParams();
+            Assert.assertEquals("scan.mode " + scanMode, TPaimonReaderType.PAIMON_RUST,
+                    fileDesc.getReaderType());
+            TableSchema shipped = org.apache.paimon.utils.JsonSerdeUtil.fromJson(
+                    fileDesc.getPaimonTableSchemaJson(), TableSchema.class);
+            Assert.assertNull(shipped.options().get(CoreOptions.SCAN_SNAPSHOT_ID.key()));
+            Assert.assertNull(shipped.options().get(CoreOptions.SCAN_TAG_NAME.key()));
+            // The fence-materialized "from-snapshot" would otherwise dangle: the rust
+            // ReadBuilder requires a selector for it and rejects the open.
+            Assert.assertNull("scan.mode " + scanMode + " must be stripped",
+                    shipped.options().get(CoreOptions.SCAN_MODE.key()));
+            Assert.assertEquals("1", shipped.options().get("read.batch-size"));
+            // The resolved fields are transported untouched, including the column added
+            // after the last data commit.
+            Assert.assertEquals(
+                    Arrays.asList("id", "added_after"),
+                    shipped.fields().stream().map(DataField::name).collect(Collectors.toList()));
+        }
+    }
+
+    @Test
     public void testGetFieldIndexMatchesMixedCaseColumns() {
         List<String> fieldNames = Arrays.asList("data", "mIxEd_COL", "PART");
 
@@ -2085,15 +2309,21 @@ public class PaimonScanNodeTest {
     }
 
     private DataSplit createDataSplit(String fileName) {
-        DataFileMeta dataFileMeta = DataFileMeta.forAppend(fileName, 64L * 1024 * 1024, 1L, SimpleStats.EMPTY_STATS,
-                1L, 1L, 1L, Collections.<String>emptyList(), null, FileSource.APPEND,
-                Collections.<String>emptyList(), null, null, Collections.<String>emptyList());
+        return createDataSplit(Collections.singletonList(fileName));
+    }
+
+    private DataSplit createDataSplit(List<String> fileNames) {
+        List<DataFileMeta> dataFileMetas = fileNames.stream().map(fileName ->
+                DataFileMeta.forAppend(fileName, 64L * 1024 * 1024, 1L, SimpleStats.EMPTY_STATS,
+                        1L, 1L, 1L, Collections.<String>emptyList(), null, FileSource.APPEND,
+                        Collections.<String>emptyList(), null, null, Collections.<String>emptyList()))
+                .collect(Collectors.toList());
         return DataSplit.builder()
                 .rawConvertible(true)
                 .withPartition(BinaryRow.singleColumn(1))
                 .withBucket(1)
                 .withBucketPath("file://b1")
-                .withDataFiles(Collections.singletonList(dataFileMeta))
+                .withDataFiles(dataFileMetas)
                 .build();
     }
 
@@ -2111,4 +2341,1311 @@ public class PaimonScanNodeTest {
         Mockito.when(dataSplit.deletionFiles()).thenReturn(Optional.empty());
         return dataSplit;
     }
+
+    @Test
+    public void testRustReaderSelectionRejectsFallbackSplits() throws Exception {
+        RustRoutingFixture f = new RustRoutingFixture();
+        DataOutputSerializer out = new DataOutputSerializer(1024);
+        f.split.serialize(out);
+        out.writeBoolean(true);
+        DataInputDeserializer in = new DataInputDeserializer();
+        in.setBuffer(out.getSharedBuffer(), 0, out.length());
+        Assert.assertEquals(TPaimonReaderType.PAIMON_JNI,
+                f.reader(FallbackReadFileStoreTable.FallbackDataSplit.deserialize(in)));
+        setField(PaimonScanNode.class, f.node, "processedTable", Mockito.mock(FallbackReadFileStoreTable.class));
+        Assert.assertEquals(TPaimonReaderType.PAIMON_JNI, f.reader(f.split));
+    }
+
+    @Test
+    public void testRustReaderSelectionRejectsQueryAuthTables() throws Exception {
+        RustRoutingFixture f = new RustRoutingFixture();
+        f.schema(1, new IntType(), ImmutableMap.of("query-auth.enabled", "true"), false);
+        Assert.assertEquals(TPaimonReaderType.PAIMON_JNI, f.reader(f.split));
+    }
+
+    @Test
+    public void testRustReaderSelectionRejectsUnsupportedPkDvModes() throws Exception {
+        // The pinned rust read_pk supports partial-update / aggregation tables
+        // with deletion vectors only in the fully materialized shape: it rejects
+        // deletion-vectors.merge-on-read=true outright, and otherwise requires
+        // every split to be compacted (level != 0) and known free of retract rows
+        // (DataSplit::is_fully_materialized_pk_dv). All other shapes are valid
+        // Java/JNI scans, so they must fall back here instead of failing the
+        // BE open. Deduplicate stays rust-eligible: its read_pk routes
+        // uncompacted DV splits to the KV reader, which applies the DVs.
+        SessionVariable vars = new SessionVariable();
+        vars.setEnablePaimonRustReader(true);
+        vars.enableFileScannerV2 = true;
+
+        // createDataSplit builds a level-0 file — the ordinary uncompacted shape.
+        DataSplit levelZeroSplit = createDataSplit("dv_level0.parquet");
+        DataSplit unknownDeleteCountSplit = dvSplitOverFiles(
+                dvCompactedFile("dv_unknown.parquet", null));
+        DataSplit retractsSplit = dvSplitOverFiles(
+                dvCompactedFile("dv_retracts.parquet", 1L));
+        DataSplit materializedSplit = dvSplitOverFiles(
+                dvCompactedFile("dv_materialized.parquet", 0L));
+
+        for (CoreOptions.MergeEngine engine : Arrays.asList(
+                CoreOptions.MergeEngine.PARTIAL_UPDATE, CoreOptions.MergeEngine.AGGREGATE)) {
+            // deletion-vectors.merge-on-read=true: rejected table-wide.
+            Assert.assertEquals("merge-on-read " + engine, TPaimonReaderType.PAIMON_JNI,
+                    dvReaderTypeOf(vars, engine, true,
+                            ImmutableMap.of("deletion-vectors.merge-on-read", "true"),
+                            materializedSplit));
+            // merge-on-read=false but the split still needs per-key merge work:
+            // level-0 data, unknown delete count, or known retracts — all fall
+            // back per split.
+            Assert.assertEquals("level-0 " + engine, TPaimonReaderType.PAIMON_JNI,
+                    dvReaderTypeOf(vars, engine, true, Collections.emptyMap(), levelZeroSplit));
+            Assert.assertEquals("unknown delete count " + engine, TPaimonReaderType.PAIMON_JNI,
+                    dvReaderTypeOf(vars, engine, true, Collections.emptyMap(), unknownDeleteCountSplit));
+            Assert.assertEquals("retracts " + engine, TPaimonReaderType.PAIMON_JNI,
+                    dvReaderTypeOf(vars, engine, true, Collections.emptyMap(), retractsSplit));
+            // A fully materialized compacted split reads raw on rust, and without
+            // deletion vectors the KV reader handles any split.
+            Assert.assertEquals("materialized " + engine, TPaimonReaderType.PAIMON_RUST,
+                    dvReaderTypeOf(vars, engine, true, Collections.emptyMap(), materializedSplit));
+            Assert.assertEquals("no dv " + engine, TPaimonReaderType.PAIMON_RUST,
+                    dvReaderTypeOf(vars, engine, false, Collections.emptyMap(), levelZeroSplit));
+        }
+
+        // Deduplicate keeps rust eligibility for uncompacted DV splits and for
+        // merge-on-read=true: the KV reader applies the attached per-file DVs.
+        Assert.assertEquals(TPaimonReaderType.PAIMON_RUST,
+                dvReaderTypeOf(vars, CoreOptions.MergeEngine.DEDUPLICATE, true,
+                        ImmutableMap.of("deletion-vectors.merge-on-read", "true"), levelZeroSplit));
+    }
+
+    // Builds a node whose processed table is a primary-key table with the given
+    // merge engine and deletion-vector options (all other gates open: no
+    // query-auth, v2 on, ordinary DataSplit) and returns the reader type chosen
+    // for the given split.
+    private TPaimonReaderType dvReaderTypeOf(SessionVariable vars, CoreOptions.MergeEngine mergeEngine,
+            boolean deletionVectorsEnabled, Map<String, String> schemaOptions, DataSplit split)
+            throws Exception {
+        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
+        // lenient: the schema / external-table stubs are only consumed when the
+        // split stays rust-eligible.
+        Mockito.lenient().when(paimonTable.schema()).thenReturn(new TableSchema(
+                1, Collections.singletonList(new DataField(0, "id", new IntType())),
+                0, Collections.emptyList(), Collections.emptyList(), schemaOptions, null));
+        CoreOptions options = Mockito.mock(CoreOptions.class);
+        Mockito.when(paimonTable.coreOptions()).thenReturn(options);
+        Mockito.when(options.queryAuthEnabled()).thenReturn(false);
+        Mockito.when(options.mergeEngine()).thenReturn(mergeEngine);
+        Mockito.when(options.deletionVectorsEnabled()).thenReturn(deletionVectorsEnabled);
+        PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+        Mockito.lenient().when(source.getExternalTable()).thenReturn(externalTable);
+        Mockito.when(source.getTableLocation()).thenReturn("s3://warehouse/wh/db.db/t");
+        setField(PaimonScanNode.class, node, "backendStorageProperties",
+                ImmutableMap.of("AWS_ACCESS_KEY", "example-key", "AWS_SECRET_KEY", "example-secret"));
+        Mockito.lenient().when(externalTable.getDbName()).thenReturn("db");
+        Mockito.lenient().when(externalTable.getName()).thenReturn("t");
+        node.setSource(source);
+        setField(PaimonScanNode.class, node, "processedTable", paimonTable);
+
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        invokePrivateMethod(node, "setPaimonParams",
+                new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                rangeDesc, new PaimonSplit(split));
+        return rangeDesc.getTableFormatParams().getPaimonParams().getReaderType();
+    }
+
+    // A compacted (level != 0) data file with an explicit retract-row count:
+    // null = unknown, 0 = fully materialized, >0 = rows still to retract.
+    private static DataFileMeta dvCompactedFile(String fileName, Long deleteRowCount) {
+        return DataFileMeta.create(fileName, 64L * 1024 * 1024, 1L,
+                DataFileMeta.EMPTY_MIN_KEY, DataFileMeta.EMPTY_MAX_KEY,
+                SimpleStats.EMPTY_STATS, SimpleStats.EMPTY_STATS,
+                1L, 1L, 1L, 5, deleteRowCount, null,
+                FileSource.APPEND, Collections.emptyList(), null, Collections.emptyList());
+    }
+
+    private static DataSplit dvSplitOverFiles(DataFileMeta... files) {
+        return DataSplit.builder()
+                .rawConvertible(true)
+                .withPartition(BinaryRow.singleColumn(1))
+                .withBucket(1)
+                .withBucketPath("file://b1")
+                .withDataFiles(Arrays.asList(files))
+                .build();
+    }
+
+    @Test
+    public void testRustReaderSelectionRejectsOrcTimestampLtzSchemas() throws Exception {
+        RustRoutingFixture f = new RustRoutingFixture();
+        Assert.assertEquals(TPaimonReaderType.PAIMON_RUST, f.reader(createDataSplit("plain.orc")));
+        f.schema(1, new org.apache.paimon.types.LocalZonedTimestampType(6), Collections.emptyMap(), false);
+        Assert.assertEquals(TPaimonReaderType.PAIMON_RUST, f.reader(f.split));
+        Assert.assertEquals(TPaimonReaderType.PAIMON_JNI, f.reader(createDataSplit("ltz.orc")));
+    }
+
+    @Test
+    public void testRustReaderSelectionRejectsMixedFormatOrcLtzSplits() throws Exception {
+        // Paimon allows per-level file.format, so one DataSplit can mix
+        // Parquet and ORC members. The old gate read only the split path's
+        // suffix (the first file), so a first-Parquet/later-ORC split with an
+        // LTZ schema passed while rust still applied the shifted ORC decode
+        // to the ORC members. The format now comes from every member file.
+        SessionVariable vars = new SessionVariable();
+        vars.setEnablePaimonRustReader(true);
+        vars.enableFileScannerV2 = true;
+        List<DataField> ltzFields = Arrays.asList(
+                new DataField(0, "id", new IntType()),
+                new DataField(1, "ts_ltz", new LocalZonedTimestampType(6)));
+
+        // First file Parquet, later member ORC: the first file's suffix no
+        // longer speaks for the split -> JNI.
+        Assert.assertEquals(TPaimonReaderType.PAIMON_JNI,
+                readerTypeOf(vars, ltzFields, "first.parquet", "second.orc"));
+        // ORC first, later Parquet member (the shape the suffix check did
+        // catch) stays JNI.
+        Assert.assertEquals(TPaimonReaderType.PAIMON_JNI,
+                readerTypeOf(vars, ltzFields, "first.orc", "second.parquet"));
+        // All-Parquet members with the same LTZ schema stay rust-eligible.
+        Assert.assertEquals(TPaimonReaderType.PAIMON_RUST,
+                readerTypeOf(vars, ltzFields, "a.parquet", "b.parquet"));
+    }
+
+    @Test
+    public void testRustReaderSelectionRejectsNestedTimestampLtzSchemas() throws Exception {
+        // An LTZ nested under MAP/ARRAY/ROW reaches the same shifted ORC
+        // decode through the container's field materialization; the old
+        // top-level-only type-root check missed it. The search recurses; the
+        // same containers without LTZ stay rust-eligible, and Parquet splits
+        // with nested LTZ are unaffected (only the ORC decoder diverges).
+        SessionVariable vars = new SessionVariable();
+        vars.setEnablePaimonRustReader(true);
+        vars.enableFileScannerV2 = true;
+        LocalZonedTimestampType ltz = new LocalZonedTimestampType(6);
+
+        // LTZ under each container kind, uniform-ORC split -> JNI.
+        for (DataField nested : Arrays.asList(
+                new DataField(1, "m", new org.apache.paimon.types.MapType(new IntType(), ltz)),
+                new DataField(1, "arr", new org.apache.paimon.types.ArrayType(ltz)),
+                new DataField(1, "r",
+                        new RowType(Collections.singletonList(new DataField(0, "ts_ltz", ltz)))))) {
+            Assert.assertEquals("nested " + nested.name() + " under ORC",
+                    TPaimonReaderType.PAIMON_JNI,
+                    readerTypeOf(vars, Arrays.asList(
+                            new DataField(0, "id", new IntType()), nested),
+                            "nested.orc"));
+            // The same nested-LTZ schema over Parquet stays rust-eligible.
+            Assert.assertEquals("nested " + nested.name() + " over Parquet",
+                    TPaimonReaderType.PAIMON_RUST,
+                    readerTypeOf(vars, Arrays.asList(
+                            new DataField(0, "id", new IntType()), nested),
+                            "nested.parquet"));
+        }
+
+        // Containers without any LTZ over ORC stay rust-eligible.
+        Assert.assertEquals(TPaimonReaderType.PAIMON_RUST,
+                readerTypeOf(vars, Arrays.asList(
+                        new DataField(0, "id", new IntType()),
+                        new DataField(1, "m",
+                                new org.apache.paimon.types.MapType(new IntType(), new IntType()))),
+                        "map_int.orc"));
+    }
+
+    @Test
+    public void testRustReaderSelectionRejectsExternalDataFileSplits() throws Exception {
+        // data-file.external-paths: paimon can store an absolute location in
+        // each DataFileMeta, and both Java and the serialized rust split prefer
+        // it over the bucket path — but the pinned rust table builds one FileIO
+        // from paimon_table, whose storage enum parses every file with the
+        // warehouse-selected backend: an hdfs table with an s3:// external file
+        // (or an s3 table with an oss:// file) reaches the wrong parser and
+        // fails the open, while JNI reads it. Any split carrying an external
+        // file therefore routes to JNI, regardless of the external path's own
+        // scheme (the shipped options describe only the warehouse).
+        SessionVariable vars = new SessionVariable();
+        vars.setEnablePaimonRustReader(true);
+        vars.enableFileScannerV2 = true;
+        List<DataField> fields = Arrays.asList(
+                new DataField(0, "id", new IntType()),
+                new DataField(1, "ts", new TimestampType(6)));
+
+        // A split whose file carries an external path -> JNI.
+        DataFileMeta external = DataFileMeta.forAppend(
+                "external.parquet", 64L * 1024 * 1024, 1L, SimpleStats.EMPTY_STATS,
+                1L, 1L, 1L, Collections.<String>emptyList(), null, FileSource.APPEND,
+                Collections.<String>emptyList(), null, null, Collections.<String>emptyList())
+                .newExternalPath("hdfs://other-nn/external/wh/external.parquet");
+        DataSplit externalSplit = DataSplit.builder()
+                .rawConvertible(true)
+                .withPartition(BinaryRow.singleColumn(1))
+                .withBucket(1)
+                .withBucketPath("file://b1")
+                .withDataFiles(Collections.singletonList(external))
+                .build();
+        Assert.assertEquals(TPaimonReaderType.PAIMON_JNI,
+                readerTypeOfSplit(vars, fields, externalSplit));
+
+        // The same split without an external path stays rust-eligible.
+        DataSplit plainSplit = DataSplit.builder()
+                .rawConvertible(true)
+                .withPartition(BinaryRow.singleColumn(1))
+                .withBucket(1)
+                .withBucketPath("file://b1")
+                .withDataFiles(Collections.singletonList(DataFileMeta.forAppend(
+                        "plain.parquet", 64L * 1024 * 1024, 1L, SimpleStats.EMPTY_STATS,
+                        1L, 1L, 1L, Collections.<String>emptyList(), null, FileSource.APPEND,
+                        Collections.<String>emptyList(), null, null, Collections.<String>emptyList())))
+                .build();
+        Assert.assertEquals(TPaimonReaderType.PAIMON_RUST,
+                readerTypeOfSplit(vars, fields, plainSplit));
+    }
+
+    @Test
+    public void testRustReaderSelectionRejectsDeduplicateIgnoreDeleteTables() throws Exception {
+        // deduplicate.ignore-delete=true tables stay on JNI: Java's
+        // DeduplicateMergeFunction skips retract records when the option is set
+        // (including old, uncompacted files that still contain them), but the
+        // pinned rust read_pk does not pass table options into its deduplicate
+        // merge — it picks the latest row and omits the key when that row is
+        // DELETE/UPDATE_BEFORE. An uncompacted insert followed by a delete
+        // therefore returns the insert through JNI but silently disappears
+        // through rust.
+        for (Object[] shape : new Object[][] {
+                // DEDUPLICATE engine with the option on -> JNI.
+                {CoreOptions.MergeEngine.DEDUPLICATE, true, TPaimonReaderType.PAIMON_JNI},
+                // Option off, same engine -> rust.
+                {CoreOptions.MergeEngine.DEDUPLICATE, false, TPaimonReaderType.PAIMON_RUST},
+                // Option on under a non-deduplicate engine: meaningless there,
+                // the gate must not reject -> rust.
+                {CoreOptions.MergeEngine.PARTIAL_UPDATE, true, TPaimonReaderType.PAIMON_RUST}}) {
+            CoreOptions.MergeEngine mergeEngine = (CoreOptions.MergeEngine) shape[0];
+            boolean ignoreDelete = (Boolean) shape[1];
+            TPaimonReaderType expected = (TPaimonReaderType) shape[2];
+
+            SessionVariable vars = new SessionVariable();
+            vars.setEnablePaimonRustReader(true);
+            vars.enableFileScannerV2 = true;
+
+            PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                    new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+            PaimonSource source = Mockito.mock(PaimonSource.class);
+            FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
+            CoreOptions options = Mockito.mock(CoreOptions.class);
+            Mockito.when(paimonTable.coreOptions()).thenReturn(options);
+            Mockito.when(options.queryAuthEnabled()).thenReturn(false);
+            Mockito.when(options.mergeEngine()).thenReturn(mergeEngine);
+            Mockito.when(options.ignoreDelete()).thenReturn(ignoreDelete);
+            PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+            Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+            Mockito.when(source.getTableLocation()).thenReturn("s3://warehouse/wh/db.db/t");
+            setField(PaimonScanNode.class, node, "backendStorageProperties",
+                    ImmutableMap.of("AWS_ACCESS_KEY", "example-key", "AWS_SECRET_KEY", "example-secret"));
+            Mockito.when(externalTable.getDbName()).thenReturn("db");
+            Mockito.when(externalTable.getName()).thenReturn("t");
+            node.setSource(source);
+            setField(PaimonScanNode.class, node, "processedTable", paimonTable);
+            if (expected == TPaimonReaderType.PAIMON_RUST) {
+                // Only the rust branch serializes the schema (a JNI-expected
+                // stub would trip Mockito's strict unused-stubbing check).
+                Mockito.when(paimonTable.schema()).thenReturn(new TableSchema(
+                        1, Collections.singletonList(new DataField(0, "id", new IntType())),
+                        0, Collections.emptyList(), Collections.emptyList(),
+                        Collections.emptyMap(), null));
+            }
+
+            TFileRangeDesc rangeDesc = new TFileRangeDesc();
+            invokePrivateMethod(node, "setPaimonParams",
+                    new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                    rangeDesc, new PaimonSplit(createDataSplit("dedup_ignore_del.parquet")));
+            Assert.assertEquals("engine " + mergeEngine + ", ignore-delete " + ignoreDelete,
+                    expected, rangeDesc.getTableFormatParams().getPaimonParams().getReaderType());
+        }
+    }
+
+    @Test
+    public void testRustReaderSelectionRejectsRestTokenTables() throws Exception {
+        // doInitialize snapshots RESTTokenFileIO.validToken().token() into
+        // the backend storage properties, discarding expireAtMillis and the
+        // REST refresh context, so the shipped credentials look static — but
+        // the pinned rust table reuses one option map with no refresh
+        // callback, while paimon 1.4.2's JNI RESTTokenFileIO checks expiry
+        // before each file operation and obtains a replacement token. A scan
+        // crossing the token TTL would start on rust and later fail
+        // authentication; only the table's FileIO type reveals the token is
+        // renewable.
+        for (boolean restToken : new boolean[] {true, false}) {
+            SessionVariable vars = new SessionVariable();
+            vars.setEnablePaimonRustReader(true);
+            vars.enableFileScannerV2 = true;
+
+            PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                    new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+            PaimonSource source = Mockito.mock(PaimonSource.class);
+            FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
+            CoreOptions options = Mockito.mock(CoreOptions.class);
+            Mockito.when(paimonTable.coreOptions()).thenReturn(options);
+            Mockito.when(options.queryAuthEnabled()).thenReturn(false);
+            // S3-location static credentials, an ordinary shape the
+            // REST-token snapshot also produces.
+            setField(PaimonScanNode.class, node, "backendStorageProperties", ImmutableMap.of(
+                    "AWS_CREDENTIALS_PROVIDER_TYPE", "DEFAULT",
+                    "AWS_ACCESS_KEY", "ak",
+                    "AWS_SECRET_KEY", "sk",
+                    "AWS_ENDPOINT", "http://127.0.0.1:19001",
+                    "AWS_REGION", "us-east-1"));
+            if (restToken) {
+                Mockito.when(paimonTable.fileIO())
+                        .thenReturn(Mockito.mock(RESTTokenFileIO.class));
+                // The JNI branch never serializes the schema.
+            } else {
+                Mockito.when(paimonTable.schema()).thenReturn(new TableSchema(
+                        1, Collections.singletonList(new DataField(0, "id", new IntType())),
+                        0, Collections.emptyList(), Collections.emptyList(),
+                        Collections.emptyMap(), null));
+                // A plain (or unresolved) FileIO shape stays rust-eligible.
+                Mockito.when(paimonTable.fileIO()).thenReturn(null);
+            }
+            PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+            Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+            Mockito.when(source.getTableLocation()).thenReturn("s3://warehouse/wh/db.db/t");
+            Mockito.when(externalTable.getDbName()).thenReturn("db");
+            Mockito.when(externalTable.getName()).thenReturn("t");
+            node.setSource(source);
+            setField(PaimonScanNode.class, node, "processedTable", paimonTable);
+
+            TFileRangeDesc rangeDesc = new TFileRangeDesc();
+            invokePrivateMethod(node, "setPaimonParams",
+                    new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                    rangeDesc, new PaimonSplit(createDataSplit("rest_token.parquet")));
+            Assert.assertEquals("RESTTokenFileIO=" + restToken,
+                    restToken ? TPaimonReaderType.PAIMON_JNI : TPaimonReaderType.PAIMON_RUST,
+                    rangeDesc.getTableFormatParams().getPaimonParams().getReaderType());
+        }
+    }
+
+    @Test
+    public void testRustReaderSelectionRejectsRustUnsupportedMergeOptions() throws Exception {
+        // Java supports partial-update.remove-record-on-delete /
+        // aggregation.remove-record-on-delete and the wider per-field option
+        // matrix, but the pinned paimon-rust PartialUpdateConfig /
+        // AggregationConfig validations return Unsupported for them — the
+        // rust predicates check option-key PRESENCE, so the FE gate mirrors
+        // presence exactly (an off value still routes to JNI, because the
+        // rust merge construction rejects the bare key). Non-DV tables are
+        // the review's case: without this gate an ordinary DataSplit passes
+        // the compound gate and fails during the rust merge construction
+        // instead of scanning through JNI.
+        for (Object[] shape : new Object[][] {
+                // Partial-update unsupported keys -> JNI.
+                {CoreOptions.MergeEngine.PARTIAL_UPDATE, "partial-update.remove-record-on-delete",
+                        TPaimonReaderType.PAIMON_JNI},
+                {CoreOptions.MergeEngine.PARTIAL_UPDATE,
+                        "partial-update.remove-record-on-sequence-group",
+                        TPaimonReaderType.PAIMON_JNI},
+                {CoreOptions.MergeEngine.PARTIAL_UPDATE, "fields.v.ignore-retract",
+                        TPaimonReaderType.PAIMON_JNI},
+                {CoreOptions.MergeEngine.PARTIAL_UPDATE, "fields.v.distinct",
+                        TPaimonReaderType.PAIMON_JNI},
+                {CoreOptions.MergeEngine.PARTIAL_UPDATE, "fields.v.ignore-delete",
+                        TPaimonReaderType.PAIMON_JNI},
+                // Aggregation unsupported keys -> JNI.
+                {CoreOptions.MergeEngine.AGGREGATE, "aggregation.remove-record-on-delete",
+                        TPaimonReaderType.PAIMON_JNI},
+                {CoreOptions.MergeEngine.AGGREGATE, "fields.v.sequence-group",
+                        TPaimonReaderType.PAIMON_JNI},
+                {CoreOptions.MergeEngine.AGGREGATE, "ignore-delete",
+                        TPaimonReaderType.PAIMON_JNI},
+                // Keys the rust read path DOES support: bare /
+                // partial-update-prefixed ignore-delete, sequence groups and
+                // field aggregation stay rust-eligible.
+                {CoreOptions.MergeEngine.PARTIAL_UPDATE, "partial-update.ignore-delete",
+                        TPaimonReaderType.PAIMON_RUST},
+                {CoreOptions.MergeEngine.PARTIAL_UPDATE, "fields.v.sequence-group",
+                        TPaimonReaderType.PAIMON_RUST},
+                {CoreOptions.MergeEngine.PARTIAL_UPDATE, "fields.v.aggregate-function",
+                        TPaimonReaderType.PAIMON_RUST},
+                {CoreOptions.MergeEngine.AGGREGATE, "fields.v.aggregate-function",
+                        TPaimonReaderType.PAIMON_RUST},
+                {CoreOptions.MergeEngine.AGGREGATE, "fields.default-aggregate-function",
+                        TPaimonReaderType.PAIMON_RUST}}) {
+            CoreOptions.MergeEngine mergeEngine = (CoreOptions.MergeEngine) shape[0];
+            String optionKey = (String) shape[1];
+            TPaimonReaderType expected = (TPaimonReaderType) shape[2];
+
+            SessionVariable vars = new SessionVariable();
+            vars.setEnablePaimonRustReader(true);
+            vars.enableFileScannerV2 = true;
+
+            PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                    new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+            PaimonSource source = Mockito.mock(PaimonSource.class);
+            FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
+            CoreOptions options = Mockito.mock(CoreOptions.class);
+            Mockito.when(paimonTable.coreOptions()).thenReturn(options);
+            Mockito.when(options.queryAuthEnabled()).thenReturn(false);
+            Mockito.when(options.mergeEngine()).thenReturn(mergeEngine);
+            Mockito.when(paimonTable.schema()).thenReturn(new TableSchema(
+                    1, Collections.singletonList(new DataField(0, "id", new IntType())),
+                    0, Collections.emptyList(), Collections.emptyList(),
+                    ImmutableMap.of(optionKey, "true"), null));
+            PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+            Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+            Mockito.when(source.getTableLocation()).thenReturn("s3://warehouse/wh/db.db/t");
+            setField(PaimonScanNode.class, node, "backendStorageProperties",
+                    ImmutableMap.of("AWS_ACCESS_KEY", "example-key", "AWS_SECRET_KEY", "example-secret"));
+            Mockito.when(externalTable.getDbName()).thenReturn("db");
+            Mockito.when(externalTable.getName()).thenReturn("t");
+            node.setSource(source);
+            setField(PaimonScanNode.class, node, "processedTable", paimonTable);
+
+            TFileRangeDesc rangeDesc = new TFileRangeDesc();
+            invokePrivateMethod(node, "setPaimonParams",
+                    new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                    rangeDesc, new PaimonSplit(createDataSplit("merge_option_gate.parquet")));
+            Assert.assertEquals("engine " + mergeEngine + ", option " + optionKey, expected,
+                    rangeDesc.getTableFormatParams().getPaimonParams().getReaderType());
+        }
+    }
+
+    // Builds a node whose processed table carries the given row-type fields
+    // (all other gates open: no query-auth, v2 on, ordinary DataSplit) and
+    // returns the reader type chosen for a split over the given member files.
+    // Multiple file names build a multi-file split (paimon allows per-level
+    // file.format, so one DataSplit can mix Parquet and ORC members).
+    private TPaimonReaderType readerTypeOf(SessionVariable vars, List<DataField> fields,
+            String... fileNames) throws Exception {
+        return readerTypeOfSplit(vars, fields, createDataSplit(Arrays.asList(fileNames)));
+    }
+
+    // Same harness as readerTypeOf over an externally built DataSplit (e.g. one
+    // whose member files carry data-file.external-paths locations).
+    private TPaimonReaderType readerTypeOfSplit(SessionVariable vars, List<DataField> fields,
+            DataSplit dataSplit) throws Exception {
+        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
+        Mockito.when(paimonTable.schema()).thenReturn(new TableSchema(
+                1, fields, 0, Collections.emptyList(), Collections.emptyList(),
+                Collections.emptyMap(), null));
+        CoreOptions options = Mockito.mock(CoreOptions.class);
+        Mockito.when(paimonTable.coreOptions()).thenReturn(options);
+        Mockito.when(options.queryAuthEnabled()).thenReturn(false);
+        PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+        Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+        Mockito.when(source.getTableLocation()).thenReturn("s3://warehouse/wh/db.db/t");
+        setField(PaimonScanNode.class, node, "backendStorageProperties",
+                ImmutableMap.of("AWS_ACCESS_KEY", "example-key", "AWS_SECRET_KEY", "example-secret"));
+        Mockito.when(externalTable.getDbName()).thenReturn("db");
+        Mockito.when(externalTable.getName()).thenReturn("t");
+        node.setSource(source);
+        setField(PaimonScanNode.class, node, "processedTable", paimonTable);
+
+        TFileRangeDesc rangeDesc = new TFileRangeDesc();
+        invokePrivateMethod(node, "setPaimonParams",
+                new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                rangeDesc, new PaimonSplit(dataSplit));
+        return rangeDesc.getTableFormatParams().getPaimonParams().getReaderType();
+    }
+
+    @Test
+    public void testRustReaderSelectionRejectsIncrementalScans() throws Exception {
+        for (String mode : Arrays.asList("delta", "changelog", "diff")) {
+            RustRoutingFixture f = new RustRoutingFixture();
+            f.node.setScanParams(new TableScanParams("incr", ImmutableMap.of(
+                    "incremental-between", "5,10", "incremental-between-scan-mode", mode), null));
+            Assert.assertEquals(TPaimonReaderType.PAIMON_JNI, f.reader(f.split));
+        }
+    }
+
+    @Test
+    public void testRustReaderSelectionRejectsAmbientCredentialProviderModes() throws Exception {
+        for (String provider : Arrays.asList("ENV", "SYSTEM_PROPERTIES", "WEB_IDENTITY",
+                "CONTAINER", "INSTANCE_PROFILE")) {
+            RustRoutingFixture f = new RustRoutingFixture();
+            f.credentials(provider);
+            Assert.assertEquals(TPaimonReaderType.PAIMON_JNI, f.reader(f.split));
+        }
+    }
+
+    @Test
+    public void testRustReaderSelectionRequiresExplicitS3Credentials() throws Exception {
+        // DEFAULT without static keys may use JVM-only credentials or anonymous fallback.
+        for (String[] shape : new String[][] {
+                {"ANONYMOUS", "s3://warehouse/wh", "PAIMON_RUST", "", ""},
+                {"DEFAULT", "s3://warehouse/wh", "PAIMON_JNI", "", ""},
+                {"DEFAULT", "s3a://warehouse/wh", "PAIMON_JNI", "example-key", ""},
+                {"DEFAULT", "s3://warehouse/wh", "PAIMON_JNI", " ", " "},
+                {"DEFAULT", "s3://warehouse/wh", "PAIMON_RUST", "example-key", "example-secret"},
+                {"", "s3://warehouse/wh", "PAIMON_JNI", "", ""},
+                {"ANONYMOUS", "oss://warehouse/wh", "PAIMON_JNI", "", ""}}) {
+            String mode = shape[0];
+            String location = shape[1];
+            TPaimonReaderType expected =
+                    TPaimonReaderType.valueOf(shape[2]);
+            SessionVariable vars = new SessionVariable();
+            vars.setEnablePaimonRustReader(true);
+            vars.enableFileScannerV2 = true;
+
+            PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                    new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+            PaimonSource source = Mockito.mock(PaimonSource.class);
+            Mockito.when(source.getTableLocation()).thenReturn(location);
+            FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
+            PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+            // Supply both paths so an incorrect Rust selection fails the
+            // reader-type assertion rather than unrelated schema setup.
+            Mockito.lenient().when(source.getExternalTable()).thenReturn(externalTable);
+            Mockito.lenient().when(paimonTable.schema()).thenReturn(new TableSchema(
+                    1, Collections.singletonList(new DataField(0, "id", new IntType())),
+                    0, Collections.emptyList(), Collections.emptyList(),
+                    Collections.emptyMap(), null));
+            Mockito.lenient().when(externalTable.getDbName()).thenReturn("db");
+            Mockito.lenient().when(externalTable.getName()).thenReturn("t");
+            node.setSource(source);
+            setField(PaimonScanNode.class, node, "processedTable", paimonTable);
+            setField(PaimonScanNode.class, node, "backendStorageProperties",
+                    ImmutableMap.of("AWS_CREDENTIALS_PROVIDER_TYPE", mode,
+                            "AWS_ACCESS_KEY", shape[3], "AWS_SECRET_KEY", shape[4]));
+
+            TFileRangeDesc rangeDesc = new TFileRangeDesc();
+            invokePrivateMethod(node, "setPaimonParams",
+                    new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                    rangeDesc, new PaimonSplit(createDataSplit("provider_ok.parquet")));
+            Assert.assertEquals("mode " + mode + " on " + location, expected,
+                    rangeDesc.getTableFormatParams().getPaimonParams().getReaderType());
+        }
+    }
+
+    @Test
+    public void testRustReaderRejectsConflictingStaticCredentials() throws Exception {
+        for (Map<String, String> extra : Arrays.asList(
+                ImmutableMap.of("AWS_CREDENTIALS_PROVIDER_TYPE", "ANONYMOUS"),
+                ImmutableMap.of("AWS_ROLE_ARN", "arn:aws:iam::123456789012:role/example"),
+                ImmutableMap.of("AWS_TOKEN", "expired-example-token"),
+                ImmutableMap.of("AWS_TOKEN", " "), ImmutableMap.of("AWS_ROLE_ARN", " "))) {
+            RustRoutingFixture f = new RustRoutingFixture();
+            Map<String, String> properties = new HashMap<>();
+            properties.put("AWS_ACCESS_KEY", "example-key");
+            properties.put("AWS_SECRET_KEY", "example-secret");
+            properties.putAll(extra);
+            setField(PaimonScanNode.class, f.node, "backendStorageProperties", properties);
+            // Hadoop's Simple provider ignores these settings; Rust must not change identity.
+            Assert.assertEquals(extra.toString(), TPaimonReaderType.PAIMON_JNI, f.reader(f.split));
+        }
+    }
+
+    @Test
+    public void testRustReaderRejectsUnsupportedPersistedBranchScanModes() throws Exception {
+        for (String mode : Arrays.asList("latest", "latest-full", "full", "compacted-full", "LATEST-FULL", " default ")) {
+            RustRoutingFixture f = new RustRoutingFixture();
+            f.schema(1, new IntType(), ImmutableMap.of("branch", "audit", "scan.mode", mode), false);
+            // A branch can keep its persisted mode without a time-travel selector to strip it.
+            Assert.assertEquals(mode, TPaimonReaderType.PAIMON_JNI, f.reader(f.split));
+        }
+    }
+
+    @Test
+    public void testRustReaderSelectionGatesUnverifiedLocationSchemes() throws Exception {
+        // The pinned paimon-rust storage dispatcher (io/storage.rs) selects the
+        // FileIO parser from the table location's URI scheme, and libpaimon_c.a
+        // compiles in separate COS, OBS, GCS and Azdls parsers besides OSS and
+        // S3. Doris normalizes those object stores' credentials into the AWS_*
+        // aliases, which the BE rust bridge translates only into the s3.* /
+        // fs.oss.* key families — a cosn:// / obs:// / gs:// / abfs:// table
+        // would reach its scheme's parser without the key family it reads
+        // (fs.cosn.userinfo.*, fs.obs.*, gcs.*, azure.*) and fail the open.
+        // Those schemes must fall back to JNI before the split is encoded;
+        // the verified schemes (s3 / s3a / oss, plus credential-free hdfs and
+        // local paths) stay rust-eligible.
+        for (String[] shape : new String[][] {
+                // Unverified object-store schemes -> JNI (property translation
+                // not implemented; Doris sends these as AWS_* aliases).
+                {"cosn://bucket/wh/db.db/t", "PAIMON_JNI"},
+                {"obs://bucket/wh/db.db/t", "PAIMON_JNI"},
+                {"gs://bucket/wh/db.db/t", "PAIMON_JNI"},
+                {"abfs://bucket/wh/db.db/t", "PAIMON_JNI"},
+                {"abfss://bucket@account/wh/db.db/t", "PAIMON_JNI"},
+                {"az://bucket/wh/db.db/t", "PAIMON_JNI"},
+                {"azure://bucket/wh/db.db/t", "PAIMON_JNI"},
+                // Uppercase URI-scheme variants of otherwise verified schemes:
+                // the crate strips only a lowercase prefix, and the DataSplit's
+                // file paths carry the original casing too -> JNI.
+                {"S3://bucket/wh/db.db/t", "PAIMON_JNI"},
+                {"Hdfs://nn/wh/db.db/t", "PAIMON_JNI"},
+                // A null location cannot be verified (and cannot ship
+                // paimon_table for the rust reader) -> JNI.
+                {null, "PAIMON_JNI"},
+                // Verified schemes with implemented property translation or
+                // credential-free parsers -> rust.
+                {"s3://bucket/wh/db.db/t", "PAIMON_RUST"},
+                {"s3a://bucket/wh/db.db/t", "PAIMON_RUST"},
+                {"oss://bucket/wh/db.db/t", "PAIMON_RUST"},
+                {"hdfs://nn/wh/db.db/t", "PAIMON_RUST"},
+                {"file:///paimon/wh/db.db/t", "PAIMON_RUST"},
+                {"/paimon/wh/db.db/t", "PAIMON_RUST"}}) {
+            String location = shape[0];
+            TPaimonReaderType expected = TPaimonReaderType.valueOf(shape[1]);
+            SessionVariable vars = new SessionVariable();
+            vars.setEnablePaimonRustReader(true);
+            vars.enableFileScannerV2 = true;
+
+            PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                    new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+            PaimonSource source = Mockito.mock(PaimonSource.class);
+            if (location != null) {
+                Mockito.when(source.getTableLocation()).thenReturn(location);
+            }
+            FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
+            PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+            if (expected == TPaimonReaderType.PAIMON_RUST) {
+                // Only the rust path serializes the schema and the table
+                // identity; the JNI iterations must not leave unused stubs.
+                Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+                Mockito.when(paimonTable.schema()).thenReturn(new TableSchema(
+                        1, Collections.singletonList(new DataField(0, "id", new IntType())),
+                        0, Collections.emptyList(), Collections.emptyList(),
+                        Collections.emptyMap(), null));
+                Mockito.when(externalTable.getDbName()).thenReturn("db");
+                Mockito.when(externalTable.getName()).thenReturn("t");
+            }
+            node.setSource(source);
+            setField(PaimonScanNode.class, node, "processedTable", paimonTable);
+            // Production-shaped COS/OBS/GCS/Azure map: static credentials
+            // normalized to the AWS_* aliases (plus the S3-compatible
+            // connection settings).
+            setField(PaimonScanNode.class, node, "backendStorageProperties", ImmutableMap.of(
+                    "AWS_CREDENTIALS_PROVIDER_TYPE", "DEFAULT",
+                    "AWS_ACCESS_KEY", "ak",
+                    "AWS_SECRET_KEY", "sk",
+                    "AWS_ENDPOINT", "http://127.0.0.1:19001",
+                    "AWS_REGION", "us-east-1"));
+
+            TFileRangeDesc rangeDesc = new TFileRangeDesc();
+            invokePrivateMethod(node, "setPaimonParams",
+                    new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                    rangeDesc, new PaimonSplit(createDataSplit("scheme_gate.parquet")));
+            Assert.assertEquals("location " + location, expected,
+                    rangeDesc.getTableFormatParams().getPaimonParams().getReaderType());
+        }
+    }
+
+    @Test
+    public void testIsRustVerifiedLocationSchemeClassification() {
+        // A plain path without a URI scheme is a local-filesystem location, which
+        // reads through the crate's LocalFs parser and needs no credentials. The
+        // scheme must appear in the exact lowercase form the pinned crate
+        // consumes: it lowercases only its storage dispatch, while its path
+        // extraction strips a lowercase prefix from the original string — a
+        // S3:// or Hdfs:// warehouse must route to JNI instead (the Java stack
+        // is case-insensitive everywhere).
+        Assert.assertTrue(PaimonScanNode.isRustVerifiedLocationScheme("s3://bucket/wh"));
+        Assert.assertTrue(PaimonScanNode.isRustVerifiedLocationScheme("/local/wh"));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedLocationScheme("S3://bucket/wh"));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedLocationScheme("OSS://bucket/wh"));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedLocationScheme("Hdfs://nn/wh"));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedLocationScheme("FILE:///paimon/wh"));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedLocationScheme("cosn://bucket/wh"));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedLocationScheme("COSN://bucket/wh"));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedLocationScheme("viewfs://cluster/wh"));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedLocationScheme(null));
+    }
+
+    @Test
+    public void testRustReaderSelectionRejectsAuthenticatedHdfsBackends() throws Exception {
+        // The pinned paimon-rust HDFS parser reads only the hdfs.name-node /
+        // hdfs.enable-append keys: no kerberos, no proxy user, no hadoop HA
+        // resolution. A Kerberized HDFS catalog (or one with hadoop.username /
+        // HA nameservice config) passes the location scheme gate, so the scan
+        // would open as the BE process's ambient identity and fail the access
+        // JNI honors — those shapes must fall back to JNI; the credential-free
+        // shape stays rust-eligible.
+        for (String[][] shape : new String[][][] {
+                // Production-shaped credential-free HdfsProperties output: an
+                // fs.defaultFS, the always-written simple-auth markers and
+                // pass-through tunables, none of which carry an identity.
+                {new String[] {"fs.defaultFS", "hdfs://nn:8020"},
+                        new String[] {"hdfs.security.authentication", "simple"},
+                        new String[] {"ipc.client.fallback-to-simple-auth-allowed", "true"},
+                        new String[] {"PAIMON_RUST"}},
+                // A null / empty map is the anonymous default the parser
+                // supports (the regression suite's plain hdfs:// table).
+                {new String[] {"PAIMON_RUST"}},
+                // Kerberos: authentication type plus principal / keytab, as
+                // HdfsProperties emits them for a Kerberized catalog.
+                {new String[] {"hadoop.security.authentication", "kerberos"},
+                        new String[] {"hadoop.kerberos.principal", "hdfs/_HOST@REALM"},
+                        new String[] {"hadoop.kerberos.keytab", "/etc/security/hdfs.keytab"},
+                        new String[] {"PAIMON_JNI"}},
+                {new String[] {"hdfs.security.authentication", "kerberos"}, new String[] {"PAIMON_JNI"}},
+                // Proxy user: hadoop.username authenticates as a specific user
+                // the rust parser would drop.
+                {new String[] {"hadoop.username", "hive"}, new String[] {"PAIMON_JNI"}},
+                // HA nameservice resolution: dfs.nameservices / dfs.ha.* config
+                // cannot be resolved without the dfs.* channel.
+                {new String[] {"dfs.nameservices", "ns1"},
+                        new String[] {"dfs.ha.namenodes.ns1", "nn1,nn2"},
+                        new String[] {"PAIMON_JNI"}},
+                {new String[] {"dfs.ha.namenodes.ns1", "nn1,nn2"}, new String[] {"PAIMON_JNI"}},
+                // Simple-auth client options: valid without Kerberos, but the
+                // rust storage_hdfs parser drops every dfs./hadoop./fs. key
+                // beyond its two, and hdfs-native defaults
+                // dfs.client.use.datanode.hostname to false — behind
+                // containers/NAT it connects to the advertised IP instead of
+                // the hostname and fails while JNI succeeds.
+                {new String[] {"dfs.client.use.datanode.hostname", "true"},
+                        new String[] {"PAIMON_JNI"}},
+                {new String[] {"hadoop.proxyuser.kerberos", "x"},
+                        new String[] {"PAIMON_JNI"}}}) {
+            Map<String, String> backendProperties = new HashMap<>();
+            for (int i = 0; i < shape.length - 1; i++) {
+                backendProperties.put(shape[i][0], shape[i][1]);
+            }
+            TPaimonReaderType expected = TPaimonReaderType.valueOf(
+                    shape[shape.length - 1][0]);
+
+            SessionVariable vars = new SessionVariable();
+            vars.setEnablePaimonRustReader(true);
+            vars.enableFileScannerV2 = true;
+
+            PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                    new TupleDescriptor(new TupleId(0)), false, vars, ScanContext.EMPTY);
+            PaimonSource source = Mockito.mock(PaimonSource.class);
+            Mockito.when(source.getTableLocation()).thenReturn("hdfs://nn/wh/db.db/t");
+            FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
+            PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+            if (expected == TPaimonReaderType.PAIMON_RUST) {
+                Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+                Mockito.when(paimonTable.schema()).thenReturn(new TableSchema(
+                        1, Collections.singletonList(new DataField(0, "id", new IntType())),
+                        0, Collections.emptyList(), Collections.emptyList(),
+                        Collections.emptyMap(), null));
+                Mockito.when(externalTable.getDbName()).thenReturn("db");
+                Mockito.when(externalTable.getName()).thenReturn("t");
+            }
+            node.setSource(source);
+            setField(PaimonScanNode.class, node, "processedTable", paimonTable);
+            setField(PaimonScanNode.class, node, "backendStorageProperties", backendProperties);
+
+            TFileRangeDesc rangeDesc = new TFileRangeDesc();
+            invokePrivateMethod(node, "setPaimonParams",
+                    new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                    rangeDesc, new PaimonSplit(createDataSplit("hdfs_auth_gate.parquet")));
+            Assert.assertEquals("backend " + backendProperties, expected,
+                    rangeDesc.getTableFormatParams().getPaimonParams().getReaderType());
+        }
+    }
+
+    @Test
+    public void testIsRustVerifiedHdfsBackendClassification() {
+        // The anonymous / null map is the open-tested shape; the always-written
+        // simple-auth markers and fs.defaultFS carry no identity; every
+        // auth-bearing key (type, principal, keytab, proxy user) and the HA
+        // nameservice config route to JNI.
+        Assert.assertTrue(PaimonScanNode.isRustVerifiedHdfsBackend(null));
+        Assert.assertTrue(PaimonScanNode.isRustVerifiedHdfsBackend(Collections.emptyMap()));
+        Assert.assertTrue(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "fs.defaultFS", "hdfs://nn:8020",
+                "hadoop.security.authentication", "simple")));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "hadoop.security.authentication", "kerberos")));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "hadoop.security.authentication", "KERBEROS")));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "hadoop.kerberos.principal", "hdfs/_HOST@REALM")));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "hadoop.kerberos.keytab", "/etc/security/hdfs.keytab")));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "hadoop.username", "hive")));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "dfs.nameservices", "ns1")));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "dfs.ha.namenodes.ns1", "nn1,nn2")));
+        // A blank value is the unset case (values are null-filtered upstream,
+        // but a blank site-config entry must not gate an otherwise
+        // credential-free catalog).
+        Assert.assertTrue(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "hadoop.username", " ")));
+        // The always-shipped inert keys stay rust-eligible together.
+        Assert.assertTrue(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "fs.defaultFS", "hdfs://nn:8020",
+                "hadoop.security.authentication", "simple",
+                "hdfs.security.authentication", "simple",
+                "ipc.client.fallback-to-simple-auth-allowed", "true")));
+        // Any other dfs./hadoop./fs. client option is dropped by the rust
+        // parser and would diverge from JNI -> JNI (the canonical simple-auth
+        // case is dfs.client.use.datanode.hostname).
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "dfs.client.use.datanode.hostname", "true")));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "dfs.client.socket-timeout", "60000")));
+        Assert.assertFalse(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "fs.hdfs.impl", "org.apache.hadoop.hdfs.DistributedFileSystem")));
+        // Keys outside the hadoop/dfs/fs namespaces cannot change what the
+        // rust HDFS parser does (the BE bridge passes them through untouched
+        // and the parser ignores them).
+        Assert.assertTrue(PaimonScanNode.isRustVerifiedHdfsBackend(ImmutableMap.of(
+                "warehouse", "hdfs://nn/wh", "unrelated.key", "value")));
+    }
+
+    @Test
+    public void testRustReaderSelectionRejectsProjectedVariantColumns() throws Exception {
+        // The rust leaf feeds its Arrow arrays to the slot serdes, and
+        // DataTypeVariantV2SerDe::read_column_from_arrow unconditionally returns
+        // NOT_IMPLEMENTED_ERROR — a nested Variant (ARRAY / MAP / STRUCT
+        // containing one) reaches the same decoder through the container
+        // serdes. Projections containing Variant must route to JNI; a table
+        // whose VARIANT column is not projected by this query stays on rust.
+        Type[][] shapes = new Type[][] {
+                // Plain projected columns -> rust.
+                new Type[] {Type.INT, Type.STRING},
+                // A projected VARIANT -> JNI.
+                new Type[] {Type.INT, Type.VARIANT},
+                // Nested Variant inside every container kind -> JNI.
+                new Type[] {new ArrayType(Type.VARIANT)},
+                new Type[] {new MapType(Type.STRING, Type.VARIANT)},
+                new Type[] {new StructType(new StructField("v", Type.VARIANT))},
+                // The same containers without Variant stay rust-eligible.
+                new Type[] {new ArrayType(Type.INT)},
+                new Type[] {new MapType(Type.STRING, Type.INT)}};
+        boolean[] expectRust = new boolean[] {true, false, false, false, false, true, true};
+
+        for (int i = 0; i < shapes.length; i++) {
+            TupleDescriptor desc = new TupleDescriptor(new TupleId(0));
+            for (int j = 0; j < shapes[i].length; j++) {
+                SlotDescriptor slot = new SlotDescriptor(new SlotId(j), desc);
+                slot.setType(shapes[i][j]);
+                desc.addSlot(slot);
+            }
+
+            SessionVariable vars = new SessionVariable();
+            vars.setEnablePaimonRustReader(true);
+            vars.enableFileScannerV2 = true;
+
+            PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0), desc, false, vars,
+                    ScanContext.EMPTY);
+            PaimonSource source = Mockito.mock(PaimonSource.class);
+            Mockito.when(source.getTableLocation()).thenReturn("s3://bucket/wh/db.db/t");
+            FileStoreTable paimonTable = Mockito.mock(FileStoreTable.class);
+            PaimonExternalTable externalTable = Mockito.mock(PaimonExternalTable.class);
+            if (expectRust[i]) {
+                Mockito.when(source.getExternalTable()).thenReturn(externalTable);
+                Mockito.when(paimonTable.schema()).thenReturn(new TableSchema(
+                        1, Collections.singletonList(new DataField(0, "id", new IntType())),
+                        0, Collections.emptyList(), Collections.emptyList(),
+                        Collections.emptyMap(), null));
+                Mockito.when(externalTable.getDbName()).thenReturn("db");
+                Mockito.when(externalTable.getName()).thenReturn("t");
+            }
+            node.setSource(source);
+            setField(PaimonScanNode.class, node, "processedTable", paimonTable);
+            setField(PaimonScanNode.class, node, "backendStorageProperties", ImmutableMap.of(
+                    "AWS_CREDENTIALS_PROVIDER_TYPE", "DEFAULT",
+                    "AWS_ACCESS_KEY", "ak",
+                    "AWS_SECRET_KEY", "sk",
+                    "AWS_ENDPOINT", "http://127.0.0.1:19001",
+                    "AWS_REGION", "us-east-1"));
+
+            TFileRangeDesc rangeDesc = new TFileRangeDesc();
+            invokePrivateMethod(node, "setPaimonParams",
+                    new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class},
+                    rangeDesc, new PaimonSplit(createDataSplit("variant_gate.parquet")));
+            Assert.assertEquals("projection " + Arrays.toString(shapes[i]),
+                    expectRust[i] ? TPaimonReaderType.PAIMON_RUST : TPaimonReaderType.PAIMON_JNI,
+                    rangeDesc.getTableFormatParams().getPaimonParams().getReaderType());
+        }
+    }
+
+    /**
+     * Every negative assertion starts from a complete Rust-eligible fixture, so missing
+     * schema or credentials cannot accidentally satisfy a fallback test.
+     */
+    private class RustRoutingFixture {
+        final SessionVariable vars = new SessionVariable();
+        final TupleDescriptor tuple = new TupleDescriptor(new TupleId(0));
+        final PaimonSource source = Mockito.mock(PaimonSource.class);
+        final FileStoreTable table = Mockito.mock(FileStoreTable.class);
+        final org.apache.paimon.schema.SchemaManager schemas =
+                Mockito.mock(org.apache.paimon.schema.SchemaManager.class);
+        final PaimonScanNode node;
+        final DataSplit split = createDataSplit("capabilities.parquet");
+
+        RustRoutingFixture() throws Exception {
+            vars.setEnablePaimonRustReader(true);
+            vars.enableFileScannerV2 = true;
+            node = new PaimonScanNode(new PlanNodeId(0), tuple, false, vars, ScanContext.EMPTY);
+            PaimonExternalTable external = Mockito.mock(PaimonExternalTable.class);
+            Mockito.when(source.getExternalTable()).thenReturn(external);
+            Mockito.when(external.getDbName()).thenReturn("db");
+            Mockito.when(external.getName()).thenReturn("t");
+            Mockito.when(source.getTableLocation()).thenReturn("s3://warehouse/wh/db.db/t");
+            Mockito.when(table.schemaManager()).thenReturn(schemas);
+            schema(1, new IntType(), Collections.emptyMap(), false);
+            node.setSource(source);
+            setField(PaimonScanNode.class, node, "processedTable", table);
+            credentials("DEFAULT");
+            Assert.assertEquals(TPaimonReaderType.PAIMON_RUST, reader(split));
+        }
+
+        void credentials(String provider) throws Exception {
+            setField(PaimonScanNode.class, node, "backendStorageProperties", ImmutableMap.of(
+                    "AWS_CREDENTIALS_PROVIDER_TYPE", provider,
+                    "AWS_ACCESS_KEY", "example-key", "AWS_SECRET_KEY", "example-secret"));
+        }
+
+        void schema(long id, org.apache.paimon.types.DataType valueType,
+                Map<String, String> options, boolean pk) throws Exception {
+            TableSchema schema = new TableSchema(id, Arrays.asList(
+                    new DataField(0, "id", new IntType(false)), new DataField(1, "v", valueType)),
+                    10, Collections.emptyList(), pk ? Collections.singletonList("id") : Collections.emptyList(),
+                    options, null);
+            setField(PaimonScanNode.class, node, "rustReaderCapabilities", null);
+            Mockito.when(table.schema()).thenReturn(schema);
+            Mockito.when(table.coreOptions()).thenReturn(new CoreOptions(options));
+        }
+
+        TPaimonReaderType reader(DataSplit input) throws Exception {
+            TFileRangeDesc range = new TFileRangeDesc();
+            invokePrivateMethod(node, "setPaimonParams",
+                    new Class<?>[] {TFileRangeDesc.class, PaimonSplit.class}, range, new PaimonSplit(input));
+            return range.getTableFormatParams().getPaimonParams().getReaderType();
+        }
+
+        void project(Type full, Type pruned) throws Exception {
+            setField(PaimonScanNode.class, node, "rustReaderCapabilities", null);
+            SlotDescriptor slot = new SlotDescriptor(new SlotId(0), tuple);
+            slot.setColumn(new Column("v", full));
+            slot.setType(pruned);
+            tuple.addSlot(slot);
+        }
+    }
+
+    @Test
+    public void testRustPrunedNestedProjectionFallback() throws Exception {
+        StructType full = new StructType(new StructField("a", Type.INT), new StructField("b", Type.INT));
+        StructType pruned = new StructType(new StructField("b", Type.INT));
+        Type[][] shapes = {{full, pruned}, {new ArrayType(full), new ArrayType(pruned)},
+                {new MapType(Type.INT, full), new MapType(Type.INT, pruned)}};
+        for (Type[] shape : shapes) {
+            RustRoutingFixture f = new RustRoutingFixture();
+            f.project(shape[0], shape[0]);
+            Assert.assertEquals(TPaimonReaderType.PAIMON_RUST, f.reader(f.split));
+            f.tuple.getSlots().get(0).setType(shape[1]);
+            setField(PaimonScanNode.class, f.node, "rustReaderCapabilities", null);
+            Assert.assertEquals(TPaimonReaderType.PAIMON_JNI, f.reader(f.split));
+        }
+    }
+
+    @Test
+    public void testRustHistoricalIntegerNarrowingFallback() throws Exception {
+        for (org.apache.paimon.types.DataType target : Arrays.asList(
+                new org.apache.paimon.types.TinyIntType(), new org.apache.paimon.types.SmallIntType(),
+                new IntType())) {
+            RustRoutingFixture f = new RustRoutingFixture();
+            TableSchema old = new TableSchema(1, Arrays.asList(new DataField(0, "id", new IntType(false)),
+                    new DataField(1, "v", new org.apache.paimon.types.BigIntType())), 1,
+                    Collections.emptyList(), Collections.emptyList(), Collections.emptyMap(), null);
+            Mockito.when(f.schemas.schema(1)).thenReturn(old);
+            f.schema(2, target, Collections.emptyMap(), false);
+            Assert.assertEquals(TPaimonReaderType.PAIMON_JNI, f.reader(f.split));
+            Assert.assertEquals(TPaimonReaderType.PAIMON_JNI, f.reader(f.split));
+            Mockito.verify(f.schemas, Mockito.times(1)).schema(1);
+        }
+    }
+
+    @Test
+    public void testRustStringHistoryToTemporalFallback() throws Exception {
+        for (org.apache.paimon.types.DataType sourceType : Arrays.asList(
+                DataTypes.STRING(), DataTypes.VARCHAR(20), DataTypes.CHAR(20))) {
+            for (org.apache.paimon.types.DataType target : Arrays.asList(DataTypes.DATE(),
+                    DataTypes.TIMESTAMP(0), DataTypes.TIMESTAMP(3), DataTypes.TIMESTAMP(6),
+                    DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(3))) {
+                assertHistoricalTemporalRouting(sourceType, target, TPaimonReaderType.PAIMON_JNI);
+            }
+        }
+        assertHistoricalTemporalRouting(DataTypes.DATE(), DataTypes.DATE(), TPaimonReaderType.PAIMON_RUST);
+    }
+
+    @Test
+    public void testRustIntegerHistoryToTimestampFallback() throws Exception {
+        for (int precision : new int[] {0, 3, 6}) {
+            for (org.apache.paimon.types.DataType target : Arrays.asList(DataTypes.TIMESTAMP(precision),
+                    DataTypes.TIMESTAMP_WITH_LOCAL_TIME_ZONE(precision))) {
+                for (org.apache.paimon.types.DataType sourceType : Arrays.asList(DataTypes.INT(), DataTypes.BIGINT())) {
+                    assertHistoricalTemporalRouting(sourceType, target, TPaimonReaderType.PAIMON_JNI);
+                }
+                assertHistoricalTemporalRouting(target, target, TPaimonReaderType.PAIMON_RUST);
+            }
+        }
+    }
+
+    private void assertHistoricalTemporalRouting(org.apache.paimon.types.DataType sourceType,
+            org.apache.paimon.types.DataType target, TPaimonReaderType expected) throws Exception {
+        org.apache.paimon.types.DataType[][] shapes = {
+                {sourceType, target},
+                {DataTypes.ROW(new DataField(2, "old_name", sourceType)),
+                        DataTypes.ROW(new DataField(2, "renamed", target))},
+                {DataTypes.ARRAY(sourceType), DataTypes.ARRAY(target)},
+                {DataTypes.MAP(sourceType, DataTypes.INT()), DataTypes.MAP(target, DataTypes.INT())},
+                {DataTypes.MAP(DataTypes.INT(), sourceType), DataTypes.MAP(DataTypes.INT(), target)}};
+        for (org.apache.paimon.types.DataType[] shape : shapes) {
+            RustRoutingFixture f = new RustRoutingFixture();
+            Mockito.when(f.schemas.schema(1)).thenReturn(new TableSchema(1, Arrays.asList(
+                    new DataField(0, "id", new IntType(false)), new DataField(1, "v", shape[0])),
+                    10, Collections.emptyList(), Collections.emptyList(), Collections.emptyMap(), null));
+            f.schema(2, shape[1], Collections.emptyMap(), false);
+            Assert.assertEquals(Arrays.toString(shape), expected, f.reader(f.split));
+        }
+    }
+
+    @Test
+    public void testRustFloatingHistoryToDecimalFallback() throws Exception {
+        for (org.apache.paimon.types.DataType oldType : Arrays.asList(
+                DataTypes.FLOAT(), DataTypes.DOUBLE(), DataTypes.INT(), DataTypes.DECIMAL(3, 2))) {
+            org.apache.paimon.types.DataType decimal = DataTypes.DECIMAL(10, 2);
+            org.apache.paimon.types.DataType[][] shapes = {
+                    {oldType, decimal},
+                    {DataTypes.ROW(new DataField(2, "old_name", oldType)),
+                            DataTypes.ROW(new DataField(2, "renamed", decimal))},
+                    {DataTypes.ARRAY(oldType), DataTypes.ARRAY(decimal)},
+                    {DataTypes.MAP(oldType, DataTypes.INT()), DataTypes.MAP(decimal, DataTypes.INT())},
+                    {DataTypes.MAP(DataTypes.INT(), oldType), DataTypes.MAP(DataTypes.INT(), decimal)}};
+            for (org.apache.paimon.types.DataType[] shape : shapes) {
+                RustRoutingFixture f = new RustRoutingFixture();
+                Mockito.when(f.schemas.schema(1)).thenReturn(new TableSchema(1, Arrays.asList(
+                        new DataField(0, "id", new IntType(false)), new DataField(1, "v", shape[0])),
+                        10, Collections.emptyList(), Collections.emptyList(), Collections.emptyMap(), null));
+                f.schema(2, shape[1], Collections.emptyMap(), false);
+                boolean floating = oldType.equals(DataTypes.FLOAT()) || oldType.equals(DataTypes.DOUBLE());
+                Assert.assertEquals(Arrays.toString(shape), floating
+                        ? TPaimonReaderType.PAIMON_JNI : TPaimonReaderType.PAIMON_RUST, f.reader(f.split));
+            }
+        }
+    }
+
+    @Test
+    public void testRustUnusedAggregateNamesFallback() throws Exception {
+        for (String engine : Arrays.asList("aggregation", "partial-update")) {
+            List<String> optionKeys = new ArrayList<>(Arrays.asList(
+                    "fields.default-aggregate-function", "fields.id.aggregate-function"));
+            if ("partial-update".equals(engine)) {
+                optionKeys.add("fields.seq.aggregate-function");
+            }
+            for (String key : optionKeys) {
+                for (String function : Arrays.asList("collect", "sum")) {
+                    RustRoutingFixture f = new RustRoutingFixture();
+                    Map<String, String> options = new HashMap<>();
+                    options.put("merge-engine", engine);
+                    options.put("fields.v.aggregate-function", "max");
+                    options.put(key, function);
+                    f.schema(1, new IntType(), options, true);
+                    if ("partial-update".equals(engine)) {
+                        options.put("fields.seq.sequence-group", "v");
+                        Mockito.when(f.table.schema()).thenReturn(new TableSchema(1, Arrays.asList(
+                                new DataField(0, "id", new IntType(false)), new DataField(1, "v", new IntType()),
+                                new DataField(2, "seq", new IntType())), 2, Collections.emptyList(),
+                                Collections.singletonList("id"), options, null));
+                    }
+                    DataFileMeta file = Mockito.spy(f.split.dataFiles().get(0));
+                    Mockito.doReturn(Optional.of(0L)).when(file).deleteRowCount();
+                    DataSplit split = DataSplit.builder().withPartition(BinaryRow.EMPTY_ROW)
+                            .withBucket(0).withBucketPath("file:///warehouse/db/t/bucket-0")
+                            .withDataFiles(Collections.singletonList(file)).build();
+                    Assert.assertEquals(engine + " " + key + "=" + function,
+                            TPaimonReaderType.PAIMON_JNI, f.reader(split));
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testRustNonIntegerHistoryToIntegerFallback() throws Exception {
+        for (org.apache.paimon.types.DataType sourceType : Arrays.asList(
+                DataTypes.FLOAT(), DataTypes.DOUBLE(), DataTypes.DECIMAL(10, 2), DataTypes.STRING())) {
+            for (org.apache.paimon.types.DataType targetType : Arrays.asList(
+                    DataTypes.TINYINT(), DataTypes.SMALLINT(), DataTypes.INT(), DataTypes.BIGINT())) {
+                org.apache.paimon.types.DataType[][] shapes = {
+                        {sourceType, targetType},
+                        {DataTypes.ROW(new DataField(2, "old_name", sourceType)),
+                                DataTypes.ROW(new DataField(2, "renamed", targetType))},
+                        {DataTypes.ARRAY(sourceType), DataTypes.ARRAY(targetType)},
+                        {DataTypes.MAP(sourceType, DataTypes.INT()), DataTypes.MAP(targetType, DataTypes.INT())},
+                        {DataTypes.MAP(DataTypes.INT(), sourceType), DataTypes.MAP(DataTypes.INT(), targetType)}};
+                for (org.apache.paimon.types.DataType[] shape : shapes) {
+                    RustRoutingFixture f = new RustRoutingFixture();
+                    Mockito.when(f.schemas.schema(1)).thenReturn(new TableSchema(1, Arrays.asList(
+                            new DataField(0, "id", new IntType(false)), new DataField(1, "v", shape[0])),
+                            10, Collections.emptyList(), Collections.emptyList(), Collections.emptyMap(), null));
+                    f.schema(2, shape[1], Collections.emptyMap(), false);
+                    Assert.assertEquals(Arrays.toString(shape), TPaimonReaderType.PAIMON_JNI, f.reader(f.split));
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testRustPartialUpdateDefaultAggregateAndSequenceFields() throws Exception {
+        for (org.apache.paimon.types.DataType valueType : Arrays.asList(
+                DataTypes.TINYINT(), DataTypes.DECIMAL(2, 0), DataTypes.DOUBLE())) {
+            for (boolean override : Arrays.asList(false, true)) {
+                RustRoutingFixture f = new RustRoutingFixture();
+                Map<String, String> options = new HashMap<>();
+                options.put("merge-engine", "partial-update");
+                options.put("fields.seq,seq2.sequence-group", "v");
+                options.put("fields.default-aggregate-function", "sum");
+                if (override) {
+                    options.put("fields.v.aggregate-function", "max");
+                }
+                f.schema(1, valueType, options, true);
+                Mockito.when(f.table.schema()).thenReturn(new TableSchema(1, Arrays.asList(
+                        new DataField(0, "id", new IntType(false)), new DataField(1, "v", valueType),
+                        new DataField(2, "seq", new IntType()), new DataField(3, "seq2", new IntType())),
+                        3, Collections.emptyList(), Collections.singletonList("id"), options, null));
+                DataFileMeta file = Mockito.spy(f.split.dataFiles().get(0));
+                Mockito.doReturn(Optional.of(0L)).when(file).deleteRowCount();
+                // Legacy writers can retain an unbounded same-key run even in one file.
+                DataSplit split = DataSplit.builder().withPartition(BinaryRow.EMPTY_ROW)
+                        .withBucket(0).withBucketPath("file:///warehouse/db/t/bucket-0")
+                        .withDataFiles(Collections.singletonList(file)).build();
+                Assert.assertEquals(valueType + " override=" + override,
+                        TPaimonReaderType.PAIMON_JNI,
+                        f.reader(split));
+            }
+        }
+    }
+
+    @Test
+    public void testRustMultiFilePrimaryKeyMergeFallback() throws Exception {
+        for (String engine : Arrays.asList("deduplicate", "aggregation", "partial-update")) {
+            for (boolean primaryKey : Arrays.asList(false, true)) {
+                for (int fileCount : new int[] {1, 2, 8}) {
+                    RustRoutingFixture f = new RustRoutingFixture();
+                    f.schema(1, new IntType(), ImmutableMap.of("merge-engine", engine,
+                            "read.batch-size", "1"), primaryKey);
+                    List<DataFileMeta> files = new ArrayList<>();
+                    for (int i = 0; i < fileCount; i++) {
+                        DataFileMeta file = Mockito.spy(createDataSplit("run-" + i + ".parquet")
+                                .dataFiles().get(0));
+                        Mockito.doReturn(Optional.of(0L)).when(file).deleteRowCount();
+                        files.add(file);
+                    }
+                    DataSplit split = DataSplit.builder().withPartition(BinaryRow.EMPTY_ROW)
+                            .withBucket(0).withBucketPath("file:///warehouse/db/t/bucket-0")
+                            .withDataFiles(files).build();
+                    Assert.assertEquals(engine + " pk=" + primaryKey + " files=" + fileCount,
+                            primaryKey && (fileCount > 1 || !"deduplicate".equals(engine)) ? TPaimonReaderType.PAIMON_JNI
+                                    : TPaimonReaderType.PAIMON_RUST, f.reader(split));
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testRustNestedEvolutionAndCompatibleHistory() throws Exception {
+        org.apache.paimon.types.DataType small = new org.apache.paimon.types.TinyIntType();
+        org.apache.paimon.types.DataType large = new org.apache.paimon.types.BigIntType();
+        org.apache.paimon.types.RowType oldRow = new org.apache.paimon.types.RowType(Arrays.asList(
+                new DataField(2, "a", large), new DataField(3, "b", new IntType())));
+        org.apache.paimon.types.RowType newRow = new org.apache.paimon.types.RowType(Arrays.asList(
+                new DataField(3, "b", new IntType()), new DataField(2, "renamed", small)));
+        org.apache.paimon.types.DataType[][] shapes = {
+                {large, small}, {oldRow, newRow},
+                {new org.apache.paimon.types.ArrayType(oldRow), new org.apache.paimon.types.ArrayType(newRow)},
+                {new org.apache.paimon.types.MapType(large, new IntType()),
+                        new org.apache.paimon.types.MapType(small, new IntType())},
+                {new org.apache.paimon.types.MapType(new IntType(), oldRow),
+                        new org.apache.paimon.types.MapType(new IntType(), newRow)}};
+        for (org.apache.paimon.types.DataType[] shape : shapes) {
+            for (boolean narrow : Arrays.asList(true, false)) {
+                RustRoutingFixture f = new RustRoutingFixture();
+                TableSchema old = new TableSchema(1, Arrays.asList(new DataField(0, "id", new IntType(false)),
+                        new DataField(1, "v", shape[narrow ? 0 : 1])), 10,
+                        Collections.emptyList(), Collections.emptyList(), Collections.emptyMap(), null);
+                Mockito.when(f.schemas.schema(1)).thenReturn(old);
+                f.schema(2, shape[narrow ? 1 : 0], Collections.emptyMap(), false);
+                Assert.assertEquals(narrow ? TPaimonReaderType.PAIMON_JNI : TPaimonReaderType.PAIMON_RUST,
+                        f.reader(f.split));
+            }
+        }
+        RustRoutingFixture missing = new RustRoutingFixture();
+        missing.schema(2, new IntType(), Collections.emptyMap(), false);
+        Mockito.when(missing.schemas.schema(1)).thenThrow(new IllegalStateException("missing schema"));
+        Assert.assertEquals(TPaimonReaderType.PAIMON_JNI, missing.reader(missing.split));
+        Assert.assertEquals(TPaimonReaderType.PAIMON_JNI, missing.reader(missing.split));
+        Mockito.verify(missing.schemas, Mockito.times(1)).schema(1);
+    }
+
+    @Test
+    public void testRustDefaultAggregateAndFieldOverride() throws Exception {
+        for (Map<String, String> options : Arrays.asList(
+                ImmutableMap.of("merge-engine", "aggregation", "fields.default-aggregate-function", "sum"),
+                ImmutableMap.of("merge-engine", "aggregation", "fields.default-aggregate-function", "max"),
+                ImmutableMap.of("merge-engine", "aggregation", "fields.default-aggregate-function", "sum",
+                        "fields.v.aggregate-function", "max"))) {
+            RustRoutingFixture f = new RustRoutingFixture();
+            f.schema(1, new IntType(), options, true);
+            DataFileMeta file = Mockito.spy(f.split.dataFiles().get(0));
+            Mockito.doReturn(Optional.of(0L)).when(file).deleteRowCount();
+            DataSplit split = DataSplit.builder().withPartition(BinaryRow.EMPTY_ROW)
+                    .withBucket(0).withBucketPath("file:///warehouse/db/t/bucket-0")
+                    .withDataFiles(Collections.singletonList(file)).build();
+            Assert.assertEquals(TPaimonReaderType.PAIMON_JNI,
+                    f.reader(split));
+        }
+    }
+
+    @Test
+    public void testRustPrimaryKeyRetractsFallback() throws Exception {
+        for (String engine : Arrays.asList("deduplicate", "aggregation", "partial-update")) {
+            for (Long deletes : Arrays.asList(0L, 1L, null)) {
+                RustRoutingFixture f = new RustRoutingFixture();
+                f.schema(1, new IntType(), ImmutableMap.of("merge-engine", engine), true);
+                DataFileMeta file = Mockito.spy(f.split.dataFiles().get(0));
+                Mockito.doReturn(Optional.ofNullable(deletes)).when(file).deleteRowCount();
+                DataSplit split = DataSplit.builder().withPartition(BinaryRow.EMPTY_ROW)
+                        .withBucket(0).withBucketPath("file:///warehouse/db/t/bucket-0")
+                        .withDataFiles(Collections.singletonList(file)).build();
+                Assert.assertEquals(engine + " deletes=" + deletes,
+                        "deduplicate".equals(engine) && deletes != null && deletes == 0L ? TPaimonReaderType.PAIMON_RUST
+                                : TPaimonReaderType.PAIMON_JNI, f.reader(split));
+            }
+        }
+    }
+
+    @Test
+    public void testRustAggregateFunctionAndArithmeticFallback() throws Exception {
+        Object[][] cases = {
+                {"collect", new org.apache.paimon.types.ArrayType(new IntType()), false},
+                {"sum", new org.apache.paimon.types.TinyIntType(), false},
+                {"sum", new org.apache.paimon.types.SmallIntType(), false},
+                {"sum", new IntType(), false},
+                {"sum", new org.apache.paimon.types.BigIntType(), false},
+                {"product", new IntType(), false},
+                {"sum", new org.apache.paimon.types.DecimalType(2, 0), false},
+                {"sum", new org.apache.paimon.types.DecimalType(18, 2), false},
+                {"sum", new org.apache.paimon.types.DecimalType(19, 2), true},
+                {"product", new org.apache.paimon.types.DecimalType(20, 2), false},
+                {"sum", new org.apache.paimon.types.DoubleType(), true},
+                {"max", new IntType(), true},
+                {"max", new org.apache.paimon.types.ArrayType(new IntType()), false},
+                {"bool_and", new org.apache.paimon.types.BooleanType(), true},
+                {"last_non_null_value", new org.apache.paimon.types.ArrayType(new IntType()), true}
+        };
+        for (String engine : Arrays.asList("aggregation", "partial-update")) {
+            for (Object[] shape : cases) {
+                RustRoutingFixture f = new RustRoutingFixture();
+                f.schema(1, (org.apache.paimon.types.DataType) shape[1], ImmutableMap.of(
+                        "merge-engine", engine, "fields.v.aggregate-function", (String) shape[0]), true);
+                DataFileMeta file = Mockito.spy(f.split.dataFiles().get(0));
+                Mockito.doReturn(Optional.of(0L)).when(file).deleteRowCount();
+                DataSplit split = DataSplit.builder().withPartition(BinaryRow.EMPTY_ROW)
+                        .withBucket(0).withBucketPath("file:///warehouse/db/t/bucket-0")
+                        .withDataFiles(Collections.singletonList(file)).build();
+                Assert.assertEquals(engine + " " + Arrays.toString(shape),
+                        TPaimonReaderType.PAIMON_JNI, f.reader(split));
+            }
+        }
+    }
+
+
 }
