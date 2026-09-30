@@ -20,15 +20,11 @@ package org.apache.doris.service.arrowflight;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.service.arrowflight.sessions.FlightSqlConnectContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
 import org.apache.arrow.vector.types.pojo.ArrowType;
@@ -59,7 +55,6 @@ class FlightSqlExecutionSchemaTest extends TestWithFeService {
         flightContext.setCurrentUserIdentity(connectContext.getCurrentUserIdentity());
         flightContext.setSessionVariable(connectContext.getSessionVariable());
         flightContext.setDatabase("execution_schema_test");
-        flightContext.setQueryId(new TUniqueId(1, 2));
     }
 
     @Override
@@ -69,42 +64,45 @@ class FlightSqlExecutionSchemaTest extends TestWithFeService {
     }
 
     @Test
-    void unaliasedLiteralUsesDifferentWireLabel() throws Exception {
-        assertPlannerSchema("SELECT 1", true, false);
-        assertPlannerSchema("SELECT 1 AS id", false, false);
+    void unaliasedLiteralRetainsExecutionLabel() throws Exception {
+        assertExecutionSchema("SELECT 1", false, false);
+        assertExecutionSchema("SELECT 1 AS id", false, false);
     }
 
     @Test
-    void unaliasedFunctionUsesDifferentWireLabel() throws Exception {
-        assertPlannerSchema("SELECT unhex(encoded) FROM schema_input WHERE id <= 4 ORDER BY id", true, false);
+    void unaliasedFunctionRetainsExecutionLabel() throws Exception {
+        assertExecutionSchema("SELECT unhex(encoded) FROM schema_input WHERE id <= 4 ORDER BY id", false, false);
     }
 
     @Test
     void constantFoldingNarrowsNullableCast() throws Exception {
-        assertPlannerSchema("SELECT CAST(CAST('2026-01-01' AS DATETIME(6)) AS STRING)", true, true);
+        assertExecutionSchema("SELECT CAST(CAST('2026-01-01' AS DATETIME(6)) AS STRING)", false, true);
     }
 
     @Test
     void nullableColumnRemainsCompatibleWithFilter() throws Exception {
-        assertPlannerSchema("SELECT encoded FROM schema_input WHERE encoded IS NOT NULL", false, false);
+        assertExecutionSchema("SELECT encoded FROM schema_input WHERE encoded IS NOT NULL", false, false);
     }
 
     @Test
     void tableValuedFunctionUsesQualifiedWireLabel() throws Exception {
-        Schema actual = assertPlannerSchema("SELECT * FROM numbers('number' = '1')", true, false);
+        Schema actual = assertExecutionSchema("SELECT * FROM numbers('number' = '1')", true, false);
         Assertions.assertTrue(actual.getFields().get(0).getName().startsWith("_tvf_numbers."));
     }
 
-    private Schema assertPlannerSchema(String sql, boolean differentLabel, boolean narrowedNullability)
+    private Schema assertExecutionSchema(String sql, boolean differentLabel, boolean narrowedNullability)
             throws Exception {
         flightContext.setThreadLocalInfo();
-        Schema prepared = FlightSqlQuerySchema.analyze(flightContext, sql);
-        try (StatementContext statementContext = new StatementContext(flightContext, new OriginStatement(sql, 0))) {
-            flightContext.setStatementContext(statementContext);
-            LogicalPlanAdapter statement = new LogicalPlanAdapter(
-                    new NereidsParser().parseSingle(sql), statementContext);
-            statementContext.setParsedStatement(statement);
-            new NereidsPlanner(statementContext).plan(statement, flightContext.getSessionVariable().toThrift());
+        try (FlightSqlConnectProcessor processor = new FlightSqlConnectProcessor(flightContext)) {
+            Schema prepared = FlightSqlQuerySchema.analyze(flightContext, sql);
+            // Execution marks the query state before binding output labels. A bare planner call
+            // misses that transition and can reproduce Prepare's incorrect command-style aliases.
+            processor.handleQuery(sql);
+            Assertions.assertNotEquals(MysqlStateType.ERR, flightContext.getState().getStateType(),
+                    flightContext.getState().getErrorMessage());
+            Assertions.assertFalse(flightContext.isReturnResultFromLocal());
+            Assertions.assertNotNull(flightContext.getExecutor());
+            LogicalPlanAdapter statement = (LogicalPlanAdapter) flightContext.getExecutor().getParsedStmt();
             List<Field> wireFields = new ArrayList<>();
             for (Expr expression : statement.getResultExprs()) {
                 TExprNode node = expression.treeToThrift().getNodes().get(0);
@@ -125,7 +123,9 @@ class FlightSqlExecutionSchemaTest extends TestWithFeService {
                     prepared, actual, statement.getColLabels()));
             return actual;
         } finally {
-            flightContext.setStatementContext(null);
+            flightContext.closeFlightSqlDeferredExecutors();
+            flightContext.clearFlightSqlEndpointsLocations();
+            flightContext.getFlightSqlChannel().reset();
             connectContext.setThreadLocalInfo();
         }
     }

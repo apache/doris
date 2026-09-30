@@ -185,6 +185,9 @@ final class FlightSqlQuerySchema {
                         }
                     }
                 } else {
+                    // BindResultSink preserves SQL column labels only in query mode, just as
+                    // StmtExecutor does; command mode would infer synthetic aliases instead.
+                    context.getState().setIsQuery(true);
                     PrepareCommandPlanner planner = new PrepareCommandPlanner(statementContext);
                     planner.plan(statement, context.getSessionVariable().toThrift());
                     CascadesContext cascades = planner.getCascadesContext();

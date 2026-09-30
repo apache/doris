@@ -68,6 +68,21 @@ suite("test_schema_only", "arrow_flight_sql") {
             }
             try {
                 client.execute("USE information_schema", options)
+                // Prepare must bind unaliased expressions in query mode, as execution does.
+                // Comparing metadata-only calls misses synthetic aliases that execution rejects.
+                ["1", "unhex('616263')", "CAST(CAST('2026-01-01' AS DATETIME(6)) AS STRING)"].each { expression ->
+                    def prepared = client.prepare("SELECT ${expression}", options)
+                    try {
+                        def advertised = prepared.getResultSetSchema()
+                        assertEquals([expression], advertised.getFields()*.getName())
+                        def executed = prepared.execute(options).getSchema()
+                        assertEquals(advertised.getFields()*.getName(), executed.getFields()*.getName())
+                        assertEquals(advertised.getFields()*.getType(), executed.getFields()*.getType())
+                        assertEquals(advertised, prepared.fetchSchema(options).getSchema())
+                    } finally {
+                        prepared.close(options)
+                    }
+                }
                 def cases = [
                         ["SELECT CAST(1 AS BIGINT) AS id, CAST(NULL AS VARCHAR(20)) AS name",
                          ["id", "name"], [new ArrowType.Int(64, true), new ArrowType.Utf8()]],
