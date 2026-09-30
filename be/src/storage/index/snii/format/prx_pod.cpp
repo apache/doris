@@ -45,9 +45,7 @@ void PrxDecodeStats::merge(const PrxDecodeStats& other) {
     selected_docs += other.selected_docs;
     total_positions += other.total_positions;
     selected_positions += other.selected_positions;
-    fetch_ns += other.fetch_ns;
     decode_ns += other.decode_ns;
-    phrase_verify_ns += other.phrase_verify_ns;
 }
 
 Status validate_prx_window_limits(const PrxWindowLimits& limits) {

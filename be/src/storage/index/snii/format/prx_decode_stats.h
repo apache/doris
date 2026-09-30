@@ -48,12 +48,9 @@ struct PrxDecodeStats {
     uint64_t selected_docs = 0;
     uint64_t total_positions = 0;
     uint64_t selected_positions = 0;
-    uint64_t fetch_ns = 0;
     // Inclusive successful-frame time: header/CRC validation, optional
     // decompression, and payload decode.
     uint64_t decode_ns = 0;
-    // Phrase verification excluding only the inclusive decode_ns delta.
-    uint64_t phrase_verify_ns = 0;
 
     void merge(const PrxDecodeStats& other);
     [[nodiscard]] uint64_t frame_count() const { return raw_frames + zstd_frames + pfor_frames; }

@@ -27,7 +27,6 @@
 namespace doris::snii::stats {
 
 using format::DictEntry;
-using format::NormsPodReader;
 using format::RegionRef;
 
 namespace {
@@ -76,19 +75,23 @@ double SniiStatsProvider::avgdl() const {
 }
 
 Status SniiStatsProvider::doc_freq(std::string_view term, uint64_t* df) const {
-    if (df == nullptr)
+    if (df == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("stats_provider: null df");
+    }
     *df = 0;
     bool found = false;
     DictEntry entry;
     RETURN_IF_ERROR(lookup_entry(*idx_, term, &found, &entry));
-    if (found) *df = entry.df;
+    if (found) {
+        *df = entry.df;
+    }
     return Status::OK();
 }
 
 Status SniiStatsProvider::encoded_norm(uint32_t docid, uint8_t* out) const {
-    if (out == nullptr)
+    if (out == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("stats_provider: null out");
+    }
     if (!has_norms_) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "stats_provider: index has no norms");

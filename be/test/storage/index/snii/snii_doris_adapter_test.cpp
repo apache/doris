@@ -246,15 +246,14 @@ std::string as_string(const std::vector<uint8_t>& v) {
     return std::string(v.begin(), v.end());
 }
 
-using PrxStatsSnapshot = std::array<int64_t, 11>;
+using PrxStatsSnapshot = std::array<int64_t, 9>;
 
 PrxStatsSnapshot prx_stats_snapshot(const OlapReaderStatistics& stats) {
     return {stats.snii_stats.prx_raw_frames,      stats.snii_stats.prx_zstd_frames,
             stats.snii_stats.prx_pfor_frames,     stats.snii_stats.prx_plaintext_bytes,
             stats.snii_stats.prx_total_docs,      stats.snii_stats.prx_selected_docs,
             stats.snii_stats.prx_total_positions, stats.snii_stats.prx_selected_positions,
-            stats.snii_stats.prx_fetch_ns,        stats.snii_stats.prx_decode_ns,
-            stats.snii_stats.prx_phrase_verify_ns};
+            stats.snii_stats.prx_decode_ns};
 }
 
 void set_prx_stats_sentinel(OlapReaderStatistics* stats) {
@@ -266,9 +265,7 @@ void set_prx_stats_sentinel(OlapReaderStatistics* stats) {
     stats->snii_stats.prx_selected_docs = 106;
     stats->snii_stats.prx_total_positions = 107;
     stats->snii_stats.prx_selected_positions = 108;
-    stats->snii_stats.prx_fetch_ns = 109;
     stats->snii_stats.prx_decode_ns = 110;
-    stats->snii_stats.prx_phrase_verify_ns = 111;
 }
 
 std::vector<uint32_t> bitmap_docids(const roaring::Roaring& bitmap) {
@@ -505,7 +502,6 @@ TEST_F(SniiIndexReaderActualPathTest, LaterCorruptFrameFlushesEarlierSuccessfulF
               1);
     EXPECT_GT(execution.stats.snii_stats.prx_plaintext_bytes, 0);
     EXPECT_GT(execution.stats.snii_stats.prx_total_docs, 0);
-    EXPECT_EQ(execution.stats.snii_stats.prx_phrase_verify_ns, 0);
 }
 
 TEST(DorisSniiFileReaderTest, ReadAtPropagatesIndexIOContextAndRecordsStats) {

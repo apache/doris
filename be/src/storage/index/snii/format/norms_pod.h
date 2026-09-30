@@ -30,7 +30,7 @@
 namespace doris::snii::format {
 
 // norms POD: per logical index / field stores 1-byte encoded doc length per doc,
-// used by BM25 length normalization (SniiStatsProvider::encoded_norm) for per-docid lookup.
+// read per docid by the postings cursor and the index source for BM25 length normalization.
 //
 // On-disk layout (the whole section is framed by SectionFramer, which adds a type+len+crc32c envelope):
 //   framer payload = [varint64 doc_count][bytes encoded_norm[doc_count]]
