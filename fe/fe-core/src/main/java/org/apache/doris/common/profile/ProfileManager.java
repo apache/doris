@@ -1129,6 +1129,15 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
+    public void removeProfileFromHistory(String profileId) {
+        writeLock.lock();
+        try {
+            profileIdToProfileMap.remove(profileId);
+        } finally {
+            writeLock.unlock();
+        }
+    }
+
 
     /**
      * Moves profiles to the archive pending directory.

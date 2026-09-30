@@ -28,6 +28,8 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Status;
+import org.apache.doris.common.profile.ExecutionProfile;
+import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
@@ -45,6 +47,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.MockedConstruction;
@@ -52,6 +55,7 @@ import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -349,6 +353,110 @@ public class StmtExecutorTest extends TestWithFeService {
         Mockito.verify(coord).close();
         // ... and despite it failing, the query registration was still released (no leak).
         Assertions.assertNull(QeProcessorImpl.INSTANCE.getCoordinator(queryId));
+    }
+
+    @Test
+    @ResourceLock("global")
+    public void testFailedDispatchRetryFinalizesProfileAfterLastAttempt() throws Exception {
+        ProfileManager manager = ProfileManager.getInstance();
+        connectContext.getSessionVariable().enableProfile = true;
+        connectContext.getSessionVariable().autoProfileThresholdMs = 10_000;
+        TUniqueId firstQueryId = new TUniqueId(0x22040L, 1L);
+        TUniqueId retryQueryId = new TUniqueId(0x22040L, 2L);
+        connectContext.setQueryId(firstQueryId);
+        connectContext.setStartTime();
+        StmtExecutor executor = new StmtExecutor(connectContext,
+                analyzeAndGetStmtByNereids("select 1", connectContext));
+        executor.getSummaryProfile().setQueryBeginTime(System.currentTimeMillis());
+        ExecutionProfile firstExecutionProfile = new ExecutionProfile(firstQueryId, Collections.emptyList());
+        ExecutionProfile retryExecutionProfile = new ExecutionProfile(retryQueryId, Collections.emptyList());
+        TQueryOptions queryOptions = new TQueryOptions();
+        queryOptions.enable_profile = true;
+
+        try {
+            Coordinator firstCoord = Mockito.mock(Coordinator.class);
+            Mockito.when(firstCoord.getQueryOptions()).thenReturn(queryOptions);
+            Mockito.when(firstCoord.getExecutionProfile()).thenReturn(firstExecutionProfile);
+            executor.getProfile().addExecutionProfile(firstExecutionProfile);
+            QeProcessorImpl.INSTANCE.registerQuery(firstQueryId, new QeProcessorImpl.QueryInfo(firstCoord));
+
+            // Dispatch failed before publishing history.
+            executor.finalizeQuery(true);
+            Assertions.assertEquals(Long.MAX_VALUE, executor.getProfile().getQueryFinishTimestamp());
+            Assertions.assertSame(firstExecutionProfile, manager.getExecutionProfile(firstQueryId));
+
+            connectContext.setQueryId(retryQueryId);
+            Coordinator retryCoord = Mockito.mock(Coordinator.class);
+            Mockito.when(retryCoord.getQueryOptions()).thenReturn(queryOptions);
+            Mockito.when(retryCoord.getExecutionProfile()).thenReturn(retryExecutionProfile);
+            executor.getProfile().addExecutionProfile(retryExecutionProfile);
+            QeProcessorImpl.INSTANCE.registerQuery(retryQueryId, new QeProcessorImpl.QueryInfo(retryCoord));
+
+            // Publish the successful retry.
+            executor.updateProfile(false);
+            Assertions.assertNotNull(manager.findProfileElementObject(executor.getProfile().getId()));
+            executor.finalizeQuery();
+
+            Assertions.assertNull(manager.getExecutionProfile(firstQueryId));
+            Assertions.assertNull(manager.getExecutionProfile(retryQueryId));
+            Assertions.assertNull(manager.findProfileElementObject(executor.getProfile().getId()));
+        } finally {
+            QeProcessorImpl.INSTANCE.unregisterQuery(firstQueryId);
+            QeProcessorImpl.INSTANCE.unregisterQuery(retryQueryId);
+            manager.cleanProfile();
+        }
+    }
+
+    @Test
+    @ResourceLock("global")
+    public void testRetryReplacesFirstAttemptHistoricalProfileId() throws Exception {
+        ProfileManager manager = ProfileManager.getInstance();
+        connectContext.getSessionVariable().enableProfile = true;
+        connectContext.getSessionVariable().autoProfileThresholdMs = 0;
+        TUniqueId firstQueryId = new TUniqueId(0x22040L, 3L);
+        TUniqueId retryQueryId = new TUniqueId(0x22040L, 4L);
+        connectContext.setQueryId(firstQueryId);
+        connectContext.setStartTime();
+        StmtExecutor executor = new StmtExecutor(connectContext,
+                analyzeAndGetStmtByNereids("select 1", connectContext));
+        executor.getSummaryProfile().setQueryBeginTime(System.currentTimeMillis());
+        ExecutionProfile firstExecutionProfile = new ExecutionProfile(firstQueryId, Collections.emptyList());
+        ExecutionProfile retryExecutionProfile = new ExecutionProfile(retryQueryId, Collections.emptyList());
+        TQueryOptions queryOptions = new TQueryOptions();
+        queryOptions.enable_profile = true;
+
+        try {
+            Coordinator firstCoord = Mockito.mock(Coordinator.class);
+            Mockito.when(firstCoord.getQueryOptions()).thenReturn(queryOptions);
+            Mockito.when(firstCoord.getExecutionProfile()).thenReturn(firstExecutionProfile);
+            executor.getProfile().addExecutionProfile(firstExecutionProfile);
+            QeProcessorImpl.INSTANCE.registerQuery(firstQueryId, new QeProcessorImpl.QueryInfo(firstCoord));
+
+            // Fetch failed after publishing history.
+            executor.updateProfile(false);
+            Assertions.assertNotNull(manager.findProfileElementObject(executor.getProfile().getId()));
+            executor.finalizeQuery(true);
+            Assertions.assertNull(manager.findProfileElementObject(executor.getProfile().getId()));
+            Assertions.assertSame(firstExecutionProfile, manager.getExecutionProfile(firstQueryId));
+
+            connectContext.setQueryId(retryQueryId);
+            Coordinator retryCoord = Mockito.mock(Coordinator.class);
+            Mockito.when(retryCoord.getQueryOptions()).thenReturn(queryOptions);
+            Mockito.when(retryCoord.getExecutionProfile()).thenReturn(retryExecutionProfile);
+            executor.getProfile().addExecutionProfile(retryExecutionProfile);
+            QeProcessorImpl.INSTANCE.registerQuery(retryQueryId, new QeProcessorImpl.QueryInfo(retryCoord));
+            executor.updateProfile(false);
+            Assertions.assertNull(manager.findProfileElementObject(DebugUtil.printId(firstQueryId)));
+            Assertions.assertNotNull(manager.findProfileElementObject(executor.getProfile().getId()));
+            executor.finalizeQuery();
+            Assertions.assertNull(manager.findProfileElementObject(DebugUtil.printId(firstQueryId)));
+            Assertions.assertNotNull(manager.findProfileElementObject(DebugUtil.printId(retryQueryId)));
+            Assertions.assertNotEquals(Long.MAX_VALUE, executor.getProfile().getQueryFinishTimestamp());
+        } finally {
+            QeProcessorImpl.INSTANCE.unregisterQuery(firstQueryId);
+            QeProcessorImpl.INSTANCE.unregisterQuery(retryQueryId);
+            manager.cleanProfile();
+        }
     }
 
     @Test
