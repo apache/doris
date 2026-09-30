@@ -68,7 +68,10 @@ namespace lance {
 // is acceptable and is budgeted in lance_index_worker_report_margin_seconds.
 // The supervisor delivers terminal reports even while stopping: the service
 // then drops the RPC but still releases the invocation's _outstanding slot,
-// so the gauges never overcount past a shutdown drain.
+// so the gauges never overcount past a shutdown drain. The two unprovable
+// terminations emit no report at all; their silent callback releases the
+// local _outstanding slot the same way (the FE-side slot waits for the epoch
+// sweep).
 //
 // Credentials discipline: request-level logs carry only job_id /
 // invocation_id / mutation_type. storage_options keys/values and any
@@ -101,12 +104,13 @@ public:
 
     // Gauge feeders for the REGISTER_HOOK_METRIC hooks. The supervisor's queue
     // and executor state are private, so the service keeps its own accounting:
-    // _outstanding counts accepted invocations whose terminal report (result
-    // or termination) has not finished. With the executor threads always
-    // blocked on the bounded queue, busy executors == min(outstanding,
-    // max_inflight) and the remainder is waiting in the queue. The rare
-    // evidence-insufficient paths (no termination proof) keep the invocation
-    // counted, matching the FE-side possible-live slot semantics.
+    // _outstanding counts accepted invocations whose terminal accounting has
+    // not run — a result/termination report (delivered, or dropped while
+    // stopping) or the silent-ending release for a termination that cannot be
+    // proven. With the executor threads always blocked on the bounded queue,
+    // busy executors == min(outstanding, max_inflight) and the remainder is
+    // waiting in the queue. An unprovable termination releases only this local
+    // gauge; the FE-side possible-live slot still waits for the epoch sweep.
     int64_t queue_size() const;
     int64_t inflight_workers() const;
 
@@ -120,6 +124,11 @@ private:
                             const std::function<Status(MasterServerClient*, TStatus*)>& attempt);
     void _report_result(const TLanceIndexJobReport& report);
     void _report_termination(const TLanceIndexJobTerminationReport& report);
+    // The no-report ending: an unprovable termination fires the supervisor's
+    // silent callback instead of any report, so _report_with_retry would never
+    // run for this invocation; the _outstanding slot is released here. The
+    // FE-side slot is untouched (deadline/epoch sweep owns it).
+    void _release_slot_on_silent_ending(int64_t job_id, const std::string& invocation_id);
 
     ExecEnv* _exec_env; // not owned
     IndexJobSupervisor _supervisor;

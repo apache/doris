@@ -132,6 +132,10 @@ Status LanceIndexJobService::start() {
             [this](const TLanceIndexJobReport& report) { _report_result(report); });
     _supervisor.set_report_termination_callback(
             [this](const TLanceIndexJobTerminationReport& report) { _report_termination(report); });
+    _supervisor.set_report_silent_callback(
+            [this](int64_t job_id, const std::string& invocation_id) {
+                _release_slot_on_silent_ending(job_id, invocation_id);
+            });
 
     REGISTER_HOOK_METRIC(lance_index_job_queue_size, [this]() { return queue_size(); });
     REGISTER_HOOK_METRIC(lance_index_job_inflight_workers, [this]() { return inflight_workers(); });
@@ -325,6 +329,21 @@ void LanceIndexJobService::_report_termination(const TLanceIndexJobTerminationRe
                        [&report](MasterServerClient* client, TStatus* status) {
                            return client->report_lance_index_job_termination(report, status);
                        });
+}
+
+void LanceIndexJobService::_release_slot_on_silent_ending(int64_t job_id,
+                                                          const std::string& invocation_id) {
+    // The silent-ending counterpart of _report_with_retry's terminal
+    // accounting: an unprovable termination emits NO report, so no report
+    // callback would ever run for this invocation and the reserved slot would
+    // inflate the gauges until BE restart (with max_inflight=1 the worker
+    // would read permanently busy). Only the local gauge accounting changes
+    // here; the FE-side slot is untouched and converges through the
+    // deadline/epoch sweep, exactly like a report the BE failed to deliver.
+    LOG(INFO) << "lance invocation ended without provable termination; releasing the local "
+                 "gauge slot (the FE-side slot stays with the epoch sweep): job_id="
+              << job_id << " invocation_id=" << invocation_id;
+    _outstanding.fetch_sub(1);
 }
 
 } // namespace lance

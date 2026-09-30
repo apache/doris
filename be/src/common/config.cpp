@@ -1256,8 +1256,9 @@ DEFINE_Validator(lance_index_worker_term_grace_seconds,
                  [](int64_t value) { return value >= 1 && value <= 600; });
 // Reserved tail of the FE deadline for the report path, frozen at 400s. The
 // worst-case callback window is 3 attempts x (connect 3s + thrift_rpc_timeout_ms
-// 60s + one reopen-and-retry inside the client 60s) + 2 x sleep(1) between
-// attempts + reaping/cleanup (~10s) = 3x123 + 2 + 10 = 381s; 400 leaves margin.
+// 60s + one reopen-and-retry inside the client 60s) + 3 x sleep(1) (the retry
+// loop sleeps after the final failed attempt too) + reaping/cleanup (~10s) =
+// 3x123 + 3 + 10 = 382s; 400 leaves margin.
 DEFINE_mInt64(lance_index_worker_report_margin_seconds, "400");
 DEFINE_Validator(lance_index_worker_report_margin_seconds, [](int64_t value) {
     return value >= 0;

@@ -67,7 +67,10 @@ inline constexpr int64_t MIN_EXECUTABLE_BUDGET_SECONDS = 5;
 //     when the exact child is provably reaped AND the invocation cgroup reads
 //     populated=0. NEVER_LAUNCHED is used only when the invocation provably
 //     never exec'd (pre-fork rejection, pre-barrier-release kill, or a queued
-//     dispatch drained during stop()).
+//     dispatch drained during stop()). An ending that can prove neither a
+//     trusted result nor a reap emits NO report at all; the silent callback
+//     (ReportSilentFn) then fires once so the owner releases its local
+//     accounting, while the FE-side slot waits for the epoch sweep.
 //
 // Credentials discipline: storage_options travel only inside the stdin
 // dispatch frame — never argv, never env, never logs. Request-level logs carry
@@ -81,6 +84,13 @@ public:
     // supervisor executor thread (plan §5 ruling).
     using ReportResultFn = std::function<void(const TLanceIndexJobReport&)>;
     using ReportTerminationFn = std::function<void(const TLanceIndexJobTerminationReport&)>;
+    // The no-report ending (D6): termination cannot be proven (a pre-FFI
+    // violation or an ending-(b) without a reap proof), so NO report callback
+    // fires for the invocation — ever. This callback is the owner's only
+    // notification and runs exactly once on those two paths, so its local
+    // accounting (the service's _outstanding gauge slot) is released; the
+    // FE-side slot is deliberately left for the deadline/epoch sweep.
+    using ReportSilentFn = std::function<void(int64_t job_id, const std::string& invocation_id)>;
 
     IndexJobSupervisor();
     ~IndexJobSupervisor();
@@ -96,6 +106,7 @@ public:
 
     void set_report_result_callback(ReportResultFn fn);
     void set_report_termination_callback(ReportTerminationFn fn);
+    void set_report_silent_callback(ReportSilentFn fn);
 
     // Accepts one invocation for asynchronous execution. Handler-visible
     // outcomes (commit 4 maps them to thrift):
@@ -113,7 +124,8 @@ public:
     // earns the full NEVER_LAUNCHED envelope ("supervisor is stopping").
     // Terminal reports are delivered to the bound callbacks even while
     // stopping — the callback owner decides whether to drop the RPC, and it can
-    // only release the invocation's accounting slot if it sees the report.
+    // only release the invocation's accounting slot if it sees the report (the
+    // two no-report endings reach it through the silent callback instead).
     // Correctness never depends on this (D9): the worker-side PR_SET_PDEATHSIG
     // arm + getppid recheck is the real BE-loss backstop, and the default
     // doris_main exit path skips all stop() calls.
@@ -165,6 +177,7 @@ private:
                                 const char* static_category);
     void _invoke_result_callback(const TLanceIndexJobReport& report);
     void _invoke_termination_callback(const TLanceIndexJobTerminationReport& report);
+    void _invoke_silent_callback(int64_t job_id, const std::string& invocation_id);
     void _register_inflight_child(pid_t pid);
     void _unregister_inflight_child(pid_t pid);
 
@@ -175,6 +188,7 @@ private:
     std::mutex _callback_mutex;
     ReportResultFn _report_result_fn;
     ReportTerminationFn _report_termination_fn;
+    ReportSilentFn _report_silent_fn;
 
     // Lazily created on the first accepted submit() so a supervisor that never
     // passes preflight never spawns threads. Guarded by _lifecycle_mutex.

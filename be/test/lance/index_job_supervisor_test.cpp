@@ -122,6 +122,8 @@ struct ReportRecorder {
     std::mutex mu;
     std::vector<TLanceIndexJobReport> results;
     std::vector<TLanceIndexJobTerminationReport> terminations;
+    // invocation ids of the no-report (silent) endings.
+    std::vector<std::string> silent_endings;
 
     void record_result(const TLanceIndexJobReport& report) {
         std::lock_guard<std::mutex> lock(mu);
@@ -131,6 +133,10 @@ struct ReportRecorder {
         std::lock_guard<std::mutex> lock(mu);
         terminations.push_back(report);
     }
+    void record_silent(const std::string& invocation_id) {
+        std::lock_guard<std::mutex> lock(mu);
+        silent_endings.push_back(invocation_id);
+    }
     size_t result_count() {
         std::lock_guard<std::mutex> lock(mu);
         return results.size();
@@ -138,6 +144,10 @@ struct ReportRecorder {
     size_t termination_count() {
         std::lock_guard<std::mutex> lock(mu);
         return terminations.size();
+    }
+    size_t silent_count() {
+        std::lock_guard<std::mutex> lock(mu);
+        return silent_endings.size();
     }
     TLanceIndexJobReport first_result() {
         std::lock_guard<std::mutex> lock(mu);
@@ -147,11 +157,18 @@ struct ReportRecorder {
         std::lock_guard<std::mutex> lock(mu);
         return terminations.front();
     }
+    std::string first_silent_invocation_id() {
+        std::lock_guard<std::mutex> lock(mu);
+        return silent_endings.front();
+    }
     bool wait_results(size_t n, int64_t deadline_ms = kCallbackDeadlineMs) {
         return wait_until([&] { return result_count() >= n; }, deadline_ms);
     }
     bool wait_terminations(size_t n, int64_t deadline_ms = kCallbackDeadlineMs) {
         return wait_until([&] { return termination_count() >= n; }, deadline_ms);
+    }
+    bool wait_silent(size_t n, int64_t deadline_ms = kCallbackDeadlineMs) {
+        return wait_until([&] { return silent_count() >= n; }, deadline_ms);
     }
 };
 
@@ -331,6 +348,10 @@ protected:
         supervisor->set_report_termination_callback(
                 [recorder](const TLanceIndexJobTerminationReport& r) {
                     recorder->record_termination(r);
+                });
+        supervisor->set_report_silent_callback(
+                [recorder](int64_t, const std::string& invocation_id) {
+                    recorder->record_silent(invocation_id);
                 });
     }
 
@@ -1282,6 +1303,43 @@ TEST_F(LanceIndexSupervisorTest, RealSurvivingDescendantNoFabricatedProof) {
     supervisor.stop();
     // Cleanup discipline: once the grandchild exits (8s), the group drains and
     // the test removes what the supervisor intentionally left.
+    sweep_cgroup_dir(cgroup_dir, 20000);
+    EXPECT_EQ(::access(cgroup_dir.c_str(), F_OK), -1)
+            << "leftover invocation cgroup never drained: " << cgroup_dir;
+}
+
+// P2-1: the silent ending above must still release the invocation's gauge
+// slot. The service reserves _outstanding before submit() and releases it in
+// the report callbacks, so a no-report ending would leak the slot until BE
+// restart (with max_inflight=1 the worker would read permanently busy). The
+// supervisor fires the silent callback exactly once there — and only there:
+// no report of either kind may fire alongside it (that would be a double
+// release).
+TEST_F(LanceIndexSupervisorTest, RealSurvivingDescendantReleasesSilentSlot) {
+    REQUIRE_DELEGATED_PARENT(parent);
+    IndexJobSupervisor supervisor;
+    ReportRecorder recorder;
+    wire_callbacks(&supervisor, &recorder);
+    const auto dispatch = make_dispatch("real-orphan-slot", epoch_millis() + 3600 * 1000, 9987);
+    supervisor.force_worker_exec_for_test(fake_worker_path(),
+                                          persona_args("orphan", dispatch, {"sleep=8"}));
+    const std::string cgroup_dir = preflight_and_submit(&supervisor, parent, dispatch);
+
+    // Two-phase wait (as in the proof case above): the silent callback fires
+    // inside _execute() before it returns, so inflight==0 already implies it.
+    ASSERT_TRUE(wait_until([&] { return supervisor.inflight_count_for_test() == 1; }, 15000));
+    ASSERT_TRUE(wait_until([&] { return supervisor.inflight_count_for_test() == 0; }, 15000));
+    ASSERT_TRUE(recorder.wait_silent(1));
+    EXPECT_EQ(recorder.silent_count(), 1U)
+            << "the silent ending must notify its gauge release exactly once";
+    EXPECT_EQ(recorder.first_silent_invocation_id(), dispatch.invocation_id);
+    // No report fires on this ending — a report would be a fabricated proof
+    // and a second slot release.
+    EXPECT_EQ(recorder.result_count(), 0U);
+    EXPECT_EQ(recorder.termination_count(), 0U);
+    EXPECT_EQ(::access(cgroup_dir.c_str(), F_OK), 0)
+            << "the populated invocation cgroup must be left in place";
+    supervisor.stop();
     sweep_cgroup_dir(cgroup_dir, 20000);
     EXPECT_EQ(::access(cgroup_dir.c_str(), F_OK), -1)
             << "leftover invocation cgroup never drained: " << cgroup_dir;
