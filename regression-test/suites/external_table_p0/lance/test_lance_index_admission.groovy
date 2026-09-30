@@ -89,6 +89,8 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
         // checks the switch at the dispatch-phase entry and before every job attempt,
         // so setting it before the first admission is a hard barrier: no wait on the
         // daemon's in-flight sleep is needed, and the polling interval is never touched.
+        // After the last PENDING premise, the tail of this suite releases the pause
+        // and asserts that very NOT_COMMITTED convergence on purpose.
         master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_dispatcher_paused" = "true")"""
         // Open the mutation gate for this suite only. masterOnly configs set through
         // ADMIN SET land on the master node locally, which is where admission reads them;
@@ -258,6 +260,35 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
         assertEquals(dropJobId, dropJobRow.JobId.toString())
         assertEquals("PENDING", createJobRowAfterDrop.State.toString())
         assertEquals("PENDING", dropJobRow.State.toString())
+
+        // Every PENDING premise has been asserted; release the pause and let the
+        // admitted jobs meet the shipped backend stub. This build has no lance
+        // worker, so a real dispatch is answered as a proven no-enqueue rejection
+        // and the job converges to terminal NOT_COMMITTED with the stub's status
+        // code in its Message. Driving that convergence here (instead of relying
+        // on a post-suite race for it) keeps the pipeline's backend coverage
+        // honest — the not-implemented stub is exercised by an actual dispatch —
+        // and asserts the dispatch contract end to end: one send, one clean
+        // rejection, no possible-live slot retained.
+        master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_dispatcher_paused" = "false")"""
+        boolean converged = false
+        for (int attempt = 0; attempt < 30 && !converged; attempt++) {
+            def jobsAfterRelease = sql_return_maparray """SHOW LANCE INDEX JOBS FROM `${filesystemCatalog}`.`doris`
+                    WHERE TableName = "${tableName}" """
+            def createRowAfterRelease = jobsAfterRelease.find { it.IndexName == createIndexName }
+            def dropRowAfterRelease = jobsAfterRelease.find { it.IndexName == preloadedIndex }
+            if (createRowAfterRelease != null && dropRowAfterRelease != null
+                    && "NOT_COMMITTED" == createRowAfterRelease.State.toString()
+                    && "NOT_COMMITTED" == dropRowAfterRelease.State.toString()) {
+                assertTrue(createRowAfterRelease.Message.toString().contains("NOT_IMPLEMENTED"))
+                assertTrue(dropRowAfterRelease.Message.toString().contains("NOT_IMPLEMENTED"))
+                converged = true
+            } else {
+                sleep(2000)
+            }
+        }
+        assertTrue("admitted lance index jobs did not converge to NOT_COMMITTED after the pause release",
+                converged)
     } catch (Throwable failure) {
         suiteFailure = failure
         throw failure
@@ -285,7 +316,9 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
         if (suiteFailure == null && cleanupFailure != null) {
             throw cleanupFailure
         }
-        // The filesystem catalog stays behind: admitted jobs remain unresolved and guard
-        // DROP CATALOG until FORCE_RELEASE lands in a later slice.
+        // The filesystem catalog stays behind: its jobs have converged to terminal
+        // NOT_COMMITTED, but each still owes its metadata refresh, so they stay
+        // unresolved (and guard DROP CATALOG) until the refresh driver settles
+        // them; FORCE_RELEASE only lands in a later slice.
     }
 }
