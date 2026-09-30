@@ -34,7 +34,8 @@
 // all), and PHRASE_CANDIDATE_BENCH_VARIANTS, a comma-separated list such as "random/0.500", the
 // candidate variants to run (default all; a phrase then runs over the whole segment once, for the
 // result check, unless "full" is listed; "scored" runs the phrases marked for it with their rows
-// scored too). Times are medians of per-query thread CPU time, which moves far less than wall
+// scored too; a docid query's cached, scored and count samples run only when listed). Times are
+// medians of per-query thread CPU time, which moves far less than wall
 // time on a shared machine.
 
 #include <fmt/format.h>
@@ -499,15 +500,17 @@ void benchmark_docid_queries(InvertedIndexReader* reader, std::string_view forma
         roaring::Roaring full;
         const std::string label = fmt::format("reader/{}/{}/{}", format_name, group, query.label);
         median_query_ms(reader, query, nullptr, iterations, &full, label + "/full");
-        median_query_ms(reader, query, nullptr, iterations, &full, label + "/cached",
-                        {.cached = true, .repeats = 16});
-        if (query.scored) {
+        if (selected("PHRASE_CANDIDATE_BENCH_VARIANTS", "cached")) {
+            median_query_ms(reader, query, nullptr, iterations, &full, label + "/cached",
+                            {.cached = true, .repeats = 16});
+        }
+        if (query.scored && selected("PHRASE_CANDIDATE_BENCH_VARIANTS", "scored")) {
             roaring::Roaring scored;
             median_query_ms(reader, query, nullptr, iterations, &scored, label + "/scored",
                             {.scored = true});
             EXPECT_EQ(scored, full) << query.label;
         }
-        if (query.count) {
+        if (query.count && selected("PHRASE_CANDIDATE_BENCH_VARIANTS", "count")) {
             median_query_ms(reader, query, nullptr, iterations, &full, label + "/count",
                             {.count_only = true, .repeats = 16});
         }
