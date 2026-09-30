@@ -970,6 +970,12 @@ public class Backend implements Writable {
                 this.nextForceEditlogHeartbeatTime = System.currentTimeMillis() + delaySecond * 1000L;
             }
         } else {
+            // A restarted BE may have been downgraded. Do not reuse its old capability
+            // while heartbeat failures are still within the liveness tolerance.
+            if (arrowFlightNativeVariantSupported) {
+                arrowFlightNativeVariantSupported = false;
+                isChanged = true;
+            }
             // for a bad BackendHbResponse, its hbTime is last succ hbTime, not this hbTime
             if (hbResponse.getHbTime() > 0) {
                 this.lastUpdateMs = hbResponse.getHbTime();
