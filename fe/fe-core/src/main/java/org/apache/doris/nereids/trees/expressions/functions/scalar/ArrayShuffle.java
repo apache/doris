@@ -62,6 +62,7 @@ public class ArrayShuffle extends UniqueFunction
     }
 
     private ArrayShuffle(VolatileIdentity volatileIdentity, List<Expression> children) {
+        // A seed fixes the sequence within a block, not the permutation for an individual row.
         super("array_shuffle", volatileIdentity, children);
     }
 

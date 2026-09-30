@@ -80,6 +80,17 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
         this.isStrict = isStrict;
     }
 
+    @Override
+    public boolean isDeterministic() {
+        // TIME has no date. These casts supply the date from the current query's clock.
+        return !(child().getDataType().isTimeType() && targetType.isDateLikeType());
+    }
+
+    @Override
+    public boolean foldable() {
+        return isDeterministic();
+    }
+
     public boolean isExplicitType() {
         return isExplicitType;
     }
