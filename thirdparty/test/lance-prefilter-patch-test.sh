@@ -63,7 +63,10 @@ run_download "${tmpdir}/fresh"
 check_sources "${tmpdir}/fresh"
 cp "${tmpdir}/fresh/src/${LANCE_C_SOURCE}/Cargo.toml" "${tmpdir}/manifest"
 cp "${tmpdir}/fresh/src/${LANCE_C_SOURCE}/Cargo.lock" "${tmpdir}/lock"
+touch "${tmpdir}/fresh/src/${LANCE_C_SOURCE}/cache_reuse_sentinel"
 run_download "${tmpdir}/fresh"
+[[ -f "${tmpdir}/fresh/src/${LANCE_C_SOURCE}/cache_reuse_sentinel" ]] \
+    || fail "unchanged patch unnecessarily replaced cached sources"
 cmp "${tmpdir}/manifest" "${tmpdir}/fresh/src/${LANCE_C_SOURCE}/Cargo.toml"
 cmp "${tmpdir}/lock" "${tmpdir}/fresh/src/${LANCE_C_SOURCE}/Cargo.lock"
 echo "PASS: fresh archive and idempotent Foyer patch"
@@ -83,6 +86,19 @@ run_download "${tmpdir}/cached"
 check_sources "${tmpdir}/cached"
 cmp "${tmpdir}/lock" "${tmpdir}/cached/src/${LANCE_C_SOURCE}/Cargo.lock"
 echo "PASS: cached sources with an existing generic marker"
+
+# A cached source tree may already contain the previous Foyer patch. The patch
+# fingerprint must invalidate it even when the upstream archive is unchanged.
+cached_source="${tmpdir}/cached/src/${LANCE_C_SOURCE}"
+for stale_marker in '' '0 0'; do
+    printf '%s\n' 'stale patch contents' > "${cached_source}/src/foyer_data_cache.rs"
+    printf '%s\n' "${stale_marker}" > "${cached_source}/patched_mark_foyer"
+    run_download "${tmpdir}/cached"
+    check_sources "${tmpdir}/cached"
+    cmp "${tmpdir}/fresh/src/${LANCE_C_SOURCE}/src/foyer_data_cache.rs" \
+        "${cached_source}/src/foyer_data_cache.rs"
+done
+echo "PASS: old and mismatched Foyer markers refresh cached sources"
 
 prepare "${tmpdir}/invalid"
 tar xzf "${ARCHIVE_DIR}/${LANCE_C_NAME}" -C "${tmpdir}/invalid/src"
