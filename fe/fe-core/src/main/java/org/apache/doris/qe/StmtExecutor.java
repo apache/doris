@@ -52,6 +52,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.profile.Profile;
+import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.profile.SummaryProfile.SummaryBuilder;
@@ -1141,10 +1142,19 @@ public class StmtExecutor {
     }
 
     public void finalizeQuery() {
-        // The final profile report occurs after be returns the query data, and the profile cannot be
-        // received after unregisterQuery(), causing the instance profile to be lost, so we should wait
-        // for the profile before unregisterQuery().
-        updateProfile(true);
+        finalizeQuery(false);
+    }
+
+    void finalizeQuery(boolean willRetry) {
+        if (willRetry) {
+            // The next attempt uses a new query ID. Keep its execution profiles for the final
+            // Profile decision, but discard the running history entry keyed by the old ID.
+            ProfileManager.getInstance().removeProfileFromHistory(profile.getId());
+        } else {
+            // The final profile report occurs after BE returns the query data. Update the profile
+            // before unregistering, or the instance profile can be lost.
+            updateProfile(true);
+        }
         QeProcessorImpl.INSTANCE.unregisterQuery(queryId());
     }
 
@@ -1210,6 +1220,7 @@ public class StmtExecutor {
         int retryTime = Config.max_query_retry_time;
         retryTime = retryTime <= 0 ? 1 : retryTime + 1;
         for (int i = 0; i < retryTime; i++) {
+            boolean willRetry = false;
             try {
                 // reset query id for each retry
                 if (i > 0) {
@@ -1303,12 +1314,13 @@ public class StmtExecutor {
                 }
                 if (i != retryTime - 1 && isNeedRetry && context.getProtocolAdapter().canRetryQuery(context)) {
                     LOG.warn("retry {} times. stmt: {}", (i + 1), parsedStmt.getOrigStmt().originStmt);
+                    willRetry = true;
                 } else {
                     throw e;
                 }
             } finally {
                 if (context.isReturnResultFromLocal()) {
-                    finalizeQuery();
+                    finalizeQuery(willRetry);
                 }
                 LOG.debug("Finalize query {}", DebugUtil.printId(context.queryId()));
             }
