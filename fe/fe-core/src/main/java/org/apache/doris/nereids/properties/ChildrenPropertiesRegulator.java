@@ -259,8 +259,14 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             return false;
         }
 
-        // Gate 4: aggregation output cardinality ratio
+        // Gate 4: aggregation output cardinality ratio.
+        // Skip it when any GROUP BY key has unknown statistics: StatsCalculator then
+        // estimates the aggregate output as rows * DEFAULT_AGGREGATE_RATIO (1/3), which
+        // is a placeholder rather than a real group cardinality. Comparing it with the
+        // default threshold (0.3) would ban bucketed agg for every un-analyzed table,
+        // while gate 2 already ignores unknown NDVs for the same reason.
         if (highCardThreshold > 0 && outputStats != null
+                && !AggregateUtils.hasUnknownStatistics(aggregate.getGroupByExpressions(), inputStats)
                 && outputStats.getRowCount() > rows * highCardThreshold) {
             return false;
         }

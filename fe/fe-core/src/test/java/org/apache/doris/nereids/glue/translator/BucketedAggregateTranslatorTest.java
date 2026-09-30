@@ -249,6 +249,42 @@ public class BucketedAggregateTranslatorTest extends TestWithFeService {
         }
     }
 
+    @Test
+    public void testUnknownGroupKeyStatisticsKeepBucketedAggregation() throws Exception {
+        // The table is never analyzed, so the GROUP BY key has unknown statistics and
+        // StatsCalculator only estimates the aggregate output as input rows / 3. That
+        // fallback is not a real group cardinality, so the output-ratio gate of
+        // ChildrenPropertiesRegulator must not compare it with the default
+        // bucketed_agg_high_card_threshold (0.3): 1/3 > 0.3 would otherwise ban
+        // bucketed aggregation for every un-analyzed table.
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        int oldAggPhase = sessionVariable.aggPhase;
+        int oldBeNumberForTest = sessionVariable.getBeNumberForTest();
+        long oldBucketedAggMinInputRows = sessionVariable.bucketedAggMinInputRows;
+        long oldBucketedAggMaxGroupKeys = sessionVariable.bucketedAggMaxGroupKeys;
+        double oldBucketedAggHighCardThreshold = sessionVariable.bucketedAggHighCardThreshold;
+        boolean oldEnableBucketedHashAgg = sessionVariable.enableBucketedHashAgg;
+        try {
+            // agg_phase=0 lets the optimizer choose, so the regulator's data-volume gates decide
+            // whether the one-phase candidate that the translator fuses survives at all.
+            sessionVariable.aggPhase = 0;
+            sessionVariable.setBeNumberForTest(1);
+            sessionVariable.bucketedAggMinInputRows = 0;
+            sessionVariable.bucketedAggMaxGroupKeys = 0;
+            sessionVariable.bucketedAggHighCardThreshold = new SessionVariable().bucketedAggHighCardThreshold;
+            sessionVariable.enableBucketedHashAgg = true;
+
+            Assertions.assertFalse(collectBucketedAggregationNodes("sum(kint)").isEmpty());
+        } finally {
+            sessionVariable.aggPhase = oldAggPhase;
+            sessionVariable.setBeNumberForTest(oldBeNumberForTest);
+            sessionVariable.bucketedAggMinInputRows = oldBucketedAggMinInputRows;
+            sessionVariable.bucketedAggMaxGroupKeys = oldBucketedAggMaxGroupKeys;
+            sessionVariable.bucketedAggHighCardThreshold = oldBucketedAggHighCardThreshold;
+            sessionVariable.enableBucketedHashAgg = oldEnableBucketedHashAgg;
+        }
+    }
+
     private void assertUsesRegularAggregation(String aggregateFunction) throws Exception {
         Planner planner = planAggregate(aggregateFunction);
         Assertions.assertTrue(collectNodes(planner, BucketedAggregationNode.class).isEmpty());

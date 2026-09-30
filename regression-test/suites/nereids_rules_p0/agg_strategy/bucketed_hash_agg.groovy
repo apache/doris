@@ -38,11 +38,11 @@ suite("bucketed_hash_agg") {
     sql "set enable_spill=false"
     sql "set enable_force_spill=false"
     sql "set bucketed_agg_max_group_keys=0"
-    // The table below is never analyzed, so group-by column stats are unknown and
-    // StatsCalculator falls back to rows * DEFAULT_AGGREGATE_RATIO (1/3.0) for the
-    // aggregate output cardinality. With the default bucketed_agg_high_card_threshold
-    // (0.3), bucketedDataVolumeGatesPass rejects the pattern (rows/3 > rows*0.3),
-    // so raise the threshold to make the positive fusion test deterministic.
+    // The tables below are tiny, so once their statistics have been collected the
+    // GROUP BY key NDV (or the aggregate output rows) can exceed 0.3 * rows and the
+    // high-cardinality gates would reject the pattern. Raise the threshold so the
+    // positive fusion tests stay deterministic whether or not the tables were
+    // analyzed; Test 1b covers the default threshold on an un-analyzed table.
     sql "set bucketed_agg_high_card_threshold=1.0"
 
     // --- create test table ---
@@ -91,6 +91,22 @@ suite("bucketed_hash_agg") {
     order_qt_bucketed_result """
     SELECT grp, SUM(val) FROM bucketed_agg_reg_test GROUP BY grp ORDER BY grp;
     """
+
+    // ============================================================
+    // Test 1b: Positive — default bucketed_agg_high_card_threshold (0.3).
+    //          The table is never analyzed, so the aggregate output rows are
+    //          only the rows / 3 fallback estimate of StatsCalculator. The
+    //          output-ratio gate must ignore that placeholder instead of
+    //          banning bucketed agg for every un-analyzed table.
+    //          (If the table did get analyzed, grp has 3 distinct values in
+    //          10 rows, which also passes the 0.3 threshold.)
+    // ============================================================
+    sql "set bucketed_agg_high_card_threshold=0.3"
+    explain {
+        sql("${query}")
+        contains("BUCKETED AGGREGATE")
+    }
+    sql "set bucketed_agg_high_card_threshold=1.0"
 
     // ============================================================
     // Test 2: Negative — be_number=3 (multi-BE), bucketed enabled
