@@ -111,6 +111,23 @@ public class InsertOverwriteTableCommand extends Command
     public static final String DEBUG_POINT_FAIL_BETWEEN_THE_HALVES_OF_AN_OVERWRITE =
             "InsertOverwriteTableCommand.failBetweenTheTwoHalvesOfAnOverwrite";
 
+    /**
+     * Cancels the overwrite at a chosen point of the command, so that both halves of what a cancellation means
+     * can be pinned by a test: one that lands before the rows are committed takes the statement back and the
+     * statement has to fail, one that lands after them cannot take anything back and the overwrite has to
+     * complete. See test_insert_overwrite_cancel.
+     *
+     * <p>The point's {@code stage} parameter is {@code beforeTheInsert} or {@code afterTheInsert}, and its
+     * {@code table_name} parameter names the one table the point may disturb: the read below answers with the
+     * default when the point is not enabled or carries no such parameter, and no table is named by an empty
+     * string, so an enabled point cannot disturb an overwrite that is not the one under test.
+     */
+    public static final String DEBUG_POINT_CANCEL_AN_OVERWRITE =
+            "InsertOverwriteTableCommand.cancelAnOverwrite";
+
+    private static final String STAGE_BEFORE_THE_INSERT = "beforeTheInsert";
+    private static final String STAGE_AFTER_THE_INSERT = "afterTheInsert";
+
     private static final Logger LOG = LogManager.getLogger(InsertOverwriteTableCommand.class);
 
     private LogicalPlan originLogicalQuery;
@@ -266,32 +283,37 @@ public class InsertOverwriteTableCommand extends Command
             } else {
                 // it's overwrite table(as all partitions) or specific partition(s)
                 List<String> tempPartitionNames = InsertOverwriteUtil.generateTempPartitionNames(partitionNames);
+                cancelTheOverwriteAt(STAGE_BEFORE_THE_INSERT, targetTable);
                 if (isCancelled.get()) {
-                    LOG.info("insert overwrite is cancelled before registerTask, queryId: {}",
-                            ctx.getQueryIdentifier());
-                    return;
+                    // Nothing durable happened: no task is registered, no temp partition exists, no row was
+                    // written and nothing was committed. The statement is a plain failure, like the one the
+                    // inner insert reports when it is cancelled, rather than the success of an overwrite that
+                    // did not run.
+                    throw cancelledBeforeTheRowsWereCommitted("before registerTask", ctx);
                 }
                 taskId = insertOverwriteManager.registerTask(targetTable, tempPartitionNames);
                 if (isCancelled.get()) {
-                    LOG.info("insert overwrite is cancelled before addTempPartitions, queryId: {}",
-                            ctx.getQueryIdentifier());
-                    // not need deal temp partition
-                    insertOverwriteManager.taskSuccess(taskId);
-                    return;
+                    // The catch below takes the registration back; no temp partition exists yet, so there is
+                    // nothing else to drop.
+                    throw cancelledBeforeTheRowsWereCommitted("before addTempPartitions", ctx);
                 }
                 InsertOverwriteUtil.addTempPartitions(targetTable, partitionNames, tempPartitionNames);
                 if (isCancelled.get()) {
-                    LOG.info("insert overwrite is cancelled before insertInto, queryId: {}", ctx.getQueryIdentifier());
-                    insertOverwriteManager.taskFail(taskId);
-                    return;
+                    // The catch below drops the temp partitions this cancelled statement created.
+                    throw cancelledBeforeTheRowsWereCommitted("before insertInto", ctx);
                 }
                 // todo: need to refresh remote target table after add temp partitions
                 insertIntoPartitions(ctx, executor, tempPartitionNames, wholeTable);
+                cancelTheOverwriteAt(STAGE_AFTER_THE_INSERT, targetTable);
                 if (isCancelled.get()) {
-                    LOG.info("insert overwrite is cancelled before replacePartition, queryId: {}",
-                            ctx.getQueryIdentifier());
-                    insertOverwriteManager.taskFail(taskId);
-                    return;
+                    // Too late to cancel: insertIntoPartitions returns only once its transaction has committed
+                    // and published the rows into the temp partitions, and everything the read consumed -- the
+                    // base table stream offsets among it -- was committed with that same transaction. Dropping
+                    // the temp partitions here is exactly what would lose those rows against an advanced
+                    // offset, while the swap below is what publishes them. The overwrite completes, and it is
+                    // the outcome the statement reports.
+                    LOG.info("insert overwrite is cancelled after its rows were committed, completing it,"
+                            + " queryId: {}", ctx.getQueryIdentifier());
                 }
                 failBetweenTheTwoHalvesOfAnOverwrite(targetTable);
                 InsertOverwriteUtil.replacePartition(targetTable, partitionNames, tempPartitionNames,
@@ -304,9 +326,10 @@ public class InsertOverwriteTableCommand extends Command
             }
         } catch (Exception e) {
             LOG.warn("insert into overwrite failed with task(or group) id {}", taskId, e);
-            if (isAutoDetectOverwrite(getLogicalQuery())) {
+            // A cancel that landed before registerTask leaves nothing registered to fail, and no id was taken.
+            if (isAutoDetectOverwrite(getLogicalQuery()) && taskId != 0) {
                 insertOverwriteManager.taskGroupFail(taskId);
-            } else {
+            } else if (taskId != 0) {
                 insertOverwriteManager.taskFail(taskId);
             }
             throw e;
@@ -384,6 +407,37 @@ public class InsertOverwriteTableCommand extends Command
             return;
         }
         throw new UserException("debug point: " + DEBUG_POINT_FAIL_BETWEEN_THE_HALVES_OF_AN_OVERWRITE);
+    }
+
+    /**
+     * Cancels this overwrite when the debug point names the stage and the table it targets; see the constant
+     * above. Nothing here decides what a cancelled overwrite means -- the two call sites do, and they differ:
+     * one takes the statement back, the other cannot.
+     */
+    private void cancelTheOverwriteAt(String stage, TableIf targetTable) {
+        if (!stage.equals(DebugPointUtil.getDebugParamOrDefault(
+                DEBUG_POINT_CANCEL_AN_OVERWRITE, "stage", ""))) {
+            return;
+        }
+        if (!targetTable.getName().equals(DebugPointUtil.getDebugParamOrDefault(
+                DEBUG_POINT_CANCEL_AN_OVERWRITE, "table_name", ""))) {
+            return;
+        }
+        LOG.info("debug point {} cancels the overwrite of {} at {}", DEBUG_POINT_CANCEL_AN_OVERWRITE,
+                targetTable.getName(), stage);
+        cancel();
+    }
+
+    /**
+     * The failure a cancellation that landed before anything durable is reported as. The caller wrote and
+     * committed nothing, and the offsets of the streams it was about to read are where they were, so a re-run
+     * reads the same rows -- which is why this is a failure rather than the success of an overwrite that never
+     * ran. The other half of the decision, a cancellation that lands after the rows are committed, is taken
+     * where the swap runs.
+     */
+    private static UserException cancelledBeforeTheRowsWereCommitted(String stage, ConnectContext ctx) {
+        return new UserException("insert overwrite is cancelled " + stage + ", queryId: "
+                + ctx.getQueryIdentifier());
     }
 
     private void runInsertCommand(LogicalPlan logicalQuery, InsertCommandContext insertCtx,
