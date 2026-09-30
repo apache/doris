@@ -71,7 +71,10 @@ import java.util.function.Supplier;
  * old backend) converges it NOT_COMMITTED through the no-enqueue channel,
  * which releases the possible-live slot in the same durable transition;
  * anything ambiguous after the invocation may have started converges UNKNOWN
- * with the slot retained.
+ * with the slot retained. The blocking time of the send loop is bounded per
+ * round (one backend RPC timeout), because this thread is also the only thread
+ * running the sweeps and the refresh driver — see
+ * {@link #dispatchPendingJobs()}.
  *
  * <p>The manager is resolved from the supplier once per round rather than
  * captured at construction: {@code Env.loadLanceIndexJobManager} replaces the
@@ -359,6 +362,17 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
      * any round that can see it performs its per-job check after the
      * admission, hence after the switch was set, and skips it. A skipped job
      * never consumes the round's dispatch budget.
+     *
+     * <p>This daemon thread is also the only thread running the deadline sweep,
+     * the epoch sweep, and the refresh driver, so the blocking time of the
+     * dispatch attempts is bounded per round: at most one backend RPC timeout
+     * of it may be spent before the remaining jobs are deferred to the next
+     * round. A healthy round spends microseconds per attempt and never notices
+     * the bound; a backend whose job RPC stalls while still heartbeating can
+     * hold this thread for at most one in-flight timeout beyond the budget,
+     * instead of the per-round cap times the timeout (minutes with the
+     * defaults) — so the lifecycle work of the following rounds keeps its
+     * cadence.
      */
     private void dispatchPendingJobs(LanceIndexJobManager jobManager) {
         if (Config.lance_index_job_dispatcher_paused) {
@@ -366,6 +380,9 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
         }
         int maxPerRound = Math.max(1, Config.lance_index_job_max_dispatch_per_round);
         Map<Long, Integer> inflightByBackend = jobManager.countPossibleLiveSlotsByBackend();
+        // fe.conf bypasses the validator, so a non-positive timeout is clamped to
+        // keep at least one attempt per round.
+        long blockingBudgetMs = Math.max(1L, Config.backend_rpc_timeout_ms);
         int dispatched = 0;
         for (LanceIndexJob job : jobManager.getJobsNeedingDispatch()) {
             if (Config.lance_index_job_dispatcher_paused) {
@@ -375,6 +392,12 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             if (dispatched >= maxPerRound) {
                 break;
             }
+            if (blockingBudgetMs <= 0) {
+                LOG.info("lance index job dispatcher spent this round's blocking-dispatch budget;"
+                        + " deferring lance index job {} to a later round", job.getJobId());
+                break;
+            }
+            long attemptStartMs = nowMs();
             try {
                 if (tryDispatch(jobManager, job, inflightByBackend)) {
                     dispatched++;
@@ -382,6 +405,7 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             } catch (Throwable t) {
                 LOG.warn("failed to dispatch lance index job " + job.getJobId(), t);
             }
+            blockingBudgetMs -= nowMs() - attemptStartMs;
         }
     }
 
@@ -502,11 +526,14 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
         }
         if (status.getStatusCode() != TStatusCode.OK) {
             // A clean error status proves the backend did not enqueue the dispatch, so
-            // this invocation is known never to have executed.
-            LOG.warn("backend {} rejected the dispatch of lance index job {} before enqueueing",
-                    backend.getId(), job.getJobId());
+            // this invocation is known never to have executed. The bounded status-code
+            // name travels into the log and the persisted reason, so SHOW can tell an
+            // unavailable worker (NOT_IMPLEMENTED_ERROR) from a resource or policy
+            // rejection; the free-form backend error message stays out unless sanitized.
+            LOG.warn("backend {} rejected the dispatch of lance index job {} before enqueueing: {}",
+                    backend.getId(), job.getJobId(), status.getStatusCode());
             completePreInvocationRejected(jobManager, fresh,
-                    "backend returned a clean error status before enqueueing the dispatch");
+                    "backend rejected the dispatch before enqueueing it: " + status.getStatusCode());
         }
         // OK: enqueued exactly once. The result arrives through the report callback;
         // nothing more is done here, and the deadline sweep bounds the wait.
