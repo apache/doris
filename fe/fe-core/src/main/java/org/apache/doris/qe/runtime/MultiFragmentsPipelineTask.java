@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe.runtime;
 
+import org.apache.doris.common.QueryLogContext;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.proto.InternalService;
@@ -144,7 +145,7 @@ public class MultiFragmentsPipelineTask extends AbstractRuntimeTask<Integer, Sin
                         LOG.warn("Failed to cancel query {} backend: {}, reason: {}",
                                 DebugUtil.printId(queryId), backend,  cancelReason.toString(), t);
                     }
-                }, Coordinator.backendRpcCallbackExecutor);
+                }, QueryLogContext.executor(Coordinator.backendRpcCallbackExecutor, queryId));
                 cancelInProcess.set(true);
             } catch (RpcException e) {
                 LOG.warn("cancel plan fragment get a exception, address={}:{}", brpcAddress.getHostname(),

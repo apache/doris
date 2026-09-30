@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.QueryLogContext;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ExecutionProfile;
@@ -173,6 +174,12 @@ public class NereidsCoordinator extends Coordinator {
 
     @Override
     public void cancel(Status cancelReason) {
+        try (QueryLogContext ignored = QueryLogContext.open(coordinatorContext.queryId)) {
+            cancelQuery(cancelReason);
+        }
+    }
+
+    private void cancelQuery(Status cancelReason) {
         coordinatorContext.getQueueToken().ifPresent(QueueToken::cancel);
 
         for (ScanNode scanNode : coordinatorContext.scanNodes) {
@@ -453,6 +460,12 @@ public class NereidsCoordinator extends Coordinator {
 
     @Override
     public void close() {
+        try (QueryLogContext ignored = QueryLogContext.open(coordinatorContext.queryId)) {
+            closeQueryResources();
+        }
+    }
+
+    private void closeQueryResources() {
         // NOTE: all close method should be no exception
         if (coordinatorContext.getQueryQueue().isPresent() && coordinatorContext.getQueueToken().isPresent()) {
             try {
@@ -472,7 +485,10 @@ public class NereidsCoordinator extends Coordinator {
     }
 
     protected void cancelInternal(Status cancelReason) {
-        coordinatorContext.withLock(() -> coordinatorContext.getJobProcessor().cancel(cancelReason));
+        // Scheduling failures can enter here without going through cancel().
+        try (QueryLogContext ignored = QueryLogContext.open(coordinatorContext.queryId)) {
+            coordinatorContext.withLock(() -> coordinatorContext.getJobProcessor().cancel(cancelReason));
+        }
     }
 
     protected void processTopSink(

@@ -25,6 +25,7 @@ import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.arrowflight.results.FlightSqlResultCacheEntry;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
 import org.apache.doris.common.IncrWindowNotReadyException;
+import org.apache.doris.common.QueryLogContext;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
@@ -226,6 +227,8 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             // splits during DoGet, and by now that DoGet is done, #62259), a result no
             // getStreamStatement took away, and its endpoints.
             FlightProtocolAdapter.of(connectContext).beginRequest();
+            // Preparation can fail before handleQuery resets the previous request's query ID.
+            connectContext.resetQueryId();
             try (FlightSqlConnectProcessor flightSQLConnectProcessor = new FlightSqlConnectProcessor(connectContext)) {
                 flightSQLConnectProcessor.handleQuery(query);
                 if (connectContext.getState().getStateType() == MysqlStateType.ERR) {
@@ -321,12 +324,15 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             // leaking it until the next query starts or the connection is torn down. The previous
             // query's deferred coordinator was already finalized at the top of this method, so this
             // only closes this failed query. See #62259.
-            String errMsg = "get flight info statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(e)
-                    + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
-                    + connectContext.getState().getErrorMessage();
-            connectContext.cancelFlightSqlDeferredExecutors(new Status(TStatusCode.CANCELLED, errMsg));
-            LOG.error(errMsg, e);
-            throw queryFailure(connectContext.getState(), errMsg, e);
+            // FlightSqlConnectProcessor.close() clears the MDC before this catch runs.
+            try (QueryLogContext ignored = QueryLogContext.open(connectContext.queryId())) {
+                String errMsg = "get flight info statement failed, " + e.getMessage() + ", "
+                        + Util.getRootCauseMessage(e) + ", error code: " + connectContext.getState().getErrorCode()
+                        + ", error msg: " + connectContext.getState().getErrorMessage();
+                connectContext.cancelFlightSqlDeferredExecutors(new Status(TStatusCode.CANCELLED, errMsg));
+                LOG.error(errMsg, e);
+                throw queryFailure(connectContext.getState(), errMsg, e);
+            }
         } finally {
             connectContext.setCommand(MysqlCommand.COM_SLEEP);
         }
