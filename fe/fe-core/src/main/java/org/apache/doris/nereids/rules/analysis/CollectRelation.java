@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -24,8 +25,10 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.catalog.stream.StreamReadMode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -207,12 +210,13 @@ public class CollectRelation implements AnalysisRuleFactory {
         if (cascadesContext.getRewritePlan() instanceof UnboundDictionarySink) {
             table = ((UnboundDictionarySink) cascadesContext.getRewritePlan()).getDictionary();
         } else {
-            StatementContext statementContext = cascadesContext.getConnectContext().getStatementContext();
+            StatementContext statementContext = cascadesContext.getStatementContext();
             table = statementContext.getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
             // Record relation-level metadata so the planner can preload latest external metadata before locking.
             if (tableFrom == TableFrom.QUERY && unboundRelation.isPresent()) {
                 statementContext.registerExternalTableForPreload(table, unboundRelation.get().getTableSnapshot(),
                         Optional.ofNullable(unboundRelation.get().getScanParams()));
+                registerRowBinlogTtl(table, unboundRelation.get(), statementContext);
             }
             if (firstLevel) {
                 statementContext.getOneLevelTables().put(tableQualifier, table);
@@ -315,8 +319,34 @@ public class CollectRelation implements AnalysisRuleFactory {
 
     private void collectFromTableStream(BaseTableStream tableStream, CascadesContext cascadesContext,
                                         TableFrom tableFrom, Optional<UnboundRelation> unboundRelation) {
-        StatementContext statementContext = cascadesContext.getConnectContext().getStatementContext();
+        StatementContext statementContext = cascadesContext.getStatementContext();
         List<String> tableQualifier = tableStream.getBaseTableFullQualifiers();
         statementContext.getAndCacheTable(tableQualifier, tableFrom, unboundRelation);
+    }
+
+    private void registerRowBinlogTtl(TableIf table, UnboundRelation relation,
+            StatementContext statementContext) {
+        if (table instanceof OlapTable) {
+            TableScanParams scanParams = relation.getScanParams();
+            // IVM creates stream scans during analysis, after the collector has visited ordinary base scans.
+            // Full refresh can also reconstruct a non-PCT table at its stream snapshot using binlog.
+            boolean ivmReadsBinlog = statementContext.getIvmRewriteContext()
+                    .map(context -> context.getMode() == IvmRewriteContext.Mode.INCREMENTAL
+                            || context.getMode() == IvmRewriteContext.Mode.FULL
+                            && context.getFullRefreshNonPctReadMode().orElse(null) == StreamReadMode.SNAPSHOT)
+                    .orElse(false);
+            if (((OlapTable) table).hasRowBinlogTtl()
+                    && (ivmReadsBinlog || scanParams != null && scanParams.incrementalRead())) {
+                statementContext.requireRowBinlogReferenceTso();
+            }
+            return;
+        }
+        if (table instanceof BaseTableStream
+                && (relation.getScanParams() == null || relation.getScanParams().isSnapshot())) {
+            TableIf baseTable = ((BaseTableStream) table).getBaseTableNullable();
+            if (baseTable instanceof OlapTable && ((OlapTable) baseTable).hasRowBinlogTtl()) {
+                statementContext.requireRowBinlogReferenceTso();
+            }
+        }
     }
 }

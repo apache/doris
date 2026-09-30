@@ -253,12 +253,15 @@ public class BindRelation extends OneAnalysisRuleFactory {
         List<Long> tabletIds = unboundRelation.getTabletIds();
         StreamScanType changeScanType = checkChangeScanCondition((OlapTable) table, unboundRelation.getScanParams());
         if (changeScanType != null) {
+            OlapTable originTable = (OlapTable) table;
+            Pair<Long, Long> timestampRange = parseTimestampRange(unboundRelation.getScanParams());
+            timestampRange = applyRowBinlogTtl(timestampRange, originTable, changeScanType,
+                    unboundRelation.getScanParams().getMapParams().containsKey(OlapScanNode.OLAP_START_TIMESTAMP),
+                    cascadesContext.getStatementContext());
             table = new RowBinlogTableWrapper((OlapTable) table,
                     CollectionUtils.isEmpty(partIds)
-                            ? makeUniformedTimestampRangeMap(((OlapTable) table).getPartitionIds(),
-                                    parseTimestampRange(unboundRelation.getScanParams())) :
-                            makeUniformedTimestampRangeMap(partIds,
-                                    parseTimestampRange(unboundRelation.getScanParams())));
+                            ? makeUniformedTimestampRangeMap(originTable.getPartitionIds(), timestampRange)
+                            : makeUniformedTimestampRangeMap(partIds, timestampRange));
         } else if (unboundRelation.getScanParams() != null) {
             unboundRelation.getScanParams().validateOlapTable();
         }
@@ -732,15 +735,28 @@ public class BindRelation extends OneAnalysisRuleFactory {
         // @incr reads a left-closed right-open range [startTso, endTso): BE applies GE/LT directly.
         // composePhysicalTimestamp maps a millisecond to its start (logical counter 0), so GE includes
         // the whole startMs and LT excludes the whole endMs. No +1 shift is needed here.
-        Long startTimestamp = OlapScanNode.parseChangeTimestamp(
-                params.getOrDefault(OlapScanNode.OLAP_START_TIMESTAMP, "0"));
-        startTimestamp = TSOTimestamp.composePhysicalTimestamp(startTimestamp);
+        // Keep an omitted start distinct from an explicit one until the TTL window is applied.
+        Long startTimestamp = params.containsKey(OlapScanNode.OLAP_START_TIMESTAMP)
+                ? TSOTimestamp.composePhysicalTimestamp(OlapScanNode.parseChangeTimestamp(
+                        params.get(OlapScanNode.OLAP_START_TIMESTAMP)))
+                : null;
         Long endTimestamp = null;
         if (params.containsKey((OlapScanNode.OLAP_END_TIMESTAMP))) {
             endTimestamp = OlapScanNode.parseChangeTimestamp(params.get(OlapScanNode.OLAP_END_TIMESTAMP));
             endTimestamp = TSOTimestamp.composePhysicalTimestamp(endTimestamp);
         }
         return Pair.of(startTimestamp, endTimestamp);
+    }
+
+    private Pair<Long, Long> applyRowBinlogTtl(Pair<Long, Long> range, OlapTable table,
+            StreamScanType scanType, boolean explicitStart, StatementContext statementContext) {
+        if (!table.hasRowBinlogTtl()) {
+            return Pair.of(range.first == null ? TSOTimestamp.composePhysicalTimestamp(0) : range.first, range.second);
+        }
+        long cutoffTso = TSOTimestamp.calculateCutoff(statementContext.getRowBinlogReferenceTso(),
+                table.getBinlogConfig().getTtlSeconds());
+        return Pair.of(BinlogUtils.effectiveStartTso(range.first, cutoffTso,
+                explicitStart && scanType == StreamScanType.MIN_DELTA), range.second);
     }
 
     /**

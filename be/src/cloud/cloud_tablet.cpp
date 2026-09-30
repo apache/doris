@@ -1572,7 +1572,7 @@ Status CloudTablet::sync_meta() {
             tablet_meta->time_series_compaction_empty_rowsets_threshold();
     auto new_time_series_compaction_level_threshold =
             tablet_meta->time_series_compaction_level_threshold();
-    auto new_disable_auto_compaction = tablet_meta->tablet_schema()->disable_auto_compaction();
+    auto new_disable_auto_compaction = tablet_meta->disable_auto_compaction();
     auto new_vertical_compaction_num_columns_per_group =
             tablet_meta->vertical_compaction_num_columns_per_group();
     auto new_binlog_config = tablet_meta->binlog_config();
@@ -1610,10 +1610,8 @@ Status CloudTablet::sync_meta() {
             _tablet_meta->set_time_series_compaction_level_threshold(
                     new_time_series_compaction_level_threshold);
         }
-        if (_tablet_meta->tablet_schema()->disable_auto_compaction() !=
-            new_disable_auto_compaction) {
-            _tablet_meta->mutable_tablet_schema()->set_disable_auto_compaction(
-                    new_disable_auto_compaction);
+        if (_tablet_meta->disable_auto_compaction() != new_disable_auto_compaction) {
+            _tablet_meta->set_disable_auto_compaction(new_disable_auto_compaction);
         }
         if (_tablet_meta->vertical_compaction_num_columns_per_group() !=
             new_vertical_compaction_num_columns_per_group) {
