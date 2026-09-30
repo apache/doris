@@ -89,7 +89,9 @@ import java.util.function.Supplier;
  * single-node topology, one frontend and exactly one REGISTERED backend —
  * heartbeat loss on a multi-BE deployment proves nothing about shared
  * local-file identity; and an idle round writes no journal record. Storage
- * options reach the wire but never a durable record.
+ * options reach the wire but never a durable record, while the per-dispatch
+ * invocation secret reaches both the wire and the journal but never any
+ * rendered form (events, toString, logs).
  */
 public class LanceIndexJobDispatcherTest {
     private static final long CATALOG_ID = 10L;
@@ -99,6 +101,7 @@ public class LanceIndexJobDispatcherTest {
     private static final long BE_EPOCH = 55L;
     private static final long REPLACED_BE_EPOCH = 77L;
     private static final long FAR_DEADLINE_MS = System.currentTimeMillis() + 3600_000L;
+    private static final String INVOCATION_SECRET = "a3f1c02d97b64e8fad0c31b9e75d2468";
     /** Fake markers that must never surface in any durable or logged form. */
     private static final String FAKE_ACCESS_KEY = "test-ak-marker-not-a-real-credential";
     private static final String FAKE_SECRET_KEY = "test-sk-marker-not-a-real-credential";
@@ -212,14 +215,16 @@ public class LanceIndexJobDispatcherTest {
         // the recorded epoch so the epoch sweep leaves it alone.
         admit(1L, "IdxDeadline", LOCATOR);
         Assertions.assertTrue(manager.markRunning(1L, 0L, BE1_ID, BE_EPOCH, "inv-1",
-                System.currentTimeMillis() - 1_000L));
+                INVOCATION_SECRET, System.currentTimeMillis() - 1_000L));
         // Job 2: RUNNING on a backend whose process epoch was replaced.
         admit(2L, "IdxEpoch", LOCATOR);
-        Assertions.assertTrue(manager.markRunning(2L, 0L, BE2_ID, BE_EPOCH, "inv-2", FAR_DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(2L, 0L, BE2_ID, BE_EPOCH, "inv-2",
+                INVOCATION_SECRET, FAR_DEADLINE_MS));
         Mockito.when(systemInfo.getBackend(BE2_ID)).thenReturn(backend(BE2_ID, REPLACED_BE_EPOCH));
         // Job 3: terminal with a refresh obligation.
         admit(3L, "IdxRefresh", LOCATOR);
-        Assertions.assertTrue(manager.markRunning(3L, 0L, BE1_ID, BE_EPOCH, "inv-3", FAR_DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(3L, 0L, BE1_ID, BE_EPOCH, "inv-3",
+                INVOCATION_SECRET, FAR_DEADLINE_MS));
         Assertions.assertTrue(manager.completeWithResult(3L, 1L, "inv-3", BE_EPOCH, okResult()));
         // Job 4: PENDING, dispatched this round.
         admit(4L, "IdxPending", LOCATOR);
@@ -291,6 +296,9 @@ public class LanceIndexJobDispatcherTest {
         Assertions.assertEquals(1L, request.getJobId());
         Assertions.assertEquals(1L, request.getDispatchRevision());
         Assertions.assertEquals(stored.getInvocationId(), request.getInvocationId());
+        // The dispatch secret travels with the identity and is the journaled one.
+        Assertions.assertTrue(request.isSetInvocationSecret());
+        Assertions.assertEquals(stored.getInvocationSecret(), request.getInvocationSecret());
         Assertions.assertEquals(BE_EPOCH, request.getBeProcessEpoch());
         Assertions.assertTrue(request.getDeadlineMs() > System.currentTimeMillis());
         Assertions.assertEquals(TLanceIndexMutationType.CREATE, request.getMutationType());
@@ -301,6 +309,46 @@ public class LanceIndexJobDispatcherTest {
         Assertions.assertEquals(7L, request.getAdmittedDatasetVersion());
         Assertions.assertFalse(request.isIfNotExists());
         Assertions.assertFalse(request.isIfExists());
+    }
+
+    @Test
+    public void invocationSecretIsFreshPerAttemptJournaledAndNeverRendered() throws Exception {
+        admit(1L, "IdxA", LOCATOR);
+
+        dispatcher.runAfterCatalogReady();
+
+        Assertions.assertEquals(1, dispatcher.sends.size());
+        String firstSecret = dispatcher.sends.get(0).getInvocationSecret();
+        // 128 bits hex-encoded: a 32-character token, independent of the UUID invocation
+        // id (a secret derivable from a shown value would authorize reports like the
+        // shown value does).
+        Assertions.assertEquals(32, firstSecret.length());
+        Assertions.assertNotEquals(manager.getJob(1L).getInvocationId(), firstSecret);
+        // The journal recorded exactly the secret the wire carries.
+        Assertions.assertEquals(firstSecret, manager.getJob(1L).getInvocationSecret());
+
+        // A second attempt mints an independent secret: job 2's first markRunning loses
+        // the compare-and-set (a fresh identity is built from scratch next round).
+        admit(2L, "IdxB", LOCATOR);
+        manager.rejectNextMarkRunning = true;
+        dispatcher.runAfterCatalogReady();
+        dispatcher.runAfterCatalogReady();
+
+        Assertions.assertEquals(2, dispatcher.sends.size());
+        String secondSecret = dispatcher.sends.get(1).getInvocationSecret();
+        Assertions.assertNotEquals(firstSecret, secondSecret);
+        Assertions.assertEquals(secondSecret, manager.getJob(2L).getInvocationSecret());
+
+        // Never rendered: the journal event stream and the record's toString form (the
+        // two shapes every log line of the manager reuses) carry no secret material.
+        for (String event : events) {
+            Assertions.assertFalse(event.contains(firstSecret), "an event leaked the first secret");
+            Assertions.assertFalse(event.contains(secondSecret), "an event leaked the second secret");
+        }
+        for (LanceIndexJob record : manager.editLog) {
+            Assertions.assertFalse(record.toString().contains(firstSecret), "toString leaked the first secret");
+            Assertions.assertFalse(record.toString().contains(secondSecret), "toString leaked the second secret");
+        }
     }
 
     @Test
@@ -410,10 +458,11 @@ public class LanceIndexJobDispatcherTest {
         // Job 1: expired RUNNING, the deadline sweep still converges it under pause.
         admit(1L, "IdxDeadline", LOCATOR);
         Assertions.assertTrue(manager.markRunning(1L, 0L, BE1_ID, BE_EPOCH, "inv-1",
-                System.currentTimeMillis() - 1_000L));
+                INVOCATION_SECRET, System.currentTimeMillis() - 1_000L));
         // Job 2: terminal with a refresh obligation, the refresh driver still runs.
         admit(2L, "IdxRefresh", LOCATOR);
-        Assertions.assertTrue(manager.markRunning(2L, 0L, BE1_ID, BE_EPOCH, "inv-2", FAR_DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(2L, 0L, BE1_ID, BE_EPOCH, "inv-2",
+                INVOCATION_SECRET, FAR_DEADLINE_MS));
         Assertions.assertTrue(manager.completeWithResult(2L, 1L, "inv-2", BE_EPOCH, okResult()));
         // Job 3: PENDING; pause must hold it back.
         admit(3L, "IdxPending", LOCATOR);
@@ -862,7 +911,8 @@ public class LanceIndexJobDispatcherTest {
                 });
         // The compute backend sits at the possible-live cap, the mix peer is idle.
         admit(1L, "IdxOccupied", LOCATOR);
-        Assertions.assertTrue(manager.markRunning(1L, 0L, BE2_ID, BE_EPOCH, "inv-1", FAR_DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(1L, 0L, BE2_ID, BE_EPOCH, "inv-1",
+                INVOCATION_SECRET, FAR_DEADLINE_MS));
         admit(2L, "IdxWaiting", LOCATOR);
 
         dispatcher.runAfterCatalogReady();
@@ -911,8 +961,10 @@ public class LanceIndexJobDispatcherTest {
         Config.lance_index_job_max_inflight_per_backend = 2;
         admit(1L, "IdxOccupied1", LOCATOR);
         admit(2L, "IdxOccupied2", LOCATOR);
-        Assertions.assertTrue(manager.markRunning(1L, 0L, BE1_ID, BE_EPOCH, "place-1", FAR_DEADLINE_MS));
-        Assertions.assertTrue(manager.markRunning(2L, 0L, BE1_ID, BE_EPOCH, "place-2", FAR_DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(1L, 0L, BE1_ID, BE_EPOCH, "place-1",
+                INVOCATION_SECRET, FAR_DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(2L, 0L, BE1_ID, BE_EPOCH, "place-2",
+                INVOCATION_SECRET, FAR_DEADLINE_MS));
         admit(3L, "IdxWaiting", LOCATOR);
         int journalBefore = manager.editLog.size();
 
@@ -940,14 +992,16 @@ public class LanceIndexJobDispatcherTest {
     public void unknownJobHoldingItsSlotStillOccupiesBackendCapacity() throws Exception {
         Config.lance_index_job_max_inflight_per_backend = 2;
         admit(1L, "IdxExpired", LOCATOR);
-        Assertions.assertTrue(manager.markRunning(1L, 0L, BE1_ID, BE_EPOCH, "inv-1", FAR_DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(1L, 0L, BE1_ID, BE_EPOCH, "inv-1",
+                INVOCATION_SECRET, FAR_DEADLINE_MS));
         // Deadline expiry converges the job UNKNOWN but never proves termination: its
         // possible-live slot stays held and must keep occupying backend capacity.
         Assertions.assertTrue(manager.completeWithResult(1L, 1L, "inv-1", BE_EPOCH,
                 new LanceIndexJobResult(LanceIndexJobResultCode.NO_TRUSTED_RESULT,
                         LanceIndexJobCompletionReason.NONE, "deadline expired", false)));
         admit(2L, "IdxCurrent", LOCATOR);
-        Assertions.assertTrue(manager.markRunning(2L, 0L, BE1_ID, BE_EPOCH, "inv-2", FAR_DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(2L, 0L, BE1_ID, BE_EPOCH, "inv-2",
+                INVOCATION_SECRET, FAR_DEADLINE_MS));
         admit(3L, "IdxWaiting", LOCATOR);
 
         dispatcher.runAfterCatalogReady();
@@ -963,7 +1017,8 @@ public class LanceIndexJobDispatcherTest {
     public void fullBackendIsSkippedForOneWithAFreeSlot() throws Exception {
         Config.lance_index_job_max_inflight_per_backend = 1;
         admit(1L, "IdxOccupied", LOCATOR);
-        Assertions.assertTrue(manager.markRunning(1L, 0L, BE1_ID, BE_EPOCH, "inv-1", FAR_DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(1L, 0L, BE1_ID, BE_EPOCH, "inv-1",
+                INVOCATION_SECRET, FAR_DEADLINE_MS));
         // The policy returns both backends with the full one first: the dispatcher must
         // scan past it instead of deferring the job for a whole round.
         Mockito.when(systemInfo.selectBackendIdsByPolicy(Mockito.any(BeSelectionPolicy.class), Mockito.eq(-1)))
@@ -1044,9 +1099,10 @@ public class LanceIndexJobDispatcherTest {
     public void deadlineSweepConvergesOnlyTheExpiredRunningJob() throws Exception {
         admit(1L, "IdxExpired", LOCATOR);
         Assertions.assertTrue(manager.markRunning(1L, 0L, BE1_ID, BE_EPOCH, "inv-1",
-                System.currentTimeMillis() - 1_000L));
+                INVOCATION_SECRET, System.currentTimeMillis() - 1_000L));
         admit(2L, "IdxCurrent", LOCATOR);
-        Assertions.assertTrue(manager.markRunning(2L, 0L, BE1_ID, BE_EPOCH, "inv-2", FAR_DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(2L, 0L, BE1_ID, BE_EPOCH, "inv-2",
+                INVOCATION_SECRET, FAR_DEADLINE_MS));
 
         dispatcher.runAfterCatalogReady();
 
@@ -1064,7 +1120,7 @@ public class LanceIndexJobDispatcherTest {
     public void callbackArrivingBeforeTheDeadlineSweepOnlyWarns() throws Exception {
         admit(1L, "IdxA", LOCATOR);
         Assertions.assertTrue(manager.markRunning(1L, 0L, BE1_ID, BE_EPOCH, "inv-1",
-                System.currentTimeMillis() - 1_000L));
+                INVOCATION_SECRET, System.currentTimeMillis() - 1_000L));
         LanceIndexJob staleSnapshot = manager.getJob(1L);
         // The matching callback converges the job first, and its refresh duty is
         // settled too, so the late sweep is the only remaining actor.
@@ -1091,7 +1147,8 @@ public class LanceIndexJobDispatcherTest {
     @Test
     public void epochSweepReleasesTheSlotOfAReplacedBackendProcess() throws Exception {
         admit(1L, "IdxA", LOCATOR);
-        Assertions.assertTrue(manager.markRunning(1L, 0L, BE2_ID, BE_EPOCH, "inv-1", FAR_DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(1L, 0L, BE2_ID, BE_EPOCH, "inv-1",
+                INVOCATION_SECRET, FAR_DEADLINE_MS));
         Mockito.when(systemInfo.getBackend(BE2_ID)).thenReturn(backend(BE2_ID, REPLACED_BE_EPOCH));
         LanceIndexFenceKey fenceKey = manager.getJob(1L).fenceKey();
 
@@ -1109,7 +1166,8 @@ public class LanceIndexJobDispatcherTest {
     @Test
     public void epochSweepReleasesTheSlotOfAnUnknownJobToo() throws Exception {
         admit(1L, "IdxA", LOCATOR);
-        Assertions.assertTrue(manager.markRunning(1L, 0L, BE2_ID, BE_EPOCH, "inv-1", FAR_DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(1L, 0L, BE2_ID, BE_EPOCH, "inv-1",
+                INVOCATION_SECRET, FAR_DEADLINE_MS));
         Assertions.assertTrue(manager.completeWithResult(1L, 1L, "inv-1", BE_EPOCH,
                 new LanceIndexJobResult(LanceIndexJobResultCode.NO_TRUSTED_RESULT,
                         LanceIndexJobCompletionReason.NONE, "ambiguous", false)));
@@ -1130,14 +1188,16 @@ public class LanceIndexJobDispatcherTest {
         // A backend entry that disappeared proves nothing: the worker may still run
         // behind a partition, so the slot stays until a stronger proof.
         admit(1L, "IdxGone", LOCATOR);
-        Assertions.assertTrue(manager.markRunning(1L, 0L, BE1_ID, BE_EPOCH, "inv-1", FAR_DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(1L, 0L, BE1_ID, BE_EPOCH, "inv-1",
+                INVOCATION_SECRET, FAR_DEADLINE_MS));
         Mockito.when(systemInfo.getBackend(BE1_ID)).thenReturn(null);
         dispatcher.runAfterCatalogReady();
         Assertions.assertTrue(manager.getJob(1L).holdsPossibleLiveSlot(), "backend entry must not release the slot");
 
         // Same epoch: the recorded process is still the one that received the dispatch.
         admit(2L, "IdxSameEpoch", LOCATOR);
-        Assertions.assertTrue(manager.markRunning(2L, 0L, BE2_ID, BE_EPOCH, "inv-2", FAR_DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(2L, 0L, BE2_ID, BE_EPOCH, "inv-2",
+                INVOCATION_SECRET, FAR_DEADLINE_MS));
         Mockito.when(systemInfo.getBackend(BE1_ID)).thenReturn(backend(BE1_ID, BE_EPOCH));
         dispatcher.runAfterCatalogReady();
         Assertions.assertTrue(manager.getJob(1L).holdsPossibleLiveSlot());
@@ -1361,14 +1421,14 @@ public class LanceIndexJobDispatcherTest {
 
         @Override
         public boolean markRunning(long jobId, long expectedRevision, long backendId, long beProcessEpoch,
-                String invocationId, long deadlineMs) {
+                String invocationId, String invocationSecret, long deadlineMs) {
             if (rejectNextMarkRunning) {
                 rejectNextMarkRunning = false;
                 events.add("markRunningRejected:" + jobId);
                 return false;
             }
             boolean marked = super.markRunning(jobId, expectedRevision, backendId, beProcessEpoch, invocationId,
-                    deadlineMs);
+                    invocationSecret, deadlineMs);
             if (marked && afterMarkRunning != null) {
                 // Simulates a heartbeat landing right after the durable record, before
                 // the dispatcher reads the backend again for the wire request.

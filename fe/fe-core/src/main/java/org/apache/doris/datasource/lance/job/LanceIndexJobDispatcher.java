@@ -38,10 +38,12 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 
+import org.apache.commons.codec.binary.Hex;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TApplicationException;
 
+import java.security.SecureRandom;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -66,7 +68,14 @@ import java.util.function.Supplier;
  * prepared first (so a preparation failure just leaves the job PENDING), then
  * the markRunning edit log is written and re-read before the first byte of
  * network I/O, and the invocation id of an attempt that lost the compare-and-set
- * is never reused. After a successful markRunning there is exactly one send;
+ * is never reused. Each attempt also mints a random invocation secret, whose
+ * role completes the dispatch identity rather than duplicating it: the
+ * epoch/invocation pair proves a report is fresh (it matches the current
+ * durable dispatch), while the secret proves its reporter is the BE this
+ * dispatcher actually selected - every other identity field is readable from
+ * SHOW LANCE INDEX JOB, and the FE thrift server cannot authenticate its
+ * caller, so only the never-shown secret can reject a forged report. After a
+ * successful markRunning there is exactly one send;
  * from that point a job converges only through a matching result callback, the
  * deadline sweep, or the epoch sweep, never through a resend. A failure that
  * still proves the dispatch was never enqueued (a clean pre-enqueue error
@@ -109,6 +118,16 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
      * wake runs a round, exactly one per configured period.
      */
     private static final long MAX_SLEEP_SLICE_MS = 10_000L;
+
+    /**
+     * Entropy of one dispatch secret: 16 bytes = 128 bits, well past guessability
+     * for a token whose only threat model is a caller forging a report from
+     * outside. Hex-encoded on the wire, so the token is 32 characters.
+     */
+    private static final int INVOCATION_SECRET_BYTES = 16;
+
+    /** Source of the per-dispatch report secret; shared, since SecureRandom is thread-safe. */
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final Supplier<LanceIndexJobManager> jobManagerSupplier;
 
@@ -543,6 +562,11 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             return false;
         }
         String invocationId = UUID.randomUUID().toString();
+        // Generated independently of the invocation id (never derived from it) and never
+        // logged: the invocation id travels in SHOW output, and a secret derivable from
+        // a shown value would authorize reports exactly like the shown value does. It is
+        // discarded together with the invocation id when the compare-and-set below loses.
+        String invocationSecret = newInvocationSecret();
         // The process epoch is captured once, and the same value goes to the
         // durable record and the wire: a heartbeat landing between the two reads
         // must not split the dispatch identity (the callback matches the durable
@@ -552,8 +576,8 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
         long expectedDispatchRevision = job.getRevision() + 1;
         TLanceIndexJobDispatch dispatch;
         try {
-            dispatch = buildDispatch(job, expectedDispatchRevision, invocationId, deadlineMs, beProcessEpoch,
-                    resolveStorageOptions(job));
+            dispatch = buildDispatch(job, expectedDispatchRevision, invocationId, invocationSecret, deadlineMs,
+                    beProcessEpoch, resolveStorageOptions(job));
         } catch (Exception e) {
             // Not a trusted worker rejection and not an ambiguity either: nothing was
             // marked and nothing was sent, so the job simply waits for the next round.
@@ -562,7 +586,7 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             return false;
         }
         if (!jobManager.markRunning(job.getJobId(), job.getRevision(), backend.getId(),
-                beProcessEpoch, invocationId, deadlineMs)) {
+                beProcessEpoch, invocationId, invocationSecret, deadlineMs)) {
             // The compare-and-set lost: this attempt's dispatch identity is void and its
             // invocation id is discarded. A fresh identity is built from scratch next round.
             return false;
@@ -691,19 +715,36 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
     }
 
     /**
+     * One fresh dispatch secret, from an independent {@link SecureRandom} source and
+     * hex-encoded: 128 bits of entropy, never derived from the UUID invocation id.
+     * The value is only ever written into the markRunning journal record and the
+     * dispatch request handed to the selected BE; no log line, SHOW column, or other
+     * rendering may carry it.
+     */
+    private static String newInvocationSecret() {
+        byte[] secret = new byte[INVOCATION_SECRET_BYTES];
+        SECURE_RANDOM.nextBytes(secret);
+        return Hex.encodeHexString(secret);
+    }
+
+    /**
      * Builds the wire request from the job record and the dispatch identity
      * that markRunning is about to make durable (the dispatch revision is the
      * pre-computed {@code job.revision + 1}; the pre-send recheck pins that the
-     * durable record landed with exactly this identity). Definition fields a
-     * DROP never carries travel as the empty string: the wire marks them
-     * required, and the worker only reads them for CREATE and REPLACE.
+     * durable record landed with exactly this identity). The invocation secret
+     * completes that identity on the wire: the selected BE is the only party
+     * that ever receives it, so its echo in the result report is what proves
+     * the reporter is the dispatched BE. Definition fields a DROP never carries
+     * travel as the empty string: the wire marks them required, and the worker
+     * only reads them for CREATE and REPLACE.
      */
     private TLanceIndexJobDispatch buildDispatch(LanceIndexJob job, long dispatchRevision, String invocationId,
-            long deadlineMs, long beProcessEpoch, Map<String, String> storageOptions) {
+            String invocationSecret, long deadlineMs, long beProcessEpoch, Map<String, String> storageOptions) {
         TLanceIndexJobDispatch dispatch = new TLanceIndexJobDispatch();
         dispatch.setJobId(job.getJobId());
         dispatch.setDispatchRevision(dispatchRevision);
         dispatch.setInvocationId(invocationId);
+        dispatch.setInvocationSecret(invocationSecret);
         dispatch.setBeProcessEpoch(beProcessEpoch);
         dispatch.setDeadlineMs(deadlineMs);
         dispatch.setMutationType(TLanceIndexMutationType.valueOf(job.getMutationType().name()));

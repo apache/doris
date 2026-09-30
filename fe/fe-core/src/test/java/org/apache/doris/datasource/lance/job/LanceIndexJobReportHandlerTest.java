@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.lance.job;
 
 import org.apache.doris.common.DdlException;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TLanceIndexCompletionReason;
 import org.apache.doris.thrift.TLanceIndexJobReport;
 import org.apache.doris.thrift.TLanceIndexJobResultCode;
@@ -32,8 +33,13 @@ import java.util.List;
 
 /**
  * Coverage for {@link LanceIndexJobReportHandler}, the thin shim applying one typed
- * result envelope to the durable job record. The pinned invariants: every wire result
- * code lands the classified (mutationState, refreshState, completionReason) triple of
+ * result envelope to the durable job record. The pinned invariants: authentication
+ * comes first and gates the whole envelope - a report that does not echo the durable
+ * record's per-dispatch invocation secret (missing, blank, wrong, or a legacy record
+ * with no secret at all) is dropped whole, its CHILD_REAPED proof included, because
+ * SHOW publishes every other identity field and the FE thrift server cannot
+ * authenticate its caller; every wire result code lands the classified
+ * (mutationState, refreshState, completionReason) triple of
  * the classification table; a stale report (wrong dispatch revision, invocation id, BE
  * process epoch, or an already-terminal job) only warns and changes nothing; a
  * CHILD_REAPED proof releases exactly the possible-live slot (never the outcome, never
@@ -49,6 +55,7 @@ public class LanceIndexJobReportHandlerTest {
     private static final long BACKEND_ID = 1001L;
     private static final long BE_EPOCH = 55L;
     private static final String INVOCATION_ID = "invocation-1";
+    private static final String INVOCATION_SECRET = "a3f1c02d97b64e8fad0c31b9e75d2468";
     private static final long NOT_EXPIRED_DEADLINE_MS = Long.MAX_VALUE;
 
     // ------------------------------------------------------------------
@@ -243,6 +250,89 @@ public class LanceIndexJobReportHandlerTest {
     }
 
     // ------------------------------------------------------------------
+    // forged reports (secret authentication)
+    // ------------------------------------------------------------------
+
+    @Test
+    public void wrongSecretDropsTheWholeEnvelopeIncludingTheProof() throws DdlException {
+        TestManager manager = runningManager(1L, "IdxForged", LanceIndexJobMutationType.CREATE, false);
+        LanceIndexJobReportHandler handler = new LanceIndexJobReportHandler(manager);
+        LanceIndexFenceKey fenceKey = manager.getJob(1L).fenceKey();
+
+        // Exactly the identity SHOW LANCE INDEX JOB publishes (job id, dispatch revision,
+        // invocation id, BE epoch), plus the two payloads a forger wants: NATIVE_OK to
+        // commit an unexecuted job and CHILD_REAPED to release its slot. Only the secret
+        // echo is wrong.
+        handler.handle(matchingReport(TLanceIndexJobResultCode.NATIVE_OK)
+                .setInvocationSecret("00000000000000000000000000000000")
+                .setTerminationProof(TLanceIndexTerminationProof.CHILD_REAPED));
+
+        // Nothing landed at all: no result, no proof, no journal record, slot held.
+        LanceIndexJob stored = manager.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, stored.getMutationState());
+        Assertions.assertNull(stored.getResult());
+        Assertions.assertEquals(LanceIndexTerminationProof.NONE, stored.getTerminationProof());
+        Assertions.assertTrue(stored.holdsPossibleLiveSlot());
+        Assertions.assertTrue(manager.editLog.isEmpty());
+        Assertions.assertTrue(manager.isFenceHeld(fenceKey));
+        Assertions.assertEquals(1L, manager.getQuota().getGlobalCount());
+
+        // The genuine BE report still completes the job afterwards.
+        handler.handle(matchingReport(TLanceIndexJobResultCode.NATIVE_OK));
+        Assertions.assertEquals(LanceIndexJobMutationState.COMMITTED, manager.getJob(1L).getMutationState());
+    }
+
+    @Test
+    public void missingOrBlankSecretEchoIsUnauthenticated() throws DdlException {
+        TestManager manager = runningManager(1L, "IdxNoEcho", LanceIndexJobMutationType.CREATE, false);
+        LanceIndexJobReportHandler handler = new LanceIndexJobReportHandler(manager);
+
+        TLanceIndexJobReport withoutEcho = matchingReport(TLanceIndexJobResultCode.NATIVE_OK)
+                .setTerminationProof(TLanceIndexTerminationProof.CHILD_REAPED);
+        withoutEcho.unsetInvocationSecret();
+        handler.handle(withoutEcho);
+
+        handler.handle(matchingReport(TLanceIndexJobResultCode.NATIVE_OK)
+                .setInvocationSecret("   ")
+                .setTerminationProof(TLanceIndexTerminationProof.CHILD_REAPED));
+
+        assertManagerUnchangedByDroppedEnvelope(manager);
+    }
+
+    @Test
+    public void legacyRecordWithoutASecretFailsClosed() throws DdlException {
+        // A durable RUNNING record journaled before the secret existed: replayed here
+        // from its JSON form, so its invocationSecret is null. Even a report carrying
+        // every other identity field is unauthenticated against it, and an old-BE
+        // report (no secret echo either) must not complete or reap the job either.
+        TestManager manager = new TestManager();
+        String legacy = "{\"jid\":1,\"cr\":\"tester\",\"rev\":1,\"cid\":10,\"dbn\":\"db1\",\"tbn\":\"tbl1\","
+                + "\"prv\":\"" + LanceIndexFenceKey.PROVIDER_DIRECTORY + "\",\"loc\":\"" + LOCATOR
+                + "\",\"din\":\"IdxLegacy\",\"nin\":\"idxlegacy\",\"mt\":\"CREATE\",\"ms\":\"RUNNING\","
+                + "\"rs\":\"NOT_REQUIRED\",\"bid\":1001,\"bpe\":55,\"drv\":1,\"iid\":\"" + INVOCATION_ID
+                + "\",\"dlm\":" + Long.MAX_VALUE + ",\"plo\":true}";
+        manager.replayUpsertJob(GsonUtils.GSON.fromJson(legacy, LanceIndexJob.class));
+        Assertions.assertNull(manager.getJob(1L).getInvocationSecret());
+        LanceIndexJobReportHandler handler = new LanceIndexJobReportHandler(manager);
+
+        // A new-BE echo (some secret value) against the legacy record...
+        handler.handle(matchingReport(TLanceIndexJobResultCode.NATIVE_OK)
+                .setTerminationProof(TLanceIndexTerminationProof.CHILD_REAPED));
+        // ...and a legacy-BE report with no echo at all.
+        TLanceIndexJobReport legacyReport = matchingReport(TLanceIndexJobResultCode.NATIVE_OK)
+                .setTerminationProof(TLanceIndexTerminationProof.CHILD_REAPED);
+        legacyReport.unsetInvocationSecret();
+        handler.handle(legacyReport);
+
+        LanceIndexJob stored = manager.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, stored.getMutationState());
+        Assertions.assertNull(stored.getResult());
+        Assertions.assertEquals(LanceIndexTerminationProof.NONE, stored.getTerminationProof());
+        Assertions.assertTrue(stored.holdsPossibleLiveSlot());
+        Assertions.assertTrue(manager.editLog.isEmpty());
+    }
+
+    // ------------------------------------------------------------------
     // CHILD_REAPED termination proof
     // ------------------------------------------------------------------
 
@@ -431,6 +521,7 @@ public class LanceIndexJobReportHandlerTest {
                 .setJobId(1L)
                 .setDispatchRevision(1L)
                 .setInvocationId(INVOCATION_ID)
+                .setInvocationSecret(INVOCATION_SECRET)
                 .setBeProcessEpoch(BE_EPOCH)
                 .setResultCode(resultCode);
     }
@@ -459,7 +550,7 @@ public class LanceIndexJobReportHandlerTest {
         TestManager manager = new TestManager();
         manager.createJob(newJob(jobId, displayName, type, ifExists), 100, 100, 100);
         Assertions.assertTrue(manager.markRunning(jobId, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
-                NOT_EXPIRED_DEADLINE_MS));
+                INVOCATION_SECRET, NOT_EXPIRED_DEADLINE_MS));
         manager.editLog.clear();
         return manager;
     }

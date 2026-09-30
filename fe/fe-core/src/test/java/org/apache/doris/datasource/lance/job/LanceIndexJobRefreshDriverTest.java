@@ -75,6 +75,7 @@ public class LanceIndexJobRefreshDriverTest {
     private static final long BACKEND_ID = 1001L;
     private static final long BE_EPOCH = 55L;
     private static final long FAR_DEADLINE_MS = System.currentTimeMillis() + 3600_000L;
+    private static final String INVOCATION_SECRET = "a3f1c02d97b64e8fad0c31b9e75d2468";
 
     private final List<String> events = new ArrayList<>();
     private MockedStatic<Env> mockedEnv;
@@ -531,7 +532,7 @@ public class LanceIndexJobRefreshDriverTest {
         // is terminal with a refresh stuck at RUNNING.
         TestManager source = new TestManager(new ArrayList<>());
         source.createJob(newCreateJob(1L, "IdxA"), 100, 100, 100);
-        source.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, "inv-1", FAR_DEADLINE_MS);
+        source.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, "inv-1", INVOCATION_SECRET, FAR_DEADLINE_MS);
         source.completeWithResult(1L, 1L, "inv-1", BE_EPOCH, okResult());
         source.markRefreshRunning(1L, 2L);
         Assertions.assertEquals(LanceIndexJobRefreshState.RUNNING, source.getJob(1L).getRefreshState());
@@ -581,7 +582,7 @@ public class LanceIndexJobRefreshDriverTest {
     private void admitTerminalCommitted(long jobId, String displayName) throws Exception {
         admit(jobId, displayName);
         Assertions.assertTrue(manager.markRunning(jobId, 0L, BACKEND_ID, BE_EPOCH, "inv-" + jobId,
-                FAR_DEADLINE_MS));
+                INVOCATION_SECRET, FAR_DEADLINE_MS));
         Assertions.assertTrue(manager.completeWithResult(jobId, 1L, "inv-" + jobId, BE_EPOCH, okResult()));
         Assertions.assertEquals(LanceIndexJobRefreshState.REQUIRED, manager.getJob(jobId).getRefreshState());
     }

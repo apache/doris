@@ -40,7 +40,8 @@ import org.mockito.Mockito;
  * {@link FrontendServiceImpl#reportLanceIndexJobResult(TLanceIndexJobReport)}: the layer
  * must stay thin. Only the master accepts a report (a non-master answers NOT_MASTER and
  * never touches the job manager), and on the master the envelope is handed to the report
- * handler verbatim: the identity quad and every typed field of the classified result must
+ * handler verbatim once its invocation-secret echo authenticates against the durable
+ * record: the identity quad and every typed field of the classified result must
  * reach {@link LanceIndexJobManager#completeWithResult} unchanged, and a CHILD_REAPED
  * proof must reach {@link LanceIndexJobManager#recordTerminationProof} with the durable
  * backend id as its source.
@@ -51,6 +52,7 @@ public class LanceIndexReportFrontendServiceTest {
     private static final long BACKEND_ID = 1001L;
     private static final long BE_EPOCH = 55L;
     private static final String INVOCATION_ID = "invocation-1";
+    private static final String INVOCATION_SECRET = "a3f1c02d97b64e8fad0c31b9e75d2468";
 
     @Test
     public void nonMasterRejectsTheReportWithoutTouchingTheJobManager() throws Exception {
@@ -74,6 +76,10 @@ public class LanceIndexReportFrontendServiceTest {
         Mockito.when(env.isMaster()).thenReturn(true);
         LanceIndexJobManager manager = Mockito.mock(LanceIndexJobManager.class);
         Mockito.when(env.getLanceIndexJobManager()).thenReturn(manager);
+        // Built before the stubbing: constructing and stubbing the job mock inside
+        // when(...) triggers Mockito's unfinished-stubbing detection.
+        LanceIndexJob dispatched = dispatchedJob();
+        Mockito.when(manager.getJob(JOB_ID)).thenReturn(dispatched);
         FrontendServiceImpl service = new FrontendServiceImpl(Mockito.mock(ExecuteEnv.class));
 
         try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
@@ -100,8 +106,8 @@ public class LanceIndexReportFrontendServiceTest {
         Mockito.when(env.isMaster()).thenReturn(true);
         LanceIndexJobManager manager = Mockito.mock(LanceIndexJobManager.class);
         Mockito.when(env.getLanceIndexJobManager()).thenReturn(manager);
-        LanceIndexJob dispatched = Mockito.mock(LanceIndexJob.class);
-        Mockito.when(dispatched.getBackendId()).thenReturn(BACKEND_ID);
+        // Built before the stubbing, for the same unfinished-stubbing reason.
+        LanceIndexJob dispatched = dispatchedJob();
         Mockito.when(manager.getJob(JOB_ID)).thenReturn(dispatched);
         FrontendServiceImpl service = new FrontendServiceImpl(Mockito.mock(ExecuteEnv.class));
 
@@ -119,11 +125,24 @@ public class LanceIndexReportFrontendServiceTest {
                 Mockito.eq(LanceIndexTerminationProof.CHILD_REAPED));
     }
 
+    /**
+     * The durable record the authentication gate reads: a dispatched RUNNING job
+     * whose journaled secret the report echoes. A top-level class, so stubbing its
+     * getters on a Mockito mock is safe.
+     */
+    private static LanceIndexJob dispatchedJob() {
+        LanceIndexJob job = Mockito.mock(LanceIndexJob.class);
+        Mockito.when(job.getInvocationSecret()).thenReturn(INVOCATION_SECRET);
+        Mockito.when(job.getBackendId()).thenReturn(BACKEND_ID);
+        return job;
+    }
+
     private static TLanceIndexJobReport matchingReport() {
         return new TLanceIndexJobReport()
                 .setJobId(JOB_ID)
                 .setDispatchRevision(DISPATCH_REVISION)
                 .setInvocationId(INVOCATION_ID)
+                .setInvocationSecret(INVOCATION_SECRET)
                 .setBeProcessEpoch(BE_EPOCH)
                 .setResultCode(TLanceIndexJobResultCode.NATIVE_OK);
     }

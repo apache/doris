@@ -49,6 +49,7 @@ public class LanceIndexJobManagerQueryTest {
     private static final long BACKEND_ID = 1001L;
     private static final long BE_EPOCH = 55L;
     private static final String INVOCATION_ID = "invocation-1";
+    private static final String INVOCATION_SECRET = "a3f1c02d97b64e8fad0c31b9e75d2468";
     private static final long DEADLINE_MS = 9999L;
 
     @Test
@@ -102,7 +103,8 @@ public class LanceIndexJobManagerQueryTest {
     public void releasedTerminalJobDoesNotCountAsUnresolved() throws Exception {
         TestManager manager = new TestManager();
         manager.createJob(newCreateJob(1L, "IdxA", CATALOG_ID), 100, 100, 100);
-        Assertions.assertTrue(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                INVOCATION_SECRET, DEADLINE_MS));
         Assertions.assertTrue(manager.completeWithResult(1L, 1L, INVOCATION_ID, BE_EPOCH,
                 new LanceIndexJobResult(LanceIndexJobResultCode.NATIVE_OK,
                         LanceIndexJobCompletionReason.NONE, "ok", false)));
@@ -300,7 +302,8 @@ public class LanceIndexJobManagerQueryTest {
         TestManager manager = new TestManager();
         // A terminal job owing its first refresh is the driver's input.
         manager.createJob(newCreateJob(1L, "IdxOwed", CATALOG_ID), 100, 100, 100);
-        Assertions.assertTrue(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                INVOCATION_SECRET, DEADLINE_MS));
         Assertions.assertTrue(manager.completeWithResult(1L, 1L, INVOCATION_ID, BE_EPOCH,
                 new LanceIndexJobResult(LanceIndexJobResultCode.NATIVE_OK,
                         LanceIndexJobCompletionReason.NONE, "ok", false)));

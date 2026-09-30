@@ -1148,11 +1148,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     /**
-     * Typed result envelope of one Lance index mutation invocation. Stale or
-     * identity-mismatched reports are logged and dropped; a complete matched
-     * report is classified into the durable job state. This layer stays thin:
-     * only the master accepts reports, and everything beyond identity checking
-     * and classification lives in the report handler.
+     * Typed result envelope of one Lance index mutation invocation. Stale,
+     * identity-mismatched, or unauthenticated reports are logged and dropped; a
+     * complete matched report is classified into the durable job state. This
+     * layer stays thin: only the master accepts reports, and everything beyond
+     * identity checking and classification lives in the report handler.
      */
     @Override
     public TStatus reportLanceIndexJobResult(TLanceIndexJobReport report) throws TException {
