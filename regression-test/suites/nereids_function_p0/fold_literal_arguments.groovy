@@ -147,6 +147,20 @@ suite("fold_literal_arguments") {
         exception "must be a string constant"
     }
 
+    // a constant of another type is rejected before the type coercion casts it, like the literal
+    test {
+        sql "select sha2('abc', 255.5 + 0.5)"
+        exception "the second parameter of sha2 must be an integer"
+    }
+    test {
+        sql "select sha2('abc', 256.0 + crc32(''))"
+        exception "the second parameter of sha2 must be an integer"
+    }
+    test {
+        sql "select split_by_regexp('a,b,c', ',', 2.0 + crc32(''))"
+        exception "must be a positive constant"
+    }
+
     // a constant expression FE cannot fold is evaluated by BE (crc32 and lpad have no FE executor, crc32('') is 0)
     qt_sha2_be "select sha2('abc', 256 + crc32(''))"
     qt_split_by_regexp_be "select split_by_regexp('a,b,c', ',', 2 + crc32(''))"

@@ -50,8 +50,11 @@ public abstract class AIFunction extends ScalarFunction
 
     @Override
     public void checkLegalityAfterRewrite() {
+        // The rewrite has folded a constant resource name, unless constant folding is skipped
+        // (debug_skip_fold_constant). The name FE can evaluate is resolved like the literal, and BE reads the name
+        // it evaluates from the first row.
         if (arity() == getMaxArgsNum()) {
-            checkResource(getArgument(0));
+            checkResource(ExpressionUtils.foldConstantArgument(getArgument(0)));
         }
     }
 

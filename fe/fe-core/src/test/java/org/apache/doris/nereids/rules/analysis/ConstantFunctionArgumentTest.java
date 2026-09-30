@@ -17,10 +17,13 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Resource;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AIAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapExprCalculate;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapExprCalculateCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceCount;
@@ -28,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceMatch;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopN;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopNArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopNWeighted;
+import org.apache.doris.nereids.trees.expressions.functions.ai.AISummarize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayApply;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
@@ -45,12 +49,15 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateResourceInfo;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -230,6 +237,13 @@ public class ConstantFunctionArgumentTest {
         // a literal of another type is still rejected, instead of being cast and left to BE
         assertAnalysisError("select sha2('abc', 'abc')", "the second parameter of sha2 must be an integer");
         assertAnalysisError("select split_by_regexp('a,b,c', ',', 1.5)", "must be a positive constant");
+        // so is a constant of another type, whether FE folds it or leaves it to BE, before the type coercion
+        // casts it to the INT signature
+        assertAnalysisError("select sha2('abc', 255.5 + 0.5)", "the second parameter of sha2 must be an integer");
+        assertAnalysisError("select sha2('abc', 256.0 + crc32(''))",
+                "the second parameter of sha2 must be an integer");
+        assertAnalysisError("select split_by_regexp('a,b,c', ',', 1.5 + 0.5)", "must be a positive constant");
+        assertAnalysisError("select split_by_regexp('a,b,c', ',', 2.0 + crc32(''))", "must be a positive constant");
         assertAnalysisError("select tokenize('x', 5)", "tokenize second argument must be string literal");
         assertAnalysisError("select array_apply([1, 2, 3], 1, 2)", "op support const value only");
         assertAnalysisError("select sequence_match(1, dt, k = 1) from (select 1 k, now() dt) t",
@@ -312,6 +326,39 @@ public class ConstantFunctionArgumentTest {
                 "AI_AGG must accept literal for the resource name");
     }
 
+    @Test
+    public void testAiFunctionResolvesTheResourceNameItEvaluates() throws Exception {
+        CreateResourceCommand command = new CreateResourceCommand(new CreateResourceInfo(true, false,
+                "constant_argument_ai_resource", ImmutableMap.of("type", "ai",
+                "ai.endpoint", "https://ai.example.com/v1/chat/completions", "ai.provider_type", "openai",
+                "ai.api_key", "key", "ai.model_name", "model", "ai.validity_check", "false")));
+        command.getInfo().analyzeResourceType();
+        Env.getCurrentEnv().getResourceMgr().createResource(Resource.fromCommand(command), true);
+        String resourceName = "concat('constant_argument_', 'ai_resource')";
+        String table = " from (select 1 k, 'a' s) t";
+
+        // without constant folding, the check after the rewrite evaluates the resource name and the task itself,
+        // and BE reads the values it evaluates from the first row
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().debugSkipFoldConstant = true;
+        String aiAggSql = "select ai_agg(" + resourceName + ", s, concat('ta', 'sk'))" + table;
+        AIAgg aiAgg = findFunction(aiAggSql, PlanChecker.from(connectContext).analyze(aiAggSql).rewrite().getPlan(),
+                AIAgg.class);
+        assertNotLiteral(aiAgg.child(0));
+        assertNotLiteral(aiAgg.child(2));
+        String aiSummarizeSql = "select ai_summarize(" + resourceName + ", s)" + table;
+        assertNotLiteral(findFunction(aiSummarizeSql,
+                PlanChecker.from(connectContext).analyze(aiSummarizeSql).rewrite().getPlan(), AISummarize.class)
+                .child(0));
+        assertRewriteError(connectContext, "select ai_agg(concat('no_such_', 'resource'), s, concat('ta', 'sk'))"
+                + table, "AI resource 'no_such_resource' does not exist");
+        // FE resolves the resource, so it must still know the resource name, and the task must still fold on FE
+        assertRewriteError(connectContext, "select ai_agg(lpad('resource', 9, 'x'), s, 'task')" + table,
+                "AI_AGG must accept literal for the resource name");
+        assertRewriteError(connectContext, "select ai_agg(" + resourceName + ", s, lpad('task', 5, 'x'))" + table,
+                "AI_AGG must accept literal for the task");
+    }
+
     /** the analysis keeps the argument as written, and the rewrite folds it to a literal */
     private static <T extends BoundFunction> void assertFoldedByRewrite(String sql, Class<T> functionClass,
             int argumentIndex) {
@@ -350,7 +397,11 @@ public class ConstantFunctionArgumentTest {
     }
 
     private static void assertRewriteError(String sql, String message) {
-        PlanChecker analyzed = PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql);
+        assertRewriteError(MemoTestUtils.createConnectContext(), sql, message);
+    }
+
+    private static void assertRewriteError(ConnectContext connectContext, String sql, String message) {
+        PlanChecker analyzed = PlanChecker.from(connectContext).analyze(sql);
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class, analyzed::rewrite, sql);
         Assertions.assertTrue(exception.getMessage().contains(message), exception.getMessage());
     }
