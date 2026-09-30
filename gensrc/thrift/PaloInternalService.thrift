@@ -510,6 +510,9 @@ struct TQueryOptions {
 
   // Fall back to RE2 when Hyperscan cannot compile a regular expression.
   228: optional bool enable_hyperscan_fallback = true;
+  // Use paimon-rust to read Paimon splits on BE. Higher priority than
+  // enable_paimon_cpp_reader.
+  229: optional bool enable_paimon_rust_reader = false;
 
   // Master uses 226 for this option; branch-4.2 already uses 226-228, so the id was moved.
   229: optional bool enable_prune_nested_column = false;

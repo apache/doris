@@ -117,6 +117,8 @@ public class Profile {
     // 1. profile is stored to storage
     // 2. or profile is loaded from storage
     private String profileStoragePath = "";
+    private volatile String storageProfileCompletionState;
+    private volatile boolean executionProfilesReleased;
     // isQueryFinished means the coordinator or stmt executor is finished.
     // does not mean the profile report has finished, since the report is async.
     // finish of collection of profile is marked by isCompleted of ExecutionProfiles.
@@ -346,6 +348,7 @@ public class Profile {
             LOG.info("DebugPoint:Profile.profileSizeLimit, MAX_PROFILE_SIZE = {}", maxProfileSize);
         }
         // add summary to builder
+        updateProfileCompletionStateForDisplay();
         summaryProfile.prettyPrint(builder);
         if (!builder.isTruncated()) {
             getChangedSessionVars(builder);
@@ -557,6 +560,9 @@ public class Profile {
     }
 
     public void releaseMemory() {
+        // The manager also releases reports after a failed spill. An empty list then means
+        // lost reports, not successful collection; retain that distinction across retries.
+        executionProfilesReleased = true;
         this.executionProfiles.clear();
         this.changedSessionVarCache = "";
         this.physicalPlan = null;
@@ -619,6 +625,66 @@ public class Profile {
         return !Strings.isNullOrEmpty(profileStoragePath);
     }
 
+    // Query completion precedes asynchronous BE reports; persisted profiles must retain
+    // their terminal state even after the in-memory reports have been released.
+    public String getProfileCompletionState() {
+        String storageState = storageProfileCompletionState;
+        if (storageState != null) {
+            return storageState;
+        }
+        if (profileHasBeenStored()) {
+            String storedState = summaryProfile.getSummary().getInfoString(SummaryProfile.PROFILE_COMPLETION_STATE);
+            if (!Strings.isNullOrEmpty(storedState)) {
+                return storedState;
+            }
+            return SummaryProfile.PROFILE_COMPLETION_STATE_UNKNOWN;
+        }
+
+        if (executionProfilesReleased) {
+            return SummaryProfile.PROFILE_COMPLETION_STATE_INCOMPLETE;
+        }
+
+        if (!isQueryFinished) {
+            return SummaryProfile.PROFILE_COMPLETION_STATE_RUNNING;
+        }
+
+        for (int i = 0; i < executionProfiles.size(); i++) {
+            ExecutionProfile executionProfile = executionProfiles.get(i);
+            if (!executionProfile.isCompleted()) {
+                return SummaryProfile.PROFILE_COMPLETION_STATE_COLLECTING;
+            }
+        }
+        return SummaryProfile.PROFILE_COMPLETION_STATE_COMPLETE;
+    }
+
+    private String getProfileCompletionStateForStorage() {
+        if (executionProfilesReleased) {
+            return SummaryProfile.PROFILE_COMPLETION_STATE_INCOMPLETE;
+        }
+        if (!isQueryFinished) {
+            return SummaryProfile.PROFILE_COMPLETION_STATE_RUNNING;
+        }
+
+        for (int i = 0; i < executionProfiles.size(); i++) {
+            ExecutionProfile executionProfile = executionProfiles.get(i);
+            if (!executionProfile.isCompleted()) {
+                return SummaryProfile.PROFILE_COMPLETION_STATE_INCOMPLETE;
+            }
+        }
+        return SummaryProfile.PROFILE_COMPLETION_STATE_COMPLETE;
+    }
+
+    private synchronized void updateProfileCompletionStateForStorage() {
+        // Freeze the terminal state before serialization. Concurrent rendering must not
+        // replace INCOMPLETE with COLLECTING while the storage path is still unpublished.
+        storageProfileCompletionState = getProfileCompletionStateForStorage();
+        summaryProfile.setProfileCompletionState(storageProfileCompletionState);
+    }
+
+    private synchronized void updateProfileCompletionStateForDisplay() {
+        summaryProfile.setProfileCompletionState(getProfileCompletionState());
+    }
+
     // Profile IO threads races with Coordinator threads.
     public void markQueryFinished() {
         try {
@@ -668,6 +734,7 @@ public class Profile {
             DataOutputStream memoryDataStream = new DataOutputStream(memoryStream);
 
             // Write summary profile and execution profile content to memory
+            updateProfileCompletionStateForStorage();
             this.summaryProfile.write(memoryDataStream);
 
             SafeStringBuilder builder = new SafeStringBuilder();
@@ -688,6 +755,7 @@ public class Profile {
             this.profileStoragePath = profileFilePath;
 
         } catch (Exception e) {
+            storageProfileCompletionState = null;
             LOG.error("write {} summary profile failed", getId(), e);
             return;
         } finally {
