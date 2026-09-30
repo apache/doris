@@ -114,6 +114,18 @@ protected:
         return request;
     }
 
+    Status retry_on_rpc_thread(const PTabletWriterAddBlockRequest& request,
+                               PTabletWriterAddBlockResult* response,
+                               std::shared_ptr<EosCompletion>* completion) {
+        // Arrival callbacks run inside the final closer's attached load task.
+        // A real retry runs on another RPC worker: calling add_batch inline
+        // would illegally nest SCOPED_ATTACH_TASK on the callback thread.
+        Status status;
+        std::thread rpc([&] { status = _load->add_batch(request, response, completion); });
+        rpc.join();
+        return status;
+    }
+
     void check_final_sender_retry(bool with_block, bool close_fails) {
         auto channel = make_channel(2);
         auto request = with_block ? eos_with_block(1) : eos(1);
@@ -436,7 +448,7 @@ TEST_P(LoadChannelEosTest, FinalRpcKeepsItsResponseUntilCloseReturns) {
     EXPECT_EQ(replies, 2);
 }
 
-TEST_P(LoadChannelEosTest, ArrivalCallbacksCanReenterCloseAndCancel) {
+TEST_P(LoadChannelEosTest, ArrivalCallbacksAllowConcurrentRetryAndCancel) {
     auto channel = make_channel(2);
     PTabletWriterAddBlockResult response;
     std::shared_ptr<EosCompletion> first;
@@ -446,11 +458,13 @@ TEST_P(LoadChannelEosTest, ArrivalCallbacksCanReenterCloseAndCancel) {
         EXPECT_TRUE(status.ok());
         EXPECT_FALSE(_load->is_finished());
         ++replies;
-        // Re-enter both load/channel locks and register an inline waiter. The
-        // final closer must already be elected, but must not hold either lock.
+        // The independent RPC worker must acquire the load/channel locks and
+        // finish while this callback is running. Joining it also checks that
+        // the final closer invokes callbacks without holding either lock.
         PTabletWriterAddBlockResult duplicate_response;
         std::shared_ptr<EosCompletion> duplicate;
-        EXPECT_TRUE(_load->add_batch(eos(0), &duplicate_response, &duplicate).ok());
+        EXPECT_TRUE(retry_on_rpc_thread(eos(0), &duplicate_response, &duplicate).ok());
+        ASSERT_NE(duplicate, nullptr);
         EXPECT_EQ(channel->_num_remaining_senders, 0);
         duplicate->add_waiter([&](const Status& duplicate_status) {
             EXPECT_TRUE(duplicate_status.ok());
@@ -506,7 +520,7 @@ TEST_P(LoadChannelEosTest, EarlierSenderBlockRetryDoesNotWriteDuringArrivalCallb
         EXPECT_TRUE(status.ok());
         PTabletWriterAddBlockResult retry_response;
         std::shared_ptr<EosCompletion> retry;
-        auto retry_status = _load->add_batch(request, &retry_response, &retry);
+        auto retry_status = retry_on_rpc_thread(request, &retry_response, &retry);
         EXPECT_TRUE(retry_status.ok()) << retry_status;
         EXPECT_EQ(retry_response.tablet_errors_size(), 0);
         EXPECT_EQ(channel->_next_seqs[0], 8);
