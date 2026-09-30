@@ -15,11 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// PR3E regression scope: the 3D dispatcher is not delivered yet, so a cluster cannot
-// produce a genuine UNKNOWN job and every case in this suite is negative or static.
-// Deliberately NOT covered here (all wait for 3D / slice 4): FORCE_RELEASE happy
-// path e2e, same-name re-admission after FORCE e2e, quota reclaim after FORCE e2e,
-// and expiry GC of resolved jobs e2e.
+// PR3E regression scope: the backend worker is not delivered yet, so a cluster
+// cannot produce a genuine UNKNOWN job and every case in this suite is negative or
+// static. The dispatcher's dispatch phase is paused while the PENDING-state
+// assertions run (the not-implemented stub would otherwise converge the job
+// mid-suite), and unpaused afterwards so the run leaves no unresolved fence behind.
+// Deliberately NOT covered here (all wait for the worker slice): FORCE_RELEASE
+// happy path e2e, same-name re-admission after FORCE e2e, quota reclaim after
+// FORCE e2e, and expiry GC of resolved jobs e2e.
 
 suite("test_lance_index_resolve", "p0,external,nonConcurrent") {
     // The Lance fixture is preinstalled in the MinIO container of the Iceberg
@@ -32,9 +35,9 @@ suite("test_lance_index_resolve", "p0,external,nonConcurrent") {
 
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
-    // Admitted jobs are durable and stay PENDING forever in this delivery slice:
-    // dispatch, the FORCE happy path and job GC only land in later slices, so their
-    // fences and quota charges can never be released here. Every index name (and the
+    // Admitted jobs are durable; this suite converges its one admitted job at the
+    // end (unpause -> not-implemented NOT_COMMITTED) so its fence and quota do not
+    // outlive the run. Every index name (and the
     // filesystem catalog itself, because fence/quota keys include the persisted
     // catalog id) carries this per-run suffix so that rerunning the suite on a
     // shared pipeline cluster can never collide with a previous run's leftovers.
@@ -59,12 +62,16 @@ suite("test_lance_index_resolve", "p0,external,nonConcurrent") {
     def gateRows = master_sql """ADMIN SHOW FRONTEND CONFIG LIKE 'experimental_enable_lance_index_mutation'"""
     def keepRows = master_sql """ADMIN SHOW FRONTEND CONFIG LIKE 'lance_index_job_keep_max_second'"""
     def cleanRows = master_sql """ADMIN SHOW FRONTEND CONFIG LIKE 'lance_index_job_clean_interval_second'"""
+    def pausedRows = master_sql """ADMIN SHOW FRONTEND CONFIG LIKE 'lance_index_job_dispatcher_paused'"""
     assertEquals(1, gateRows.size())
     assertEquals(1, keepRows.size())
     assertEquals(1, cleanRows.size())
+    assertEquals(1, pausedRows.size())
     String originalGate = gateRows[0][1].toString()
     String originalKeep = keepRows[0][1].toString()
     String originalClean = cleanRows[0][1].toString()
+    String originalPaused = pausedRows[0][1].toString()
+    assertEquals("false", originalPaused)
     // The retention configs ship with these documented defaults; asserting them here
     // fails loudly if a shared cluster has drifted instead of silently restoring a
     // non-default value afterwards.
@@ -147,8 +154,15 @@ suite("test_lance_index_resolve", "p0,external,nonConcurrent") {
             )
         """
 
+        // Pause the dispatch phase before the admission: the switch is checked at the
+        // phase entry and before every job attempt, so setting it before the CREATE is
+        // a hard barrier (see test_lance_index_dispatch.groovy). The admitted job then
+        // stays PENDING deterministically for the assertions below instead of racing
+        // the daemon round into a not-implemented NOT_COMMITTED convergence.
+        master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_dispatcher_paused" = "true")"""
+
         // CREATE INDEX is admitted and returns a single-column JobId result set with
-        // one row; the job stays PENDING because no dispatcher exists in this slice.
+        // one row; the job stays PENDING because dispatch is paused above.
         def createRows = sql """CREATE INDEX `${resolveIndexName}` ON `${filesystemCatalog}`.`doris`.`${tableName}` (embedding) USING ANN
                 PROPERTIES("index_type"="IVF_PQ", "metric"="l2", "num_partitions"="256", "num_sub_vectors"="16")"""
         assertEquals(1, createRows.size())
@@ -222,6 +236,25 @@ suite("test_lance_index_resolve", "p0,external,nonConcurrent") {
             // the outer finally restores the original value again defensively.
             master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_keep_max_second" = "${originalKeep}")"""
         }
+
+        // Unpause and let the job converge: this suite admits exactly one real job, and
+        // a job left PENDING forever (paused, on a catalog this suite never drops)
+        // would permanently consume one slot of the global unresolved quota on a
+        // shared pipeline cluster — every rerun one more. With dispatch resumed, the
+        // backend's not-implemented stub converges the job to NOT_COMMITTED, which
+        // releases its fence and quota, so the run leaves nothing unresolved behind.
+        master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_dispatcher_paused" = "false")"""
+        def converged = false
+        for (int attempt = 0; attempt < 30 && !converged; attempt++) {
+            sleep(1000)
+            def stateRows = sql_return_maparray """SHOW LANCE INDEX JOBS FROM `${filesystemCatalog}`.`doris`
+                    WHERE TableName = "${tableName}" """
+            def jobRow = stateRows.find { it.IndexName == resolveIndexName }
+            if (jobRow != null && jobRow.State.toString() != "PENDING") {
+                converged = true
+            }
+        }
+        assertTrue("admitted lance index job never left PENDING after unpause", converged)
     } catch (Throwable failure) {
         suiteFailure = failure
         throw failure
@@ -233,6 +266,7 @@ suite("test_lance_index_resolve", "p0,external,nonConcurrent") {
             { master_sql """ADMIN SET FRONTEND CONFIG ("enable_lance_index_mutation" = "${originalGate}")""" },
             { master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_keep_max_second" = "${originalKeep}")""" },
             { master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_clean_interval_second" = "${originalClean}")""" },
+            { master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_dispatcher_paused" = "${originalPaused}")""" },
             { sql "DROP USER IF EXISTS '${user}'@'%'" }
         ].each { cleanup ->
             try {
@@ -248,7 +282,8 @@ suite("test_lance_index_resolve", "p0,external,nonConcurrent") {
         if (suiteFailure == null && cleanupFailure != null) {
             throw cleanupFailure
         }
-        // The filesystem catalog stays behind: the admitted job remains unresolved
-        // and guards DROP CATALOG until FORCE_RELEASE lands in a later slice.
+        // The filesystem catalog stays behind: the converged job is resolved but the
+        // catalog is per-run by construction, so dropping it here would only save a
+        // listing entry while adding a failure mode to the cleanup path.
     }
 }

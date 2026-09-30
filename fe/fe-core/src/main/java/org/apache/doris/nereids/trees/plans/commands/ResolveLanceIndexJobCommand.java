@@ -28,7 +28,10 @@ import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.lance.LanceExternalCatalog;
+import org.apache.doris.datasource.lance.LanceIndexAdmissionSnapshot;
+import org.apache.doris.datasource.lance.LanceIndexDatasetCheck;
 import org.apache.doris.datasource.lance.LanceIndexMutationValidator;
+import org.apache.doris.datasource.lance.job.LanceIndexDatasetLocator;
 import org.apache.doris.datasource.lance.job.LanceIndexJob;
 import org.apache.doris.datasource.lance.job.LanceIndexJobManager;
 import org.apache.doris.datasource.lance.job.LanceIndexJobMutationState;
@@ -125,22 +128,29 @@ public class ResolveLanceIndexJobCommand extends Command implements ForwardWithS
         }
         // 2. Resolve and authorize against the persisted target before any state is revealed:
         //    table-level ALTER when the target resolves, global ADMIN for the orphan family
-        //    and for a target whose resolution failed outright.
+        //    and for a target whose resolution failed outright. The authorized name is
+        //    captured here and rechecked inside the final critical section, so a concurrent
+        //    rename cannot let a caller authorized on the old name release under the new one.
         CatalogMgr catalogMgr = env.getCatalogMgr();
         CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog = catalogMgr.getCatalog(job.getCatalogId());
+        String authorizedCatalogName = catalog == null ? null : catalog.getName();
         TargetResolution resolution = resolveTarget(catalog, job);
         boolean authorized = resolution == TargetResolution.RESOLVED
-                ? env.getAccessManager().checkTblPriv(ctx, catalog.getName(), job.getDbName(), job.getTableName(),
-                        PrivPredicate.ALTER)
+                ? env.getAccessManager().checkTblPriv(ctx, authorizedCatalogName, job.getDbName(),
+                        job.getTableName(), PrivPredicate.ALTER)
                 : env.getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN);
         if (!authorized) {
             throw notFound();
         }
         // 3. Idempotent replay: a retry returns the existing release record (section 7.1).
         //    This deliberately precedes the resolution-failure rejection: once the release
-        //    has landed, a retry during a provider outage is a success, not a 5105.
-        if (job.isForceReleased()) {
-            ctx.getState().setOk(0, 1, LATE_COMMIT_WARNING);
+        //    has landed, a retry during a provider outage is a success, not a 5105. The
+        //    manager's state gate applies here too: a malformed replayed record that claims
+        //    forceReleased while its state is not UNKNOWN still holds its fence and quota,
+        //    and must not be assured of a release it cannot have.
+        if (job.isForceReleased() && (job.getMutationState() == null
+                || job.getMutationState() == LanceIndexJobMutationState.UNKNOWN)) {
+            ctx.getState().setOk(0, 0, LATE_COMMIT_WARNING);
             return;
         }
         // 4. Only UNKNOWN may be force-released; a null mutation state reads as UNKNOWN,
@@ -175,27 +185,43 @@ public class ResolveLanceIndexJobCommand extends Command implements ForwardWithS
         boolean released;
         if (catalog == null) {
             // Full orphan: no credentials survive to read with and nothing can be
-            // invalidated, so the release goes straight to the manager write lock.
-            released = manager.forceRelease(jobId, job.getRevision(), actor, note, LATE_COMMIT_WARNING);
+            // invalidated, so the release goes straight to the manager write lock — but
+            // only after absence is reconfirmed under the catalog lock, because a rename
+            // briefly removes and re-adds the catalog id and a lock-free lookup in that
+            // window would mistake a live catalog for an orphan.
+            try {
+                released = catalogMgr.withLanceIndexOrphanRelease(job.getCatalogId(),
+                        () -> manager.forceRelease(jobId, job.getRevision(), actor, note, LATE_COMMIT_WARNING));
+            } catch (DdlException e) {
+                throw incompleteResolution(e.getMessage());
+            }
         } else {
-            released = releaseWithLiveCatalog(env, catalogMgr, manager, catalog, targetResolves, job, actor, note);
+            released = releaseWithLiveCatalog(env, catalogMgr, manager, catalog, authorizedCatalogName,
+                    targetResolves, job, actor, note);
         }
         if (!released) {
             // 10. The expected-revision transfer lost a race. A concurrent FORCE_RELEASE
-            //     that already landed makes this an idempotent success; anything else means
-            //     the job left UNKNOWN concurrently (UNKNOWN has no other outgoing
-            //     transition), so the pinned not-UNKNOWN wording stays accurate.
+            //     that already landed makes this an idempotent success; a job that is
+            //     still UNKNOWN (a termination proof bumped the revision without leaving
+            //     UNKNOWN) is a retryable incomplete resolution, and only a job that
+            //     genuinely left UNKNOWN gets the pinned not-UNKNOWN wording.
             LanceIndexJob reread = manager.getJob(jobId);
             if (reread != null && reread.isForceReleased()) {
-                ctx.getState().setOk(0, 1, LATE_COMMIT_WARNING);
+                ctx.getState().setOk(0, 0, LATE_COMMIT_WARNING);
                 return;
+            }
+            if (reread != null && (reread.getMutationState() == null
+                    || reread.getMutationState() == LanceIndexJobMutationState.UNKNOWN)) {
+                throw incompleteResolution("the job changed concurrently while still UNKNOWN; retry the statement");
             }
             throw new AnalysisException(ErrorCode.ERR_LANCE_INDEX_JOB_NOT_UNKNOWN.formatErrorMsg(jobId),
                     ErrorCode.ERR_LANCE_INDEX_JOB_NOT_UNKNOWN);
         }
-        // 11. The OK packet carries the late-commit warning; it survives the forward chain
-        //     byte-identically (proxyExecute serializes the master state).
-        ctx.getState().setOk(0, 1, LATE_COMMIT_WARNING);
+        // 11. The OK packet carries the late-commit warning in its info field; the warning
+        //     count stays 0 because SHOW WARNINGS is a stub that answers every statement
+        //     with an empty set, so advertising a warning row would promise a retrieval
+        //     that cannot happen. The same text is retrievable from the durable job row.
+        ctx.getState().setOk(0, 0, LATE_COMMIT_WARNING);
     }
 
     /**
@@ -204,8 +230,8 @@ public class ResolveLanceIndexJobCommand extends Command implements ForwardWithS
      * the admission critical section. Lock order stays CatalogMgr then LanceIndexJobManager.
      */
     private boolean releaseWithLiveCatalog(Env env, CatalogMgr catalogMgr, LanceIndexJobManager manager,
-            CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog, boolean targetResolves, LanceIndexJob job,
-            String actor, String note) throws Exception {
+            CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog, String authorizedCatalogName,
+            boolean targetResolves, LanceIndexJob job, String actor, String note) throws Exception {
         if (!(catalog instanceof LanceExternalCatalog)
                 || ((LanceExternalCatalog) catalog).isRestCatalogConfigured()) {
             // Defensive: admission never targets a REST catalog and a non-Lance catalog
@@ -222,22 +248,40 @@ public class ResolveLanceIndexJobCommand extends Command implements ForwardWithS
         }
         if (targetResolves) {
             // 7. One authoritative latest-metadata read with current credentials, proving
-            //    the dataset is reachable before anything is released.
+            //    the dataset is reachable and still the job's own dataset before anything
+            //    is released.
             authoritativeRead(lanceCatalog, catalog, job);
         }
         // 8. Invalidate the external table and broadcast the refresh to every FE. A
         //    half-orphan target is invalidated best-effort (missing db/table is a no-op).
+        //    The refresh is addressed by the persisted catalog id: a rename that hands
+        //    this catalog's old name to a different catalog between the two resolutions
+        //    must not invalidate that one instead.
         try {
-            env.getRefreshManager().handleRefreshTable(catalog.getName(), job.getDbName(), job.getTableName(),
+            env.getRefreshManager().handleRefreshTable(catalog.getId(), job.getDbName(), job.getTableName(),
                     !targetResolves);
         } catch (DdlException e) {
             throw incompleteResolution(e.getMessage());
+        } catch (RuntimeException e) {
+            // The metadata path can propagate an unchecked failure past the typed one
+            // (remote name enumeration on a cold cache); the promised response is the
+            // typed resolution-incomplete, not a raw provider error, and the job stays
+            // unresolved for the retry.
+            LOG.warn("lance index job {}: metadata refresh during force release failed", jobId, e);
+            throw incompleteResolution("the metadata refresh failed; see fe.log for the cause");
         }
-        // 9. The durable transfer rechecks the catalog identity under the read lock, then
-        //    runs the revision-checked release under the manager write lock.
+        // 9. The durable transfer rechecks the catalog identity and the authorized name
+        //    under the read lock, then runs the revision-checked release under the
+        //    manager write lock. A rename since authorization changes the name ALTER was
+        //    checked against, so the release is refused as retryable instead of
+        //    proceeding under a name the caller was never authorized on.
         try {
-            return catalogMgr.withLanceIndexAdmission(lanceCatalog, target,
-                    () -> manager.forceRelease(jobId, job.getRevision(), actor, note, LATE_COMMIT_WARNING));
+            return catalogMgr.withLanceIndexAdmission(lanceCatalog, target, () -> {
+                if (!catalog.getName().equals(authorizedCatalogName)) {
+                    throw new DdlException("Lance catalog was renamed after authorization; retry the statement");
+                }
+                return manager.forceRelease(jobId, job.getRevision(), actor, note, LATE_COMMIT_WARNING);
+            });
         } catch (DdlException e) {
             throw incompleteResolution(e.getMessage());
         }
@@ -279,10 +323,23 @@ public class ResolveLanceIndexJobCommand extends Command implements ForwardWithS
         }
         String remoteDb = ((ExternalDatabase) db).getRemoteName();
         String remoteTable = ((ExternalTable) table).getRemoteName();
+        LanceIndexAdmissionSnapshot snapshot;
         try {
-            lanceCatalog.loadTableIndexAdmissionSnapshot(remoteDb, remoteTable);
+            snapshot = lanceCatalog.loadTableIndexAdmissionSnapshot(remoteDb, remoteTable);
         } catch (Exception e) {
             throw incompleteResolution(e.getMessage());
+        }
+        // The read resolved the namespace again on its own: if a child-namespace table was
+        // deregistered and re-registered at a different dataset between the two reads, this
+        // snapshot describes that dataset, and releasing the job's fence under table ALTER
+        // would bill a different dataset's state to this job. A mismatch keeps the fence and
+        // sends the retry through the orphan path, where the verdict comes from the
+        // namespace, not from this snapshot.
+        String snapshotLocator = LanceIndexDatasetLocator.normalize(snapshot.getDatasetUri());
+        if (!snapshotLocator.equals(job.getNormalizedLocator())) {
+            LOG.warn("lance index job {}: authoritative read returned dataset {} but the job was admitted"
+                    + " against a different locator", job.getJobId(), snapshotLocator);
+            throw incompleteResolution("the target was repointed concurrently; retry the statement");
         }
     }
 
@@ -303,12 +360,14 @@ public class ResolveLanceIndexJobCommand extends Command implements ForwardWithS
     }
 
     /**
-     * Resolves the persisted target once, up front, distinguishing "verifiably gone" (the
-     * orphan family, releasable under global ADMIN) from "could not tell" (fail with 5105,
-     * keep the fence). The locator leg mirrors {@link ShowLanceIndexJobsCommand}: a null
-     * current locator means the provider is unreachable or the names no longer resolve
-     * remotely, which is absence of evidence either way — it fails closed here instead of
-     * granting the half-orphan release path.
+     * Resolves the persisted target once, up front, distinguishing "verifiably gone"
+     * (the orphan family, releasable under global ADMIN) from "could not tell" (fail
+     * with 5105, keep the fence). The namespace is the authority on absence: a local
+     * null lookup proves nothing (a failed catalog init or a transient remote miss
+     * also yields null), so MISSING requires the namespace to positively answer that
+     * the names are gone, and any resolution failure stays FAILED. The namespace is
+     * also case-sensitive while the job persists LOCAL names, so the locator check
+     * runs against the relations' remote names whenever the relations resolve.
      */
     static TargetResolution resolveTarget(CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog,
             LanceIndexJob job) {
@@ -322,31 +381,46 @@ public class ResolveLanceIndexJobCommand extends Command implements ForwardWithS
             LOG.warn("lance index job {}: target database resolution failed", job.getJobId(), e);
             return TargetResolution.FAILED;
         }
-        if (db == null) {
-            return TargetResolution.MISSING;
-        }
-        TableIf table;
+        TableIf table = null;
         try {
-            table = db.getTableNullable(job.getTableName());
+            table = db == null ? null : db.getTableNullable(job.getTableName());
         } catch (Exception e) {
             LOG.warn("lance index job {}: target table resolution failed", job.getJobId(), e);
             return TargetResolution.FAILED;
         }
-        if (table == null) {
-            return TargetResolution.MISSING;
-        }
         if (!(catalog instanceof LanceExternalCatalog)) {
-            return TargetResolution.RESOLVED;
+            return db != null && table != null ? TargetResolution.RESOLVED : TargetResolution.MISSING;
         }
-        String currentLocator = ((LanceExternalCatalog) catalog).resolveCurrentIndexJobLocator(
-                job.getDbName(), job.getTableName());
-        if (currentLocator == null) {
-            // The catalog folds provider outages and unresolvable names into null (and logs
-            // nothing), so the cause trail for the 5105 starts here.
-            LOG.warn("lance index job {}: current dataset locator could not be resolved", job.getJobId());
+        LanceExternalCatalog lanceCatalog = (LanceExternalCatalog) catalog;
+        // The relations carry the case-correct remote identity; without a resolved
+        // relation there is no remote name to ask for, and the local name is then the
+        // best identity (a case-mapped remote name resolves locally, so a local miss
+        // with a reachable namespace means no case-insensitive match exists at all).
+        String remoteDb = db instanceof ExternalDatabase ? ((ExternalDatabase) db).getRemoteName()
+                : job.getDbName();
+        String remoteTable = table instanceof ExternalTable ? ((ExternalTable) table).getRemoteName()
+                : job.getTableName();
+        LanceIndexDatasetCheck dataset = lanceCatalog.checkIndexJobDataset(remoteDb, remoteTable);
+        switch (dataset.outcome) {
+            case UNRESOLVED:
+                // The cause trail for the 5105 is logged at the catalog boundary.
+                return TargetResolution.FAILED;
+            case VERIFIED_ABSENT:
+                // The only absence that releases: the namespace positively says the
+                // names are gone, so no outage can be mistaken for a half-orphan.
+                return TargetResolution.MISSING;
+            case PRESENT:
+            default:
+                break;
+        }
+        if (db == null || table == null) {
+            // The names resolve remotely but the local layer came back empty right now
+            // (cold cache or transient init failure): not positive evidence of an
+            // orphan, and not table-level authorization either — retry later.
+            LOG.warn("lance index job {}: target resolves remotely but not locally right now", job.getJobId());
             return TargetResolution.FAILED;
         }
-        return currentLocator.equals(job.getNormalizedLocator())
+        return dataset.locator.equals(job.getNormalizedLocator())
                 ? TargetResolution.RESOLVED : TargetResolution.MISSING;
     }
 

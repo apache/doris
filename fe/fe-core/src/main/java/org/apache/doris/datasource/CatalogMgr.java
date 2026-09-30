@@ -535,6 +535,28 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
     }
 
+    /**
+     * Runs an orphan-side action after positively confirming, under the catalog read
+     * lock, that the given catalog id still resolves to nothing. ALTER CATALOG RENAME
+     * removes the id under the write lock, releases it for cleanup, and re-adds the
+     * same object and id, so a lock-free id lookup inside that window observes a false
+     * orphan; the recheck under this lock closes it — either the rename finished
+     * before the lock was taken (the id resolves again and the action is refused as
+     * retryable) or it cannot start until the action is done.
+     */
+    public <T> T withLanceIndexOrphanRelease(long catalogId, LanceIndexAdmissionAction<T> action) throws Exception {
+        readLock();
+        try {
+            if (idToCatalog.get(catalogId) != null) {
+                throw new DdlException("Lance catalog id " + catalogId + " resolves again (renamed concurrently);"
+                        + " retry the statement");
+            }
+            return action.run();
+        } finally {
+            readUnlock();
+        }
+    }
+
     private static Map<String, String> lanceIndexTargetProperties(LanceExternalCatalog catalog) {
         Map<String, String> target = Maps.newHashMap();
         for (Map.Entry<String, String> entry : catalog.getProperties().entrySet()) {
