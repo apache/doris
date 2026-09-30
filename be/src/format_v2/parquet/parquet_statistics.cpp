@@ -1666,7 +1666,9 @@ bool set_native_page_scalar_min_max(const tparquet::ColumnIndex& column_index,
             !epoch_days_range_is_representable(min_value, max_value)) {
             // An invalid interior DATE errors in strict mode and becomes NULL otherwise.
             // Neither min/max nor physical null counts prove the materialized result here.
-            return false;
+            // Retain this page without discarding usable statistics on the other pages.
+            *page_statistics = {};
+            return true;
         }
     }
     if constexpr (std::is_integral_v<ValueType>) {

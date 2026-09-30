@@ -2239,17 +2239,17 @@ TEST(NativeParquetStatisticsTest, DateInteriorLeapDayInvalidatesPhysicalNullStat
 
 class DateStatisticsPredicate final : public VExpr {
 public:
-    explicit DateStatisticsPredicate(bool is_null)
-            : VExpr(std::make_shared<DataTypeUInt8>(), false), _is_null(is_null) {}
+    explicit DateStatisticsPredicate(bool is_null, int slot = 0)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false), _is_null(is_null), _slot(slot) {}
     const std::string& expr_name() const override { return _name; }
     Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
                                ColumnPtr&) const override {
         return Status::InternalError("Metadata-only predicate");
     }
     bool can_evaluate_zonemap_filter() const override { return true; }
-    void collect_slot_column_ids(std::set<int>& ids) const override { ids.insert(0); }
+    void collect_slot_column_ids(std::set<int>& ids) const override { ids.insert(_slot); }
     ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
-        const auto map = ctx.zone_map(0);
+        const auto map = ctx.zone_map(_slot);
         if (map == nullptr) {
             return ZoneMapFilterResult::kMayMatch;
         }
@@ -2265,8 +2265,77 @@ public:
 
 private:
     bool _is_null;
+    int _slot;
     const std::string _name = "DateStatisticsPredicate";
 };
+
+TEST(NativeParquetStatisticsTest, UnsafeDatePageDoesNotDisableSafePagePruning) {
+    std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> schema;
+    format::FileScanRequest request;
+    for (int slot = 0; slot < 2; ++slot) {
+        auto column = std::make_unique<format::parquet::ParquetColumnSchema>();
+        column->kind = format::parquet::ParquetColumnSchemaKind::PRIMITIVE;
+        column->local_id = column->leaf_column_id = slot;
+        column->type = make_nullable(std::make_shared<DataTypeDateV2>());
+        column->type_descriptor.doris_type = column->type;
+        column->type_descriptor.physical_type = tparquet::Type::INT32;
+        schema.push_back(std::move(column));
+        request.local_positions.emplace(format::LocalColumnId(slot), format::LocalIndex(slot));
+        request.predicate_columns.push_back(format::LocalColumnIndex::local(slot));
+    }
+    auto encode = [](int32_t value) {
+        return std::string(reinterpret_cast<const char*>(&value), sizeof(value));
+    };
+    format::parquet::NativeParquetPageIndex index;
+    index.column_index.__set_min_values({encode(-719528), encode(-719528), encode(19723)});
+    index.column_index.__set_max_values({encode(-719470), encode(-719468), encode(19724)});
+    index.column_index.__set_null_pages({false, false, false});
+    index.column_index.__set_null_counts({0, 0, 0});
+    for (int page = 0; page < 3; ++page) {
+        tparquet::PageLocation location;
+        location.__set_offset(page * 10);
+        location.__set_compressed_page_size(10);
+        location.__set_first_row_index(page * 3);
+        index.offset_index.page_locations.push_back(location);
+    }
+    std::unordered_map<int, format::parquet::NativeParquetPageIndex> indexes;
+    indexes.emplace(0, index);
+    indexes.emplace(1, index);
+    tparquet::ColumnOrder order;
+    order.__set_TYPE_ORDER(tparquet::TypeDefinedOrder());
+    tparquet::FileMetaData metadata;
+    metadata.__set_column_orders({order, order});
+    tparquet::RowGroup group;
+    group.__set_num_rows(9);
+    for (bool is_null : {false, true}) {
+        for (bool compound : {false, true}) {
+            SCOPED_TRACE(testing::Message() << "is_null=" << is_null << " compound=" << compound);
+            VExprSPtr predicate = std::make_shared<DateStatisticsPredicate>(is_null);
+            if (compound) {
+                TExprNode node;
+                node.__set_node_type(TExprNodeType::COMPOUND_PRED);
+                node.__set_opcode(TExprOpcode::COMPOUND_OR);
+                node.__set_type(std::make_shared<DataTypeUInt8>()->to_thrift());
+                node.__set_num_children(2);
+                node.__set_is_nullable(false);
+                auto either = VCompoundPred::create_shared(node);
+                either->add_child(predicate);
+                either->add_child(std::make_shared<DateStatisticsPredicate>(is_null, 1));
+                predicate = either;
+            }
+            request.conjuncts = {VExprContext::create_shared(predicate)};
+            std::vector<format::parquet::RowRange> ranges;
+            std::map<int, format::parquet::ParquetPageSkipPlan> plans;
+            ASSERT_TRUE(
+                    format::parquet::select_row_group_ranges_by_native_page_index(
+                            metadata, group, indexes, schema, request, 9, &ranges, &plans, nullptr)
+                            .ok());
+            ASSERT_EQ(ranges.size(), 1);
+            EXPECT_EQ(ranges[0].start, 3);
+            EXPECT_EQ(ranges[0].length, is_null ? 3 : 6);
+        }
+    }
+}
 
 TEST(NativeParquetStatisticsTest, DateInteriorLeapDayKeepsPageCandidates) {
     auto column = std::make_unique<format::parquet::ParquetColumnSchema>();

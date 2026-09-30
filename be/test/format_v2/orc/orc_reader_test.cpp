@@ -11867,6 +11867,59 @@ TEST_F(NewOrcReaderTest, DateCountValidatesScalarAndNestedValues) {
     }
 }
 
+TEST_F(NewOrcReaderTest, DateSargGuardIgnoresUnprojectedStructChild) {
+    const auto path = (_test_dir / "partial_struct_date.orc").string();
+    auto type = std::unique_ptr<::orc::Type>(
+            ::orc::Type::buildTypeFromString("struct<id:int,s:struct<x:int,d:date>>"));
+    MemoryOutputStream stream(1024 * 1024);
+    auto writer = ::orc::createWriter(*type, &stream, ::orc::WriterOptions());
+    auto batch = writer->createRowBatch(3);
+    auto& root = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+    auto& ids = dynamic_cast<::orc::LongVectorBatch&>(*root.fields[0]);
+    auto& record = dynamic_cast<::orc::StructVectorBatch&>(*root.fields[1]);
+    auto& values = dynamic_cast<::orc::LongVectorBatch&>(*record.fields[0]);
+    auto& dates = dynamic_cast<::orc::LongVectorBatch&>(*record.fields[1]);
+    root.numElements = ids.numElements = record.numElements = values.numElements =
+            dates.numElements = 3;
+    for (int row = 0; row < 3; ++row) {
+        ids.data[row] = values.data[row] = row;
+        dates.data[row] = -719469;
+    }
+    writer->add(*batch);
+    writer->close();
+    std::ofstream out(path, std::ios::binary);
+    out.write(stream.getData(), static_cast<std::streamsize>(stream.getLength()));
+    out.close();
+
+    for (bool project_date : {false, true}) {
+        SCOPED_TRACE(project_date);
+        auto reader = create_reader_for_path(path);
+        TQueryOptions options;
+        options.__set_enable_orc_lazy_mat(false);
+        RuntimeState state {options, TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->predicate_columns = {field_projection(0)};
+        request->non_predicate_columns = {project_date ? field_projection(1)
+                                                       : struct_child_projection(1, 0)};
+        request->conjuncts = {
+                VExprContext::create_shared(std::make_shared<NullableInt32GreaterThanExpr>(0, 7))};
+        ASSERT_TRUE(reader->open(request).ok());
+        // Only a decoded DATE can require disabling SARG to preserve a conversion error.
+        EXPECT_EQ(reader->get_total_rows(), project_date ? 3 : 0);
+        EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, project_date ? 0 : 1);
+        if (project_date) {
+            auto block = build_file_block(schema);
+            size_t rows = 0;
+            bool eof = false;
+            const auto status = reader->get_block(&block, &rows, &eof);
+            EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>()) << status;
+        }
+    }
+}
+
 TEST_F(NewOrcReaderTest, ReadExternalMapDateRejectsOutOfRangeOrdinal) {
     // Keep the external LZ4 fixture: the old offset dictionary silently replaced -719530
     // with 1900-01-01, hiding an unrepresentable DATE inside the map values.

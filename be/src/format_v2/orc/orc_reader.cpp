@@ -1524,8 +1524,11 @@ Status OrcReader::_init_search_argument_from_local_filters() {
     try {
         // SARG can skip rows before DATE decoding detects an invalid ordinal. File statistics
         // must prove the selected DATE domains are representable before enabling SDK pruning.
-        const auto dates_are_representable = [&](const auto& self,
-                                                 const ::orc::Type& type) -> bool {
+        const auto dates_are_representable = [&](const auto& self, const ::orc::Type& type,
+                                                 const std::set<uint64_t>* projected_ids) -> bool {
+            if (projected_ids != nullptr && !projected_ids->contains(type.getColumnId())) {
+                return true;
+            }
             if (type.getKind() == ::orc::TypeKind::DATE) {
                 const auto stats =
                         _state->reader->getColumnStatistics(cast_set<uint32_t>(type.getColumnId()));
@@ -1539,17 +1542,29 @@ Status OrcReader::_init_search_argument_from_local_filters() {
                 return set_date_zone_map(*stats, &zone_map);
             }
             for (uint64_t child = 0; child < type.getSubtypeCount(); ++child) {
-                if (!self(self, *type.getSubtype(child))) {
+                if (!self(self, *type.getSubtype(child), projected_ids)) {
                     return false;
                 }
             }
             return true;
         };
         for (const auto column_id : _state->read_columns) {
-            if (!is_virtual_column(column_id) &&
-                !dates_are_representable(
-                        dates_are_representable,
-                        *_state->root_type->getSubtype(static_cast<uint64_t>(column_id.value())))) {
+            if (is_virtual_column(column_id)) {
+                continue;
+            }
+            const auto& type =
+                    *_state->root_type->getSubtype(static_cast<uint64_t>(column_id.value()));
+            const auto* projection = find_request_projection(*_request, column_id);
+            DORIS_CHECK(projection != nullptr);
+            std::set<uint64_t> projected_ids;
+            const bool partial = has_pruned_projection(*projection);
+            if (partial) {
+                // Match includeTypes exactly: an unread DATE sibling cannot raise a conversion
+                // error and must not disable pruning for the projected columns.
+                RETURN_IF_ERROR(collect_projected_type_ids(type, *projection, &projected_ids));
+            }
+            if (!dates_are_representable(dates_are_representable, type,
+                                         partial ? &projected_ids : nullptr)) {
                 return Status::OK();
             }
         }
