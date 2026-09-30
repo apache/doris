@@ -658,13 +658,18 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
     }
 
     /**
-     * True when the record additionally carries the full dispatch quad recorded
-     * by {@code markRunning}. The possible-live sweep requires the quad: only
-     * with it can {@code recordTerminationProof} address and release the slot.
+     * True when the record carries exactly the dispatch-identity fields
+     * {@code recordTerminationProof} matches on: backend id, BE process epoch,
+     * and invocation id. The dispatch revision is deliberately not required:
+     * {@code dispatchRevisionOf} falls back to the record revision for a legacy
+     * record, and the proof writer backfills the field after matching. Target
+     * fields the proof writer never reads (db/table/index identity) are not
+     * required either: a slot holder lacking one of them is still charged by
+     * {@code countPossibleLiveSlotsByBackend}, so excluding it from the sweep
+     * would strand that capacity behind a replaced backend process forever.
      */
     private static boolean hasDispatchIdentity(LanceIndexJob job) {
-        return hasDispatchTarget(job) && job.getBackendId() != null && job.getBeProcessEpoch() != null
-                && job.getDispatchRevision() != null && job.getInvocationId() != null;
+        return job.getBackendId() != null && job.getBeProcessEpoch() != null && job.getInvocationId() != null;
     }
 
     // ------------------------------------------------------------------
@@ -843,10 +848,13 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
     }
 
     /**
-     * Jobs still holding a possible-live slot with complete dispatch identity,
-     * regardless of mutation state: the slot-release proof (BE process epoch no
-     * longer exists) is independent of the outcome, so UNKNOWN jobs swept by the
-     * deadline or master transfer are released here exactly like RUNNING ones.
+     * Jobs still holding a possible-live slot whose dispatch identity can address
+     * the termination-proof writer, regardless of mutation state: the slot-release
+     * proof (BE process epoch no longer exists) is independent of the outcome, so
+     * UNKNOWN jobs swept by the deadline or master transfer are released here
+     * exactly like RUNNING ones. The filter is exactly the matching fields of
+     * {@code recordTerminationProof} (see {@link #hasDispatchIdentity}); anything
+     * narrower would strand capacity the counter still charges.
      */
     public List<LanceIndexJob> getJobsHoldingPossibleLiveSlot() {
         readLock();

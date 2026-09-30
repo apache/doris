@@ -4314,14 +4314,18 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {
             "暂停 Lance 索引 job 的派发阶段(运维与测试屏障,默认关闭)。暂停只影响派发:deadline 与 "
                     + "possible-live 扫掠、refresh 驱动照常运行;派发器在派发阶段入口和每个 job 尝试前"
-                    + "检查本开关,被跳过的 job 保持 PENDING 且不消耗单轮派发额度;恢复后继续派发。",
+                    + "检查本开关,被跳过的 job 保持 PENDING 且不消耗单轮派发额度;恢复后继续派发。"
+                    + "字段为 volatile,ADMIN SET 的写入无需任何锁即可对派发器线程可见:在提交 job 前"
+                    + "设置本开关即是跨会话的硬屏障。",
             "Pause switch for the dispatch phase of Lance index jobs (operator and test barrier, "
                     + "disabled by default). Pausing affects dispatch only: the deadline and "
                     + "possible-live sweeps and the refresh driver keep running. The dispatcher checks "
                     + "this switch at the dispatch-phase entry and before every job attempt; skipped "
                     + "jobs stay PENDING and never consume the per-round dispatch budget. Dispatch "
-                    + "resumes once unpaused."})
-    public static boolean lance_index_job_dispatcher_paused = false;
+                    + "resumes once unpaused. The field is volatile so an ADMIN SET on one thread is "
+                    + "visible to the dispatcher thread without any lock; setting it before admitting "
+                    + "a job is a hard barrier even across separate sessions."})
+    public static volatile boolean lance_index_job_dispatcher_paused = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "是否允许 file:// 本地路径上的 Lance 索引变更派发(运维断言,默认关闭)。开启后派发仍要求"
@@ -4330,6 +4334,6 @@ public class Config extends ConfigBase {
                     + "(disabled by default). When enabled, dispatch still requires exactly one FE in the "
                     + "cluster and the target backend to be the only alive backend. Object storage is the "
                     + "production mode."})
-    public static boolean enable_lance_index_local_file_mutation = false;
+    public static volatile boolean enable_lance_index_local_file_mutation = false;
 
 }
