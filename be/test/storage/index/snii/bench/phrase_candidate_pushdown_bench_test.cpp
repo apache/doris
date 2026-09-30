@@ -33,8 +33,9 @@
 // PHRASE_CANDIDATE_BENCH_CASES, a comma-separated list of query labels, the queries to run (default
 // all), and PHRASE_CANDIDATE_BENCH_VARIANTS, a comma-separated list such as "random/0.500", the
 // candidate variants to run (default all; a phrase then runs over the whole segment once, for the
-// result check, unless "full" is listed). Times are medians of per-query thread CPU time, which
-// moves far less than wall time on a shared machine.
+// result check, unless "full" is listed; "scored" runs the phrases marked for it with their rows
+// scored too). Times are medians of per-query thread CPU time, which moves far less than wall
+// time on a shared machine.
 
 #include <fmt/format.h>
 #include <gen_cpp/PaloInternalService_types.h>
@@ -56,6 +57,7 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "storage/compaction/collection_similarity.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/index_query_context.h"
@@ -63,6 +65,7 @@
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/inverted/similarity/collection_statistics.h"
 #include "storage/index/snii/snii_index_reader.h"
 #include "storage/olap_common.h"
 #include "storage/tablet/tablet_schema.h"
@@ -82,12 +85,15 @@ struct BenchQuery {
     const char* text;
     // One exact term, which a count-only scan answers from its document frequency.
     bool count = false;
+    // Runs with its rows scored too.
+    bool scored = false;
 };
 
-// How a query runs: with the result cache warm, or as a count-only scan.
+// How a query runs: with the result cache warm, as a count-only scan, or scoring its rows.
 struct Profile {
     bool cached = false;
     bool count_only = false;
+    bool scored = false;
     // Queries per sample: a microsecond query runs several times so no sample reads zero CPU
     // time.
     uint32_t repeats = 1;
@@ -97,10 +103,12 @@ struct Profile {
 // log-search shape with a long lead, and a rare phrase whose result is far below any candidate set.
 constexpr BenchQuery kQueries[] = {{.label = "exact_2",
                                     .type = InvertedIndexQueryType::MATCH_PHRASE_QUERY,
-                                    .text = "retry attempt"},
+                                    .text = "retry attempt",
+                                    .scored = true},
                                    {.label = "exact_4",
                                     .type = InvertedIndexQueryType::MATCH_PHRASE_QUERY,
-                                    .text = "retry attempt 2 job"},
+                                    .text = "retry attempt 2 job",
+                                    .scored = true},
                                    {.label = "slop_2",
                                     .type = InvertedIndexQueryType::MATCH_PHRASE_QUERY,
                                     .text = "retry job ~2"},
@@ -109,35 +117,42 @@ constexpr BenchQuery kQueries[] = {{.label = "exact_2",
                                     .text = "retry job ~2+"},
                                    {.label = "prefix_2",
                                     .type = InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY,
-                                    .text = "order 12"},
+                                    .text = "order 12",
+                                    .scored = true},
                                    {.label = "prefix_5",
                                     .type = InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY,
                                     .text = "retry attempt 1 job 88"},
                                    {.label = "rare_exact",
                                     .type = InvertedIndexQueryType::MATCH_PHRASE_QUERY,
-                                    .text = "request 424242 completed"}};
+                                    .text = "request 424242 completed",
+                                    .scored = true}};
 
 constexpr BenchQuery kDocIdQueries[] = {
         {.label = "term_dense",
          .type = InvertedIndexQueryType::MATCH_ANY_QUERY,
          .text = "latency",
-         .count = true},
+         .count = true,
+         .scored = true},
         {.label = "term_sparse",
          .type = InvertedIndexQueryType::MATCH_ANY_QUERY,
          .text = "424242",
          .count = true},
         {.label = "or_dense",
          .type = InvertedIndexQueryType::MATCH_ANY_QUERY,
-         .text = "retry order latency"},
+         .text = "retry order latency",
+         .scored = true},
         {.label = "or_sparse",
          .type = InvertedIndexQueryType::MATCH_ANY_QUERY,
-         .text = "424242 424241"},
+         .text = "424242 424241",
+         .scored = true},
         {.label = "and_dense",
          .type = InvertedIndexQueryType::MATCH_ALL_QUERY,
-         .text = "retry attempt"},
+         .text = "retry attempt",
+         .scored = true},
         {.label = "and_sparse",
          .type = InvertedIndexQueryType::MATCH_ALL_QUERY,
-         .text = "retry 1234"},
+         .text = "retry 1234",
+         .scored = true},
         {.label = "and_empty",
          .type = InvertedIndexQueryType::MATCH_ALL_QUERY,
          .text = "retry order"},
@@ -250,6 +265,18 @@ double thread_cpu_ms() {
     return static_cast<double>(ts.tv_sec) * 1000.0 + static_cast<double>(ts.tv_nsec) / 1e6;
 }
 
+// Fixed statistics for a scored run: it measures the scoring work, not the collection's
+// statistics, which a query reads once per term.
+class BenchCollectionStatistics final : public CollectionStatistics {
+public:
+    float get_or_calculate_idf(const std::wstring& /*field*/,
+                               const std::wstring& /*term*/) override {
+        return 1.5F;
+    }
+
+    float get_or_calculate_avg_dl(const std::wstring& /*field*/) override { return 8.0F; }
+};
+
 struct QueryRun {
     explicit QueryRun(Profile profile = {}) {
         TQueryOptions query_options;
@@ -262,6 +289,10 @@ struct QueryRun {
         context->stats = &stats;
         context->runtime_state = &runtime_state;
         context->count_on_index_fastpath = profile.count_only;
+        if (profile.scored) {
+            context->collection_statistics = std::make_shared<BenchCollectionStatistics>();
+            context->collection_similarity = std::make_shared<CollectionSimilarity>();
+        }
     }
 
     OlapReaderStatistics stats;
@@ -455,8 +486,8 @@ void print_row(std::string_view format, const BenchQuery& query, std::string_vie
               << full_ms / restricted_ms << "x" << std::setw(10) << matches << '\n';
 }
 
-// Runs each query of `queries` over the whole segment, then with the result cache warm, and one
-// exact term as a count-only scan too.
+// Runs each query of `queries` over the whole segment, then with the result cache warm, the ones
+// marked for it scoring their rows, and one exact term as a count-only scan too.
 template <size_t N>
 void benchmark_docid_queries(InvertedIndexReader* reader, std::string_view format_name,
                              std::string_view group, const BenchQuery (&queries)[N],
@@ -470,6 +501,12 @@ void benchmark_docid_queries(InvertedIndexReader* reader, std::string_view forma
         median_query_ms(reader, query, nullptr, iterations, &full, label + "/full");
         median_query_ms(reader, query, nullptr, iterations, &full, label + "/cached",
                         {.cached = true, .repeats = 16});
+        if (query.scored) {
+            roaring::Roaring scored;
+            median_query_ms(reader, query, nullptr, iterations, &scored, label + "/scored",
+                            {.scored = true});
+            EXPECT_EQ(scored, full) << query.label;
+        }
         if (query.count) {
             median_query_ms(reader, query, nullptr, iterations, &full, label + "/count",
                             {.count_only = true, .repeats = 16});
@@ -490,6 +527,13 @@ void benchmark_reader(InvertedIndexReader* reader, std::string_view format_name,
                 reader, query, nullptr,
                 selected("PHRASE_CANDIDATE_BENCH_VARIANTS", "full") ? iterations : 1, &full,
                 full_label);
+        if (query.scored && selected("PHRASE_CANDIDATE_BENCH_VARIANTS", "scored")) {
+            roaring::Roaring scored;
+            median_query_ms(reader, query, nullptr, iterations, &scored,
+                            fmt::format("reader/{}/{}/scored", format_name, query.label),
+                            {.scored = true});
+            ASSERT_EQ(scored, full) << query.label;
+        }
         for (const bool clustered : {false, true}) {
             const std::string_view shape_name = clustered ? "range" : "random";
             for (const double ratio : kCandidateRatios) {

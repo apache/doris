@@ -30,17 +30,4 @@ uint8_t encode_norm(uint64_t doc_length) {
     return static_cast<uint8_t>(clamped);
 }
 
-ScorerContext ScorerContext::from_idf(double idf) {
-    ScorerContext ctx;
-    ctx.idf_ = idf;
-    return ctx;
-}
-
-double ScorerContext::score(double tf, uint8_t encoded_norm, double avgdl,
-                            const Bm25Params& params) const {
-    const double dl = decode_norm(encoded_norm);
-    const double denom = tf + params.k1 * (1.0 - params.b + params.b * dl / avgdl);
-    return idf_ * (tf * (params.k1 + 1.0)) / denom;
-}
-
 } // namespace doris::snii::query

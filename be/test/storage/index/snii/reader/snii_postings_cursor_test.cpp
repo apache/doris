@@ -406,6 +406,48 @@ TEST(SniiPostingsCursor, FrequenciesAndNormsWhenScoring) {
     }
 }
 
+// The ordinal of `doc` in the block holding it.
+uint32_t ordinal_of(const index_query::PostingsBlock& block, uint32_t doc) {
+    if (block.dense) {
+        return doc - block.range_begin;
+    }
+    return static_cast<uint32_t>(std::ranges::lower_bound(block.docs, doc) - block.docs.begin());
+}
+
+// A scoring cursor given candidates reads their windows' frames with their docids, since every
+// block it decodes needs its frame for the frequencies.
+TEST(SniiPostingsCursor, AScoringCursorPrefetchReadsTheFramesWithTheWindows) {
+    Fixture fixture;
+    assert_ok(fixture.open_scored());
+    format::NormsPodReader norms;
+    assert_ok(fixture.index.open_norms(&norms));
+    const Term term = fixture.lookup("wide");
+    const auto docs = fixture.oracle_docids(term);
+    const auto expected = fixture.oracle_positions(term);
+    const std::vector<size_t> chosen = {10, 11, docs.size() - 5};
+    std::vector<uint32_t> candidates;
+    for (const size_t index : chosen) {
+        candidates.push_back(docs[index]);
+    }
+    fixture.metered.reset_metrics();
+    SniiPostingsCursor cursor(fixture.index, term.entry, term.frq_base, term.prx_base,
+                              /*positions=*/false, /*scoring=*/true, &norms);
+    assert_ok(cursor.prefetch(&candidates, /*positions=*/false));
+    const uint64_t prefetched = fixture.rounds();
+    EXPECT_LE(prefetched, 2U);
+    index_query::PostingsBlock block;
+    bool eof = false;
+    for (size_t i = 0; i < chosen.size(); ++i) {
+        assert_ok(cursor.seek_block(candidates[i], &block, &eof));
+        ASSERT_FALSE(eof);
+        const uint32_t ordinal = ordinal_of(block, candidates[i]);
+        EXPECT_EQ(block.doc_at(ordinal), candidates[i]);
+        EXPECT_EQ(block.freq_at(ordinal), expected[chosen[i]].size());
+        EXPECT_EQ(block.norm_at(ordinal), norms.encoded_norm(candidates[i]));
+    }
+    EXPECT_EQ(fixture.rounds(), prefetched);
+}
+
 TEST(SniiPostingsCursor, AGivenPreludeMakesTheSpanOneRound) {
     Fixture fixture;
     assert_ok(fixture.open_standard());

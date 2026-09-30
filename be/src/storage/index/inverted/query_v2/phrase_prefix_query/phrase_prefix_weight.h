@@ -37,10 +37,9 @@ public:
                        bool nullable)
             : SlotPhraseWeight(std::move(field),
                                index_query::PhraseQueryOptions {.candidates = candidates},
-                               enable_scoring, nullable),
+                               std::move(similarity), enable_scoring, nullable),
               _phrase_terms(std::move(phrase_terms)),
               _prefix(std::move(prefix)),
-              _similarity(std::move(similarity)),
               _max_expansions(max_expansions),
               _suffix(suffix) {}
     ~PhrasePrefixWeight() override = default;
@@ -117,7 +116,6 @@ private:
 
     std::vector<std::pair<size_t, std::string>> _phrase_terms;
     std::pair<size_t, std::string> _prefix;
-    index_query::ScoringContextPtr<float> _similarity;
     int32_t _max_expansions = 50;
     bool _suffix = false;
 };

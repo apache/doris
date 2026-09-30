@@ -36,7 +36,6 @@
 #include "storage/index/snii/io/metered_file_reader.h"
 #include "storage/index/snii/query/bm25_scorer.h"
 #include "storage/index/snii/query/phrase_query.h"
-#include "storage/index/snii/query/scoring_query.h"
 #include "storage/index/snii/query/term_query.h"
 #include "storage/index/snii/query/top_k_scores.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
@@ -59,8 +58,7 @@ namespace {
 using namespace doris::snii;         // NOLINT
 using namespace doris::snii::format; // NOLINT
 using namespace doris::snii::writer; // NOLINT
-using doris::snii::query::Bm25Params;
-using doris::snii::query::ScoredDoc;
+using doris::snii::snii_test::ScoredDoc;
 using doris::snii::stats::SniiStatsProvider;
 
 std::string TempPath() {
@@ -251,12 +249,9 @@ TEST(SniiPhaseAReadBack, DdBlockTilesAndQueriesAgree) {
     // ranked by descending score (ties by ascending docid), using the real norms.
     SniiStatsProvider stats;
     ASSERT_TRUE(SniiStatsProvider::open(&idx, &stats).ok());
-    const Bm25Params params;
     for (uint32_t k : {1U, 5U, 50U}) {
         std::vector<ScoredDoc> ex;
-        ASSERT_TRUE(
-                doris::snii::snii_test::top_k_scores(idx, stats, {"hot", "rare"}, k, params, &ex)
-                        .ok());
+        ASSERT_TRUE(doris::snii::snii_test::top_k_scores(idx, stats, {"hot", "rare"}, k, &ex).ok());
         ASSERT_EQ(ex.size(), k) << "k=" << k;
         for (size_t i = 1; i < ex.size(); ++i) {
             EXPECT_TRUE(ex[i - 1].score > ex[i].score ||

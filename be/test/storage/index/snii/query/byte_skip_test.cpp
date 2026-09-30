@@ -36,7 +36,6 @@
 #include "storage/index/snii/io/metered_file_reader.h"
 #include "storage/index/snii/query/bm25_scorer.h"
 #include "storage/index/snii/query/phrase_query.h"
-#include "storage/index/snii/query/scoring_query.h"
 #include "storage/index/snii/query/term_query.h"
 #include "storage/index/snii/query/top_k_scores.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
@@ -64,8 +63,8 @@ using namespace doris::snii;
 using namespace doris::snii::format;
 using namespace doris::snii::reader;
 using namespace doris::snii::writer;
-using doris::snii::query::Bm25Params;
-using doris::snii::query::ScoredDoc;
+using doris::snii::snii_test::Bm25Params;
+using doris::snii::snii_test::ScoredDoc;
 using doris::snii::stats::SniiStatsProvider;
 
 namespace {
@@ -398,7 +397,7 @@ TEST(SniiByteSkip, DocidPathReadsWholeFrqSpanAndScoringReadsMore) {
             << "docid-only vs windowed reader remote_bytes differ: a=" << a.remote_bytes
             << " b=" << b.remote_bytes;
 
-    // ---- (c) scoring_query reads positions on top of the frq span -------------
+    // ---- (c) scoring reads positions on top of the frq span -------------------
     SniiStatsProvider stats;
     ASSERT_TRUE(SniiStatsProvider::open(&idx, &stats).ok());
     const Bm25Params params; // defaults
@@ -406,15 +405,15 @@ TEST(SniiByteSkip, DocidPathReadsWholeFrqSpanAndScoringReadsMore) {
     const uint32_t kTopK = 10;
 
     std::vector<ScoredDoc> exhaustive;
-    ASSERT_TRUE(doris::snii::snii_test::top_k_scores(idx, stats, score_terms, kTopK, params,
-                                                     &exhaustive)
-                        .ok());
+    ASSERT_TRUE(
+            doris::snii::snii_test::top_k_scores(idx, stats, score_terms, kTopK, &exhaustive).ok());
 
     const std::vector<ScoredDoc> ref = ReferenceRanking(c, score_terms, kTopK, params);
     ASSERT_EQ(exhaustive.size(), ref.size());
     for (size_t i = 0; i < ref.size(); ++i) {
         EXPECT_EQ(exhaustive[i].docid, ref[i].docid) << "scoring docid mismatch at " << i;
-        EXPECT_NEAR(exhaustive[i].score, ref[i].score, 1e-9) << "scoring score mismatch at " << i;
+        // The engine scores in float; the reference in double.
+        EXPECT_NEAR(exhaustive[i].score, ref[i].score, 1e-5) << "scoring score mismatch at " << i;
     }
 
     // Scoring derives tf from positions, so a single-term scoring query over the
@@ -422,8 +421,7 @@ TEST(SniiByteSkip, DocidPathReadsWholeFrqSpanAndScoringReadsMore) {
     // same lookup + frq span, plus the prx windows (and norms).
     metered.reset_metrics();
     std::vector<ScoredDoc> hi_only;
-    ASSERT_TRUE(doris::snii::snii_test::top_k_scores(idx, stats, {"aa_hi"}, kTopK, params, &hi_only)
-                        .ok());
+    ASSERT_TRUE(doris::snii::snii_test::top_k_scores(idx, stats, {"aa_hi"}, kTopK, &hi_only).ok());
     const io::IoMetrics score_io = metered.metrics();
     const uint64_t score_frq_request = score_io.total_request_bytes;
     const uint64_t term_frq_request = a.total_request_bytes;

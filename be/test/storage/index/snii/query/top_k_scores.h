@@ -20,35 +20,53 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <roaring/roaring.hh>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
-#include "storage/index/query/roaring_docid_sink.h"
+#include "storage/index/inverted/query_v2/boolean_query/operator.h"
+#include "storage/index/inverted/query_v2/boolean_query/operator_boolean_weight.h"
+#include "storage/index/inverted/query_v2/score_combiner.h"
+#include "storage/index/inverted/query_v2/scorer.h"
+#include "storage/index/inverted/query_v2/term_query/term_weight.h"
+#include "storage/index/inverted/query_v2/weight.h"
+#include "storage/index/inverted/similarity/bm25_similarity.h"
 #include "storage/index/snii/format/dict_entry.h"
-#include "storage/index/snii/query/bm25_scorer.h"
-#include "storage/index/snii/query/scoring_query.h"
-#include "storage/index/snii/query/term_query.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
+#include "storage/index/snii/reader/snii_index_source.h"
 #include "storage/index/snii/stats/snii_stats_provider.h"
 
 namespace doris::snii::snii_test {
 
-// Scores every document holding any of `terms` with the production candidate
-// scorer, using segment-local idf and avgdl, and keeps the top `k` by score
-// descending, then docid ascending. Absent terms are skipped.
+// BM25's parameters, which the engine fixes; a reference ranking takes them as inputs.
+struct Bm25Params {
+    double k1 = 1.2;
+    double b = 0.75;
+};
+
+struct ScoredDoc {
+    uint32_t docid = 0;
+    double score = 0.0;
+};
+
+// The `k` best documents of the disjunction of `terms`, scored through the shared engine over
+// the index's source with the segment's own statistics (idf from each term's document
+// frequency, the average length from the stats block), ties in ascending docid order.
 inline Status top_k_scores(const reader::LogicalIndexReader& idx,
                            const stats::SniiStatsProvider& stats,
                            const std::vector<std::string>& terms, uint32_t k,
-                           const query::Bm25Params& params, std::vector<query::ScoredDoc>* out) {
+                           std::vector<ScoredDoc>* out) {
+    namespace query_v2 = segment_v2::inverted_index::query_v2;
     out->clear();
     if (k == 0) {
         return Status::OK();
     }
-    roaring::Roaring candidates;
-    index_query::RoaringDocIdSink sink(candidates);
-    std::vector<query::CollectionScoringTerm> clauses;
+    auto source = std::make_shared<reader::SniiIndexSource>(idx);
+    const std::wstring field = L"body";
+    std::vector<query_v2::WeightPtr> weights;
+    std::vector<std::string> keys;
     for (const std::string& term : terms) {
         bool found = false;
         format::DictEntry entry;
@@ -58,16 +76,30 @@ inline Status top_k_scores(const reader::LogicalIndexReader& idx,
         if (!found) {
             continue;
         }
-        RETURN_IF_ERROR(query::term_query(idx, term, &sink));
         const double n = static_cast<double>(stats.indexed_doc_count());
         const double df = static_cast<double>(entry.df);
-        clauses.push_back(
-                {.physical_term = term, .idf = std::log(1.0 + (n - df + 0.5) / (df + 0.5))});
+        const auto idf = static_cast<float>(std::log(1.0 + (n - df + 0.5) / (df + 0.5)));
+        weights.push_back(std::make_shared<query_v2::TermWeight>(
+                field, term,
+                std::make_shared<segment_v2::BM25Similarity>(idf,
+                                                             static_cast<float>(stats.avgdl())),
+                /*enable_scoring=*/true));
+        keys.emplace_back();
     }
-    std::vector<query::ScoredDoc> scored;
-    RETURN_IF_ERROR(query::scoring_query_candidates(idx, stats, clauses, candidates, stats.avgdl(),
-                                                    params, &scored));
-    std::ranges::sort(scored, [](const query::ScoredDoc& a, const query::ScoredDoc& b) {
+    std::vector<ScoredDoc> scored;
+    if (!weights.empty()) {
+        query_v2::OperatorBooleanWeight<query_v2::SumCombinerPtr> weight(
+                query_v2::OperatorType::OP_OR, std::move(weights), std::move(keys),
+                std::make_shared<query_v2::SumCombiner>());
+        query_v2::QueryExecutionContext context;
+        context.segment_num_rows = source->doc_count();
+        context.field_sources.emplace(field, source);
+        auto scorer = weight.scorer(context);
+        for (uint32_t doc = scorer->doc(); doc != query_v2::TERMINATED; doc = scorer->advance()) {
+            scored.push_back({.docid = doc, .score = scorer->score()});
+        }
+    }
+    std::ranges::sort(scored, [](const ScoredDoc& a, const ScoredDoc& b) {
         return a.score != b.score ? a.score > b.score : a.docid < b.docid;
     });
     if (scored.size() > k) {

@@ -52,14 +52,12 @@
 #include "storage/index/snii/query/phrase_query.h"
 #include "storage/index/snii/query/prefix_query.h"
 #include "storage/index/snii/query/regexp_query.h"
-#include "storage/index/snii/query/scoring_query.h"
 #include "storage/index/snii/query/term_query.h"
 #include "storage/index/snii/query/wildcard_query.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_index_source.h"
 #include "storage/index/snii/snii_doris_adapter.h"
 #include "storage/index/snii/snii_prx_profile.h"
-#include "storage/index/snii/stats/snii_stats_provider.h"
 #include "util/time.h"
 
 #ifdef BE_TEST
@@ -104,110 +102,11 @@ struct SniiQueryExecutionResult {
     std::vector<::doris::snii::query::PhraseMatch> phrase_matches;
 };
 
-std::vector<std::string> to_terms(const InvertedIndexQueryInfo& query_info) {
-    std::vector<std::string> terms;
-    terms.reserve(query_info.term_infos.size());
-    for (const auto& term_info : query_info.term_infos) {
-        DCHECK(term_info.is_single_term());
-        terms.push_back(term_info.get_single_term());
-    }
-    return terms;
-}
-
-bool uses_plain_term_frequency_scoring(InvertedIndexQueryType query_type,
-                                       const InvertedIndexQueryInfo& query_info) {
-    return query_type == InvertedIndexQueryType::MATCH_ANY_QUERY ||
-           query_type == InvertedIndexQueryType::MATCH_ALL_QUERY ||
-           (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY &&
-            query_info.term_infos.size() == 1);
-}
-
 bool uses_phrase_frequency_scoring(InvertedIndexQueryType query_type,
                                    const InvertedIndexQueryInfo& query_info) {
     return query_info.term_infos.size() > 1 &&
            (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY ||
             query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY);
-}
-
-Status score_plain_term_candidates(const IndexQueryContextPtr& context,
-                                   std::string_view column_name,
-                                   const InvertedIndexQueryInfo& query_info,
-                                   const ::doris::snii::reader::LogicalIndexReader& logical_reader,
-                                   const ::doris::snii::stats::SniiStatsProvider& segment_stats,
-                                   const roaring::Roaring& final_candidates) {
-    DORIS_CHECK(context->collection_statistics != nullptr);
-    DORIS_CHECK(context->collection_similarity != nullptr);
-
-    const std::wstring field_name = StringUtil::string_to_wstring(std::string(column_name));
-    const double collection_avgdl =
-            context->collection_statistics->get_or_calculate_avg_dl(field_name);
-    std::vector<::doris::snii::query::CollectionScoringTerm> scoring_terms;
-    scoring_terms.reserve(query_info.term_infos.size());
-    for (const auto& term_info : query_info.term_infos) {
-        DORIS_CHECK(term_info.is_single_term());
-        const std::string& logical_term = term_info.get_single_term();
-        RETURN_IF_ERROR(::doris::snii::query::internal::check_term_outside_internal_namespace(
-                logical_term));
-        const double idf = context->collection_statistics->get_or_calculate_idf(
-                field_name, StringUtil::string_to_wstring(logical_term));
-        scoring_terms.push_back({.physical_term = logical_term, .idf = idf});
-    }
-    DORIS_CHECK(final_candidates.isEmpty() || !scoring_terms.empty());
-
-    std::vector<::doris::snii::query::ScoredDoc> scored_docs;
-    RETURN_IF_ERROR(::doris::snii::query::scoring_query_candidates(
-            logical_reader, segment_stats, scoring_terms, final_candidates, collection_avgdl,
-            ::doris::snii::query::Bm25Params {}, &scored_docs));
-    for (const auto& scored_doc : scored_docs) {
-        context->collection_similarity->collect(scored_doc.docid,
-                                                static_cast<float>(scored_doc.score));
-    }
-    return Status::OK();
-}
-
-Status score_phrase_matches(const IndexQueryContextPtr& context, std::string_view column_name,
-                            InvertedIndexQueryType query_type,
-                            const InvertedIndexQueryInfo& query_info,
-                            const ::doris::snii::reader::LogicalIndexReader& logical_reader,
-                            const ::doris::snii::stats::SniiStatsProvider& segment_stats,
-                            const roaring::Roaring& final_candidates,
-                            const std::vector<::doris::snii::query::PhraseMatch>& matches) {
-    DORIS_CHECK(context->collection_statistics != nullptr);
-    DORIS_CHECK(context->collection_similarity != nullptr);
-    DORIS_CHECK(uses_phrase_frequency_scoring(query_type, query_info));
-    DORIS_CHECK_EQ(final_candidates.cardinality(), matches.size());
-
-    const std::wstring field_name = StringUtil::string_to_wstring(std::string(column_name));
-    const double collection_avgdl =
-            context->collection_statistics->get_or_calculate_avg_dl(field_name);
-    const size_t idf_term_count = query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY
-                                          ? query_info.term_infos.size() - 1
-                                          : query_info.term_infos.size();
-    double idf_sum = 0.0;
-    for (size_t i = 0; i < idf_term_count; ++i) {
-        const auto& term_info = query_info.term_infos[i];
-        DORIS_CHECK(term_info.is_single_term());
-        idf_sum += context->collection_statistics->get_or_calculate_idf(
-                field_name, StringUtil::string_to_wstring(term_info.get_single_term()));
-    }
-
-    const auto scorer = ::doris::snii::query::ScorerContext::from_idf(idf_sum);
-    std::vector<::doris::snii::query::ScoredDoc> scored_docs;
-    scored_docs.reserve(matches.size());
-    for (const auto& match : matches) {
-        DCHECK(final_candidates.contains(match.docid));
-        DCHECK_NE(match.frequency, 0);
-        uint8_t norm = 0;
-        RETURN_IF_ERROR(segment_stats.encoded_norm(match.docid, &norm));
-        scored_docs.push_back({.docid = match.docid,
-                               .score = scorer.score(match.frequency, norm, collection_avgdl,
-                                                     ::doris::snii::query::Bm25Params {})});
-    }
-    for (const auto& scored_doc : scored_docs) {
-        context->collection_similarity->collect(scored_doc.docid,
-                                                static_cast<float>(scored_doc.score));
-    }
-    return Status::OK();
 }
 
 // Multi-term phrases verify positions per document, so only they gain from restricting the
@@ -463,70 +362,20 @@ Status SniiIndexReader::_term_document_frequency(const std::string& /*column_nam
     return Status::OK();
 }
 
+// The leaf runs on the shared engine over the index's source, keeping the codes of what it
+// throws, so a bypass or a corrupted image still downgrades to rows.
 Status SniiIndexReader::_run_leaf(const IndexQueryContextPtr& context,
                                   const std::string& column_name, OpenedIndex& index,
                                   const index_query::logical::Node& leaf,
                                   const roaring::Roaring* candidates, bool scoring,
                                   std::shared_ptr<roaring::Roaring>* out) {
-    const auto* logical_reader = static_cast<SniiOpenedIndex&>(index).reader;
-    if (!scoring) {
-        // An unscored leaf runs on the shared engine, keeping the codes of what it throws, so a
-        // bypass or a corrupted image still downgrades to rows.
-        const std::wstring field = StringUtil::string_to_wstring(column_name);
-        auto source = _bind_source(context, field, index);
-        const uint32_t doc_count = source->doc_count();
-        auto result = std::make_shared<roaring::Roaring>();
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(run_leaf(context, field, leaf, candidates,
-                                                    /*scoring=*/false, std::move(source), doc_count,
-                                                    result));
-        result->runOptimize();
-        *out = std::move(result);
-        return Status::OK();
-    }
-    NativeQuery planned;
-    RETURN_IF_ERROR(plan_native_query(index_query::logical::Node(leaf), &planned));
-    const InvertedIndexQueryType query_type = planned.query_type;
-    const InvertedIndexQueryInfo& query_info = planned.query_info;
-    for (const auto& term_info : query_info.term_infos) {
-        if (!term_info.is_single_term()) {
-            return Status::NotSupported("SNII does not run a multi-term slot");
-        }
-    }
-    if (scoring && query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY &&
-        query_info.term_infos.size() == 1) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                "SNII scoring does not support a single-token phrase-prefix query");
-    }
-    std::vector<std::string> terms = to_terms(query_info);
-    DORIS_CHECK(!terms.empty());
-    const SniiQueryBitmapRequest bitmap_request {
-            .query_type = query_type,
-            .query_info = query_info,
-            // A WILDCARD or REGEXP query carries its pattern as the one term.
-            .search_str = terms.front(),
-            .max_expansions = index_query::max_expansions(*context),
-            .logical_reader = logical_reader,
-            .candidates = candidates};
-    std::vector<::doris::snii::query::PhraseMatch> phrase_matches;
-    auto* phrase_matches_out = scoring && uses_phrase_frequency_scoring(query_type, query_info)
-                                       ? &phrase_matches
-                                       : nullptr;
-    std::shared_ptr<roaring::Roaring> result;
-    RETURN_IF_ERROR(
-            _compute_query_bitmap(context, bitmap_request, &terms, &result, phrase_matches_out));
-    if (scoring && !result->isEmpty()) {
-        ::doris::snii::stats::SniiStatsProvider segment_stats;
-        RETURN_IF_ERROR(
-                ::doris::snii::stats::SniiStatsProvider::open(logical_reader, &segment_stats));
-        if (phrase_matches_out != nullptr) {
-            RETURN_IF_ERROR(score_phrase_matches(context, column_name, query_type, query_info,
-                                                 *logical_reader, segment_stats, *result,
-                                                 phrase_matches));
-        } else if (uses_plain_term_frequency_scoring(query_type, query_info)) {
-            RETURN_IF_ERROR(score_plain_term_candidates(context, column_name, query_info,
-                                                        *logical_reader, segment_stats, *result));
-        }
-    }
+    const std::wstring field = StringUtil::string_to_wstring(column_name);
+    auto source = _bind_source(context, field, index);
+    const uint32_t doc_count = source->doc_count();
+    auto result = std::make_shared<roaring::Roaring>();
+    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(run_leaf(context, field, leaf, candidates, scoring,
+                                                std::move(source), doc_count, result));
+    result->runOptimize();
     *out = std::move(result);
     return Status::OK();
 }

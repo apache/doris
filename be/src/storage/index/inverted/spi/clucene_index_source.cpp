@@ -42,6 +42,7 @@
 #include <boost/locale/encoding_utf.hpp>
 
 #include "storage/index/inverted/inverted_index_common_impl.h"
+#include "storage/index/inverted/similarity/bm25_similarity.h"
 #include "storage/index/inverted/spi/clucene_postings_cursor.h"
 #include "storage/index/inverted/util/string_helper.h"
 #include "storage/index/query/term_pattern.h"
@@ -134,6 +135,10 @@ Status CluceneIndexSource::expand_terms(index_query::TermPattern& pattern, int32
         _CLDELETE(enumerator);
     });
     return Status::OK();
+}
+
+std::span<const float> CluceneIndexSource::norm_lengths() const {
+    return BM25Similarity::lucene_norm_lengths();
 }
 
 bool CluceneIndexSource::is_live(uint32_t doc) const {

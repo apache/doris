@@ -36,9 +36,9 @@
 #include "storage/index/snii/query/internal/docid_conjunction.h"
 #include "storage/index/snii/query/phrase_query.h"
 #include "storage/index/snii/query/prefix_query.h"
-#include "storage/index/snii/query/scoring_query.h"
 #include "storage/index/snii/reader/dict_block_cache.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
+#include "storage/index/snii/reader/snii_index_source.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
 #include "storage/index/snii/stats/snii_stats_provider.h"
 #include "storage/index/snii/writer/snii_compound_writer.h"
@@ -757,33 +757,13 @@ TEST_F(SniiTermResolutionIoTest, AndWithoutTheFilterReadsEveryCandidateBlockInOn
     EXPECT_EQ(_counter.ranges(), 2U);
 }
 
-// Scoring resolves its distinct terms together, and a repeated term still scores once per clause.
-TEST_F(SniiTermResolutionIoTest, ScoringReadsItsColdDictionaryBlocksInOneRound) {
+// A scored group resolves its distinct terms together in one round, like the unscored ones.
+TEST_F(SniiTermResolutionIoTest, ScoringResolvesItsColdDictionaryBlocksInOneRound) {
     open_index();
-    stats::SniiStatsProvider segment_stats;
-    assert_ok(stats::SniiStatsProvider::open(&_index, &segment_stats));
-    const std::vector<CollectionScoringTerm> clauses = {{.physical_term = "alpha", .idf = 0.5},
-                                                        {.physical_term = "charlie", .idf = 1.5},
-                                                        {.physical_term = "alpha", .idf = 0.5},
-                                                        {.physical_term = "delta", .idf = 2.5}};
-    roaring::Roaring candidates;
-    candidates.addRange(0, kAllDocs.size());
-    constexpr double kCollectionAvgdl = 4.0;
+    reader::SniiIndexSource source(_index);
+    const std::vector<std::string> terms = {"alpha", "charlie", "alpha", "delta"};
     _counter.reset_counts();
-    std::vector<ScoredDoc> scored;
-    assert_ok(scoring_query_candidates(_index, segment_stats, clauses, candidates, kCollectionAvgdl,
-                                       Bm25Params {}, &scored));
-
-    double expected = 0.0;
-    for (const CollectionScoringTerm& clause : clauses) {
-        expected += ScorerContext::from_idf(clause.idf)
-                            .score(1, encode_norm(4), kCollectionAvgdl, Bm25Params {});
-    }
-    ASSERT_EQ(scored.size(), kAllDocs.size());
-    for (size_t i = 0; i < scored.size(); ++i) {
-        EXPECT_EQ(scored[i].docid, kAllDocs[i]);
-        EXPECT_DOUBLE_EQ(scored[i].score, expected);
-    }
+    assert_ok(source.prepare_terms(terms));
     EXPECT_EQ(_counter.rounds(), 1U);
     EXPECT_EQ(_counter.ranges(), 2U);
 }

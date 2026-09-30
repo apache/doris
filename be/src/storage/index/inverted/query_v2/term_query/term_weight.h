@@ -65,6 +65,8 @@ public:
 
     const std::wstring& field() const { return _field; }
     const std::string& term() const { return _term; }
+    const index_query::ScoringContextPtr<float>& similarity() const { return _similarity; }
+    bool scores() const { return _enable_scoring; }
 
 private:
     TermOrEmptyScorer specialized_scorer(const QueryExecutionContext& ctx,

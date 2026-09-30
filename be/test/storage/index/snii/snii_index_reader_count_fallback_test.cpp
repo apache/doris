@@ -52,6 +52,8 @@
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/inverted/similarity/bm25_similarity.h"
+#include "storage/index/query/spi/index_source.h"
 #include "storage/index/snii/encoding/byte_sink.h"
 #include "storage/index/snii/encoding/crc32c.h"
 #include "storage/index/snii/format/core_metadata.h"
@@ -908,7 +910,9 @@ TEST_F(SniiIndexReaderCountFallback, PublicBooleanQueriesScoreOnlyFinalBitmapWit
     EXPECT_EQ(positive_score_docids(*match_all.context->collection_similarity, {0, 1, 2}),
               (std::vector<uint32_t> {1}));
     EXPECT_EQ(all_stats->idf_terms, (std::vector<std::wstring> {L"alpha", L"beta"}));
-    EXPECT_EQ(all_stats->fields, (std::vector<std::wstring> {L"content", L"content", L"content"}));
+    // Each term's query reads the average length and its idf.
+    EXPECT_EQ(all_stats->fields,
+              (std::vector<std::wstring> {L"content", L"content", L"content", L"content"}));
     EXPECT_EQ(match_all.stats.inverted_index_query_cache_lookup, 0);
 
     auto any_stats = std::make_shared<FixedCollectionStatistics>();
@@ -924,7 +928,8 @@ TEST_F(SniiIndexReaderCountFallback, PublicBooleanQueriesScoreOnlyFinalBitmapWit
     EXPECT_EQ(positive_score_docids(*match_any.context->collection_similarity, {0, 1, 2}),
               (std::vector<uint32_t> {0, 1, 2}));
     EXPECT_EQ(any_stats->idf_terms, (std::vector<std::wstring> {L"alpha", L"beta"}));
-    EXPECT_EQ(any_stats->fields, (std::vector<std::wstring> {L"content", L"content", L"content"}));
+    EXPECT_EQ(any_stats->fields,
+              (std::vector<std::wstring> {L"content", L"content", L"content", L"content"}));
     EXPECT_EQ(match_any.stats.inverted_index_query_cache_lookup, 0);
 }
 
@@ -939,7 +944,10 @@ TEST_F(SniiIndexReaderCountFallback, PublicScoringZeroHitDoesNotLoadNorms) {
     analyzer_ctx.parser_type = InvertedIndexParserType::PARSER_ENGLISH;
     analyzer_ctx.analyzer_provider = provider;
     QueryExecutionContext execution(/*enable_query_cache=*/true);
-    execution.context->collection_statistics = std::make_shared<FixedCollectionStatistics>();
+    // The engine reads a term's idf when it plans the query, whether or not the term exists.
+    auto statistics = std::make_shared<FixedCollectionStatistics>();
+    statistics->idfs.emplace(L"missing", 1.0F);
+    execution.context->collection_statistics = statistics;
     execution.context->collection_similarity = std::make_shared<CollectionSimilarity>();
     const Field query_value = Field::create_field<TYPE_STRING>(std::string("missing"));
     std::shared_ptr<roaring::Roaring> bitmap;
@@ -978,10 +986,12 @@ TEST_F(SniiIndexReaderCountFallback, PublicPhraseQueriesScoreOccurrenceFrequency
     EXPECT_EQ(bitmap_docids(*exact_bitmap), (std::vector<uint32_t> {1}));
     EXPECT_EQ(exact_stats->idf_terms, (std::vector<std::wstring> {L"alpha", L"beta"}));
     EXPECT_EQ(exact.stats.inverted_index_query_cache_lookup, 0);
-    const double expected_exact = doris::snii::query::ScorerContext::from_idf(3.0).score(
-            2, doris::snii::query::encode_norm(4), 3.0, doris::snii::query::Bm25Params {});
+    // Two occurrences in a document of length 4, with the phrase's idf 3 and the average
+    // length 3, scored as the engine scores an SNII norm.
+    BM25Similarity exact_similarity(3.0F, 3.0F);
+    exact_similarity.bind_norms(index_query::kByteNormLengths);
     EXPECT_FLOAT_EQ(score_for_doc(*exact.context->collection_similarity, 1),
-                    static_cast<float>(expected_exact));
+                    exact_similarity.score(2.0F, doris::snii::query::encode_norm(4)));
 
     QueryExecutionContext prefix(/*enable_query_cache=*/true);
     auto prefix_stats = std::make_shared<FixedCollectionStatistics>();
@@ -996,10 +1006,10 @@ TEST_F(SniiIndexReaderCountFallback, PublicPhraseQueriesScoreOccurrenceFrequency
     EXPECT_EQ(bitmap_docids(*prefix_bitmap), (std::vector<uint32_t> {1}));
     EXPECT_EQ(prefix_stats->idf_terms, (std::vector<std::wstring> {L"alpha"}));
     EXPECT_EQ(prefix.stats.inverted_index_query_cache_lookup, 0);
-    const double expected_prefix = doris::snii::query::ScorerContext::from_idf(1.0).score(
-            2, doris::snii::query::encode_norm(4), 3.0, doris::snii::query::Bm25Params {});
+    BM25Similarity prefix_similarity(1.0F, 3.0F);
+    prefix_similarity.bind_norms(index_query::kByteNormLengths);
     EXPECT_FLOAT_EQ(score_for_doc(*prefix.context->collection_similarity, 1),
-                    static_cast<float>(expected_prefix));
+                    prefix_similarity.score(2.0F, doris::snii::query::encode_norm(4)));
 
     QueryExecutionContext single_prefix(/*enable_query_cache=*/true);
     single_prefix.context->collection_statistics = std::make_shared<FixedCollectionStatistics>();
@@ -1009,8 +1019,10 @@ TEST_F(SniiIndexReaderCountFallback, PublicPhraseQueriesScoreOccurrenceFrequency
     const Status single_prefix_status = opened.index_reader->query(
             single_prefix.context, "scoring_phrase_content", single_prefix_value,
             InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, single_prefix_bitmap, &analyzer_ctx);
-    EXPECT_EQ(single_prefix_status.code(), ErrorCode::INVERTED_INDEX_NOT_SUPPORTED)
-            << single_prefix_status;
+    // A single-token phrase prefix is the terms starting with it, with a constant score.
+    ASSERT_TRUE(single_prefix_status.ok()) << single_prefix_status;
+    ASSERT_NE(single_prefix_bitmap, nullptr);
+    EXPECT_EQ(bitmap_docids(*single_prefix_bitmap), (std::vector<uint32_t> {1, 2}));
 }
 
 TEST_F(SniiIndexReaderCountFallback, PublicPhraseQueryCacheHitLeavesPrxStatsUnchanged) {

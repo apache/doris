@@ -32,6 +32,8 @@
 #include "storage/index/inverted/query_v2/const_score_query/const_score_scorer.h"
 #include "storage/index/inverted/query_v2/nullable_scorer.h"
 #include "storage/index/inverted/query_v2/phrase_query/phrase_scorer.h"
+#include "storage/index/inverted/query_v2/postings/listed_walk.h"
+#include "storage/index/inverted/query_v2/scored_bit_set_query/scored_rows_scorer.h"
 #include "storage/index/inverted/query_v2/segment_postings.h"
 #include "storage/index/inverted/util/string_helper.h"
 #include "storage/index/query/exec/cursor_chained_postings.h"
@@ -44,9 +46,11 @@
 namespace doris::segment_v2::inverted_index::query_v2 {
 
 SlotPhraseWeight::SlotPhraseWeight(std::wstring field, index_query::PhraseQueryOptions options,
+                                   index_query::ScoringContextPtr<float> similarity,
                                    bool enable_scoring, bool nullable)
         : _field(std::move(field)),
           _options(options),
+          _similarity(std::move(similarity)),
           _enable_scoring(enable_scoring),
           _nullable(nullable) {}
 
@@ -72,10 +76,11 @@ ScorerPtr SlotPhraseWeight::scorer(const QueryExecutionContext& ctx,
     return scorer;
 }
 
+// Only an unscored phrase lists its rows for a conjunction: a scored one scores them itself.
 bool SlotPhraseWeight::lists_rows(const QueryExecutionContext& ctx,
                                   const std::string& binding_key) const {
     auto source = lookup_source(_field, ctx, binding_key);
-    return source != nullptr && _lists(*source);
+    return source != nullptr && !_enable_scoring && _lists(*source);
 }
 
 index_query::TruthSet SlotPhraseWeight::listed_rows(const QueryExecutionContext& ctx,
@@ -111,9 +116,9 @@ PhraseWeight::PhraseWeight(std::wstring field, std::vector<TermInfo> term_infos,
                            index_query::PhraseQueryOptions options,
                            index_query::ScoringContextPtr<float> similarity, bool enable_scoring,
                            bool nullable)
-        : SlotPhraseWeight(std::move(field), options, enable_scoring, nullable),
-          _term_infos(std::move(term_infos)),
-          _similarity(std::move(similarity)) {}
+        : SlotPhraseWeight(std::move(field), options, std::move(similarity), enable_scoring,
+                           nullable),
+          _term_infos(std::move(term_infos)) {}
 
 std::vector<PhraseSlot> PhraseWeight::_slots() const {
     std::vector<PhraseSlot> slots;
@@ -412,93 +417,6 @@ Status prefetch_positions(std::span<const SlotCursors> slots, const std::vector<
     return Status::OK();
 }
 
-// One term walked over the listed rows in ascending order. Entering a block reads the
-// positions of every listed row it holds in one call; they stay viewed until the walk leaves
-// the block.
-class TermWalk {
-public:
-    TermWalk(index_query::PostingsCursor& cursor, std::span<const uint32_t> rows)
-            : _cursor(cursor), _rows(rows) {}
-
-    Status positions_of(size_t row, uint32_t /*doc*/, index_query::PhrasePositionSpan* span) {
-        if (row >= _end) {
-            RETURN_IF_ERROR(_enter_block(row));
-        }
-        const size_t chosen = row - _begin;
-        const size_t k = _positions.by_ordinal ? _asked[chosen] : chosen;
-        *span = {_positions.flat.data() + _positions.offsets[k],
-                 _positions.flat.data() + _positions.offsets[k + 1]};
-        return Status::OK();
-    }
-
-private:
-    // The chain kept only rows the term holds, so the listed rows in the block are some of its
-    // documents, and all of them when they are as many.
-    Status _enter_block(size_t row) {
-        bool eof = false;
-        RETURN_IF_ERROR(_cursor.seek_block(_rows[row], &_block, &eof));
-        DORIS_CHECK(!eof);
-        const uint32_t last = _block.doc_at(_block.size() - 1);
-        _begin = row;
-        _end = index_query::gallop_past(_rows, row, [last](uint32_t doc) { return doc <= last; });
-        const size_t count = _end - _begin;
-        if (count == _block.size()) {
-            for (auto ordinal = static_cast<uint32_t>(_every.size()); ordinal < count; ++ordinal) {
-                _every.push_back(ordinal);
-            }
-            _asked = std::span(_every).first(count);
-            return _cursor.block_positions(_asked, &_buffer, &_positions);
-        }
-        _ordinals.resize(count);
-        _list_ordinals(_rows.subspan(_begin, count), _ordinals.data());
-        _asked = _ordinals;
-        return _cursor.block_positions(_asked, &_buffer, &_positions);
-    }
-
-    // The ordinals of `listed`, some of the current block's documents, in the block. A few skip
-    // ahead to each; at least half step through the block once, without a branch on each
-    // comparison.
-    void _list_ordinals(std::span<const uint32_t> listed, uint32_t* ordinals) const {
-        if (_block.dense) {
-            const uint32_t first = _block.range_begin;
-            for (size_t i = 0; i < listed.size(); ++i) {
-                ordinals[i] = listed[i] - first;
-            }
-            return;
-        }
-        const uint32_t* docs = _block.docs.data();
-        uint32_t ordinal = 0;
-        if (listed.size() * 2 < _block.docs.size()) {
-            for (size_t i = 0; i < listed.size(); ++i) {
-                while (docs[ordinal] < listed[i]) {
-                    ++ordinal;
-                }
-                DCHECK_EQ(docs[ordinal], listed[i]);
-                ordinals[i] = ordinal++;
-            }
-            return;
-        }
-        for (size_t i = 0; i < listed.size(); ++ordinal) {
-            DCHECK_LT(ordinal, _block.docs.size());
-            ordinals[i] = ordinal;
-            i += docs[ordinal] == listed[i] ? 1 : 0;
-        }
-    }
-
-    index_query::PostingsCursor& _cursor;
-    std::span<const uint32_t> _rows;
-    index_query::PostingsBlock _block;
-    // 0, 1, 2, ...: the ordinals of a block whose every document is listed.
-    std::vector<uint32_t> _every;
-    std::vector<uint32_t> _ordinals;
-    // The ordinals the current block's positions were asked for.
-    std::span<const uint32_t> _asked;
-    index_query::PositionsBuffer _buffer;
-    index_query::BlockPositions _positions;
-    size_t _begin = 0;
-    size_t _end = 0;
-};
-
 // The positions a slot's terms hold at the listed rows: one term's as they are, several terms'
 // merged in ascending order.
 class SlotWalk {
@@ -565,13 +483,14 @@ Status SlotWalk::_merged_positions(uint32_t doc, index_query::PhrasePositionSpan
     return Status::OK();
 }
 
-// The rows the phrase matches, each verified over the positions its slots hold there. Two
-// distinct slots of an exact phrase check directly; every other shape goes through the shared
-// verifier, which may skip a slot on a row it already rejected.
-template <typename Walk>
+// The rows the phrase matches, each verified over the positions its slots hold there, with the
+// phrase's frequency in each when counting. Two distinct slots of an exact phrase check
+// directly; every other shape goes through the shared verifier, which may skip a slot on a row
+// it already rejected.
+template <bool kCounting, typename Walk>
 Status verify_rows(std::span<Walk> walks, std::span<const uint32_t> rows,
                    const PhraseClauses& clauses, const index_query::PhraseQueryOptions& options,
-                   std::vector<uint32_t>* matched) {
+                   std::vector<uint32_t>* matched, std::vector<float>* frequencies) {
     if (options.slop == 0 && clauses.slots.size() == 2 && clauses.slots[0] == 0 &&
         clauses.slots[1] == 1) {
         const uint32_t delta = clauses.offsets[1] - clauses.offsets[0];
@@ -580,7 +499,13 @@ Status verify_rows(std::span<Walk> walks, std::span<const uint32_t> rows,
             index_query::PhrasePositionSpan right;
             RETURN_IF_ERROR(walks[0].positions_of(row, rows[row], &left));
             RETURN_IF_ERROR(walks[1].positions_of(row, rows[row], &right));
-            if (index_query::contains_two_term_phrase(left, right, delta)) {
+            if constexpr (kCounting) {
+                const uint32_t count = index_query::count_two_term_phrase(left, right, delta);
+                if (count > 0) {
+                    matched->push_back(rows[row]);
+                    frequencies->push_back(static_cast<float>(count));
+                }
+            } else if (index_query::contains_two_term_phrase(left, right, delta)) {
                 matched->push_back(rows[row]);
             }
         }
@@ -594,21 +519,34 @@ Status verify_rows(std::span<Walk> walks, std::span<const uint32_t> rows,
             return walks[slot].positions_of(row, doc, span);
         };
         float frequency = 0.0F;
-        RETURN_IF_ERROR(verifier.verify(load, /*collect_frequency=*/false, &frequency));
+        RETURN_IF_ERROR(verifier.verify(load, kCounting, &frequency));
         if (frequency > 0.0F) {
             matched->push_back(doc);
+            if constexpr (kCounting) {
+                frequencies->push_back(frequency);
+            }
         }
     }
     return Status::OK();
 }
 
-// Verifies the phrase on the listed rows, the slots' cursors rewound after the chain. Slots of
-// one term each are walked directly, and a phrase with a slot of several terms merges their
-// positions per row.
+template <typename Walk>
+Status verify_rows(std::vector<Walk>& walks, std::span<const uint32_t> rows,
+                   const PhraseClauses& clauses, const index_query::PhraseQueryOptions& options,
+                   std::vector<uint32_t>* matched, std::vector<float>* frequencies) {
+    return frequencies != nullptr
+                   ? verify_rows<true, Walk>(walks, rows, clauses, options, matched, frequencies)
+                   : verify_rows<false, Walk>(walks, rows, clauses, options, matched, frequencies);
+}
+
+// Verifies the phrase on the listed rows, the slots' cursors rewound after the chain, and
+// counts the phrase's frequency per row into `frequencies` when given. Slots of one term each
+// are walked directly, and a phrase with a slot of several terms merges their positions per
+// row.
 Status verify_slots(std::span<const SlotCursors> slots, std::span<const uint32_t> rows,
                     const HeldRows& held, const PhraseClauses& clauses,
-                    const index_query::PhraseQueryOptions& options,
-                    std::vector<uint32_t>* matched) {
+                    const index_query::PhraseQueryOptions& options, std::vector<uint32_t>* matched,
+                    std::vector<float>* frequencies) {
     for (const SlotCursors& cursors : slots) {
         for (const auto& cursor : cursors) {
             RETURN_IF_ERROR(cursor->rewind());
@@ -621,7 +559,7 @@ Status verify_slots(std::span<const SlotCursors> slots, std::span<const uint32_t
         for (const SlotCursors& cursors : slots) {
             walks.emplace_back(*cursors.front(), rows);
         }
-        return verify_rows<TermWalk>(walks, rows, clauses, options, matched);
+        return verify_rows(walks, rows, clauses, options, matched, frequencies);
     }
     std::vector<SlotWalk> walks;
     walks.reserve(slots.size());
@@ -632,7 +570,7 @@ Status verify_slots(std::span<const SlotCursors> slots, std::span<const uint32_t
             walks.emplace_back(slots[slot], held[slot]);
         }
     }
-    return verify_rows<SlotWalk>(walks, rows, clauses, options, matched);
+    return verify_rows(walks, rows, clauses, options, matched, frequencies);
 }
 
 } // namespace
@@ -655,11 +593,25 @@ ScorerPtr SlotPhraseWeight::_listed_scorer(index_query::IndexSource& source,
     THROW_IF_ERROR(prefetch_positions(slots, rows, held));
     THROW_IF_ERROR(source.fetch_pending());
     std::vector<uint32_t> matched;
-    THROW_IF_ERROR(verify_slots(slots, rows, held, clauses, _options, &matched));
-    auto matched_rows = std::make_shared<roaring::Roaring>();
-    matched_rows->addMany(matched.size(), matched.data());
-    return std::make_shared<ConstScoreScorer<BitSetScorerPtr>>(
-            std::make_shared<BitSetScorer>(std::move(matched_rows)));
+    std::vector<float> frequencies;
+    THROW_IF_ERROR(verify_slots(slots, rows, held, clauses, _options, &matched,
+                                _enable_scoring ? &frequencies : nullptr));
+    if (!_enable_scoring) {
+        auto matched_rows = std::make_shared<roaring::Roaring>();
+        matched_rows->addMany(matched.size(), matched.data());
+        return std::make_shared<ConstScoreScorer<BitSetScorerPtr>>(
+                std::make_shared<BitSetScorer>(std::move(matched_rows)));
+    }
+    // Each matched row is scored on its phrase frequency and the source's norm.
+    DORIS_CHECK(_similarity != nullptr);
+    std::vector<uint32_t> norms;
+    THROW_IF_ERROR(source.encoded_norms(matched, &norms));
+    _similarity->bind_norms(source.norm_lengths());
+    std::vector<float> scores(matched.size());
+    for (size_t i = 0; i < matched.size(); ++i) {
+        scores[i] = _similarity->score(frequencies[i], norms[i]);
+    }
+    return std::make_shared<ScoredRowsScorer>(std::move(matched), std::move(scores), nullptr);
 }
 
 } // namespace doris::segment_v2::inverted_index::query_v2

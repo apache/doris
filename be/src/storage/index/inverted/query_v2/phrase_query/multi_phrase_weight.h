@@ -35,9 +35,9 @@ public:
                       index_query::PhraseQueryOptions options,
                       index_query::ScoringContextPtr<float> similarity, bool enable_scoring,
                       bool nullable)
-            : SlotPhraseWeight(std::move(field), options, enable_scoring, nullable),
-              _term_infos(std::move(term_infos)),
-              _similarity(std::move(similarity)) {}
+            : SlotPhraseWeight(std::move(field), options, std::move(similarity), enable_scoring,
+                               nullable),
+              _term_infos(std::move(term_infos)) {}
     ~MultiPhraseWeight() override = default;
 
 private:
@@ -97,7 +97,6 @@ private:
     }
 
     std::vector<TermInfo> _term_infos;
-    index_query::ScoringContextPtr<float> _similarity;
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

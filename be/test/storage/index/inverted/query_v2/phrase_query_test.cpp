@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <map>
 #include <memory>
 #include <roaring/roaring.hh>
 #include <set>
@@ -35,6 +36,7 @@
 #include "storage/index/inverted/query_v2/phrase_query/multi_phrase_query.h"
 #include "storage/index/inverted/query_v2/phrase_query/phrase_scorer.h"
 #include "storage/index/inverted/query_v2/phrase_query/phrase_weight.h"
+#include "storage/index/inverted/similarity/bm25_similarity.h"
 #include "storage/index/inverted/spi/clucene_index_source.h"
 #include "storage/index/inverted/spi/clucene_postings_cursor.h"
 #include "storage/index/inverted/util/string_helper.h"
@@ -1001,6 +1003,102 @@ TEST_F(PhraseQueryV2Test, AListedMultiPhraseMatchesTheStreamedOne) {
         query_v2::MultiPhraseQuery query(std::make_shared<IndexQueryContext>(), L"content",
                                          term_infos);
         EXPECT_EQ(fake_docs(query, source), (std::set<uint32_t> {0, 1, 5, 8, 11})) << batches;
+    }
+}
+
+// The rows a scored weight lists on `source`, each with its score.
+static std::map<uint32_t, float> scored_docs(
+        query_v2::Weight& weight,
+        const std::shared_ptr<index_query::testing::FakeIndexSource>& source) {
+    query_v2::QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = source->doc_count();
+    exec_ctx.field_sources.emplace(L"content", source);
+    auto scorer = weight.scorer(exec_ctx, "");
+    std::map<uint32_t, float> rows;
+    for (uint32_t doc = scorer->doc(); doc != query_v2::TERMINATED; doc = scorer->advance()) {
+        rows[doc] = scorer->score();
+    }
+    return rows;
+}
+
+static void expect_scored_alike(const std::map<uint32_t, float>& listed,
+                                const std::map<uint32_t, float>& streamed) {
+    ASSERT_EQ(listed.size(), streamed.size());
+    for (const auto& [doc, score] : streamed) {
+        ASSERT_TRUE(listed.contains(doc)) << doc;
+        EXPECT_FLOAT_EQ(listed.at(doc), score) << doc;
+    }
+}
+
+// A scored phrase on a batching source lists its rows and scores each on the phrase frequency
+// the verifier counts there and the source's norm, as the streamed phrase scores them.
+TEST_F(PhraseQueryV2Test, AListedScoredPhraseScoresLikeTheStreamedOne) {
+    std::map<uint32_t, float> streamed;
+    for (const bool batches : {false, true}) {
+        auto source = fake_phrase_source(batches);
+        for (uint32_t doc = 0; doc < 16; ++doc) {
+            source->norms[doc] = doc % 6 + 1;
+        }
+        query_v2::PhraseWeight weight(L"content", phrase_terms({"quick", "brown"}), {.slop = 1},
+                                      std::make_shared<BM25Similarity>(2.0F, 8.0F),
+                                      /*enable_scoring=*/true, /*nullable=*/false);
+        const auto docs = scored_docs(weight, source);
+        if (!batches) {
+            streamed = docs;
+            EXPECT_EQ(streamed.size(), 4U);
+            continue;
+        }
+        expect_scored_alike(docs, streamed);
+        EXPECT_EQ(source->opened_together,
+                  (std::vector<std::vector<std::string>> {{"quick", "brown"}}));
+        EXPECT_EQ(source->fetches, 1U);
+    }
+}
+
+TEST_F(PhraseQueryV2Test, AListedScoredPhrasePrefixScoresLikeTheStreamedOne) {
+    std::map<uint32_t, float> streamed;
+    for (const bool batches : {false, true}) {
+        auto source = fake_prefix_source(batches);
+        for (uint32_t doc = 0; doc < 16; ++doc) {
+            source->norms[doc] = doc % 6 + 1;
+        }
+        query_v2::PhrasePrefixWeight weight(L"content", {{0, "quick"}}, {1, "bro"},
+                                            std::make_shared<BM25Similarity>(2.0F, 8.0F),
+                                            /*enable_scoring=*/true, /*max_expansions=*/50, nullptr,
+                                            /*suffix=*/false, /*nullable=*/false);
+        const auto docs = scored_docs(weight, source);
+        if (!batches) {
+            streamed = docs;
+            EXPECT_EQ(streamed.size(), 5U);
+            continue;
+        }
+        expect_scored_alike(docs, streamed);
+        EXPECT_EQ(source->opened_together,
+                  (std::vector<std::vector<std::string>> {{"quick"}, {"bronze", "brown"}}));
+    }
+}
+
+TEST_F(PhraseQueryV2Test, AListedScoredMultiPhraseScoresLikeTheStreamedOne) {
+    std::vector<TermInfo> term_infos = phrase_terms({"quick", "brown"});
+    term_infos[1].term = std::vector<std::string> {"brown", "bronze"};
+    std::map<uint32_t, float> streamed;
+    for (const bool batches : {false, true}) {
+        auto source = fake_prefix_source(batches);
+        for (uint32_t doc = 0; doc < 16; ++doc) {
+            source->norms[doc] = doc % 6 + 1;
+        }
+        query_v2::MultiPhraseWeight weight(L"content", term_infos, {},
+                                           std::make_shared<BM25Similarity>(2.0F, 8.0F),
+                                           /*enable_scoring=*/true, /*nullable=*/false);
+        const auto docs = scored_docs(weight, source);
+        if (!batches) {
+            streamed = docs;
+            EXPECT_EQ(streamed.size(), 5U);
+            continue;
+        }
+        expect_scored_alike(docs, streamed);
+        EXPECT_EQ(source->opened_together,
+                  (std::vector<std::vector<std::string>> {{"quick", "bronze", "brown"}}));
     }
 }
 

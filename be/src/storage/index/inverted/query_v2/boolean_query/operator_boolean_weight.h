@@ -54,10 +54,15 @@ public:
             return build_three_value_scorer(context);
         }
         const auto make_empty = []() -> ScorerPtr { return std::make_shared<EmptyScorer>(); };
+        // The term clauses reading a batching source are listed and scored as groups.
+        std::vector<ListedTerms> groups;
+        if (_type != OperatorType::OP_NOT) {
+            groups = listed_terms(context, /*scoring=*/true);
+        }
 
         switch (_type) {
         case OperatorType::OP_AND: {
-            auto [include_scorers, exclude_scorers] = collect_and_scorers(context);
+            auto [include_scorers, exclude_scorers] = collect_and_scorers(context, groups);
             ScorerPtr base_scorer;
             if (include_scorers.empty()) {
                 uint32_t max_doc = context.segment_num_rows;
@@ -95,9 +100,13 @@ public:
                                                   context.null_resolver);
         }
         case OperatorType::OP_OR: {
-            auto sub_scorers = per_scorers(context);
+            auto sub_scorers = per_scorers(context, groups);
             if (sub_scorers.empty()) {
                 return make_empty();
+            }
+            // One clause, or one listed group, is the disjunction itself.
+            if (sub_scorers.size() == 1) {
+                return std::move(sub_scorers.front());
             }
             return buffered_union_scorer_build<ScoreCombinerPtrT>(
                     std::move(sub_scorers), _score_combiner, context.segment_num_rows,
@@ -109,13 +118,18 @@ public:
     }
 
 private:
+    // The clauses' scorers to intersect and to exclude, the listed groups each as one scorer
+    // of its rows' summed scores.
     std::pair<std::vector<ScorerPtr>, std::vector<ScorerPtr>> collect_and_scorers(
-            const QueryExecutionContext& context) {
+            const QueryExecutionContext& context, std::vector<ListedTerms>& groups) {
         std::pair<std::vector<ScorerPtr>, std::vector<ScorerPtr>> result;
         result.first.reserve(_sub_weights.size());
         result.second.reserve(_sub_weights.size());
 
         for (size_t i = 0; i < _sub_weights.size(); ++i) {
+            if (is_listed(groups, i)) {
+                continue;
+            }
             const auto& sub_weight = _sub_weights[i];
             const auto& binding_key = _binding_keys[i];
             auto boolean_weight =
@@ -135,8 +149,31 @@ private:
                 result.first.emplace_back(std::move(scorer));
             }
         }
+        for (ListedTerms& group : groups) {
+            result.first.emplace_back(group.scored_conjunction());
+        }
 
         return result;
+    }
+
+    // The clauses' scorers, the listed groups each as one scorer of its rows' summed scores.
+    std::vector<ScorerPtr> per_scorers(const QueryExecutionContext& context,
+                                       std::vector<ListedTerms>& groups) {
+        std::vector<ScorerPtr> sub_scorers;
+        sub_scorers.reserve(_sub_weights.size());
+        for (size_t i = 0; i < _sub_weights.size(); ++i) {
+            if (is_listed(groups, i)) {
+                continue;
+            }
+            auto scorer = _sub_weights[i]->scorer(context, _binding_keys[i]);
+            if (scorer != nullptr) {
+                sub_scorers.emplace_back(std::move(scorer));
+            }
+        }
+        for (ListedTerms& group : groups) {
+            sub_scorers.emplace_back(group.scored_disjunction());
+        }
+        return sub_scorers;
     }
 
     std::vector<ScorerPtr> per_scorers(const QueryExecutionContext& context) {
@@ -156,14 +193,16 @@ private:
     }
 
     // The term clauses reading a source that batches its reads, grouped by source and opened
-    // together; the other clauses run through their scorers.
-    std::vector<ListedTerms> listed_terms(const QueryExecutionContext& context) {
+    // together, with their similarities when `scoring` (a boolean scores with its clauses); the
+    // other clauses run through their scorers.
+    std::vector<ListedTerms> listed_terms(const QueryExecutionContext& context, bool scoring) {
         std::vector<ListedTerms> groups;
         for (size_t i = 0; i < _sub_weights.size(); ++i) {
             const auto* term = dynamic_cast<const TermWeight*>(_sub_weights[i].get());
             if (term == nullptr) {
                 continue;
             }
+            DORIS_CHECK(!scoring || term->scores());
             auto source = lookup_source(term->field(), context, _binding_keys[i]);
             if (source == nullptr || !source->batches_reads()) {
                 continue;
@@ -177,10 +216,10 @@ private:
                         logical_field_or_fallback(context, _binding_keys[i], term->field()));
                 group = groups.insert(groups.end(), ListedTerms(source, std::move(nulls)));
             }
-            group->add(i, term->term());
+            group->add(i, term->term(), scoring ? term->similarity() : nullptr);
         }
         for (ListedTerms& group : groups) {
-            group.open(_type == OperatorType::OP_AND);
+            group.open(_type == OperatorType::OP_AND, scoring);
         }
         return groups;
     }
@@ -202,7 +241,7 @@ private:
     }
 
     index_query::TruthSet evaluate_children(const QueryExecutionContext& context) {
-        auto groups = listed_terms(context);
+        auto groups = listed_terms(context, /*scoring=*/false);
         if (_type == OperatorType::OP_AND) {
             return evaluate_conjunction(context, groups);
         }

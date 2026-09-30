@@ -37,7 +37,6 @@
 #include "storage/index/snii/query/bm25_scorer.h"
 #include "storage/index/snii/query/internal/docid_posting_reader.h"
 #include "storage/index/snii/query/phrase_query.h"
-#include "storage/index/snii/query/scoring_query.h"
 #include "storage/index/snii/query/term_query.h"
 #include "storage/index/snii/query/top_k_scores.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
@@ -68,8 +67,8 @@ using namespace doris::snii;
 using namespace doris::snii::format;
 using namespace doris::snii::reader;
 using namespace doris::snii::writer;
-using doris::snii::query::Bm25Params;
-using doris::snii::query::ScoredDoc;
+using doris::snii::snii_test::Bm25Params;
+using doris::snii::snii_test::ScoredDoc;
 using doris::snii::stats::SniiStatsProvider;
 
 namespace {
@@ -300,7 +299,8 @@ void ExpectRankingEqual(const std::vector<ScoredDoc>& got, const std::vector<Sco
     ASSERT_EQ(got.size(), ref.size()) << label;
     for (size_t i = 0; i < ref.size(); ++i) {
         EXPECT_EQ(got[i].docid, ref[i].docid) << label << " docid i=" << i;
-        EXPECT_NEAR(got[i].score, ref[i].score, 1e-9) << label << " score i=" << i;
+        // The engine scores in float; the reference in double.
+        EXPECT_NEAR(got[i].score, ref[i].score, 1e-5) << label << " score i=" << i;
     }
 }
 
@@ -401,8 +401,7 @@ TEST(SniiPostingGrouping, ContiguousDdBlockSavesAllThreeMetrics) {
     const std::vector<std::string> score_terms = {"aa_hi", "aa_mid", "aa_rare"};
     for (uint32_t k : {1U, 10U, 100U}) {
         std::vector<ScoredDoc> ex;
-        ASSERT_TRUE(
-                doris::snii::snii_test::top_k_scores(idx, stats, score_terms, k, params, &ex).ok());
+        ASSERT_TRUE(doris::snii::snii_test::top_k_scores(idx, stats, score_terms, k, &ex).ok());
         const std::vector<ScoredDoc> ref = ReferenceRanking(c, score_terms, k, params);
         ExpectRankingEqual(ex, ref, "exhaustive");
     }

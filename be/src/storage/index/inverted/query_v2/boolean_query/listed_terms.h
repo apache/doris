@@ -21,32 +21,41 @@
 #include <cstdint>
 #include <memory>
 #include <roaring/roaring.hh>
+#include <span>
 #include <string>
 #include <vector>
 
+#include "common/status.h"
+#include "storage/index/inverted/query_v2/scorer.h"
 #include "storage/index/query/boolean/truth_set.h"
 #include "storage/index/query/spi/index_source.h"
 #include "storage/index/query/spi/postings_cursor.h"
+#include "storage/index/query/spi/scoring_context.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-// The term clauses of one unscored boolean that read one source batching its reads. They are
-// listed together instead of one document at a time: the conjunction as a chain narrowing the
-// cheapest term's rows, the disjunction as one round of reads over every term.
+// The term clauses of one boolean that read one source batching its reads. They are listed
+// together instead of one document at a time: the conjunction as a chain narrowing the
+// cheapest term's rows, the disjunction as one round of reads over every term. Scored, the
+// conjunction scores its listed rows on the positions read in one more round and the source's
+// norms, and the disjunction merges the terms' scores from the frequencies and norms read with
+// their postings.
 class ListedTerms {
 public:
     // `nulls` are the rows the terms' field leaves UNKNOWN, null when there are none.
     ListedTerms(index_query::IndexSourcePtr source, std::shared_ptr<roaring::Roaring> nulls);
 
     const index_query::IndexSourcePtr& source() const { return _source; }
-    // Adds clause `clause` of the boolean, which asks for `term`.
-    void add(size_t clause, std::string term);
+    // Adds clause `clause` of the boolean, which asks for `term`, scored by `similarity` when
+    // the boolean scores.
+    void add(size_t clause, std::string term,
+             index_query::ScoringContextPtr<float> similarity = nullptr);
     // Whether the boolean's clause `clause` is listed here.
     bool holds(size_t clause) const;
 
     // Opens every term together; the listings and the costs below need it. A conjunction opens
     // none when the source surely lacks one of its terms.
-    void open(bool conjunctive);
+    void open(bool conjunctive, bool scoring = false);
     // Whether the dictionary lacks a term, so the conjunction is FALSE everywhere.
     bool has_absent_term() const;
     // The fewest documents any term holds: what the conjunction's first term lists.
@@ -57,12 +66,21 @@ public:
     // The rows holding any term, with the field's UNKNOWN rows; FALSE everywhere when every
     // term is absent.
     index_query::TruthSet disjunction();
+    // The rows holding every term, each with the sum of the terms' scores there; empty when a
+    // term is absent.
+    ScorerPtr scored_conjunction();
+    // The rows holding any term, each with the sum of the scores of the terms holding it.
+    ScorerPtr scored_disjunction();
 
 private:
+    // The rows holding every term among `candidates`, listed as a chain.
+    Status _chain(const std::vector<uint32_t>* candidates, std::vector<uint32_t>* rows);
+
     index_query::IndexSourcePtr _source;
     std::shared_ptr<roaring::Roaring> _nulls;
     std::vector<size_t> _clauses;
     std::vector<std::string> _terms;
+    std::vector<index_query::ScoringContextPtr<float>> _similarities;
     std::vector<std::unique_ptr<index_query::PostingsCursor>> _cursors;
 };
 

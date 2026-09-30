@@ -20,6 +20,7 @@
 #include <concepts>
 #include <cstdint>
 #include <memory>
+#include <span>
 
 namespace doris::index_query {
 
@@ -32,6 +33,9 @@ public:
     virtual Score score(Score frequency, int64_t encoded_norm) = 0;
     // Returns a conservative upper bound for postings scored by this context.
     virtual Score max_score() = 0;
+    // Binds the document length each encoded norm stands for, as the source of the postings
+    // scored next reports it; the context scores by it until bound again.
+    virtual void bind_norms(std::span<const float> lengths) = 0;
 };
 
 template <std::floating_point Score>

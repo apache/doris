@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -51,6 +52,7 @@ public:
                      std::unique_ptr<index_query::PostingsCursor>* out) override;
     Status expand_terms(index_query::TermPattern& pattern, int32_t max_expansions,
                         std::vector<std::string>* out) override;
+    std::span<const float> norm_lengths() const override;
     bool is_live(uint32_t doc) const override;
     std::vector<index_query::IndexSegment> segments() const override;
 

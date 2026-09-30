@@ -72,8 +72,9 @@ private:
 
 // The postings of one term as the shared engine reads them: one block per window (the whole
 // posting for a slim or inline term), term frequencies as the position counts of the window's
-// PRX frame, norms from the norms section, and positions from the frame, decoded once per
-// window when they are first asked (with the frequencies when scoring). A cursor opened with
+// PRX frame (one per document on an index without positions), norms from the norms section,
+// and positions from the frame, decoded once per window when they are first asked (with the
+// frequencies when scoring). A cursor opened with
 // positions keeps the docids it decodes, so listing again after a rewind decodes nothing twice.
 //
 // Reads: an inline term needs none. A slim term reads its dd region, and its PRX frame when
@@ -142,7 +143,11 @@ private:
         bool prx = false;
     };
 
-    bool _wants_prx() const { return _positions_wanted || _scoring; }
+    // Whether the frames are read: for positions, or for the frequencies of a positional
+    // index; an index without positions scores one occurrence per document.
+    bool _scores_from_prx() const { return _scoring && _idx.has_positions(); }
+    bool _wants_prx() const { return _positions_wanted || _scores_from_prx(); }
+    Status _fill_norms();
     Status _ensure_ready();
     Status _open_slim();
     Status _read_prelude();

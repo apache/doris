@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -235,6 +236,115 @@ TEST_F(SniiIndexSourceTest, PositionsNeedAPositionedIndex) {
     EXPECT_TRUE(set.advance());
     EXPECT_EQ(set.doc(), 7U);
     EXPECT_FALSE(set.advance());
+}
+
+// An index without norms answers 1 for every document.
+TEST_F(SniiIndexSourceTest, AnIndexWithoutNormsReportsOnes) {
+    ASSERT_FALSE(_index.has_norms());
+    std::vector<uint32_t> norms;
+    assert_ok(_source->encoded_norms(std::vector<uint32_t> {3, 9}, &norms));
+    EXPECT_EQ(norms, (std::vector<uint32_t> {1, 1}));
+}
+
+// An index without positions counts one occurrence per document when scored.
+TEST_F(SniiIndexSourceTest, ScoringOnADocsOnlyIndexCountsOneOccurrence) {
+    MemoryFile file;
+    writer::SniiIndexInput input;
+    input.index_id = 3;
+    input.index_suffix = "tag";
+    input.config = format::IndexConfig::kDocsOnly;
+    input.doc_count = 10;
+    input.terms = {
+            make_term("only", {{.docid = 2, .positions = {0}}, {.docid = 7, .positions = {0}}})};
+    writer::SniiCompoundWriter compound_writer(&file);
+    assert_ok(compound_writer.add_logical_index(input));
+    assert_ok(compound_writer.finish());
+    SniiSegmentReader segment;
+    LogicalIndexReader index;
+    assert_ok(SniiSegmentReader::open(&file, &segment));
+    assert_ok(segment.open_index(3, "tag", &index));
+    SniiIndexSource source(index);
+
+    std::unique_ptr<index_query::PostingsCursor> cursor;
+    assert_ok(source.open_term("only", /*positions=*/false, /*scoring=*/true, &cursor));
+    ASSERT_NE(cursor, nullptr);
+    index_query::PostingsBlock block;
+    bool eof = false;
+    assert_ok(cursor->next_block(&block, &eof));
+    ASSERT_FALSE(eof);
+    ASSERT_EQ(block.size(), 2U);
+    EXPECT_EQ(block.doc_at(1), 7U);
+    EXPECT_EQ(block.freq_at(1), 1U);
+    EXPECT_EQ(block.norm_at(1), 1U);
+}
+
+// A small corpus with norms: every document holds "alpha" twice, the even ones "beta" once, and
+// the norm of document d is d + 1.
+class SniiScoredSourceTest : public ::testing::Test {
+protected:
+    static constexpr uint32_t kDocCount = 40;
+
+    void SetUp() override {
+        std::vector<snii_test::PostingDoc> alpha;
+        std::vector<snii_test::PostingDoc> beta;
+        for (uint32_t doc = 0; doc < kDocCount; ++doc) {
+            alpha.push_back({.docid = doc, .positions = {0, 2}});
+            if (doc % 2 == 0) {
+                beta.push_back({.docid = doc, .positions = {1}});
+            }
+        }
+        writer::SniiIndexInput input;
+        input.index_id = 11;
+        input.index_suffix = "scored";
+        input.config = format::IndexConfig::kDocsPositions;
+        input.doc_count = kDocCount;
+        input.encoded_norms.resize(kDocCount);
+        for (uint32_t doc = 0; doc < kDocCount; ++doc) {
+            input.encoded_norms[doc] = static_cast<uint8_t>(doc + 1);
+        }
+        input.terms = {make_term("alpha", std::move(alpha)), make_term("beta", std::move(beta))};
+        writer::SniiCompoundWriter compound_writer(&_file);
+        assert_ok(compound_writer.add_logical_index(input));
+        assert_ok(compound_writer.finish());
+        assert_ok(SniiSegmentReader::open(&_metered, &_segment));
+        assert_ok(_segment.open_index(11, "scored", &_index));
+        _metered.reset_metrics();
+        _source = std::make_unique<SniiIndexSource>(_index);
+    }
+
+    uint64_t rounds() const { return _metered.metrics().serial_rounds; }
+
+    MemoryFile _file;
+    io::MeteredFileReader _metered {&_file, /*block_size=*/256};
+    SniiSegmentReader _segment;
+    LogicalIndexReader _index;
+    std::unique_ptr<SniiIndexSource> _source;
+};
+
+TEST_F(SniiScoredSourceTest, NormLengthsAreTheDocumentLengths) {
+    const std::span<const float> lengths = _source->norm_lengths();
+    ASSERT_EQ(lengths.size(), 256U);
+    EXPECT_EQ(lengths[0], 1.0F);
+    EXPECT_EQ(lengths[1], 1.0F);
+    EXPECT_EQ(lengths[20], 20.0F);
+    EXPECT_EQ(lengths[255], 255.0F);
+}
+
+// The norms are read once, and only when some document's norm is asked.
+TEST_F(SniiScoredSourceTest, EncodedNormsAreReadOnceAndOnlyWhenAsked) {
+    ASSERT_TRUE(_index.has_norms());
+    std::vector<uint32_t> norms;
+    assert_ok(_source->encoded_norms({}, &norms));
+    EXPECT_TRUE(norms.empty());
+    EXPECT_EQ(rounds(), 0U);
+    const std::vector<uint32_t> docs = {1, 4, 7};
+    assert_ok(_source->encoded_norms(docs, &norms));
+    EXPECT_EQ(norms, (std::vector<uint32_t> {2, 5, 8}));
+    const uint64_t read = rounds();
+    EXPECT_GE(read, 1U);
+    assert_ok(_source->encoded_norms(docs, &norms));
+    EXPECT_EQ(norms, (std::vector<uint32_t> {2, 5, 8}));
+    EXPECT_EQ(rounds(), read);
 }
 
 // The corpus read through a metered reader, so the rounds of every open count.

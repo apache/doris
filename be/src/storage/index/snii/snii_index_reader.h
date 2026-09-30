@@ -83,7 +83,7 @@ private:
     Status _term_document_frequency(const std::string& column_name, OpenedIndex& index,
                                     const std::string& term, uint64_t* df,
                                     uint64_t* document_count) override;
-    // Plans the native query, runs it and scores its rows afterwards.
+    // Runs the leaf on the shared engine over the index's source.
     Status _run_leaf(const IndexQueryContextPtr& context, const std::string& column_name,
                      OpenedIndex& index, const index_query::logical::Node& leaf,
                      const roaring::Roaring* candidates, bool scoring,

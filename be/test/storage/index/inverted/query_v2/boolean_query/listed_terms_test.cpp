@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include <functional>
+#include <map>
 #include <memory>
 #include <roaring/roaring.hh>
 #include <string>
@@ -35,6 +36,7 @@
 #include "storage/index/inverted/query_v2/null_bitmap_fetcher.h"
 #include "storage/index/inverted/query_v2/scorer.h"
 #include "storage/index/inverted/query_v2/term_query/term_query.h"
+#include "storage/index/inverted/similarity/collection_statistics.h"
 #include "storage/index/query/boolean/truth_set.h"
 #include "storage/index/query/fake_index_source.h"
 
@@ -84,19 +86,77 @@ private:
     segment_v2::IndexIterator* _iterator;
 };
 
-// The corpus: "a" holds 1 2 3 5 8, "b" 2 3 8 9 and "c" 3 8 20; rows 40 and 41 are NULL.
+// Statistics for scoring: idf 1, 2 and 3 for "a", "b" and any other term, an average length of 4.
+class FixedCollectionStatistics final : public CollectionStatistics {
+public:
+    float get_or_calculate_idf(const std::wstring& /*field_name*/,
+                               const std::wstring& term) override {
+        static const std::map<std::wstring, float> idfs {{L"a", 1.0F}, {L"b", 2.0F}};
+        const auto it = idfs.find(term);
+        return it == idfs.end() ? 3.0F : it->second;
+    }
+    float get_or_calculate_avg_dl(const std::wstring& /*field_name*/) override { return 4.0F; }
+};
+
+FakeIndexSource::Posting posting(uint32_t doc, std::vector<uint32_t> positions) {
+    return {.doc = doc, .positions = std::move(positions)};
+}
+
+// The corpus: "a" holds 1 2 3 5 8, "b" 2 3 8 9 and "c" 3 8 20, with one to three positions
+// each; the norm of a row is its number modulo 5, plus one; rows 40 and 41 are NULL.
 class ListedTermsTest : public ::testing::Test {
 protected:
     using MakeQuery = std::function<QueryPtr()>;
+
+    void SetUp() override {
+        _context->collection_statistics = std::make_shared<FixedCollectionStatistics>();
+    }
 
     std::shared_ptr<FakeIndexSource> source(bool batches) const {
         auto source = std::make_shared<FakeIndexSource>();
         source->batches = batches;
         source->set_doc_count(64);
-        source->add("a", {1, 2, 3, 5, 8});
-        source->add("b", {2, 3, 8, 9});
-        source->add("c", {3, 8, 20});
+        source->add("a", {posting(1, {0}), posting(2, {0, 3}), posting(3, {1}),
+                          posting(5, {2, 4, 6}), posting(8, {0})});
+        source->add("b",
+                    {posting(2, {1}), posting(3, {0, 2}), posting(8, {1, 5}), posting(9, {0})});
+        source->add("c", {posting(3, {3}), posting(8, {2}), posting(20, {0, 1})});
+        for (uint32_t doc = 0; doc < 64; ++doc) {
+            source->norms[doc] = doc % 5 + 1;
+        }
         return source;
+    }
+
+    // The rows of the scored query on one source, each with its score.
+    std::map<uint32_t, float> scored(const MakeQuery& make_query,
+                                     const std::shared_ptr<FakeIndexSource>& source) const {
+        QueryExecutionContext exec_ctx;
+        exec_ctx.segment_num_rows = source->doc_count();
+        exec_ctx.sources = {source};
+        exec_ctx.field_sources.emplace(kField, source);
+        exec_ctx.null_resolver = &_resolver;
+        auto scorer = make_query()->weight(true)->scorer(exec_ctx);
+        std::map<uint32_t, float> rows;
+        for (uint32_t doc = scorer->doc(); doc != TERMINATED; doc = scorer->advance()) {
+            rows[doc] = scorer->score();
+        }
+        return rows;
+    }
+
+    static std::vector<uint32_t> keys(const std::map<uint32_t, float>& rows) {
+        std::vector<uint32_t> keys;
+        for (const auto& [doc, score] : rows) {
+            keys.push_back(doc);
+        }
+        return keys;
+    }
+
+    static void expect_scores_eq(const std::map<uint32_t, float>& actual,
+                                 const std::map<uint32_t, float>& expected) {
+        ASSERT_EQ(keys(actual), keys(expected));
+        for (const auto& [doc, score] : expected) {
+            EXPECT_FLOAT_EQ(actual.at(doc), score) << doc;
+        }
     }
 
     QueryPtr term(const std::string& text) const {
@@ -274,6 +334,67 @@ TEST_F(ListedTermsTest, OtherClausesRunInCostOrderAroundTheChain) {
             },
             roaring::Roaring::bitmapOf(2, 3U, 8U), roaring::Roaring());
     EXPECT_TRUE(listed->prefetches["c"][0].whole);
+}
+
+// A scored conjunction on a batching source lists its rows as a chain and scores them on the
+// positions it reads; its scores are the streamed strategy's.
+TEST_F(ListedTermsTest, AScoredConjunctionScoresTheRowsItLists) {
+    const auto make = [&] { return boolean(OperatorType::OP_AND, {term("a"), term("b")}); };
+    auto streamed = source(false);
+    const auto expected = scored(make, streamed);
+    EXPECT_EQ(keys(expected), (std::vector<uint32_t> {2, 3, 8}));
+    EXPECT_TRUE(streamed->opened_together.empty());
+    auto listed = source(true);
+    expect_scores_eq(scored(make, listed), expected);
+    EXPECT_EQ(listed->opened_together, (std::vector<std::vector<std::string>> {{"a", "b"}}));
+    EXPECT_TRUE(listed->opened.empty());
+}
+
+// The chain lists the rarer term whole and the other on its rows; then both read the positions
+// of the rows holding every term, in one round.
+TEST_F(ListedTermsTest, AScoredConjunctionReadsTheListedRowsPositionsInOneRound) {
+    const auto make = [&] { return boolean(OperatorType::OP_AND, {term("a"), term("b")}); };
+    auto listed = source(true);
+    EXPECT_EQ(keys(scored(make, listed)), (std::vector<uint32_t> {2, 3, 8}));
+    ASSERT_EQ(listed->prefetches["b"].size(), 2U);
+    ASSERT_EQ(listed->prefetches["a"].size(), 2U);
+    EXPECT_TRUE(listed->prefetches["b"][0].whole);
+    EXPECT_FALSE(listed->prefetches["b"][0].positions);
+    EXPECT_EQ(listed->prefetches["a"][0].candidates, (std::vector<uint32_t> {2, 3, 8, 9}));
+    EXPECT_FALSE(listed->prefetches["a"][0].positions);
+    EXPECT_EQ(listed->prefetches["a"][1].candidates, (std::vector<uint32_t> {2, 3, 8}));
+    EXPECT_TRUE(listed->prefetches["a"][1].positions);
+    EXPECT_EQ(listed->prefetches["b"][1].candidates, (std::vector<uint32_t> {2, 3, 8}));
+    EXPECT_TRUE(listed->prefetches["b"][1].positions);
+    EXPECT_EQ(listed->fetches, 1U);
+}
+
+// A scored disjunction reads every term's rows, frequencies and norms in one round and sums,
+// per row, the scores of the terms holding it.
+TEST_F(ListedTermsTest, AScoredDisjunctionSumsTheScoresOfEachTerm) {
+    const auto make = [&] { return boolean(OperatorType::OP_OR, {term("a"), term("c")}); };
+    auto streamed = source(false);
+    const auto expected = scored(make, streamed);
+    EXPECT_EQ(keys(expected), (std::vector<uint32_t> {1, 2, 3, 5, 8, 20}));
+    auto listed = source(true);
+    expect_scores_eq(scored(make, listed), expected);
+    EXPECT_EQ(listed->opened_together, (std::vector<std::vector<std::string>> {{"a", "c"}}));
+    ASSERT_EQ(listed->prefetches["a"].size(), 1U);
+    EXPECT_TRUE(listed->prefetches["a"][0].whole);
+    EXPECT_FALSE(listed->prefetches["a"][0].positions);
+    ASSERT_EQ(listed->prefetches["c"].size(), 1U);
+    EXPECT_TRUE(listed->prefetches["c"][0].whole);
+    EXPECT_FALSE(listed->prefetches["c"][0].positions);
+    EXPECT_EQ(listed->fetches, 1U);
+}
+
+// A scored conjunction with a term the source surely lacks opens nothing and matches nothing.
+TEST_F(ListedTermsTest, AScoredConjunctionWithAnAbsentTermMatchesNothing) {
+    const auto make = [&] { return boolean(OperatorType::OP_AND, {term("a"), term("absent")}); };
+    auto listed = source(true);
+    EXPECT_TRUE(scored(make, listed).empty());
+    EXPECT_TRUE(listed->opened_together.empty());
+    EXPECT_TRUE(listed->opened.empty());
 }
 
 } // namespace

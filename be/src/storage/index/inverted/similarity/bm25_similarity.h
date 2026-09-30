@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <span>
+
 #include "storage/index/inverted/similarity/similarity.h"
 
 namespace doris::segment_v2 {
@@ -42,6 +44,11 @@ public:
 
     float score(float freq, int64_t encoded_norm) override;
     float max_score() override;
+    void bind_norms(std::span<const float> lengths) override;
+
+    // The document lengths Lucene's norm bytes stand for, which a context decodes by unless a
+    // source binds its own.
+    static std::span<const float> lucene_norm_lengths();
 
     static uint8_t int_to_byte4(int32_t i);
     static int32_t byte4_to_int(uint8_t b);
@@ -66,6 +73,7 @@ private:
     float _avgdl = 0.0F;
     float _weight = 1.0F;
 
+    std::span<const float> _lengths;
     std::vector<float> _cache;
 };
 

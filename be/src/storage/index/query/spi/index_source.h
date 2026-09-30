@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -33,6 +34,16 @@ namespace doris::index_query {
 class TermPattern;
 class IndexSource;
 using IndexSourcePtr = std::shared_ptr<IndexSource>;
+
+// The document length each encoded norm stands for when a byte holds the length itself, 0
+// standing for 1.
+inline constexpr std::array<float, 256> kByteNormLengths = [] {
+    std::array<float, 256> lengths {};
+    for (size_t i = 0; i < lengths.size(); ++i) {
+        lengths[i] = static_cast<float>(i == 0 ? 1 : i);
+    }
+    return lengths;
+}();
 
 // One part of a source split by segment, with the first docid its documents map to.
 struct IndexSegment {
@@ -56,7 +67,8 @@ public:
     }
 
     // The postings of a UTF-8 term: with positions, and with frequencies and norms, as asked.
-    // A term the dictionary lacks yields a null cursor.
+    // A term the dictionary lacks yields a null cursor; a source without positions counts one
+    // occurrence per document.
     virtual Status open_term(std::string_view term, bool positions, bool scoring,
                              std::unique_ptr<PostingsCursor>* out) = 0;
 
@@ -64,6 +76,17 @@ public:
     // that is positive.
     virtual Status expand_terms(TermPattern& pattern, int32_t max_expansions,
                                 std::vector<std::string>* out) = 0;
+
+    // The document length each encoded norm the cursors report stands for; a scoring context
+    // is bound to it before it scores the source's postings. A byte holding the length itself
+    // unless the format encodes its norms otherwise.
+    virtual std::span<const float> norm_lengths() const { return kByteNormLengths; }
+
+    // The encoded norms of the ascending `docs`, 1 each for a source without norms.
+    virtual Status encoded_norms(std::span<const uint32_t> docs, std::vector<uint32_t>* out) {
+        out->assign(docs.size(), 1);
+        return Status::OK();
+    }
 
     // Whether the source reads in batched rounds: a leaf then opens all its terms at once and
     // the engine lists them term at a time, materializing what it needs, instead of driving

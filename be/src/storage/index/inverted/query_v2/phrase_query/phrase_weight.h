@@ -44,11 +44,12 @@ struct PhraseSlot {
     int32_t max_expansions = 0;
 };
 
-// A phrase whose every clause matches one of the terms of its slot. Scored, or on a source that
-// reads terms one at a time, it runs one document at a time over the slots' postings. Unscored
-// on a source batching its reads, it lists the rows holding a term of every slot as a chain,
-// reads their positions in one round and verifies the phrase row by row on what it read, so a
-// conjunction can hand it the rows its other clauses kept.
+// A phrase whose every clause matches one of the terms of its slot. On a source that reads
+// terms one at a time it runs one document at a time over the slots' postings. On a source
+// batching its reads it lists the rows holding a term of every slot as a chain, reads their
+// positions in one round and verifies the phrase row by row on what it read, so an unscored
+// conjunction can hand it the rows its other clauses kept; scored, it scores each verified row
+// on the phrase's frequency there and the source's norm.
 class SlotPhraseWeight : public Weight {
 public:
     ScorerPtr scorer(const QueryExecutionContext& ctx, const std::string& binding_key) override;
@@ -60,7 +61,8 @@ public:
 
 protected:
     SlotPhraseWeight(std::wstring field, index_query::PhraseQueryOptions options,
-                     bool enable_scoring, bool nullable);
+                     index_query::ScoringContextPtr<float> similarity, bool enable_scoring,
+                     bool nullable);
 
     // The phrase's slots, in clause order.
     virtual std::vector<PhraseSlot> _slots() const = 0;
@@ -69,15 +71,14 @@ protected:
 
     std::wstring _field;
     index_query::PhraseQueryOptions _options;
+    index_query::ScoringContextPtr<float> _similarity;
     bool _enable_scoring = false;
     bool _nullable = true;
 
 private:
     index_query::IndexSourcePtr _source(const QueryExecutionContext& ctx,
                                         const std::string& binding_key) const;
-    bool _lists(const index_query::IndexSource& source) const {
-        return !_enable_scoring && source.batches_reads();
-    }
+    static bool _lists(const index_query::IndexSource& source) { return source.batches_reads(); }
     ScorerPtr _listed_scorer(index_query::IndexSource& source, const roaring::Roaring* candidates);
 };
 
@@ -94,7 +95,6 @@ private:
     ScorerPtr _streamed_scorer(index_query::IndexSource& source, uint32_t num_docs) override;
 
     std::vector<TermInfo> _term_infos;
-    index_query::ScoringContextPtr<float> _similarity;
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

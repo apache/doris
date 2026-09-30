@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstdint>
 #include <limits>
 
@@ -38,6 +39,24 @@ TEST(ScoringContextTest, LuceneUpperBoundCoversQuantizedNorms) {
             EXPECT_GE(scoring.max_score(), scoring.score(frequency, encoded_length));
         }
     }
+}
+
+// A context bound to a source's norm lengths scores by those lengths.
+TEST(ScoringContextTest, BoundNormLengthsDecodeTheEncodedNorm) {
+    segment_v2::BM25Similarity similarity(2.0F, 8.0F);
+    const float lucene = similarity.score(1.0F, 100);
+    std::array<float, 256> lengths {};
+    for (size_t i = 0; i < lengths.size(); ++i) {
+        lengths[i] = static_cast<float>(i == 0 ? 1 : i);
+    }
+    similarity.bind_norms(lengths);
+    // One occurrence in a document of length 100 against an average of 8, with k1 1.2 and b
+    // 0.75.
+    const float expected = 2.0F * 2.2F / (1.0F + 1.2F * (0.25F + 0.75F * 100.0F / 8.0F));
+    EXPECT_NEAR(similarity.score(1.0F, 100), expected, 1e-5F);
+    EXPECT_NE(similarity.score(1.0F, 100), lucene);
+    similarity.bind_norms(segment_v2::BM25Similarity::lucene_norm_lengths());
+    EXPECT_EQ(similarity.score(1.0F, 100), lucene);
 }
 
 } // namespace doris::index_query

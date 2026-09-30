@@ -30,13 +30,15 @@
 // SEARCH_TREE_BENCH_ITERATIONS sets the samples per case (default 10). A sample is the thread CPU
 // time of one whole SEARCH evaluation. SEARCH_TREE_BENCH_CASES keeps only the listed case
 // labels and SEARCH_TREE_BENCH_FORMATS only the listed formats (V2, SNII), comma-separated, so
-// one case of one format can be profiled on its own.
+// one case of one format can be profiled on its own. The scored cases score their rows with
+// fixed statistics, and a top-k case keeps only the best rows.
 
 #include <fmt/format.h>
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
@@ -54,12 +56,14 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "storage/compaction/collection_similarity.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/inverted/similarity/collection_statistics.h"
 #include "storage/index/snii/snii_index_reader.h"
 #include "storage/olap_common.h"
 #include "storage/tablet/tablet_schema.h"
@@ -92,8 +96,21 @@ uint64_t bitmap_checksum(const roaring::Roaring& result) {
 }
 
 // A context with the options a SELECT carries and the result cache off, so every sample executes.
+// Fixed statistics for a scored run: it measures the scoring work, not the collection's
+// statistics, which a query reads once per term.
+class BenchCollectionStatistics final : public CollectionStatistics {
+public:
+    float get_or_calculate_idf(const std::wstring& /*field*/,
+                               const std::wstring& /*term*/) override {
+        return 1.5F;
+    }
+
+    float get_or_calculate_avg_dl(const std::wstring& /*field*/) override { return 8.0F; }
+};
+
 struct QueryRun {
-    QueryRun() {
+    // A scored run publishes its scores, and keeps only the `top_k` best rows when set.
+    explicit QueryRun(bool scored = false, uint32_t top_k = 0) {
         TQueryOptions query_options;
         query_options.query_type = TQueryType::SELECT;
         query_options.enable_inverted_index_query_cache = false;
@@ -103,6 +120,11 @@ struct QueryRun {
         context->io_ctx = &io_ctx;
         context->stats = &stats;
         context->runtime_state = &runtime_state;
+        if (scored) {
+            context->collection_statistics = std::make_shared<BenchCollectionStatistics>();
+            context->collection_similarity = std::make_shared<CollectionSimilarity>();
+            context->query_limit = top_k;
+        }
     }
 
     OlapReaderStatistics stats;
@@ -174,6 +196,9 @@ struct SearchCase {
     TSearchClause root;
     int32_t minimum_should_match = -1;
     std::function<roaring::Roaring(ClauseOracle&)> expected;
+    // Scores its rows too, and keeps only the `top_k` best of them when set.
+    bool scored = false;
+    uint32_t top_k = 0;
 };
 
 // Expansion clauses. Each pattern matches the same terms whether or not a format anchors it.
@@ -266,6 +291,31 @@ std::vector<SearchCase> search_cases() {
                                        with_occur(leaf("TERM", "1234"), TSearchOccur::SHOULD),
                                        with_occur(leaf("TERM", "failed"), TSearchOccur::SHOULD)}),
                      .expected = [](ClauseOracle& o) { return o.term("retry"); }});
+    cases.push_back({.label = "scored_or",
+                     .root = compound("OR", {leaf("TERM", "retry"), leaf("TERM", "order"),
+                                             leaf("TERM", "latency")}),
+                     .expected =
+                             [](ClauseOracle& o) {
+                                 return o.term("retry") | o.term("order") | o.term("latency");
+                             },
+                     .scored = true});
+    cases.push_back({.label = "scored_and",
+                     .root = compound("AND", {leaf("TERM", "retry"), leaf("TERM", "failed")}),
+                     .expected = [](ClauseOracle& o) { return o.term("retry") & o.term("failed"); },
+                     .scored = true});
+    cases.push_back({.label = "scored_phrase",
+                     .root = leaf("PHRASE", "retry attempt"),
+                     .expected = [](ClauseOracle& o) { return o.phrase("retry attempt"); },
+                     .scored = true});
+    cases.push_back({.label = "topk_or",
+                     .root = compound("OR", {leaf("TERM", "retry"), leaf("TERM", "order"),
+                                             leaf("TERM", "latency")}),
+                     .expected =
+                             [](ClauseOracle& o) {
+                                 return o.term("retry") | o.term("order") | o.term("latency");
+                             },
+                     .scored = true,
+                     .top_k = 10});
     append_expansion_cases(&cases);
     return cases;
 }
@@ -379,7 +429,7 @@ TEST_F(SearchTreeBench, DISABLED_BooleanTrees) {
             const std::string label = fmt::format("search/{}/{}", format_name, search_case.label);
             for (uint32_t i = 0; i < iterations; ++i) {
                 benchmark::wait_for_turn(label, i);
-                QueryRun run;
+                QueryRun run(search_case.scored, search_case.top_k);
                 // A segment scan gives its index iterators the query's context.
                 iterator.set_context(run.context);
                 InvertedIndexResultBitmap result;
@@ -389,9 +439,21 @@ TEST_F(SearchTreeBench, DISABLED_BooleanTrees) {
                         /*enable_cache=*/false, nullptr, no_column_ids, run.context);
                 const double elapsed_ms = thread_cpu_ms() - start;
                 ASSERT_TRUE(status.ok()) << label << ": " << status;
-                ASSERT_EQ(expected, *result.get_data_bitmap()) << label;
+                const roaring::Roaring& rows = *result.get_data_bitmap();
+                if (search_case.top_k == 0) {
+                    ASSERT_EQ(expected, rows) << label;
+                } else {
+                    ASSERT_TRUE(rows.isSubset(expected)) << label;
+                    ASSERT_EQ(rows.cardinality(),
+                              std::min<uint64_t>(search_case.top_k, expected.cardinality()))
+                            << label;
+                }
+                // Which rows a top-k answer keeps follows the scores' rounding, so it is compared
+                // by its size.
+                const uint64_t checksum =
+                        search_case.top_k == 0 ? bitmap_checksum(rows) : rows.cardinality();
                 benchmark::report_sample(label, i, 1, static_cast<uint64_t>(elapsed_ms * 1000000.0),
-                                         bitmap_checksum(*result.get_data_bitmap()));
+                                         checksum);
             }
             std::cout << label << " matches=" << expected.cardinality() << '\n';
         }

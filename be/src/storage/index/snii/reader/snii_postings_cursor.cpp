@@ -171,7 +171,8 @@ Status SniiPostingsCursor::prefetch(const std::vector<uint32_t>* candidates, boo
         }
         return Status::OK();
     }
-    const bool prx = positions && _wants_prx();
+    // A scoring cursor decodes every block it lands on, so its frames come with the windows.
+    const bool prx = positions ? _wants_prx() : _scores_from_prx();
     RETURN_IF_ERROR(_read_prelude());
     if (_prelude_pending) {
         RETURN_IF_ERROR(_wave->fetch());
@@ -449,15 +450,21 @@ Status SniiPostingsCursor::_fill_positions() {
     for (uint32_t i = 0; i < _doc_count; ++i) {
         _freqs[i] = _pos_off[i + 1] - _pos_off[i];
     }
+    return _fill_norms();
+}
+
+// The norms of the current block's documents, when the index holds norms.
+Status SniiPostingsCursor::_fill_norms() {
     _norm_values.clear();
-    if (_norms != nullptr) {
-        _norm_values.resize(_doc_count);
-        for (uint32_t i = 0; i < _doc_count; ++i) {
-            const uint32_t doc = _dense ? _first_doc + i : _block_docs[i];
-            uint8_t norm = 0;
-            RETURN_IF_ERROR(_norms->try_encoded_norm(doc, &norm));
-            _norm_values[i] = norm;
-        }
+    if (_norms == nullptr) {
+        return Status::OK();
+    }
+    _norm_values.resize(_doc_count);
+    for (uint32_t i = 0; i < _doc_count; ++i) {
+        const uint32_t doc = _dense ? _first_doc + i : _block_docs[i];
+        uint8_t norm = 0;
+        RETURN_IF_ERROR(_norms->try_encoded_norm(doc, &norm));
+        _norm_values[i] = norm;
     }
     return Status::OK();
 }
@@ -513,7 +520,7 @@ Status SniiPostingsCursor::_decode_window(uint32_t window, index_query::Postings
     _positions_decoded = false;
     _current_window = window;
     if (_scoring) {
-        RETURN_IF_ERROR(_fill_positions());
+        RETURN_IF_ERROR(_scores_from_prx() ? _fill_positions() : _fill_norms());
     }
     *block = _block_view();
     return Status::OK();
@@ -537,7 +544,7 @@ Status SniiPostingsCursor::_decode_single(index_query::PostingsBlock* block) {
     _positions_decoded = false;
     _current_window = 0;
     if (_scoring) {
-        RETURN_IF_ERROR(_fill_positions());
+        RETURN_IF_ERROR(_scores_from_prx() ? _fill_positions() : _fill_norms());
     }
     *block = _block_view();
     return Status::OK();

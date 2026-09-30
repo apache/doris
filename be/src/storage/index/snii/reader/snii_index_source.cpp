@@ -150,6 +150,22 @@ Status SniiIndexSource::open_terms(std::span<const std::string> terms, bool posi
     return Status::OK();
 }
 
+// The norms section is read once, when a document's norm is first asked.
+Status SniiIndexSource::encoded_norms(std::span<const uint32_t> docs, std::vector<uint32_t>* out) {
+    out->assign(docs.size(), 1);
+    if (docs.empty() || !_idx.has_norms()) {
+        return Status::OK();
+    }
+    const format::NormsPodReader* norms = nullptr;
+    RETURN_IF_ERROR(_open_norms(&norms));
+    for (size_t i = 0; i < docs.size(); ++i) {
+        uint8_t norm = 0;
+        RETURN_IF_ERROR(norms->try_encoded_norm(docs[i], &norm));
+        (*out)[i] = norm;
+    }
+    return Status::OK();
+}
+
 // The dictionary's bloom filter and sparse term index answer without a dictionary read.
 Status SniiIndexSource::may_hold(std::string_view term, bool* held) {
     RETURN_IF_ERROR(check_user_term(term));

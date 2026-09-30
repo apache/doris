@@ -154,10 +154,14 @@ protected:
         return nullptr;
     }
 
-    // The postings of a UTF-8 term on `source`, or null when the source lacks the term.
+    // The postings of a UTF-8 term on `source`, or null when the source lacks the term. A
+    // scoring context scores them by the source's norms.
     SegmentPostingsPtr open_postings(
             index_query::IndexSource& source, std::string_view term, bool positions,
             bool enable_scoring, const index_query::ScoringContextPtr<float>& similarity) const {
+        if (enable_scoring && similarity != nullptr) {
+            similarity->bind_norms(source.norm_lengths());
+        }
         std::unique_ptr<index_query::PostingsCursor> cursor;
         THROW_IF_ERROR(source.open_term(term, positions, enable_scoring, &cursor));
         if (cursor == nullptr) {

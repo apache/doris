@@ -49,8 +49,10 @@ public:
     };
 
     FakePostingsCursor(std::vector<Posting> postings, bool positions, bool scoring,
-                       std::vector<Prefetch>* prefetches = nullptr)
+                       std::vector<Prefetch>* prefetches = nullptr,
+                       std::vector<uint32_t> norms = {})
             : _postings(std::move(postings)),
+              _norms(std::move(norms)),
               _positions(positions),
               _scoring(scoring),
               _prefetches(prefetches) {
@@ -87,6 +89,9 @@ public:
         block->docs = _docs;
         if (_scoring) {
             block->freqs = _freqs;
+            if (!_norms.empty()) {
+                block->norms = _norms;
+            }
         }
         return Status::OK();
     }
@@ -137,6 +142,7 @@ private:
     std::vector<Posting> _postings;
     std::vector<uint32_t> _docs;
     std::vector<uint32_t> _freqs;
+    std::vector<uint32_t> _norms;
     bool _positions;
     bool _scoring;
     std::vector<Prefetch>* _prefetches;
@@ -198,6 +204,20 @@ public:
         return Status::OK();
     }
 
+    Status encoded_norms(std::span<const uint32_t> docs, std::vector<uint32_t>* out) override {
+        out->clear();
+        for (const uint32_t doc : docs) {
+            out->push_back(norm_of(doc));
+        }
+        return Status::OK();
+    }
+
+    // The encoded norm of `doc`, 1 unless set.
+    uint32_t norm_of(uint32_t doc) const {
+        const auto it = norms.find(doc);
+        return it == norms.end() ? 1 : it->second;
+    }
+
     Status fetch_pending() override {
         ++fetches;
         return Status::OK();
@@ -228,6 +248,8 @@ public:
     bool batches = false;
     // What every expansion returns before it enumerates.
     Status expand_status = Status::OK();
+    // The encoded norm of each document that has one.
+    std::map<uint32_t, uint32_t> norms;
     // Every dictionary batch, every term opened (alone or together), every pattern's
     // enumeration prefix, every prefetch by term and the rounds fetched, in order.
     std::vector<std::vector<std::string>> prepared;
@@ -243,8 +265,13 @@ private:
         if (it == _terms.end()) {
             return nullptr;
         }
+        std::vector<uint32_t> posting_norms;
+        for (const Posting& posting : it->second) {
+            posting_norms.push_back(norm_of(posting.doc));
+        }
         return std::make_unique<FakePostingsCursor>(it->second, positions, scoring,
-                                                    &prefetches[std::string(term)]);
+                                                    &prefetches[std::string(term)],
+                                                    std::move(posting_norms));
     }
 
     std::map<std::string, std::vector<Posting>> _terms;
