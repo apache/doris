@@ -405,6 +405,8 @@ int main(int argc, char** argv) {
         return -1;
     }
 
+    doris::init_be_version_metrics();
+
     // ATTN: Callers that want to override default gflags variables should do so before calling this method
     google::ParseCommandLineFlags(&argc, &argv, true);
     // ATTN: MUST init before LOG
