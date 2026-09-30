@@ -91,6 +91,9 @@ void dispatch(F&& f, const Field& field) {
     case PrimitiveType::TYPE_IPV6:
         f(field.template get<TYPE_IPV6>());
         return;
+    case PrimitiveType::TYPE_UUID:
+        f(field.template get<TYPE_UUID>());
+        return;
     case PrimitiveType::TYPE_TIMEV2:
         f(field.template get<TYPE_TIMEV2>());
         return;

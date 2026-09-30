@@ -20,23 +20,39 @@ package org.apache.doris.nereids.glue.translator;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToThriftVisitor;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.MatchPredicate;
+import org.apache.doris.analysis.ShortCircuitFunctionCallExpr;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.indexpolicy.IndexPolicy;
+import org.apache.doris.indexpolicy.IndexPolicyMgr;
+import org.apache.doris.indexpolicy.IndexPolicyTypeEnum;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.BitNot;
 import org.apache.doris.nereids.trees.expressions.MatchAny;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ShortCircuitIf;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.thrift.TExprNode;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+
+import java.util.Map;
 
 public class ExpressionTranslatorTest {
 
@@ -57,6 +73,32 @@ public class ExpressionTranslatorTest {
         Assertions.assertThrows(AnalysisException.class, () -> translator.visitMatch(matchAny, null));
     }
 
+    @Test
+    public void testMatchTranslationPreservesResolvedPolicyNames() {
+        IndexPolicyMgr policyMgr = new IndexPolicyMgr();
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                50, "IK", IndexPolicyTypeEnum.ANALYZER, Map.of("tokenizer", "keyword")));
+        policyMgr.replayCreateIndexPolicy(new IndexPolicy(
+                51, "Legacy", IndexPolicyTypeEnum.ANALYZER, Map.of("tokenizer", "keyword")));
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getIndexPolicyMgr()).thenReturn(policyMgr);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            for (Map.Entry<String, String> binding : Map.of(
+                    "IK", "IK", "ik", "ik", "StAnDaRd", "standard", "LEGACY", "Legacy").entrySet()) {
+                SlotReference slot = new SlotReference("content", StringType.INSTANCE, true);
+                PlanTranslatorContext context = new PlanTranslatorContext();
+                context.addExprIdSlotRefPair(slot.getExprId(), new SlotRef(Type.STRING, true));
+                MatchAny match = new MatchAny(slot, new VarcharLiteral("abc def"), binding.getKey());
+                MatchPredicate predicate = Assertions.assertInstanceOf(MatchPredicate.class,
+                        ExpressionTranslator.INSTANCE.visitMatch(match, context));
+                TExprNode node = new TExprNode();
+                ExprToThriftVisitor.INSTANCE.visitMatchPredicate(predicate, node);
+                Assertions.assertEquals(binding.getValue(), node.getMatchPredicate().getAnalyzerName());
+            }
+        }
+    }
+
     @Test void testFlattenAndOrNullable() {
         SlotReference a = new SlotReference("a", IntegerType.INSTANCE, true);
         SlotReference b = new SlotReference("b", IntegerType.INSTANCE, false);
@@ -71,5 +113,19 @@ public class ExpressionTranslatorTest {
 
         Expr actual = translator.visitOr(or, context);
         Assertions.assertTrue(actual.isNullable());
+    }
+
+    @Test
+    void testRequiredShortCircuitEvaluationSurvivesTranslation() {
+        ShortCircuitIf expression = new ShortCircuitIf(
+                BooleanLiteral.TRUE, new IntegerLiteral(1), new IntegerLiteral(2));
+
+        FunctionCallExpr translated = (FunctionCallExpr) ExpressionTranslator.translate(
+                expression, new PlanTranslatorContext());
+        TExprNode thriftNode = ExprToThriftVisitor.treeToThrift(translated).getNodes().get(0);
+
+        Assertions.assertInstanceOf(ShortCircuitFunctionCallExpr.class, translated);
+        Assertions.assertTrue(thriftNode.isSetShortCircuitEvaluation());
+        Assertions.assertTrue(thriftNode.isShortCircuitEvaluation());
     }
 }

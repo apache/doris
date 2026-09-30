@@ -22,6 +22,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <type_traits>
 
@@ -38,6 +39,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
+#include "core/extended_types.h"
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "core/value/decimalv2_value.h"
@@ -64,7 +66,7 @@ template <typename T>
 char* SimpleItoaWithCommas(T i, char* buffer, int32_t buffer_size) {
     char* p = buffer + buffer_size;
     // Need to use unsigned T instead of T to correctly handle
-    std::make_unsigned_t<T> n = i;
+    MakeUnsignedT<T> n = i;
     if (i < 0) {
         n = 0 - n;
     }
@@ -250,6 +252,12 @@ constexpr size_t MAX_FORMAT_LEN_DEC128V3() {
     return 2 * (1 + 39 + (39 / 3) + 3);
 }
 
+constexpr size_t MAX_FORMAT_LEN_DEC256() {
+    // Decimal(76, 0)
+    // Double the size to match the other decimal buffers.
+    return 2 * (1 + 76 + (76 / 3) + 3);
+}
+
 constexpr size_t MAX_FORMAT_LEN_INT64() {
     // INT_MIN = -9223372036854775807
     // Double the size to avoid some unexpected bug.
@@ -264,33 +272,27 @@ constexpr size_t MAX_FORMAT_LEN_INT128() {
 template <typename T, size_t N>
 StringRef do_format_round(FunctionContext* context, UInt32 scale, T int_value, T frac_value,
                           Int32 decimal_places) {
-    static_assert(std::is_integral<T>::value);
+    static_assert(IsIntegralV<T>);
     const bool is_negative = int_value < 0 || frac_value < 0;
+    frac_value = frac_value < 0 ? -frac_value : frac_value;
 
     // do round to frac_part based on decimal_places
     if (static_cast<Int32>(scale) > decimal_places) {
-        DCHECK(scale <= 38);
+        DCHECK(scale <= std::numeric_limits<T>::digits10);
         // do rounding, so we need to reserve decimal_places + 1 digits
-        auto multiplier =
-                common::exp10_i128(std::abs(static_cast<int>(scale - (decimal_places + 1))));
+        auto multiplier = decimal_scale_multiplier<T>(scale - (decimal_places + 1));
         // do divide first to avoid overflow
-        // after round frac_value will be positive by design
-        frac_value = std::abs(static_cast<int>(frac_value / multiplier)) + 5;
-        frac_value /= 10;
-    } else if (scale < decimal_places && decimal_places > 0) {
-        // since scale <= decimal_places, overflow is impossible
-        frac_value = frac_value * common::exp10_i32(decimal_places - scale);
-    }
+        frac_value = (frac_value / multiplier + 5) / 10;
+        scale = decimal_places;
 
-    // Calculate power of 10 for decimal_places
-    T decimal_power = common::exp10_i32(decimal_places);
-    if (frac_value == decimal_power) {
-        if (is_negative) {
-            int_value -= 1;
-        } else {
-            int_value += 1;
+        if (frac_value == decimal_scale_multiplier<T>(scale)) {
+            if (is_negative) {
+                int_value -= 1;
+            } else {
+                int_value += 1;
+            }
+            frac_value = 0;
         }
-        frac_value = 0;
     }
 
     bool append_sign_manually = false;
@@ -318,11 +320,13 @@ StringRef do_format_round(FunctionContext* context, UInt32 scale, T int_value, T
         *(result_data + whole_decimal_str_len - (frac_str_len + 1)) = '.';
     }
 
-    // Convert fractional part to string with proper padding
-    T remaining_frac = std::abs(static_cast<int>(frac_value));
-    for (int i = 0; i <= decimal_places - 1; ++i) {
-        *(result_data + whole_decimal_str_len - 1 - i) = '0' + (remaining_frac % 10);
-        remaining_frac /= 10;
+    // Pad on the right without scaling the value: decimal_places can be as large as 1024.
+    const Int32 trailing_zeros = decimal_places - scale;
+    char* frac_end = result_data + whole_decimal_str_len - trailing_zeros;
+    memset(frac_end, '0', trailing_zeros);
+    for (UInt32 i = 0; i < scale; ++i) {
+        *--frac_end = '0' + (frac_value % 10);
+        frac_value /= 10;
     }
     return result;
 }
@@ -761,6 +765,24 @@ struct FormatRoundDecimalImpl {
                         FormatRound::do_format_round<Int128,
                                                      FormatRound::MAX_FORMAT_LEN_DEC128V3()>(
                                 context, scale, whole_part, frac_part, decimal_places);
+
+                result_column->insert_data(str.data, str.size);
+            }
+        } else if (const auto* decimal256_column =
+                           check_and_get_column<ColumnDecimal256>(*col_ptr)) {
+            const UInt32 scale = decimal256_column->get_scale();
+            for (size_t i = 0; i < input_rows_count; i++) {
+                int32_t decimal_places = arg_column_data_2[index_check_const<is_const>(i)];
+                if (decimal_places < 0 || decimal_places > 1024) {
+                    return Status::InvalidArgument(
+                            "The second argument is {}, it should be in range [0, 1024].",
+                            decimal_places);
+                }
+                const auto frac_part = decimal256_column->get_fractional_part(i);
+                const auto whole_part = decimal256_column->get_intergral_part(i);
+                StringRef str = FormatRound::do_format_round<wide::Int256,
+                                                             FormatRound::MAX_FORMAT_LEN_DEC256()>(
+                        context, scale, whole_part, frac_part, decimal_places);
 
                 result_column->insert_data(str.data, str.size);
             }

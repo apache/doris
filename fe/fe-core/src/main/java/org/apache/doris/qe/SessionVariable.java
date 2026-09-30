@@ -164,6 +164,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SQL_SAFE_UPDATES = "sql_safe_updates";
     public static final String NET_BUFFER_LENGTH = "net_buffer_length";
     public static final String HAVE_QUERY_CACHE =  "have_query_cache";
+    public static final String SERVER_IDENTITY = "server_identity";
+    public static final String APACHE_DORIS_SERVER_IDENTITY = "apache_doris";
     // mem limit can't smaller than bufferpool's default page size
     public static final int MIN_EXEC_MEM_LIMIT = 2097152;
     public static final String BATCH_SIZE = "batch_size";
@@ -1384,6 +1386,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = HAVE_QUERY_CACHE, flag = VarAttrDef.READ_ONLY)
     public boolean haveQueryCache = false;
+
+    @VarAttrDef.VarAttr(name = SERVER_IDENTITY, flag = VarAttrDef.READ_ONLY)
+    public String serverIdentity = APACHE_DORIS_SERVER_IDENTITY;
 
     // 8192 minus 16 + 16 bytes padding that in padding pod array.
     // This remains the row cap for output blocks even when adaptive byte budgeting is enabled.
@@ -2929,6 +2934,18 @@ public class SessionVariable implements Serializable, Writable {
             description = "enable count(*) pushdown optimization for external table")
     private boolean enableCountPushDownForExternalTable = true;
 
+    public static final String FLUSS_UNION_READ_MODE = "fluss_union_read_mode";
+
+    @VarAttrDef.VarAttr(name = FLUSS_UNION_READ_MODE,
+            checker = "checkFlussUnionReadMode",
+            options = {"", "auto", "required", "disabled"},
+            description = "For this statement, how a fluss table's scan combines the lake with the log: "
+                    + "auto reads the lake when it has a readable snapshot and reads fluss alone when it "
+                    + "does not, required fails instead of reading fluss alone, disabled always reads fluss "
+                    + "alone. The default, empty, follows the catalog's fluss.union_read.mode property. "
+                    + "The value set belongs to the fluss connector, which rejects anything else")
+    public String flussUnionReadMode = "";
+
     @VarAttrDef.VarAttr(name = MINIMUM_OPERATOR_MEMORY_REQUIRED_KB, needForward = true,
             description = "The minimum memory required to be used by an operator, if not meet, the operator will not "
                     + "run")
@@ -4303,6 +4320,16 @@ public class SessionVariable implements Serializable, Writable {
         if ("require".equals(normalized) && !BackendSelectionManager.supportsRequiredSelection()) {
             throw new UnsupportedOperationException(
                     "Backend selection provider does not support required backend selection");
+        }
+    }
+
+    public void checkFlussUnionReadMode(String mode) {
+        String normalized = Strings.nullToEmpty(mode).trim().toLowerCase(Locale.ROOT);
+        if (!normalized.isEmpty() && !"auto".equals(normalized)
+                && !"required".equals(normalized) && !"disabled".equals(normalized)) {
+            throw new UnsupportedOperationException(
+                    "fluss_union_read_mode value is invalid: " + mode
+                            + "; expected auto, required, disabled, or empty");
         }
     }
 

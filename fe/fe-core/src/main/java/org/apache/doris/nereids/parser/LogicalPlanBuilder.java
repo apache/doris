@@ -2188,7 +2188,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 cte = Optional.ofNullable(withCte(query, ctx.cteContext));
             }
             deleteCommand = new DeleteFromUsingCommand(tableName, tableAlias,
-                    partitionSpec.first, partitionSpec.second, query, cte, hasQueryOrganization);
+                    partitionSpec.first, partitionSpec.second, query, cte,
+                    hasQueryOrganization);
         }
         if (ctx.explainContext != null) {
             return withExplain(deleteCommand, ctx.explainContext);
@@ -4291,6 +4292,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 defaultValue = Optional.of(DefaultValue.E_NUM_DEFAULT_VALUE);
             } else if (ctx.BITMAP_EMPTY() != null) {
                 defaultValue = Optional.of(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE);
+            } else if (ctx.defaultFunction != null) {
+                defaultValue = Optional.of(DefaultValue.uuidDefaultValue(ctx.defaultFunction.getText()));
             }
         }
         if (ctx.UPDATE() != null) {

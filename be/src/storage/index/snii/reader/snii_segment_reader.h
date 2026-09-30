@@ -67,6 +67,13 @@ struct InheritedLogicalIndex {
     size_t core_length = 0;
     size_t sampled_term_index_length = 0;
     size_t dict_block_directory_length = 0;
+    // Whether THIS index's dictionary holds an entry whose posting list was dropped. The
+    // dictionary is copied byte for byte, locator-less entries included, so the rewritten
+    // container has to declare kFeatureDroppedPostings for it again -- otherwise a reader
+    // without the feature parses those entries instead of refusing the container. Per index,
+    // not per container: a rewrite that keeps only the indexes that dropped nothing must not
+    // declare the feature at all.
+    bool dropped_postings = false;
 };
 
 // Immutable, fully validated view of one container as an inheritance source for a
