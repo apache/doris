@@ -91,7 +91,7 @@ public class FlightSqlSchemaHelper {
      * Ref: `convert_to_arrow_type` in be/src/util/arrow/row_batch.cpp.
      * which is consistent with the type of Arrow data returned by Doris Arrow Flight Sql query.
      */
-    private static ArrowType getArrowType(PrimitiveType primitiveType, Integer precision, Integer scale) {
+    static ArrowType getArrowType(PrimitiveType primitiveType, Integer precision, Integer scale) {
         switch (primitiveType) {
             case BOOLEAN:
                 return new ArrowType.Bool();
@@ -107,6 +107,7 @@ public class FlightSqlSchemaHelper {
             case FLOAT:
                 return new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE);
             case DOUBLE:
+            case TIMEV2:
                 return new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE);
             case LARGEINT:
             case VARCHAR:
@@ -148,6 +149,7 @@ public class FlightSqlSchemaHelper {
                 return new ArrowType.Decimal(precision, scale, 256);
             case DECIMALV2:
                 return new ArrowType.Decimal(27, 9, 128);
+            case VARBINARY:
             case HLL:
             case BITMAP:
             case QUANTILE_STATE:

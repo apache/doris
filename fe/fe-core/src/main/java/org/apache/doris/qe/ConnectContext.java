@@ -91,6 +91,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import lombok.Getter;
 import lombok.Setter;
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -106,6 +107,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -153,7 +155,22 @@ public class ConnectContext {
     protected volatile long loginTime;
     // for arrow flight
     protected volatile String peerIdentity;
-    private final Map<String, String> preparedQuerys = new HashMap<>();
+    private final Map<String, PreparedQuery> preparedQuerys = new HashMap<>();
+
+    private static class PreparedQuery {
+        private final String sql;
+        private final String catalog;
+        private final String database;
+        private final Schema schema;
+
+        private PreparedQuery(String sql, String catalog, String database, Schema schema) {
+            this.sql = sql;
+            this.catalog = catalog;
+            this.database = database;
+            this.schema = schema;
+        }
+    }
+
     private String runningQuery;
     private final List<FlightSqlEndpointsLocation> flightSqlEndpointsLocations = Lists.newArrayList();
     private boolean returnResultFromLocal = true;
@@ -907,15 +924,34 @@ public class ConnectContext {
         this.loginTime = System.currentTimeMillis();
     }
 
-    public void addPreparedQuery(String preparedStatementId, String preparedQuery) {
-        preparedQuerys.put(preparedStatementId, preparedQuery);
+    public synchronized void addPreparedQuery(String preparedStatementId, String preparedQuery) {
+        addPreparedQuery(preparedStatementId, preparedQuery, null);
     }
 
-    public String getPreparedQuery(String preparedStatementId) {
-        return preparedQuerys.get(preparedStatementId);
+    public synchronized void addPreparedQuery(String preparedStatementId, String preparedQuery, Schema schema) {
+        preparedQuerys.put(preparedStatementId,
+                new PreparedQuery(preparedQuery, getDefaultCatalog(), getDatabase(), schema));
     }
 
-    public void removePreparedQuery(String preparedStatementId) {
+    public synchronized Schema getPreparedQuerySchema(String preparedStatementId) {
+        PreparedQuery query = preparedQuerys.get(preparedStatementId);
+        return query == null ? null : query.schema;
+    }
+
+    public synchronized String getPreparedQuery(String preparedStatementId) {
+        PreparedQuery query = preparedQuerys.get(preparedStatementId);
+        if (query == null) {
+            return null;
+        }
+        // A handle must not execute unqualified SQL in a different namespace than its advertised schema.
+        if (!Objects.equals(query.catalog, getDefaultCatalog()) || !Objects.equals(query.database, getDatabase())) {
+            preparedQuerys.remove(preparedStatementId);
+            return null;
+        }
+        return query.sql;
+    }
+
+    public synchronized void removePreparedQuery(String preparedStatementId) {
         preparedQuerys.remove(preparedStatementId);
     }
 

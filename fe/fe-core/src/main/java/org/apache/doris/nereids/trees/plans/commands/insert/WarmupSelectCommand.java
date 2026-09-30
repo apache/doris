@@ -216,6 +216,12 @@ public class WarmupSelectCommand extends InsertIntoTableCommand {
         executor.sendResultSet(resultSet);
     }
 
+    @Override
+    public ShowResultSetMetaData getResultSetMetaData() {
+        // Unlike ordinary INSERT, warmup returns per-backend statistics rather than OK.
+        return metaData;
+    }
+
     /**
      * Skip auth check for warmup select command.
      * The blackhole table is a system table and doesn't require LOAD privilege.
