@@ -51,6 +51,7 @@ public class LanceIndexJobManagerForceReleaseTest {
     private static final long BACKEND_ID = 1001L;
     private static final long BE_EPOCH = 55L;
     private static final String INVOCATION_ID = "invocation-1";
+    private static final String INVOCATION_SECRET = "a3f1c02d97b64e8fad0c31b9e75d2468";
     private static final long DEADLINE_MS = 9999L;
     private static final String ACTOR = "admin";
     private static final String NOTE = "worker lost after commit; outcome unverifiable";
@@ -130,15 +131,15 @@ public class LanceIndexJobManagerForceReleaseTest {
         manager.createJob(newCreateJob(1L, "IdxPending"), 100, 100, 100);
         // RUNNING at revision 1.
         manager.createJob(newCreateJob(2L, "IdxRunning"), 100, 100, 100);
-        Assertions.assertTrue(manager.markRunning(2L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(2L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, DEADLINE_MS));
         // COMMITTED at revision 2.
         manager.createJob(newCreateJob(3L, "IdxCommitted"), 100, 100, 100);
-        Assertions.assertTrue(manager.markRunning(3L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(3L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, DEADLINE_MS));
         Assertions.assertTrue(manager.completeWithResult(3L, 1L, INVOCATION_ID, BE_EPOCH,
                 result(LanceIndexJobResultCode.NATIVE_OK)));
         // NOT_COMMITTED at revision 2.
         manager.createJob(newCreateJob(4L, "IdxNotCommitted"), 100, 100, 100);
-        Assertions.assertTrue(manager.markRunning(4L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(4L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, DEADLINE_MS));
         Assertions.assertTrue(manager.completeWithResult(4L, 1L, INVOCATION_ID, BE_EPOCH,
                 result(LanceIndexJobResultCode.PRE_INVOCATION_CREDENTIAL_EXPIRED)));
         Assertions.assertEquals(9, manager.editLog.size());
@@ -318,7 +319,7 @@ public class LanceIndexJobManagerForceReleaseTest {
     private static void createRunAndLoseResult(TestManager manager, long jobId, String displayName)
             throws DdlException {
         manager.createJob(newCreateJob(jobId, displayName), 100, 100, 100);
-        Assertions.assertTrue(manager.markRunning(jobId, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(jobId, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, DEADLINE_MS));
         Assertions.assertTrue(manager.completeWithResult(jobId, 1L, INVOCATION_ID, BE_EPOCH,
                 result(LanceIndexJobResultCode.NO_TRUSTED_RESULT)));
         Assertions.assertEquals(LanceIndexJobMutationState.UNKNOWN, manager.getJob(jobId).getMutationState());
