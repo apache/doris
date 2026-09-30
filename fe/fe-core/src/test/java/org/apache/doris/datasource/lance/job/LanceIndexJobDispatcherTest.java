@@ -30,6 +30,7 @@ import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.Frontend;
@@ -81,11 +82,14 @@ import java.util.function.Supplier;
  * state, so a released slot stops blocking while a deadline-expired UNKNOWN job
  * still holding its slot keeps occupying capacity; the per-round budget counts
  * only jobs actually made RUNNING, so permanently ineligible jobs are scanned
- * past and never crowd out later ids; a backend at capacity is scanned past
- * for a schedule-available one with a free slot; a local-filesystem dataset is
- * dispatched only on the asserted single-node topology; and an idle round
- * writes no journal record. Storage options reach the wire but never a durable
- * record.
+ * past and never crowd out later ids; a backend at capacity is scanned past for
+ * a schedule-available one with a free slot, and the selection expectation
+ * spans every registered backend so a full compute backend cannot hide an idle
+ * mix peer; a local-filesystem dataset is dispatched only on the asserted
+ * single-node topology, one frontend and exactly one REGISTERED backend —
+ * heartbeat loss on a multi-BE deployment proves nothing about shared
+ * local-file identity; and an idle round writes no journal record. Storage
+ * options reach the wire but never a durable record.
  */
 public class LanceIndexJobDispatcherTest {
     private static final long CATALOG_ID = 10L;
@@ -128,7 +132,9 @@ public class LanceIndexJobDispatcherTest {
                 .thenReturn(Collections.singletonList(BE1_ID));
         Mockito.when(systemInfo.getBackend(BE1_ID)).thenReturn(backend(BE1_ID, BE_EPOCH));
         Mockito.when(systemInfo.getBackend(BE2_ID)).thenReturn(backend(BE2_ID, BE_EPOCH));
-        Mockito.when(systemInfo.getAllBackendIds(true)).thenReturn(Collections.singletonList(BE1_ID));
+        // The registered topology of the default single-BE deployment: the selection
+        // expectation and the local-file guard both read this view.
+        Mockito.when(systemInfo.getAllBackendIds(false)).thenReturn(Collections.singletonList(BE1_ID));
         Mockito.when(env.getFrontends(Mockito.any()))
                 .thenReturn(Collections.singletonList(Mockito.mock(Frontend.class)));
 
@@ -822,11 +828,51 @@ public class LanceIndexJobDispatcherTest {
 
         Mockito.verify(systemInfo).selectBackendIdsByPolicy(policy.capture(), Mockito.eq(-1));
         // Every usable worker must be selectable: the policy defaults hide all but one
-        // backend per host and filter every compute-role backend out.
+        // backend per host and filter every compute-role backend out, and the default
+        // expectation of zero hides every mix peer once any compute backend exists.
         Assertions.assertTrue(policy.getValue().needScheduleAvailable);
         Assertions.assertTrue(policy.getValue().allowOnSameHost);
         Assertions.assertTrue(policy.getValue().preferComputeNode);
+        Assertions.assertEquals(1, policy.getValue().expectBeNum);
         Assertions.assertEquals(1, dispatcher.sends.size());
+    }
+
+    @Test
+    public void fullComputeBackendFallsThroughToAnIdleMixPeer() throws Exception {
+        Config.lance_index_job_max_inflight_per_backend = 1;
+        // One compute-role backend and one mix backend, both registered: selection is
+        // delegated to the real policy over them, so the compute-first-then-fill
+        // contract of getCandidateBackends is what stands under test — a stubbed id
+        // list could not tell the fixed expectation from the broken default.
+        Backend computeBackend = backend(BE2_ID, BE_EPOCH);
+        Map<String, String> computeTagMap = Tag.create(Tag.TYPE_LOCATION, "group_a").toMap();
+        computeTagMap.put(Tag.TYPE_ROLE, Tag.VALUE_COMPUTATION);
+        computeBackend.setTagMap(computeTagMap);
+        Backend mixBackend = backend(BE1_ID, BE_EPOCH);
+        List<Backend> registeredBackends = Arrays.asList(computeBackend, mixBackend);
+        Mockito.when(systemInfo.getAllBackendIds(false)).thenReturn(Arrays.asList(BE2_ID, BE1_ID));
+        Mockito.when(systemInfo.selectBackendIdsByPolicy(Mockito.any(BeSelectionPolicy.class), Mockito.eq(-1)))
+                .thenAnswer(invocation -> {
+                    List<Long> candidateIds = new ArrayList<>();
+                    for (Backend candidate : ((BeSelectionPolicy) invocation.getArgument(0))
+                            .getCandidateBackends(registeredBackends)) {
+                        candidateIds.add(candidate.getId());
+                    }
+                    return candidateIds;
+                });
+        // The compute backend sits at the possible-live cap, the mix peer is idle.
+        admit(1L, "IdxOccupied", LOCATOR);
+        Assertions.assertTrue(manager.markRunning(1L, 0L, BE2_ID, BE_EPOCH, "inv-1", FAR_DEADLINE_MS));
+        admit(2L, "IdxWaiting", LOCATOR);
+
+        dispatcher.runAfterCatalogReady();
+
+        // The policy's zero expectation would return only the compute candidate and
+        // leave this job PENDING every round despite the free backend; the registered
+        // count lets the mix peer be filled in and the capacity loop dispatch to it.
+        Assertions.assertEquals(1, dispatcher.sends.size());
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, manager.getJob(2L).getMutationState());
+        Assertions.assertEquals(BE1_ID, manager.getJob(2L).getBackendId().longValue());
     }
 
     @Test
@@ -1153,9 +1199,14 @@ public class LanceIndexJobDispatcherTest {
     }
 
     @Test
-    public void assertedLocalMutationIsRefusedWithMultipleAliveBackends() throws Exception {
+    public void assertedLocalMutationIsRefusedWithTwoRegisteredBackendsEvenOneAlive() throws Exception {
         Config.enable_lance_index_local_file_mutation = true;
-        Mockito.when(systemInfo.getAllBackendIds(true)).thenReturn(Arrays.asList(BE1_ID, BE2_ID));
+        // One FE and two REGISTERED backends whose second one lost its heartbeat:
+        // heartbeat loss does not turn a multi-node deployment into a shared-local-file
+        // single node, so the guard must read the registered topology, not the alive
+        // one (an alive-based guard accepted exactly this cluster).
+        Mockito.when(systemInfo.getAllBackendIds(false)).thenReturn(Arrays.asList(BE1_ID, BE2_ID));
+        Mockito.when(systemInfo.getAllBackendIds(true)).thenReturn(Collections.singletonList(BE1_ID));
         admit(1L, "IdxLocal", "file:///data/dataset");
 
         dispatcher.runAfterCatalogReady();
