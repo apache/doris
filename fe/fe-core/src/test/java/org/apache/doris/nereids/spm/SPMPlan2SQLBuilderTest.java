@@ -622,7 +622,7 @@ public class SPMPlan2SQLBuilderTest {
         String sql = new SPMPlan2SQLBuilder().toSQL(join);
         String leftOperand = sql.substring(sql.indexOf(" FROM ") + 6, sql.indexOf(" INNER JOIN"))
                 .trim();
-        List<String> aliases = tAliases(leftOperand);
+        List<String> aliases = tableAliases(leftOperand);
         Assertions.assertTrue(aliases.size() >= 2,
                 "the set operand must be wrapped one level deeper: " + sql);
         String inner = aliases.get(0);
@@ -667,7 +667,7 @@ public class SPMPlan2SQLBuilderTest {
         String sql = new SPMPlan2SQLBuilder().toSQL(join);
         String leftOperand = sql.substring(sql.indexOf(" FROM ") + 6, sql.indexOf(" WHERE "))
                 .trim();
-        List<String> aliases = tAliases(leftOperand);
+        List<String> aliases = tableAliases(leftOperand);
         Assertions.assertTrue(aliases.size() >= 2,
                 "the preserved set operand must be wrapped: " + sql);
         String inner = aliases.get(0);
@@ -1240,8 +1240,9 @@ public class SPMPlan2SQLBuilderTest {
      * Constant-only UNION with DUPLICATE output names (including a case-variant pair:
      * identifiers are case-insensitive): every constant branch must alias each
      * duplicated output to the UNIQUE positional reference the set registered -
-     * emitting `AS x` twice left the result sink's c_<ExprId> references pointing at
-     * nonexistent columns and the frozen SQL failed re-analysis after reload.
+     * emitting `AS x` twice left the result sink's {@code c_<ExprId>} references
+     * pointing at nonexistent columns and the frozen SQL failed re-analysis after
+     * reload.
      */
     @Test
     public void testConstantUnionDuplicateNamesUseRegisteredPositionalRefs() {
@@ -1335,6 +1336,36 @@ public class SPMPlan2SQLBuilderTest {
                 "only the window output keeps the shared alias: " + sql);
         Assertions.assertTrue(sql.contains(" AS c_") || sql.contains("x AS c"),
                 "the earlier input pass-through must be renamed: " + sql);
+    }
+
+    /**
+     * #3: a QUOTED live column (a legal name like "a b") must be passed through the
+     * Window SELECT. A scan registers it as `a b`, a parameterized filter keeps that
+     * reference without a SELECT list, and the raw space / dot test dropped the slot: the
+     * frozen SQL then referenced a column the derived table never exported and binding
+     * failed after a reload.
+     */
+    @Test
+    public void testWindowPassesThroughQuotedLiveColumn() {
+        SlotReference quoted = new SlotReference("a b", IntegerType.INSTANCE);
+        SlotReference k = new SlotReference("k", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(quoted, k));
+        PhysicalFilter<?> filter = mockFilter(new GreaterThan(k, new IntegerLiteral(100)), scan);
+
+        org.apache.doris.nereids.trees.expressions.WindowExpression win =
+                new org.apache.doris.nereids.trees.expressions.WindowExpression(
+                        new org.apache.doris.nereids.trees.expressions.functions.window.RowNumber(),
+                        List.of(), List.of());
+        org.apache.doris.nereids.trees.plans.physical.PhysicalWindow<?> window =
+                mockWindow(filter, List.of((NamedExpression) new Alias(win, "rn")));
+
+        SQLRelation relation = new SPMPlan2SQLBuilder().visitPhysicalWindow(window, null);
+        Assertions.assertTrue(relation.getSelects().stream()
+                        .anyMatch(p -> p.value().contains("`a b`")),
+                "the quoted live column must be exported by the window SELECT: "
+                        + relation.toSQL());
+        Assertions.assertNotNull(new NereidsParser().parseSingle(relation.toSQL()),
+                "the decompiled fragment must re-parse: " + relation.toSQL());
     }
 
     // ==================== set-operation quantifier ====================
@@ -1452,7 +1483,7 @@ public class SPMPlan2SQLBuilderTest {
     }
 
     /** All t_N alias tokens of a FROM fragment, in order of appearance. */
-    private static List<String> tAliases(String fragment) {
+    private static List<String> tableAliases(String fragment) {
         List<String> aliases = new ArrayList<>();
         java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("t_\\d+")
                 .matcher(fragment);

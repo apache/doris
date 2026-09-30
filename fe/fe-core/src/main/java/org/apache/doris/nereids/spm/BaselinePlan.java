@@ -333,12 +333,6 @@ public class BaselinePlan {
     }
 
     /**
-     * Returns the parameterized whole-query bind plan tree (may be null when the
-     * baseline was built without a parsed bind plan).
-     *
-     * @return the parameterized bind plan tree
-     */
-    /**
      * A detached copy of the PERSISTED scalar fields (no transient trees): used to write
      * a status change durably WITHOUT publishing it on the live object first (see
      * BaselineManager#updateStatus) - matching readers do not take the writer lock, so
@@ -369,6 +363,12 @@ public class BaselinePlan {
         return copy;
     }
 
+    /**
+     * Returns the parameterized whole-query bind plan tree (may be null when the
+     * baseline was built without a parsed bind plan).
+     *
+     * @return the parameterized bind plan tree
+     */
     public LogicalPlan getParameterizedBindPlan() {
         return parameterizedBindPlan;
     }

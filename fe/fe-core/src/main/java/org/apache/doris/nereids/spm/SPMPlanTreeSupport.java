@@ -68,8 +68,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalQualify;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
-import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUsingJoin;
@@ -1748,7 +1748,7 @@ public final class SPMPlanTreeSupport {
             return "";
         }
         TreeSet<String> entries = new TreeSet<>();
-        collectBindSideFingerprintEntries(ctx, plan, entries);
+        collectBindSideFingerprintEntries(ctx, plan, Map.of(), entries);
         return joinFingerprintEntries(entries);
     }
 
@@ -1786,7 +1786,8 @@ public final class SPMPlanTreeSupport {
             return "";
         }
         TreeSet<String> entries = new TreeSet<>();
-        collectBindSideFingerprintEntries(ctx, bindPlan, entries);
+        collectBindSideFingerprintEntries(ctx, bindPlan,
+                lockedTablesByQualifiedName(optimizedPlan), entries);
         collectPhysicalTableEntries(optimizedPlan, entries);
         // Functions used ONLY by the stored plan (bind "SELECT k FROM t", plan
         // "SELECT f(k) AS k FROM t") must be pinned too: the bind side never mentions
@@ -1823,7 +1824,8 @@ public final class SPMPlanTreeSupport {
         }
         TreeSet<String> entries = new TreeSet<>();
         if (bindPlan != null && ctx.getStatementContext() != null) {
-            collectBindSideFingerprintEntries(ctx, bindPlan, entries);
+            collectBindSideFingerprintEntries(ctx, bindPlan,
+                    lockedTablesByQualifiedName(plannedPlan), entries);
         }
         collectPhysicalTableEntries(plannedPlan, entries);
         collectPlanTextFunctionEntries(ctx, storedPlanSql, entries);
@@ -1832,14 +1834,26 @@ public final class SPMPlanTreeSupport {
 
     /** Bind-side table + function entries (see the callers' contracts). */
     private static void collectBindSideFingerprintEntries(ConnectContext ctx, Plan plan,
-            TreeSet<String> entries) {
+            Map<String, TableIf> lockedTables, TreeSet<String> entries) {
         SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
             if (node instanceof UnboundRelation) {
                 UnboundRelation relation = (UnboundRelation) node;
                 try {
-                    TableIf table = ctx.getStatementContext().getAndCacheTable(
-                            RelationUtil.getQualifierName(ctx, relation.getNameParts()),
-                            StatementContext.TableFrom.QUERY, Optional.of(relation));
+                    List<String> qualifier =
+                            RelationUtil.getQualifierName(ctx, relation.getNameParts());
+                    // Inside the create / replay window the FROZEN output slots were produced
+                    // by a plan that already held the table locks: re-resolving the table
+                    // here could hash a NEWER schema (an ALTER TABLE ADD COLUMN x committing
+                    // after planWithLock released them) than the frozen slots were built
+                    // from - same-text queries would pass the guard and silently omit x.
+                    // When the plan carries the relation, its TableIf IS the under-lock
+                    // snapshot and is hashed instead.
+                    TableIf locked = lookupLockedTable(lockedTables, qualifier,
+                            relation.getNameParts());
+                    TableIf table = locked != null ? locked
+                            : ctx.getStatementContext().getAndCacheTable(
+                                    qualifier, StatementContext.TableFrom.QUERY,
+                                    Optional.of(relation));
                     entries.add(describeTableForFingerprint(table));
                 } catch (RuntimeException e) {
                     // unresolvable: not part of the fingerprint, the analysis pass reports
@@ -1857,7 +1871,100 @@ public final class SPMPlanTreeSupport {
             for (Expression expr : node.getExpressions()) {
                 collectFunctionDependencies(ctx, expr, entries);
             }
+            // the ASOF MATCH_CONDITION lives outside getExpressions(): an alias UDF used
+            // only as the ASOF boundary must be fingerprinted like any other call
+            for (Expression expr : outOfBandExpressions(node)) {
+                collectFunctionDependencies(ctx, expr, entries);
+            }
         });
+    }
+
+    /**
+     * The expressions of one plan node that are NOT reachable through
+     * {@link Plan#getExpressions()}: today the ASOF {@code USING} join's MATCH_CONDITION
+     * ({@link LogicalUsingJoin#getMatchCondition()}). Missing it made the function
+     * dependency walks blind to an alias UDF used ONLY as the ASOF boundary: analysis
+     * inlines its body into the frozen SQL, so redefining the UDF changes which right row
+     * a direct ASOF query picks while the stored fingerprint still matches and replays
+     * the OLD boundary.
+     */
+    private static List<Expression> outOfBandExpressions(Plan node) {
+        if (node instanceof LogicalUsingJoin) {
+            Optional<Expression> matchCondition =
+                    ((LogicalUsingJoin<?, ?>) node).getMatchCondition();
+            if (matchCondition.isPresent()) {
+                return List.of(matchCondition.get());
+            }
+        }
+        return List.of();
+    }
+
+    /**
+     * Tables of one planned tree keyed for the bind-side lookup: the bare table name and,
+     * when the catalog object is available, the db-qualified name. These are the TableIf
+     * instances the planner held its metadata locks on.
+     */
+    private static Map<String, TableIf> lockedTablesByQualifiedName(Plan plan) {
+        if (plan == null) {
+            return Map.of();
+        }
+        Map<String, TableIf> tables = new HashMap<>();
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
+            if (node instanceof org.apache.doris.nereids.trees.plans.physical
+                    .PhysicalCatalogRelation) {
+                TableIf table = ((org.apache.doris.nereids.trees.plans.physical
+                        .PhysicalCatalogRelation) node).getTable();
+                tables.put(table.getName().toLowerCase(Locale.ROOT), table);
+                if (table.getDatabase() != null && table.getDatabase().getFullName() != null) {
+                    tables.put((table.getDatabase().getFullName() + "." + table.getName())
+                            .toLowerCase(Locale.ROOT), table);
+                }
+            }
+        });
+        return tables;
+    }
+
+    /**
+     * Resolves one bind relation against the planned tree's tables (see the caller). The
+     * exact qualifier wins; a qualifier whose suffix is a planned db-qualified name wins
+     * next; the bare table name is used only as the last resort and only when it is
+     * unambiguous.
+     */
+    private static TableIf lookupLockedTable(Map<String, TableIf> lockedTables,
+            List<String> qualifier, List<String> nameParts) {
+        if (lockedTables.isEmpty()) {
+            return null;
+        }
+        if (qualifier != null && !qualifier.isEmpty()) {
+            String lower = String.join(".", qualifier).toLowerCase(Locale.ROOT);
+            TableIf exact = lockedTables.get(lower);
+            if (exact != null) {
+                return exact;
+            }
+            int dot = lower.indexOf('.');
+            if (dot >= 0 && dot + 1 < lower.length()) {
+                TableIf dbQualified = lockedTables.get(lower.substring(dot + 1));
+                if (dbQualified != null) {
+                    return dbQualified;
+                }
+            }
+        }
+        if (nameParts == null || nameParts.isEmpty()) {
+            return null;
+        }
+        String bare = nameParts.get(nameParts.size() - 1).toLowerCase(Locale.ROOT);
+        TableIf byBare = lockedTables.get(bare);
+        if (byBare == null) {
+            return null;
+        }
+        // unambiguous only: another db-qualified key pointing at a DIFFERENT table means
+        // the bare name cannot identify the relation safely
+        for (Map.Entry<String, TableIf> entry : lockedTables.entrySet()) {
+            if (entry.getKey().endsWith("." + bare) && entry.getValue() != byBare) {
+                return null;
+            }
+        }
+        return byBare;
     }
 
     /** Tables of a planned physical tree, taken from each relation's OWN TableIf. */
@@ -1905,6 +2012,10 @@ public final class SPMPlanTreeSupport {
         }
         SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
             for (Expression expr : node.getExpressions()) {
+                collectFunctionDependencies(ctx, expr, entries);
+            }
+            // the parsed ASOF MATCH_CONDITION is out of band here as well
+            for (Expression expr : outOfBandExpressions(node)) {
                 collectFunctionDependencies(ctx, expr, entries);
             }
         });
@@ -2134,6 +2245,13 @@ public final class SPMPlanTreeSupport {
         final boolean[] found = {false};
         SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
             for (Expression expr : node.getExpressions()) {
+                if (referencesKeyFunction(expr)) {
+                    found[0] = true;
+                }
+            }
+            // the ASOF MATCH_CONDITION lives outside getExpressions(): a key(...) used
+            // only as the ASOF boundary must be refused just like any other
+            for (Expression expr : outOfBandExpressions(node)) {
                 if (referencesKeyFunction(expr)) {
                     found[0] = true;
                 }

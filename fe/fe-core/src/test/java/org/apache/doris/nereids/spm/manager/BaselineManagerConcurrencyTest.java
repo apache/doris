@@ -814,4 +814,181 @@ public class BaselineManagerConcurrencyTest {
                 "77", bindSql, "d-temp", "7", planSql, "NaN", "0", "0",
                 "USER", "ENABLED", "2026-01-01 00:00:00", "2026-01-01 00:00:00",
                 "0", "0", "false", ""));
-    }}
+    }
+
+    // ==================== promotion-window reconciliation (round-19) ====================
+
+    /**
+     * A promoted follower can have loaded=true with a snapshot that MISSES a row created
+     * on the prior master. The map miss must not be reported as "the baseline does not
+     * exist": DROP BASELINE PLAN errored while DROP IF EXISTS reported success although
+     * the durable row stayed (and resurrected on the next refresh). The miss is
+     * reconciled against the durable table and the row is deleted by identity.
+     */
+    @Test
+    public void testDropCacheMissReconcilesAgainstTheDurableTable() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        IdentityStoreSimulator store = new IdentityStoreSimulator();
+        try {
+            manager.setPersistToTableForTest(true);
+            BaselineManager.snapshotReaderForTest = () -> Map.of();
+            BaselineManager.idAllocatorStoreForTest = store;
+            store.rows.put(21L, withId(baseline("d-drop2", "p-drop2"), 21L));
+
+            Assertions.assertTrue(manager.dropBaseline(21L),
+                    "DROP must reconcile the cache miss against the durable table");
+            Assertions.assertTrue(store.rows.isEmpty(),
+                    "the durable row must be deleted, not silently declared absent");
+
+            store.rows.put(22L, withId(baseline("d-drop3", "p-drop3"), 22L));
+            store.failRead = true;
+            Assertions.assertThrows(RuntimeException.class, () -> manager.dropBaseline(22L),
+                    "an unconfirmable durable state must surface instead of a false absence");
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+            BaselineManager.snapshotReaderForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * A load snapshot read BEFORE a local mutation (CREATE which already passed its own
+     * load check) must be DISCARDED: publishing it cleared the freshly inserted cache
+     * entry (the durable row was intact but invisible on this FE until the next refresh).
+     */
+    @Test
+    public void testLoadSnapshotPredatingALocalMutationIsDiscarded() throws Exception {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        manager.prepareLoadForTest();
+        CountDownLatch hookEntered = new CountDownLatch(1);
+        CountDownLatch hookRelease = new CountDownLatch(1);
+        try {
+            BaselineManager.snapshotReadStartedHookForTest = () -> {
+                hookEntered.countDown();
+                try {
+                    hookRelease.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            };
+            // the snapshot is read BEFORE the local mutation
+            BaselineManager.snapshotReaderForTest = () -> Map.of();
+            Thread loader = new Thread(manager::loadFromInternalTable);
+            loader.start();
+            Assertions.assertTrue(hookEntered.await(5, TimeUnit.SECONDS),
+                    "the load must reach the snapshot-read hook");
+
+            BaselinePlan created = withId(baseline("d-local", "p-local"), 7L);
+            manager.applyRefreshedBaselines(Map.of(7L, created));
+            Assertions.assertNotNull(manager.getBaseline(7L),
+                    "fixture: the local mutation published its row");
+
+            hookRelease.countDown();
+            loader.join(10_000);
+            Assertions.assertNotNull(manager.getBaseline(7L),
+                    "the snapshot predates the local mutation: publishing it must not erase"
+                            + " the locally published row");
+
+            // the retry reads a snapshot that CONTAINS the row and publishes it
+            BaselineManager.snapshotReadStartedHookForTest = null;
+            BaselineManager.snapshotReaderForTest = () -> Map.of(7L, created);
+            manager.loadFromInternalTable();
+            Assertions.assertNotNull(manager.getBaseline(7L));
+        } finally {
+            BaselineManager.snapshotReadStartedHookForTest = null;
+            BaselineManager.snapshotReaderForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /** Scripted status store: rows keyed by status with injectable delete failures. */
+    private static final class StatusProtocolSimulator
+            implements BaselineManager.StatusProtocolStoreForTest {
+        private final Map<BaselineStatus, Integer> rows = new ConcurrentHashMap<>();
+        private boolean failOldDeleteAfterCommit;
+        private boolean failOldDeleteWithoutCommit;
+
+        @Override
+        public void insert(BaselinePlan plan) {
+            rows.merge(plan.getStatus(), 1, Integer::sum);
+        }
+
+        @Override
+        public void deleteByIdAndStatus(long id, BaselineStatus status) {
+            if (failOldDeleteAfterCommit && status == BaselineStatus.ENABLED) {
+                rows.computeIfPresent(status, (k, v) -> Math.max(0, v - 1));
+                throw new RuntimeException("KV_TXN_MAYBE_COMMITTED");
+            }
+            if (failOldDeleteWithoutCommit && status == BaselineStatus.ENABLED) {
+                throw new RuntimeException("KV_TXN_MAYBE_COMMITTED");
+            }
+            rows.computeIfPresent(status, (k, v) -> Math.max(0, v - 1));
+        }
+
+        @Override
+        public int countByIdAndStatus(long id, BaselineStatus status) {
+            return rows.getOrDefault(status, 0);
+        }
+    }
+
+    /**
+     * DELETE(old) can COMMIT but report KV_TXN_MAYBE_COMMITTED: the catch must reconcile
+     * instead of blindly deleting the new row, otherwise no durable version survives
+     * (the next refresh / restart silently drops the baseline).
+     */
+    @Test
+    public void testCommittedStatusDeleteDespiteAnErrorKeepsTheNewRow() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        StatusProtocolSimulator store = new StatusProtocolSimulator();
+        try {
+            long id = manager.createBaseline(baseline("d-st", "p-st"));
+            BaselineManager.statusProtocolStoreForTest = store;
+            store.rows.put(BaselineStatus.ENABLED, 1);
+            store.failOldDeleteAfterCommit = true;
+
+            Assertions.assertTrue(manager.updateStatus(id, BaselineStatus.DISABLED),
+                    "a committed delete that reported an error must be reconciled, not"
+                            + " compensated away");
+            Assertions.assertEquals(BaselineStatus.DISABLED, manager.getBaseline(id).getStatus());
+            Assertions.assertEquals(0, store.rows.getOrDefault(BaselineStatus.ENABLED, 0));
+            Assertions.assertEquals(1, store.rows.getOrDefault(BaselineStatus.DISABLED, 0),
+                    "exactly the new version must survive: " + store.rows);
+        } finally {
+            BaselineManager.statusProtocolStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * The uncommitted counterpart: DELETE(old) failed AND did not commit. The rollback
+     * may remove the freshly inserted row, but the OLD version must survive and the ALTER
+     * must report failure.
+     */
+    @Test
+    public void testUncommittedStatusDeleteKeepsTheOldRow() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        StatusProtocolSimulator store = new StatusProtocolSimulator();
+        try {
+            long id = manager.createBaseline(baseline("d-st2", "p-st2"));
+            BaselineManager.statusProtocolStoreForTest = store;
+            store.rows.put(BaselineStatus.ENABLED, 1);
+            store.failOldDeleteWithoutCommit = true;
+
+            Assertions.assertThrows(RuntimeException.class,
+                    () -> manager.updateStatus(id, BaselineStatus.DISABLED));
+            Assertions.assertEquals(BaselineStatus.ENABLED, manager.getBaseline(id).getStatus(),
+                    "the failed ALTER must not flip the live object");
+            Assertions.assertEquals(1, store.rows.getOrDefault(BaselineStatus.ENABLED, 0),
+                    "the old version must survive: " + store.rows);
+            Assertions.assertEquals(0, store.rows.getOrDefault(BaselineStatus.DISABLED, 0),
+                    "the rollback removes the new row: " + store.rows);
+        } finally {
+            BaselineManager.statusProtocolStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+}

@@ -87,6 +87,22 @@ public class PlanCaptureTest {
         Assertions.assertEquals(1, tables.size(), "single-table query must yield one table");
     }
 
+    /**
+     * #5: SELECT * REPLACE((SELECT MAX(v) FROM t2) AS k) FROM t1 stores the replacement in
+     * UnboundStar.getReplacedAlias(), OUTSIDE children(): the table count saw only t1, so
+     * the two-table query failed the capture gate and the candidate was marked terminal
+     * while the audit cursor advanced.
+     */
+    @Test
+    public void testExtractTableNamesStarReplaceScalarSubquery() {
+        List<String> tables = PlanCaptureFilter.extractTableNames(
+                "SELECT * REPLACE((SELECT MAX(v) FROM t2) AS k) FROM t1");
+        Assertions.assertEquals(2, tables.size(),
+                "the * REPLACE payload's subquery must contribute its table: " + tables);
+        Assertions.assertTrue(tables.stream().anyMatch(t -> t.endsWith("t1")), tables.toString());
+        Assertions.assertTrue(tables.stream().anyMatch(t -> t.endsWith("t2")), tables.toString());
+    }
+
     @Test
     public void testExtractTableNamesInvalidSql() {
         // unparseable SQL -> empty list (not an exception)

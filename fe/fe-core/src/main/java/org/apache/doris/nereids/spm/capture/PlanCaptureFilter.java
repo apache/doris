@@ -24,6 +24,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
@@ -416,6 +417,16 @@ public class PlanCaptureFilter {
     private static void collectSubqueryNames(Expression expr, Set<String> visibleCtes, Set<String> out) {
         if (expr instanceof SubqueryExpr) {
             collectUnboundNames(((SubqueryExpr) expr).getQueryPlan(), visibleCtes, out);
+        }
+        if (expr instanceof org.apache.doris.nereids.analyzer.UnboundStar) {
+            // SELECT * REPLACE((SELECT MAX(v) FROM t2) AS k) FROM t1: the replacement
+            // lives in getReplacedAlias(), OUTSIDE children(), so the table count saw
+            // only t1 - the two-table query failed the capture gate and the candidate
+            // was marked terminal while the audit cursor advanced.
+            for (NamedExpression replaced
+                    : ((org.apache.doris.nereids.analyzer.UnboundStar) expr).getReplacedAlias()) {
+                collectSubqueryNames(replaced, visibleCtes, out);
+            }
         }
         for (Expression child : expr.children()) {
             collectSubqueryNames(child, visibleCtes, out);

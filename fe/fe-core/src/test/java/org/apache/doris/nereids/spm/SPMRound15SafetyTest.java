@@ -75,7 +75,6 @@ public class SPMRound15SafetyTest {
         return ctx;
     }
 
-    /** A planned-tree node projecting one expression (the plan-side walk input). */
     /** SQL of every expression in the tree (the plan tree is not flat). */
     private static String expressionSql(Plan plan) {
         StringBuilder sql = new StringBuilder();
