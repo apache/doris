@@ -73,6 +73,15 @@ import java.util.function.Supplier;
  */
 public class PlanCaptureManager extends MasterDaemon {
 
+    /**
+     * Statement timeout (seconds) of the checkpoint read / write. The default
+     * StatisticsUtil overloads assign the ANALYZE timeout (43,200 seconds), so a stalled
+     * internal-table read or write could hold the single capture cycle for hours and
+     * delay every later capture / retry. Both operations are latency-sensitive: fail
+     * fast, keep the cycle consistent, retry next cycle.
+     */
+    static final int CHECKPOINT_IO_TIMEOUT_SECONDS = 10;
+
     private static final Logger LOG = LogManager.getLogger(PlanCaptureManager.class);
 
     private static final PlanCaptureManager INSTANCE = new PlanCaptureManager();
@@ -104,15 +113,6 @@ public class PlanCaptureManager extends MasterDaemon {
 
     /** Upper bound for the retry entries written into the checkpoint row (row size). */
     private static final int MAX_PERSISTED_RETRIES = 64;
-
-    /**
-     * Statement timeout (seconds) of the checkpoint read / write. The default
-     * StatisticsUtil overloads assign the ANALYZE timeout (43,200 seconds), so a stalled
-     * internal-table read or write could hold the single capture cycle for hours and
-     * delay every later capture / retry. Both operations are latency-sensitive: fail
-     * fast, keep the cycle consistent, retry next cycle.
-     */
-    static final int CHECKPOINT_IO_TIMEOUT_SECONDS = 10;
 
     /** Table of the durable capture checkpoint (see InternalSchema). */
     private static final String CHECKPOINT_TABLE =
@@ -221,13 +221,6 @@ public class PlanCaptureManager extends MasterDaemon {
         }
     }
 
-    /** The pre-page state of the CURRENT page (anchors entries queued by this page). */
-    private RetryAnchor currentPageAnchor() {
-        return new RetryAnchor(pageStartLastScanTimestamp, pageStartWindowStart,
-                pageStartWindowEnd, pageStartCursorQueryTime, pageStartCursorTime,
-                pageStartCursorQueryId, pageStartCursorTail);
-    }
-
     /**
      * Resume cursor of a TRUNCATED scan window: the FULL ORDER BY key tuple of the last
      * consumed row -- (time, query_time, query_id) plus the encoded tail (client_ip,
@@ -301,6 +294,13 @@ public class PlanCaptureManager extends MasterDaemon {
                 Math.max(1, VariableMgr.getDefaultSessionVariable().getPlanCaptureIntervalSeconds())
                         * 1000L);
         this.filter = buildFilterFromGlobal();
+    }
+
+    /** The pre-page state of the CURRENT page (anchors entries queued by this page). */
+    private RetryAnchor currentPageAnchor() {
+        return new RetryAnchor(pageStartLastScanTimestamp, pageStartWindowStart,
+                pageStartWindowEnd, pageStartCursorQueryTime, pageStartCursorTime,
+                pageStartCursorQueryId, pageStartCursorTail);
     }
 
     public static PlanCaptureManager getInstance() {

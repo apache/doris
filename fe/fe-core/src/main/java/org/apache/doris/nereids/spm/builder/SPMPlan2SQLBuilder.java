@@ -142,38 +142,6 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     private static final String HINT_JOIN_BROADCAST = "BROADCAST";
     private static final String HINT_JOIN_SHUFFLE = "SHUFFLE";
 
-    /**
-     * Rejects freezing when any expression of the plan carries a
-     * SessionVarGuardExpr (see {@link #containsSessionVarGuard}): the guard holds the
-     * alias-UDF DEFINITION's saved session variables and has no SQL rendering.
-     *
-     * @param plan the physical plan about to be decompiled
-     */
-    public static void rejectSessionVarGuardedExpressions(Plan plan) {
-        org.apache.doris.nereids.spm.SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, node -> {
-            for (org.apache.doris.nereids.trees.expressions.Expression expr
-                    : node.getExpressions()) {
-                if (containsSessionVarGuard(expr)) {
-                    throw new UnsupportedOperationException("SPM cannot freeze an expression"
-                            + " carrying a session-variable guard: " + expr);
-                }
-            }
-        });
-    }
-
-    private static boolean containsSessionVarGuard(
-            org.apache.doris.nereids.trees.expressions.Expression expr) {
-        if (expr instanceof org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr) {
-            return true;
-        }
-        for (org.apache.doris.nereids.trees.expressions.Expression child : expr.children()) {
-            if (containsSessionVarGuard(child)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     /** Expression printer (carries the columnNames mapping of SQLRelation). */
     private final SPMExprSqlBuilder exprSqlBuilder = new SPMExprSqlBuilder();
 
@@ -288,6 +256,38 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * exports do not, so they reserve here instead.
      */
     private final Set<String> reservedOutputNames = new HashSet<>();
+
+    /**
+     * Rejects freezing when any expression of the plan carries a
+     * SessionVarGuardExpr (see {@link #containsSessionVarGuard}): the guard holds the
+     * alias-UDF DEFINITION's saved session variables and has no SQL rendering.
+     *
+     * @param plan the physical plan about to be decompiled
+     */
+    public static void rejectSessionVarGuardedExpressions(Plan plan) {
+        org.apache.doris.nereids.spm.SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, node -> {
+            for (org.apache.doris.nereids.trees.expressions.Expression expr
+                    : node.getExpressions()) {
+                if (containsSessionVarGuard(expr)) {
+                    throw new UnsupportedOperationException("SPM cannot freeze an expression"
+                            + " carrying a session-variable guard: " + expr);
+                }
+            }
+        });
+    }
+
+    private static boolean containsSessionVarGuard(
+            org.apache.doris.nereids.trees.expressions.Expression expr) {
+        if (expr instanceof org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr) {
+            return true;
+        }
+        for (org.apache.doris.nereids.trees.expressions.Expression child : expr.children()) {
+            if (containsSessionVarGuard(child)) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     /**
      * Marks the OUTERMOST projection of the decompiled tree: the first PhysicalProject
@@ -3187,13 +3187,35 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             for (Map.Entry<ExprId, String> entry : child.getColumnNames().entrySet()) {
                 String ref = entry.getValue();
                 // plain reference names only (skip expressions / qualified names - those
-                // relations carry their own SELECT list instead)
-                if (ref != null && !ref.contains("(") && !ref.contains(" ") && !ref.contains(".")
-                        && !isSystemColumnName(ref)) {
+                // relations carry their own SELECT list instead). A FULLY QUOTED
+                // reference IS pass-through safe: a legal column named "a b" / "a.b"
+                // re-parses as ONE name when emitted backtick-quoted, while the raw
+                // space / dot test dropped it - the parent then referenced a column the
+                // derived table did not export and the frozen SQL failed binding after a
+                // reload (e.g. a Window over a quoted column under a parameterized
+                // filter).
+                if (isPassThroughReference(ref) && !isSystemColumnName(ref)) {
                     selects.add(Pair.of(entry.getKey(), ref));
                 }
             }
         }
+    }
+
+    /**
+     * Whether a registered reference can be re-emitted as a bare SELECT item: a plain
+     * identifier, or a fully backtick-quoted reference (quoteIdentifier output - the
+     * quoting is what keeps spaces / dots / keywords inside ONE name). Expressions,
+     * qualified / literal forms stay excluded.
+     */
+    private static boolean isPassThroughReference(String ref) {
+        if (ref == null || ref.isEmpty()) {
+            return false;
+        }
+        if (ref.startsWith("`") && ref.endsWith("`") && ref.length() >= 2) {
+            return true;
+        }
+        return !ref.contains("(") && !ref.contains(" ") && !ref.contains(".")
+                && !ref.contains("'");
     }
 
     /**

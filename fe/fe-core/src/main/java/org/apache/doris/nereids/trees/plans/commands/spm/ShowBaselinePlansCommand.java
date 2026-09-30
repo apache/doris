@@ -121,7 +121,7 @@ public class ShowBaselinePlansCommand extends ShowCommand {
 
     /** Builds the LIKE matcher of one operand; {@code null} means "LIKE omitted". */
     static java.util.regex.Pattern buildLikeMatcher(String pattern)
-            throws org.apache.doris.common.AnalysisException {
+            throws AnalysisException {
         if (pattern == null) {
             return null;
         }

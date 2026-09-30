@@ -56,15 +56,6 @@ import java.util.Map;
 public class AuditLogScanner {
 
     /**
-     * Statement timeout (seconds) of the synchronous audit read. The default
-     * StatisticsUtil overload assigns the ANALYZE timeout (43,200 seconds), so a stalled
-     * internal-table read could hold the single capture cycle for half a day and delay
-     * every later capture / retry. The read is latency-sensitive: fail fast and let the
-     * next cycle retry.
-     */
-    static final int AUDIT_SCAN_TIMEOUT_SECONDS = 30;
-
-    /**
      * Cursor sentinel: no resume cursor is pending. A valid audit query_time is
      * non-negative, so the sentinel lies outside the valid domain (a zero query_time is
      * a perfectly valid cursor and must not be mistaken for "no cursor").
@@ -78,6 +69,15 @@ public class AuditLogScanner {
      * the resume predicate can compare it three-valued (IS NULL).
      */
     public static final long CURSOR_QUERY_TIME_NULL = Long.MIN_VALUE + 1;
+
+    /**
+     * Statement timeout (seconds) of the synchronous audit read. The default
+     * StatisticsUtil overload assigns the ANALYZE timeout (43,200 seconds), so a stalled
+     * internal-table read could hold the single capture cycle for half a day and delay
+     * every later capture / retry. The read is latency-sensitive: fail fast and let the
+     * next cycle retry.
+     */
+    static final int AUDIT_SCAN_TIMEOUT_SECONDS = 30;
 
     private static final DateTimeFormatter DATETIME_FORMAT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");

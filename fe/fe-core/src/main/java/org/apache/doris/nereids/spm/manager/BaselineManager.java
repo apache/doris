@@ -722,7 +722,16 @@ public class BaselineManager {
                 stateLock.readLock().unlock();
             }
             if (removed == null) {
-                return false;
+                // The cache can be STALE inside the promotion reload window (Env.transferToMaster
+                // sets isReady BEFORE forceReloadFromInternalTable finishes), and a reload can
+                // also have cleared the map between ensureLoadedOrThrow and writerLock: a row
+                // created on the PRIOR master may be missing here although it is durable. Confirm
+                // the durable table before declaring the baseline absent - a present row is
+                // deleted by identity (exactly the DROP the user asked for), and an unconfirmable
+                // read surfaces as a retryable failure instead of a false "DROP succeeded" while
+                // the durable row stays (DROP BASELINE PLAN reported an error, DROP IF EXISTS a
+                // bogus success).
+                return dropDurableRowByIdIfAbsentFromCache(id);
             }
             // persist first so a failure keeps both the in-memory state and the table row;
             // the delete is keyed by id + content, so a stale id can never remove an
@@ -742,6 +751,70 @@ public class BaselineManager {
             } finally {
                 stateLock.writeLock().unlock();
             }
+        }
+    }
+
+    /**
+     * See {@link #dropBaseline}: reconciles a cache miss against the durable table. The
+     * rows found (a reload window can leave several) are removed by IDENTITY, so a stale
+     * id can never delete an unrelated row.
+     */
+    private boolean dropDurableRowByIdIfAbsentFromCache(long id) {
+        List<BaselinePlan> durable = readPersistedById(id);
+        if (durable.isEmpty()) {
+            return false;
+        }
+        for (BaselinePlan row : durable) {
+            persistDeleteByIdentity(row);
+        }
+        LOG.info("SPM dropped baseline {} from the durable table while the local cache did"
+                + " not have it (promotion reload / stale snapshot window)", id);
+        return true;
+    }
+
+    /**
+     * Reads every durable row carrying the given id (DROP reconcile / identity delete).
+     * A read FAILURE propagates: “no row” may only be reported from a successful read.
+     *
+     * @param id the baseline id
+     * @return the durable rows (empty when none)
+     * @throws RuntimeException when the durable state cannot be read
+     */
+    private static List<BaselinePlan> readPersistedById(long id) {
+        if (idAllocatorStoreForTest != null) {
+            try {
+                return new ArrayList<>(idAllocatorStoreForTest.readById(id));
+            } catch (RuntimeException e) {
+                throw new RuntimeException("SPM durable read by id failed: " + e.getMessage(), e);
+            }
+        }
+        if (!persistenceEnabled()) {
+            if (statusProtocolStoreForTest != null) {
+                int rows = durableRowCount(id, BaselineStatus.ENABLED)
+                        + durableRowCount(id, BaselineStatus.DISABLED);
+                if (rows > 0) {
+                    // the status-protocol seam cannot hand out the row CONTENT an identity
+                    // delete needs: fail closed instead of reporting a false absence
+                    throw new RuntimeException("SPM cannot read the durable row of baseline "
+                            + id + " from the test store");
+                }
+            }
+            return List.of();
+        }
+        Map<String, String> params = new HashMap<>();
+        params.put("id", String.valueOf(id));
+        try {
+            List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+                    SELECT_BY_ID_SQL, params, INTERNAL_QUERY_TIMEOUT_SECONDS));
+            List<BaselinePlan> result = new ArrayList<>();
+            if (rows != null) {
+                for (ResultRow row : rows) {
+                    result.add(fromRow(row));
+                }
+            }
+            return result;
+        } catch (Exception e) {
+            throw new RuntimeException("SPM durable read by id failed: " + e.getMessage(), e);
         }
     }
 
@@ -1099,7 +1172,8 @@ public class BaselineManager {
      * Returns all baselines (for SHOW / tests).
      */
     public List<BaselinePlan> getAllBaselines() {
-        ensureLoaded();        List<BaselinePlan> all;
+        ensureLoaded();
+        List<BaselinePlan> all;
         stateLock.readLock().lock();
         try {
             all = new ArrayList<>(baselines.values());
@@ -1253,6 +1327,13 @@ public class BaselineManager {
             // may still contain rows deleted by a DROP that completed in between), so the
             // publication below must be rejected instead of resurrecting them.
             final long generationAtRead = storeGeneration.get();
+            // Also capture the LOCAL mutation version: a CREATE / ALTER / DROP that passed
+            // its own load check while this snapshot was being read has already inserted
+            // durably AND published into the maps. The snapshot PREDATES that row, so
+            // publishing it would erase the local entry (the durable write stays; the
+            // baseline would be invisible on this FE until the next refresh). Keep
+            // loaded=false so the next access loads a snapshot that contains it.
+            final long versionAtRead = getStateVersion();
             Runnable hook = snapshotReadStartedHookForTest;
             if (hook != null) {
                 hook.run();
@@ -1276,6 +1357,13 @@ public class BaselineManager {
                     // retries against the CURRENT table content
                     LOG.warn("SPM baseline load discarded: the store was invalidated while the"
                             + " snapshot was being read (will retry)");
+                    return;
+                }
+                if (stateVersion != versionAtRead) {
+                    // a local mutation (CREATE / DROP / ALTER, or a merged refresh)
+                    // published while the snapshot was being read: the snapshot predates it
+                    LOG.warn("SPM baseline load discarded: a local mutation published while the"
+                            + " snapshot was being read (will retry against the current table)");
                     return;
                 }
                 doLoadFromTable(snapshot);
