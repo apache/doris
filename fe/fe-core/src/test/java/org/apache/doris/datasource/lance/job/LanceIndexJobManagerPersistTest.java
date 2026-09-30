@@ -48,20 +48,21 @@ public class LanceIndexJobManagerPersistTest {
     private static final long BACKEND_ID = 1001L;
     private static final long BE_EPOCH = 55L;
     private static final String INVOCATION_ID = "invocation-1";
+    private static final String INVOCATION_SECRET = "a3f1c02d97b64e8fad0c31b9e75d2468";
 
     @Test
     public void managerImageRoundtripRebuildsDerivedFenceAndQuota() throws Exception {
         TestManager source = new TestManager();
         source.createJob(newCreateJob(1L, "IdxPending"), 100, 100, 100);
         source.createJob(newCreateJob(2L, "IdxRunning"), 100, 100, 100);
-        source.markRunning(2L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, 9999L);
+        source.markRunning(2L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, 9999L);
         source.createJob(newCreateJob(3L, "IdxCommitted"), 100, 100, 100);
-        source.markRunning(3L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, 9999L);
+        source.markRunning(3L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, 9999L);
         source.completeWithResult(3L, 1L, INVOCATION_ID, BE_EPOCH,
                 new LanceIndexJobResult(LanceIndexJobResultCode.NATIVE_OK,
                         LanceIndexJobCompletionReason.NONE, "ok", false));
         source.createJob(newCreateJob(4L, "IdxUnknown"), 100, 100, 100);
-        source.markRunning(4L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, 9999L);
+        source.markRunning(4L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, 9999L);
         source.completeWithResult(4L, 1L, INVOCATION_ID, BE_EPOCH,
                 new LanceIndexJobResult(LanceIndexJobResultCode.NO_TRUSTED_RESULT,
                         LanceIndexJobCompletionReason.NONE, "lost", false));
@@ -288,6 +289,31 @@ public class LanceIndexJobManagerPersistTest {
     }
 
     @Test
+    public void oldRecordWithoutBoundSnapshotLoadsWithNullBounds() {
+        // A record written before the admitted-bound snapshot existed carries no "mnp"/"mns"
+        // keys at all; replay must load it with a null snapshot (the dispatch then leaves the
+        // wire fields unset, and the new worker safely rejects it).
+        String oldJson = "{\"jid\":1,\"cr\":\"tester\",\"rev\":0,\"cid\":" + CATALOG_ID
+                + ",\"dbn\":\"db1\",\"tbn\":\"tbl1\",\"prv\":\"" + LanceIndexFenceKey.PROVIDER_DIRECTORY
+                + "\",\"loc\":\"" + LOCATOR + "\",\"din\":\"IdxA\",\"nin\":\"idxa\",\"mt\":\"CREATE\","
+                + "\"adv\":7,\"ms\":\"PENDING\",\"rs\":\"NOT_REQUIRED\"}";
+        Assertions.assertFalse(oldJson.contains("\"mnp\""));
+        Assertions.assertFalse(oldJson.contains("\"mns\""));
+
+        LanceIndexJob loaded = GsonUtils.GSON.fromJson(oldJson, LanceIndexJob.class);
+        Assertions.assertNull(loaded.getAdmittedMaxNumPartitions());
+        Assertions.assertNull(loaded.getAdmittedMaxNumSubVectors());
+        // Everything else of the old record survives untouched, and the record remains
+        // fully usable: it admits, fences, and re-serializes without the new keys.
+        Assertions.assertEquals(7L, loaded.getAdmittedDatasetVersion());
+        Assertions.assertTrue(loaded.isUnresolved());
+        Assertions.assertDoesNotThrow(loaded::validateForAdmission);
+        String reserialized = GsonUtils.GSON.toJson(loaded);
+        Assertions.assertFalse(reserialized.contains("\"mnp\""));
+        Assertions.assertFalse(reserialized.contains("\"mns\""));
+    }
+
+    @Test
     public void boundedTextFieldsRejectOverflow() {
         String overMessage = StringUtils.repeat("m", LanceIndexJobResult.MAX_MESSAGE_BYTES + 1);
         Assertions.assertThrows(IllegalArgumentException.class,
@@ -383,9 +409,12 @@ public class LanceIndexJobManagerPersistTest {
         job.setBeProcessEpoch(BE_EPOCH);
         job.setDispatchRevision(7L);
         job.setInvocationId(INVOCATION_ID);
+        job.setInvocationSecret(INVOCATION_SECRET);
         job.setDeadlineMs(123456L);
         job.setPossibleLiveOwned(true);
         job.setTerminationProof(LanceIndexTerminationProof.NONE);
+        job.setAdmittedMaxNumPartitions(64);
+        job.setAdmittedMaxNumSubVectors(32);
         job.setForceActor("admin");
         job.setForceTimeMs(777L);
         job.setForceNote("note");
@@ -422,6 +451,8 @@ public class LanceIndexJobManagerPersistTest {
         Assertions.assertEquals(expected.getPropertiesJson(), actual.getPropertiesJson());
         Assertions.assertEquals(expected.getAdmittedDatasetVersion(), actual.getAdmittedDatasetVersion());
         Assertions.assertEquals(expected.getSchemaContract(), actual.getSchemaContract());
+        Assertions.assertEquals(expected.getAdmittedMaxNumPartitions(), actual.getAdmittedMaxNumPartitions());
+        Assertions.assertEquals(expected.getAdmittedMaxNumSubVectors(), actual.getAdmittedMaxNumSubVectors());
         Assertions.assertEquals(expected.getMutationState(), actual.getMutationState());
         Assertions.assertEquals(expected.getRefreshState(), actual.getRefreshState());
         Assertions.assertEquals(expected.getResult().getResultCode(), actual.getResult().getResultCode());
@@ -433,6 +464,7 @@ public class LanceIndexJobManagerPersistTest {
         Assertions.assertEquals(expected.getBeProcessEpoch(), actual.getBeProcessEpoch());
         Assertions.assertEquals(expected.getDispatchRevision(), actual.getDispatchRevision());
         Assertions.assertEquals(expected.getInvocationId(), actual.getInvocationId());
+        Assertions.assertEquals(expected.getInvocationSecret(), actual.getInvocationSecret());
         Assertions.assertEquals(expected.getDeadlineMs(), actual.getDeadlineMs());
         Assertions.assertEquals(expected.isPossibleLiveOwned(), actual.isPossibleLiveOwned());
         Assertions.assertEquals(expected.getTerminationProof(), actual.getTerminationProof());

@@ -571,6 +571,7 @@ set(DORIS_LINK_LIBS
     Load
     InformationSchema
     Cloud
+    Lance
     ${WL_END_GROUP}
     CommonCPP
 )
@@ -905,6 +906,7 @@ add_subdirectory(${SRC_DIR}/format)
 add_subdirectory(${SRC_DIR}/gen_cpp)
 add_subdirectory(${SRC_DIR}/io)
 add_subdirectory(${SRC_DIR}/storage/index/ann)
+add_subdirectory(${SRC_DIR}/lance)
 add_subdirectory(${SRC_DIR}/storage)
 add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/service) # this include doris_be

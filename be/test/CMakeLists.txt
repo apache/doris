@@ -33,6 +33,7 @@ file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS
     format_v2/*.cpp
     gutil/*.cpp
     io/*.cpp
+    lance/*.cpp
     load/*.cpp
     olap/*.cpp
     runtime/*.cpp
@@ -159,6 +160,15 @@ add_executable(doris_be_test ${UT_FILES})
 if (TARGET phdr_cache_test_dso)
     add_dependencies(doris_be_test phdr_cache_test_dso)
 endif()
+
+# Protocol-speaking fake Lance index worker, exec'd by
+# lance/index_job_supervisor_test.cpp through the supervisor's BE_TEST
+# exec-override seam. Pure C (no Doris linkage) so it starts instantly and
+# fits inside the tiny cgroup memory budget of the real-OOM test. Kept as a
+# .c file so the lance/*.cpp UT glob above never sweeps it into doris_be_test
+# (it carries its own main()).
+add_executable(lance_fake_worker lance/fake_worker/lance_fake_worker.c)
+target_link_libraries(lance_fake_worker pthread)
 
 target_link_libraries(doris_be_test ${TEST_LINK_LIBS} 
     -Wl,--whole-archive vector_search_test -Wl,--no-whole-archive)

@@ -1230,6 +1230,55 @@ DEFINE_Validator(lance_batch_readahead, [](int32_t value) { return value > 0; })
 DEFINE_mInt32(lance_fragment_readahead, "5");
 DEFINE_Validator(lance_fragment_readahead, [](int32_t value) { return value > 0; });
 
+// Lance index worker isolation boundary: the cgroup-isolated one-shot worker
+// process (see be/src/lance/index_job_supervisor.h). Runtime changes to the
+// per-invocation limits apply to the next invocation; the structural knobs
+// (max_inflight/queue_size/preflight/cgroup_parent) are read once at preflight
+// or first submit.
+DEFINE_mInt64(lance_index_worker_memory_limit_bytes, "4294967296"); // 4 GiB cgroup memory.max
+DEFINE_Validator(lance_index_worker_memory_limit_bytes, [](int64_t value) { return value > 0; });
+DEFINE_mInt64(lance_index_worker_pids_max, "512"); // cgroup pids.max
+DEFINE_Validator(lance_index_worker_pids_max, [](int64_t value) { return value > 0; });
+DEFINE_mInt64(lance_index_worker_wallclock_limit_seconds, "3600"); // supervisor wall-clock cap
+DEFINE_Validator(lance_index_worker_wallclock_limit_seconds, [](int64_t value) {
+    return value > 0;
+});
+// RLIMIT_AS fuse (NOT a memory boundary; must stay well above the per-core
+// elastic VA floor of the Rust runtime, measured ~8.5 GiB at 128 cores).
+DEFINE_mInt64(lance_index_worker_as_limit_bytes, "34359738368"); // 32 GiB
+DEFINE_Validator(lance_index_worker_as_limit_bytes, [](int64_t value) { return value > 0; });
+// RLIMIT_CPU = multiplier x the invocation's wall-clock budget.
+DEFINE_mInt32(lance_index_worker_cpu_limit_multiplier, "4");
+DEFINE_Validator(lance_index_worker_cpu_limit_multiplier,
+                 [](int32_t value) { return value >= 1 && value <= 64; });
+DEFINE_mInt64(lance_index_worker_term_grace_seconds, "10"); // SIGTERM grace before SIGKILL
+DEFINE_Validator(lance_index_worker_term_grace_seconds,
+                 [](int64_t value) { return value >= 1 && value <= 600; });
+// Reserved tail of the FE deadline for the report path, frozen at 400s. The
+// worst-case callback window is 3 attempts x (connect 3s + thrift_rpc_timeout_ms
+// 60s + one reopen-and-retry inside the client 60s) + 3 x sleep(1) (the retry
+// loop sleeps after the final failed attempt too) + reaping/cleanup (~10s) =
+// 3x123 + 3 + 10 = 382s; 400 leaves margin.
+DEFINE_mInt64(lance_index_worker_report_margin_seconds, "400");
+DEFINE_Validator(lance_index_worker_report_margin_seconds, [](int64_t value) {
+    return value >= 0;
+});
+DEFINE_Int32(lance_index_worker_max_inflight, "1"); // concurrent workers per BE
+DEFINE_Validator(lance_index_worker_max_inflight,
+                 [](int32_t value) { return value >= 1 && value <= 8; });
+DEFINE_Int32(lance_index_worker_queue_size, "2"); // bounded submission queue
+DEFINE_Validator(lance_index_worker_queue_size,
+                 [](int32_t value) { return value >= 1 && value <= 64; });
+// Startup probe switch. false only skips the probe: isolation stays unverified
+// and every submission is still rejected. Minimum kernel: 5.9 (pidfd_open since
+// 5.3 plus waitid(P_PIDFD) since 5.9; the preflight probes both and fails
+// closed on older kernels).
+DEFINE_Bool(lance_index_isolation_preflight, "true");
+// Absolute path of the delegated parent cgroup for worker invocation groups.
+// Empty = auto-detect by walking /proc/self/cgroup upward for the first
+// ancestor whose cgroup.subtree_control accepts +memory +pids.
+DEFINE_String(lance_index_worker_cgroup_parent, "");
+
 // block file cache
 DEFINE_Bool(enable_file_cache, "true");
 // ATTENTION: For test only. Keep this enabled in production.

@@ -1,0 +1,20 @@
+{
+  "dataset_dir": "s16.lance",
+  "version": 2,
+  "column": "v",
+  "verdict": "compare",
+  "expected_contract": {
+    "scv": 1,
+    "flds": [
+      {
+        "fid": 1,
+        "nn": "v",
+        "nt": "fixed_size_list",
+        "nul": true,
+        "fsd": 4,
+        "vet": "float32",
+        "ven": true
+      }
+    ]
+  }
+}

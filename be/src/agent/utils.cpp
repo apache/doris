@@ -49,6 +49,8 @@ namespace doris {
 class TConfirmUnusedRemoteFilesRequest;
 class TConfirmUnusedRemoteFilesResult;
 class TFinishTaskRequest;
+class TLanceIndexJobReport;
+class TLanceIndexJobTerminationReport;
 class TMasterResult;
 class TReportRequest;
 } // namespace doris
@@ -222,6 +224,94 @@ Status MasterServerClient::confirm_unused_remote_files(
                 "fail to confirm unused remote files. host={}, port={}, code={}, reason={}",
                 _cluster_info->master_fe_addr.hostname, _cluster_info->master_fe_addr.port,
                 client_status.code(), e.what());
+    }
+
+    return Status::OK();
+}
+
+Status MasterServerClient::report_lance_index_job(const TLanceIndexJobReport& request,
+                                                  TStatus* result) {
+    Status client_status;
+    FrontendServiceConnection client(_client_cache.get(), _cluster_info->master_fe_addr,
+                                     config::thrift_rpc_timeout_ms, &client_status);
+
+    if (!client_status.ok()) {
+        LOG(WARNING) << "fail to get master client from cache. "
+                     << "host=" << _cluster_info->master_fe_addr.hostname
+                     << ", port=" << _cluster_info->master_fe_addr.port
+                     << ", code=" << client_status.code();
+        return Status::InternalError("Failed to get master client");
+    }
+
+    try {
+        try {
+            client->reportLanceIndexJobResult(*result, request);
+        } catch ([[maybe_unused]] TTransportException& e) {
+#ifndef ADDRESS_SANITIZER
+            LOG(WARNING) << "master client, retry reportLanceIndexJobResult: " << e.what();
+#endif
+            client_status = client.reopen(config::thrift_rpc_timeout_ms);
+            if (!client_status.ok()) {
+#ifndef ADDRESS_SANITIZER
+                LOG(WARNING) << "fail to get master client from cache. "
+                             << "host=" << _cluster_info->master_fe_addr.hostname
+                             << ", port=" << _cluster_info->master_fe_addr.port
+                             << ", code=" << client_status.code();
+#endif
+                return Status::RpcError("Master client report lance index job failed");
+            }
+            client->reportLanceIndexJobResult(*result, request);
+        }
+    } catch (std::exception& e) {
+        RETURN_IF_ERROR(client.reopen(config::thrift_rpc_timeout_ms));
+        LOG(WARNING) << "fail to report_lance_index_job. "
+                     << "host=" << _cluster_info->master_fe_addr.hostname
+                     << ", port=" << _cluster_info->master_fe_addr.port << ", error=" << e.what();
+        return Status::InternalError("Fail to report lance index job");
+    }
+
+    return Status::OK();
+}
+
+Status MasterServerClient::report_lance_index_job_termination(
+        const TLanceIndexJobTerminationReport& request, TStatus* result) {
+    Status client_status;
+    FrontendServiceConnection client(_client_cache.get(), _cluster_info->master_fe_addr,
+                                     config::thrift_rpc_timeout_ms, &client_status);
+
+    if (!client_status.ok()) {
+        LOG(WARNING) << "fail to get master client from cache. "
+                     << "host=" << _cluster_info->master_fe_addr.hostname
+                     << ", port=" << _cluster_info->master_fe_addr.port
+                     << ", code=" << client_status.code();
+        return Status::InternalError("Failed to get master client");
+    }
+
+    try {
+        try {
+            client->reportLanceIndexJobTermination(*result, request);
+        } catch ([[maybe_unused]] TTransportException& e) {
+#ifndef ADDRESS_SANITIZER
+            LOG(WARNING) << "master client, retry reportLanceIndexJobTermination: " << e.what();
+#endif
+            client_status = client.reopen(config::thrift_rpc_timeout_ms);
+            if (!client_status.ok()) {
+#ifndef ADDRESS_SANITIZER
+                LOG(WARNING) << "fail to get master client from cache. "
+                             << "host=" << _cluster_info->master_fe_addr.hostname
+                             << ", port=" << _cluster_info->master_fe_addr.port
+                             << ", code=" << client_status.code();
+#endif
+                return Status::RpcError("Master client report lance index job termination failed");
+            }
+            client->reportLanceIndexJobTermination(*result, request);
+        }
+    } catch (std::exception& e) {
+        RETURN_IF_ERROR(client.reopen(config::thrift_rpc_timeout_ms));
+        LOG(WARNING) << "fail to report_lance_index_job_termination. "
+                     << "host=" << _cluster_info->master_fe_addr.hostname
+                     << ", port=" << _cluster_info->master_fe_addr.port << ", error=" << e.what();
+        return Status::InternalError("Fail to report lance index job termination");
     }
 
     return Status::OK();
