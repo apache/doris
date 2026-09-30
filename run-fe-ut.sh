@@ -198,6 +198,10 @@ FE_MODULES=("fe-common" "fe-core")
 # fe-connector-adbc is not upstream of fe-core, so -am cannot discover its tests
 # unless the module is named explicitly.
 FE_MODULES+=("fe-connector/fe-connector-adbc")
+# The fluss connector. The other connectors' tests run because fe-core declares each one as a test
+# dependency (for Legacy413ProviderTypeContractTest) and -am pulls them into the reactor; fluss is
+# not among them, so it has to be named here or its tests never run.
+FE_MODULES+=("fe-connector/fe-connector-fluss")
 # The BE Java plugin modules. Nothing else runs these tests: no be-java-extensions module is
 # upstream of fe-core, so -am never reaches one, build.sh builds the reactor with -DskipTests, and
 # no GitHub workflow mentions the directory at all. What is in there is the evidence that the
@@ -217,7 +221,7 @@ FE_MODULES+=("fe-connector/fe-connector-adbc")
 # enumeration of this directory.
 for be_java_extension in jni-spi jni-bootstrap plugin-toolkit hive-apache-shade hive-udf-shade \
     hadoop-deps iceberg-metadata-scanner hadoop-hudi-scanner java-udf jdbc-scanner paimon-scanner \
-    max-compute-connector trino-connector-scanner java-writer; do
+    fluss-scanner max-compute-connector trino-connector-scanner java-writer; do
     FE_MODULES+=("be-java-extensions/${be_java_extension}")
 done
 for extra_module_path in "${FE_EXTRA_MODULE_PATHS[@]}"; do

@@ -29,12 +29,8 @@
 
 namespace doris::snii::writer {
 
-// Private spill-run format, ordered by vocabulary term and decoded one term at a time:
-//
-//   record := term_id VInt, shape VInt, n_docs VInt, docids u32[n_docs],
-//             optional freqs u32[n_docs], optional n_pos VInt and positions u32[n_pos]
-//
-// Shape 0 stores doc IDs only, shape 1 adds frequencies, and shape 2 adds positions. Fixed-width arrays are little-endian; the reader validates lengths against the file.
+// Reads and writes legacy raw-u32 RUN files for fixtures and diagnostics.
+// Production spilling uses the bounded encoded codec in encoded_spill_run.h.
 
 // Writes a sorted sequence of terms (by id) to one run file. Term-ids must be
 // handed to write_term in vocab-string ascending order (the spill caller sorts
@@ -42,14 +38,15 @@ namespace doris::snii::writer {
 // file is left for the owning SpimiTermBuffer to delete on its temp-path list.
 class RunWriter {
 public:
-    explicit RunWriter(MemoryReporter* memory_reporter = nullptr);
+    explicit RunWriter(MemoryReporter* memory_reporter = nullptr,
+                       size_t buffer_limit = 4 * 1024 * 1024);
     ~RunWriter();
 
     RunWriter(const RunWriter&) = delete;
     RunWriter& operator=(const RunWriter&) = delete;
 
-    // Opens `path` for writing (truncating). Returns IoError on failure.
-    Status open(const std::string& path);
+    // Opens `path` for writing, truncating unless append is requested.
+    Status open(const std::string& path, bool append = false);
 
     // Appends one term's postings under `term_id`. Empty freqs denotes the
     // docs-only-statless shape; otherwise freqs parallels docids. Positioned
@@ -60,6 +57,7 @@ public:
     Status close();
 
 private:
+    friend class EncodedRunWriter;
     Status flush();
     Status append_bytes(const uint8_t* data, size_t size);
     Status append_varint(uint64_t value);
@@ -68,6 +66,8 @@ private:
 
     MemoryReporter* memory_reporter_ = nullptr;
     MemoryReporter::Reservation buffer_reservation_;
+    size_t buffer_limit_;
+    uint64_t file_bytes_ = 0;
     int fd_ = -1;
     std::vector<uint8_t> buf_; // bounded staging buffer; flushed in fixed-size chunks
 };
@@ -86,7 +86,7 @@ private:
 //     (the default; behaves exactly as the old eager reader).
 //   * stream_positions(dst, n): pulls the next n positions straight from the
 //     window in 64 KiB chunks, never materializing the whole block -- used by the
-//     k-way merge source to decode directly into each writer-owned window.
+//     explicit streamed-position callers to avoid a whole positions array.
 // advance() drains any positions left unread from the previous term before the
 // next record, so a partly-streamed (or skipped) term still lands at the right
 // record boundary. The yielded byte sequence is identical either way.
@@ -178,17 +178,27 @@ private:
 // The source callback is synchronous: matching run readers remain parked on the
 // current term until the callback returns. The source fills writer-owned windows
 // directly and coalesces equal docids at run boundaries. A successful callback
-// must exhaust the source.
+// must exhaust the source. Legacy raw fixtures require allow_legacy=true; production
+// requires the encoded header and seal, including for an empty run.
 Status merge_run_sources(const std::vector<std::string>& run_paths,
                          const std::vector<std::string>& vocab,
                          const std::vector<uint32_t>& string_rank, bool has_positions,
-                         const StreamedTermConsumer& fn, MemoryReporter* memory_reporter = nullptr);
+                         const StreamedTermConsumer& fn, MemoryReporter* memory_reporter = nullptr,
+                         bool allow_legacy = false);
 
-// Merges run_paths into out_path in string-rank order, coalescing boundary
-// documents. On error, the caller must remove any partial out_path; input
-// runs are unchanged.
+// Merges sealed spool ranges within workspace and file descriptor limits, plus an optional fan-in cap.
+// The end-offset and CRC records in ends share the posting workspace.
+Status merge_spooled_run_sources(const std::string& spool, PostingByteBuffer* ends, size_t count,
+                                 const std::vector<std::string>& vocab,
+                                 const std::vector<uint32_t>& string_rank, bool has_positions,
+                                 const StreamedTermConsumer& fn, MemoryReporter* reporter,
+                                 size_t fan_in_limit);
+
+// Merges run_paths into out_path in string-rank order using bounded groups that preserve posting order.
+// Input files are unchanged; on failure, the caller must remove any partial output file.
 Status compact_runs(const std::vector<std::string>& run_paths,
                     const std::vector<uint32_t>& string_rank, bool has_positions,
-                    const std::string& out_path, MemoryReporter* memory_reporter = nullptr);
+                    const std::string& out_path, MemoryReporter* memory_reporter = nullptr,
+                    bool allow_legacy = false);
 
 } // namespace doris::snii::writer

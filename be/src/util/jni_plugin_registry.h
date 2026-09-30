@@ -61,6 +61,7 @@ struct PluginRef {
 namespace plugin {
 
 inline constexpr PluginRef PAIMON_SCANNER {"paimon", "reader"};
+inline constexpr PluginRef FLUSS_SCANNER {"fluss", "reader"};
 inline constexpr PluginRef HUDI_SCANNER {"hudi", "reader"};
 // Only the Iceberg system tables come through Java; Iceberg data files are read natively - so
 // this one keeps its own name when it is migrated. It is not the connector's reader.
