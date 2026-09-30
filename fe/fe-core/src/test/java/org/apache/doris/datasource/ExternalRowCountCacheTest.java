@@ -334,6 +334,81 @@ public class ExternalRowCountCacheTest {
     }
 
     @Test
+    public void testDatabaseGenerationFenceKeepsOtherDatabasesReadable() throws Exception {
+        AtomicInteger loadCount = new AtomicInteger();
+        CountDownLatch oldLoadStarted = new CountDownLatch(1);
+        CountDownLatch releaseOldLoad = new CountDownLatch(1);
+        ExternalRowCountCache.RowCountCacheLoader loader = new ExternalRowCountCache.RowCountCacheLoader() {
+            @Override
+            protected Optional<Long> doLoad(ExternalRowCountCache.RowCountKey key) {
+                if (key.getDbId() == 10 && loadCount.incrementAndGet() == 1) {
+                    oldLoadStarted.countDown();
+                    Uninterruptibles.awaitUninterruptibly(releaseOldLoad);
+                    return Optional.of(100L);
+                }
+                return Optional.of(key.getDbId() * 100L + loadCount.get());
+            }
+        };
+        ExecutorService cacheExecutor = Executors.newFixedThreadPool(2);
+        ExecutorService readerExecutor = Executors.newSingleThreadExecutor();
+        try {
+            ExternalRowCountCache cache = new ExternalRowCountCache(cacheExecutor, null, loader);
+            Assertions.assertEquals(2000L, cache.getCachedRowCount(1, 20, 100, false));
+            Future<Long> oldRead = readerExecutor.submit(() -> cache.getCachedRowCount(1, 10, 100, false));
+            Assertions.assertTrue(oldLoadStarted.await(10, TimeUnit.SECONDS));
+
+            cache.invalidateDb(1, 10);
+            Assertions.assertEquals(2000L, cache.getCachedRowCountIfPresent(1, 20, 100));
+            Assertions.assertEquals(1002L, cache.getCachedRowCount(1, 10, 100, false));
+            releaseOldLoad.countDown();
+
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, oldRead.get(10, TimeUnit.SECONDS));
+            Assertions.assertEquals(1002L, cache.getCachedRowCountIfPresent(1, 10, 100));
+            Assertions.assertEquals(2000L, cache.getCachedRowCountIfPresent(1, 20, 100));
+        } finally {
+            releaseOldLoad.countDown();
+            readerExecutor.shutdownNow();
+            cacheExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testInvalidatedNullLoadReturnsUnknownWithoutReusingIt() throws Exception {
+        AtomicInteger loadCount = new AtomicInteger();
+        CountDownLatch loadStarted = new CountDownLatch(1);
+        CountDownLatch releaseLoad = new CountDownLatch(1);
+        ExternalRowCountCache.RowCountCacheLoader loader = new ExternalRowCountCache.RowCountCacheLoader() {
+            @Override
+            protected Optional<Long> doLoad(ExternalRowCountCache.RowCountKey key) {
+                if (loadCount.incrementAndGet() == 1) {
+                    loadStarted.countDown();
+                    Uninterruptibles.awaitUninterruptibly(releaseLoad);
+                }
+                return Optional.of(100L);
+            }
+        };
+        ExecutorService cacheExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService readerExecutor = Executors.newSingleThreadExecutor();
+        try {
+            ExternalRowCountCache cache = new ExternalRowCountCache(cacheExecutor, null, loader);
+            Future<Long> oldRead = readerExecutor.submit(() -> cache.getCachedRowCount(1, 10, 100, false));
+            Assertions.assertTrue(loadStarted.await(10, TimeUnit.SECONDS));
+
+            cache.invalidateTable(1, 10, 100);
+            releaseLoad.countDown();
+
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, oldRead.get(10, TimeUnit.SECONDS));
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, cache.getCachedRowCountIfPresent(1, 10, 100));
+            Assertions.assertEquals(100L, cache.getCachedRowCount(1, 10, 100, false));
+            Assertions.assertEquals(2, loadCount.get());
+        } finally {
+            releaseLoad.countDown();
+            readerExecutor.shutdownNow();
+            cacheExecutor.shutdownNow();
+        }
+    }
+
+    @Test
     public void testPermanentCatalogRemovalReleasesGenerationWithoutRevivingOldReader() throws Exception {
         CountDownLatch loadStarted = new CountDownLatch(1);
         CountDownLatch releaseLoad = new CountDownLatch(1);

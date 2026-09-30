@@ -26,6 +26,8 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.github.benmanes.caffeine.cache.AsyncCacheLoader;
 import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.Ticker;
 import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
@@ -51,6 +53,10 @@ public class ExternalRowCountCache {
     // A catalog refresh changes this generation in O(1). Old cache entries remain bounded by
     // Caffeine's size/expiry policy but are never addressable by a new metadata generation.
     private final ConcurrentHashMap<Long, AtomicLong> catalogGenerations = new ConcurrentHashMap<>();
+    // Database generations are bounded independently of database CREATE/DROP churn. Eviction
+    // merely forces a new, globally unique generation and makes the old entries unreachable.
+    private final Cache<DatabaseKey, Long> dbGenerations = Caffeine.newBuilder()
+            .maximumSize(Config.max_external_table_row_count_cache_num).build();
     // Generations are globally unique: two catalog IDs with the same table ID must not alias
     // when one catalog has retired its old cache generation.
     private final AtomicLong nextCatalogGeneration = new AtomicLong();
@@ -85,16 +91,18 @@ public class ExternalRowCountCache {
         private final long dbId;
         private final long tableId;
         private final long catalogGeneration;
+        private final long dbGeneration;
 
         public RowCountKey(long catalogId, long dbId, long tableId) {
-            this(catalogId, dbId, tableId, 0);
+            this(catalogId, dbId, tableId, 0, 0);
         }
 
-        private RowCountKey(long catalogId, long dbId, long tableId, long catalogGeneration) {
+        private RowCountKey(long catalogId, long dbId, long tableId, long catalogGeneration, long dbGeneration) {
             this.catalogId = catalogId;
             this.dbId = dbId;
             this.tableId = tableId;
             this.catalogGeneration = catalogGeneration;
+            this.dbGeneration = dbGeneration;
         }
 
         @Override
@@ -106,12 +114,14 @@ public class ExternalRowCountCache {
                 return false;
             }
             RowCountKey other = (RowCountKey) obj;
-            return other.tableId == tableId && other.catalogGeneration == catalogGeneration;
+            return other.tableId == tableId && other.catalogGeneration == catalogGeneration
+                    && other.dbGeneration == dbGeneration;
         }
 
         @Override
         public int hashCode() {
-            return 31 * Long.hashCode(tableId) + Long.hashCode(catalogGeneration);
+            int hash = 31 * Long.hashCode(tableId) + Long.hashCode(catalogGeneration);
+            return 31 * hash + Long.hashCode(dbGeneration);
         }
     }
 
@@ -168,6 +178,33 @@ public class ExternalRowCountCache {
         @Override
         public int hashCode() {
             return Objects.hash(catalogId, dbId, tableId);
+        }
+    }
+
+    private static final class DatabaseKey {
+        private final long catalogId;
+        private final long dbId;
+
+        private DatabaseKey(long catalogId, long dbId) {
+            this.catalogId = catalogId;
+            this.dbId = dbId;
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) {
+                return true;
+            }
+            if (!(obj instanceof DatabaseKey)) {
+                return false;
+            }
+            DatabaseKey other = (DatabaseKey) obj;
+            return catalogId == other.catalogId && dbId == other.dbId;
+        }
+
+        @Override
+        public int hashCode() {
+            return 31 * Long.hashCode(catalogId) + Long.hashCode(dbId);
         }
     }
 
@@ -235,7 +272,7 @@ public class ExternalRowCountCache {
 
     void refreshForTest(long catalogId, long dbId, long tableId) {
         rowCountCache.synchronous().refresh(new RowCountKey(
-                catalogId, dbId, tableId, currentCatalogGeneration(catalogId)));
+                catalogId, dbId, tableId, currentCatalogGeneration(catalogId), currentDbGeneration(catalogId, dbId)));
     }
 
     private long currentCatalogGeneration(long catalogId) {
@@ -246,6 +283,16 @@ public class ExternalRowCountCache {
     private boolean isCatalogGenerationCurrent(long catalogId, long generation) {
         AtomicLong current = catalogGenerations.get(catalogId);
         return current != null && current.get() == generation;
+    }
+
+    private long currentDbGeneration(long catalogId, long dbId) {
+        return dbGenerations.get(new DatabaseKey(catalogId, dbId),
+                ignored -> nextCatalogGeneration.incrementAndGet());
+    }
+
+    private boolean isDbGenerationCurrent(long catalogId, long dbId, long generation) {
+        Long current = dbGenerations.getIfPresent(new DatabaseKey(catalogId, dbId));
+        return current != null && current == generation;
     }
 
     int getCatalogGenerationCountForTest() {
@@ -271,9 +318,7 @@ public class ExternalRowCountCache {
             // so we can't try to load the row count until the cache expire.
             // Throw an exception here will cause too much stack log in fe.out.
             // So we return null when exception happen.
-            // Null may raise NPE in caller, but that is expected.
-            // We catch that NPE and return a default value -1 without keep the value in cache,
-            // so we can trigger the load function to fetch row count again next time in this exception case.
+            // The caller treats null as an uncached UNKNOWN result, so the next read can retry.
             return null;
         }
     }
@@ -288,10 +333,12 @@ public class ExternalRowCountCache {
         try {
             CompletableFuture<Optional<Long>> f;
             long generation;
+            long dbGeneration;
             publicationLock.readLock().lock();
             try {
                 generation = currentCatalogGeneration(catalogId);
-                RowCountKey key = new RowCountKey(catalogId, dbId, tableId, generation);
+                dbGeneration = currentDbGeneration(catalogId, dbId);
+                RowCountKey key = new RowCountKey(catalogId, dbId, tableId, generation, dbGeneration);
                 f = fillMetaCache
                         ? rowCountCache.get(key, (rowCountKey, executor) -> loadWithInvalidationFence(
                                 rowCountKey, executor, () -> loadRowCount(rowCountKey, true)))
@@ -303,12 +350,14 @@ public class ExternalRowCountCache {
             if (ConnectContext.get() == null
                     || ConnectContext.get().getSessionVariable().fetchHiveRowCountSync) {
                 Optional<Long> value = f.get();
-                return isCatalogGenerationCurrent(catalogId, generation)
+                return value != null && isCatalogGenerationCurrent(catalogId, generation)
+                        && isDbGenerationCurrent(catalogId, dbId, dbGeneration)
                         ? value.orElse(TableIf.UNKNOWN_ROW_COUNT) : TableIf.UNKNOWN_ROW_COUNT;
             } else {
                 if (f.isDone()) {
                     Optional<Long> value = f.get();
-                    return isCatalogGenerationCurrent(catalogId, generation)
+                    return value != null && isCatalogGenerationCurrent(catalogId, generation)
+                            && isDbGenerationCurrent(catalogId, dbId, dbGeneration)
                             ? value.orElse(TableIf.UNKNOWN_ROW_COUNT) : TableIf.UNKNOWN_ROW_COUNT;
                 }
                 LOG.info("Row count for table {}.{}.{} is still processing.", catalogId, dbId, tableId);
@@ -328,6 +377,7 @@ public class ExternalRowCountCache {
         try {
             CompletableFuture<Optional<Long>> f;
             long generation;
+            long dbGeneration;
             publicationLock.readLock().lock();
             try {
                 AtomicLong current = catalogGenerations.get(catalogId);
@@ -335,15 +385,22 @@ public class ExternalRowCountCache {
                     return -1;
                 }
                 generation = current.get();
-                RowCountKey key = new RowCountKey(catalogId, dbId, tableId, generation);
+                Long currentDb = dbGenerations.getIfPresent(new DatabaseKey(catalogId, dbId));
+                if (currentDb == null) {
+                    return -1;
+                }
+                dbGeneration = currentDb;
+                RowCountKey key = new RowCountKey(catalogId, dbId, tableId, generation, dbGeneration);
                 f = rowCountCache.getIfPresent(key);
             } finally {
                 publicationLock.readLock().unlock();
             }
             if (f == null) {
                 return -1;
-            } else if (f.isDone() && isCatalogGenerationCurrent(catalogId, generation)) {
-                return f.get().orElse(-1L);
+            } else if (f.isDone() && isCatalogGenerationCurrent(catalogId, generation)
+                    && isDbGenerationCurrent(catalogId, dbId, dbGeneration)) {
+                Optional<Long> value = f.get();
+                return value == null ? -1L : value.orElse(-1L);
             }
         } catch (Exception e) {
             LOG.warn("Unexpected exception while returning row count if present", e);
@@ -378,12 +435,11 @@ public class ExternalRowCountCache {
     void invalidateDb(long catalogId, long dbId) {
         publicationLock.writeLock().lock();
         try {
-            inFlightLoads.forEach((key, fences) -> {
-                if (key.catalogId == catalogId && key.dbId == dbId) {
-                    fences.forEach(fence -> fence.invalidated = true);
-                }
-            });
-            rowCountCache.asMap().keySet().removeIf(key -> key.catalogId == catalogId && key.dbId == dbId);
+            DatabaseKey key = new DatabaseKey(catalogId, dbId);
+            Long current = dbGenerations.getIfPresent(key);
+            if (current != null) {
+                dbGenerations.put(key, nextCatalogGeneration.incrementAndGet());
+            }
         } finally {
             publicationLock.writeLock().unlock();
         }
@@ -396,7 +452,11 @@ public class ExternalRowCountCache {
             if (current == null) {
                 return;
             }
-            RowCountKey key = new RowCountKey(catalogId, dbId, tableId, current.get());
+            Long currentDb = dbGenerations.getIfPresent(new DatabaseKey(catalogId, dbId));
+            if (currentDb == null) {
+                return;
+            }
+            RowCountKey key = new RowCountKey(catalogId, dbId, tableId, current.get(), currentDb);
             Set<LoadFence> fences = inFlightLoads.get(new LoadKey(key));
             if (fences != null) {
                 fences.forEach(fence -> fence.invalidated = true);
