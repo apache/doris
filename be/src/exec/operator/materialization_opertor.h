@@ -50,6 +50,7 @@ public:
     Status validate_rpc_results(int node_id);
     Status merge_multi_response(RuntimeProfile* profile);
     void get_block(Block* block);
+    void clear_current_batch();
 
 private:
     void _update_profile_info(int64_t backend_id, RuntimeProfile* response_profile);
@@ -74,6 +75,8 @@ public:
     bool rpc_struct_inited = false;
 
     bool eos = false;
+    bool input_eos = false;
+    bool output_ready = false;
     // empty materialization sink block not need to merge block
     bool need_merge_block = true;
     Block origin_block;
@@ -87,7 +90,7 @@ public:
     // backend id => <rpc profile info string key, rpc profile info string value>.
     std::map<int64_t, std::map<std::string, fmt::memory_buffer>> backend_profile_info_string;
 
-    // Store the maximum number of rows processed by a single backend in the current batch
+    // Store the maximum number of rows processed by a single backend across fetch batches
     uint32_t _max_rows_per_backend = 0;
     // Store the number of rows processed by each backend
     std::unordered_map<int64_t, uint32_t> _backend_rows_count; // backend_id => rows_count
@@ -111,6 +114,10 @@ public:
         _merge_response_timer = ADD_TIMER_WITH_LEVEL(custom_profile(), "MergeResponseTime", 2);
         _max_rows_per_backend_counter =
                 ADD_COUNTER_WITH_LEVEL(custom_profile(), "MaxRowsPerBackend", TUnit::UNIT, 2);
+        _fetch_batch_count =
+                ADD_COUNTER_WITH_LEVEL(custom_profile(), "FetchBatchCount", TUnit::UNIT, 2);
+        _fetch_batch_rows =
+                ADD_COUNTER_WITH_LEVEL(custom_profile(), "FetchBatchRows", TUnit::UNIT, 2);
         return Status::OK();
     }
 
@@ -125,6 +132,8 @@ private:
     RuntimeProfile::Counter* _max_rpc_timer = nullptr;
     RuntimeProfile::Counter* _merge_response_timer = nullptr;
     RuntimeProfile::Counter* _max_rows_per_backend_counter = nullptr;
+    RuntimeProfile::Counter* _fetch_batch_count = nullptr;
+    RuntimeProfile::Counter* _fetch_batch_rows = nullptr;
 };
 
 class MaterializationOperator final : public StatefulOperatorX<MaterializationLocalState> {
