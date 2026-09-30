@@ -23,12 +23,12 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * What the swap of an overwrite does when its target has been dropped underneath it.
@@ -42,7 +42,8 @@ import java.util.Optional;
  *
  * <p>Driven directly rather than through a statement because the window needs a DROP concurrent with the
  * swap, which a regression test cannot place without an injection point of its own; the condition the
- * branch reads -- {@code writeLockIfExist()} answering false -- is what the mock supplies.
+ * branch reads -- {@code writeLockIfExist()} answering false -- is what the mock supplies, and the
+ * publication it is handed records whether it was reached at all.
  */
 public class InsertOverwriteDroppedTargetTest {
 
@@ -55,15 +56,18 @@ public class InsertOverwriteDroppedTargetTest {
         Mockito.when(droppedTarget.writeLockIfExist()).thenReturn(false);
         ConnectContext ctx = Mockito.mock(ConnectContext.class);
         Mockito.when(ctx.getQueryIdentifier()).thenReturn("stmt[1, query-id]");
+        AtomicBoolean published = new AtomicBoolean(false);
 
         UserException thrown = Assertions.assertThrows(UserException.class,
                 () -> Deencapsulation.invoke(command, "publishTheOverwrite", droppedTarget,
-                        Lists.newArrayList("p1"), Lists.newArrayList("tp1"),
-                        new OlapInsertCommandContext(false, true), ctx));
+                        new OlapInsertCommandContext(false, true), ctx,
+                        (InsertOverwriteTableCommand.OverwritePublication) () -> published.set(true)));
         Assertions.assertTrue(thrown.getMessage() != null
                         && thrown.getMessage().contains("iot_dropped_target")
                         && thrown.getMessage().contains("was dropped"),
                 "the failure has to name the table whose swap could not be issued, but was: "
                         + thrown.getMessage());
+        Assertions.assertFalse(published.get(),
+                "nothing may be published into a table whose write lock could not be taken");
     }
 }

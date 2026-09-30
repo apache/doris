@@ -153,7 +153,7 @@ public class InsertOverwriteTableCommand extends Command
      * cancellation flag before letting one run.
      */
     @FunctionalInterface
-    private interface OverwritePublication {
+    interface OverwritePublication {
         void publish() throws UserException;
     }
 
@@ -317,9 +317,13 @@ public class InsertOverwriteTableCommand extends Command
                     // swap waits for the table lock, is taken up again by publishTheOverwrite below.
                     throw cancelledBeforeTheRowsWereCommitted("after a load that committed nothing", ctx);
                 }
+                // The replacement stays under the lock publishTheOverwrite takes, and the group's bookkeeping
+                // follows it: its edit-log writes wait for their journals, and the target's readers and
+                // writers must not be blocked through them.
                 publishTheOverwrite(targetTable, insertCtx, ctx,
-                        () -> insertOverwriteManager.taskGroupSuccess(groupId, (OlapTable) targetTable,
+                        () -> insertOverwriteManager.replacePartitionsOfTaskGroup(groupId, (OlapTable) targetTable,
                                 isForceDropPartition()));
+                insertOverwriteManager.finishTaskGroup(groupId);
             } else {
                 // it's overwrite table(as all partitions) or specific partition(s)
                 List<String> tempPartitionNames = InsertOverwriteUtil.generateTempPartitionNames(partitionNames);
