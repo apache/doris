@@ -81,6 +81,12 @@ public class ShowConfigCommand extends Command implements NoForward {
         this.isShowSingleBackend = true;
     }
 
+    @Override
+    public ShowResultSetMetaData getResultSetMetaData() {
+        // Config commands produce rows even though their statement category is OTHER.
+        return getMetaData(nodeType == NodeType.FRONTEND ? FE_TITLE_NAMES : BE_TITLE_NAMES);
+    }
+
     private ShowResultSetMetaData getMetaData(ImmutableList<String> metaNames) {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         for (String title : metaNames) {
