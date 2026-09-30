@@ -163,5 +163,21 @@ suite("test_iceberg_file_metadata_columns", "p0,external,iceberg,external_docker
         """
 
         verifyFileMetadata(tableName, format)
+
+        // Compare against an eager scan: file paths depend on the writer, and metadata slots
+        // pruned from phase one must still be synthesized during the row-id fetch.
+        for (String projection : ["`_file`", "`_pos`", "`_file`, `_pos`",
+                                  "id, payload, `_file`, `_pos`"]) {
+            String query = "select ${projection} from ${tableName} order by id limit 3"
+            sql "set topn_lazy_materialization_threshold = -1"
+            def eagerRows = sql query
+            sql "set topn_lazy_materialization_threshold = 10"
+            explain {
+                sql query
+                contains "VMaterializeNode"
+            }
+            assertEquals(eagerRows, sql(query))
+        }
+
     }
 }

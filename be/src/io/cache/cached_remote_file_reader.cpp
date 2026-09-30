@@ -121,7 +121,7 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
         : _is_doris_table(opts.is_doris_table),
           _cache_align_mode(opts.align_mode),
           _cache_write_mode(opts.cache_write_mode),
-          _tablet_id(opts.tablet_id),
+          _tablet_id(opts.is_doris_table ? opts.tablet_id : 0),
           _storage_resource_id(opts.storage_resource_id),
           _remote_file_reader(std::move(remote_file_reader)) {
     DCHECK(!_is_doris_table || _tablet_id > 0);
@@ -1078,6 +1078,7 @@ Status CachedRemoteFileReader::_read_from_indirect_cache(size_t offset, Slice re
             s_align_size(offset + already_read, bytes_req - already_read, size());
     CacheContext cache_context(io_ctx);
     cache_context.stats = &stats;
+    cache_context.tablet_id = _tablet_id;
     MonotonicStopWatch sw;
     sw.start();
     ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set->increment();

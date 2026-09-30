@@ -23,8 +23,8 @@
 // must admit only the provably emission-only configuration and refuse on any
 // deviation (falling through to today's loop). Uses the established
 // `#define private public` convention of segment_iterator_limit_opt_test.cpp
-// over a bare SegmentIterator (no real segment needed: the shortcut never
-// touches segment data).
+// over a SegmentIterator whose segment carries only the tablet schema (the
+// engage proof reads the keys type; nothing reads segment data).
 #include <gtest/gtest.h>
 
 #include <cstddef>
@@ -42,6 +42,7 @@
 #include "storage/index/index_query_context.h"
 #include "storage/olap_common.h"
 #include "storage/segment/count_on_index_fastpath.h"
+#include "storage/segment/mock/mock_segment.h"
 #include "storage/tablet/tablet_schema.h"
 
 #if defined(__clang__)
@@ -111,8 +112,8 @@ struct Fixture {
     Fixture() {
         tablet_schema = make_tablet_schema();
         read_schema = make_read_schema(tablet_schema);
-        iter = std::make_unique<SegmentIterator>(nullptr, read_schema);
-        iter->_opts.tablet_schema = tablet_schema;
+        iter = std::make_unique<SegmentIterator>(std::make_shared<MockSegment>(tablet_schema),
+                                                 read_schema);
         iter->_opts.push_down_agg_type_opt = TPushAggOp::COUNT_ON_INDEX;
         iter->_opts.stats = &stats;
         // State _lazy_init/_vec_init_lazy_materialization would have produced

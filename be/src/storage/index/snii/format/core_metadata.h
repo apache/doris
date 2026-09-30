@@ -17,9 +17,13 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
+#include <optional>
+#include <vector>
 
 #include "common/status.h"
+#include "storage/index/inverted/gram/gram_scheme.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_sink.h"
 #include "storage/index/snii/format/format_constants.h"
@@ -40,10 +44,52 @@ struct SectionRefs {
     RegionRef bsbf;
 };
 
+// Digest of the highest-df terms of one index: (hash, df) pairs small enough to travel with
+// the core metadata and stay resident for the life of the segment.
+//
+// It answers, with no IO at all, the only question the query-side cost gate asks: is this
+// node's candidate set already too large for the index to be worth reading? The gate needs
+// min(df) across an AND's terms or max(df) across an OR's, and reading those from the
+// dictionary costs one remote round trip per term -- measured at 40 seconds on a segment
+// whose cache holds nothing, paid in full before the gate decides to give up.
+//
+// A miss carries as much information as a hit. The digest holds the top-K terms by df, so a
+// term absent from it has df <= df_ceiling, and that upper bound is enough for an AND to
+// decide. Empty means no bound is available and the caller must read df the usual way.
+struct HighDfTerms {
+    std::vector<uint64_t> term_hash; // bsbf_hash of each term, ascending
+    std::vector<uint32_t> df;        // parallel to term_hash
+    uint32_t df_ceiling = 0;         // every term not listed has df <= this
+
+    bool empty() const { return term_hash.empty(); }
+
+    // df of `hash` when the digest holds it, else df_ceiling -- an upper bound either way.
+    // The distinction matters only to a caller that wants to know it was exact.
+    uint32_t df_upper_bound(uint64_t hash, bool* exact = nullptr) const {
+        const auto it = std::ranges::lower_bound(term_hash, hash);
+        if (it != term_hash.end() && *it == hash) {
+            if (exact != nullptr) {
+                *exact = true;
+            }
+            return df[static_cast<size_t>(it - term_hash.begin())];
+        }
+        if (exact != nullptr) {
+            *exact = false;
+        }
+        return df_ceiling;
+    }
+};
+
 struct CoreMetadata {
     IndexConfig index_config = IndexConfig::kDocsOnly;
     StatsBlock stats;
     SectionRefs section_refs;
+    HighDfTerms high_df_terms;
+    // The chunking scheme of a gram-family index, recorded by the writer that built it. The
+    // query side compiles a pattern against the scheme read back from here, so the split a
+    // pattern is derived with is always the split the data was written with. nullopt on every
+    // index that is not gram family, which leaves those segments' encoded bytes unchanged.
+    std::optional<segment_v2::gram::GramScheme> gram_scheme;
 };
 
 Status encode_core_metadata(const CoreMetadata& metadata, ByteSink* out);

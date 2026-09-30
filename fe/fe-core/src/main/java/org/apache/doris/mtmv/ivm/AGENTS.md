@@ -155,7 +155,7 @@ __DORIS_IVM_ROW_ID_COL__ | k1 | cnt | sum_v1 | __DORIS_IVM_DML_FACTOR_COL__ | __
 
 ### Semantics
 
-- **Read-only.** No insert transaction is built. Stream offsets, refresh version, and MV metadata
+- **Read-only.** No insert transaction is built. Stream offsets, sequence prefix, and MV metadata
   are never modified.
 - **Idempotent.** Repeating the same dry run returns identical rows as long as the base table data
   has not changed.

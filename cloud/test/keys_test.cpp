@@ -545,6 +545,23 @@ TEST(KeysTest, TxnKeysTest) {
 
         ASSERT_GT(encoded_txn_running_key1, encoded_txn_running_key0);
     }
+
+    // 0x01 "txn" ${instance_id} "tso_fence" -> TxnTsoFencePB
+    {
+        std::string encoded_key = txn_tso_fence_key({instance_id});
+        std::string_view key_sv(encoded_key);
+        std::string decoded_prefix;
+        std::string decoded_instance_id;
+        std::string decoded_infix;
+        remove_user_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &decoded_infix), 0);
+        ASSERT_TRUE(key_sv.empty());
+        EXPECT_EQ("txn", decoded_prefix);
+        EXPECT_EQ(instance_id, decoded_instance_id);
+        EXPECT_EQ("tso_fence", decoded_infix);
+    }
 }
 
 TEST(KeysTest, RecycleKeysTest) {

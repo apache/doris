@@ -111,7 +111,7 @@ void expect_results_equal(const std::vector<double>& actual, const std::vector<d
 } // namespace
 
 TEST(AggregateFunctionPercentileApproxArrayTest, AddAndBatchPaths) {
-    const std::vector<double> values {1, 2, 3, 4, 5, 100};
+    const std::vector<double> values {1, 2, 3, 4, 5, 100, std::numeric_limits<double>::quiet_NaN()};
     const std::vector<double> quantiles {0.9, 0.0, 0.5, 0.5, 1.0};
     auto function = create_percentile_approx_array_function(false);
     ASSERT_NE(function, nullptr);
@@ -255,7 +255,7 @@ TEST(AggregateFunctionPercentileApproxArrayTest, EmptyQuantilesAndInvalidQuantil
     function->deserialize(restored_place, reader, arena);
     const auto& restored_state =
             *reinterpret_cast<const PercentileApproxArrayState*>(restored_place);
-    EXPECT_TRUE(restored_state.init_flag);
+    EXPECT_FALSE(restored_state.init_flag);
     EXPECT_EQ(restored_state.digest.get(), nullptr);
     EXPECT_TRUE(read_result(function, restored_place).empty());
 
@@ -264,7 +264,7 @@ TEST(AggregateFunctionPercentileApproxArrayTest, EmptyQuantilesAndInvalidQuantil
     function->create(merged_place);
     function->merge(merged_place, restored_place, arena);
     const auto& merged_state = *reinterpret_cast<const PercentileApproxArrayState*>(merged_place);
-    EXPECT_TRUE(merged_state.init_flag);
+    EXPECT_FALSE(merged_state.init_flag);
     EXPECT_EQ(merged_state.digest.get(), nullptr);
     EXPECT_TRUE(read_result(function, merged_place).empty());
 

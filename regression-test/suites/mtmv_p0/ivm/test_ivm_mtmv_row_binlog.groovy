@@ -16,10 +16,6 @@
 // under the License.
 
 suite("test_ivm_mtmv_row_binlog") {
-    if (isCloudMode()) {
-        return
-    }
-
     sql """DROP MATERIALIZED VIEW IF EXISTS test_ivm_mtmv_row_binlog_mv;"""
     sql """DROP TABLE IF EXISTS test_ivm_mtmv_row_binlog_base;"""
 

@@ -57,7 +57,8 @@ import java.util.List;
  */
 public class Sum0 extends NotNullableAggregateFunction
         implements UnaryExpression, ExplicitlyCastableSignature, ComputePrecisionForSum,
-        SupportWindowAnalytic, RollUpTrait, SupportMultiDistinct, NeedSessionVarGuard {
+        SupportWindowAnalytic, RollUpTrait, SupportMultiDistinct, NeedSessionVarGuard,
+        NullIgnoringAggregateFunction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),

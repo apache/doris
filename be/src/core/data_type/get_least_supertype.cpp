@@ -27,7 +27,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "core/column/column_variant.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"

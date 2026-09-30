@@ -1,0 +1,259 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+import java.sql.DriverManager
+import java.sql.SQLException
+import java.util.regex.Pattern
+import java.util.concurrent.TimeUnit
+
+import org.awaitility.Awaitility
+
+// The Flight SQL JDBC driver on the classpath shades Arrow Flight; its FlightSqlClient is the
+// one a test can drive directly (see test_session_options).
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.CloseSessionRequest
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.FlightClient
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.FlightRuntimeException
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.FlightStatusCode
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.Location
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.sql.FlightSqlClient
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.memory.RootAllocator
+
+// An Arrow Flight SQL session is a connection of the same pool a MySQL connection is in: the
+// user's max_user_connections counts both, whichever came first, and a refusal reads the same
+// over either protocol - over Flight as the RESOURCE_EXHAUSTED status of the handshake that would
+// have opened the session (authenticateBasicToken), since a session opens, and its bearer token
+// is issued, when the user's password is authenticated. A session that does not fit is refused;
+// no session already open is evicted for it, and no token is left of it.
+//
+// Not in the 'arrow_flight_sql' group on purpose: `sql` stays the MySQL control connection, and
+// the sessions under test are raw Flight SQL clients and plain MySQL connections of their own.
+suite("test_connection_quota") {
+    String host = context.config.otherConfigs.get("extArrowFlightSqlHost")
+    int port = context.config.otherConfigs.get("extArrowFlightSqlPort") as int
+
+    String user = "flight_quota_user"
+    String password = "Quota_12345"
+    int limit = 1
+    // What both protocols say when the user's limit is reached; only the count at the refusal varies.
+    Pattern refusal = Pattern.compile("^Reach limit of connections\\. Total: (\\d+), User: ${limit}, Current: \\d+")
+
+    sql "DROP USER IF EXISTS '${user}'"
+    sql "CREATE USER '${user}' IDENTIFIED BY '${password}'"
+    sql "GRANT SELECT_PRIV ON *.* TO '${user}'"
+    // In cloud mode a query runs on a compute group; a user with no USAGE_PRIV on one is refused with
+    // an INTERNAL error when it runs a statement (the Flight SELECT 1 below), before the pool's quota
+    // is ever reached. Grant it the way the other cloud Flight suites do (see test_auth_remote_ip).
+    if (isCloudMode()) {
+        def computeGroups = sql "SHOW COMPUTE GROUPS"
+        assertTrue(!computeGroups.isEmpty(), "cloud mode but SHOW COMPUTE GROUPS returned nothing")
+        sql "GRANT USAGE_PRIV ON COMPUTE GROUP '${computeGroups[0][0]}' TO '${user}'"
+    }
+    sql "SET PROPERTY FOR '${user}' 'max_user_connections' = '${limit}'"
+
+    // The connection quota is enforced per-FE, and information_schema.processlist is a cluster-wide
+    // view when fetch_all_fe_for_system_table is on (the default): on a multi-FE cluster the count then
+    // depends on which FE answers and can include connections on another FE, so a per-FE quota test
+    // cannot rely on it. Anchor everything to the one FE that serves the configured Flight endpoint --
+    // open the MySQL connections on that FE (its Flight host, the query port and options from jdbcUrl)
+    // and count only that FE's own connections (fetch_all_fe_for_system_table = false). Without this the
+    // MySQL connections, the Flight sessions and the counting query need not land on the same FE and the
+    // count never settles (build 1049514).
+    def jdbcMatcher = (context.config.jdbcUrl =~ /^(jdbc:mysql:\/\/)[^\/:@]+(:\d+.*)$/)
+    assertTrue(jdbcMatcher.matches(),
+            "cannot derive the Flight FE's MySQL url from jdbcUrl: ${context.config.jdbcUrl}")
+    def feMysqlUrl = jdbcMatcher.replaceFirst("\$1${host}\$2")
+    def allocator = new RootAllocator()
+    def client = FlightClient.builder(allocator, Location.forGrpcInsecure(host, port)).build()
+    def flight = new FlightSqlClient(client)
+    def mysqlConnections = []
+    def openTokens = []
+    def countConn = null
+    try {
+        // A dedicated connection on the Flight FE that reports only that FE's connections, so the count
+        // is exactly the MySQL connections and Flight sessions this suite opened there.
+        countConn = DriverManager.getConnection(feMysqlUrl, context.config.jdbcUser, context.config.jdbcPassword)
+        countConn.createStatement().withCloseable { it.execute("SET fetch_all_fe_for_system_table = false") }
+        // The anchoring above assumes the FE reached at feMysqlUrl is the one serving the configured
+        // Flight endpoint (its host, jdbcUrl's query port). Assert it here -- otherwise the suite would
+        // fail later at the quota checks with a confusing pool-pointing error -- by comparing this FE's
+        // own arrow_flight_sql_port to the configured Flight port. forward_to_master keeps SHOW FRONTEND
+        // CONFIG reporting this FE rather than the master.
+        countConn.createStatement().withCloseable { it.execute("SET forward_to_master = false") }
+        countConn.createStatement().withCloseable { st ->
+            def rs = st.executeQuery("SHOW FRONTEND CONFIG LIKE 'arrow_flight_sql_port'")
+            assertTrue(rs.next(), "SHOW FRONTEND CONFIG returned no arrow_flight_sql_port")
+            assertEquals(port as String, rs.getString("Value"),
+                    "the FE reached at ${feMysqlUrl} does not serve the Flight endpoint on port ${port}; "
+                            + "this suite needs MySQL, Flight and the count query on the same FE")
+        }
+        // The user's connections as that FE's pool sees them: MySQL connections and Flight sessions alike.
+        def connectionsOf = {
+            def st = countConn.createStatement()
+            try {
+                def rs = st.executeQuery(
+                        "SELECT COUNT(*) FROM information_schema.processlist WHERE User = '${user}'")
+                rs.next()
+                return rs.getInt(1)
+            } finally {
+                st.close()
+            }
+        }
+        // A closed MySQL connection leaves the pool on the frontend's nio thread after the client's
+        // COM_QUIT, and Connector/J does not wait for that; so wait here before the next connection
+        // is opened against the count.
+        def awaitConnections = { int expected ->
+            Awaitility.await().atMost(30, TimeUnit.SECONDS).pollInterval(200, TimeUnit.MILLISECONDS)
+                    .until { connectionsOf() == expected }
+        }
+        // Closes a session the way the drivers do, once; a token whose session is already gone is
+        // UNAUTHENTICATED and needs nothing.
+        def closeSession = { cred ->
+            try {
+                flight.closeSession(new CloseSessionRequest(), cred)
+            } catch (FlightRuntimeException e) {
+                assertEquals(FlightStatusCode.UNAUTHENTICATED, e.status().code())
+            }
+            openTokens.remove(cred)
+        }
+        // Opens a Flight session, the way the drivers do: the handshake that authenticates the user's
+        // password and answers with the session's bearer token. Returns [token, null] when the session
+        // was admitted, and [null, refusal] when the pool refused it -- the RESOURCE_EXHAUSTED status of
+        // the handshake, whose description is the pool's message; no token is issued then, so there is
+        // nothing to close. An admitted session is tracked so it is closed at the end.
+        def open = {
+            try {
+                def cred = client.authenticateBasicToken(user, password).get()
+                openTokens << cred
+                return [cred, null]
+            } catch (FlightRuntimeException e) {
+                if (e.status().code() == FlightStatusCode.RESOURCE_EXHAUSTED) {
+                    return [null, e.status().description()]
+                }
+                // Not a quota refusal (e.g. UNAUTHENTICATED for a wrong password); let it surface.
+                throw e
+            }
+        }
+        // A session that was admitted is a session that works: a statement the frontend answers itself
+        // runs on it and its rows are pulled from the frontend over the same session (a query's rows
+        // would be on a backend, which this raw client does not connect to).
+        def probe = { cred ->
+            def names = []
+            def info = flight.execute("SHOW VARIABLES LIKE 'wait_timeout'", cred)
+            info.getEndpoints().each { endpoint ->
+                flight.getStream(endpoint.getTicket(), cred).withCloseable { stream ->
+                    while (stream.next()) {
+                        def root = stream.getRoot()
+                        for (int i = 0; i < root.getRowCount(); i++) {
+                            names << root.getFieldVectors()[0].getObject(i).toString()
+                        }
+                    }
+                }
+            }
+            assertEquals(["wait_timeout"], names, "the admitted Flight session should answer SHOW VARIABLES")
+        }
+        // The pool's limit named by a refusal, asserting the refusal is worded as MySQL's is.
+        def totalOf = { String message ->
+            def m = refusal.matcher(message)
+            assertTrue(m.find(), "expected the MySQL wording of the refusal, got: ${message}")
+            return m.group(1)
+        }
+        // A MySQL connection of the user that could not open: the refusal, or null when it opened.
+        def mysqlRefusal = {
+            try {
+                mysqlConnections << DriverManager.getConnection(feMysqlUrl, user, password)
+                return null
+            } catch (SQLException e) {
+                return e.getMessage()
+            }
+        }
+
+        // 1. The first Flight session is the user's one connection, opened at the handshake: it is in
+        //    the pool before it has run anything.
+        awaitConnections(0)
+        def (first, firstRefusal) = open()
+        assertNull(firstRefusal, "the first Flight session should open as the user's one connection")
+        assertEquals(limit, connectionsOf(), "the Flight session is a connection of the user's from the handshake on")
+        probe(first)
+
+        // 2. The second Flight session is refused at its handshake, in MySQL's words, and the first
+        //    one is untouched by the attempt...
+        def (second, flightRefused) = open()
+        assertNull(second, "the second Flight session opened although the user's limit is reached")
+        String total = totalOf(flightRefused)
+        assertEquals(limit, connectionsOf(), "a refused Flight session must leave the pool as it was")
+        probe(first)
+
+        // 3. ...and so is a MySQL connection, in the same words.
+        String mysqlRefused = mysqlRefusal()
+        assertNotNull(mysqlRefused, "the MySQL connection opened although the user's limit is reached")
+        assertEquals(total, totalOf(mysqlRefused))
+
+        // 4. CloseSession releases the Flight session's connection, and its token with it: a MySQL
+        //    connection opens now, and once it is closed again a Flight session does.
+        assertEquals("CLOSED", flight.closeSession(new CloseSessionRequest(), first).getStatus().name())
+        openTokens.remove(first)
+        awaitConnections(0)
+        try {
+            flight.execute("SHOW VARIABLES LIKE 'wait_timeout'", first)
+            throw new AssertionError("the closed session's token was still accepted")
+        } catch (FlightRuntimeException e) {
+            assertEquals(FlightStatusCode.UNAUTHENTICATED, e.status().code(), e.status().description())
+        }
+        assertNull(mysqlRefusal(), "the MySQL connection should open once the Flight session is closed")
+        awaitConnections(limit)
+        def (none, refusedByMysql) = open()
+        assertNull(none, "a Flight session opened although the MySQL connection holds the user's limit")
+        assertEquals(total, totalOf(refusedByMysql))
+        mysqlConnections.remove(mysqlConnections.size() - 1).close()
+        awaitConnections(0)
+        def (third, thirdRefusal) = open()
+        assertNull(thirdRefusal, "the Flight session should open once the MySQL connection is closed")
+        assertEquals(limit, connectionsOf(), "the reopened Flight session must be the user's one connection")
+        probe(third)
+        closeSession(third)
+        awaitConnections(0)
+    } finally {
+        // Sessions outlive the client: close the ones still open, or a rerun on the same frontend
+        // starts against a user whose slots they hold until wait_timeout (DROP USER does not end them).
+        // Nothing here asserts or throws: the failure that brought the suite here, if any, is the one
+        // reported, and every step of the cleanup runs.
+        def quietly = { String what, Closure step ->
+            try {
+                step()
+            } catch (Exception e) {
+                logger.warn("cleanup of test_connection_quota: ${what} failed: ${e.message}")
+            }
+        }
+        openTokens.each { cred ->
+            quietly("closing a session left open") {
+                try {
+                    flight.closeSession(new CloseSessionRequest(), cred)
+                } catch (FlightRuntimeException e) {
+                    // A token whose session is already gone is UNAUTHENTICATED and needs nothing.
+                    if (e.status().code() != FlightStatusCode.UNAUTHENTICATED) {
+                        throw e
+                    }
+                }
+            }
+        }
+        mysqlConnections.each { conn -> quietly("closing a MySQL connection") { conn.close() } }
+        quietly("closing the count connection") { if (countConn != null) countConn.close() }
+        quietly("closing the Flight client") { client.close() }
+        quietly("closing the allocator") { allocator.close() }
+        sql "DROP USER IF EXISTS '${user}'"
+    }
+}

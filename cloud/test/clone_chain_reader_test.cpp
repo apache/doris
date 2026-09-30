@@ -2232,6 +2232,68 @@ TEST_F(CloneChainReaderTest, GetTabletMeta) {
     }
 }
 
+TEST_F(CloneChainReaderTest, GetTabletMetaThroughDeletedIntermediateClone) {
+    ResourceManager resource_mgr(txn_kv_);
+
+    InstanceInfoPB instance_b;
+    instance_b.set_instance_id(instance_ids_[1]);
+    instance_b.set_status(InstanceInfoPB::NORMAL);
+    instance_b.set_source_instance_id(instance_ids_[0]);
+    instance_b.set_source_snapshot_id(Versionstamp(snapshot_versions_[0]).to_string());
+    resource_mgr.refresh_instance(instance_ids_[1], instance_b);
+
+    InstanceInfoPB instance_c;
+    instance_c.set_instance_id(instance_ids_[2]);
+    instance_c.set_status(InstanceInfoPB::NORMAL);
+    instance_c.set_source_instance_id(instance_ids_[1]);
+    instance_c.set_source_snapshot_id(Versionstamp(snapshot_versions_[1]).to_string());
+    resource_mgr.refresh_instance(instance_ids_[2], instance_c);
+
+    constexpr int64_t tablet_id = 16002;
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv_->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string tablet_meta_key = versioned::meta_tablet_key({instance_ids_[0], tablet_id});
+        doris::TabletMetaCloudPB tablet_meta;
+        tablet_meta.set_tablet_id(tablet_id);
+        tablet_meta.set_table_id(1001);
+        ASSERT_TRUE(versioned::document_put(txn.get(), tablet_meta_key, std::move(tablet_meta)));
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Single-level clone lookup remains unchanged.
+    {
+        CloneChainReader reader(instance_ids_[1], Versionstamp(snapshot_versions_[1]),
+                                txn_kv_.get(), &resource_mgr);
+        doris::TabletMetaCloudPB tablet_meta;
+        Versionstamp versionstamp;
+        ASSERT_EQ(reader.get_tablet_meta(tablet_id, &tablet_meta, &versionstamp),
+                  TxnErrorCode::TXN_OK);
+        EXPECT_EQ(tablet_meta.table_id(), 1001);
+    }
+
+    instance_b.set_status(InstanceInfoPB::DELETED);
+    resource_mgr.refresh_instance(instance_ids_[1], instance_b);
+
+    // B's tombstone still carries B -> A lineage, so C can continue to A.
+    CloneChainReader reader(instance_ids_[2], Versionstamp(snapshot_versions_[2]), txn_kv_.get(),
+                            &resource_mgr);
+    doris::TabletMetaCloudPB tablet_meta;
+    Versionstamp versionstamp;
+    ASSERT_EQ(reader.get_tablet_meta(tablet_id, &tablet_meta, &versionstamp), TxnErrorCode::TXN_OK);
+    EXPECT_EQ(tablet_meta.table_id(), 1001);
+
+    // Decoupling the deleted intermediate clone clears both lineage fields and its mapping.
+    instance_b.clear_source_instance_id();
+    instance_b.clear_source_snapshot_id();
+    resource_mgr.refresh_instance(instance_ids_[1], instance_b);
+
+    std::string source_instance_id;
+    Versionstamp source_snapshot_version;
+    EXPECT_FALSE(resource_mgr.get_source_snapshot_info(instance_ids_[1], &source_instance_id,
+                                                       &source_snapshot_version));
+}
+
 TEST_F(CloneChainReaderTest, GetTabletSchema) {
     std::string instance_id = instance_ids_[2]; // C
     Versionstamp snapshot_version = snapshot_versions_[2];

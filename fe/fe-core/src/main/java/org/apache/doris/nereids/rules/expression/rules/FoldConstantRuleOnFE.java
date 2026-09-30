@@ -62,6 +62,7 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.functions.RequiresShortCircuitEvaluation;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
@@ -665,7 +666,9 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     @Override
     public Expression visitIf(If ifExpr, ExpressionRewriteContext context) {
         If originIf = ifExpr;
-        ifExpr = rewriteChildren(ifExpr, context);
+        if (!(ifExpr instanceof RequiresShortCircuitEvaluation)) {
+            ifExpr = rewriteChildren(ifExpr, context);
+        }
         Expression condition = ifExpr.getCondition();
         Expression typeCoercionTrueValue
                 = TypeCoercionUtils.ensureSameResultType(originIf, ifExpr.getTrueValue(), context);

@@ -60,8 +60,8 @@ suite('test_file_cache_warmup_read_metrics_docker', 'docker') {
         'DORIS_CLOUD_AK=minioadmin',
         'DORIS_CLOUD_SK=minioadmin',
         "DORIS_CLOUD_BUCKET=${minioBucket}",
-        "DORIS_CLOUD_ENDPOINT=host.docker.internal:${minioPort}",
-        "DORIS_CLOUD_EXTERNAL_ENDPOINT=host.docker.internal:${minioPort}",
+        "DORIS_CLOUD_ENDPOINT=http://host.docker.internal:${minioPort}",
+        "DORIS_CLOUD_EXTERNAL_ENDPOINT=http://host.docker.internal:${minioPort}",
         'DORIS_CLOUD_REGION=us-east-1',
         'DORIS_CLOUD_PROVIDER=S3',
     ]
@@ -99,7 +99,7 @@ suite('test_file_cache_warmup_read_metrics_docker', 'docker') {
                 -e MINIO_ROOT_USER=minioadmin \
                 -e MINIO_ROOT_PASSWORD=minioadmin \
                 -e MINIO_DOMAIN=host.docker.internal \
-                quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z \
+                doristhirdpartydocker/minio:RELEASE.2024-11-07T00-52-20Z \
                 server /data --console-address ':9001'
         """
         waitForCondition({
