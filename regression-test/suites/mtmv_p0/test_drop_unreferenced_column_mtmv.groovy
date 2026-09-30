@@ -358,4 +358,72 @@ suite("test_drop_unreferenced_column_mtmv") {
     order_qt_projection_baseline "SELECT id FROM ${projMv}"
     sql """ALTER TABLE ${projInner} ADD COLUMN flag INT DEFAULT 0"""
     order_qt_projection_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${projMv}'"
+
+    // ---- a name a subquery names itself ----
+    // `flag` here is written unqualified inside the subquery and the subquery names a `flag` of its own, so
+    // the name is the table's column while the table has one and the subquery's own value once it does not:
+    // the group by and the having then read the constant, the subquery has a row, and the query returns a
+    // row the view's rows do not have. Nothing of the view's is computed from a column of the changed table
+    // afterwards, so the check has to read what the subquery itself names.
+    String aliasOuter = "${suiteName}_alias_outer"
+    String aliasInner = "${suiteName}_alias_inner"
+    String aliasMv = "${suiteName}_alias_mv"
+    sql """drop materialized view if exists ${aliasMv}"""
+    sql """drop table if exists ${aliasOuter}"""
+    sql """drop table if exists ${aliasInner}"""
+    sql """
+        CREATE TABLE ${aliasOuter} (id INT, flag INT) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+    """
+    sql """
+        CREATE TABLE ${aliasInner} (id INT, flag INT) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+    """
+    sql """INSERT INTO ${aliasOuter} VALUES (1, 1)"""
+    sql """INSERT INTO ${aliasInner} VALUES (1, 0)"""
+    sql """
+        CREATE MATERIALIZED VIEW ${aliasMv}
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+        AS SELECT o.id FROM ${aliasOuter} o WHERE EXISTS (
+            SELECT 1 AS flag, COUNT(*) AS n FROM ${aliasInner} i
+            WHERE i.id = o.id GROUP BY flag HAVING flag = 1)
+    """
+    waitingMTMVTaskFinishedByMvName(aliasMv)
+    order_qt_alias_baseline "SELECT COUNT(*) FROM ${aliasMv}"
+    sql """ALTER TABLE ${aliasInner} DROP COLUMN flag"""
+    order_qt_alias_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${aliasMv}'"
+
+    // ---- a name a subquery projects and never compares ----
+    // The subquery below projects `spare`, which is only the outer table's while the outer table is the one
+    // that has it; an EXISTS tests the rows of its subquery and not what it projects, so the same rows come
+    // back after the inner table is given a column of that name. Reading the subquery's scope has to leave
+    // that case alone, or a change this view does not depend on takes its rewrite snapshot with it.
+    String ignoredOuter = "${suiteName}_ignored_outer"
+    String ignoredInner = "${suiteName}_ignored_inner"
+    String ignoredMv = "${suiteName}_ignored_mv"
+    sql """drop materialized view if exists ${ignoredMv}"""
+    sql """drop table if exists ${ignoredOuter}"""
+    sql """drop table if exists ${ignoredInner}"""
+    sql """
+        CREATE TABLE ${ignoredOuter} (id INT, spare INT) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+    """
+    sql """
+        CREATE TABLE ${ignoredInner} (id INT) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+    """
+    sql """INSERT INTO ${ignoredOuter} VALUES (1, 7)"""
+    sql """INSERT INTO ${ignoredInner} VALUES (1)"""
+    sql """
+        CREATE MATERIALIZED VIEW ${ignoredMv}
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+        AS SELECT o.id FROM ${ignoredOuter} o
+        WHERE EXISTS (SELECT spare FROM ${ignoredInner} i WHERE i.id = o.id)
+    """
+    waitingMTMVTaskFinishedByMvName(ignoredMv)
+    sql """ALTER TABLE ${ignoredInner} ADD COLUMN spare INT DEFAULT 0"""
+    order_qt_ignored_projection_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${ignoredMv}'"
+    order_qt_ignored_projection_rows "SELECT id FROM ${ignoredMv}"
 }

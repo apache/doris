@@ -31,6 +31,7 @@ import org.apache.doris.nereids.lineage.LineageInfo;
 import org.apache.doris.nereids.lineage.LineageInfoExtractor;
 import org.apache.doris.nereids.rules.exploration.mv.PartitionCompensator;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -43,6 +44,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.SetMultimap;
@@ -437,23 +439,50 @@ public class MTMVRelationManager implements MTMVHookService {
     }
 
     /**
-     * Whether a name is answered for inside a subquery, out of that subquery's own output.
+     * Whether a name the change is about is answered for inside a subquery, out of that subquery's own
+     * scope.
      *
      * <p>This is the one place a name can move without any column the view produces depending on it: the
-     * projection of a subquery is internal, so what the name resolves to there changes what the query
+     * scope of a subquery is internal, so which column answers for a name there changes what the query
      * returns -- a row, or none -- while every column of the view stays the one it was. The lineage of the
      * view's columns does not reach it, so the scope the subquery became is read here, expression by
      * expression, the way the lineage is read for the view's own.
+     *
+     * <p>Two things are read. One is a value the subquery itself names -- an expression of its own under one
+     * of these names, rather than a column of a table -- because that is what a name the change takes away
+     * falls back to, and it decides the rows whether the subquery is a predicate or a value. The other is a
+     * column of the table the change is about, which decides the rows only when the subquery's output is
+     * one the query reads: an EXISTS tests the rows of its subquery and not what it projects, so a name it
+     * projects and never compares is one this view's rows do not depend on.
      */
     private static boolean reachesAnyColumnOfASubquery(Plan plan, Set<String> names,
             BaseTableInfo baseTableInfo) {
         for (LogicalApply<?, ?> apply : plan.<LogicalApply>collectToList(LogicalApply.class::isInstance)) {
-            if (apply.right().anyMatch(node -> node instanceof Plan
-                    && reachesAnyColumn(((Plan) node).getExpressions(), names, baseTableInfo))) {
-                return true;
+            boolean outputDecidesRows = !((LogicalApply<?, ?>) apply).isExist();
+            for (Plan node : apply.right().<Plan>collectToList(Plan.class::isInstance)) {
+                for (Expression expression : node.getExpressions()) {
+                    if (isNamedByTheSubquery(expression, names)
+                            || (outputDecidesRows && reachesAnyColumn(expression, names, baseTableInfo))) {
+                        return true;
+                    }
+                }
             }
         }
         return false;
+    }
+
+    /** Whether this expression is a value the subquery itself names, rather than a column of a table. */
+    private static boolean isNamedByTheSubquery(Expression expression, Set<String> names) {
+        if (!(expression instanceof NamedExpression) || expression instanceof SlotReference) {
+            return false;
+        }
+        return names.contains(((NamedExpression) expression).getName());
+    }
+
+    /** Whether this expression reads a column of one of these names from this table. */
+    private static boolean reachesAnyColumn(Expression expression, Set<String> names,
+            BaseTableInfo baseTableInfo) {
+        return reachesAnyColumn(ImmutableList.of(expression), names, baseTableInfo);
     }
 
     /** Whether any of these expressions reads a column of one of these names from this table. */

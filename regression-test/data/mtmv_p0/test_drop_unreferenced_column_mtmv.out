@@ -75,3 +75,15 @@ test_drop_unreferenced_column_mtmv_job_add_cols_mv	SCHEMA_CHANGE	SUCCESS	false
 -- !projection_state --
 test_drop_unreferenced_column_mtmv_proj_mv	SCHEMA_CHANGE	SUCCESS	false
 
+-- !alias_baseline --
+0
+
+-- !alias_state --
+test_drop_unreferenced_column_mtmv_alias_mv	SCHEMA_CHANGE	SUCCESS	false
+
+-- !ignored_projection_state --
+test_drop_unreferenced_column_mtmv_ignored_mv	NORMAL	SUCCESS	true
+
+-- !ignored_projection_rows --
+1
+
