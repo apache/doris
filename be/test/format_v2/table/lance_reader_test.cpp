@@ -912,6 +912,15 @@ TEST(LanceTableReaderVectorSearchTest, MultiVectorScoresFiltersOffsetsAndIndexed
                 }
                 EXPECT_TRUE(reader.close().ok());
                 if (indexed) {
+                    // Warm searches still perform scoring even when every index partition is cached.
+                    for (const char* name :
+                         {"LanceIndexPartitionLoadTime", "LanceIndexCpuQueueWaitTime",
+                          "LanceIndexSearchTime", "LanceIndexQueryPrepareTime",
+                          "LanceIndexDistanceTopKTime", "LanceIndexResultMaterializeTime"}) {
+                        auto* counter = profile.get_counter(name);
+                        ASSERT_NE(nullptr, counter) << name;
+                        EXPECT_GT(counter->value(), 0) << name;
+                    }
                     // Read metrics after close: lance-c publishes its final execution summary
                     // when the stream is released, including for an early top-k stop.
                     for (const char* name : {"LancePrefilterLoads", "LancePrefilterInputRows",
