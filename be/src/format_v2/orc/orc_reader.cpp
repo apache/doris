@@ -760,6 +760,7 @@ struct OrcReaderScanState {
         uint64_t last_stripe = 0;
         uint64_t offset = 0;
         uint64_t length = 0;
+        bool disable_sarg = false;
     };
 
     std::unique_ptr<::orc::Reader> reader;
@@ -767,6 +768,7 @@ struct OrcReaderScanState {
     const ::orc::Type* root_type = nullptr;
     ::orc::ReaderMetrics reader_metrics;
     ::orc::RowReaderOptions row_reader_options; // projection + filter + SARG + stripe range
+    ::orc::RowReaderOptions active_row_reader_options;
     std::string timezone = TimezoneUtils::default_time_zone;
     cctz::time_zone timezone_obj;
     std::unique_ptr<::orc::RowReader> row_reader;
@@ -791,6 +793,7 @@ struct OrcReaderScanState {
     bool orc_lazy_selection_valid = false;
     OrcSargBuildOptions sarg_build_options;
 
+    std::vector<uint64_t> decoded_date_column_ids;
     std::vector<StripeRange> selected_stripe_ranges;
     size_t current_stripe_range = 0;
     bool stripe_pruning_applied = false;
@@ -1522,31 +1525,17 @@ Status OrcReader::_init_search_argument_from_local_filters() {
     }
 
     try {
-        // SARG can skip rows before DATE decoding detects an invalid ordinal. File statistics
-        // must prove the selected DATE domains are representable before enabling SDK pruning.
-        const auto dates_are_representable = [&](const auto& self, const ::orc::Type& type,
-                                                 const std::set<uint64_t>* projected_ids) -> bool {
+        const auto collect_dates = [&](const auto& self, const ::orc::Type& type,
+                                       const std::set<uint64_t>* projected_ids) -> void {
             if (projected_ids != nullptr && !projected_ids->contains(type.getColumnId())) {
-                return true;
+                return;
             }
             if (type.getKind() == ::orc::TypeKind::DATE) {
-                const auto stats =
-                        _state->reader->getColumnStatistics(cast_set<uint32_t>(type.getColumnId()));
-                if (stats == nullptr) {
-                    return false;
-                }
-                if (stats->getNumberOfValues() == 0) {
-                    return true;
-                }
-                segment_v2::ZoneMap zone_map;
-                return set_date_zone_map(*stats, &zone_map);
+                _state->decoded_date_column_ids.push_back(type.getColumnId());
             }
             for (uint64_t child = 0; child < type.getSubtypeCount(); ++child) {
-                if (!self(self, *type.getSubtype(child), projected_ids)) {
-                    return false;
-                }
+                self(self, *type.getSubtype(child), projected_ids);
             }
-            return true;
         };
         for (const auto column_id : _state->read_columns) {
             if (is_virtual_column(column_id)) {
@@ -1563,10 +1552,7 @@ Status OrcReader::_init_search_argument_from_local_filters() {
                 // error and must not disable pruning for the projected columns.
                 RETURN_IF_ERROR(collect_projected_type_ids(type, *projection, &projected_ids));
             }
-            if (!dates_are_representable(dates_are_representable, type,
-                                         partial ? &projected_ids : nullptr)) {
-                return Status::OK();
-            }
+            collect_dates(collect_dates, type, partial ? &projected_ids : nullptr);
         }
         auto builder = ::orc::SearchArgumentFactory::newBuilder();
         bool has_pushdown = false;
@@ -1736,8 +1722,39 @@ Status OrcReader::_select_stripe_ranges_by_statistics() {
     }
 
     std::vector<int> sarg_needed_stripes;
+    std::set<uint64_t> unsafe_date_stripes;
     try {
+        if (!_state->decoded_date_column_ids.empty()) {
+            const auto statistics_count = _state->reader->getNumberOfStripeStatistics();
+            for (const auto stripe_index : split_stripes) {
+                const auto statistics = stripe_index < statistics_count
+                                                ? _state->reader->getStripeStatistics(stripe_index)
+                                                : nullptr;
+                for (const auto column_id : _state->decoded_date_column_ids) {
+                    const auto* dates =
+                            statistics == nullptr || column_id >= statistics->getNumberOfColumns()
+                                    ? nullptr
+                                    : dynamic_cast<const ::orc::DateColumnStatistics*>(
+                                              statistics->getColumnStatistics(
+                                                      cast_set<uint32_t>(column_id)));
+                    if (dates == nullptr || (dates->getNumberOfValues() != 0 &&
+                                             (!dates->hasMinimum() || !dates->hasMaximum() ||
+                                              !epoch_days_range_is_representable(
+                                                      dates->getMinimum(), dates->getMaximum())))) {
+                        // A SARG on any column can hide a DATE conversion error. Keep only the
+                        // unsafe stripes unpruned so valid stripes retain normal pruning.
+                        unsafe_date_stripes.insert(stripe_index);
+                        break;
+                    }
+                }
+            }
+        }
         sarg_needed_stripes = _state->reader->getNeedReadStripes(_state->row_reader_options);
+        if (!unsafe_date_stripes.empty()) {
+            // getNeedReadStripes caches its SARG evaluator for the first row reader, even when
+            // that reader has no SARG. Consume the cache before opening an unsafe range.
+            _state->reader->createRowReader(_state->row_reader_options).reset();
+        }
     } catch (const Exception& e) {
         if (is_orc_stop(_io_ctx.get(), e)) {
             return Status::EndOfFile("stop");
@@ -1761,7 +1778,8 @@ Status OrcReader::_select_stripe_ranges_by_statistics() {
     int64_t filtered_bytes = 0;
     for (const auto stripe_index : split_stripes) {
         bool drop = false;
-        if (stripe_index < sarg_needed_stripes.size() && sarg_needed_stripes[stripe_index] == 0) {
+        if (!unsafe_date_stripes.contains(stripe_index) &&
+            stripe_index < sarg_needed_stripes.size() && sarg_needed_stripes[stripe_index] == 0) {
             drop = true;
         }
         if (!drop) {
@@ -1778,7 +1796,7 @@ Status OrcReader::_select_stripe_ranges_by_statistics() {
         }
     }
 
-    if (filtered_stripes == 0) {
+    if (filtered_stripes == 0 && unsafe_date_stripes.empty()) {
         return Status::OK();
     }
 
@@ -1805,6 +1823,7 @@ Status OrcReader::_select_stripe_ranges_by_statistics() {
                     .last_stripe = last_stripe,
                     .offset = offset,
                     .length = end_offset - offset,
+                    .disable_sarg = unsafe_date_stripes.contains(first_stripe),
             });
         } catch (const std::exception& e) {
             return Status::InternalError("Failed to build ORC stripe read range: {}", e.what());
@@ -1816,7 +1835,8 @@ Status OrcReader::_select_stripe_ranges_by_statistics() {
     uint64_t previous = range_first;
     for (size_t idx = 1; idx < selected_stripes.size(); ++idx) {
         const auto stripe_index = selected_stripes[idx];
-        if (stripe_index == previous + 1) {
+        if (stripe_index == previous + 1 &&
+            unsafe_date_stripes.contains(stripe_index) == unsafe_date_stripes.contains(previous)) {
             previous = stripe_index;
             continue;
         }
@@ -1856,9 +1876,18 @@ Status OrcReader::_create_row_reader() {
         if (_state->orc_lazy_read_enabled && _orc_filter == nullptr) {
             _orc_filter = std::make_unique<OrcFilterImpl>(this);
         }
+        // The SDK retains its SARG by reference, so the active options must outlive the reader.
+        _state->row_reader.reset();
+        auto& options = _state->active_row_reader_options;
+        options = _state->row_reader_options;
+        if (_state->stripe_pruning_applied &&
+            _state->selected_stripe_ranges[_state->current_stripe_range].disable_sarg) {
+            // The SDK also prunes row groups; clearing only a copy lets later safe ranges keep
+            // their SARG while the retained unsafe range reaches DATE decoding.
+            options.searchArgument(nullptr);
+        }
         _state->row_reader = _state->reader->createRowReader(
-                _state->row_reader_options,
-                _state->orc_lazy_read_enabled ? _orc_filter.get() : nullptr);
+                options, _state->orc_lazy_read_enabled ? _orc_filter.get() : nullptr);
         _state->selected_type = &_state->row_reader->getSelectedType();
         DORIS_CHECK(_state->selected_type->getKind() == ::orc::TypeKind::STRUCT);
         // Row-id fetch seeks before every read; a one-row batch preserves exact selection instead

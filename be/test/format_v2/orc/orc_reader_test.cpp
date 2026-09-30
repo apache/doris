@@ -11920,6 +11920,104 @@ TEST_F(NewOrcReaderTest, DateSargGuardIgnoresUnprojectedStructChild) {
     }
 }
 
+TEST_F(NewOrcReaderTest, DateSargRetainsUnsafeStripeWithoutDisablingSafeStripePruning) {
+    const auto path = (_test_dir / "mixed_date_stripes.orc").string();
+    auto type = std::unique_ptr<::orc::Type>(
+            ::orc::Type::buildTypeFromString("struct<id:int,d:date,payload:string>"));
+    MemoryOutputStream stream(4 * 1024 * 1024);
+    ::orc::WriterOptions writer_options;
+    writer_options.setStripeSize(1);
+    writer_options.setCompression(::orc::CompressionKind_NONE);
+    writer_options.setDictionaryKeySizeThreshold(0);
+    auto writer = ::orc::createWriter(*type, &stream, writer_options);
+    // The safe stripes cannot match id > 7, but the invalid middle stripe must be decoded.
+    for (const int64_t day : {0, -719469, 1}) {
+        auto batch = writer->createRowBatch(200);
+        auto& root = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+        auto& ids = dynamic_cast<::orc::LongVectorBatch&>(*root.fields[0]);
+        auto& dates = dynamic_cast<::orc::LongVectorBatch&>(*root.fields[1]);
+        auto& payload = dynamic_cast<::orc::StringVectorBatch&>(*root.fields[2]);
+        std::vector<std::string> values;
+        values.reserve(200);
+        root.numElements = ids.numElements = dates.numElements = payload.numElements = 200;
+        for (int row = 0; row < 200; ++row) {
+            ids.data[row] = 0;
+            dates.data[row] = day;
+            values.emplace_back(2048, static_cast<char>('a' + row % 26));
+            set_string_value(payload, row, values.back());
+        }
+        writer->add(*batch);
+    }
+    writer->close();
+    std::ofstream out(path, std::ios::binary);
+    out.write(stream.getData(), static_cast<std::streamsize>(stream.getLength()));
+    out.close();
+    ASSERT_EQ(get_orc_stripe_count(path), 3);
+
+    for (bool pruning : {false, true}) {
+        SCOPED_TRACE(pruning);
+        auto reader = create_reader_for_path(path);
+        TQueryOptions options;
+        options.__set_enable_orc_filter_by_min_max(pruning);
+        options.__set_enable_orc_lazy_mat(false);
+        RuntimeState state {options, TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->predicate_columns = {field_projection(0)};
+        request->non_predicate_columns = {field_projection(1)};
+        request->conjuncts = {
+                VExprContext::create_shared(std::make_shared<NullableInt32GreaterThanExpr>(0, 7))};
+        ASSERT_TRUE(reader->open(request).ok());
+        EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, pruning ? 2 : 0);
+        auto block = build_file_block({schema[0], schema[1]});
+        bool eof = false;
+        Status status;
+        while (!eof && status.ok()) {
+            block.clear_column_data();
+            size_t rows = 0;
+            status = reader->get_block(&block, &rows, &eof);
+        }
+        EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>()) << status;
+        EXPECT_NE(status.to_string().find("-719469"), std::string::npos);
+    }
+}
+
+TEST_F(NewOrcReaderTest, ReadExternalDateRejectsLargeOrdinal) {
+    // This external file encoded YYYYMMDD as an ORC day ordinal; the old dictionary hid it
+    // by substituting 1900-01-01. Reading other columns must remain possible.
+    const auto path = find_repo_file("be/test/exec/test_data/orc_scanner/date_large_ordinal.orc");
+    ASSERT_TRUE(std::filesystem::exists(path));
+    for (bool project_date : {false, true}) {
+        SCOPED_TRACE(project_date);
+        auto reader = create_reader_for_path(path.string());
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+        std::vector<format::ColumnDefinition> schema;
+        ASSERT_TRUE(reader->get_schema(&schema).ok());
+        ASSERT_EQ(schema.size(), 9);
+        ASSERT_EQ(remove_nullable(schema[3].type)->get_primitive_type(), TYPE_DATEV2);
+        const int column_id = project_date ? 3 : 0;
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->non_predicate_columns = {field_projection(column_id)};
+        ASSERT_TRUE(reader->open(request).ok());
+        auto block = build_file_block({schema[column_id]});
+        size_t rows = 0;
+        bool eof = false;
+        const auto status = reader->get_block(&block, &rows, &eof);
+        if (project_date) {
+            EXPECT_TRUE(status.is<ErrorCode::DATA_QUALITY_ERROR>()) << status;
+            EXPECT_NE(
+                    status.to_string().find("DATE value 20191111 is outside the Doris DATE range"),
+                    std::string::npos);
+        } else {
+            ASSERT_TRUE(status.ok()) << status;
+            EXPECT_EQ(rows, 10);
+        }
+    }
+}
+
 TEST_F(NewOrcReaderTest, ReadExternalMapDateRejectsOutOfRangeOrdinal) {
     // Keep the external LZ4 fixture: the old offset dictionary silently replaced -719530
     // with 1900-01-01, hiding an unrepresentable DATE inside the map values.
