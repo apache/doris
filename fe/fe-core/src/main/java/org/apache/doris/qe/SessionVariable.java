@@ -2129,30 +2129,58 @@ public class SessionVariable implements Serializable, Writable {
     private String disableNereidsRules = "";
 
     // ==================== SPM (SQL Plan Management) related config ====================
-    // Phase 1 SPM query rewrite switch and timeout. needForward = false: SPM is pure FE
-    // logic and does not need to be forwarded to the BE for execution.
+    // needForward = true: SPM is FE-side planning logic, but a forwarded statement is
+    // planned by the MASTER in a fresh ConnectContext - without forwarding, the master
+    // falls back to ITS defaults and may skip a baseline this connection enabled (or
+    // apply one the client disabled), and the rewrite timeout / fallback policy would be
+    // the master's too. getForwardVariables only sends what these flags mark, so all
+    // three planning switches are marked (same rationale as enable_query_cache).
     public static final String ENABLE_SPM_REWRITE = "enable_spm_rewrite";
     public static final String SPM_REWRITE_TIMEOUT_MS = "spm_rewrite_timeout_ms";
 
-    @VarAttrDef.VarAttr(name = ENABLE_SPM_REWRITE, needForward = false, description =
+    @VarAttrDef.VarAttr(name = ENABLE_SPM_REWRITE, needForward = true, description =
             "Whether to enable SPM (SQL Plan Management) query rewrite, disabled by default for safety"
     )
     private boolean enableSpmRewrite = false;
 
-    @VarAttrDef.VarAttr(name = SPM_REWRITE_TIMEOUT_MS, needForward = false, description =
+    @VarAttrDef.VarAttr(name = SPM_REWRITE_TIMEOUT_MS, needForward = true, description =
             "SPM rewrite timeout in milliseconds, fallback to normal execution on timeout"
     )
     private int spmRewriteTimeoutMs = 1000;
 
     public static final String ENABLE_SPM_FALLBACK = "enable_spm_fallback";
 
-    @VarAttrDef.VarAttr(name = ENABLE_SPM_FALLBACK, needForward = false, description =
+    @VarAttrDef.VarAttr(name = ENABLE_SPM_FALLBACK, needForward = true, description =
             "Whether SPM falls back to the original query when the rewritten (frozen-plan "
                     + "replay) plan fails to plan. Disabled by default so a rewrite failure "
                     + "surfaces as an error (useful during development / regression debugging); "
                     + "enable it for production availability so SPM never breaks a query."
     )
     private boolean enableSpmFallback = false;
+
+    /**
+     * Enabled SESSION-scope baselines of the forwarding connection (JSON; see
+     * {@code SPMForwardedSession}). Restored from the forwarded request only - the value is
+     * OVERWRITTEN from the store right before forwarding, so a plain SET cannot smuggle
+     * rows into another context.
+     */
+    public static final String SPM_FORWARDED_SESSION_BASELINES =
+            "spm_forwarded_session_baselines";
+
+    @VarAttrDef.VarAttr(name = SPM_FORWARDED_SESSION_BASELINES, needForward = true, description =
+            "Internal: SESSION-scope SPM baselines carried to the master FE together with a "
+                    + "forwarded statement (maintained by the engine, not a user setting)"
+    )
+    private String spmForwardedSessionBaselines = "";
+
+    public String getSpmForwardedSessionBaselines() {
+        return spmForwardedSessionBaselines;
+    }
+
+    public void setSpmForwardedSessionBaselines(String spmForwardedSessionBaselines) {
+        this.spmForwardedSessionBaselines =
+                spmForwardedSessionBaselines == null ? "" : spmForwardedSessionBaselines;
+    }
 
     public boolean isEnableSpmRewrite() {
         return enableSpmRewrite;

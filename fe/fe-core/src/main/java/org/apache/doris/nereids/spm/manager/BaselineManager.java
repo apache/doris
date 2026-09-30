@@ -22,11 +22,15 @@ import org.apache.doris.catalog.InternalSchema;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.spm.BaselinePlan;
 import org.apache.doris.nereids.spm.BaselineScope;
 import org.apache.doris.nereids.spm.BaselineSource;
 import org.apache.doris.nereids.spm.BaselineStatus;
+import org.apache.doris.nereids.spm.SPMPlanTreeSupport;
 import org.apache.doris.nereids.spm.SPMPlanner;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.statistics.repository.ResultRow;
@@ -112,9 +116,10 @@ public class BaselineManager {
 
     /**
      * Test seam for the create-time id allocator / collision protocol: routes the
-     * watermark read, the INSERT, the by-id collision probe and the identity delete to a
-     * simulator, so a unit test can inject a COMPETING master's row between the INSERT
-     * and the probe (the latch-driven handoff scenario). Null in production.
+     * watermark read, the INSERT, the by-id collision probe, the identity delete AND its
+     * ambiguous-commit reconciliation read to a simulator, so a unit test can inject a
+     * COMPETING master's row between the INSERT and the probe (the latch-driven handoff
+     * scenario) or an unconfirmable delete. Null in production.
      */
     @VisibleForTesting
     interface IdAllocatorStoreForTest {
@@ -1701,7 +1706,7 @@ public class BaselineManager {
         // table name into planSql (sessionId_#TEMP#_name). Replaying it from another
         // session would read the creator's (possibly still live) temporary table, so such
         // rows are never loaded (the log line names the row).
-        if (containsTemporaryTableSign(p.getBindSql()) || containsTemporaryTableSign(planSql)) {
+        if (referencesTemporaryTable(p.getBindSql()) || referencesTemporaryTable(planSql)) {
             throw new RuntimeException("SPM baseline " + p.getId()
                     + " references a temporary table (the frozen plan carries the creator"
                     + " session's internal name); skipping the row");
@@ -1757,9 +1762,40 @@ public class BaselineManager {
         return p;
     }
 
-    /** Whether a stored text carries the creator session's temporary-table marker. */
-    private static boolean containsTemporaryTableSign(String text) {
-        return text != null && text.contains(FeNameFormat.TEMPORARY_TABLE_SIGN);
+    /**
+     * Whether a stored text REFERENCES the creator session's temporary-table name. The
+     * marker is looked up in the PARSED relations only - never as a raw substring: an
+     * ordinary predicate / value literal ({@code s = '_#TEMP#_'}) or a comment carries the
+     * same characters, and the old substring test rejected such a durable row on every
+     * refresh - the baseline silently disappeared from every FE although CREATE had
+     * accepted it (the create-time guard inspects the RESOLVED relations).
+     */
+    private static boolean referencesTemporaryTable(String text) {
+        if (text == null || !text.contains(FeNameFormat.TEMPORARY_TABLE_SIGN)) {
+            return false;
+        }
+        try {
+            Plan parsed = new NereidsParser().parseSingle(text);
+            if (!(parsed instanceof LogicalPlan)) {
+                return false;
+            }
+            final boolean[] referenced = {false};
+            SPMPlanTreeSupport.<RuntimeException>walkPlans(parsed, (Plan node) -> {
+                if (node instanceof UnboundRelation) {
+                    for (String part : ((UnboundRelation) node).getNameParts()) {
+                        if (part.contains(FeNameFormat.TEMPORARY_TABLE_SIGN)) {
+                            referenced[0] = true;
+                        }
+                    }
+                }
+            });
+            return referenced[0];
+        } catch (RuntimeException e) {
+            // unparsable text: fail closed. The row can be neither rebuilt nor replayed,
+            // and an unverifiable marker must not be trusted (the previous substring test
+            // did reject these rows; only PARSEABLE texts may prove they are clean).
+            return true;
+        }
     }
 
     /**
@@ -2037,8 +2073,10 @@ public class BaselineManager {
         } catch (Exception e) {
             // An INSERT that reports an error (typically a statement timeout) may still
             // have COMMITTED: reconcile against the durable table before failing the
-            // CREATE - the row carrying this id + key is the proof it landed.
-            if (durableRowExists(p.getId(), p.getBindSqlDigest(), p.getPlanSql())) {
+            // CREATE - the row carrying this id + key is the proof it landed. Any other
+            // outcome (absent or unconfirmable) reports the original failure.
+            if (probeDurableRow(p.getId(), p.getBindSqlDigest(), p.getPlanSql())
+                    == DurablePresence.PRESENT) {
                 LOG.warn("SPM persist (insert) reported {} but the row is durable (id={});"
                         + " keeping it", e.getMessage(), p.getId());
                 return;
@@ -2048,38 +2086,61 @@ public class BaselineManager {
     }
 
     /**
-     * Reconciles an ambiguous write: whether the durable table already holds the row with
-     * this (id, key). A read failure answers false - the caller then reports the original
-     * error, which the user / capture retry resolves.
+     * Outcome of one ambiguous-write reconciliation read (see {@link #probeDurableRow}).
      */
-    private static boolean durableRowExists(long id, String bindSqlDigest, String planSql) {
+    private enum DurablePresence { PRESENT, ABSENT, UNKNOWN }
+
+    /**
+     * Reconciles an ambiguous write: whether the durable table holds the row with this
+     * (id, key). A read FAILURE answers UNKNOWN - never ABSENT: an absent row is the ONLY
+     * proof a DELETE landed, and treating an unconfirmable read as proof let dropBaseline
+     * remove the cached row and report success while the durable row stayed (the next
+     * refresh / restart resurrected the dropped baseline).
+     */
+    private static DurablePresence probeDurableRow(long id, String bindSqlDigest, String planSql) {
+        if (idAllocatorStoreForTest != null) {
+            try {
+                for (BaselinePlan row : idAllocatorStoreForTest.readById(id)) {
+                    if (row.getId() == id
+                            && Objects.equals(row.getBindSqlDigest(), bindSqlDigest)
+                            && Objects.equals(row.getPlanSql(), planSql)) {
+                        return DurablePresence.PRESENT;
+                    }
+                }
+                return DurablePresence.ABSENT;
+            } catch (RuntimeException e) {
+                LOG.warn("SPM cannot reconcile the ambiguous write of baseline {}: {}",
+                        id, e.getMessage());
+                return DurablePresence.UNKNOWN;
+            }
+        }
         try {
             for (BaselinePlan row : readPersistedByKey(bindSqlDigest, planSql)) {
                 if (row.getId() == id) {
-                    return true;
+                    return DurablePresence.PRESENT;
                 }
             }
-            return false;
+            return DurablePresence.ABSENT;
         } catch (Throwable t) {
             LOG.warn("SPM cannot reconcile the ambiguous write of baseline {}: {}",
                     id, t.getMessage());
-            return false;
+            return DurablePresence.UNKNOWN;
         }
     }
 
     private static void persistDeleteByIdentity(BaselinePlan p) {
-        if (idAllocatorStoreForTest != null) {
-            idAllocatorStoreForTest.deleteByIdentity(p);
-            return;
-        }
-        if (!persistenceEnabled()) {
-            return;
-        }
-        Map<String, String> params = new HashMap<>();
-        params.put("id", String.valueOf(p.getId()));
-        params.put("bindSqlDigest", StatisticsUtil.escapeSQL(p.getBindSqlDigest()));
-        params.put("planSql", StatisticsUtil.escapeSQL(p.getPlanSql()));
         try {
+            if (idAllocatorStoreForTest != null) {
+                idAllocatorStoreForTest.deleteByIdentity(p);
+                return;
+            }
+            if (!persistenceEnabled()) {
+                return;
+            }
+            Map<String, String> params = new HashMap<>();
+            params.put("id", String.valueOf(p.getId()));
+            params.put("bindSqlDigest", StatisticsUtil.escapeSQL(p.getBindSqlDigest()));
+            params.put("planSql", StatisticsUtil.escapeSQL(p.getPlanSql()));
             inInternalIoMode(() -> {
                 StatisticsUtil.execUpdate(DELETE_BY_IDENTITY_SQL, params,
                         BASELINE_WRITE_TIMEOUT_SECONDS);
@@ -2087,14 +2148,20 @@ public class BaselineManager {
             });
         } catch (Exception e) {
             // A reported error may hide a committed DELETE: the row being GONE is the
-            // proof the drop landed, so do not fail (and do not keep an in-memory row the
-            // durable table no longer has).
-            if (!durableRowExists(p.getId(), p.getBindSqlDigest(), p.getPlanSql())) {
+            // ONLY proof the drop landed. An unconfirmable read (UNKNOWN) must NOT be
+            // treated as proof of absence - removing the cache entry then reported
+            // success while the durable row stayed and a refresh / restart resurrected
+            // the dropped baseline.
+            DurablePresence presence = probeDurableRow(p.getId(), p.getBindSqlDigest(),
+                    p.getPlanSql());
+            if (presence == DurablePresence.ABSENT) {
                 LOG.warn("SPM persist (delete) reported {} but the row is gone (id={});"
                         + " treating it as deleted", e.getMessage(), p.getId());
                 return;
             }
-            throw new RuntimeException("SPM persist (delete) failed: " + e.getMessage(), e);
+            throw new RuntimeException("SPM persist (delete) failed: " + e.getMessage()
+                    + (presence == DurablePresence.UNKNOWN
+                            ? " (the durable row could not be confirmed deleted)" : ""), e);
         }
     }
 
@@ -2117,12 +2184,18 @@ public class BaselineManager {
                 return null;
             });
         } catch (Exception e) {
-            // Ambiguous commit: no durable row carries (id, status) any more -> the delete
-            // landed despite the error.
-            if (durableRowCount(id, status) == 0) {
-                LOG.warn("SPM persist (delete by status) reported {} but no row carries"
-                        + " ({}, {}); treating it as deleted", e.getMessage(), id, status);
-                return;
+            // Ambiguous commit: only a READABLE zero row count proves the delete landed.
+            // An unconfirmable probe must surface as the original write failure.
+            try {
+                if (durableRowCount(id, status) == 0) {
+                    LOG.warn("SPM persist (delete by status) reported {} but no row carries"
+                            + " ({}, {}); treating it as deleted", e.getMessage(), id, status);
+                    return;
+                }
+            } catch (Throwable probeFailure) {
+                throw new RuntimeException("SPM persist (delete by status) failed: "
+                        + e.getMessage() + " (the durable row could not be confirmed"
+                        + " deleted)", e);
             }
             throw new RuntimeException("SPM persist (delete by status) failed: " + e.getMessage(), e);
         }

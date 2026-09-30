@@ -131,11 +131,21 @@ public class ShowBaselinePlansCommand extends ShowCommand {
         // its '%' compiles to a regex '.' that does not span the NEWLINES the stored SQL
         // is printed with. Escape every regex metacharacter and apply the MySQL
         // wildcards explicitly: '%' -> any characters (DOTALL), '_' -> one character,
-        // whole-value, case-insensitive (the previous substring behaviour).
+        // '\' escapes the NEXT wildcard character ('\_' / '\%' are LITERALS, exactly
+        // like the regular LIKE matcher), whole-value, case-insensitive.
         StringBuilder regex = new StringBuilder();
         for (int i = 0; i < pattern.length(); i++) {
             char c = pattern.charAt(i);
-            if (c == '%') {
+            if (c == '\\' && i + 1 < pattern.length()
+                    && (pattern.charAt(i + 1) == '%' || pattern.charAt(i + 1) == '_')) {
+                // the SQL literal parser preserves the backslash; consuming it together
+                // with the wildcard keeps a search for '%my\_table%' matching the stored
+                // my_table (the old loop emitted the backslash literally and turned the
+                // '_' into a wildcard, so the row was missed while unrelated text with a
+                // backslash could match)
+                char escaped = pattern.charAt(++i);
+                regex.append('\\').append(escaped);
+            } else if (c == '%') {
                 regex.append(".*");
             } else if (c == '_') {
                 regex.append('.');

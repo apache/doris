@@ -77,4 +77,30 @@ public class ShowBaselinePlansCommandTest {
                 "'_' is exactly one character");
         Assertions.assertFalse(pattern.matcher("abxyd").matches());
     }
+
+    /**
+     * The SQL literal parser preserves \_ and \%: the matcher must consume the escape
+     * together with the following character (as a LITERAL), otherwise a search for a
+     * stored my_table via '%my\_table%' missed that row and could match unrelated text
+     * carrying a backslash.
+     */
+    @Test
+    public void testEscapedWildcardsAreLiteral() throws Exception {
+        java.util.regex.Pattern escapedUnderscore =
+                ShowBaselinePlansCommand.buildLikeMatcher("%my\\_table%");
+        Assertions.assertTrue(escapedUnderscore.matcher("SELECT * FROM my_table").matches(),
+                "\\_ is a literal underscore");
+        Assertions.assertFalse(escapedUnderscore.matcher("SELECT * FROM myXtable").matches(),
+                "\\_ must not act as a single-character wildcard");
+        Assertions.assertFalse(
+                escapedUnderscore.matcher("SELECT * FROM my\\_table").matches(),
+                "the backslash is an escape, not part of the searched text");
+
+        java.util.regex.Pattern escapedPercent =
+                ShowBaselinePlansCommand.buildLikeMatcher("%100\\%");
+        Assertions.assertTrue(escapedPercent.matcher("SELECT 100%").matches(),
+                "\\% is a literal percent");
+        Assertions.assertFalse(escapedPercent.matcher("SELECT 100x").matches(),
+                "\\% must not act as a wildcard");
+    }
 }
