@@ -50,18 +50,24 @@ import java.util.Map;
 
 /**
  * Refresh-phase coverage for {@link LanceIndexJobDispatcher}. The external-table
- * refresh is mocked, the manager's edit-log seam captures every durable record,
- * and each round is one direct {@code runAfterCatalogReady} call, so the pinned
- * invariants are all observable: the driver runs markRefreshRunning, then
- * {@code handleRefreshTable(catalogId, db, table, ignoreIfNotExists=true)} —
- * addressed by the persisted catalog id, never the mutable name —
- * then DONE, which releases the fence and the unresolved quota; a
- * {@link DdlException} keeps the fence and retries on a later round; the retry
- * throttle delays only FAILED refreshes and measures from the dedicated failure
- * timestamp, never a first REQUIRED one; a silent
- * no-op refresh (a half-orphan target) still completes to DONE; force-released
- * jobs owe nothing; and a refresh stranded at RUNNING by a lost driver is
- * downgraded by the master-transfer sweep and then driven to DONE here.
+ * refresh is mocked (or, for the re-resolution window, a real
+ * {@link RefreshManager} drives the names again), the manager's edit-log seam
+ * captures every durable record, and each round is one direct
+ * {@code runAfterCatalogReady} call, so the pinned invariants are all
+ * observable: the driver runs markRefreshRunning, then
+ * {@code handleRefreshTable(catalogId, db, table, ignoreIfNotExists=false)} —
+ * addressed by the persisted catalog id, never the mutable name, and
+ * fail-closed: a re-resolution miss inside RefreshManager throws instead of
+ * silently skipping the invalidation — then DONE, which releases the fence and
+ * the unresolved quota; a {@link DdlException} keeps the fence and retries on a
+ * later round; the retry throttle delays only FAILED refreshes and measures
+ * from the dedicated failure timestamp, never a first REQUIRED one; a
+ * verified-absent half-orphan target completes to DONE without any refresh;
+ * the blocking refresh work is bounded per round (one backend RPC timeout), so
+ * a slow provider defers the remaining owed jobs to the next round instead of
+ * starving the sweeps and PENDING dispatch; force-released jobs owe nothing;
+ * and a refresh stranded at RUNNING by a lost driver is downgraded by the
+ * master-transfer sweep and then driven to DONE here.
  */
 public class LanceIndexJobRefreshDriverTest {
     private static final long CATALOG_ID = 10L;
@@ -73,12 +79,14 @@ public class LanceIndexJobRefreshDriverTest {
     private final List<String> events = new ArrayList<>();
     private MockedStatic<Env> mockedEnv;
     private Env env;
+    private SystemInfoService systemInfo;
     private LanceExternalCatalog catalog;
     private RefreshManager refreshManager;
     private TestManager manager;
     private TestDispatcher dispatcher;
 
     private int originalRetrySecond;
+    private int originalMaxInflightPerBackend;
 
     @BeforeEach
     public void setUp() throws Exception {
@@ -87,7 +95,7 @@ public class LanceIndexJobRefreshDriverTest {
         env = Mockito.mock(Env.class);
         mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
         Mockito.when(env.isMaster()).thenReturn(true);
-        SystemInfoService systemInfo = Mockito.mock(SystemInfoService.class);
+        systemInfo = Mockito.mock(SystemInfoService.class);
         Mockito.when(systemInfo.selectBackendIdsByPolicy(Mockito.any(BeSelectionPolicy.class), Mockito.eq(-1)))
                 .thenReturn(Collections.emptyList());
         mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfo);
@@ -124,11 +132,13 @@ public class LanceIndexJobRefreshDriverTest {
         dispatcher = new TestDispatcher(manager, events);
 
         originalRetrySecond = Config.lance_index_job_refresh_retry_second;
+        originalMaxInflightPerBackend = Config.lance_index_job_max_inflight_per_backend;
     }
 
     @AfterEach
     public void tearDown() {
         Config.lance_index_job_refresh_retry_second = originalRetrySecond;
+        Config.lance_index_job_max_inflight_per_backend = originalMaxInflightPerBackend;
         mockedEnv.close();
     }
 
@@ -161,8 +171,10 @@ public class LanceIndexJobRefreshDriverTest {
         Assertions.assertEquals(CATALOG_ID, catalogId.getValue().longValue());
         Assertions.assertEquals("db1", dbName.getValue());
         Assertions.assertEquals("tbl1", tableName.getValue());
-        // A half-orphan target is a legal input to the refresh call, not an error.
-        Assertions.assertEquals(Boolean.TRUE, ignoreIfNotExists.getValue());
+        // Fail-closed: a null re-resolution inside RefreshManager must throw, not
+        // silently return — DONE is billed to this job only after a real refresh or
+        // a VERIFIED_ABSENT proof, never after a skipped one.
+        Assertions.assertEquals(Boolean.FALSE, ignoreIfNotExists.getValue());
 
         // Completing the refresh duty releases the fence and the unresolved quota,
         // and a refresh round never dispatches anything.
@@ -228,6 +240,101 @@ public class LanceIndexJobRefreshDriverTest {
 
         Assertions.assertEquals(LanceIndexJobRefreshState.DONE, manager.getJob(1L).getRefreshState());
         Assertions.assertFalse(manager.isFenceHeld(fenceKey));
+    }
+
+    @Test
+    public void reResolutionMissInsideRefreshManagerFailsTheRefreshClosedForRetry() throws Exception {
+        Config.lance_index_job_refresh_retry_second = 0;
+        admitTerminalCommitted(1L, "IdxA");
+        // A real RefreshManager, exactly as in production: both the driver's local
+        // resolution and the manager's re-resolution go through getDbNullable, and the
+        // target drops in the window between the two — the first call resolves, the
+        // second misses. With ignoreIfNotExists=false the miss throws DdlException
+        // instead of silently returning, so the obligation survives the miss.
+        Mockito.when(env.getRefreshManager()).thenReturn(new RefreshManager());
+        @SuppressWarnings("unchecked")
+        ExternalDatabase<ExternalTable> db = Mockito.mock(ExternalDatabase.class);
+        Mockito.doReturn(db).doReturn(null).when(catalog).getDbNullable("db1");
+        Mockito.doReturn(Mockito.mock(ExternalTable.class)).when(db).getTableNullable("tbl1");
+        LanceIndexFenceKey fenceKey = manager.getJob(1L).fenceKey();
+
+        dispatcher.runAfterCatalogReady();
+
+        // Fail-closed: the refresh is FAILED and the fence and quota stay held for the
+        // retry — never DONE for a refresh that did not happen.
+        Assertions.assertEquals(LanceIndexJobRefreshState.FAILED, manager.getJob(1L).getRefreshState());
+        Assertions.assertTrue(manager.isFenceHeld(fenceKey));
+        Assertions.assertEquals(1L, manager.getQuota().getGlobalCount());
+        Assertions.assertTrue(containsJob(manager.getJobsNeedingRefresh(), 1L));
+
+        // The drop was genuine: the next round proves it through the namespace and
+        // converges DONE through the VERIFIED_ABSENT path, without any refresh.
+        Mockito.doReturn(LanceIndexDatasetCheck.verifiedAbsent()).when(catalog)
+                .checkIndexJobDataset("db1", "tbl1");
+        dispatcher.runAfterCatalogReady();
+
+        Assertions.assertEquals(LanceIndexJobRefreshState.DONE, manager.getJob(1L).getRefreshState());
+        Assertions.assertFalse(manager.isFenceHeld(fenceKey));
+        Assertions.assertEquals(0L, manager.getQuota().getGlobalCount());
+    }
+
+    @Test
+    public void slowRefreshBoundsTheRoundsBlockingRefreshWork() throws Exception {
+        Config.lance_index_job_max_inflight_per_backend = 8;
+        admitTerminalCommitted(1L, "IdxA");
+        admitTerminalCommitted(2L, "IdxB");
+        // A PENDING job proves the round's later phases keep their cadence behind the
+        // bounded refresh work, so the dispatch selection is pointed at one backend
+        // with a storage-property view that resolves to nothing.
+        admit(3L, "IdxPending");
+        Mockito.when(systemInfo.selectBackendIdsByPolicy(Mockito.any(BeSelectionPolicy.class), Mockito.eq(-1)))
+                .thenReturn(Collections.singletonList(BACKEND_ID));
+        Mockito.when(systemInfo.getBackend(BACKEND_ID)).thenReturn(backend(BACKEND_ID, BE_EPOCH));
+        org.apache.doris.datasource.CatalogProperty catalogProperty =
+                Mockito.mock(org.apache.doris.datasource.CatalogProperty.class);
+        Mockito.when(catalogProperty.getOrderedStoragePropertiesList()).thenReturn(Collections.emptyList());
+        Mockito.when(catalog.getCatalogProperty()).thenReturn(catalogProperty);
+        // Each refresh stalls for just over one backend RPC timeout (the client-pool
+        // default the round budget is taken from); the seam clock jumps inside the
+        // refresh, so no real sleeping is involved.
+        Mockito.doAnswer(invocation -> {
+            events.add("refresh:" + invocation.getArgument(1) + "." + invocation.getArgument(2));
+            dispatcher.nowOffsetMs += 61_000L;
+            return null;
+        }).when(refreshManager).handleRefreshTable(Mockito.anyLong(), Mockito.anyString(), Mockito.anyString(),
+                Mockito.anyBoolean());
+
+        dispatcher.runAfterCatalogReady();
+
+        // The stalled refresh alone exhausts the round's blocking budget: the other
+        // owed job is deferred before markRefreshRunning — no journal record, its
+        // durable state untouched — while the PENDING job still dispatches in the
+        // same round, because the one thread running the sweeps, the refresh driver,
+        // and the dispatch was not held for two metadata timeouts.
+        Assertions.assertEquals(1, Collections.frequency(events, "refresh:db1.tbl1"), events.toString());
+        int doneCount = 0;
+        int owedCount = 0;
+        for (long jobId : new long[] {1L, 2L}) {
+            LanceIndexJobRefreshState state = manager.getJob(jobId).getRefreshState();
+            if (state == LanceIndexJobRefreshState.DONE) {
+                doneCount++;
+            } else {
+                owedCount++;
+                Assertions.assertEquals(LanceIndexJobRefreshState.REQUIRED, state, events.toString());
+            }
+        }
+        Assertions.assertEquals(1, doneCount, events.toString());
+        Assertions.assertEquals(1, owedCount, events.toString());
+        Assertions.assertEquals(Collections.singletonList(3L), dispatcher.sendJobIds, events.toString());
+
+        dispatcher.runAfterCatalogReady();
+
+        // A fresh round gets a fresh budget: the deferred refresh runs, both owed jobs
+        // converge, and the dispatched job is never resent.
+        Assertions.assertEquals(2, Collections.frequency(events, "refresh:db1.tbl1"), events.toString());
+        Assertions.assertEquals(LanceIndexJobRefreshState.DONE, manager.getJob(1L).getRefreshState());
+        Assertions.assertEquals(LanceIndexJobRefreshState.DONE, manager.getJob(2L).getRefreshState());
+        Assertions.assertEquals(Collections.singletonList(3L), dispatcher.sendJobIds);
     }
 
     @Test
@@ -472,11 +579,23 @@ public class LanceIndexJobRefreshDriverTest {
 
     /** Creates a job and walks it to COMMITTED with a REQUIRED refresh, the driver's input. */
     private void admitTerminalCommitted(long jobId, String displayName) throws Exception {
-        manager.createJob(newCreateJob(jobId, displayName), 100, 100, 100);
+        admit(jobId, displayName);
         Assertions.assertTrue(manager.markRunning(jobId, 0L, BACKEND_ID, BE_EPOCH, "inv-" + jobId,
                 FAR_DEADLINE_MS));
         Assertions.assertTrue(manager.completeWithResult(jobId, 1L, "inv-" + jobId, BE_EPOCH, okResult()));
         Assertions.assertEquals(LanceIndexJobRefreshState.REQUIRED, manager.getJob(jobId).getRefreshState());
+    }
+
+    /** Creates a PENDING job, the dispatch phase's input. */
+    private void admit(long jobId, String displayName) throws Exception {
+        manager.createJob(newCreateJob(jobId, displayName), 100, 100, 100);
+    }
+
+    private static Backend backend(long id, long processEpoch) {
+        Backend backend = new Backend(id, "host-" + id, 9050);
+        backend.setAlive(true);
+        backend.setLastStartTime(processEpoch);
+        return backend;
     }
 
     private static LanceIndexJob newCreateJob(long jobId, String displayName) {
@@ -544,10 +663,17 @@ public class LanceIndexJobRefreshDriverTest {
     private static class TestDispatcher extends LanceIndexJobDispatcher {
         private final List<String> events;
         private final List<Long> sendJobIds = new ArrayList<>();
+        /** Added to the wall clock by the round-period seam; lets tests stall a phase. */
+        private volatile long nowOffsetMs;
 
         TestDispatcher(LanceIndexJobManager jobManager, List<String> events) {
             super(jobManager);
             this.events = events;
+        }
+
+        @Override
+        protected long nowMs() {
+            return System.currentTimeMillis() + nowOffsetMs;
         }
 
         @Override
