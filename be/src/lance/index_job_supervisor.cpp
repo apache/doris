@@ -1566,6 +1566,11 @@ void IndexJobSupervisor::set_report_termination_callback(ReportTerminationFn fn)
     _report_termination_fn = std::move(fn);
 }
 
+void IndexJobSupervisor::set_report_silent_callback(ReportSilentFn fn) {
+    std::lock_guard<std::mutex> lock(_callback_mutex);
+    _report_silent_fn = std::move(fn);
+}
+
 Status IndexJobSupervisor::resolve_cgroup_parent(const std::string& configured_parent,
                                                  std::string* resolved_parent) {
 #ifdef __linux__
@@ -1897,6 +1902,26 @@ void IndexJobSupervisor::_invoke_termination_callback(
     }
 }
 
+void IndexJobSupervisor::_invoke_silent_callback(int64_t job_id,
+                                                 const std::string& invocation_id) {
+    // Same delivery discipline as the report callbacks: fires even while
+    // stopping, and for a silent ending it is the owner's ONLY terminal
+    // notification — no report callback will ever run for this invocation,
+    // so an unwired callback means the owner's gauge slot leaks.
+    ReportSilentFn fn;
+    {
+        std::lock_guard<std::mutex> lock(_callback_mutex);
+        fn = _report_silent_fn;
+    }
+    if (fn) {
+        fn(job_id, invocation_id);
+    } else {
+        LOG(ERROR) << "lance supervisor has no silent-ending callback wired; the owner's gauge "
+                      "slot leaks until restart: job_id="
+                   << job_id << " invocation_id=" << invocation_id;
+    }
+}
+
 // Echoes the per-dispatch invocation secret into an outgoing report: the FE
 // compares it in constant time against the journaled secret before trusting any
 // part of the envelope, so every report this supervisor builds carries it. The
@@ -2134,8 +2159,9 @@ void IndexJobSupervisor::_execute(const TLanceIndexJobDispatch& dispatch) {
         // microseconds of the frame, so no mutation can have committed. The
         // result code is a trusted PRE_INVOCATION_RESOURCE_REJECTED, but a
         // forked rejection may only be reported once the exact child is
-        // provably reaped (D6); without the proof the slot is kept for the FE
-        // epoch sweep. NEVER_LAUNCHED would be wrong here (it DID exec).
+        // provably reaped (D6); without the proof no report is sent and the
+        // FE-side slot waits for the epoch sweep. NEVER_LAUNCHED would be
+        // wrong here (it DID exec).
         if (proof) {
             TLanceIndexJobReport report;
             report.job_id = dispatch.job_id;
@@ -2158,9 +2184,14 @@ void IndexJobSupervisor::_execute(const TLanceIndexJobDispatch& dispatch) {
             _invoke_result_callback(report);
         } else {
             LOG(WARNING) << "lance isolation self-check failed but termination evidence is "
-                            "insufficient; slot kept for the FE epoch sweep: job_id="
+                            "insufficient; FE-side slot kept for the epoch sweep: job_id="
                          << dispatch.job_id << " invocation_id=" << dispatch.invocation_id
                          << " category=" << sup.failure_category;
+            // No report fires on this ending, so no report callback would ever
+            // release the invocation's gauge slot; the silent callback does it
+            // here instead. FE-side semantics are unchanged: with no report the
+            // deadline/epoch sweep still owns the invocation.
+            _invoke_silent_callback(dispatch.job_id, dispatch.invocation_id);
         }
         return;
     }
@@ -2189,9 +2220,13 @@ void IndexJobSupervisor::_execute(const TLanceIndexJobDispatch& dispatch) {
         _invoke_termination_callback(termination);
     } else {
         LOG(WARNING) << "lance invocation termination evidence is insufficient (CDC reaper "
-                        "race or surviving descendants); slot kept for the FE epoch sweep: "
-                        "job_id="
+                        "race or surviving descendants); FE-side slot kept for the epoch "
+                        "sweep: job_id="
                      << dispatch.job_id << " invocation_id=" << dispatch.invocation_id;
+        // Same no-report accounting: the silent callback releases the local
+        // gauge slot (nothing else ever will for this invocation); the FE-side
+        // slot still converges through the epoch sweep, exactly as before.
+        _invoke_silent_callback(dispatch.job_id, dispatch.invocation_id);
     }
 #else
     (void)dispatch;

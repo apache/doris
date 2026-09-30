@@ -396,6 +396,27 @@ TEST_F(LanceIndexJobServiceTest, StoppingDropReleasesOutstandingSlot) {
     EXPECT_EQ(service._outstanding.load(), 0);
 }
 
+// The silent-ending release (P2-1): an unprovable termination emits NO report
+// at all, so the supervisor's silent callback is the invocation's only
+// terminal accounting — the gauge slot must be released there (mirroring the
+// stopping-drop case above) or the worker would read busy until BE restart.
+TEST_F(LanceIndexJobServiceTest, SilentEndingReleasesOutstandingSlot) {
+    config::lance_index_isolation_preflight = false; // keep start() hermetic
+    LanceIndexJobService service(ExecEnv::GetInstance());
+    ASSERT_TRUE(service.start().ok());
+
+    ASSERT_TRUE(static_cast<bool>(service._supervisor._report_silent_fn))
+            << "start() must wire the silent-ending callback";
+    service._outstanding.store(1);
+    const int64_t started = steady_millis();
+    service._supervisor._report_silent_fn(31337, "svc-silent-ending");
+    EXPECT_EQ(service._outstanding.load(), 0) << "a silent ending must release the gauge slot";
+    EXPECT_EQ(service.queue_size(), 0);
+    EXPECT_EQ(service.inflight_workers(), 0)
+            << "with max_inflight=1 a leaked slot would read the worker busy forever";
+    EXPECT_LT(steady_millis() - started, 1000) << "the silent path attempts no RPC";
+}
+
 // Gauge feeders (D19): outstanding -> min/max accounting.
 TEST_F(LanceIndexJobServiceTest, GaugeMathFollowsOutstanding) {
     LanceIndexJobService service(ExecEnv::GetInstance());
