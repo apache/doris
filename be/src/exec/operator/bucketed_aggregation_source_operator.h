@@ -87,11 +87,6 @@ private:
     /// task's memory reservation.
     void _update_memusage(Arena& merge_arena);
 
-    /// Wake up all source instances (including self) by setting their dependencies ready.
-    /// Called when this source releases a bucket CAS lock, so that blocked
-    /// source instances can re-check for available work.
-    void _wake_up_other_sources();
-
     // Bucket currently being output (-1 means no active bucket).
     // If a bucket has too many rows for one batch, we resume output here.
     int _current_output_bucket = -1;

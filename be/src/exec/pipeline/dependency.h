@@ -539,7 +539,25 @@ public:
     /// release, sink finish). Used by source instances to detect missed wakeups:
     /// if the generation changed between scan start and post-block() re-check,
     /// something happened and the source should unblock immediately.
+    /// Only notify_state_changed() may bump it.
     std::atomic<uint64_t> state_generation {0};
+
+    /// Publish a state change (a sink finished, a bucket lock was released) to all
+    /// source instances: bump the generation, then wake them up.
+    ///
+    /// A source that finds no work stores ready=false in block() and then loads the
+    /// generation, while this side stores the generation and then loads the ready flag
+    /// in set_ready(). Each side stores one variable and then loads the other, so all
+    /// four accesses must be sequentially consistent (Dependency already accesses its
+    /// ready flag that way). With weaker orders both loads may return the old value:
+    /// set_ready() returns early because the dependency still looks ready, the source
+    /// sees an unchanged generation, and the wakeup is lost.
+    void notify_state_changed() {
+        state_generation.fetch_add(1, std::memory_order_seq_cst);
+        for (auto& dep : source_deps) {
+            dep->set_ready();
+        }
+    }
 
     /// Initialize per-instance data and optionally run a metadata init callback.
     /// The callback runs exactly once (under std::call_once), must return Status,

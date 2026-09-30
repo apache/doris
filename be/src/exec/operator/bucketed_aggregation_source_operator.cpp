@@ -30,6 +30,7 @@
 #include "exprs/vectorized_agg_fn.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
+#include "util/debug_points.h"
 
 namespace doris {
 
@@ -188,8 +189,7 @@ Status BucketedAggLocalState::close(RuntimeState* state) {
         bs.output_done.store(true, std::memory_order_release);
         bs.merge_in_progress.store(false, std::memory_order_release);
         _current_output_bucket = -1;
-        _shared_state->state_generation.fetch_add(1, std::memory_order_release);
-        _wake_up_other_sources();
+        _shared_state->notify_state_changed();
     }
 
     return Base::close(state);
@@ -201,13 +201,6 @@ void BucketedAggLocalState::_make_nullable_output_key(Block* block) {
             block->get_by_position(cid).column = make_nullable(block->get_by_position(cid).column);
             block->get_by_position(cid).type = make_nullable(block->get_by_position(cid).type);
         }
-    }
-}
-
-void BucketedAggLocalState::_wake_up_other_sources() {
-    auto& shared_state = *_shared_state;
-    for (int i = 0; i < static_cast<int>(shared_state.source_deps.size()); ++i) {
-        shared_state.source_deps[i]->set_ready();
     }
 }
 
@@ -637,8 +630,7 @@ Status BucketedAggLocalState::_get_results(RuntimeState* state, Block* block, bo
         bs.output_done.store(true, std::memory_order_release);
         bs.merge_in_progress.store(false, std::memory_order_release);
         _current_output_bucket = -1;
-        shared_state.state_generation.fetch_add(1, std::memory_order_release);
-        _wake_up_other_sources();
+        shared_state.notify_state_changed();
     }
 
     // Snapshot the state generation BEFORE scanning — used to detect races with block().
@@ -647,7 +639,7 @@ Status BucketedAggLocalState::_get_results(RuntimeState* state, Block* block, bo
     // work and must unblock immediately. This eliminates the TOCTOU gap where the
     // per-bucket scan in the re-check could miss a bucket that was released and
     // immediately re-acquired by another source.
-    uint64_t gen_before = shared_state.state_generation.load(std::memory_order_acquire);
+    uint64_t gen_before = shared_state.state_generation.load(std::memory_order_seq_cst);
     bool all_sinks_done = shared_state.num_sinks_finished.load(std::memory_order_acquire) ==
                           shared_state.num_sink_instances;
     bool did_work = false;
@@ -679,8 +671,7 @@ Status BucketedAggLocalState::_get_results(RuntimeState* state, Block* block, bo
             auto st = _output_bucket(state, block, b, merge_target, &rows_output);
             if (!st.ok()) {
                 bs.merge_in_progress.store(false, std::memory_order_release);
-                shared_state.state_generation.fetch_add(1, std::memory_order_release);
-                _wake_up_other_sources();
+                shared_state.notify_state_changed();
                 return st;
             }
 
@@ -694,8 +685,7 @@ Status BucketedAggLocalState::_get_results(RuntimeState* state, Block* block, bo
             // Bucket fully output in one batch. Release lock and wake others.
             bs.output_done.store(true, std::memory_order_release);
             bs.merge_in_progress.store(false, std::memory_order_release);
-            shared_state.state_generation.fetch_add(1, std::memory_order_release);
-            _wake_up_other_sources();
+            shared_state.notify_state_changed();
             did_work = true;
         } else {
             // Not all sinks done yet — release the lock. We'll come back later
@@ -704,8 +694,7 @@ Status BucketedAggLocalState::_get_results(RuntimeState* state, Block* block, bo
             if (merged_count > 0) {
                 // We actually merged new data — bump generation and wake others
                 // so they know state changed.
-                shared_state.state_generation.fetch_add(1, std::memory_order_release);
-                _wake_up_other_sources();
+                shared_state.notify_state_changed();
                 did_work = true;
             }
         }
@@ -737,10 +726,11 @@ Status BucketedAggLocalState::_get_results(RuntimeState* state, Block* block, bo
     // No work done in this call. Some buckets are still pending — either locked
     // by another source instance or waiting for more sinks to finish.
     // Block ourselves so we don't spin at 100% CPU. We will be woken up when:
-    //   - A sink finishes (bumps state_generation and calls set_ready_to_read), OR
-    //   - Another source releases a bucket lock (bumps state_generation and calls
-    //     _wake_up_other_sources).
+    //   - A sink finishes, OR
+    //   - Another source releases a bucket lock.
+    // Both publish the change through notify_state_changed().
     if (!did_work) {
+        DBUG_EXECUTE_IF("BucketedAggLocalState._get_results.before_block", DBUG_RUN_CALLBACK());
         _dependency->block();
         // Re-check for missed wakeups using the generation counter. If any state
         // change occurred since our scan started (gen_before), unblock immediately.
@@ -748,7 +738,11 @@ Status BucketedAggLocalState::_get_results(RuntimeState* state, Block* block, bo
         // TOCTOU gap where a bucket can be released and re-acquired between the
         // block() and the scan), the generation counter monotonically increases
         // and captures ALL state changes.
-        uint64_t gen_after = shared_state.state_generation.load(std::memory_order_acquire);
+        // A change published while this dependency was still ready did not wake
+        // anything up (set_ready() returned early), so this load must observe it.
+        // That needs sequentially consistent accesses on both sides, see
+        // BucketedAggSharedState::notify_state_changed().
+        uint64_t gen_after = shared_state.state_generation.load(std::memory_order_seq_cst);
         if (gen_after != gen_before) {
             _dependency->set_ready();
         }

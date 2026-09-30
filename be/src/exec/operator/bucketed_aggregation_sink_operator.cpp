@@ -508,10 +508,7 @@ Status BucketedAggSinkOperatorX::sink_impl(RuntimeState* state, Block* in_block,
         // Every sink completion triggers source wakeup so sources can merge
         // newly-available data immediately, rather than waiting for all sinks.
         ss->num_sinks_finished.fetch_add(1, std::memory_order_release);
-        ss->state_generation.fetch_add(1, std::memory_order_release);
-        for (int i = 0; i < static_cast<int>(ss->source_deps.size()); i++) {
-            local_state._dependency->set_ready_to_read(i);
-        }
+        ss->notify_state_changed();
     }
     return Status::OK();
 }
