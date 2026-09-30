@@ -695,6 +695,18 @@ constexpr const char* WORKER_DEBUG_POINTS_ENV = "DORIS_LANCE_WORKER_DEBUG_POINTS
 // Snapshots the supervisor's active worker-fault debug points into the
 // controlled environment. Names only, from a fixed allowlist; the value is
 // derived solely from this process's own registry, never operator-inherited.
+// The handoff deliberately carries names and nothing else: an operator-set
+// expire_ms, execute_limit, or params value does not cross — the exec'd worker
+// re-registers each token fresh (index_worker.cpp) with no expiry and no
+// params, so a point armed with `timeout=` that is still live at launch is
+// honored by that worker for its whole one-shot lifetime. The snapshot is
+// per-launch (armed-then-dispatched): a point removed operator-side after a
+// launch keeps firing inside that already-launched invocation, which is the
+// intended semantics — the invocation's own wall-clock deadline bounds even
+// the hang case, and future launches see the post-removal registry. The
+// execute_limit accounting still composes: get_debug_point's fetch_add
+// consumes one count per snapshot, so an N-limit point is handed to exactly N
+// worker launches.
 void snapshot_worker_debug_points(std::vector<std::string>* storage) {
     std::string handoff;
     for (const char* point_name : {"LanceIndexWorker.hang", "LanceIndexWorker.skip_report"}) {

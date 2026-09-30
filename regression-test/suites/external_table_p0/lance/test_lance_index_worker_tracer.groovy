@@ -39,6 +39,14 @@
 // fails loudly. COMMITTED is itself the delegation proof: a worker genuinely ran
 // inside its cgroup and committed the index.
 //
+// Probe-outcome gate decision (the deliberate asymmetry with the faults suite,
+// documented so it is a conscious choice rather than an accident): this suite
+// fails loudly on a probe UNKNOWN because the positive tracer proof is
+// meaningless without a committed build - a green report would carry no evidence
+// at all. The faults suite deliberately degrades to envelope-only evidence (its
+// case 4) on the same outcome instead, because a false worker-fault green is
+// worse than no evidence there; see its header for the matching note.
+//
 // PossibleLive gating note (the design-tolerated path documented in the
 // worker-negative suite): a COMMITTED job's CHILD_REAPED proof is BE-side evidence
 // that needs a kernel with pidfd/waitid(P_PIDFD); where the supervisor cannot form
