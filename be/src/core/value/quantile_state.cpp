@@ -22,7 +22,6 @@
 #include <mutex>
 #include <ostream>
 #include <shared_mutex>
-#include <unordered_set>
 #include <utility>
 
 #include "common/logging.h"
@@ -71,23 +70,10 @@ QuantileState QuantileState::copy_for_result() const {
     {
         // Reuse processed centroids on the next row instead of sorting the prefix again.
         auto lock = _tdigest_ptr->lock_processed_digest();
+        // Vector copies retain the elements, not the accumulator's spare write capacity.
         result._tdigest_ptr = std::make_shared<TDigestHolder>(*_tdigest_ptr);
     }
     return result;
-}
-
-size_t QuantileState::allocated_bytes(const std::vector<QuantileState>& states) {
-    size_t bytes = states.capacity() * sizeof(QuantileState);
-    std::unordered_set<const TDigestHolder*> counted;
-    for (const auto& state : states) {
-        bytes += state._explicit_data.capacity() * sizeof(double);
-        const auto* holder = state._tdigest_ptr.get();
-        if (holder && counted.insert(holder).second) {
-            std::shared_lock lock(state._tdigest_ptr->mutex);
-            bytes += sizeof(TDigestHolder) + holder->digest.allocated_bytes();
-        }
-    }
-    return bytes;
 }
 
 TDigest& QuantileState::_mutable_tdigest() {

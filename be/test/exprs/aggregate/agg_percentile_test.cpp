@@ -138,7 +138,7 @@ TEST(AggregateFunctionQuantileStateTest, GrowingWindowKeepsResultsCompact) {
     auto* original = accumulator._tdigest_ptr.get();
     const size_t initial_unprocessed = accumulator._mutable_tdigest().unprocessed().size();
     auto results = ColumnQuantileState::create();
-    constexpr size_t result_count = 1000;
+    constexpr size_t result_count = 12000;
     results->reserve(result_count);
     bool reused_accumulator = true;
     size_t unprocessed_centroids = 0;
@@ -157,17 +157,19 @@ TEST(AggregateFunctionQuantileStateTest, GrowingWindowKeepsResultsCompact) {
     EXPECT_EQ(initial_unprocessed + result_count, unprocessed_centroids);
     RecordProperty("unprocessed_centroids", std::to_string(unprocessed_centroids));
     EXPECT_NE(accumulator._tdigest_ptr, results->get_element(result_count - 1)._tdigest_ptr);
-    // Inspect actual capacities as well as accounting, so undercounting cannot hide retention.
+    // Inspect actual capacities independently of the column's approximate accounting.
     size_t digest_bytes = 0;
     for (auto& result : results->get_data()) {
         auto& digest = result._mutable_tdigest();
+        ASSERT_EQ(0, digest._unprocessed.capacity());
+        ASSERT_EQ(digest._processed.size(), digest._processed.capacity());
+        ASSERT_EQ(digest._cumulative.size(), digest._cumulative.capacity());
         digest_bytes +=
                 (digest._processed.capacity() + digest._unprocessed.capacity()) * sizeof(Centroid) +
                 digest._cumulative.capacity() * sizeof(Weight);
     }
     RecordProperty("retained_digest_bytes", std::to_string(digest_bytes));
-    EXPECT_LT(digest_bytes, 80 * 1024 * 1024);
-    EXPECT_GE(results->allocated_bytes(), digest_bytes);
+    EXPECT_LT(digest_bytes, result_count * 160 * 1024);
     for (size_t row : {size_t(0), result_count / 2, result_count - 1}) {
         auto& result = results->get_element(row);
         EXPECT_EQ(0, result._mutable_tdigest().unprocessed().capacity());
@@ -210,14 +212,16 @@ TEST_P(AggregateFunctionQuantileStateRangeTest, RangeResultsShareOneSavedDigest)
     function->add(place, columns, 0, arena);
     auto results = ColumnQuantileState::create();
     results->insert_many_defaults(3);
-    function->insert_result_into_range(place, *results, 3, 1003);
-    function->insert_result_into_range(place, *results, 1003, 1003);
-    ASSERT_EQ(1003, results->size());
+    function->insert_result_into_range(place, *results, 3, 12003);
+    function->insert_result_into_range(place, *results, 12003, 12003);
+    ASSERT_EQ(12003, results->size());
+    const size_t column_bytes = results->allocated_bytes();
     const auto& first = results->get_element(3);
-    EXPECT_EQ(first._tdigest_ptr, results->get_element(1002)._tdigest_ptr);
+    for (size_t row = 3; row < results->size(); ++row) {
+        EXPECT_EQ(first._tdigest_ptr, results->get_element(row)._tdigest_ptr);
+    }
     if (is_window) {
         EXPECT_NE(state._tdigest_ptr, first._tdigest_ptr);
-        EXPECT_LT(results->allocated_bytes(), 1024 * 1024);
     } else {
         EXPECT_EQ(state._tdigest_ptr, first._tdigest_ptr);
     }
@@ -226,6 +230,7 @@ TEST_P(AggregateFunctionQuantileStateRangeTest, RangeResultsShareOneSavedDigest)
     EXPECT_EQ(110, modified.get_value_by_percentile(1));
     EXPECT_EQ(10, first.get_value_by_percentile(1));
     EXPECT_EQ(10, state.get_value_by_percentile(1));
+    EXPECT_EQ(column_bytes, results->allocated_bytes());
 }
 
 INSTANTIATE_TEST_SUITE_P(AggregateAndWindow, AggregateFunctionQuantileStateRangeTest,

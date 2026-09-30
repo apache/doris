@@ -172,11 +172,6 @@ public:
 
     TDigest(const TDigest&) = default;
 
-    size_t allocated_bytes() const {
-        return (_processed.capacity() + _unprocessed.capacity()) * sizeof(Centroid) +
-               _cumulative.capacity() * sizeof(Weight);
-    }
-
     TDigest& operator=(TDigest&& o) {
         _compression = o._compression;
         _max_processed = o._max_processed;

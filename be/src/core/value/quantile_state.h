@@ -54,8 +54,6 @@ public:
 
     // A compact, independent value for retained window results.
     QuantileState copy_for_result() const;
-    // Includes vector capacity and counts shared holders once within the column.
-    static size_t allocated_bytes(const std::vector<QuantileState>& states);
 
     void set_compression(float compression);
     bool deserialize(const Slice& slice);

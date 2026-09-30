@@ -162,10 +162,10 @@ suite("test_quantile_state_function") {
                 FROM numbers("number" = "4096")
                 UNION ALL
                 SELECT number + 1 AS id, to_quantile_state(20 + number, 10000) AS q
-                FROM numbers("number" = "1000")
+                FROM numbers("number" = "12000")
             ) input
         ) window_results
-        WHERE id IN (0, 1, 500, 1000)
+        WHERE id IN (0, 1, 6000, 12000)
         ORDER BY id
     """
 
