@@ -718,6 +718,33 @@ WorkerRunResult finish_async_worker(AsyncWorkerRun& run) {
     return result;
 }
 
+// Scope-exit backstop pairing with start_async_worker: a failed ASSERT between
+// start and finish_async_worker returns from the test body with both threads
+// still joinable, and destroying a joinable std::thread calls std::terminate —
+// one placement regression would abort the whole shard instead of failing a
+// single test. Teardown first releases the hang point (a worker blocked in
+// DBUG_BLOCK would otherwise keep the join from ever returning; the removal is
+// idempotent and mirrors the release-then-finish order the tests use on their
+// success paths), then joins whatever start_async_worker left joinable. After
+// a normal finish_async_worker both threads are already joined and only the
+// point removal runs. Declared after each test's own Defer so it destructs
+// first, before that Defer touches the point or the debug-point gate.
+struct AsyncWorkerJoinGuard {
+    explicit AsyncWorkerJoinGuard(AsyncWorkerRun& run) : _run(run) {}
+    ~AsyncWorkerJoinGuard() {
+        DebugPoints::instance()->remove("LanceIndexWorker.hang");
+        if (_run.worker_thread.joinable()) {
+            _run.worker_thread.join();
+        }
+        if (_run.writer_thread.joinable()) {
+            _run.writer_thread.join();
+        }
+    }
+
+private:
+    AsyncWorkerRun& _run;
+};
+
 // Reads exactly one length-prefixed frame within the timeout (nullopt on
 // timeout or EOF). Used to observe the handshake arriving while the worker is
 // blocked on the hang point.
@@ -799,6 +826,9 @@ TEST_F(LanceIndexWorkerParamsTest, DebugPointHangBlocksBeforeFfiUntilRemoved) {
     TLanceIndexJobDispatch dispatch = make_dispatch();
     dispatch.dataset_uri = "memory://probe/hang-" + std::to_string(::getpid());
     AsyncWorkerRun run = start_async_worker(dispatch);
+    // Declared before the first ASSERT below: any early return still joins the
+    // two threads instead of std::terminate-ing the shard.
+    AsyncWorkerJoinGuard join_guard(run);
 
     // The block sits after the handshake: the first frame arrives, then
     // silence — the FFI has not run yet, so no result frame can exist.
@@ -867,6 +897,9 @@ TEST_F(LanceIndexWorkerParamsTest, DebugPointHangReachesWorkerThroughControlledE
     TLanceIndexJobDispatch dispatch = make_dispatch();
     dispatch.dataset_uri = "memory://probe/hang-env-" + std::to_string(::getpid());
     AsyncWorkerRun run = start_async_worker(dispatch);
+    // Declared before the first ASSERT below: any early return still joins the
+    // two threads instead of std::terminate-ing the shard.
+    AsyncWorkerJoinGuard join_guard(run);
 
     const std::optional<std::vector<uint8_t>> handshake =
             read_frame_within(run.result_read_fd, 10000);

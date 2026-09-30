@@ -684,17 +684,11 @@ bool validated_dir(const std::string& dir) {
     return ::stat(dir.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
 }
 
-// Controlled-environment variable carrying the worker fault-injection debug
-// points into the exec'd worker (comma-separated names; re-registered by
-// run_index_worker in index_worker.cpp — keep the two spellings in sync). The
-// exec'd image starts with a default-off debug-point gate and an empty
-// registry, so without this handoff the worker-side points could never fire
-// outside unit tests.
-constexpr const char* WORKER_DEBUG_POINTS_ENV = "DORIS_LANCE_WORKER_DEBUG_POINTS";
-
 // Snapshots the supervisor's active worker-fault debug points into the
-// controlled environment. Names only, from a fixed allowlist; the value is
-// derived solely from this process's own registry, never operator-inherited.
+// controlled environment (the shared WORKER_DEBUG_POINTS_ENV spelling lives
+// in index_worker.h, next to the worker-side re-registration it feeds).
+// Names only, from a fixed allowlist; the value is derived solely from this
+// process's own registry, never operator-inherited.
 // The handoff deliberately carries names and nothing else: an operator-set
 // expire_ms, execute_limit, or params value does not cross — the exec'd worker
 // re-registers each token fresh (index_worker.cpp) with no expiry and no
