@@ -20,6 +20,7 @@
 
 package org.apache.doris.service.arrowflight;
 
+import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
@@ -78,6 +79,7 @@ import org.apache.arrow.memory.ArrowBuf;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.util.AutoCloseables;
+import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.arrow.vector.ipc.WriteChannel;
 import org.apache.arrow.vector.ipc.message.MessageSerializer;
@@ -95,6 +97,7 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -639,7 +642,32 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
 
     @Override
     public void getStreamTableTypes(final CallContext context, final ServerStreamListener listener) {
-        throw CallStatus.UNIMPLEMENTED.withDescription("getStreamTableTypes unimplemented").toRuntimeException();
+        try {
+            flightSessionsManager.getConnectContext(context.peerIdentity());
+            // Match GetTables' public type names without scanning catalogs: supported types
+            // must remain available even when this session cannot see any user tables.
+            TreeSet<String> tableTypes = new TreeSet<>();
+            for (TableType type : TableType.values()) {
+                String mysqlType = type.toMysqlType();
+                if (mysqlType != null) {
+                    tableTypes.add(mysqlType);
+                }
+            }
+            try (VectorSchemaRoot root = VectorSchemaRoot.create(Schemas.GET_TABLE_TYPES_SCHEMA, rootAllocator)) {
+                root.allocateNew();
+                VarCharVector vector = (VarCharVector) root.getVector("table_type");
+                int row = 0;
+                for (String type : tableTypes) {
+                    vector.setSafe(row++, type.getBytes(StandardCharsets.UTF_8));
+                }
+                root.setRowCount(row);
+                listener.start(root);
+                listener.putNext();
+                listener.completed();
+            }
+        } catch (Throwable e) {
+            handleStreamException(e, "get table types failed", listener);
+        }
     }
 
     @Override
