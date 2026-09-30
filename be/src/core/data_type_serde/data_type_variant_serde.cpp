@@ -207,9 +207,18 @@ Status append_legacy_arrow_document(const ColumnVariant& column, size_t index,
                 subcolumn->data.is_empty_nested(index)) {
                 continue;
             }
-            fields.push_back({subcolumn->path.get_path(),
-                              subcolumn->data.get_finalized_column_ptr(),
-                              subcolumn->data.get_least_common_type(), index});
+            if (subcolumn->data.is_finalized()) {
+                fields.push_back({subcolumn->path.get_path(),
+                                  subcolumn->data.get_finalized_column_ptr(),
+                                  subcolumn->data.get_least_common_type(), index});
+            } else {
+                // Scans may leave lazy defaults or multiple parts. Materialize only this row,
+                // without mutating shared input or repeatedly copying an entire batch.
+                auto value = subcolumn->data.cut(index, 1);
+                value.finalize();
+                fields.push_back({subcolumn->path.get_path(), value.get_finalized_column_ptr(),
+                                  value.get_least_common_type(), 0});
+            }
         }
         append_serialized(assert_cast<const ColumnMap&>(*column.get_sparse_column()));
     }
