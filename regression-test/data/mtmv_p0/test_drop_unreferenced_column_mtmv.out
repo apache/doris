@@ -87,3 +87,6 @@ test_drop_unreferenced_column_mtmv_ignored_mv	NORMAL	SUCCESS	true
 -- !ignored_projection_rows --
 1
 
+-- !named_not_read_state --
+test_drop_unreferenced_column_mtmv_named_mv	NORMAL	SUCCESS	true
+

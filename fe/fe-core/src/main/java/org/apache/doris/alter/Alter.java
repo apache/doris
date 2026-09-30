@@ -384,8 +384,7 @@ public class Alter {
             // decided on that answer would be about the table from before the change. What is asked is
             // whether the change has reached the table, which is the same fact the re-analysis reads, so
             // the two answers cannot disagree.
-            boolean judgedByQuery = alterOps.stream().allMatch(op -> !op.queryJudgedColumnNames().isEmpty()
-                    && op.hasReachedTheTable(olapTable));
+            boolean judgedByQuery = haveReachedTheTable(alterOps, olapTable);
             // The names of those columns go to the hook rather than a verdict: what the judgement is about
             // is the column, and the hook holds the query's answer against it -- both while asking, in case
             // the query can reach the name some other way now, and once it has answered, in case the table
@@ -394,7 +393,7 @@ public class Alter {
                     ? new MTMVHookService.QueryJudgedChange(
                             alterOps.stream().map(AlterOp::queryJudgedColumnNames).flatMap(Set::stream)
                                     .collect(Collectors.toSet()),
-                            () -> alterOps.stream().allMatch(op -> op.hasReachedTheTable(olapTable)))
+                            () -> haveReachedTheTable(alterOps, olapTable))
                     : null;
             Env.getCurrentEnv().getMtmvService().alterTable(oldBaseTableInfo, newBaseTableInfo,
                     currentAlterOps.hasReplaceTableOp(), queryJudgedChange);
@@ -425,6 +424,22 @@ public class Alter {
         ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(table.getCatalog().getName(),
                 table.getDatabase().getFullName(), table.getName(), properties);
         Env.getCurrentEnv().getEditLog().logModifyTableProperties(info);
+    }
+
+    /**
+     * Whether every clause of the alter names the columns it is judged on, and every one of them has reached
+     * the table. The columns are read under the table's read lock: a light change of another statement
+     * rebuilds the schema map, and a reader without the lock can take the map mid rebuild, when the column
+     * this clause added is not in it yet.
+     */
+    private boolean haveReachedTheTable(List<AlterOp> alterOps, OlapTable olapTable) {
+        olapTable.readLock();
+        try {
+            return alterOps.stream().allMatch(op -> !op.queryJudgedColumnNames().isEmpty()
+                    && op.hasReachedTheTable(olapTable));
+        } finally {
+            olapTable.readUnlock();
+        }
     }
 
     private void processAlterTableForExternalTable(

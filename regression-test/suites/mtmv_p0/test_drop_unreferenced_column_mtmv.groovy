@@ -426,4 +426,35 @@ suite("test_drop_unreferenced_column_mtmv") {
     sql """ALTER TABLE ${ignoredInner} ADD COLUMN spare INT DEFAULT 0"""
     order_qt_ignored_projection_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${ignoredMv}'"
     order_qt_ignored_projection_rows "SELECT id FROM ${ignoredMv}"
+
+    // ---- a name a subquery names and never reads ----
+    // The subquery below names a `flag` of its own and no reference in it resolves to that name: the compared
+    // `flag` is the outer table's, written with its qualifier, and giving the inner table a column of that
+    // name changes the subquery's own projection and nothing the query reads. Naming a value is not reading
+    // it, so this MV is left where it is.
+    String namedOuter = "${suiteName}_named_outer"
+    String namedInner = "${suiteName}_named_inner"
+    String namedMv = "${suiteName}_named_mv"
+    sql """drop materialized view if exists ${namedMv}"""
+    sql """drop table if exists ${namedOuter}"""
+    sql """drop table if exists ${namedInner}"""
+    sql """
+        CREATE TABLE ${namedOuter} (id INT, flag INT) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+    """
+    sql """
+        CREATE TABLE ${namedInner} (id INT) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+    """
+    sql """INSERT INTO ${namedOuter} VALUES (1, 1)"""
+    sql """INSERT INTO ${namedInner} VALUES (1)"""
+    sql """
+        CREATE MATERIALIZED VIEW ${namedMv}
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+        AS SELECT o.id FROM ${namedOuter} o WHERE o.flag IN (SELECT 1 AS flag FROM ${namedInner} i)
+    """
+    waitingMTMVTaskFinishedByMvName(namedMv)
+    sql """ALTER TABLE ${namedInner} ADD COLUMN flag INT DEFAULT 0"""
+    order_qt_named_not_read_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${namedMv}'"
 }

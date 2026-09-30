@@ -31,7 +31,6 @@ import org.apache.doris.nereids.lineage.LineageInfo;
 import org.apache.doris.nereids.lineage.LineageInfoExtractor;
 import org.apache.doris.nereids.rules.exploration.mv.PartitionCompensator;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -461,7 +460,7 @@ public class MTMVRelationManager implements MTMVHookService {
             boolean outputDecidesRows = !((LogicalApply<?, ?>) apply).isExist();
             for (Plan node : apply.right().<Plan>collectToList(Plan.class::isInstance)) {
                 for (Expression expression : node.getExpressions()) {
-                    if (isNamedByTheSubquery(expression, names)
+                    if (readsAnyNameTheSubqueryAnswersFor(expression, names)
                             || (outputDecidesRows && reachesAnyColumn(expression, names, baseTableInfo))) {
                         return true;
                     }
@@ -471,12 +470,27 @@ public class MTMVRelationManager implements MTMVHookService {
         return false;
     }
 
-    /** Whether this expression is a value the subquery itself names, rather than a column of a table. */
-    private static boolean isNamedByTheSubquery(Expression expression, Set<String> names) {
-        if (!(expression instanceof NamedExpression) || expression instanceof SlotReference) {
-            return false;
+    /**
+     * Whether this expression reads a value the subquery answers for itself, under one of these names: a
+     * slot of the subquery's own -- an alias or a value it computed -- rather than a column of a table.
+     *
+     * <p>Read rather than merely named, because an expression of the subquery carrying one of these names
+     * says nothing on its own: a subquery that names a `flag` of its own while no reference in it resolves
+     * to that name is one whose rows the change cannot reach, and one that reads the name it names is where
+     * a reference that answered for the changed column falls back to.
+     */
+    private static boolean readsAnyNameTheSubqueryAnswersFor(Expression expression, Set<String> names) {
+        for (Slot slot : expression.getInputSlots()) {
+            if (names.contains(slot.getName()) && !isColumnOfATable(slot)) {
+                return true;
+            }
         }
-        return names.contains(((NamedExpression) expression).getName());
+        return false;
+    }
+
+    /** Whether this slot is a column of some table, or a value produced inside the query. */
+    private static boolean isColumnOfATable(Slot slot) {
+        return slot instanceof SlotReference && ((SlotReference) slot).getOriginalTable().isPresent();
     }
 
     /** Whether this expression reads a column of one of these names from this table. */
