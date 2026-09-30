@@ -58,6 +58,9 @@ public:
     Status init(const size_t runtime_size);
     Status insert(const ColumnPtr& column, size_t start);
     Status merge(const RuntimeFilterWrapper* wrapper);
+    // Deep copy of the filter. The result shares no mutable data with this wrapper, so one of
+    // them can keep being merged while the other one is already used by consumers.
+    Status clone(std::shared_ptr<RuntimeFilterWrapper>* res) const;
     template <class T>
     Status assign(const T& request, butil::IOBufAsZeroCopyInputStream* data);
 

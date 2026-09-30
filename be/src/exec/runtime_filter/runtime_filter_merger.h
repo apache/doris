@@ -73,6 +73,19 @@ public:
             _wrapper = other->_wrapper;
             return Status::OK();
         }
+        if (_wrapper == other->_wrapper) {
+            // All producers of a broadcast join which shares one hash table publish the same
+            // wrapper, so there is nothing to merge.
+            return Status::OK();
+        }
+        if (_wrapper->get_state() != RuntimeFilterWrapper::State::DISABLED &&
+            other->_wrapper->get_state() == RuntimeFilterWrapper::State::DISABLED) {
+            // The wrapper taken over may still be shared by the other producers of a broadcast
+            // join, which clone it for their local consumers without the lock of merger. So do
+            // not disable it in place, take over the disabled one instead, which is final.
+            _wrapper = other->_wrapper;
+            return Status::OK();
+        }
         auto st = _wrapper->merge(other->_wrapper.get());
         return st;
     }

@@ -212,6 +212,28 @@ Status RuntimeFilterWrapper::merge(const RuntimeFilterWrapper* other) {
     return Status::OK();
 }
 
+Status RuntimeFilterWrapper::clone(std::shared_ptr<RuntimeFilterWrapper>* res) const {
+    auto cloned = std::make_shared<RuntimeFilterWrapper>(_column_return_type, _filter_type,
+                                                         _filter_id, _state.load(), _max_in_num);
+    cloned->_disable_always_true_logic = _disable_always_true_logic;
+    cloned->_reason.update(_reason.status());
+    if (_hybrid_set) {
+        cloned->_hybrid_set.reset(create_set(_column_return_type, _hybrid_set->null_aware()));
+        cloned->_hybrid_set->insert(_hybrid_set.get());
+    }
+    if (_minmax_func) {
+        cloned->_minmax_func.reset(_minmax_func->clone());
+    }
+    if (_bloom_filter_func) {
+        // An IN_OR_BLOOM filter which is still an IN filter never reads its bloom filter, and the
+        // copy is not merged any more, so do not copy the unused bloom filter.
+        RETURN_IF_ERROR(_bloom_filter_func->clone(
+                &cloned->_bloom_filter_func, get_real_type() == RuntimeFilterType::BLOOM_FILTER));
+    }
+    *res = std::move(cloned);
+    return Status::OK();
+}
+
 Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_null) {
     if (contain_null) {
         _hybrid_set->insert((const void*)nullptr);
