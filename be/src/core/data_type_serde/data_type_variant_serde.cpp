@@ -19,6 +19,7 @@
 
 #include <arrow/array/builder_binary.h>
 
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <string>
@@ -29,11 +30,16 @@
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
+#include "core/column/column_array.h"
+#include "core/column/column_map.h"
+#include "core/column/column_struct.h"
 #include "core/column/column_variant.h"
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/column/variant_v2/column_variant_v2_typed_column.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
-#include "core/data_type/data_type_variant_v2.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "core/field.h"
@@ -41,13 +47,123 @@
 #include "core/types.h"
 #include "core/value/jsonb_value.h"
 #include "exec/common/variant_util.h"
-#include "exprs/function/cast/variant_v2/cast_variant_v2.h"
+#include "exprs/function/parse/variant_jsonb_parse.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "util/json/json_parser.h"
 #include "util/jsonb_writer.h"
 
 namespace doris {
 namespace {
+
+// Legacy CAST accepts more root families than V2 CAST. Encode their structure here so
+// Flight output does not reject valid roots or lose typed leaves through JSON reparsing.
+Status append_legacy_arrow_value(const IColumn& column, const DataTypePtr& type, size_t index,
+                                 VariantBatchBuilder::Row& output,
+                                 const DataTypeSerDe::FormatOptions& options, size_t depth = 0) {
+    if (depth > VARIANT_MAX_NESTING_DEPTH) {
+        return Status::NotSupported(
+                "Native Arrow Variant nesting exceeds {}; "
+                "use enable_arrow_flight_sql_native_variant=false for UTF8 output",
+                VARIANT_MAX_NESTING_DEPTH);
+    }
+    if (const auto* constant = check_and_get_column<ColumnConst>(column)) {
+        return append_legacy_arrow_value(constant->get_data_column(), type, 0, output, options,
+                                         depth);
+    }
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(column)) {
+        if (nullable->is_null_at(index)) {
+            output.add_null();
+            return Status::OK();
+        }
+        return append_legacy_arrow_value(nullable->get_nested_column(), remove_nullable(type),
+                                         index, output, options, depth);
+    }
+    const auto primitive = type->get_primitive_type();
+    if (is_supported_variant_typed_identity(primitive)) {
+        dispatch_variant_typed_column(
+                column, primitive, [&]<PrimitiveType Type>(const auto& scalar) {
+                    with_variant_typed_scalar<Type>(
+                            scalar, index, cast_set<uint8_t>(type->get_scale()),
+                            [&](const VariantScalarRef& value) { output.add_scalar(value); });
+                });
+    } else if (primitive == TYPE_TIMEV2) {
+        // TIMEV2 already stores microseconds; treating its physical double as a number loses its type.
+        const double micros = assert_cast<const ColumnTimeV2&>(column).get_data()[index];
+        if (!std::isfinite(micros) ||
+            std::abs(micros) >= static_cast<double>(std::numeric_limits<int64_t>::max())) {
+            return Status::InvalidArgument("Invalid native Arrow Variant TIMEV2 value");
+        }
+        output.add_time_ntz_micros(std::llround(micros));
+    } else if (primitive == TYPE_JSONB) {
+        jsonb_to_variant(column.get_data_at(index), output);
+    } else if (primitive == TYPE_ARRAY) {
+        const auto& array = assert_cast<const ColumnArray&>(column);
+        const auto& array_type = assert_cast<const DataTypeArray&>(*type);
+        auto scope = output.start_array();
+        for (size_t element = array.offset_at(index); element < array.get_offsets()[index];
+             ++element) {
+            RETURN_IF_ERROR(append_legacy_arrow_value(array.get_data(),
+                                                      array_type.get_nested_type(), element, output,
+                                                      options, depth + 1));
+        }
+        scope.finish();
+    } else if (primitive == TYPE_MAP) {
+        const auto& map = assert_cast<const ColumnMap&>(column);
+        const auto& map_type = assert_cast<const DataTypeMap&>(*type);
+        auto scope = output.start_object();
+        for (size_t element = map.get_offsets()[static_cast<ssize_t>(index) - 1];
+             element < map.get_offsets()[index]; ++element) {
+            // Variant objects have textual keys, matching the legacy document representation.
+            auto key =
+                    map.get_keys().is_null_at(element)
+                            ? std::string("null")
+                            : map_type.get_key_type()->to_string(map.get_keys(), element, options);
+            scope.add_key({key.data(), key.size()});
+            RETURN_IF_ERROR(append_legacy_arrow_value(map.get_values(), map_type.get_value_type(),
+                                                      element, output, options, depth + 1));
+        }
+        scope.finish();
+    } else if (primitive == TYPE_STRUCT) {
+        const auto& structure = assert_cast<const ColumnStruct&>(column);
+        const auto& struct_type = assert_cast<const DataTypeStruct&>(*type);
+        auto scope = output.start_object();
+        for (size_t field = 0; field < struct_type.get_elements().size(); ++field) {
+            const auto& name = struct_type.get_element_names()[field];
+            scope.add_key({name.data(), name.size()});
+            RETURN_IF_ERROR(append_legacy_arrow_value(structure.get_column(field),
+                                                      struct_type.get_element(field), index, output,
+                                                      options, depth + 1));
+        }
+        scope.finish();
+    } else if (primitive == TYPE_VARIANT) {
+        if (const auto* legacy = check_and_get_column<ColumnVariant>(column)) {
+            const bool visible = legacy->is_scalar_variant()
+                                         ? !legacy->get_root()->is_null_at(index)
+                                         : legacy->is_visible_root_value(index);
+            if (visible) {
+                return append_legacy_arrow_value(*legacy->get_root(), legacy->get_root_type(),
+                                                 index, output, options, depth);
+            }
+            std::string json;
+            legacy->serialize_one_row_to_string(index, &json, options);
+            JsonToVariantOptions parse_options;
+            parse_options.throw_on_invalid_json = true;
+            parse_options.max_json_key_length = std::numeric_limits<uint32_t>::max();
+            JsonStringToVariantEncoder encoder(parse_options);
+            RETURN_IF_ERROR(encoder.try_add_json({json.data(), json.size()}));
+            auto encoded = encoder.finish_batch();
+            output.add_value(encoded.value_at(0));
+        } else {
+            visit_variant_v2_values(
+                    column, index, index + 1, {}, [&](size_t) { output.add_null(); },
+                    [&](size_t, VariantRef value) { output.add_value(value); });
+        }
+    } else {
+        return Status::NotSupported("Native Arrow Variant does not support {} roots",
+                                    type->get_name());
+    }
+    return Status::OK();
+}
 
 template <typename BuilderType>
 Status write_variant_column_to_arrow_impl(const IColumn& column, const ColumnVariant& var,
@@ -172,7 +288,8 @@ Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const 
             (null_map != nullptr && end > null_map->size())) {
             return Status::InvalidArgument("Invalid Variant Arrow row range [{}, {})", start, end);
         }
-        if (var->is_scalar_variant()) {
+        // A legacy null root renders as {}, not Variant null, even in a scalar-only batch.
+        if (var->is_scalar_variant() && !var->get_root()->has_null(start, end)) {
             auto scalar_type = remove_nullable(var->get_root_type());
             if (scalar_type->get_primitive_type() == TYPE_DECIMAL256) {
                 return Status::NotSupported(
@@ -205,17 +322,23 @@ Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const 
         }
         ColumnPtr roots;
         if (has_roots) {
-            // JSON reparsing loses decimal/temporal identities and rejects non-finite numbers.
-            // Reuse typed CAST for every visible root, including arrays and mixed-path batches.
-            auto root_type = remove_nullable(var->get_root_type());
-            auto target_type = std::make_shared<DataTypeVariantV2>();
-            // Invisible roots, including nullable roots, are already masked above.
-            Block root_block {
-                    {remove_nullable(var->get_root())->cut(start, rows), root_type, "root"},
-                    {target_type->create_column(), target_type, "encoded"}};
-            auto encode_root = CastWrapper::create_cast_to_variant_v2_wrapper(root_type);
-            RETURN_IF_ERROR(encode_root(nullptr, root_block, {0}, 1, rows, root_mask.data()));
-            roots = root_block.get_by_position(1).column;
+            VariantBatchBuilder builder(VariantBatchBuilder::ReserveHint {.rows = rows});
+            FormatOptions options;
+            options.timezone = &ctz;
+            for (size_t index = 0; index < rows; ++index) {
+                auto row = builder.begin_row();
+                if (root_mask[index]) {
+                    row.add_null();
+                } else {
+                    RETURN_IF_ERROR(append_legacy_arrow_value(
+                            *var->get_root(), var->get_root_type(), start + index, row, options));
+                }
+                row.finish();
+            }
+            auto values = builder.finish_batch();
+            auto encoded = ColumnVariantV2::create();
+            encoded->insert_encoded_batch(values);
+            roots = std::move(encoded);
         }
         ColumnPtr documents;
         if (has_documents || !has_roots) {
