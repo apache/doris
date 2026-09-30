@@ -1725,27 +1725,33 @@ Status OrcReader::_select_stripe_ranges_by_statistics() {
     std::set<uint64_t> unsafe_date_stripes;
     try {
         if (!_state->decoded_date_column_ids.empty()) {
-            const auto statistics_count = _state->reader->getNumberOfStripeStatistics();
+            // getStripeStatistics also reads every ROW_INDEX stream. A metadata-only SARG
+            // proves which stripes cannot contain an invalid DATE without touching skipped data
+            // or exposing malformed, unprojected row-index streams to the SDK.
+            constexpr auto date_type = ::orc::PredicateDataType::DATE;
+            auto builder = ::orc::SearchArgumentFactory::newBuilder();
+            builder->startOr();
+            for (const auto column_id : _state->decoded_date_column_ids) {
+                builder->lessThan(column_id, date_type, ::orc::Literal(date_type, EPOCH_DAYS_MIN));
+                builder->startNot();
+                builder->lessThanEquals(column_id, date_type,
+                                        ::orc::Literal(date_type, EPOCH_DAYS_MAX));
+                builder->end();
+                builder->equals(column_id, date_type,
+                                ::orc::Literal(date_type, EPOCH_DAYS_0000_02_29));
+            }
+            builder->end();
+            // The SDK non-const copy constructor transfers ownership instead of copying.
+            ::orc::RowReaderOptions validation_options(std::as_const(_state->row_reader_options));
+            validation_options.searchArgument(builder->build());
+            const auto needs_validation = _state->reader->getNeedReadStripes(validation_options);
+            // The SDK caches a borrowed evaluator for its next row reader. Consume it while
+            // validation_options is alive, before installing the query's actual SARG.
+            _state->reader->createRowReader(validation_options).reset();
             for (const auto stripe_index : split_stripes) {
-                const auto statistics = stripe_index < statistics_count
-                                                ? _state->reader->getStripeStatistics(stripe_index)
-                                                : nullptr;
-                for (const auto column_id : _state->decoded_date_column_ids) {
-                    const auto* dates =
-                            statistics == nullptr || column_id >= statistics->getNumberOfColumns()
-                                    ? nullptr
-                                    : dynamic_cast<const ::orc::DateColumnStatistics*>(
-                                              statistics->getColumnStatistics(
-                                                      cast_set<uint32_t>(column_id)));
-                    if (dates == nullptr || (dates->getNumberOfValues() != 0 &&
-                                             (!dates->hasMinimum() || !dates->hasMaximum() ||
-                                              !epoch_days_range_is_representable(
-                                                      dates->getMinimum(), dates->getMaximum())))) {
-                        // A SARG on any column can hide a DATE conversion error. Keep only the
-                        // unsafe stripes unpruned so valid stripes retain normal pruning.
-                        unsafe_date_stripes.insert(stripe_index);
-                        break;
-                    }
+                if (stripe_index >= needs_validation.size() ||
+                    needs_validation[stripe_index] != 0) {
+                    unsafe_date_stripes.insert(stripe_index);
                 }
             }
         }
@@ -2403,6 +2409,10 @@ Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& reque
             // COUNT skips decoding even for complex arguments. Every DATE leaf must be safe,
             // including an unrepresentable day inside otherwise valid bounds, to preserve errors.
             for (const auto column_id : date_column_ids) {
+                // Schema IDs can outlive truncated stripe statistics; the SDK lookup is unchecked.
+                if (column_id >= stripe_statistics->getNumberOfColumns()) {
+                    return Status::NotSupported("Missing ORC DATE statistics for COUNT");
+                }
                 const auto* date_statistics = dynamic_cast<const ::orc::DateColumnStatistics*>(
                         stripe_statistics->getColumnStatistics(column_id));
                 if (date_statistics == nullptr ||
@@ -2412,6 +2422,9 @@ Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& reque
                                                          date_statistics->getMaximum())))) {
                     return Status::NotSupported("ORC DATE COUNT requires value validation");
                 }
+            }
+            if (count_type->getColumnId() >= stripe_statistics->getNumberOfColumns()) {
+                return Status::NotSupported("Missing ORC COUNT column statistics");
             }
             const auto* column_statistics = stripe_statistics->getColumnStatistics(
                     cast_set<uint32_t>(count_type->getColumnId()));
@@ -2471,6 +2484,9 @@ Status OrcReader::get_aggregate_result(const format::FileAggregateRequest& reque
             if (stripe_statistics == nullptr) {
                 return Status::NotSupported("Missing ORC stripe statistics for stripe {}",
                                             stripe_index);
+            }
+            if (leaf_type->getColumnId() >= stripe_statistics->getNumberOfColumns()) {
+                return Status::NotSupported("Missing ORC min/max column statistics");
             }
             const auto* column_statistics = stripe_statistics->getColumnStatistics(
                     cast_set<uint32_t>(leaf_type->getColumnId()));

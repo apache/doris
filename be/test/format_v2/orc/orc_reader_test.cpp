@@ -12042,5 +12042,79 @@ TEST_F(NewOrcReaderTest, ReadExternalMapDateRejectsOutOfRangeOrdinal) {
               std::string::npos);
 }
 
+TEST_F(NewOrcReaderTest, DatePreflightDoesNotReadPrunedStripeIndexes) {
+    std::array<size_t, 2> io_calls {};
+    std::array<size_t, 2> io_bytes {};
+    for (bool project_date : {false, true}) {
+        RuntimeProfile profile("date_preflight");
+        const auto path = find_repo_file("be/test/exec/test_data/orc_scanner/date_preflight.orc");
+        io::FileReaderStats stats;
+        auto io_ctx = std::make_shared<io::IOContext>();
+        io_ctx->file_reader_stats = &stats;
+        auto reader = create_reader_for_path(path.string(), &profile, io_ctx);
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        ASSERT_TRUE(reader->init(&state).ok());
+        auto request = std::make_shared<format::FileScanRequest>();
+        request->predicate_columns = {field_projection(0)};
+        if (project_date) {
+            request->non_predicate_columns = {field_projection(1)};
+        }
+        request->conjuncts = {
+                VExprContext::create_shared(std::make_shared<NullableInt32GreaterThanExpr>(0, 7))};
+        ASSERT_TRUE(reader->open(request).ok());
+        EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 1);
+        ASSERT_TRUE(reader->close().ok());
+        io_calls[project_date] = stats.read_calls;
+        io_bytes[project_date] = stats.read_bytes;
+    }
+    // Projecting DATE must only inspect the already loaded file-level stripe metadata.
+    EXPECT_GT(io_calls[0], 0);
+    EXPECT_EQ(io_calls[1], io_calls[0]);
+    EXPECT_EQ(io_bytes[1], io_bytes[0]);
+}
+
+TEST_F(NewOrcReaderTest, DatePreflightSkipsMalformedIndexInPrunedStripe) {
+    // Only the unused column's ROW_INDEX stream ID is changed from 3 to 100.
+    const auto path =
+            find_repo_file("be/test/exec/test_data/orc_scanner/date_preflight_bad_index.orc");
+    auto reader = create_reader_for_path(path.string());
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->non_predicate_columns = {field_projection(1)};
+    request->conjuncts = {
+            VExprContext::create_shared(std::make_shared<NullableInt32GreaterThanExpr>(0, 7))};
+    ASSERT_TRUE(reader->open(request).ok());
+    EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 1);
+}
+
+TEST_F(NewOrcReaderTest, DateCountRejectsTruncatedNestedStatistics) {
+    // The schema includes s.d (ID 3), but stripe statistics stop at its parent (ID 2).
+    const auto path =
+            find_repo_file("be/test/exec/test_data/orc_scanner/date_count_truncated_stats.orc");
+    auto reader = create_reader_for_path(path.string());
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(1)};
+    ASSERT_TRUE(reader->open(request).ok());
+    format::FileAggregateRequest aggregate_request;
+    aggregate_request.agg_type = TPushAggOp::type::COUNT;
+    aggregate_request.columns.push_back(
+            {.projection = format::LocalColumnIndex::top_level(format::LocalColumnId(1))});
+    format::FileAggregateResult result;
+    const auto status = reader->get_aggregate_result(aggregate_request, &result);
+    EXPECT_TRUE(status.is<ErrorCode::NOT_IMPLEMENTED_ERROR>()) << status;
+    // Falling back still reads both struct values from the intact data streams.
+    auto block = build_file_block({schema[1]});
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_EQ(rows, 2);
+}
+
 } // namespace
 } // namespace doris
