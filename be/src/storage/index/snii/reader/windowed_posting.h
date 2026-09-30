@@ -89,9 +89,6 @@ Status fetch_windowed_prelude(const LogicalIndexReader& idx, const format::DictE
 
 // The dd region codec of window `meta`, as decode_dd_region takes it.
 format::FrqRegionMeta dd_region_meta(const format::WindowMeta& meta);
-// Whether a candidate set is dense enough that every window of the term is read.
-bool scan_all_windows(const LogicalIndexReader& idx, uint32_t df, uint32_t window_count,
-                      size_t candidate_count);
 // The absolute file offset of a windowed entry's prelude, checked for overflow.
 Status prelude_abs_offset(const LogicalIndexReader& idx, const format::DictEntry& entry,
                           uint64_t frq_base, uint64_t* out);

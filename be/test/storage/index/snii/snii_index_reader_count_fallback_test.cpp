@@ -65,12 +65,9 @@
 #include "storage/index/snii/format/sampled_term_index.h"
 #include "storage/index/snii/io/local_file.h"
 #include "storage/index/snii/query/bm25_scorer.h"
-#include "storage/index/snii/query/phrase_query.h"
-#include "storage/index/snii/query/phrase_verify_timer.h"
-#include "storage/index/snii/query/query_profile.h"
-#include "storage/index/snii/query/term_query.h"
 #include "storage/index/snii/snii_doris_adapter.h"
 #include "storage/index/snii/snii_prx_profile.h"
+#include "storage/index/snii/snii_query_oracle.h"
 // Exercise the reader router without acquiring process-global query-cache ownership.
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wkeyword-macro"
@@ -1463,159 +1460,50 @@ TEST_F(SniiIndexReaderCountFallback, DistinctRawQueriesDoNotShareSingleFlight) {
     EXPECT_EQ(follower_counts.row_consumers.load(std::memory_order_relaxed), 0U);
 }
 
-TEST_F(SniiIndexReaderCountFallback, PrxProfileScopeOnlyExistsForMultiTermPhraseQueries) {
-    struct ControlQuery {
-        InvertedIndexQueryType type;
-        std::string search_str;
-        std::vector<std::string> terms;
-    };
-    const std::array<ControlQuery, 7> controls {{
-            {InvertedIndexQueryType::EQUAL_QUERY, "failed", {"failed"}},
-            {InvertedIndexQueryType::MATCH_ANY_QUERY, "failed order", {"failed", "order"}},
-            {InvertedIndexQueryType::MATCH_ALL_QUERY, "failed order", {"failed", "order"}},
-            {InvertedIndexQueryType::MATCH_PHRASE_QUERY, "failed", {"failed"}},
-            {InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, "fail", {"fail"}},
-            {InvertedIndexQueryType::MATCH_REGEXP_QUERY, "fail.*", {}},
-            {InvertedIndexQueryType::WILDCARD_QUERY, "fail*", {}},
-    }};
+// The rows a phrase matches on the positional segment, through the reader's public entry.
+std::vector<uint32_t> phrase_rows(SniiIndexReader& reader, const std::string& phrase) {
     QueryExecutionContext execution(/*enable_query_cache=*/false);
-    InvertedIndexQueryInfo query_info;
-    const auto set_plain_terms = [&query_info](const std::vector<std::string>& terms) {
-        query_info.term_infos.clear();
-        query_info.term_infos.reserve(terms.size());
-        int32_t position = 0;
-        for (const auto& term : terms) {
-            query_info.term_infos.emplace_back(term, position++);
-        }
-    };
-
-    doris::snii::testing::reset_prx_execution_profile_scope_counters();
-    doris::snii::query::testing::reset_query_profile_clock_read_count();
-    doris::snii::format::testing::reset_prx_clock_read_count();
-    doris::snii::query::internal::testing::reset_phrase_verify_clock_read_count();
-    for (const auto& control : controls) {
-        SCOPED_TRACE(query_type_to_string(control.type));
-        set_plain_terms(control.terms);
-        auto terms = control.terms;
-        std::shared_ptr<roaring::Roaring> bitmap;
-        assert_ok(_index_reader->_compute_query_bitmap(execution.context, control.type, query_info,
-                                                       control.search_str, &terms, 50, &bitmap));
-        ASSERT_NE(bitmap, nullptr);
-    }
-    EXPECT_EQ(doris::snii::testing::prx_execution_profile_scope_construction_count(), 0U);
-    EXPECT_EQ(doris::snii::testing::prx_execution_profile_scope_flush_count(), 0U);
-    EXPECT_EQ(doris::snii::query::testing::query_profile_clock_read_count(), 0U);
-    EXPECT_EQ(doris::snii::format::testing::prx_clock_read_count(), 0U);
-    EXPECT_EQ(doris::snii::query::internal::testing::phrase_verify_clock_read_count(), 0U);
-
-    const auto run_profiled_query = [&](InvertedIndexQueryType type, std::string_view search_str,
-                                        std::vector<std::string> terms) {
-        set_plain_terms(terms);
-        std::shared_ptr<roaring::Roaring> bitmap;
-        assert_ok(_index_reader->_compute_query_bitmap(execution.context, type, query_info,
-                                                       search_str, &terms, 50, &bitmap));
-        ASSERT_NE(bitmap, nullptr);
-    };
-    run_profiled_query(InvertedIndexQueryType::MATCH_PHRASE_QUERY, "failed order",
-                       {"failed", "order"});
-    query_info.slop = 1;
-    run_profiled_query(InvertedIndexQueryType::MATCH_PHRASE_QUERY, "failed warehouse",
-                       {"failed", "warehouse"});
-    query_info.slop = 0;
-    run_profiled_query(InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY, "failed ord",
-                       {"failed", "ord"});
-
-    EXPECT_EQ(doris::snii::testing::prx_execution_profile_scope_construction_count(), 3U);
-    EXPECT_EQ(doris::snii::testing::prx_execution_profile_scope_flush_count(), 3U);
-    EXPECT_GT(doris::snii::query::testing::query_profile_clock_read_count(), 0U);
-    EXPECT_GT(doris::snii::format::testing::prx_clock_read_count(), 0U);
-    EXPECT_GT(doris::snii::query::internal::testing::phrase_verify_clock_read_count(), 0U);
+    const Field query_value = Field::create_field<TYPE_STRING>(phrase);
+    std::shared_ptr<roaring::Roaring> bitmap;
+    assert_ok(reader.query(execution.context, "content", query_value,
+                           InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap));
+    DORIS_CHECK(bitmap != nullptr);
+    return bitmap_docids(*bitmap);
 }
 
 TEST_F(SniiIndexReaderCountFallback, SloppyPhraseMatchesTermsSeparatedByOnePosition) {
-    QueryExecutionContext execution(/*enable_query_cache=*/false);
-    InvertedIndexQueryInfo query_info;
-    query_info.term_infos.emplace_back("failed", 0);
-    query_info.term_infos.emplace_back("warehouse", 1);
-    query_info.slop = 1;
-
-    std::vector<std::string> terms {"failed", "warehouse"};
-    std::shared_ptr<roaring::Roaring> bitmap;
-    assert_ok(_index_reader->_compute_query_bitmap(
-            execution.context, InvertedIndexQueryType::MATCH_PHRASE_QUERY, query_info,
-            "failed warehouse", &terms, 50, &bitmap));
-
-    ASSERT_NE(bitmap, nullptr);
-    EXPECT_EQ(bitmap_docids(*bitmap), (std::vector<uint32_t> {2}));
+    EXPECT_EQ(phrase_rows(*_index_reader, "failed warehouse ~1"), (std::vector<uint32_t> {2}));
 }
 
 TEST_F(SniiIndexReaderCountFallback, OrderedSloppyPhraseRejectsOutOfOrderPositions) {
-    QueryExecutionContext execution(/*enable_query_cache=*/false);
-    InvertedIndexQueryInfo query_info;
-    query_info.term_infos.emplace_back("failed", 0);
-    query_info.term_infos.emplace_back("order", 1);
-    query_info.slop = 1;
-    query_info.ordered = true;
-
-    std::vector<std::string> terms {"failed", "order"};
-    std::shared_ptr<roaring::Roaring> bitmap;
-    assert_ok(_index_reader->_compute_query_bitmap(
-            execution.context, InvertedIndexQueryType::MATCH_PHRASE_QUERY, query_info,
-            "failed order", &terms, 50, &bitmap));
-
-    ASSERT_NE(bitmap, nullptr);
-    EXPECT_EQ(bitmap_docids(*bitmap), (std::vector<uint32_t> {0, 3, 5}));
+    EXPECT_EQ(phrase_rows(*_index_reader, "failed order ~1+"), (std::vector<uint32_t> {0, 3, 5}));
 }
 
 TEST_F(SniiIndexReaderCountFallback, UnorderedSloppyPhraseUsesWholePhraseWindow) {
-    QueryExecutionContext execution(/*enable_query_cache=*/false);
-    InvertedIndexQueryInfo query_info;
-    query_info.term_infos.emplace_back("failed", 0);
-    query_info.term_infos.emplace_back("warehouse", 1);
-    query_info.term_infos.emplace_back("ordered", 2);
-    std::vector<std::string> terms {"failed", "warehouse", "ordered"};
-
-    const auto run_query = [&](int32_t slop) {
-        query_info.slop = slop;
-        std::shared_ptr<roaring::Roaring> bitmap;
-        assert_ok(_index_reader->_compute_query_bitmap(
-                execution.context, InvertedIndexQueryType::MATCH_PHRASE_QUERY, query_info,
-                "failed warehouse ordered", &terms, 50, &bitmap));
-        DORIS_CHECK(bitmap != nullptr);
-        return bitmap_docids(*bitmap);
-    };
-
-    EXPECT_TRUE(run_query(1).empty());
-    EXPECT_EQ(run_query(2), (std::vector<uint32_t> {2}));
+    EXPECT_TRUE(phrase_rows(*_index_reader, "failed warehouse ordered ~1").empty());
+    EXPECT_EQ(phrase_rows(*_index_reader, "failed warehouse ordered ~2"),
+              (std::vector<uint32_t> {2}));
 }
 
+// A sloppy phrase scores the distance-weighted frequency: the one match a position apart
+// counts a half, on a segment without norms (a length of one).
 TEST_F(SniiIndexReaderCountFallback, SloppyPhraseScoringUsesDistanceWeightedFrequency) {
-    auto logical_reader = _file_reader->open_snii_index(&_meta);
-    ASSERT_TRUE(logical_reader.has_value()) << logical_reader.error();
-
     QueryExecutionContext execution(/*enable_query_cache=*/false);
-    InvertedIndexQueryInfo query_info;
-    query_info.term_infos.emplace_back("failed", 0);
-    query_info.term_infos.emplace_back("warehouse", 1);
-    query_info.slop = 1;
-    std::vector<std::string> terms {"failed", "warehouse"};
+    auto statistics = std::make_shared<FixedCollectionStatistics>();
+    statistics->idfs = {{L"failed", 1.0F}, {L"warehouse", 1.0F}};
+    execution.context->collection_statistics = statistics;
+    execution.context->collection_similarity = std::make_shared<CollectionSimilarity>();
+    const Field query_value = Field::create_field<TYPE_STRING>(std::string("failed warehouse ~1"));
     std::shared_ptr<roaring::Roaring> bitmap;
-    std::vector<doris::snii::query::PhraseMatch> matches;
-
-    assert_ok(_index_reader->_compute_query_bitmap(
-            execution.context,
-            {.query_type = InvertedIndexQueryType::MATCH_PHRASE_QUERY,
-             .query_info = query_info,
-             .search_str = "failed warehouse",
-             .max_expansions = 50,
-             .logical_reader = logical_reader.value().get()},
-            &terms, &bitmap, &matches));
+    assert_ok(_index_reader->query(execution.context, "content", query_value,
+                                   InvertedIndexQueryType::MATCH_PHRASE_QUERY, bitmap));
 
     ASSERT_NE(bitmap, nullptr);
     EXPECT_EQ(bitmap_docids(*bitmap), (std::vector<uint32_t> {2}));
-    ASSERT_EQ(matches.size(), 1);
-    EXPECT_EQ(matches[0].docid, 2);
-    EXPECT_FLOAT_EQ(matches[0].frequency, 0.5F);
+    BM25Similarity expected(2.0F, 3.0F);
+    expected.bind_norms(index_query::kByteNormLengths);
+    EXPECT_FLOAT_EQ(score_for_doc(*execution.context->collection_similarity, 2),
+                    expected.score(0.5F, 1));
 }
 
 TEST_F(SniiIndexReaderCountFallback, MultiTermPhraseUsesNormalPositionalQuery) {

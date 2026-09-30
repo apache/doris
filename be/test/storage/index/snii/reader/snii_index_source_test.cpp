@@ -398,21 +398,20 @@ TEST_F(SniiIndexSourceRoundsTest, TermsOpenedTogetherReadInSharedRounds) {
     ASSERT_EQ(cursors.size(), 4U);
     EXPECT_EQ(cursors[1], nullptr);
     const uint64_t opened = rounds();
-    // The first cursor needing its prelude reads every opened term's in one round; then every
-    // span registers on the wave and one round reads them all.
+    // Every term's prelude and span register on the wave, and one round reads them all.
     for (const auto& cursor : cursors) {
         if (cursor != nullptr) {
             assert_ok(cursor->prefetch(nullptr, /*positions=*/false));
         }
     }
-    EXPECT_EQ(rounds(), opened + 1);
+    EXPECT_EQ(rounds(), opened);
     assert_ok(_source->fetch_pending());
-    EXPECT_EQ(rounds(), opened + 2);
+    EXPECT_EQ(rounds(), opened + 1);
     EXPECT_EQ(list(*cursors[0]), oracle("sparse_left"));
     EXPECT_EQ(list(*cursors[2]), oracle("sparse_right"));
     EXPECT_EQ(list(*cursors[3]), oracle("failed"));
-    EXPECT_EQ(rounds(), opened + 2);
-    EXPECT_EQ(_source->wave_rounds(), 2U);
+    EXPECT_EQ(rounds(), opened + 1);
+    EXPECT_EQ(_source->wave_rounds(), 1U);
 }
 
 // Opening terms reads no prelude, so a caller that finds one of them missing and gives up reads

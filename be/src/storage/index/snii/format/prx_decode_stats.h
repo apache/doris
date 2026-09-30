@@ -70,20 +70,9 @@ struct PrxDecodedShape {
     bool has_zero_frequency = false;
 };
 
-// Query-plan and matcher calibration inputs are deliberately separate from PrxDecodeStats: the
-// latter's 11 production counters remain a stable decode contract.
-struct PhraseQueryExecutionStats {
-    uint64_t exact_candidate_docs = 0;
-    uint64_t exact_candidate_visits = 0;
-    uint64_t prx_streaming_frames = 0;
-    uint64_t prefix_leading_candidate_docs = 0;
-    uint64_t prefix_tail_candidate_visits = 0;
-};
-
 struct PrxDecodeContext {
     PrxDecodeStats* stats = nullptr;
     PrxDecodedShape* shape = nullptr;
-    PhraseQueryExecutionStats* query_stats = nullptr;
     PrxCsrAllocationGate* allocation_gate = nullptr;
 };
 

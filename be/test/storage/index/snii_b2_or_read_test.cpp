@@ -44,10 +44,9 @@
 #include "storage/index/query/docid_set_ops.h"
 #include "storage/index/query/docid_sink.h"
 #include "storage/index/snii/io/metered_file_reader.h"
-#include "storage/index/snii/query/boolean_query.h"
-#include "storage/index/snii/query/term_query.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/snii_query_oracle.h"
 #include "storage/index/snii_query_test_util.h"
 
 using namespace doris::snii;
@@ -71,7 +70,6 @@ public:
     }
 
     Status append_range(uint32_t first, uint64_t last_exclusive) override {
-        ++range_calls;
         for (uint64_t docid = first; docid < last_exclusive; ++docid) {
             ids.insert(static_cast<uint32_t>(docid));
         }
@@ -82,7 +80,6 @@ public:
 
     std::set<uint32_t> ids;
     size_t sorted_calls = 0;
-    size_t range_calls = 0;
 };
 
 class RejectingDocIdSink final : public ::doris::index_query::DocIdSink {
@@ -193,7 +190,7 @@ TEST(SniiB2OrRead, DedupCapabilityGate) {
     EXPECT_TRUE(dedup_sink.dedups()) << "Roaring-style sink dedups/orders natively";
 }
 
-TEST(SniiB2OrRead, MultiTermOrPreservesDenseRangeToDedupSink) {
+TEST(SniiB2OrRead, MultiTermOrWithACoveringTermIsTheDocRange) {
     MemoryFile file;
     reader::SniiSegmentReader segment;
     reader::LogicalIndexReader idx;
@@ -201,11 +198,6 @@ TEST(SniiB2OrRead, MultiTermOrPreservesDenseRangeToDedupSink) {
 
     CountingDedupSink sink;
     assert_ok(query::boolean_or(idx, {"failed", "sparse_left"}, &sink));
-
-    // "failed" is a dense full posting (docids 0..8999): its dense-full windows must
-    // stream in via append_range (run-preserving), not be expanded element-by-element
-    // through a merge accumulator -- the old path issued only append_sorted(acc).
-    EXPECT_GE(sink.range_calls, 1u);
 
     // failed covers every doc, so the union is the full doc range.
     const std::vector<uint32_t> got(sink.ids.begin(), sink.ids.end());

@@ -249,16 +249,6 @@ FrqRegionMeta dd_region_meta(const WindowMeta& meta) {
             .verify_crc = meta.verify_crc};
 }
 
-bool scan_all_windows(const LogicalIndexReader& idx, uint32_t df, uint32_t window_count,
-                      size_t candidate_count) {
-    if (candidate_count > static_cast<size_t>(window_count) * 64) {
-        return true;
-    }
-    const uint64_t doc_count = idx.stats().doc_count;
-    const bool near_full = doc_count != 0 && static_cast<uint64_t>(df) * 10 >= doc_count * 9;
-    return near_full && candidate_count > static_cast<size_t>(window_count) * 4;
-}
-
 Status prelude_abs_offset(const LogicalIndexReader& idx, const DictEntry& entry, uint64_t frq_base,
                           uint64_t* out) {
     const uint64_t region = idx.section_refs().posting_region.offset;

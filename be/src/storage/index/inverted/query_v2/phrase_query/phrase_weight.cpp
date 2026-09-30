@@ -33,7 +33,7 @@
 #include "storage/index/inverted/query_v2/nullable_scorer.h"
 #include "storage/index/inverted/query_v2/phrase_query/phrase_scorer.h"
 #include "storage/index/inverted/query_v2/postings/listed_walk.h"
-#include "storage/index/inverted/query_v2/scored_bit_set_query/scored_rows_scorer.h"
+#include "storage/index/inverted/query_v2/scored_rows_scorer.h"
 #include "storage/index/inverted/query_v2/segment_postings.h"
 #include "storage/index/inverted/util/string_helper.h"
 #include "storage/index/query/exec/cursor_chained_postings.h"

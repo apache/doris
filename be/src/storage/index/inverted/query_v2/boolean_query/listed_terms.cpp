@@ -23,7 +23,7 @@
 #include "common/check.h"
 #include "common/exception.h"
 #include "storage/index/inverted/query_v2/postings/listed_walk.h"
-#include "storage/index/inverted/query_v2/scored_bit_set_query/scored_rows_scorer.h"
+#include "storage/index/inverted/query_v2/scored_rows_scorer.h"
 #include "storage/index/query/exec/block_doc_set.h"
 #include "storage/index/query/exec/collect_postings.h"
 #include "storage/index/query/exec/cursor_chained_postings.h"

@@ -39,9 +39,9 @@
 #include "storage/index/snii/encoding/varint.h"
 #include "storage/index/snii/format/dict_entry.h"
 #include "storage/index/snii/format/frq_prelude.h"
-#include "storage/index/snii/query/term_query.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/snii_query_oracle.h"
 #include "storage/index/snii_query_test_util.h"
 
 using doris::Status;

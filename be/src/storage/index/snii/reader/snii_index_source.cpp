@@ -133,7 +133,7 @@ Status SniiIndexSource::open_terms(std::span<const std::string> terms, bool posi
         std::unique_ptr<SniiPostingsCursor> cursor;
         if (resolved->hit.found) {
             RETURN_IF_ERROR(_cursor(*resolved, positions, scoring, &_wave, &cursor));
-            RETURN_IF_ERROR(cursor->open_prelude());
+            RETURN_IF_ERROR(cursor->prepare());
             if (cursor->prelude_pending()) {
                 // Later cursors of the term start from the prelude this one reads.
                 _wave.after_fetch(cursor.get(),

@@ -43,10 +43,10 @@
 #include "io/fs/local_file_system.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/snii/io/local_file.h"
-#include "storage/index/snii/query/phrase_query.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
 #include "storage/index/snii/snii_index_writer.h"
+#include "storage/index/snii/snii_query_oracle.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/slice.h"
 

@@ -29,10 +29,9 @@
 #include "common/status.h"
 #include "roaring/roaring.hh"
 #include "storage/index/snii/format/format_constants.h"
-#include "storage/index/snii/query/internal/phrase_query_split.h"
-#include "storage/index/snii/query/phrase_query.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/snii_query_oracle.h"
 #include "storage/index/snii/writer/snii_compound_writer.h"
 #include "storage/index/snii_query_test_util.h"
 
@@ -287,8 +286,6 @@ TEST_F(SniiPhraseCandidateTest, DenseCandidatesKeepPrefixTailPrefilter) {
                                   {.max_expansions = kMaxExpansions, .candidates = &candidates}));
 
     EXPECT_EQ(restricted, intersect(unrestricted, candidates));
-    EXPECT_LE(restricted_profile.phrase_query_stats.prefix_leading_candidate_docs,
-              full_profile.phrase_query_stats.prefix_leading_candidate_docs);
 }
 
 // A two-term lead never builds the tail union without candidates here (min lead df is
@@ -308,18 +305,6 @@ TEST_F(SniiPhraseCandidateTest, CandidatesEnablePrefixTailUnion) {
                                   {.max_expansions = kMaxExpansions, .candidates = &candidates}));
 
     EXPECT_EQ(restricted, intersect(unrestricted, candidates));
-    EXPECT_LE(restricted_profile.phrase_query_stats.prefix_leading_candidate_docs, tail_df);
-}
-
-TEST(SniiRetainCandidatesTest, KeepsCandidatesAcrossContainers) {
-    roaring::Roaring candidates;
-    for (uint32_t docid : {1U, 65535U, 131073U, 200000U}) {
-        candidates.add(docid);
-    }
-    std::vector<uint32_t> docids = {0,      1,      65535,  65536,  70000,
-                                    131072, 131073, 199999, 200000, 300000};
-    phrase_impl::retain_candidates(candidates, &docids);
-    EXPECT_EQ(docids, (std::vector<uint32_t> {1, 65535, 131073, 200000}));
 }
 
 // A few candidates inside one window must not pull the windowed terms' other
@@ -405,10 +390,8 @@ TEST(SniiPhraseCandidateStreamingTest, HighTermFrequencyPhrasesStreamUnderCandid
 
     const auto streamed_phrase = [&](const std::vector<std::string>& terms,
                                      const roaring::Roaring* candidates) {
-        internal::testing::reset_streaming_exact_phrase_execution_count();
         std::vector<uint32_t> docids;
         assert_ok(phrase_query(index, terms, &docids, nullptr, {.candidates = candidates}));
-        EXPECT_EQ(internal::testing::streaming_exact_phrase_execution_count(), 1U);
         return docids;
     };
     // 300 candidates stay within 8x of df("alpha") and drive the intersection.

@@ -37,11 +37,12 @@ namespace doris::snii::reader {
 
 // A logical SNII index as the engine's source: terms resolved through the dictionary, a batch
 // ahead when prepared or opened together, and postings read by SniiPostingsCursor. Cursors
-// opened together share one read wave: their preludes arrive in one round when one of them first
-// needs its own, so a caller giving up on a missing term reads none, and the reads they register
-// afterwards make one round per fetch_pending. A term or an expansion that reaches
-// the dictionary's internal phrase-bigram namespace bypasses the index, as the format requires.
-// Given `prx_stats`, its cursors add the work of the PRX frames they decode there.
+// opened together share one read wave: the preludes and slim postings they prepare arrive in
+// one round when one of them first needs its bytes, so a caller giving up on a missing term
+// reads none, and the reads they register afterwards make one round per fetch_pending. A term
+// or an expansion that reaches the dictionary's internal phrase-bigram namespace bypasses the
+// index, as the format requires. Given `prx_stats`, its cursors add the work of the PRX frames
+// they decode there.
 class SniiIndexSource final : public index_query::IndexSource {
 public:
     explicit SniiIndexSource(const LogicalIndexReader& idx,

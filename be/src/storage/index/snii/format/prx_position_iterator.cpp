@@ -384,9 +384,6 @@ Status PrxPositionIterator::finish_frame() {
     if (context_ != nullptr && context_->stats != nullptr) {
         context_->stats->merge(frame_stats_);
     }
-    if (context_ != nullptr && context_->query_stats != nullptr) {
-        ++context_->query_stats->prx_streaming_frames;
-    }
     finished_ = true;
     return Status::OK();
 }

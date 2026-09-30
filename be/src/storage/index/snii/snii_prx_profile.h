@@ -22,22 +22,9 @@
 
 #include "runtime/runtime_profile.h"
 #include "storage/index/snii/format/prx_decode_stats.h"
-#include "storage/index/snii/query/query_profile.h"
 #include "storage/olap_common.h"
 
 namespace doris::snii {
-
-#ifdef BE_TEST
-namespace testing {
-
-void record_prx_execution_profile_scope_construction();
-void record_prx_execution_profile_scope_flush();
-void reset_prx_execution_profile_scope_counters();
-uint64_t prx_execution_profile_scope_construction_count();
-uint64_t prx_execution_profile_scope_flush_count();
-
-} // namespace testing
-#endif
 
 inline void add_prx_decode_stats(OlapReaderStatistics* target,
                                  const format::PrxDecodeStats& delta) {
@@ -54,49 +41,6 @@ inline void add_prx_decode_stats(OlapReaderStatistics* target,
     stats.prx_decode_ns += static_cast<int64_t>(delta.decode_ns);
     stats.prx_phrase_verify_ns += static_cast<int64_t>(delta.phrase_verify_ns);
 }
-
-inline void add_phrase_query_stats(OlapReaderStatistics* target,
-                                   const format::PhraseQueryExecutionStats& delta) {
-    SniiQueryStats& stats = target->snii_stats;
-    stats.phrase_candidate_docs += static_cast<int64_t>(delta.exact_candidate_docs);
-    stats.phrase_candidate_visits += static_cast<int64_t>(delta.exact_candidate_visits);
-    stats.prx_streaming_frames += static_cast<int64_t>(delta.prx_streaming_frames);
-    stats.phrase_prefix_leading_candidate_docs +=
-            static_cast<int64_t>(delta.prefix_leading_candidate_docs);
-    stats.phrase_prefix_tail_candidate_visits +=
-            static_cast<int64_t>(delta.prefix_tail_candidate_visits);
-}
-
-// Exists only around an actual SNII compute execution. Query-cache hits,
-// count-only fast paths, and single-flight followers never construct this
-// scope, so they cannot contribute another execution's PRX work. The destructor
-// flushes already-committed frames on both success and early error returns.
-class SniiPrxExecutionProfileScope {
-public:
-    explicit SniiPrxExecutionProfileScope(OlapReaderStatistics& target) : target_(target) {
-#ifdef BE_TEST
-        testing::record_prx_execution_profile_scope_construction();
-#endif
-    }
-    ~SniiPrxExecutionProfileScope() {
-        add_prx_decode_stats(&target_, profile_.prx_decode_stats);
-        add_phrase_query_stats(&target_, profile_.phrase_query_stats);
-#ifdef BE_TEST
-        testing::record_prx_execution_profile_scope_flush();
-#endif
-    }
-
-    SniiPrxExecutionProfileScope(const SniiPrxExecutionProfileScope&) = delete;
-    SniiPrxExecutionProfileScope& operator=(const SniiPrxExecutionProfileScope&) = delete;
-    SniiPrxExecutionProfileScope(SniiPrxExecutionProfileScope&&) = delete;
-    SniiPrxExecutionProfileScope& operator=(SniiPrxExecutionProfileScope&&) = delete;
-
-    query::QueryProfile* profile() { return &profile_; }
-
-private:
-    OlapReaderStatistics& target_;
-    query::QueryProfile profile_;
-};
 
 class SniiPrxRuntimeProfileCounters {
 public:

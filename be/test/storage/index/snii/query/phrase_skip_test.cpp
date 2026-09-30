@@ -34,12 +34,10 @@
 #include "storage/index/snii/format/frq_prelude.h"
 #include "storage/index/snii/io/local_file.h"
 #include "storage/index/snii/io/metered_file_reader.h"
-#include "storage/index/snii/query/boolean_query.h"
-#include "storage/index/snii/query/phrase_query.h"
-#include "storage/index/snii/query/term_query.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
 #include "storage/index/snii/reader/windowed_posting.h"
+#include "storage/index/snii/snii_query_oracle.h"
 #include "storage/index/snii/writer/snii_compound_writer.h"
 #include "storage/index/snii/writer/spimi_term_buffer.h"
 
@@ -638,9 +636,6 @@ TEST(SniiPhraseSkip, LateAndNoHitHighFrequencyPhrasesMatchIndependentExpectation
         ASSERT_TRUE(query::phrase_query(index, {"a", "b"}, &actual, &profile).ok());
         EXPECT_EQ(actual, expected);
         EXPECT_EQ(actual, corpus.oracle({"a", "b"}));
-        EXPECT_GT(profile.phrase_query_stats.prx_streaming_frames, 0U);
-        EXPECT_EQ(profile.phrase_query_stats.prx_streaming_frames,
-                  profile.prx_decode_stats.frame_count());
 
         std::remove(path.c_str());
     };
@@ -684,10 +679,6 @@ TEST(SniiPhraseSkip, DistinctTwoThreeSixAndTenTermPhrasesMatchIndependentExpecta
                 << phrase_case.term_count;
         EXPECT_EQ(actual, phrase_case.expected_docs) << phrase_case.term_count;
         EXPECT_EQ(actual, corpus.oracle(terms)) << phrase_case.term_count;
-        EXPECT_GT(profile.phrase_query_stats.prx_streaming_frames, 0U) << phrase_case.term_count;
-        EXPECT_EQ(profile.phrase_query_stats.prx_streaming_frames,
-                  profile.prx_decode_stats.frame_count())
-                << phrase_case.term_count;
         EXPECT_GT(profile.prx_decode_stats.raw_frames + profile.prx_decode_stats.zstd_frames +
                           profile.prx_decode_stats.pfor_frames,
                   0U)

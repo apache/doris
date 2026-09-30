@@ -294,8 +294,8 @@ TEST(SniiPostingsCursor, CandidatesReadOnlyTheirCoveringWindows) {
     const Term term = fixture.lookup("sparse_left");
     fixture.metered.reset_metrics();
     auto whole = fixture.cursor(term);
-    // The prelude, then the whole dd-block.
-    EXPECT_EQ(fixture.rounds(), 2U);
+    // The prelude and the whole dd-block, in one round.
+    EXPECT_EQ(fixture.rounds(), 1U);
     const uint64_t whole_bytes = fixture.bytes();
 
     // Candidates in the first two windows: same-term reads coalesce across a 16 KiB gap, so
@@ -471,10 +471,10 @@ TEST(SniiPostingsCursor, PrefetchWithoutCandidatesReadsTheSpanOnce) {
     SniiPostingsCursor cursor(fixture.index, term.entry, term.frq_base, term.prx_base,
                               /*positions=*/false, /*scoring=*/false, nullptr);
     assert_ok(cursor.prefetch(nullptr, /*positions=*/false));
-    // The prelude, then the whole dd-block; the listing reads nothing more.
-    EXPECT_EQ(fixture.rounds(), 2U);
+    // The prelude and the whole dd-block in one round; the listing reads nothing more.
+    EXPECT_EQ(fixture.rounds(), 1U);
     EXPECT_EQ(list_docs(cursor), fixture.oracle_docids(term));
-    EXPECT_EQ(fixture.rounds(), 2U);
+    EXPECT_EQ(fixture.rounds(), 1U);
 }
 
 TEST(SniiPostingsCursor, RewindListsAgainWithoutReading) {
@@ -503,8 +503,8 @@ TEST(SniiPostingsCursor, CursorsOnAWaveShareTheirRounds) {
                          /*positions=*/false, /*scoring=*/false, nullptr, &wave);
     SniiPostingsCursor b(fixture.index, right.entry, right.frq_base, right.prx_base,
                          /*positions=*/false, /*scoring=*/false, nullptr, &wave);
-    assert_ok(a.open_prelude());
-    assert_ok(b.open_prelude());
+    assert_ok(a.prepare());
+    assert_ok(b.prepare());
     EXPECT_EQ(fixture.rounds(), 0U);
     EXPECT_TRUE(wave.pending());
     assert_ok(wave.fetch());
@@ -522,6 +522,33 @@ TEST(SniiPostingsCursor, CursorsOnAWaveShareTheirRounds) {
     EXPECT_EQ(fixture.rounds(), 2U);
 }
 
+// Prepared cursors listing whole postings read in one round: the windowed term's prelude and
+// span, and the slim term's posting, arrive together.
+TEST(SniiPostingsCursor, PreparedCursorsListInOneRound) {
+    Fixture fixture;
+    assert_ok(fixture.open_scored());
+    const Term windowed = fixture.lookup("wide");
+    const Term slim = fixture.lookup("mid");
+    ASSERT_EQ(windowed.entry.enc, format::DictEntryEnc::kWindowed);
+    ASSERT_EQ(slim.entry.enc, format::DictEntryEnc::kSlim);
+    SniiReadWave wave(fixture.index.reader());
+    fixture.metered.reset_metrics();
+    SniiPostingsCursor a(fixture.index, windowed.entry, windowed.frq_base, windowed.prx_base,
+                         /*positions=*/false, /*scoring=*/false, nullptr, &wave);
+    SniiPostingsCursor b(fixture.index, slim.entry, slim.frq_base, slim.prx_base,
+                         /*positions=*/false, /*scoring=*/false, nullptr, &wave);
+    assert_ok(a.prepare());
+    assert_ok(b.prepare());
+    assert_ok(a.prefetch(nullptr, /*positions=*/false));
+    assert_ok(b.prefetch(nullptr, /*positions=*/false));
+    EXPECT_EQ(fixture.rounds(), 0U);
+    assert_ok(wave.fetch());
+    EXPECT_EQ(fixture.rounds(), 1U);
+    EXPECT_EQ(list_docs(a), fixture.oracle_docids(windowed));
+    EXPECT_EQ(list_docs(b), fixture.oracle_docids(slim));
+    EXPECT_EQ(fixture.rounds(), 1U);
+}
+
 TEST(SniiPostingsCursor, AWaveCursorFetchesTheWaveWhenItNeedsTheBytes) {
     Fixture fixture;
     assert_ok(fixture.open_standard());
@@ -530,11 +557,11 @@ TEST(SniiPostingsCursor, AWaveCursorFetchesTheWaveWhenItNeedsTheBytes) {
     fixture.metered.reset_metrics();
     SniiPostingsCursor cursor(fixture.index, term.entry, term.frq_base, term.prx_base,
                               /*positions=*/false, /*scoring=*/false, nullptr, &wave);
-    assert_ok(cursor.open_prelude());
-    // The prelude, then the span, each fetched by the cursor as it needs them.
+    assert_ok(cursor.prepare());
+    // The prelude and the span, fetched by the cursor in one round when it needs them.
     EXPECT_EQ(list_docs(cursor), fixture.oracle_docids(term));
-    EXPECT_EQ(fixture.rounds(), 2U);
-    EXPECT_EQ(wave.rounds(), 2U);
+    EXPECT_EQ(fixture.rounds(), 1U);
+    EXPECT_EQ(wave.rounds(), 1U);
 }
 
 TEST(SniiPostingsCursor, ChainedCursorsListTheIntersectionLikeTheDecoder) {

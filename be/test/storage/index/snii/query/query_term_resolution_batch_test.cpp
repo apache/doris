@@ -32,14 +32,11 @@
 #include "storage/index/snii/io/batch_range_fetcher.h"
 #include "storage/index/snii/io/metered_file_reader.h"
 #include "storage/index/snii/query/bm25_scorer.h"
-#include "storage/index/snii/query/boolean_query.h"
-#include "storage/index/snii/query/internal/docid_conjunction.h"
-#include "storage/index/snii/query/phrase_query.h"
-#include "storage/index/snii/query/prefix_query.h"
 #include "storage/index/snii/reader/dict_block_cache.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_index_source.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/snii_query_oracle.h"
 #include "storage/index/snii/stats/snii_stats_provider.h"
 #include "storage/index/snii/writer/snii_compound_writer.h"
 #include "storage/index/snii_query_test_util.h"
@@ -145,6 +142,16 @@ std::vector<std::string> numbered_terms(size_t count) {
     return terms;
 }
 
+// The found flags of a batch lookup, aligned with its terms.
+std::vector<uint8_t> found_flags(
+        const std::vector<reader::LogicalIndexReader::BatchLookupResult>& results) {
+    std::vector<uint8_t> flags;
+    for (const auto& result : results) {
+        flags.push_back(result.found ? 1 : 0);
+    }
+    return flags;
+}
+
 TEST(SniiQueryTermResolutionBatch, ResolvesColdDictBlocksInOnePhysicalBatch) {
     ScopedEnv dict_resident_max("SNII_DICT_RESIDENT_MAX", "0");
 
@@ -177,9 +184,9 @@ TEST(SniiQueryTermResolutionBatch, ResolvesColdDictBlocksInOnePhysicalBatch) {
     metered.reset_metrics();
     counting.reset_counts();
     const std::vector<std::string> terms {"alpha", "kappa", "omega"};
-    std::vector<internal::ResolvedQueryTerm> resolved;
-    std::vector<uint8_t> found;
-    assert_ok(internal::resolve_query_terms_batch(index_reader, terms, &resolved, &found));
+    std::vector<reader::LogicalIndexReader::BatchLookupResult> resolved;
+    assert_ok(index_reader.lookup_batch(terms, &resolved));
+    const std::vector<uint8_t> found = found_flags(resolved);
 
     ASSERT_EQ(resolved.size(), terms.size());
     ASSERT_EQ(found, (std::vector<uint8_t> {1, 1, 1}));
@@ -213,9 +220,9 @@ TEST(SniiQueryTermResolutionBatch, AlignsAbsentTermsAndReadsOneColdBlockSynchron
     counting.reset_counts();
     const std::vector<std::string> terms {"aardvark", "alpha", "beta", "kappa",
                                           "lambda",   "omega", "zulu"};
-    std::vector<internal::ResolvedQueryTerm> resolved;
-    std::vector<uint8_t> found;
-    assert_ok(internal::resolve_query_terms_batch(index_reader, terms, &resolved, &found));
+    std::vector<reader::LogicalIndexReader::BatchLookupResult> resolved;
+    assert_ok(index_reader.lookup_batch(terms, &resolved));
+    const std::vector<uint8_t> found = found_flags(resolved);
 
     ASSERT_EQ(resolved.size(), terms.size());
     ASSERT_EQ(found, (std::vector<uint8_t> {0, 1, 0, 1, 0, 1, 0}));
@@ -245,9 +252,9 @@ TEST(SniiQueryTermResolutionBatch, ResolvesResidentBlocksWithoutQueryIo) {
 
     metered.reset_metrics();
     counting.reset_counts();
-    std::vector<internal::ResolvedQueryTerm> resolved;
-    std::vector<uint8_t> found;
-    assert_ok(internal::resolve_query_terms_batch(index_reader, terms, &resolved, &found));
+    std::vector<reader::LogicalIndexReader::BatchLookupResult> resolved;
+    assert_ok(index_reader.lookup_batch(terms, &resolved));
+    const std::vector<uint8_t> found = found_flags(resolved);
 
     ASSERT_EQ(found, (std::vector<uint8_t> {1, 1, 1}));
     ASSERT_EQ(resolved.size(), terms.size());
@@ -279,9 +286,9 @@ TEST(SniiQueryTermResolutionBatch, ResolvesCompressedDictBlocksFromBatchBuffers)
     ASSERT_LT(index_reader.section_refs().dict_region.length, terms.size() * terms.front().size());
 
     metered.reset_metrics();
-    std::vector<internal::ResolvedQueryTerm> resolved;
-    std::vector<uint8_t> found;
-    assert_ok(internal::resolve_query_terms_batch(index_reader, terms, &resolved, &found));
+    std::vector<reader::LogicalIndexReader::BatchLookupResult> resolved;
+    assert_ok(index_reader.lookup_batch(terms, &resolved));
+    const std::vector<uint8_t> found = found_flags(resolved);
 
     ASSERT_EQ(found, (std::vector<uint8_t> {1, 1, 1}));
     for (size_t i = 0; i < terms.size(); ++i) {
@@ -316,9 +323,9 @@ TEST(SniiQueryTermResolutionBatch, ResolvesSeventeenDisjointBlocksInTwoBoundedWa
 
     metered.reset_metrics();
     counting.reset_counts();
-    std::vector<internal::ResolvedQueryTerm> resolved;
-    std::vector<uint8_t> found;
-    assert_ok(internal::resolve_query_terms_batch(index_reader, query_terms, &resolved, &found));
+    std::vector<reader::LogicalIndexReader::BatchLookupResult> resolved;
+    assert_ok(index_reader.lookup_batch(query_terms, &resolved));
+    const std::vector<uint8_t> found = found_flags(resolved);
 
     ASSERT_EQ(found, std::vector<uint8_t>(query_terms.size(), 1));
     ASSERT_EQ(resolved.size(), query_terms.size());

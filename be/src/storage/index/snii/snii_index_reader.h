@@ -34,32 +34,7 @@ namespace doris::snii::reader {
 class LogicalIndexReader;
 } // namespace doris::snii::reader
 
-namespace doris::snii::query {
-struct PhraseMatch;
-} // namespace doris::snii::query
-
 namespace doris::segment_v2 {
-
-// The query SNII's executors run for a logical leaf.
-struct NativeQuery {
-    InvertedIndexQueryType query_type = InvertedIndexQueryType::UNKNOWN_QUERY;
-    InvertedIndexQueryInfo query_info;
-};
-
-// Fills `out`, which has no terms yet, with the query that runs `leaf`, moving the terms out of
-// `leaf`.
-Status plan_native_query(index_query::logical::Node&& leaf, NativeQuery* out);
-
-// All query inputs passed to _compute_query_bitmap after opening the logical reader.
-struct SniiQueryBitmapRequest {
-    InvertedIndexQueryType query_type;
-    const InvertedIndexQueryInfo& query_info;
-    std::string_view search_str;
-    int32_t max_expansions = 0;
-    const ::doris::snii::reader::LogicalIndexReader* logical_reader = nullptr;
-    // Scan candidates a multi-term phrase is restricted to; null for a full-segment query.
-    const roaring::Roaring* candidates = nullptr;
-};
 
 class SniiIndexReader final : public TextIndexReader {
     ENABLE_FACTORY_CREATOR(SniiIndexReader);
@@ -101,19 +76,6 @@ private:
     Status _read_snii_null_bitmap(
             const IndexQueryContextPtr& context, InvertedIndexQueryCacheHandle* cache_handle,
             const ::doris::snii::reader::LogicalIndexReader* preopened_reader);
-    // Runs the planned query over the open reader, producing the result bitmap.
-    Status _compute_query_bitmap(const IndexQueryContextPtr& context,
-                                 const SniiQueryBitmapRequest& request,
-                                 std::vector<std::string>* terms,
-                                 std::shared_ptr<roaring::Roaring>* out,
-                                 std::vector<::doris::snii::query::PhraseMatch>* phrase_matches);
-#ifdef BE_TEST
-    Status _compute_query_bitmap(const IndexQueryContextPtr& context,
-                                 InvertedIndexQueryType query_type,
-                                 const InvertedIndexQueryInfo& query_info,
-                                 std::string_view search_str, std::vector<std::string>* terms,
-                                 int32_t max_expansions, std::shared_ptr<roaring::Roaring>* out);
-#endif
 #ifdef BE_TEST
     // The count-only fast path over `preopened_reader`, or the reader the session opens.
     Status _try_count_only_fastpath(

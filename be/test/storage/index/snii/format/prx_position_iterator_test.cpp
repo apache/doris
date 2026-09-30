@@ -212,9 +212,7 @@ void expect_failed_frame_preserves_profile(
     PrxDecodeStats decode_stats;
     decode_stats.raw_frames = 7;
     const PrxDecodeStats decode_before = decode_stats;
-    PhraseQueryExecutionStats query_stats;
-    query_stats.prx_streaming_frames = 11;
-    PrxDecodeContext context {.stats = &decode_stats, .query_stats = &query_stats};
+    PrxDecodeContext context {.stats = &decode_stats};
     PrxPositionIterator iterator;
 
     Status status = iterator.reset(frame, expected_doc_count, selected_ordinals, &context);
@@ -223,7 +221,6 @@ void expect_failed_frame_preserves_profile(
     }
     EXPECT_FALSE(status.ok()) << status;
     EXPECT_EQ(decode_stats, decode_before);
-    EXPECT_EQ(query_stats.prx_streaming_frames, 11U);
 }
 
 class PrxPositionIteratorRawTest : public ::testing::TestWithParam<int> {};

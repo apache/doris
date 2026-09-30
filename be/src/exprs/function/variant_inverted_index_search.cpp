@@ -21,7 +21,6 @@
 
 // clang-format off
 #include "exprs/function/lazy_leaf_compiler.h"
-#include "exprs/function/native_leaf_compiler.h"
 #include "exprs/function/scalar_leaf_compiler.h"
 // clang-format on
 #include <fmt/format.h>
@@ -275,20 +274,15 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
     }
 
     // The index opens through the reader's own cache path, the one MATCH opens with, and binds
-    // the field as the engine's source; an SNII index still answers its scored leaves itself.
+    // the field as the engine's source.
     std::unique_ptr<segment_v2::OpenedIndex> opened;
     index_query::IndexSourcePtr source;
     RETURN_IF_ERROR(
             inverted_reader->open_source(_context, resolved.stored_field_wstr, &opened, &source));
     _opened_indexes.push_back(std::move(opened));
     resolved.index_source = source;
-    auto lazy = std::make_shared<LazyLeafCompiler>(resolved.stored_field_wstr, binding_key, source);
-    if (index_file_reader->get_storage_format() == InvertedIndexStorageFormatPB::SNII) {
-        resolved.leaf_compiler = std::make_shared<NativeLeafCompiler>(
-                inverted_reader, stored_field_name, std::move(lazy));
-    } else {
-        resolved.leaf_compiler = std::move(lazy);
-    }
+    resolved.leaf_compiler =
+            std::make_shared<LazyLeafCompiler>(resolved.stored_field_wstr, binding_key, source);
     _binding_sources[binding_key] = source;
     _field_sources[resolved.stored_field_wstr] = source;
     _sources.emplace_back(std::move(source));

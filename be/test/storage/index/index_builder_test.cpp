@@ -26,7 +26,7 @@
 #include "common/config.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_writer.h"
-#include "storage/index/snii/query/term_query.h"
+#include "storage/index/snii/snii_query_oracle.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_factory.h"

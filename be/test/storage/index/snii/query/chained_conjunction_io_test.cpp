@@ -30,17 +30,16 @@
 #include "storage/index/query/spi/io_metrics.h"
 #include "storage/index/snii/io/local_file.h"
 #include "storage/index/snii/io/metered_file_reader.h"
-#include "storage/index/snii/query/boolean_query.h"
-#include "storage/index/snii/query/internal/docid_conjunction.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/snii_query_oracle.h"
 #include "storage/index/snii/writer/snii_compound_writer.h"
 #include "storage/index/snii/writer/spimi_term_buffer.h"
 
-// Pins the documents, docid sources and physical reads of the SNII chained
-// conjunction. Every term below drives one of its paths: full windows that need
-// no read, near-full windows that are scanned whole, covering windows, flat
-// postings, a chain that empties early and a missing term.
+// Pins the documents and physical reads of the chained conjunction over an SNII index. Every
+// term below drives one of its paths: full windows that need no read, near-full windows every
+// one of which covers a candidate, covering windows, flat postings, a chain that empties early
+// and a missing term.
 namespace doris::snii::query {
 namespace {
 
@@ -173,94 +172,6 @@ protected:
         return docs;
     }
 
-    struct FilterRun {
-        std::vector<internal::TermPlan> plans;
-        std::vector<uint32_t> candidates;
-        std::vector<internal::DocidSource> sources;
-        IoMetrics io;
-    };
-
-    // The candidate-restricted conjunction the phrase executor runs, with sources.
-    void run_filter(const std::vector<std::string>& terms, const std::vector<uint32_t>& initial,
-                    FilterRun* run) {
-        _metered->reset_metrics();
-        io::BatchRangeFetcher round1(_index.reader());
-        bool all_present = false;
-        ASSERT_TRUE(internal::plan_terms(_index, terms, &round1, &run->plans, &all_present,
-                                         /*need_positions=*/true)
-                            .ok());
-        ASSERT_TRUE(all_present);
-        ASSERT_TRUE(round1.fetch().ok());
-        ASSERT_TRUE(internal::open_preludes(round1, &run->plans, /*need_positions=*/true).ok());
-        ASSERT_TRUE(internal::filter_docids_by_conjunction(_index, round1, run->plans, initial,
-                                                           &run->candidates, &run->sources)
-                            .ok());
-        run->io = _metered->metrics();
-    }
-
-    // The term's documents inside the chunk's window, or all of them for a flat term.
-    static std::vector<uint32_t> chunk_scope(const internal::DocidChunk& chunk,
-                                             const internal::TermPlan& plan,
-                                             std::vector<uint32_t> docs) {
-        if (!chunk.windowed) {
-            return docs;
-        }
-        format::WindowMeta meta;
-        EXPECT_TRUE(plan.prelude.window(chunk.window, &meta).ok());
-        const uint32_t first = chunk.window == 0 ? 0 : static_cast<uint32_t>(meta.win_base + 1);
-        std::erase_if(docs, [&](uint32_t doc) { return doc < first || doc > meta.last_docid; });
-        return docs;
-    }
-
-    // Checks one chunk's documents and their positions within its window.
-    static void expect_chunk(const internal::DocidChunk& chunk, const std::vector<uint32_t>& scope,
-                             const std::string& term) {
-        EXPECT_EQ(chunk.prx_doc_count, scope.size()) << term;
-        if (chunk.prx_doc_ordinals.empty()) {
-            // No ordinals means the chunk holds every document of its window.
-            EXPECT_EQ(chunk.docids, scope) << term;
-            return;
-        }
-        ASSERT_EQ(chunk.prx_doc_ordinals.size(), chunk.docids.size()) << term;
-        for (size_t i = 0; i < chunk.docids.size(); ++i) {
-            ASSERT_LT(chunk.prx_doc_ordinals[i], scope.size()) << term;
-            EXPECT_EQ(scope[chunk.prx_doc_ordinals[i]], chunk.docids[i]) << term;
-        }
-    }
-
-    static std::vector<size_t> listing_order(const std::vector<internal::TermPlan>& plans) {
-        std::vector<size_t> order(plans.size());
-        for (size_t i = 0; i < order.size(); ++i) {
-            order[i] = i;
-        }
-        std::ranges::sort(
-                order, [&](size_t left, size_t right) { return plans[left].df < plans[right].df; });
-        return order;
-    }
-
-    // Checks that each source holds the term's documents among the candidates the
-    // term was listed against, window by window.
-    static void expect_sources(const FilterRun& run, const std::vector<std::string>& terms,
-                               const std::vector<uint32_t>& initial) {
-        ASSERT_EQ(run.sources.size(), terms.size());
-        const std::vector<size_t> order = listing_order(run.plans);
-        std::vector<uint32_t> candidates = initial;
-        for (size_t k = 0; k < order.size(); ++k) {
-            const size_t term = order[k];
-            const std::vector<uint32_t> all_docs = docs_of(terms[term]);
-            const internal::DocidSource& source = run.sources[term];
-            std::vector<uint32_t> listed;
-            for (const internal::DocidChunk& chunk : source.chunks) {
-                expect_chunk(chunk, chunk_scope(chunk, run.plans[term], all_docs), terms[term]);
-                listed.insert(listed.end(), chunk.docids.begin(), chunk.docids.end());
-            }
-            candidates = intersect(all_docs, candidates);
-            EXPECT_EQ(listed, candidates) << terms[term];
-            EXPECT_EQ(source.docids_are_final_candidates, k + 1 == order.size()) << terms[term];
-        }
-        EXPECT_EQ(run.candidates, candidates);
-    }
-
     static std::string* path_;
     io::LocalFileReader _local;
     std::unique_ptr<io::MeteredFileReader> _metered;
@@ -295,14 +206,15 @@ TEST_F(SniiChainedConjunctionIoTest, CoveringWindowsOfASparseCluster) {
                        .total_request_bytes = 446});
 }
 
-// Many candidates on a near-full term scan every window, coalesced.
+// Many candidates on a near-full term cover every window, read coalesced; the driving term's
+// prelude and span arrive in one round.
 TEST_F(SniiChainedConjunctionIoTest, NearFullTermScansAllWindows) {
     const std::vector<std::string> terms = {"near_full", "fifths"};
     const AndRun run = run_and(terms);
     EXPECT_EQ(run.docs, expected_and(terms));
-    expect_io(run.io, {.read_at_calls = 4,
-                       .serial_rounds = 3,
-                       .range_gets = 4,
+    expect_io(run.io, {.read_at_calls = 3,
+                       .serial_rounds = 2,
+                       .range_gets = 2,
                        .remote_bytes = 6144,
                        .total_request_bytes = 5078});
 }
@@ -324,9 +236,9 @@ TEST_F(SniiChainedConjunctionIoTest, ChainsThreeWindowedTerms) {
     const std::vector<std::string> terms = {"wide", "sevenths", "fifths"};
     const AndRun run = run_and(terms);
     EXPECT_EQ(run.docs, expected_and(terms));
-    expect_io(run.io, {.read_at_calls = 6,
-                       .serial_rounds = 4,
-                       .range_gets = 6,
+    expect_io(run.io, {.read_at_calls = 5,
+                       .serial_rounds = 3,
+                       .range_gets = 4,
                        .remote_bytes = 8192,
                        .total_request_bytes = 6667});
 }
@@ -349,52 +261,6 @@ TEST_F(SniiChainedConjunctionIoTest, MissingTermReadsNoPosting) {
     const AndRun run = run_and(terms);
     EXPECT_TRUE(run.docs.empty());
     expect_io(run.io, {});
-}
-
-// The phrase executor's candidate-restricted conjunction keeps each term's
-// documents and their positions in its windows for the position reads.
-TEST_F(SniiChainedConjunctionIoTest, CandidateFilterKeepsDocidSources) {
-    const std::vector<std::string> terms = {"wide", "sevenths", "cluster"};
-    std::vector<uint32_t> initial;
-    for (uint32_t doc = 4000; doc < 12000; doc += 3) {
-        initial.push_back(doc);
-    }
-    FilterRun run;
-    run_filter(terms, initial, &run);
-    expect_sources(run, terms, initial);
-    expect_io(run.io, {.read_at_calls = 4,
-                       .serial_rounds = 2,
-                       .range_gets = 3,
-                       .remote_bytes = 3072,
-                       .total_request_bytes = 692});
-}
-
-// Without a restriction the first term's source lists all of its documents.
-TEST_F(SniiChainedConjunctionIoTest, UnrestrictedConjunctionKeepsDocidSources) {
-    const std::vector<std::string> terms = {"near_full", "fifths", "rare"};
-    std::vector<uint32_t> all(kDocCount);
-    for (uint32_t doc = 0; doc < kDocCount; ++doc) {
-        all[doc] = doc;
-    }
-    FilterRun run;
-    _metered->reset_metrics();
-    io::BatchRangeFetcher round1(_index.reader());
-    bool all_present = false;
-    ASSERT_TRUE(internal::plan_terms(_index, terms, &round1, &run.plans, &all_present,
-                                     /*need_positions=*/true)
-                        .ok());
-    ASSERT_TRUE(round1.fetch().ok());
-    ASSERT_TRUE(internal::open_preludes(round1, &run.plans, /*need_positions=*/true).ok());
-    ASSERT_TRUE(internal::build_docid_only_conjunction(_index, round1, run.plans, &run.candidates,
-                                                       &run.sources)
-                        .ok());
-    run.io = _metered->metrics();
-    expect_sources(run, terms, all);
-    expect_io(run.io, {.read_at_calls = 4,
-                       .serial_rounds = 3,
-                       .range_gets = 4,
-                       .remote_bytes = 6144,
-                       .total_request_bytes = 5078});
 }
 
 } // namespace

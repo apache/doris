@@ -78,11 +78,12 @@ private:
 // positions keeps the docids it decodes, so listing again after a rewind decodes nothing twice.
 //
 // Reads: an inline term needs none. A slim term reads its dd region, and its PRX frame when
-// positions or frequencies are asked, in one round. A windowed term reads its prelude unless
-// given one, then its whole posting span in one round; given candidates through prefetch, it
-// reads only the windows covering them in one round, and a window no read covered on demand.
-// A cursor opened on a wave registers its reads there instead, so several cursors' reads make
-// one round; it fetches the wave itself if it needs the bytes before the wave was fetched.
+// positions or frequencies are asked, in one round. A windowed term reads its prelude and its
+// whole posting span in one round, the span alone when given the prelude; given candidates
+// through prefetch, it reads the prelude, then only the windows covering them in one round,
+// and a window no read covered on demand. A cursor on a shared wave registers its reads there,
+// so several cursors' reads make one round, and fetches the wave itself if it needs the bytes
+// before the wave was fetched; a cursor without one fetches its reads as it registers them.
 // Given `prx_stats`, it adds the work of every PRX frame it decodes there.
 class SniiPostingsCursor final : public index_query::PostingsCursor,
                                  public index_query::PositionCursor {
@@ -97,8 +98,10 @@ public:
     void set_prelude(std::shared_ptr<const format::FrqPreludeReader> prelude);
     // The prelude of a windowed term once read; null before, and for other terms.
     const std::shared_ptr<const format::FrqPreludeReader>& prelude() const { return _prelude; }
-    // Reads (or registers) the prelude of a windowed term, so prefetch can select windows.
-    Status open_prelude();
+    // Registers the reads a listing starts with, so several cursors' start in one round: a
+    // windowed term's prelude, from which prefetch selects windows, or a slim term's whole
+    // posting.
+    Status prepare();
     // Whether the prelude this cursor registered on its wave is still to arrive.
     bool prelude_pending() const { return _prelude_pending; }
     // Reads (or registers) the whole posting span; the block methods call it on first use.
@@ -149,9 +152,14 @@ private:
     bool _wants_prx() const { return _positions_wanted || _scores_from_prx(); }
     Status _fill_norms();
     Status _ensure_ready();
+    // A cursor without a shared wave fetches its reads as soon as they are registered.
+    Status _fetch_own();
     Status _open_slim();
     Status _read_prelude();
     Status _read_span(bool prx);
+    // Reads the dd-block, and the PRX region when asked, whole before the prelude arrives: the
+    // entry gives their extent, and the windows are sliced out once the prelude is parsed.
+    Status _read_regions(bool dd, bool prx);
     Status _read_windows(const std::vector<uint32_t>& windows, bool prx);
     // Registers the pieces, runs of them within the same-term gap as one range, and slices
     // each piece from its run after the fetch.
@@ -181,10 +189,10 @@ private:
     SniiReadWave* _wave;
     format::PrxDecodeStats* _prx_stats;
     Kind _kind;
+    // The wave of a cursor given none; its rounds back the window slices.
+    std::unique_ptr<SniiReadWave> _own_wave;
 
     std::shared_ptr<const format::FrqPreludeReader> _prelude;
-    // The rounds this cursor fetched on its own; their buffers back the window slices.
-    std::vector<std::unique_ptr<io::BatchRangeFetcher>> _rounds;
     std::vector<std::vector<uint8_t>> _on_demand;
     std::vector<WindowBytes> _windows;
     uint32_t _window_count = 0;
