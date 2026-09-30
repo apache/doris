@@ -64,14 +64,11 @@ class HdfsPropertiesTest {
     }
 
     @Test
-    void emptyNameserviceListIsRejected() {
+    void emptyNameserviceListRemainsCompatibleAtRuntime() {
         Map<String, String> raw = new HashMap<>();
         raw.put("dfs.nameservices", ",");
 
-        IllegalArgumentException exception = Assertions.assertThrows(
-                IllegalArgumentException.class, () -> resolve(raw));
-
-        Assertions.assertTrue(exception.getMessage().contains("dfs.nameservices"), exception.getMessage());
+        Assertions.assertDoesNotThrow(() -> resolve(raw));
     }
 
     @Test

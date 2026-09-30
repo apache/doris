@@ -270,6 +270,12 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         if (!"hms".equalsIgnoreCase(getType())) {
             return;
         }
+        String nameservices = property.getProperties().get("dfs.nameservices");
+        if (nameservices != null
+                && java.util.Arrays.stream(nameservices.split(","))
+                .map(String::trim).noneMatch(value -> !value.isEmpty())) {
+            throw new DdlException("Property dfs.nameservices must contain a nameservice");
+        }
         try {
             FileSystemFactory.bindAllStorageProperties(property.getProperties());
         } catch (IllegalArgumentException | StoragePropertiesException e) {

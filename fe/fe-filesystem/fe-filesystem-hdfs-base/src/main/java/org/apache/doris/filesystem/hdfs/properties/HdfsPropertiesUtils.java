@@ -222,7 +222,8 @@ public class HdfsPropertiesUtils {
         // ignores empty tokens produced by a trailing comma in dfs.nameservices.
         List<String> services = splitAndTrim(dfsNameservices);
         if (services.isEmpty()) {
-            throw new IllegalArgumentException("Property dfs.nameservices must contain a nameservice");
+            // Keep runtime binding compatible with catalogs persisted by older versions.
+            return;
         }
         for (String dfsservice : services) {
             // 2. Check dfs.ha.namenodes.<nameservice>
