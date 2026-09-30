@@ -19,19 +19,26 @@ package org.apache.doris.mysql.authenticate.password;
 
 import org.apache.doris.authentication.CredentialType;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.mysql.CachingSha2PasswordExchange;
 import org.apache.doris.mysql.MysqlAuthPacket;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlHandshakePacket;
+import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.qe.ConnectContext;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Optional;
 
 public class NativePasswordResolver implements PasswordResolver {
+    private static final Logger LOG = LogManager.getLogger(NativePasswordResolver.class);
     public static final String MYSQL_RANDOM_STRING_PROPERTY = "mysql.random_string";
 
     @Override
@@ -48,8 +55,35 @@ public class NativePasswordResolver implements PasswordResolver {
         // which Doris is using now.
         // Note: Check the authPacket whether support plugin auth firstly,
         // before we check AuthPlugin between doris and client to compatible with older version: like mysql 5.1
+        // NOTE: when we behind proxy, we need random string sent by proxy.
+        byte[] randomString = handshakePacket.getAuthPluginData();
+        if (Config.proxy_auth_enable && authPacket.getRandomString() != null) {
+            randomString = authPacket.getRandomString();
+        }
         if (authPacket.getCapability().isPluginAuth()
                 && !handshakePacket.checkAuthPluginSameAsDoris(authPacket.getPluginName())) {
+            if (CachingSha2PasswordExchange.serves(authPacket.getPluginName(), authPacket.getConnectAttributes())) {
+                // A client that cannot load mysql_native_password (libmysqlclient 9): take it through
+                // caching_sha2_password full authentication, then check the plaintext the native way,
+                // so the stored hash, the proxy nonce and every check below stay as they are.
+                String plainPassword;
+                try {
+                    plainPassword = CachingSha2PasswordExchange.exchange(channel, serializer,
+                            handshakePacket.getAuthPluginData(), authPacket.getCapability().isClientUseSsl());
+                } catch (CachingSha2PasswordExchange.Rejected e) {
+                    LOG.warn("caching_sha2_password exchange rejected for client {}: {}", channel.getRemoteIp(),
+                            e.getMessage());
+                    context.getState().setError(ErrorCode.ERR_NOT_SUPPORTED_AUTH_MODE,
+                            ErrorCode.ERR_NOT_SUPPORTED_AUTH_MODE.formatErrorMsg());
+                    MysqlProto.sendResponsePacket(context);
+                    return Optional.empty();
+                }
+                if (plainPassword == null) {
+                    // the client went away, as with the native switch below
+                    return Optional.empty();
+                }
+                return Optional.of(new NativePassword(nativeScramble(plainPassword, randomString), randomString));
+            }
             // 1. clear the serializer
             serializer.reset();
             // 2. build the auth switch request and send to the client
@@ -66,12 +100,13 @@ public class NativePasswordResolver implements PasswordResolver {
             authResponse = MysqlProto.readEofString(authSwitchResponse);
         }
 
-        // NOTE: when we behind proxy, we need random string sent by proxy.
-        byte[] randomString = handshakePacket.getAuthPluginData();
-        if (Config.proxy_auth_enable && authPacket.getRandomString() != null) {
-            randomString = authPacket.getRandomString();
-        }
         return Optional.of(new NativePassword(authResponse, randomString));
+    }
+
+    // What a mysql_native_password client would have sent for this password: an empty auth
+    // response for an empty password, the SHA-1 scramble over the nonce otherwise.
+    public static byte[] nativeScramble(String plainPassword, byte[] nonce) {
+        return plainPassword.isEmpty() ? new byte[0] : MysqlPassword.scramble(nonce, plainPassword);
     }
 
     @Override

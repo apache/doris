@@ -94,6 +94,20 @@ public class ConfigTest {
     }
 
     @Test
+    public void testOptionsConfigAcceptsItsOptionsOnly() throws ConfigException {
+        String original = Config.mysql_caching_sha2_password_clients;
+        try {
+            ConfigBase.setMutableConfig("mysql_caching_sha2_password_clients", "ALL");
+            Assertions.assertEquals("all", Config.mysql_caching_sha2_password_clients);
+            Assertions.assertThrows(ConfigException.class,
+                    () -> ConfigBase.setMutableConfig("mysql_caching_sha2_password_clients", "bogus"));
+            Assertions.assertEquals("all", Config.mysql_caching_sha2_password_clients);
+        } finally {
+            Config.mysql_caching_sha2_password_clients = original;
+        }
+    }
+
+    @Test
     public void testSetEmptyArray() throws ConfigException {
         ConfigBase.setMutableConfig("mysql_compat_var_whitelist", "a,b,c");
         ConfigBase.setMutableConfig("mysql_compat_var_whitelist", "");

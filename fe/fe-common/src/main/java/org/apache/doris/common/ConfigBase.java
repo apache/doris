@@ -82,6 +82,21 @@ public class ConfigBase {
         }
     }
 
+    // The value must be one of the annotation's options; stored as the option's own spelling.
+    public static class OptionsConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String confVal) throws Exception {
+            for (String option : field.getAnnotation(ConfField.class).options()) {
+                if (option.equalsIgnoreCase(confVal.trim())) {
+                    setConfigField(field, option);
+                    return;
+                }
+            }
+            throw new ConfigException("Config '" + field.getName() + "' must be one of "
+                    + String.join(", ", field.getAnnotation(ConfField.class).options()));
+        }
+    }
+
     static class CommaSeparatedIntersectConfHandler implements ConfHandler {
         @Override
         public void handle(Field field, String newVal) throws Exception {
