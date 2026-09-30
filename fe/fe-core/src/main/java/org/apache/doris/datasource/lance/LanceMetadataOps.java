@@ -18,8 +18,15 @@
 package org.apache.doris.datasource.lance;
 
 import org.apache.doris.analysis.ColumnPosition;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -68,6 +75,10 @@ public class LanceMetadataOps implements ExternalMetadataOps {
     @Override
     public boolean createDbImpl(String dbName, boolean ifNotExists, Map<String, String> properties)
             throws DdlException {
+        if (LanceExternalCatalog.LANCE_FILESYSTEM.equals(catalog.getLanceCatalogType())) {
+            throw new DdlException(
+                    "CREATE DATABASE is not supported for Lance filesystem catalogs");
+        }
         return execute("Failed to create Lance database " + dbName, client -> {
             if (client.isRootDatabase(dbName)) {
                 throw new DdlException("Cannot create the configured Lance root database: " + dbName);
@@ -107,6 +118,10 @@ public class LanceMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException {
+        if (LanceExternalCatalog.LANCE_FILESYSTEM.equals(catalog.getLanceCatalogType())) {
+            throw new DdlException(
+                    "DROP DATABASE is not supported for Lance filesystem catalogs");
+        }
         ExternalDatabase<?> db = catalog.getDbNullable(dbName);
         return execute("Failed to drop Lance database " + dbName, client -> {
             if (client.isRootDatabase(dbName)) {
@@ -208,6 +223,7 @@ public class LanceMetadataOps implements ExternalMetadataOps {
 
     private static void validateCreateColumns(List<Column> columns) throws UserException {
         for (Column column : columns) {
+            validateLosslessType(column.getType(), "CREATE TABLE");
             if (column.isAggregated()) {
                 throw new UserException("Lance columns do not support aggregation: " + column.getName());
             }
@@ -437,6 +453,7 @@ public class LanceMetadataOps implements ExternalMetadataOps {
     }
 
     private static void validateColumnAttributes(Column column, String operation) throws UserException {
+        validateLosslessType(column.getType(), operation);
         if (column.isKey()) {
             throw new UserException("Lance " + operation + " does not support key columns");
         }
@@ -451,6 +468,33 @@ public class LanceMetadataOps implements ExternalMetadataOps {
         if (column.isGeneratedColumn()) {
             throw new UserException("Lance " + operation + " does not support generated columns: "
                     + column.getName());
+        }
+    }
+
+    private static void validateLosslessType(Type type, String operation) throws UserException {
+        PrimitiveType primitiveType = type.getPrimitiveType();
+        if (primitiveType == PrimitiveType.CHAR || primitiveType == PrimitiveType.VARCHAR
+                || (primitiveType == PrimitiveType.VARBINARY
+                && type.getLength() != ScalarType.MAX_VARBINARY_LENGTH)) {
+            throw new UserException("Lance " + operation
+                    + " does not support length-bounded types: " + type.toSql());
+        }
+        switch (primitiveType) {
+            case ARRAY:
+                validateLosslessType(((ArrayType) type).getItemType(), operation);
+                break;
+            case MAP:
+                MapType mapType = (MapType) type;
+                validateLosslessType(mapType.getKeyType(), operation);
+                validateLosslessType(mapType.getValueType(), operation);
+                break;
+            case STRUCT:
+                for (StructField field : ((StructType) type).getFields()) {
+                    validateLosslessType(field.getType(), operation);
+                }
+                break;
+            default:
+                break;
         }
     }
 

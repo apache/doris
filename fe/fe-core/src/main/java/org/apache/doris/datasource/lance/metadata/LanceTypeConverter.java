@@ -85,7 +85,7 @@ public final class LanceTypeConverter {
                 sqlType = "BIGINT";
                 break;
             case FLOAT:
-                sqlType = "REAL";
+                sqlType = "FLOAT";
                 break;
             case DOUBLE:
                 sqlType = "DOUBLE";
@@ -93,7 +93,7 @@ public final class LanceTypeConverter {
             case CHAR:
             case VARCHAR:
             case STRING:
-                sqlType = "VARCHAR";
+                sqlType = "STRING";
                 break;
             case VARBINARY:
                 sqlType = "BINARY";

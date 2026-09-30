@@ -209,41 +209,14 @@ final class LanceNamespaceClient {
         try {
             List<String> namespaceId = buildNamespaceId(dbName);
             synchronized (namespaceLock) {
-                if (force) {
-                    try {
-                        dropNamespaceCascade(namespaceId, ifExists ? "Skip" : "Fail");
-                    } catch (NamespaceNotFoundException e) {
-                        if (!ifExists) {
-                            throw e;
-                        }
-                    }
-                    return;
-                }
                 namespace.dropNamespace(new DropNamespaceRequest()
                         .id(namespaceId)
                         .mode(ifExists ? "Skip" : "Fail")
-                        .behavior("Restrict"));
+                        .behavior(force ? "Cascade" : "Restrict"));
             }
         } catch (DdlException e) {
             throw new RuntimeException(e);
         }
-    }
-
-    private void dropNamespaceCascade(List<String> namespaceId, String mode) {
-        for (String child : listChildNamespaces(namespaceId)) {
-            List<String> childId = new ArrayList<>(namespaceId);
-            childId.add(child);
-            dropNamespaceCascade(childId, "Fail");
-        }
-        for (String table : listTableNames(namespaceId)) {
-            List<String> tableId = new ArrayList<>(namespaceId);
-            tableId.add(table);
-            namespace.dropTable(new DropTableRequest().id(tableId));
-        }
-        namespace.dropNamespace(new DropNamespaceRequest()
-                .id(namespaceId)
-                .mode(mode)
-                .behavior("Restrict"));
     }
 
     /**
