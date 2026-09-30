@@ -506,6 +506,22 @@ TEST_F(TestCloudBinlogCumulativeCompactionPolicy, filter_new_visible_rowsets) {
     EXPECT_EQ(5, input_rowsets.back()->end_version());
 }
 
+TEST_F(TestCloudBinlogCumulativeCompactionPolicy, ttl_empty_output_accepts_mixed_levels) {
+    CloudTablet tablet(_engine, _tablet_meta);
+    CloudBinlogCumulativeCompactionPolicy policy;
+    auto empty = create_binlog_rowset(Version(0, 1), 0, false, 0, 1);
+    auto expired = create_binlog_rowset(Version(2, 2), 1, false, 1024, 0);
+    expired->rowset_meta()->set_num_rows(10);
+    auto output = create_binlog_rowset(Version(0, 2), 0, false, 0, 0);
+    EXPECT_EQ(0, policy.get_compaction_level(&tablet, {empty, expired}, output));
+
+    // Non-empty compaction still promotes inputs from the same level.
+    output->rowset_meta()->set_num_segments(1);
+    output->rowset_meta()->set_num_rows(10);
+    expired->rowset_meta()->set_compaction_level(1);
+    EXPECT_EQ(2, policy.get_compaction_level(&tablet, {empty, expired}, output));
+}
+
 TEST_F(TestCloudBinlogCumulativeCompactionPolicy, new_cumulative_point) {
     CloudTablet tablet(_engine, _tablet_meta);
     CloudBinlogCumulativeCompactionPolicy policy;
