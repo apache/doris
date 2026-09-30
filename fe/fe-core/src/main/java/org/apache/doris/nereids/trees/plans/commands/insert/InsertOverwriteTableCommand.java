@@ -146,6 +146,17 @@ public class InsertOverwriteTableCommand extends Command
     public static final String DEBUG_POINT_CANCEL_WHILE_THE_SWAP_WAITS_FOR_THE_TABLE_LOCK =
             "InsertOverwriteTableCommand.cancelWhileTheSwapWaitsForTheTableLock";
 
+    /**
+     * The swap that publishes an overwrite: replacing the temp partitions for an explicit-partition
+     * overwrite, or making a task group's replacements visible for an auto-detect one. Both run through
+     * {@link #publishTheOverwrite}, which holds the target table's write lock and takes the last look at the
+     * cancellation flag before letting one run.
+     */
+    @FunctionalInterface
+    private interface OverwritePublication {
+        void publish() throws UserException;
+    }
+
     private static final Logger LOG = LogManager.getLogger(InsertOverwriteTableCommand.class);
 
     private LogicalPlan originLogicalQuery;
@@ -292,18 +303,23 @@ public class InsertOverwriteTableCommand extends Command
             }
             if (isAutoDetectOverwrite(getLogicalQuery())) {
                 // taskId here is a group id. it contains all replace tasks made and registered in rpc process.
-                taskId = insertOverwriteManager.registerTaskGroup(targetTable);
+                final long groupId = insertOverwriteManager.registerTaskGroup(targetTable);
+                taskId = groupId;
                 // When inserting, BE will call to replace partition by FrontendService. FE will register new temp
                 // partitions and return. for transactional, the replacement will really occur when insert successed,
                 // i.e. `insertInto` finished. then we call taskGroupSuccess to make replacement.
-                InsertCommandContext insertCtx = insertIntoAutoDetect(ctx, executor, taskId);
+                InsertCommandContext insertCtx = insertIntoAutoDetect(ctx, executor, groupId);
                 if (isCancelled.get() && !insertCtx.hasCommitted()) {
-                    // The load committed no row, so the cancellation still has everything to take back: the
-                    // catch drops the group's temp partitions (there are none), and the statement fails
-                    // rather than publishing a replacement the client cancelled.
+                    // The load committed nothing -- an empty plan takes the path that begins no transaction --
+                    // so the cancellation still has everything to take back: the catch drops the group's temp
+                    // partitions (an empty plan registers none), and the statement fails rather than reporting
+                    // a replacement the client cancelled. A cancellation landing after this check, while the
+                    // swap waits for the table lock, is taken up again by publishTheOverwrite below.
                     throw cancelledBeforeTheRowsWereCommitted("after a load that committed nothing", ctx);
                 }
-                insertOverwriteManager.taskGroupSuccess(taskId, (OlapTable) targetTable, isForceDropPartition());
+                publishTheOverwrite(targetTable, insertCtx, ctx,
+                        () -> insertOverwriteManager.taskGroupSuccess(groupId, (OlapTable) targetTable,
+                                isForceDropPartition()));
             } else {
                 // it's overwrite table(as all partitions) or specific partition(s)
                 List<String> tempPartitionNames = InsertOverwriteUtil.generateTempPartitionNames(partitionNames);
@@ -348,7 +364,12 @@ public class InsertOverwriteTableCommand extends Command
                             + " queryId: {}", ctx.getQueryIdentifier());
                 }
                 failBetweenTheTwoHalvesOfAnOverwrite(targetTable);
-                publishTheOverwrite(targetTable, partitionNames, tempPartitionNames, insertCtx, ctx);
+                // The publication below is a lambda, so the partitions it replaces need a name that is final:
+                // partitionNames is assigned on more than one path above.
+                final List<String> replacedPartitionNames = partitionNames;
+                publishTheOverwrite(targetTable, insertCtx, ctx,
+                        () -> InsertOverwriteUtil.replacePartition(targetTable, replacedPartitionNames,
+                                tempPartitionNames, isForceDropPartition()));
                 if (isCancelled.get()) {
                     LOG.info("insert overwrite is cancelled before taskSuccess, do nothing, queryId: {}",
                             ctx.getQueryIdentifier());
@@ -459,23 +480,22 @@ public class InsertOverwriteTableCommand extends Command
     }
 
     /**
-     * Publishes this overwrite by swapping the temp partitions in, with a last look at the cancellation flag
-     * taken under the lock the swap contends for.
+     * Publishes this overwrite by running its swap, with a last look at the cancellation flag taken under the
+     * lock the swap contends for.
      *
      * <p>{@link #run} reads the flag before the swap is issued, and the swap then waits for the table's write
      * lock, so a cancellation that arrives during that wait is the one place a check before the swap cannot
      * see. Reading it again here costs nothing and is where the wait happens: for a cancellation with nothing
      * committed there is nothing durable to publish, so refusing to swap costs the statement and leaves the
-     * rows the client asked to keep -- while a swap that went ahead would replace them with empty partitions.
+     * rows the client asked to keep -- while a swap that went ahead would replace them with an empty result.
      *
      * <p>Only a local table is wrapped: a remote table swaps on the frontend that owns it, where this lock
      * says nothing.
      */
-    private void publishTheOverwrite(TableIf targetTable, List<String> partitionNames,
-            List<String> tempPartitionNames, InsertCommandContext insertCtx, ConnectContext ctx) throws UserException {
+    private void publishTheOverwrite(TableIf targetTable, InsertCommandContext insertCtx, ConnectContext ctx,
+            OverwritePublication publication) throws UserException {
         if (!(targetTable instanceof OlapTable) || targetTable instanceof RemoteOlapTable) {
-            InsertOverwriteUtil.replacePartition(targetTable, partitionNames, tempPartitionNames,
-                    isForceDropPartition());
+            publication.publish();
             return;
         }
         OlapTable olapTable = (OlapTable) targetTable;
@@ -493,8 +513,7 @@ public class InsertOverwriteTableCommand extends Command
             if (isCancelled.get() && !insertCtx.hasCommitted()) {
                 throw cancelledBeforeTheRowsWereCommitted("while the swap waited for the table lock", ctx);
             }
-            InsertOverwriteUtil.replacePartition(targetTable, partitionNames, tempPartitionNames,
-                    isForceDropPartition());
+            publication.publish();
         } finally {
             olapTable.writeUnlock();
         }

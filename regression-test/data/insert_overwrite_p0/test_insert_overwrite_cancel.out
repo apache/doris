@@ -13,6 +13,10 @@
 -- !dst_after_the_cancelled_locked_swap --
 1	2026-01-10	100
 
+-- !dst_after_the_cancelled_auto_detect_swap --
+3	2026-01-20	300
+4	2026-02-20	400
+
 -- !dst_after_the_publish_timeout --
 3	2026-01-20	300
 4	2026-02-20	400

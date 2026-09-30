@@ -186,6 +186,25 @@ suite("test_insert_overwrite_cancel", "nonConcurrent") {
     }
     order_qt_dst_after_the_cancelled_locked_swap """SELECT id, dt, amount FROM test_iot_cancel_flat_dst"""
 
+    // The auto-detect route takes the same decision at the same point, and it needs it: with
+    // enable_strict_consistency_dml off, an empty-plan `PARTITION(*)` overwrite has no exchange in its plan
+    // either, so it takes the insert's no-transaction path as well and its swap has nothing to publish. The
+    // cancellation has to be honoured there too, and the table has to keep its rows.
+    try {
+        sql """SET enable_strict_consistency_dml = false"""
+        GetDebugPoint().enableDebugPointForAllFEs(waitsPoint,
+                [table_name: "test_iot_cancel_dst"])
+        test {
+            sql """INSERT OVERWRITE TABLE test_iot_cancel_dst PARTITION(*)
+                   SELECT id, dt, amount FROM test_iot_cancel_src WHERE 1 = 0"""
+            exception "insert overwrite is cancelled while the swap waited for the table lock"
+        }
+    } finally {
+        GetDebugPoint().disableDebugPointForAllFEs(waitsPoint)
+        sql """SET enable_strict_consistency_dml = true"""
+    }
+    order_qt_dst_after_the_cancelled_auto_detect_swap """SELECT id, dt, amount FROM test_iot_cancel_dst"""
+
     // An error response over committed rows: `insert_visible_timeout_return_mode=error` turns a publication
     // timeout that follows the commit into an error, but the rows the overwrite wrote are durable, so the
     // overwrite has to be published rather than dropped with the temporary partitions. The row the overwrite
