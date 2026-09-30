@@ -88,6 +88,17 @@ public class VariableMgrTest extends TestWithFeService {
     }
 
     @Test
+    public void testAuthenticationPolicyIsTheReadOnlyMysqlDefault() throws Exception {
+        SessionVariable sessionVariable = new SessionVariable();
+        VariableExpr variableExpr = new VariableExpr(GlobalVariable.AUTHENTICATION_POLICY);
+        VariableMgr.fillValue(sessionVariable, variableExpr);
+        Assertions.assertEquals("*,,", VariableMgr.getValue(sessionVariable, variableExpr));
+
+        SetVar setVar = new SetVar(SetType.GLOBAL, GlobalVariable.AUTHENTICATION_POLICY, new StringLiteral("*,"));
+        Assertions.assertThrows(DdlException.class, () -> VariableMgr.setVar(sessionVariable, setVar));
+    }
+
+    @Test
     public void testVariableCallback() throws Exception {
         SetOptionsCommand stmt = (SetOptionsCommand) UtFrameUtils.parseStmt(
                 "set session_context='trace_id:123'", connectContext);
