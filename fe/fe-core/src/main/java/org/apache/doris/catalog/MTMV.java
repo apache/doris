@@ -1608,13 +1608,67 @@ public class MTMV extends OlapTable {
         Map<PartitionKeyDesc, Map<MTMVRelatedTableIf, Set<String>>> pctPartitionDescs = MTMVPartitionUtil
                 .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties, getPartitionColumns(),
                         effectiveFilter, pinnedSnapshots);
+        Map<MTMVRelatedTableIf, String> defaultListPartitions = defaultListPartitionsOf();
         for (Entry<String, PartitionItem> entry : mvPartitionItems.entrySet()) {
-            res.put(entry.getKey(),
-                    pctPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(), Maps.newHashMap()));
+            res.put(entry.getKey(), withDefaultListPartitions(
+                    pctPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(), Maps.newHashMap()),
+                    defaultListPartitions));
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("calculatePartitionMappings use [{}] mills, mvName is [{}]",
                     System.currentTimeMillis() - start, name);
+        }
+        return res;
+    }
+
+    /**
+     * The list partition each base table of this MV has that takes the rows no other partition of it claims,
+     * by table, or none for a table that has no such partition.
+     *
+     * <p>Read once per mapping rather than per MV partition: the mapping describes every MV partition and the
+     * answer is the table's, not the partition's. The partition metadata is read without a lock, like the
+     * rest of the mapping this is part of.
+     */
+    private Map<MTMVRelatedTableIf, String> defaultListPartitionsOf() throws AnalysisException {
+        Map<MTMVRelatedTableIf, String> res = Maps.newHashMap();
+        for (MTMVRelatedTableIf pctTable : mvPartitionInfo.getPctTables()) {
+            if (!(pctTable instanceof OlapTable)) {
+                continue;
+            }
+            OlapTable olapTable = (OlapTable) pctTable;
+            if (!(olapTable.getPartitionInfo() instanceof ListPartitionInfo)) {
+                continue;
+            }
+            for (String partitionName : olapTable.getPartitionNames()) {
+                if (olapTable.getPartitionItemOrAnalysisException(partitionName).isDefaultPartition()) {
+                    res.put(pctTable, partitionName);
+                    break;
+                }
+            }
+        }
+        return res;
+    }
+
+    /**
+     * One MV partition's mapping, with every base table's default list partition named in it.
+     *
+     * <p>Such a partition holds rows for every key its table can be read by, so it belongs to every MV
+     * partition that reads the table -- not only to the one its own key, the sentinel those rows were placed
+     * by, maps to. Naming it everywhere is what the read and the record have to agree on: the refresh reads
+     * the rows of it that belong to the MV partition being refreshed, and the partition is recorded among the
+     * ones that partition is read through, so an insert into it leaves that MV partition out of sync instead
+     * of changing nothing the MV compares.
+     */
+    private Map<MTMVRelatedTableIf, Set<String>> withDefaultListPartitions(
+            Map<MTMVRelatedTableIf, Set<String>> mapping, Map<MTMVRelatedTableIf, String> defaultListPartitions) {
+        if (defaultListPartitions.isEmpty()) {
+            return mapping;
+        }
+        Map<MTMVRelatedTableIf, Set<String>> res = Maps.newHashMap(mapping);
+        for (Entry<MTMVRelatedTableIf, String> entry : defaultListPartitions.entrySet()) {
+            Set<String> partitions = Sets.newHashSet(res.getOrDefault(entry.getKey(), Sets.newHashSet()));
+            partitions.add(entry.getValue());
+            res.put(entry.getKey(), partitions);
         }
         return res;
     }

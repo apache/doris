@@ -16,6 +16,15 @@
 2020-01-01	2	2
 2020-01-01	3	1
 
+-- !list_default_tracked --
+false
+
+-- !two_pct_default --
+1	10	100
+
+-- !fractional_default --
+2024-02-01T00:00:00.123	5
+
 -- !fractional_key --
 2024-02-01T00:00:00.123	5
 2024-03-01T00:00	6
