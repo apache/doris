@@ -20,11 +20,14 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <memory>
+#include <utility>
 
 #include "common/status.h"
 #include "exec/operator/operator.h"
 
 namespace doris {
+class BucketedAggSinkOperatorX;
 class BucketedAggSourceOperatorX;
 
 /// Source-side local state for bucketed hash aggregation.
@@ -112,10 +115,19 @@ public:
 
     bool is_source() const override { return true; }
 
+    // The source merges and finalizes the states built by the sink, so it runs the same
+    // (possibly blocking) aggregate functions as the paired sink operator.
+    void set_sink_operator(std::shared_ptr<BucketedAggSinkOperatorX> sink_operator) {
+        _sink_operator = std::move(sink_operator);
+    }
+
+    bool is_blockable(RuntimeState* state) const override;
+
 private:
     friend class BucketedAggLocalState;
 
     bool _needs_finalize;
+    std::shared_ptr<BucketedAggSinkOperatorX> _sink_operator;
 };
 
 } // namespace doris

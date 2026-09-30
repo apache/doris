@@ -158,6 +158,48 @@ public class BucketedAggregateTranslatorTest extends TestWithFeService {
         }
     }
 
+    @Test
+    public void testQueryCacheKeepsRegularAggregation() throws Exception {
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        int oldBeNumberForTest = sessionVariable.getBeNumberForTest();
+        long oldBucketedAggMinInputRows = sessionVariable.bucketedAggMinInputRows;
+        long oldBucketedAggMaxGroupKeys = sessionVariable.bucketedAggMaxGroupKeys;
+        double oldBucketedAggHighCardThreshold = sessionVariable.bucketedAggHighCardThreshold;
+        boolean oldEnableBucketedHashAgg = sessionVariable.enableBucketedHashAgg;
+        boolean oldEnableSpill = sessionVariable.enableSpill;
+        boolean oldEnableForceSpill = sessionVariable.enableForceSpill;
+        boolean oldEnableQueryCache = sessionVariable.getEnableQueryCache();
+        try {
+            sessionVariable.setBeNumberForTest(1);
+            sessionVariable.bucketedAggMinInputRows = 0;
+            sessionVariable.bucketedAggMaxGroupKeys = 0;
+            sessionVariable.bucketedAggHighCardThreshold = 1.0;
+            sessionVariable.enableBucketedHashAgg = true;
+            sessionVariable.enableSpill = false;
+            sessionVariable.enableForceSpill = false;
+            sessionVariable.setEnableQueryCache(false);
+            Assertions.assertFalse(collectBucketedAggregationNodes("sum(kint)").isEmpty());
+
+            // The query cache point is the LOCAL AggregationNode above the scan, which the
+            // fused bucketed aggregation does not have.
+            sessionVariable.setEnableQueryCache(true);
+            Planner planner = planAggregate("sum(kint)");
+            Assertions.assertTrue(collectNodes(planner, BucketedAggregationNode.class).isEmpty());
+            List<AggregationNode> aggregationNodes = collectNodes(planner, AggregationNode.class);
+            Assertions.assertTrue(aggregationNodes.stream()
+                    .anyMatch(node -> node.isQueryCacheCandidate()));
+        } finally {
+            sessionVariable.setBeNumberForTest(oldBeNumberForTest);
+            sessionVariable.bucketedAggMinInputRows = oldBucketedAggMinInputRows;
+            sessionVariable.bucketedAggMaxGroupKeys = oldBucketedAggMaxGroupKeys;
+            sessionVariable.bucketedAggHighCardThreshold = oldBucketedAggHighCardThreshold;
+            sessionVariable.enableBucketedHashAgg = oldEnableBucketedHashAgg;
+            sessionVariable.enableSpill = oldEnableSpill;
+            sessionVariable.enableForceSpill = oldEnableForceSpill;
+            sessionVariable.setEnableQueryCache(oldEnableQueryCache);
+        }
+    }
+
     private void assertUsesRegularAggregation(String aggregateFunction) throws Exception {
         Planner planner = planAggregate(aggregateFunction);
         Assertions.assertTrue(collectNodes(planner, BucketedAggregationNode.class).isEmpty());

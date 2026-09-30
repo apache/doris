@@ -24,6 +24,7 @@
 #include "core/column/column_vector.h"
 #include "exec/common/hash_table/hash.h"
 #include "exec/common/util.hpp"
+#include "exec/operator/bucketed_aggregation_sink_operator.h"
 #include "exec/operator/operator.h"
 #include "exprs/vectorized_agg_fn.h"
 #include "runtime/runtime_profile.h"
@@ -745,6 +746,11 @@ BucketedAggSourceOperatorX::BucketedAggSourceOperatorX(ObjectPool* pool, const T
                                                        int operator_id, const DescriptorTbl& descs)
         : Base(pool, tnode, operator_id, descs),
           _needs_finalize(tnode.bucketed_agg_node.need_finalize) {}
+
+bool BucketedAggSourceOperatorX::is_blockable(RuntimeState* state) const {
+    return Base::is_blockable(state) ||
+           (_sink_operator != nullptr && _sink_operator->has_blockable_aggregate());
+}
 
 Status BucketedAggSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);

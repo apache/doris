@@ -1495,7 +1495,9 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         }
 
         // Create source operator (goes on the current / downstream pipeline).
-        op = std::make_shared<BucketedAggSourceOperatorX>(pool, tnode, next_operator_id(), descs);
+        auto bucketed_agg_source = std::make_shared<BucketedAggSourceOperatorX>(
+                pool, tnode, next_operator_id(), descs);
+        op = bucketed_agg_source;
         RETURN_IF_ERROR(cur_pipe->add_operator(op, _parallel_instances));
 
         // Create a new pipeline for the sink side.
@@ -1507,8 +1509,10 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         _dag[downstream_pipeline_id].push_back(cur_pipe->id());
 
         // Create sink operator.
-        sink_ops.push_back(std::make_shared<BucketedAggSinkOperatorX>(
-                pool, next_sink_operator_id(), op->operator_id(), tnode, descs));
+        auto bucketed_agg_sink = std::make_shared<BucketedAggSinkOperatorX>(
+                pool, next_sink_operator_id(), op->operator_id(), tnode, descs);
+        bucketed_agg_source->set_sink_operator(bucketed_agg_sink);
+        sink_ops.push_back(bucketed_agg_sink);
         RETURN_IF_ERROR(cur_pipe->set_sink(sink_ops.back()));
         RETURN_IF_ERROR(cur_pipe->sink()->init(tnode, _runtime_state.get()));
 

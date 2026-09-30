@@ -27,12 +27,14 @@
 #include "exec/operator/aggregation_source_operator.h"
 #include "exec/operator/assert_num_rows_operator.h"
 #include "exec/operator/bucketed_aggregation_sink_operator.h"
+#include "exec/operator/bucketed_aggregation_source_operator.h"
 #include "exec/operator/mock_operator.h"
 #include "exec/operator/operator_helper.h"
 #include "exec/pipeline/dependency.h"
 #include "exec/pipeline/pipeline.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_agg_fn_evaluator.h"
+#include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_slot_ref.h"
 
 namespace doris {
@@ -200,6 +202,61 @@ TEST(AggOperatorRequiredDistributionTest, bucketed_agg_sink_passthrough_after_se
     child->set_serial_operator();
     EXPECT_EQ(ExchangeType::PASSTHROUGH,
               sink_op->required_data_distribution(&ctx.state).distribution_type);
+}
+
+// An expression that may block in execute(), like an AI or remote function.
+class MockBlockableExpr final : public VSlotRef {
+public:
+    MockBlockableExpr() { _node_type = TExprNodeType::SLOT_REF; }
+
+    Status execute(VExprContext* context, Block* block, int* result_column_id) const override {
+        *result_column_id = 0;
+        return Status::OK();
+    }
+    const std::string& expr_name() const override { return _name; }
+    bool is_blockable() const override { return true; }
+
+private:
+    std::string _name = "MockBlockableExpr";
+};
+
+TEST(AggOperatorBlockableTest, bucketed_agg_follows_blockable_aggregate) {
+    OperatorContext sink_ctx;
+    OperatorContext source_ctx;
+    DescriptorTbl descs;
+
+    auto sink_op =
+            std::make_shared<BucketedAggSinkOperatorX>(&sink_ctx.pool, 0, 0, TPlanNode {}, descs);
+    sink_op->_aggregate_evaluators.push_back(create_mock_agg_fn_evaluator(sink_ctx.pool));
+    // is_blockable() is asked when the task is submitted, before the local state is opened.
+    sink_ctx.state.emplace_sink_local_state(
+            0, BucketedAggSinkLocalState::create_unique(sink_op.get(), &sink_ctx.state));
+
+    MockDescriptorTbl source_descs {{std::make_shared<DataTypeInt64>()}, &source_ctx.pool};
+    TPlanNode source_tnode;
+    source_tnode.row_tuples.push_back(0);
+    source_tnode.nullable_tuples.push_back(false);
+    auto source_op = std::make_shared<BucketedAggSourceOperatorX>(&source_ctx.pool, source_tnode, 0,
+                                                                  source_descs);
+    source_op->set_sink_operator(sink_op);
+    // The sink of the source pipeline itself never blocks.
+    auto downstream_sink_op =
+            std::make_shared<BucketedAggSinkOperatorX>(&source_ctx.pool, 1, 1, TPlanNode {}, descs);
+    source_ctx.state.emplace_sink_local_state(
+            1,
+            BucketedAggSinkLocalState::create_unique(downstream_sink_op.get(), &source_ctx.state));
+
+    EXPECT_FALSE(sink_op->has_blockable_aggregate());
+    EXPECT_FALSE(sink_op->is_blockable(&sink_ctx.state));
+    EXPECT_FALSE(source_op->is_blockable(&source_ctx.state));
+
+    sink_op->_aggregate_evaluators.push_back(create_mock_agg_fn_evaluator(
+            sink_ctx.pool, {VExprContext::create_shared(std::make_shared<MockBlockableExpr>())}));
+
+    EXPECT_TRUE(sink_op->has_blockable_aggregate());
+    EXPECT_TRUE(sink_op->is_blockable(&sink_ctx.state));
+    // The source merges and finalizes the same aggregate functions.
+    EXPECT_TRUE(source_op->is_blockable(&source_ctx.state));
 }
 
 std::shared_ptr<AggSourceOperatorX> create_agg_source_op(OperatorContext& ctx, bool without_key,

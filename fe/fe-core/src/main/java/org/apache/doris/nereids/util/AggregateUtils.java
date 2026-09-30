@@ -191,8 +191,8 @@ public class AggregateUtils {
      * discount), and PhysicalPlanTranslator (for fusion into BucketedAggregationNode).
      *
      * @return true if the session variable is enabled, there is exactly one alive BE,
-     *         spill is disabled, no smooth upgrade is in progress, the aggregate has
-     *         GROUP BY keys and contains no user-defined aggregate function.
+     *         spill and the query cache are disabled, no smooth upgrade is in progress,
+     *         the aggregate has GROUP BY keys and contains no user-defined aggregate function.
      */
     public static boolean isBucketedHashAggEnabled(Aggregate<? extends Plan> aggregate) {
         ConnectContext ctx = ConnectContext.get();
@@ -210,6 +210,13 @@ public class AggregateUtils {
         // when spill is enabled, otherwise a high-cardinality GROUP BY could hit the
         // memory limit instead of spilling.
         if (ctx.getSessionVariable().enableSpill || ctx.getSessionVariable().enableForceSpill) {
+            return false;
+        }
+        // The query cache is built on the LOCAL AggregationNode above the scan, and neither
+        // the FE normalizer nor the BE cache operators know BucketedAggregationNode. Keep the
+        // regular aggregation when the query cache is enabled, otherwise the query would
+        // silently lose its cache point.
+        if (ctx.getSessionVariable().getEnableQueryCache()) {
             return false;
         }
         // be_number_for_test can only disable bucketed agg (to test the multi-BE plan),

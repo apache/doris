@@ -148,6 +148,25 @@ suite("bucketed_hash_agg") {
     """
 
     // ============================================================
+    // Negative — query cache enabled
+    //   The query cache point is the LOCAL aggregate above the scan, which
+    //   the fused bucketed aggregate does not have, so the regular plan
+    //   must be kept.
+    // ============================================================
+    sql "set be_number_for_test=1"
+    sql "set enable_bucketed_hash_agg = true;"
+    sql "set enable_query_cache = true;"
+    explain {
+        sql("${query}")
+        notContains("BUCKETED AGGREGATE")
+    }
+    sql "set enable_query_cache = false;"
+    explain {
+        sql("${query}")
+        contains("BUCKETED AGGREGATE")
+    }
+
+    // ============================================================
     // Test 5: COUNT(DISTINCT) + GROUP BY — results must be correct
     // ============================================================
     sql "set be_number_for_test=1"
