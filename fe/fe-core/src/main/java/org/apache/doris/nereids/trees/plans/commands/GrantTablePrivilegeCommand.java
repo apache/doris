@@ -27,6 +27,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.ColPrivilegeKey;
@@ -133,6 +134,7 @@ public class GrantTablePrivilegeCommand extends Command implements ForwardWithSy
      * 3. Only the user with NODE_PRIV can grant NODE_PRIV to other user
      * 4. Check that the current user has both grant_priv and the permissions to be assigned to others
      * 5. col priv must assign to specific table
+     * 6. Check that the current user has the col privs to be assigned to others, on the table or on each col
      */
     public static void checkTablePrivileges(Collection<Privilege> privileges, TablePattern tblPattern,
             Map<ColPrivilegeKey, Set<String>> colPrivileges) throws AnalysisException {
@@ -153,8 +155,8 @@ public class GrantTablePrivilegeCommand extends Command implements ForwardWithSy
         // Rule 4
         PrivPredicate predicate = getPrivPredicate(privileges);
         AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
-        if (!accessManager.checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
-                && !checkTablePriv(ConnectContext.get(), predicate, tblPattern)) {
+        boolean isAdmin = accessManager.checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN);
+        if (!isAdmin && !checkTablePriv(ConnectContext.get(), predicate, tblPattern)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ALL_ACCESS_DENIED_ERROR,
                     predicate.getPrivs().toPrivilegeList());
         }
@@ -162,6 +164,24 @@ public class GrantTablePrivilegeCommand extends Command implements ForwardWithSy
         // Rule 5
         if (!MapUtils.isEmpty(colPrivileges) && "*".equals(tblPattern.getTbl())) {
             throw new AnalysisException("Col auth must specify specific table");
+        }
+
+        if (!isAdmin) {
+            checkColPrivs(ConnectContext.get(), colPrivileges);
+        }
+    }
+
+    private static void checkColPrivs(ConnectContext ctx, Map<ColPrivilegeKey, Set<String>> colPrivileges)
+            throws AnalysisException {
+        AccessControllerManager accessManager = Env.getCurrentEnv().getAccessManager();
+        for (Map.Entry<ColPrivilegeKey, Set<String>> entry : colPrivileges.entrySet()) {
+            ColPrivilegeKey key = entry.getKey();
+            PrivPredicate wanted = PrivPredicate.of(PrivBitSet.of(key.getPrivilege()), CompoundPredicate.Operator.OR);
+            try {
+                accessManager.checkColumnsPriv(ctx, key.getCtl(), key.getDb(), key.getTbl(), entry.getValue(), wanted);
+            } catch (UserException e) {
+                throw new AnalysisException(e.getMessage(), e);
+            }
         }
     }
 
