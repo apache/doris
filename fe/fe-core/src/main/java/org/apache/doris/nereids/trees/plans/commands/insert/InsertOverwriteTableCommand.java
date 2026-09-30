@@ -136,6 +136,16 @@ public class InsertOverwriteTableCommand extends Command
     public static final String DEBUG_POINT_CANCEL_BETWEEN_THE_HALVES_OF_AN_OVERWRITE =
             "InsertOverwriteTableCommand.cancelBetweenTheTwoHalvesOfAnOverwrite";
 
+    /**
+     * Cancels the overwrite while the swap holds the target table's write lock, which is the window a
+     * cancellation can reach only after the check that reads the flag before the swap was issued: the swap
+     * waits for that lock, and the wait can be as long as whoever holds it. A cancellation with nothing
+     * committed is still honoured there, because there is nothing durable to publish and refusing costs the
+     * statement and nothing else. See test_insert_overwrite_cancel.
+     */
+    public static final String DEBUG_POINT_CANCEL_WHILE_THE_SWAP_WAITS_FOR_THE_TABLE_LOCK =
+            "InsertOverwriteTableCommand.cancelWhileTheSwapWaitsForTheTableLock";
+
     private static final Logger LOG = LogManager.getLogger(InsertOverwriteTableCommand.class);
 
     private LogicalPlan originLogicalQuery;
@@ -338,8 +348,7 @@ public class InsertOverwriteTableCommand extends Command
                             + " queryId: {}", ctx.getQueryIdentifier());
                 }
                 failBetweenTheTwoHalvesOfAnOverwrite(targetTable);
-                InsertOverwriteUtil.replacePartition(targetTable, partitionNames, tempPartitionNames,
-                        isForceDropPartition());
+                publishTheOverwrite(targetTable, partitionNames, tempPartitionNames, insertCtx, ctx);
                 if (isCancelled.get()) {
                     LOG.info("insert overwrite is cancelled before taskSuccess, do nothing, queryId: {}",
                             ctx.getQueryIdentifier());
@@ -447,6 +456,42 @@ public class InsertOverwriteTableCommand extends Command
         }
         LOG.info("debug point {} cancels the overwrite of {}", debugPointName, targetTable.getName());
         cancel();
+    }
+
+    /**
+     * Publishes this overwrite by swapping the temp partitions in, with a last look at the cancellation flag
+     * taken under the lock the swap contends for.
+     *
+     * <p>{@link #run} reads the flag before the swap is issued, and the swap then waits for the table's write
+     * lock, so a cancellation that arrives during that wait is the one place a check before the swap cannot
+     * see. Reading it again here costs nothing and is where the wait happens: for a cancellation with nothing
+     * committed there is nothing durable to publish, so refusing to swap costs the statement and leaves the
+     * rows the client asked to keep -- while a swap that went ahead would replace them with empty partitions.
+     *
+     * <p>Only a local table is wrapped: a remote table swaps on the frontend that owns it, where this lock
+     * says nothing.
+     */
+    private void publishTheOverwrite(TableIf targetTable, List<String> partitionNames,
+            List<String> tempPartitionNames, InsertCommandContext insertCtx, ConnectContext ctx) throws UserException {
+        if (!(targetTable instanceof OlapTable) || targetTable instanceof RemoteOlapTable) {
+            InsertOverwriteUtil.replacePartition(targetTable, partitionNames, tempPartitionNames,
+                    isForceDropPartition());
+            return;
+        }
+        OlapTable olapTable = (OlapTable) targetTable;
+        if (!olapTable.writeLockIfExist()) {
+            return;
+        }
+        try {
+            cancelTheOverwriteAt(DEBUG_POINT_CANCEL_WHILE_THE_SWAP_WAITS_FOR_THE_TABLE_LOCK, targetTable);
+            if (isCancelled.get() && !insertCtx.hasCommitted()) {
+                throw cancelledBeforeTheRowsWereCommitted("while the swap waited for the table lock", ctx);
+            }
+            InsertOverwriteUtil.replacePartition(targetTable, partitionNames, tempPartitionNames,
+                    isForceDropPartition());
+        } finally {
+            olapTable.writeUnlock();
+        }
     }
 
     /**
