@@ -80,13 +80,15 @@ public class Sha2 extends ScalarFunction
             throw new AnalysisException("the second parameter of sha2 must be a constant but got: "
                     + digestLength.toSql());
         }
-        // a constant FE cannot fold is validated by BE when it is evaluated
-        if (!(digestLength instanceof Literal)) {
-            return;
-        }
-        if (!(digestLength instanceof IntegerLikeLiteral)) {
+        // the type is checked before the type coercion casts the argument to the INT signature, so a decimal
+        // constant is rejected like a decimal literal
+        if (!digestLength.getDataType().isIntegralType()) {
             throw new AnalysisException("the second parameter of sha2 must be an integer but got: "
                     + digestLength.toSql());
+        }
+        // the value of a constant FE cannot fold is validated by BE when it is evaluated
+        if (!(digestLength instanceof Literal)) {
+            return;
         }
         final int constParam = ((IntegerLikeLiteral) digestLength).getIntValue();
         if (!validDigest.contains(constParam)) {
