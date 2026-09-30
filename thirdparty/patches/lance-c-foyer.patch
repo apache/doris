@@ -1,5 +1,5 @@
 # Foyer data-cache integration for lance-format/lance-c#73.
-# Base: 8d916552fdceb2a13f050f6255fda62e94331688 (lance-format/lance-c#93)
+# Base: cd63420bfbe27f6f0a1edcc873b9191af7d52852 (lance-format/lance-c main, including #93)
 # Source: https://github.com/Gabriel39/lance-c/commit/24c7ca4bcb9422c113b0d3e07e4efe1173b0bc9f
 # The unchanged Foyer payload is reapplied to the newer upstream base with git apply --3way.
 diff --git a/Cargo.lock b/Cargo.lock
@@ -198,7 +198,7 @@ index 18654b862440a90aa6bf0dd846e8f1ad6036fd7c..fd134a7151e1df61da201d867a642e9b
  prost = "0.14"
  snafu = "0.9"
 diff --git a/README.md b/README.md
-index 5b4e167ceabb50ac406c0484c8077f154009b138..a042ee33ed0bbf9e38ead5735d56be81cdbeff3b 100644
+index 9f0871b17b13ebfd96916947b4bee0dd06f6a468..441719c9f3904058127e55d1cd29ea1afc878935 100644
 --- a/README.md
 +++ b/README.md
 @@ -68,6 +68,7 @@ Based on the [liblance RFC](https://github.com/lance-format/lance/discussions/60
@@ -209,7 +209,7 @@ index 5b4e167ceabb50ac406c0484c8077f154009b138..a042ee33ed0bbf9e38ead5735d56be81
 
  ## Segment-scoped array label filters
 
-@@ -312,6 +313,35 @@ auto ds = lance::Dataset::open_with_session(session, "data.lance");
+@@ -362,6 +363,35 @@ auto ds = lance::Dataset::open_with_session(session, "data.lance");
  auto stats = session.cache_stats();
  ```
 
@@ -246,7 +246,7 @@ index 5b4e167ceabb50ac406c0484c8077f154009b138..a042ee33ed0bbf9e38ead5735d56be81
 
  `lance_dataset_open` takes a `version` argument — `0` means the latest, any
 diff --git a/include/lance/lance.h b/include/lance/lance.h
-index ea00436969dfe7fa5bcef7ef9a3b5ea9d9f4f8fd..438e55208a1b7a6cc1cfb38eaac2c8565fb8500e 100644
+index 94772e2a14bf9a8a950dfb2d39112136e27197c0..fe48eb0d9afd1c7157a3bd2230cce7e769120bac 100644
 --- a/include/lance/lance.h
 +++ b/include/lance/lance.h
 @@ -214,6 +214,36 @@ typedef struct LanceSessionCacheStats {
@@ -334,7 +334,7 @@ index ea00436969dfe7fa5bcef7ef9a3b5ea9d9f4f8fd..438e55208a1b7a6cc1cfb38eaac2c856
  void lance_dataset_close(LanceDataset* dataset);
 
 diff --git a/include/lance/lance.hpp b/include/lance/lance.hpp
-index 882059a37601c982d299c3202944b625a59172d9..8d92b93f469a006d1a44b855ca413436cf774358 100644
+index edcd39fc3caba387ab490fa84139f24e9376130a..17b71957d0f5c419fe0b3392ce11faa757ddbfe1 100644
 --- a/include/lance/lance.hpp
 +++ b/include/lance/lance.hpp
 @@ -176,6 +176,13 @@ struct SqlColumn {
@@ -2243,7 +2243,7 @@ index 1971510de4a13ee6f04fc39c159b088e78e21d55..ba51c87a8cebb6897c48fb55509f71da
          // SAFETY: `out_dataset` is non-NULL (checked above) and the caller
          // guarantees it points to caller-owned, writable storage of size
 diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
-index 42a34035797085ed951cc0cb4ef5802de5732b81..f933697c09d35f20144d3ad6880d43027229efbc 100644
+index d3bea44529a842fe3ae28ee3f90cd8d45fe0b394..98e6901a2cfeb2cc98df6606e26b04788d4218b2 100644
 --- a/tests/c_api_test.rs
 +++ b/tests/c_api_test.rs
 @@ -100,10 +100,83 @@ fn create_large_dataset(num_rows: i32) -> (tempfile::TempDir, String) {
@@ -2502,7 +2502,7 @@ index 42a34035797085ed951cc0cb4ef5802de5732b81..f933697c09d35f20144d3ad6880d4302
  fn test_dataset_restore_to_current_latest_writes_new_manifest() {
      // Restoring to the current latest still writes a new manifest. The
 diff --git a/tests/cpp/test_c_api.c b/tests/cpp/test_c_api.c
-index ce59a40b0983139c72ca95b595f3e2fe8ea76c04..877b363c4be48fbc1ffe91a7454eb70174b9f01f 100644
+index efad5ed55987976a3f1820220e42fc58bef42638..050543aebc02454cab09f6e0bd38ec10b1d21720 100644
 --- a/tests/cpp/test_c_api.c
 +++ b/tests/cpp/test_c_api.c
 @@ -171,6 +171,37 @@ static void test_shared_session(const char *uri) {
@@ -2543,8 +2543,8 @@ index ce59a40b0983139c72ca95b595f3e2fe8ea76c04..877b363c4be48fbc1ffe91a7454eb701
  static void test_scan(const char *uri) {
      printf("  test_scan... ");
 
-@@ -1404,6 +1435,7 @@ int main(int argc, char **argv) {
-
+@@ -1471,6 +1502,7 @@ int main(int argc, char **argv) {
+     test_batch_nearest(uri);
      test_open_and_metadata(uri);
      test_shared_session(uri);
 +    test_data_cache_session(uri, write_uri);
@@ -2552,7 +2552,7 @@ index ce59a40b0983139c72ca95b595f3e2fe8ea76c04..877b363c4be48fbc1ffe91a7454eb701
      test_distance_range(uri);
      test_scan_with_limit(uri);
 diff --git a/tests/cpp/test_cpp_api.cpp b/tests/cpp/test_cpp_api.cpp
-index e82582de86307657b1aa007ffff85a362b1dc196..a679293757f9f1eab39ea399450558877776eee5 100644
+index e2d541e4430889aba89ab85c01cc7e3eacf97baa..ac1c10bccfcf399bbbfcfe908d3188484aff0add 100644
 --- a/tests/cpp/test_cpp_api.cpp
 +++ b/tests/cpp/test_cpp_api.cpp
 @@ -131,6 +131,28 @@ static void test_shared_session(const std::string& uri) {
@@ -2584,7 +2584,7 @@ index e82582de86307657b1aa007ffff85a362b1dc196..a679293757f9f1eab39ea39945055887
  static void test_dataset_schema(const std::string& uri) {
      TEST(test_dataset_schema);
 
-@@ -1284,6 +1306,7 @@ int main(int argc, char** argv) {
+@@ -1353,6 +1375,7 @@ int main(int argc, char** argv) {
 
      test_dataset_open(uri);
      test_shared_session(uri);

@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.lance;
 
+import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.DateLiteral;
@@ -118,6 +119,33 @@ public class LancePredicateConverterTest {
                 new CompoundPredicate(CompoundPredicate.Operator.NOT, red, null))) {
             Assertions.assertEquals(1, arrays.convert(Collections.singletonList(predicate))
                     .getPushedConjuncts().size());
+        }
+    }
+
+    @Test
+    public void testRewrittenArrayOverlapPushdown() throws Exception {
+        LancePredicateConverter arrays = arrayConverter(ArrowType.List.INSTANCE, ArrowType.Utf8.INSTANCE);
+        Expr labels = new SlotRef(null, "labels");
+        Expr values = new ArrayLiteral(ArrayType.create(Type.STRING, true),
+                new StringLiteral("red"), new StringLiteral("blue"), new StringLiteral("green"));
+        for (Expr predicate : Arrays.asList(arrayFunction("arrays_overlap", labels, values),
+                arrayFunction("arrays_overlap", values, labels),
+                new CompoundPredicate(CompoundPredicate.Operator.NOT,
+                        arrayFunction("arrays_overlap", labels, values), null))) {
+            LancePredicateConverter.ConversionResult result = arrays.convert(Collections.singletonList(predicate));
+            Assertions.assertTrue(result.getResidualConjuncts().isEmpty());
+            String encoded = ExtendedExpression.parseFrom(result.getSubstraitFilter()).toString();
+            Assertions.assertTrue(encoded.contains("array_has:list_str"));
+            Assertions.assertTrue(encoded.contains("or:bool"));
+            Assertions.assertTrue(encoded.contains("green"));
+        }
+        // A NULL needle can match a NULL element in Doris and must not become array_has.
+        for (Expr valuesWithDifferentSemantics : Arrays.asList(
+                new ArrayLiteral(ArrayType.create(Type.STRING, true), new StringLiteral("red"), new NullLiteral()),
+                new ArrayLiteral(), new SlotRef(null, "labels"))) {
+            Expr predicate = arrayFunction("arrays_overlap", labels, valuesWithDifferentSemantics);
+            Assertions.assertEquals(Collections.singletonList(predicate),
+                    arrays.convert(Collections.singletonList(predicate)).getResidualConjuncts());
         }
     }
 

@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.lance.source;
 
+import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CompoundPredicate;
@@ -275,6 +276,8 @@ public class LancePredicateConverter {
         }
         String functionName = function.getFnName().getFunction().toLowerCase(Locale.ROOT);
         switch (functionName) {
+            case "arrays_overlap":
+                return convertArraysOverlap(function);
             case "array_contains":
                 return convertArrayContains(function);
             case "like":
@@ -291,6 +294,40 @@ public class LancePredicateConverter {
         }
     }
 
+    private Optional<Expression> convertArraysOverlap(FunctionCallExpr function) {
+        Expr input = function.getChild(0);
+        Expr values = function.getChild(1);
+        if (input instanceof ArrayLiteral) {
+            input = function.getChild(1);
+            values = function.getChild(0);
+        }
+        SlotRef slot = directSlot(input);
+        ResolvedField field = slot == null ? null : findField(slot);
+        if (field == null || !LanceSubstraitSerializer.supportsStringList(field.field)
+                || !(values instanceof ArrayLiteral) || values.getChildren().isEmpty()) {
+            return Optional.empty();
+        }
+        // Nereids folds three or more membership disjuncts into arrays_overlap. Expand
+        // only non-NULL string needles: Doris also matches NULL elements to NULL needles.
+        List<Expression> level = new ArrayList<>();
+        for (Expr needle : values.getChildren()) {
+            if (!(needle instanceof StringLiteral)) {
+                return Optional.empty();
+            }
+            level.add(arrayMembership(field, needle.getStringValue()));
+        }
+        // Keep expression depth logarithmic for large constant label lists.
+        while (level.size() > 1) {
+            List<Expression> next = new ArrayList<>();
+            for (int i = 0; i < level.size(); i += 2) {
+                next.add(i + 1 == level.size() ? level.get(i)
+                        : booleanFunction("or:bool", Arrays.asList(level.get(i), level.get(i + 1))));
+            }
+            level = next;
+        }
+        return Optional.of(level.get(0));
+    }
+
     private Optional<Expression> convertArrayContains(FunctionCallExpr function) {
         SlotRef slot = directSlot(function.getChild(0));
         ResolvedField field = slot == null ? null : findField(slot);
@@ -302,13 +339,17 @@ public class LancePredicateConverter {
         // Doris matches a NULL needle against NULL elements; DataFusion does not. Also,
         // array_contains_all is a contiguous subsequence test, not DataFusion's set containment.
         // Only non-NULL scalar membership is interchangeable across the two engines.
-        return Optional.of(Expression.ScalarFunctionInvocation.builder()
+        return Optional.of(arrayMembership(field, needle.getStringValue()));
+    }
+
+    private Expression arrayMembership(ResolvedField field, String needle) {
+        return Expression.ScalarFunctionInvocation.builder()
                 .declaration(EXTENSIONS.getScalarFunction(
                         SimpleExtension.FunctionAnchor.of(LANCE_FUNCTIONS, "array_has:list_str")))
                 .outputType(TypeCreator.of(field.field.isNullable()).BOOLEAN)
                 .arguments(Arrays.asList(fieldReference(field),
-                        ExpressionCreator.string(false, needle.getStringValue())))
-                .build());
+                        ExpressionCreator.string(false, needle)))
+                .build();
     }
 
     private Optional<Expression> convertStringPredicate(

@@ -17,8 +17,11 @@
 
 package org.apache.doris.datasource.lance.source;
 
+import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.InPredicate;
+import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.datasource.lance.index.LanceIndexSegmentGroup;
 import org.apache.doris.datasource.lance.index.LanceIndexSegmentInfo;
@@ -61,6 +64,8 @@ final class LanceScalarIndexPlanner {
         // provides a stable winner when multiple indices cover the same number of rows.
         List<LanceIndexSegmentGroup> indices = new ArrayList<>(metadata.getIndexes());
         indices.sort(java.util.Comparator.comparing(LanceIndexSegmentGroup::getName));
+        boolean splitComplementByFragment = pushedConjuncts.stream()
+                .anyMatch(LanceScalarIndexPlanner::containsComplement);
         Plan selected = null;
         for (LanceIndexSegmentGroup logicalIndex : indices) {
             List<LanceIndexSegmentInfo> segments = logicalIndex.getSegments();
@@ -72,7 +77,8 @@ final class LanceScalarIndexPlanner {
                     || index.getFieldIds().size() != 1 || !filterFields.contains(index.getFieldIds().get(0))) {
                 continue;
             }
-            Plan candidate = groupFragments(metadata, segments, visibleFragments);
+            Plan candidate = groupFragments(metadata, segments, visibleFragments,
+                    splitComplementByFragment);
             if (candidate != null && (selected == null || candidate.coveredRows > selected.coveredRows)) {
                 selected = candidate;
             }
@@ -115,8 +121,20 @@ final class LanceScalarIndexPlanner {
         return fields;
     }
 
+    private static boolean containsComplement(Expr expr) {
+        if ((expr instanceof CompoundPredicate
+                && ((CompoundPredicate) expr).getOp() == CompoundPredicate.Operator.NOT)
+                || (expr instanceof InPredicate && ((InPredicate) expr).isNotIn())
+                || (expr instanceof BinaryPredicate
+                && ((BinaryPredicate) expr).getOp() == BinaryPredicate.Operator.NE)
+                || (expr instanceof IsNullPredicate && ((IsNullPredicate) expr).isNotNull())) {
+            return true;
+        }
+        return expr.getChildren().stream().anyMatch(LanceScalarIndexPlanner::containsComplement);
+    }
+
     private static Plan groupFragments(LanceTableMetadata metadata, List<LanceIndexSegmentInfo> segments,
-            Map<Long, LanceFragmentInfo> visibleFragments) {
+            Map<Long, LanceFragmentInfo> visibleFragments, boolean splitComplementByFragment) {
         LanceSplitBuilder splits = new LanceSplitBuilder(
                 metadata.getDatasetUri(), metadata.getVersion(), segments.size());
         Set<Long> coveredFragments = new HashSet<>();
@@ -144,7 +162,17 @@ final class LanceScalarIndexPlanner {
                 coveredRows += Math.max(fragment.getPhysicalRows(), 0);
             }
             if (!fragments.isEmpty()) {
-                splits.addIndexSegmentSplit(segment.getUuid(), fragments, physicalRows);
+                // Complement selectivity is unknown. Preserve fragment-level scheduling so a
+                // broad NOT cannot funnel all covered data through one BE. Each task retains
+                // the same segment UUID but owns a disjoint domain, including on fallback.
+                if (splitComplementByFragment) {
+                    for (Long fragmentId : fragments) {
+                        splits.addIndexSegmentSplit(segment.getUuid(), java.util.Collections.singletonList(fragmentId),
+                                visibleFragments.get(fragmentId).getSchedulingWeight());
+                    }
+                } else {
+                    splits.addIndexSegmentSplit(segment.getUuid(), fragments, physicalRows);
+                }
             }
         }
         return splits.isEmpty() ? null : new Plan(segments.get(0).getIndexName(), splits, coveredRows);

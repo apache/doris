@@ -243,11 +243,21 @@ public class LanceScanNodeTest {
             setMetadata(node, scalarMetadata(Collections.singletonList(
                     scalarSegment(UUID.randomUUID(), IndexType.BTREE, Arrays.asList(1L, 2L, 3L, 4L)))));
             setPushedConjuncts(node, filter);
-            Assert.assertEquals(1, node.getSplits(20).size());
+            int expectedSplits = ((CompoundPredicate) filter).getOp() == CompoundPredicate.Operator.NOT ? 4 : 1;
+            Assert.assertEquals(expectedSplits, node.getSplits(20).size());
             setPushedConjuncts(node, new CompoundPredicate(CompoundPredicate.Operator.AND, filter, predicate));
             List<Split> splits = node.getSplits(20);
-            Assert.assertEquals(1, splits.size());
-            Assert.assertTrue(((LanceSplit) splits.get(0)).getIndexSegmentUuid().isPresent());
+            Assert.assertEquals(expectedSplits, splits.size());
+            List<Long> assignedFragments = new ArrayList<>();
+            for (Split split : splits) {
+                assignedFragments.addAll(((LanceSplit) split).getFragmentIds());
+                Assert.assertTrue(((LanceSplit) split).getIndexSegmentUuid().isPresent());
+                if (expectedSplits == 4) {
+                    Assert.assertEquals(1, ((LanceSplit) split).getFragmentIds().size());
+                }
+            }
+            Collections.sort(assignedFragments);
+            Assert.assertEquals(Arrays.asList(1L, 2L, 3L, 4L), assignedFragments);
         }
     }
 

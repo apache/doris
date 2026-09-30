@@ -581,10 +581,10 @@ PUGIXML_MD5SUM="3b894c29455eb33a40b165c6e2de5895"
 
 # lance-c
 # Includes lance-c #93: scoped boolean scalar-index expressions and Substrait label filters.
-LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/8d916552fdceb2a13f050f6255fda62e94331688"
-LANCE_C_NAME="lance-c-8d916552fdceb2a13f050f6255fda62e94331688.tar.gz"
-LANCE_C_SOURCE="lance-c-8d916552fdceb2a13f050f6255fda62e94331688"
-LANCE_C_MD5SUM="4173b38519e9155777e6814c257d163b"
+LANCE_C_DOWNLOAD="https://codeload.github.com/lance-format/lance-c/tar.gz/cd63420bfbe27f6f0a1edcc873b9191af7d52852"
+LANCE_C_NAME="lance-c-cd63420bfbe27f6f0a1edcc873b9191af7d52852.tar.gz"
+LANCE_C_SOURCE="lance-c-cd63420bfbe27f6f0a1edcc873b9191af7d52852"
+LANCE_C_MD5SUM="37d82907559c4fdb8ed6e5b767b0d309"
 
 # paimon-rust
 PAIMON_RUST_DOWNLOAD="https://github.com/apache/paimon-rust/archive/refs/tags/v0.4.0-rc1.tar.gz"
