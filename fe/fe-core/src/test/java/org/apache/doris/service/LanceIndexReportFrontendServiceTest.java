@@ -37,15 +37,17 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 /**
- * Coverage for the report entry point
- * {@link FrontendServiceImpl#reportLanceIndexJobResult(TLanceIndexJobReport)}: the layer
- * must stay thin. Only the master accepts a report (a non-master answers NOT_MASTER and
- * never touches the job manager), and on the master the envelope is handed to the report
- * handler verbatim once its invocation-secret echo authenticates against the durable
- * record: the identity quad and every typed field of the classified result must
- * reach {@link LanceIndexJobManager#completeWithResult} unchanged, and a CHILD_REAPED
- * proof must reach {@link LanceIndexJobManager#completeWithResultAndChildReaped}
- * together with its result in one transition.
+ * Coverage for the report entry points
+ * {@link FrontendServiceImpl#reportLanceIndexJobResult(TLanceIndexJobReport)} and
+ * {@link FrontendServiceImpl#reportLanceIndexJobTermination(TLanceIndexJobTerminationReport)}:
+ * the layer must stay thin. Only the master accepts a report (a non-master answers
+ * NOT_MASTER and never touches the job manager), and on the master the envelope is
+ * handed to the report handler verbatim once its invocation-secret echo authenticates
+ * against the durable record: the identity quad and every typed field of the classified
+ * result must reach {@link LanceIndexJobManager#completeWithResult} unchanged, a
+ * CHILD_REAPED proof must reach {@link LanceIndexJobManager#completeWithResultAndChildReaped}
+ * together with its result in one transition, and a termination report that fails the
+ * same authentication reaches neither.
  */
 public class LanceIndexReportFrontendServiceTest {
     private static final long JOB_ID = 1L;
@@ -171,8 +173,8 @@ public class LanceIndexReportFrontendServiceTest {
         Mockito.when(env.isMaster()).thenReturn(true);
         LanceIndexJobManager manager = Mockito.mock(LanceIndexJobManager.class);
         Mockito.when(env.getLanceIndexJobManager()).thenReturn(manager);
-        LanceIndexJob dispatched = Mockito.mock(LanceIndexJob.class);
-        Mockito.when(dispatched.getBackendId()).thenReturn(BACKEND_ID);
+        // Built before the stubbing, for the same unfinished-stubbing reason.
+        LanceIndexJob dispatched = dispatchedJob();
         Mockito.when(manager.getJob(JOB_ID)).thenReturn(dispatched);
         FrontendServiceImpl service = new FrontendServiceImpl(Mockito.mock(ExecuteEnv.class));
 
@@ -190,11 +192,40 @@ public class LanceIndexReportFrontendServiceTest {
                 Mockito.eq(LanceIndexTerminationProof.NEVER_LAUNCHED));
     }
 
+    @Test
+    public void masterDropsAnUnauthenticatedTerminationReportWhole() throws Exception {
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        LanceIndexJobManager manager = Mockito.mock(LanceIndexJobManager.class);
+        Mockito.when(env.getLanceIndexJobManager()).thenReturn(manager);
+        // Built before the stubbing, for the same unfinished-stubbing reason.
+        LanceIndexJob dispatched = dispatchedJob();
+        Mockito.when(manager.getJob(JOB_ID)).thenReturn(dispatched);
+        FrontendServiceImpl service = new FrontendServiceImpl(Mockito.mock(ExecuteEnv.class));
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            // Only the secret echo is wrong; the identity quad is exactly what
+            // SHOW LANCE INDEX JOB publishes.
+            TStatus status = service.reportLanceIndexJobTermination(matchingTermination()
+                    .setInvocationSecret("00000000000000000000000000000000"));
+            // The RPC still answers OK: the drop is the handler's decision, not a
+            // protocol error the BE should retry.
+            Assertions.assertEquals(TStatusCode.OK, status.getStatusCode());
+        }
+
+        Mockito.verify(manager, Mockito.never()).recordTerminationProof(Mockito.anyLong(),
+                Mockito.anyLong(), Mockito.anyLong(), Mockito.anyLong(), Mockito.any(), Mockito.any());
+        Mockito.verify(manager, Mockito.never()).completeWithResult(Mockito.anyLong(), Mockito.anyLong(),
+                Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
     private static TLanceIndexJobTerminationReport matchingTermination() {
         return new TLanceIndexJobTerminationReport()
                 .setJobId(JOB_ID)
                 .setDispatchRevision(DISPATCH_REVISION)
                 .setInvocationId(INVOCATION_ID)
+                .setInvocationSecret(INVOCATION_SECRET)
                 .setBeProcessEpoch(BE_EPOCH)
                 .setProof(TLanceIndexTerminationProof.NEVER_LAUNCHED);
     }

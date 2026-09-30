@@ -251,4 +251,15 @@ struct TLanceIndexJobTerminationReport {
     3: required string invocation_id
     4: required i64 be_process_epoch
     5: required TLanceIndexTerminationProof proof
+    // Echo of TLanceIndexJobDispatch.invocation_secret: the random per-dispatch secret
+    // the master FE generated at markRunning and handed only to the selected BE. The
+    // FE compares it in constant time against the journaled secret before trusting
+    // the proof, because the FE thrift server cannot authenticate its caller and
+    // every other identity field of this report is readable from SHOW LANCE INDEX
+    // JOB, so a forged CHILD_REAPED could otherwise release the possible-live slot
+    // of a worker that may still be live. Optional on the wire purely for
+    // generated-code compatibility during a rolling upgrade; a missing, blank, or
+    // wrong echo - or a durable record from before this field existed - makes the
+    // report unauthenticated and the whole report is dropped.
+    6: optional string invocation_secret
 }

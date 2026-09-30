@@ -283,7 +283,8 @@ public class LanceThriftContractTest {
                     .setDispatchRevision(4L)
                     .setInvocationId("0f1e2d3c-termination")
                     .setBeProcessEpoch(66L)
-                    .setProof(proof);
+                    .setProof(proof)
+                    .setInvocationSecret("a3f1c02d97b64e8fad0c31b9e75d2468");
 
             TSerializer serializer = new TSerializer(new TCompactProtocol.Factory());
             byte[] bytes = serializer.serialize(source);
@@ -296,7 +297,33 @@ public class LanceThriftContractTest {
             Assert.assertEquals("0f1e2d3c-termination", restored.getInvocationId());
             Assert.assertEquals(66L, restored.getBeProcessEpoch());
             Assert.assertEquals(proof, restored.getProof());
+            // The secret echo authenticates the proof exactly as it authenticates a
+            // result envelope; it round-trips verbatim.
+            Assert.assertTrue(restored.isSetInvocationSecret());
+            Assert.assertEquals("a3f1c02d97b64e8fad0c31b9e75d2468", restored.getInvocationSecret());
         }
+    }
+
+    @Test
+    public void testLanceIndexJobTerminationReportLeavesTheSecretUnset() throws Exception {
+        TLanceIndexJobTerminationReport source = new TLanceIndexJobTerminationReport()
+                .setJobId(9L)
+                .setDispatchRevision(4L)
+                .setInvocationId("inv")
+                .setBeProcessEpoch(66L)
+                .setProof(TLanceIndexTerminationProof.CHILD_REAPED);
+
+        TSerializer serializer = new TSerializer(new TCompactProtocol.Factory());
+        byte[] bytes = serializer.serialize(source);
+
+        TLanceIndexJobTerminationReport restored = new TLanceIndexJobTerminationReport();
+        new TDeserializer(new TCompactProtocol.Factory()).deserialize(restored, bytes);
+
+        // A termination report without the secret echo exists only on the wire of a
+        // rolling upgrade; the FE treats it as unauthenticated against any record
+        // that carries a secret.
+        Assert.assertFalse(restored.isSetInvocationSecret());
+        Assert.assertEquals(TLanceIndexTerminationProof.CHILD_REAPED, restored.getProof());
     }
 
     @Test
@@ -629,6 +656,7 @@ public class LanceThriftContractTest {
         expectedTerminationIds.put("invocation_id", 3);
         expectedTerminationIds.put("be_process_epoch", 4);
         expectedTerminationIds.put("proof", 5);
+        expectedTerminationIds.put("invocation_secret", 6);
         Assert.assertEquals(expectedTerminationIds, fieldIdsByName(TLanceIndexJobTerminationReport.metaDataMap));
     }
 

@@ -294,6 +294,9 @@ protected:
         dispatch.dataset_uri = "s3://bucket/dataset";
         dispatch.admitted_dataset_version = 9;
         dispatch.schema_contract_json = "{}";
+        // A fresh FE dispatch always carries the per-dispatch secret; the reports
+        // this supervisor builds must echo it verbatim.
+        dispatch.__set_invocation_secret("be-ut-invocation-secret-0123456789abcdef");
         return dispatch;
     }
 
@@ -368,6 +371,10 @@ TEST_F(LanceIndexSupervisorTest, HappyResultWithReapProof) {
     EXPECT_EQ(report.dispatch_revision, dispatch.dispatch_revision);
     EXPECT_EQ(report.invocation_id, dispatch.invocation_id);
     EXPECT_EQ(report.be_process_epoch, dispatch.be_process_epoch);
+    // The worker's frame never carries the secret; the supervisor stamps the
+    // dispatch's secret onto the trusted result before it leaves the BE.
+    ASSERT_TRUE(report.__isset.invocation_secret);
+    EXPECT_EQ(report.invocation_secret, dispatch.invocation_secret);
     EXPECT_EQ(report.result_code, TLanceIndexJobResultCode::NATIVE_OK);
     // The child provably exited and the invocation cgroup drained.
     ASSERT_TRUE(report.__isset.termination_proof);
@@ -537,6 +544,9 @@ TEST_F(LanceIndexSupervisorTest, SilentExitYieldsTerminationProofOnly) {
         ASSERT_TRUE(recorder.wait_terminations(1)) << "persona " << persona;
         const TLanceIndexJobTerminationReport termination = recorder.first_termination();
         EXPECT_EQ(termination.invocation_id, dispatch.invocation_id);
+        ASSERT_TRUE(termination.__isset.invocation_secret);
+        EXPECT_EQ(termination.invocation_secret, dispatch.invocation_secret)
+                << "persona " << persona;
         EXPECT_EQ(termination.proof, TLanceIndexTerminationProof::CHILD_REAPED)
                 << "persona " << persona;
         EXPECT_EQ(recorder.result_count(), 0U) << "persona " << persona;
@@ -701,7 +711,33 @@ TEST_F(LanceIndexSupervisorTest, DeadlineBudgetExhaustedNeverLaunched) {
     ASSERT_TRUE(report.__isset.sanitized_message);
     EXPECT_EQ(report.sanitized_message,
               IndexJobSupervisor::sanitize_message("deadline budget exhausted", dispatch));
+    ASSERT_TRUE(report.__isset.invocation_secret);
+    EXPECT_EQ(report.invocation_secret, dispatch.invocation_secret);
     EXPECT_EQ(::access(mark.c_str(), F_OK), -1) << "a budget-rejected invocation forked";
+    supervisor.stop();
+}
+
+// Rolling-upgrade shape: a dispatch delivered before the secret field existed
+// carries none, and the BE echoes exactly that - nothing. The report still
+// flows (the FE owns the fail-closed decision against its legacy record), so
+// the worker path must not fabricate or require a secret it was never handed.
+TEST_F(LanceIndexSupervisorTest, DispatchWithoutASecretEchoesNothing) {
+    IndexJobSupervisor supervisor;
+    ReportRecorder recorder;
+    wire_callbacks(&supervisor, &recorder);
+    supervisor._isolation_verified.store(true);
+    supervisor.force_budgets_for_test(/*wallclock_seconds=*/30, /*term_grace_seconds=*/0,
+                                      /*report_margin_seconds=*/0);
+    auto dispatch = make_dispatch("no-secret", epoch_millis() + 3000, 9802);
+    dispatch.__isset.invocation_secret = false;
+    supervisor.force_worker_exec_for_test(fake_worker_path(), persona_args("mark_hang", dispatch));
+    ASSERT_TRUE(supervisor.submit(dispatch).ok());
+
+    ASSERT_TRUE(recorder.wait_results(1));
+    const TLanceIndexJobReport report = recorder.first_result();
+    EXPECT_EQ(report.result_code, TLanceIndexJobResultCode::PRE_INVOCATION_RESOURCE_REJECTED);
+    EXPECT_FALSE(report.__isset.invocation_secret)
+            << "a dispatch without a secret must not grow an echo";
     supervisor.stop();
 }
 

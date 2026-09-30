@@ -81,6 +81,8 @@ TLanceIndexJobDispatch make_dispatch(const std::string& invocation_id) {
     dispatch.dataset_uri = "s3://bucket/dataset";
     dispatch.admitted_dataset_version = 9;
     dispatch.schema_contract_json = "{}";
+    // A fresh FE dispatch always carries the per-dispatch secret.
+    dispatch.__set_invocation_secret("be-ut-invocation-secret-0123456789abcdef");
     return dispatch;
 }
 
