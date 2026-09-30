@@ -1234,6 +1234,36 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
     }
 
     @Test
+    public void testCheckNoIndexChangeJobOnPartitions() throws Exception {
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrMetaException("sc_dup", Table.TableType.OLAP);
+        SchemaChangeHandler handler = Env.getCurrentEnv().getSchemaChangeHandler();
+        List<Index> alterIndexes = Lists.newArrayList(
+                new Index(1L, "idx_error_msg", Lists.newArrayList("error_msg"), IndexType.NGRAM_BF, null, ""));
+
+        handler.checkNoIndexChangeJobOnPartitions(db, tbl, alterIndexes, tbl.getPartitionNames());
+
+        long jobId = Env.getCurrentEnv().getNextId();
+        IndexChangeJob job = new IndexChangeJob(jobId, db.getId(), tbl.getId(), tbl.getName(), 1000L, 0,
+                Lists.newArrayList(), Lists.newArrayList());
+        job.setOriginIndexId(tbl.getBaseIndexId());
+        job.setPartitionName(tbl.getPartitionNames().iterator().next());
+        job.setAlterInvertedIndexInfo(true, alterIndexes);
+        handler.addIndexChangeJob(job);
+        try {
+            DdlException e = Assertions.assertThrows(DdlException.class,
+                    () -> handler.checkNoIndexChangeJobOnPartitions(db, tbl, alterIndexes, tbl.getPartitionNames()));
+            Assertions.assertTrue(e.getMessage().contains("has been built specified index"));
+
+            job.setJobState(IndexChangeJob.JobState.FINISHED);
+            handler.checkNoIndexChangeJobOnPartitions(db, tbl, alterIndexes, tbl.getPartitionNames());
+        } finally {
+            handler.getIndexChangeJobs().remove(jobId);
+            handler.runnableIndexChangeJob.remove(jobId);
+        }
+    }
+
+    @Test
     public void testAddInvertedIndexStoresCanonicalBuiltinAnalyzer() throws Exception {
         createAnalyzerAliasTable("sc_ik_alias");
         alterTable("alter table test.sc_ik_alias add index idx_upper(c1) using inverted "

@@ -3529,6 +3529,11 @@ public class SchemaChangeHandler extends AlterHandler {
                     currentIndexMeta.getSchemaHash(), currentIndexMeta.getShortKeyColumnCount(), entry.getValue());
         }
 
+        // Reject the drop before touching metadata, so a failed DROP INDEX leaves the table unchanged.
+        if (alterIndexes != null && isDropIndex && !isReplay) {
+            checkNoIndexChangeJobOnPartitions(db, olapTable, alterIndexes, olapTable.getPartitionNames());
+        }
+
         //update base index schema
         Map<Long, List<Column>> oldIndexSchemaMap = olapTable.getCopiedIndexIdToSchema(true, true);
         try {
@@ -3888,6 +3893,18 @@ public class SchemaChangeHandler extends AlterHandler {
         } catch (Exception e) {
             LOG.warn("Exception:", e);
             throw new UserException(e.getMessage());
+        }
+    }
+
+    // Throws if any of the partitions still has an unfinished index change job on the base index.
+    void checkNoIndexChangeJobOnPartitions(Database db, OlapTable olapTable, List<Index> alterIndexes,
+            Set<String> partitionNames) throws DdlException {
+        for (String partitionName : partitionNames) {
+            if (hasIndexChangeJobOnPartition(olapTable.getBaseIndexId(), db.getId(), olapTable.getId(),
+                    partitionName, alterIndexes, true)) {
+                throw new DdlException("partition " + partitionName + " has been built specified index."
+                        + " please check your build stmt.");
+            }
         }
     }
 
