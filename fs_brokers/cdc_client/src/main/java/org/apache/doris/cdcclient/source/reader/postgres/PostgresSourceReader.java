@@ -544,8 +544,8 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     // the job was paused/retrying. Recreating it silently would resume from a position whose WAL is
     // already gone -> data loss. Fail with a fixed marker so FE classifies it as non-resumable.
     @Override
-    protected void validateStreamSource(
-            Map<String, Object> offsetMeta, JobBaseRecordRequest baseReq) throws Exception {
+    protected void validateStreamSource(Offset startingOffset, JobBaseRecordRequest baseReq)
+            throws Exception {
         PostgresSourceConfig sourceConfig = getSourceConfig(baseReq);
         PostgresDialect dialect = new PostgresDialect(sourceConfig);
         try (PostgresConnection connection = dialect.openJdbcConnection()) {
@@ -560,11 +560,10 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                                         + " committed position without data loss.",
                                 baseReq.getJobId(), dialect.getSlotName()));
             }
-            Lsn requestedLsn = extractRequestedLsn(offsetMeta);
+            Lsn requestedLsn = ((PostgresOffset) startingOffset).getLsn();
             Lsn restartLsn = slotState.slotRestartLsn();
-            // restart_lsn must stay <= committed position; a higher one means the slot was
-            // recreated
-            // and the WAL between them was discarded, so resuming would silently skip data.
+            // A higher restart_lsn may indicate slot recreation or other slot advancement;
+            // safe recovery from the committed position can no longer be guaranteed.
             if (requestedLsn != null
                     && requestedLsn.asLong() > 0
                     && restartLsn != null
@@ -572,24 +571,13 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                 throw new CdcClientException(
                         String.format(
                                 "Replication slot invalidated for job %s: slot %s restart_lsn %s is"
-                                        + " ahead of the committed position %s (slot recreated),"
-                                        + " cannot resume without data loss.",
+                                        + " ahead of the committed position %s (e.g. slot recreated),"
+                                        + " cannot guarantee recovery without data loss.",
                                 baseReq.getJobId(),
                                 dialect.getSlotName(),
                                 restartLsn,
                                 requestedLsn));
             }
-        }
-    }
-
-    private Lsn extractRequestedLsn(Map<String, Object> offsetMeta) {
-        if (offsetMeta == null || offsetMeta.get(SourceInfo.LSN_KEY) == null) {
-            return null;
-        }
-        try {
-            return Lsn.valueOf(Long.parseLong(String.valueOf(offsetMeta.get(SourceInfo.LSN_KEY))));
-        } catch (NumberFormatException ex) {
-            return null;
         }
     }
 

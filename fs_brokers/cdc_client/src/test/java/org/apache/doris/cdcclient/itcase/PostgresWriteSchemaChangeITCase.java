@@ -285,7 +285,8 @@ class PostgresWriteSchemaChangeITCase {
             }
 
             assertThatThrownBy(() -> harness.continueBinlog(1, Duration.ofSeconds(90)))
-                    .isInstanceOf(Exception.class);
+                    .hasMessageContaining("injected second DDL failure");
+            assertThat(mock.executedDdls()).hasSize(2);
             assertThat(harness.committedOffset()).isEqualTo(committedOffsetBeforeSchemaChange);
 
             harness.rebuildReaderOnNextWrite();
