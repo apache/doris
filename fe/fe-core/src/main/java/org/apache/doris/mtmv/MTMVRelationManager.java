@@ -389,17 +389,16 @@ public class MTMVRelationManager implements MTMVHookService {
      * Whether the query, as it is analysed now, reads a column of any of these names, and reads it where
      * the change can reach it.
      *
-     * <p>There are two such places, and they are the two ways a name is the change's to answer for. One is
-     * a column of the table the change is about: that is the column this view's rows were computed from, and
-     * the names are matched case-insensitively because a name is what moves. The other is a column the query
-     * reaches across a scope boundary -- the plan records those on the Apply that stands for the subquery,
-     * whose correlation slots are the outer columns its right side reads -- because such a name is the
-     * scopes' to answer for rather than the query's: the nearest column to the reference answers for it, so
-     * a column the change takes away from a scope inside leaves the name to one outside, and a column it
-     * gives to a scope inside takes the name over, while the query goes on producing the columns it always
-     * produced out of rows from somewhere else. A name reached with the qualifier of another table inside
-     * the query's own scope is neither: no later change can move it, so one to a column it does not name is
-     * one this view's rows do not depend on.
+     * <p>There are two places a name is the change's to answer for. One is a column of the table the change
+     * is about: that is the column this view's rows were computed from, and the names are matched
+     * case-insensitively because a name is what moves. The other is a column the query reaches across a
+     * scope boundary -- the plan records those on the Apply that stands for the subquery, whose correlation
+     * slots are the outer columns its right side reads -- because such a name is the scopes' to answer for
+     * rather than the query's: the nearest column to the reference answers for it, so a column the change
+     * takes away from a scope inside leaves the name to one outside, and a column it gives to a scope inside
+     * takes the name over. A name reached with the qualifier of another table inside the query's own scope
+     * is neither: no later change can move it, so one to a column it does not name is one this view's rows
+     * do not depend on.
      */
     private static boolean reachesAnyColumnOf(Plan plan, BaseTableInfo baseTableInfo, Set<String> columnNames) {
         if (plan == null) {
@@ -421,20 +420,10 @@ public class MTMVRelationManager implements MTMVHookService {
         if (reachesAnyColumn(lineage.getDatasetIndirectLineageMap().values(), names, baseTableInfo)) {
             return true;
         }
-        return reachesAnyColumnAcrossScopes(plan, lineage, names, baseTableInfo);
-    }
-
-    /** Whether any of these expressions reads a column of one of these names from this table. */
-    private static boolean reachesAnyColumn(Collection<Expression> expressions, Set<String> names,
-            BaseTableInfo baseTableInfo) {
-        for (Expression expression : expressions) {
-            for (Slot slot : expression.getInputSlots()) {
-                if (names.contains(slot.getName()) && isColumnOf(slot, baseTableInfo)) {
-                    return true;
-                }
-            }
+        if (reachesAnyColumnOfASubquery(plan, names, baseTableInfo)) {
+            return true;
         }
-        return false;
+        return reachesAnyColumnAcrossScopes(plan, lineage, names, baseTableInfo);
     }
 
     /** Whether this slot is a column of this table, through whatever views stand between the two. */
@@ -445,6 +434,39 @@ public class MTMVRelationManager implements MTMVHookService {
         return ((SlotReference) slot).getOriginalTable()
                 .map(table -> new BaseTableInfo(table).equals(baseTableInfo))
                 .orElse(false);
+    }
+
+    /**
+     * Whether a name is answered for inside a subquery, out of that subquery's own output.
+     *
+     * <p>This is the one place a name can move without any column the view produces depending on it: the
+     * projection of a subquery is internal, so what the name resolves to there changes what the query
+     * returns -- a row, or none -- while every column of the view stays the one it was. The lineage of the
+     * view's columns does not reach it, so the scope the subquery became is read here, expression by
+     * expression, the way the lineage is read for the view's own.
+     */
+    private static boolean reachesAnyColumnOfASubquery(Plan plan, Set<String> names,
+            BaseTableInfo baseTableInfo) {
+        for (LogicalApply<?, ?> apply : plan.<LogicalApply>collectToList(LogicalApply.class::isInstance)) {
+            if (apply.right().anyMatch(node -> node instanceof Plan
+                    && reachesAnyColumn(((Plan) node).getExpressions(), names, baseTableInfo))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether any of these expressions reads a column of one of these names from this table. */
+    private static boolean reachesAnyColumn(Collection<? extends Expression> expressions, Set<String> names,
+            BaseTableInfo baseTableInfo) {
+        for (Expression expression : expressions) {
+            for (Slot slot : expression.getInputSlots()) {
+                if (names.contains(slot.getName()) && isColumnOf(slot, baseTableInfo)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**

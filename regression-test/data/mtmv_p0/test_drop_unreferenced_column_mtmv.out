@@ -69,3 +69,9 @@ test_drop_unreferenced_column_mtmv_job_add_mv	SCHEMA_CHANGE	SUCCESS	false
 -- !job_add_cols_state --
 test_drop_unreferenced_column_mtmv_job_add_cols_mv	SCHEMA_CHANGE	SUCCESS	false
 
+-- !projection_baseline --
+1
+
+-- !projection_state --
+test_drop_unreferenced_column_mtmv_proj_mv	SCHEMA_CHANGE	SUCCESS	false
+

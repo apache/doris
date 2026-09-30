@@ -323,4 +323,39 @@ suite("test_drop_unreferenced_column_mtmv") {
     order_qt_job_add_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${jobAddMv}'"
     sql """ALTER TABLE ${jobAddColsTable} ADD COLUMN (spare INT, other INT)"""
     order_qt_job_add_cols_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${jobAddColsMv}'"
+
+    // ---- a name a subquery's own projection answers for ----
+    // The subquery below projects `flag` while the inner table has no column of that name, so the name is
+    // the outer table's to answer for and the subquery projects the outer column: the MV holds the row.
+    // Giving the inner table a column of that name hands the name to it, so the projection reads the inner
+    // column from then on and the query returns no row -- while every column the MV produces is the one it
+    // always produced. Nothing is read here that the rows of the view are computed from, and the name is
+    // still the change's to answer for: a column of a subquery's own output is where a name can move
+    // without moving an output of the view.
+    String projOuter = "${suiteName}_proj_outer"
+    String projInner = "${suiteName}_proj_inner"
+    String projMv = "${suiteName}_proj_mv"
+    sql """drop materialized view if exists ${projMv}"""
+    sql """drop table if exists ${projOuter}"""
+    sql """drop table if exists ${projInner}"""
+    sql """
+        CREATE TABLE ${projOuter} (id INT, flag INT) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        CREATE TABLE ${projInner} (x INT) DUPLICATE KEY(x)
+        DISTRIBUTED BY HASH(x) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO ${projOuter} VALUES (1, 1)"""
+    sql """INSERT INTO ${projInner} VALUES (1)"""
+    sql """
+        CREATE MATERIALIZED VIEW ${projMv}
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+        AS SELECT o.id FROM ${projOuter} o WHERE o.flag IN (SELECT flag FROM ${projInner} i)
+    """
+    waitingMTMVTaskFinishedByMvName(projMv)
+    order_qt_projection_baseline "SELECT id FROM ${projMv}"
+    sql """ALTER TABLE ${projInner} ADD COLUMN flag INT DEFAULT 0"""
+    order_qt_projection_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${projMv}'"
 }
