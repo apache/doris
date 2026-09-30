@@ -1,8 +1,7 @@
 # Foyer data-cache integration for lance-format/lance-c#73.
-# Base: 9bd730add2ac70316c1d642b8459011e2dd92022
+# Base: 8d916552fdceb2a13f050f6255fda62e94331688 (lance-format/lance-c#93)
 # Source: https://github.com/Gabriel39/lance-c/commit/24c7ca4bcb9422c113b0d3e07e4efe1173b0bc9f
-# Regenerate the payload in lance-c; do not maintain separate downstream edits:
-# git diff --full-index --binary 9bd730add2ac70316c1d642b8459011e2dd92022 24c7ca4bcb9422c113b0d3e07e4efe1173b0bc9f -- . | sed 's/^ $//'
+# The unchanged Foyer payload is reapplied to the newer upstream base with git apply --3way.
 diff --git a/Cargo.lock b/Cargo.lock
 index 78812f1330e146db295a14276f90f9e28654f399..daf9f85daf3e0ea59bb906e8e3c32470519b084b 100644
 --- a/Cargo.lock
@@ -199,7 +198,7 @@ index 18654b862440a90aa6bf0dd846e8f1ad6036fd7c..fd134a7151e1df61da201d867a642e9b
  prost = "0.14"
  snafu = "0.9"
 diff --git a/README.md b/README.md
-index 9ceccdc4f3f6b5d13dc271be3d2659c7be400306..94de4d1c26d8ab869d1726e2b416d21f21661d6d 100644
+index 5b4e167ceabb50ac406c0484c8077f154009b138..a042ee33ed0bbf9e38ead5735d56be81cdbeff3b 100644
 --- a/README.md
 +++ b/README.md
 @@ -68,6 +68,7 @@ Based on the [liblance RFC](https://github.com/lance-format/lance/discussions/60
@@ -208,9 +207,9 @@ index 9ceccdc4f3f6b5d13dc271be3d2659c7be400306..94de4d1c26d8ab869d1726e2b416d21f
  | [x] | Filter pushdown | `lance_scanner_set_substrait_filter()` accepts a serialized Substrait `ExtendedExpression`; `lance_scanner_additional_sql_filter()` adds SQL predicates with AND before scanning starts |
 +| [x] | Data-file cache | Optional Foyer memory/disk cache for immutable `data/*.lance` reads |
 
- ## Multi-vector search
+ ## Segment-scoped array label filters
 
-@@ -231,6 +232,35 @@ auto ds = lance::Dataset::open_with_session(session, "data.lance");
+@@ -312,6 +313,35 @@ auto ds = lance::Dataset::open_with_session(session, "data.lance");
  auto stats = session.cache_stats();
  ```
 
@@ -247,7 +246,7 @@ index 9ceccdc4f3f6b5d13dc271be3d2659c7be400306..94de4d1c26d8ab869d1726e2b416d21f
 
  `lance_dataset_open` takes a `version` argument — `0` means the latest, any
 diff --git a/include/lance/lance.h b/include/lance/lance.h
-index 7630913fd7849d0bff2cb0f31e1ab1199cb9f0fb..1c1d0752efdda5023b29eafe5aa9a87e03dc5303 100644
+index ea00436969dfe7fa5bcef7ef9a3b5ea9d9f4f8fd..438e55208a1b7a6cc1cfb38eaac2c8565fb8500e 100644
 --- a/include/lance/lance.h
 +++ b/include/lance/lance.h
 @@ -214,6 +214,36 @@ typedef struct LanceSessionCacheStats {
@@ -335,7 +334,7 @@ index 7630913fd7849d0bff2cb0f31e1ab1199cb9f0fb..1c1d0752efdda5023b29eafe5aa9a87e
  void lance_dataset_close(LanceDataset* dataset);
 
 diff --git a/include/lance/lance.hpp b/include/lance/lance.hpp
-index 286724e96736e354785e046f2fcfe5ae7c65147b..5070d423453a5d60d31d03ce758ad7dbe83a6ea2 100644
+index 882059a37601c982d299c3202944b625a59172d9..8d92b93f469a006d1a44b855ca413436cf774358 100644
 --- a/include/lance/lance.hpp
 +++ b/include/lance/lance.hpp
 @@ -176,6 +176,13 @@ struct SqlColumn {
@@ -2244,7 +2243,7 @@ index 1971510de4a13ee6f04fc39c159b088e78e21d55..ba51c87a8cebb6897c48fb55509f71da
          // SAFETY: `out_dataset` is non-NULL (checked above) and the caller
          // guarantees it points to caller-owned, writable storage of size
 diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
-index 1a25e34a8ca50623812ffedaa7bb5a8c54f7850e..c341859e9434d4578b2833eca6ec313a28f31f32 100644
+index 42a34035797085ed951cc0cb4ef5802de5732b81..f933697c09d35f20144d3ad6880d43027229efbc 100644
 --- a/tests/c_api_test.rs
 +++ b/tests/c_api_test.rs
 @@ -100,10 +100,83 @@ fn create_large_dataset(num_rows: i32) -> (tempfile::TempDir, String) {
@@ -2503,7 +2502,7 @@ index 1a25e34a8ca50623812ffedaa7bb5a8c54f7850e..c341859e9434d4578b2833eca6ec313a
  fn test_dataset_restore_to_current_latest_writes_new_manifest() {
      // Restoring to the current latest still writes a new manifest. The
 diff --git a/tests/cpp/test_c_api.c b/tests/cpp/test_c_api.c
-index 5df9cde4d8fa971823b9e6c974a8a0db6c9ec9ca..1444e55161631ac8ad976f427d867ad91d358195 100644
+index ce59a40b0983139c72ca95b595f3e2fe8ea76c04..877b363c4be48fbc1ffe91a7454eb70174b9f01f 100644
 --- a/tests/cpp/test_c_api.c
 +++ b/tests/cpp/test_c_api.c
 @@ -171,6 +171,37 @@ static void test_shared_session(const char *uri) {
@@ -2544,16 +2543,16 @@ index 5df9cde4d8fa971823b9e6c974a8a0db6c9ec9ca..1444e55161631ac8ad976f427d867ad9
  static void test_scan(const char *uri) {
      printf("  test_scan... ");
 
-@@ -1323,6 +1354,7 @@ int main(int argc, char **argv) {
+@@ -1404,6 +1435,7 @@ int main(int argc, char **argv) {
 
      test_open_and_metadata(uri);
      test_shared_session(uri);
 +    test_data_cache_session(uri, write_uri);
      test_scan(uri);
+     test_distance_range(uri);
      test_scan_with_limit(uri);
-     test_scanner_blob_handling(blob_uri);
 diff --git a/tests/cpp/test_cpp_api.cpp b/tests/cpp/test_cpp_api.cpp
-index 0332d1a2687354984d0551e10716df08344a4013..ef64ab0d02bed2f1750c3d388792e4aa44265e24 100644
+index e82582de86307657b1aa007ffff85a362b1dc196..a679293757f9f1eab39ea399450558877776eee5 100644
 --- a/tests/cpp/test_cpp_api.cpp
 +++ b/tests/cpp/test_cpp_api.cpp
 @@ -131,6 +131,28 @@ static void test_shared_session(const std::string& uri) {
@@ -2585,11 +2584,11 @@ index 0332d1a2687354984d0551e10716df08344a4013..ef64ab0d02bed2f1750c3d388792e4aa
  static void test_dataset_schema(const std::string& uri) {
      TEST(test_dataset_schema);
 
-@@ -1211,6 +1233,7 @@ int main(int argc, char** argv) {
+@@ -1284,6 +1306,7 @@ int main(int argc, char** argv) {
 
      test_dataset_open(uri);
      test_shared_session(uri);
 +    test_data_cache_session(uri, write_uri);
      test_dataset_schema(uri);
      test_scanner_fluent(uri);
-     test_scanner_async_stream_ownership(uri);
+     test_distance_range(uri);

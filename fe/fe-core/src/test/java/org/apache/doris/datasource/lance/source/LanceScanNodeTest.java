@@ -234,7 +234,7 @@ public class LanceScanNodeTest {
     }
 
     @Test
-    public void testScalarSegmentSelectionDoesNotDescendThroughOrOrNot() throws Exception {
+    public void testScalarSegmentSelectionSupportsSameColumnOrAndNot() throws Exception {
         Expr predicate = scalarPredicate();
         for (Expr filter : Arrays.asList(
                 new CompoundPredicate(CompoundPredicate.Operator.OR, predicate, predicate),
@@ -243,7 +243,7 @@ public class LanceScanNodeTest {
             setMetadata(node, scalarMetadata(Collections.singletonList(
                     scalarSegment(UUID.randomUUID(), IndexType.BTREE, Arrays.asList(1L, 2L, 3L, 4L)))));
             setPushedConjuncts(node, filter);
-            Assert.assertEquals(4, node.getSplits(20).size());
+            Assert.assertEquals(1, node.getSplits(20).size());
             setPushedConjuncts(node, new CompoundPredicate(CompoundPredicate.Operator.AND, filter, predicate));
             List<Split> splits = node.getSplits(20);
             Assert.assertEquals(1, splits.size());

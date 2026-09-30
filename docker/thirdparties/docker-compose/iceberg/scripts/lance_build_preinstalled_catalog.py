@@ -89,6 +89,7 @@ import lance
 import lance_namespace
 import pyarrow as pa
 import pyarrow.ipc as ipc
+from lance_build_array_predicates import build as build_array_predicates
 from lance_build_multivector import build as build_multivector, check as check_multivector
 from lance_build_nested_null import build as build_nested_null, check as check_nested_null
 from lance_build_time_travel import check as check_time_travel
@@ -1810,6 +1811,7 @@ def main() -> int:
         staging = Path(staging_name) / "lance"
         staging.mkdir()
         build(staging, all_types_source, time_travel_source)
+        build_array_predicates(staging / "predicate_arrays")
         check_catalog(staging)
         backup = output.with_name(output.name + ".old")
         if backup.exists():

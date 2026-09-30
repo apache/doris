@@ -64,7 +64,7 @@ final class LanceScalarIndexPlanner {
         Plan selected = null;
         for (LanceIndexSegmentGroup logicalIndex : indices) {
             List<LanceIndexSegmentInfo> segments = logicalIndex.getSegments();
-            // PR #79 supports one top-level key in BTree/Bitmap/LabelList indices. Lance
+            // Segment-scoped scans support one top-level key in BTree/Bitmap/LabelList indices. Lance
             // performs the final typed driver selection and falls back within the same domain.
             LanceIndexSegmentInfo index = segments.get(0);
             if ((index.getIndexType() != IndexType.BTREE && index.getIndexType() != IndexType.BITMAP
@@ -81,25 +81,38 @@ final class LanceScalarIndexPlanner {
     }
 
     private static Set<Integer> collectFilterFields(LanceTableMetadata metadata, List<Expr> pushedConjuncts) {
+        Set<Integer> fields = new HashSet<>();
+        for (Expr expr : pushedConjuncts) {
+            fields.addAll(collectDriverFields(metadata, expr, false));
+        }
+        return fields;
+    }
+
+    private static Set<Integer> collectDriverFields(LanceTableMetadata metadata, Expr expr, boolean complete) {
+        if (expr instanceof CompoundPredicate) {
+            CompoundPredicate.Operator op = ((CompoundPredicate) expr).getOp();
+            if (op == CompoundPredicate.Operator.NOT) {
+                // NOT cannot complement a pruned AND: that would discard valid matches.
+                return collectDriverFields(metadata, expr.getChild(0), true);
+            }
+            Set<Integer> left = collectDriverFields(metadata, expr.getChild(0), complete);
+            Set<Integer> right = collectDriverFields(metadata, expr.getChild(1), complete);
+            if (op == CompoundPredicate.Operator.AND && !complete) {
+                left.addAll(right);
+            } else {
+                // One selected index must supply candidates for both OR branches, and for
+                // every leaf of a negated subtree. lance-c rechecks the complete predicate.
+                left.retainAll(right);
+            }
+            return left;
+        }
         Set<SlotRef> slots = new HashSet<>();
-        pushedConjuncts.forEach(expr -> collectDriverSlots(expr, slots));
+        expr.collect(SlotRef.class, slots);
         Set<Integer> fields = new HashSet<>();
         for (SlotRef slot : slots) {
             metadata.getLanceFieldId(slot.getColumnName()).ifPresent(fields::add);
         }
         return fields;
-    }
-
-    private static void collectDriverSlots(Expr expr, Set<SlotRef> slots) {
-        // A predicate below OR or NOT is not a necessary condition of the whole filter.
-        // Do not select its index and then force every task into a non-indexed fallback.
-        if (expr instanceof CompoundPredicate) {
-            if (((CompoundPredicate) expr).getOp() == CompoundPredicate.Operator.AND) {
-                expr.getChildren().forEach(child -> collectDriverSlots(child, slots));
-            }
-        } else {
-            expr.collect(SlotRef.class, slots);
-        }
     }
 
     private static Plan groupFragments(LanceTableMetadata metadata, List<LanceIndexSegmentInfo> segments,
