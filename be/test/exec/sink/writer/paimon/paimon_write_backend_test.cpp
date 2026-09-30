@@ -19,7 +19,11 @@
 
 #include <gtest/gtest.h>
 
+#include "agent/be_exec_version_manager.h"
+#include "exec/operator/paimon_table_sink_operator.h"
+#include "exec/sink/writer/paimon/ffi_paimon_write_backend.h"
 #include "exec/sink/writer/paimon/jni_paimon_write_backend.h"
+#include "testutil/mock/mock_runtime_state.h"
 
 namespace doris {
 
@@ -48,6 +52,38 @@ TEST(JniPaimonWriteBackendTest, OpenAbiAndWriteModes) {
     auto changelog = PaimonJniWriterOpenMode::from_write_mode(TPaimonWriteMode::CHANGELOG);
     EXPECT_FALSE(changelog.overwrite);
     EXPECT_TRUE(changelog.changelog);
+}
+
+TEST(PaimonWriteBackendTest, ReportsConcreteBackendType) {
+    FfiPaimonWriteBackend ffi_backend;
+    JniPaimonWriteBackend jni_backend;
+
+    EXPECT_EQ(PaimonBackendType::FFI, ffi_backend.type());
+    EXPECT_EQ(PaimonBackendType::JNI, jni_backend.type());
+}
+
+TEST(PaimonWriteBackendTest, AdvertisesPaimonWriteExecVersion) {
+    EXPECT_EQ(SUPPORT_PAIMON_WRITE_VERSION, BeExecVersionManager::get_newest_version());
+    EXPECT_TRUE(BeExecVersionManager::check_be_exec_version(SUPPORT_PAIMON_WRITE_VERSION).ok());
+    EXPECT_FALSE(
+            BeExecVersionManager::check_be_exec_version(SUPPORT_PAIMON_WRITE_VERSION + 1).ok());
+}
+
+TEST(PaimonTableSinkOperatorTest, InitializesAsBlockingSink) {
+    RowDescriptor row_descriptor;
+    std::vector<TExpr> output_exprs;
+    PaimonTableSinkOperatorX sink_operator(1, row_descriptor, output_exprs);
+    PaimonTableSinkLocalState local_state(&sink_operator, nullptr);
+    EXPECT_TRUE(local_state.is_blockable());
+
+    TPaimonTableSink paimon_sink;
+    TDataSink data_sink;
+    data_sink.__set_type(TDataSinkType::PAIMON_TABLE_SINK);
+    data_sink.__set_paimon_table_sink(paimon_sink);
+    ASSERT_TRUE(sink_operator.init(data_sink).ok());
+
+    MockRuntimeState state;
+    EXPECT_TRUE(sink_operator.prepare(&state).ok());
 }
 
 } // namespace doris

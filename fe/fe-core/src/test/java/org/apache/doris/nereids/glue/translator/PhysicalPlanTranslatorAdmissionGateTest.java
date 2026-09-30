@@ -32,6 +32,7 @@ import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
 import org.apache.doris.connector.spi.handle.WriteOperation;
 import org.apache.doris.connector.spi.write.ConnectorWritePlanProvider;
 import org.apache.doris.connector.spi.write.ConnectorWriteSortColumn;
+import org.apache.doris.datasource.plugin.ConnectorWritePlanContext;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -83,6 +84,7 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
         PhysicalConnectorTableSink<Plan> sink = Mockito.mock(PhysicalConnectorTableSink.class);
         Mockito.doReturn(mockChild(childFragment)).when(sink).child();
         Mockito.doReturn(table).when(sink).getTargetTable();
+        attachWritePlanContext(sink, table);
         Mockito.doReturn(ImmutableList.of(DATA)).when(sink).getCols();
         Mockito.doReturn(DMLCommandType.NONE).when(sink).getDmlCommandType();
         Mockito.doReturn(false).when(sink).isRewrite();
@@ -109,6 +111,7 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
         PhysicalConnectorTableSink<Plan> sink = Mockito.mock(PhysicalConnectorTableSink.class);
         Mockito.doReturn(mockChild(childFragment)).when(sink).child();
         Mockito.doReturn(table).when(sink).getTargetTable();
+        attachWritePlanContext(sink, table);
         Mockito.doReturn(ImmutableList.of(DATA)).when(sink).getCols();
         Mockito.doReturn(DMLCommandType.NONE).when(sink).getDmlCommandType();
 
@@ -193,6 +196,7 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
         PhysicalConnectorTableSink<Plan> sink = Mockito.mock(PhysicalConnectorTableSink.class);
         Mockito.doReturn(mockChild(childFragment)).when(sink).child();
         Mockito.doReturn(table).when(sink).getTargetTable();
+        attachWritePlanContext(sink, table);
         Mockito.doReturn(ImmutableList.of(DATA)).when(sink).getCols();
         Mockito.doReturn("uuid-u0/schema-1").when(sink).getBoundWriteMetadataIdentity();
         Mockito.doReturn(DMLCommandType.NONE).when(sink).getDmlCommandType();
@@ -244,6 +248,7 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
         PhysicalConnectorTableSink<Plan> sink = Mockito.mock(PhysicalConnectorTableSink.class);
         Mockito.doReturn(mockChild(childFragment)).when(sink).child();
         Mockito.doReturn(table).when(sink).getTargetTable();
+        attachWritePlanContext(sink, table);
         Mockito.doReturn(writeColumns).when(sink).getCols();
         Mockito.doReturn(ImmutableList.of(A, B, C)).when(sink).getBoundTargetSchema();
         Mockito.doReturn(ImmutableList.of(aOutput, bOutput, cOutput)).when(sink).getOutput();
@@ -270,6 +275,21 @@ public class PhysicalPlanTranslatorAdmissionGateTest {
         SlotRef slotRef = new SlotRef(descriptor);
         context.addExprIdSlotRefPair(output.getExprId(), slotRef);
         return slotRef;
+    }
+
+    private static void attachWritePlanContext(PhysicalConnectorTableSink<Plan> sink,
+            PluginDrivenExternalTable table) {
+        PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
+        Connector connector = catalog.getConnector();
+        ConnectorSession session = catalog.buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle handle = metadata.getTableHandle(
+                session, table.getRemoteDbName(), table.getRemoteName()).orElseThrow(AssertionError::new);
+        ConnectorWritePlanProvider provider = connector.getWritePlanProvider(handle);
+        ConnectorWritePlanContext writePlanContext = new ConnectorWritePlanContext(
+                session, metadata, handle, provider, null, false, false, false,
+                table.requiresFullSchemaWriteOrder());
+        Mockito.doReturn(writePlanContext).when(sink).getWritePlanContext();
     }
 
     /** A plugin-driven table whose connector declares exactly the given write operations. */

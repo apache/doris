@@ -239,6 +239,7 @@ public class PaimonJniWriter extends JniWriter {
                         VectorSchemaRoot root = Data.importVectorSchemaRoot(
                                 allocator, array, schema, dictionaries)) {
                     writeBatch(root);
+                    ioManager.reconcileDirectFileGrowth();
                     return null;
                 } catch (Throwable t) {
                     throw new RuntimeException("PaimonJniWriter C Data write failed", t);
@@ -263,6 +264,7 @@ public class PaimonJniWriter extends JniWriter {
             return preExecutionAuthenticator.execute(() -> {
                 try {
                     List<CommitMessage> messages = prepareCommitMessages();
+                    ioManager.reconcileDirectFileGrowth();
                     if (messages.isEmpty()) {
                         LOG.info("PaimonJniWriter prepareCommit: empty");
                         return new byte[0][];

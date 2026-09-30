@@ -27,8 +27,14 @@ import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.channels.FileChannel;
+import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Stream;
 
 /** Paimon IOManager adapter which charges temporary I/O to Doris spill management. */
 final class DorisIOManager implements IOManager {
@@ -54,6 +60,10 @@ final class DorisIOManager implements IOManager {
 
     private final SpillAccountant accountant;
     private final Map<String, Long> channelBytes = new ConcurrentHashMap<>();
+    private final Map<String, Long> directFileBytes = new ConcurrentHashMap<>();
+    private final Set<String> directFilePaths = ConcurrentHashMap.newKeySet();
+    private final Set<String> directDirectoryPaths = ConcurrentHashMap.newKeySet();
+    private final Set<String> bufferFilePaths = ConcurrentHashMap.newKeySet();
     private final Map<String, Integer> activeChannelWriters = new ConcurrentHashMap<>();
     private volatile IOManager delegate;
 
@@ -100,7 +110,9 @@ final class DorisIOManager implements IOManager {
 
     @Override
     public FileIOChannel.ID createChannel(String prefix) {
-        return uncheckedDelegate().createChannel(prefix);
+        FileIOChannel.ID channel = uncheckedDelegate().createChannel(prefix);
+        directFilePaths.add(absolutePath(channel.getPath()));
+        return channel;
     }
 
     @Override
@@ -110,7 +122,9 @@ final class DorisIOManager implements IOManager {
 
     @Override
     public String pickTempDir() {
-        return uncheckedDelegate().pickTempDir();
+        String tempDir = uncheckedDelegate().pickTempDir();
+        directDirectoryPaths.add(absolutePath(tempDir));
+        return tempDir;
     }
 
     @Override
@@ -123,6 +137,10 @@ final class DorisIOManager implements IOManager {
         // ExternalBuffer clears old buffer channels with File.delete(), bypassing IOManager
         // deletion. Release those known channels before reserving more space.
         releaseDeletedChannels();
+        String path = absolutePath(channelID.getPath());
+        bufferFilePaths.add(path);
+        directFilePaths.remove(path);
+        releaseDirectFile(path);
         return new AccountingBufferFileWriter(delegate().createBufferFileWriter(channelID), this);
     }
 
@@ -138,13 +156,112 @@ final class DorisIOManager implements IOManager {
             return;
         }
 
+        IOException accountingFailure = null;
+        try {
+            reconcileDirectFileGrowth();
+        } catch (IOException e) {
+            accountingFailure = e;
+        }
         try {
             initializedDelegate.close();
         } catch (Exception e) {
             releaseDeletedChannels();
+            releaseDeletedDirectFiles();
+            if (accountingFailure != null) {
+                e.addSuppressed(accountingFailure);
+            }
             throw new SpillDirectoryCleanupException(e);
         }
         releaseDeletedChannels();
+        releaseDeletedDirectFiles();
+        if (accountingFailure != null) {
+            throw accountingFailure;
+        }
+    }
+
+    /** Reconciles files Paimon writes directly through paths returned by this IOManager. */
+    synchronized void reconcileDirectFileGrowth() throws IOException {
+        IOManager initializedDelegate = delegate;
+        if (initializedDelegate == null) {
+            return;
+        }
+
+        Set<String> seen = new HashSet<>();
+        for (String directFilePath : directFilePaths) {
+            Path path = Path.of(directFilePath);
+            if (Files.isRegularFile(path)) {
+                reconcileDirectPath(path, seen);
+            }
+        }
+        for (String tempDir : directDirectoryPaths) {
+            Path root = Path.of(tempDir);
+            if (!Files.exists(root)) {
+                continue;
+            }
+            try (Stream<Path> paths = Files.walk(root)) {
+                for (Path path : (Iterable<Path>) paths.filter(Files::isRegularFile)::iterator) {
+                    String absolutePath = absolutePath(path);
+                    if (bufferFilePaths.contains(absolutePath)) {
+                        continue;
+                    }
+                    reconcileDirectPath(path, seen);
+                }
+            }
+        }
+        for (Map.Entry<String, Long> entry : directFileBytes.entrySet()) {
+            if (!seen.contains(entry.getKey())
+                    && directFileBytes.remove(entry.getKey(), entry.getValue())) {
+                accountant.release(entry.getKey(), entry.getValue());
+            }
+        }
+    }
+
+    private void reconcileDirectPath(Path path, Set<String> seen) throws IOException {
+        String absolutePath = absolutePath(path);
+        try {
+            long bytes = Files.size(path);
+            seen.add(absolutePath);
+            reconcileDirectFile(absolutePath, bytes);
+        } catch (NoSuchFileException ignored) {
+            // Paimon compaction can delete an obsolete SST while the directory is scanned.
+        }
+    }
+
+    private void reconcileDirectFile(String path, long bytes) throws IOException {
+        long accounted = directFileBytes.getOrDefault(path, 0L);
+        long delta = bytes - accounted;
+        if (delta > 0) {
+            accountant.reserve(path, delta);
+            directFileBytes.put(path, bytes);
+            accountant.commitWrite(path, delta);
+        } else if (delta < 0) {
+            directFileBytes.put(path, bytes);
+            accountant.release(path, -delta);
+        }
+    }
+
+    private void releaseDirectFile(String path) {
+        Long released = directFileBytes.remove(path);
+        if (released != null) {
+            accountant.release(path, released);
+        }
+    }
+
+    private void releaseDeletedDirectFiles() {
+        for (Map.Entry<String, Long> entry : directFileBytes.entrySet()) {
+            if (!new File(entry.getKey()).exists()
+                    && directFileBytes.remove(entry.getKey(), entry.getValue())) {
+                accountant.release(entry.getKey(), entry.getValue());
+            }
+        }
+    }
+
+    private static String absolutePath(String path) {
+        return absolutePath(Path.of(path));
+    }
+
+    private static String absolutePath(Path path) {
+        return path.toAbsolutePath().normalize().toString();
     }
 
     private boolean releaseDeletedChannels() {

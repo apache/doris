@@ -52,10 +52,12 @@ public class PaimonWritePlanProviderTest {
     }
 
     @Test
-    public void paimonWritesUseReservedExternalSinkVersion() {
+    public void paimonWritesRequireDedicatedExecVersion() {
         Assertions.assertThrows(DorisConnectorException.class,
-                () -> PaimonWritePlanProvider.requireBeExecVersion(12));
-        Assertions.assertDoesNotThrow(() -> PaimonWritePlanProvider.requireBeExecVersion(13));
+                () -> PaimonWritePlanProvider.requireBeExecVersion(
+                        PaimonWritePlanProvider.MIN_BE_EXEC_VERSION - 1));
+        Assertions.assertDoesNotThrow(() -> PaimonWritePlanProvider.requireBeExecVersion(
+                PaimonWritePlanProvider.MIN_BE_EXEC_VERSION));
     }
 
     @Test

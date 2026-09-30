@@ -64,7 +64,9 @@ import java.util.stream.Collectors;
 
 /** Builds the JNI-backed Paimon sink and binds it to the active connector transaction. */
 public class PaimonWritePlanProvider implements ConnectorWritePlanProvider {
-    static final int MIN_BE_EXEC_VERSION = 13;
+    // Keep in sync with Config.PAIMON_WRITE_MIN_BE_EXEC_VERSION. Connector modules cannot depend
+    // on fe-common, so the wire-protocol boundary is repeated at the provider admission gate.
+    static final int MIN_BE_EXEC_VERSION = 16;
 
     static final String ROW_KIND_COLUMN = "__DORIS_PAIMON_ROW_KIND__";
     static final byte INSERT_OPERATION = 0;

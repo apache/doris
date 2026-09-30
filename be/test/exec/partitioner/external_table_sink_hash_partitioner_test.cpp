@@ -31,6 +31,7 @@
 #include "core/block/block.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
+#include "exec/partitioner/external/paimon_fixed_bucket_partition_function.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
@@ -168,6 +169,12 @@ TEST_F(ExternalTableSinkHashPartitionerTest, PaimonFixedBucketUsesSdkCompatibleC
     EXPECT_EQ(channels[0], channels[2]);
 
     ASSERT_TRUE(partitioner.close(&_state).ok());
+}
+
+TEST_F(ExternalTableSinkHashPartitionerTest, PaimonFunctionReportsLogicalPartitionCount) {
+    PaimonFixedBucketPartitionFunction function(8, 4, {}, {0});
+
+    EXPECT_EQ(8, function.partition_count());
 }
 
 TEST_F(ExternalTableSinkHashPartitionerTest, PaimonFixedBucketIncludesPartitionHash) {

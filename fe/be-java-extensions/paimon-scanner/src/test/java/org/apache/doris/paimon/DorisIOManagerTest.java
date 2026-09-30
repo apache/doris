@@ -29,6 +29,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -172,6 +173,60 @@ public class DorisIOManagerTest {
         Assertions.assertEquals(12, accountant.releasedBytes);
     }
 
+    @Test
+    public void testLookupDirectFileHonorsLowSpillQuota() throws Exception {
+        RecordingSpillAccountant accountant = new RecordingSpillAccountant(4, tempDir);
+        try (DorisIOManager manager = new DorisIOManager(accountant)) {
+            Path lookupFile = manager.createChannel("lookup").getPathFile().toPath();
+            Files.write(lookupFile, "lookup-sst".getBytes(StandardCharsets.UTF_8));
+
+            Assertions.assertThrows(IOException.class, manager::reconcileDirectFileGrowth);
+            Files.delete(lookupFile);
+        }
+        Assertions.assertEquals(0, accountant.currentBytes);
+    }
+
+    @Test
+    public void testClusteringDirectFileHonorsLowSpillQuota() throws Exception {
+        RecordingSpillAccountant accountant = new RecordingSpillAccountant(4, tempDir);
+        try (DorisIOManager manager = new DorisIOManager(accountant)) {
+            Path clusteringDir = Path.of(manager.pickTempDir(), "clustering-db");
+            Files.createDirectories(clusteringDir);
+            Path sstFile = clusteringDir.resolve("level-0.sst");
+            Files.write(sstFile, "cluster-sst".getBytes(StandardCharsets.UTF_8));
+
+            Assertions.assertThrows(IOException.class, manager::reconcileDirectFileGrowth);
+            Files.delete(sstFile);
+            Files.delete(clusteringDir);
+        }
+        Assertions.assertEquals(0, accountant.currentBytes);
+    }
+
+    @Test
+    public void testDirectFileGrowthAndDeletionAreAccounted() throws Exception {
+        RecordingSpillAccountant accountant = new RecordingSpillAccountant(tempDir);
+        try (DorisIOManager manager = new DorisIOManager(accountant)) {
+            Path lookupFile = manager.createChannel("lookup").getPathFile().toPath();
+            Files.write(lookupFile, new byte[7]);
+            Path clusteringDir = Path.of(manager.pickTempDir(), "clustering-db");
+            Files.createDirectories(clusteringDir);
+            Path sstFile = clusteringDir.resolve("level-0.sst");
+            Files.write(sstFile, new byte[11]);
+
+            manager.reconcileDirectFileGrowth();
+            Assertions.assertEquals(18, accountant.reservedBytes);
+            Assertions.assertEquals(18, accountant.currentBytes);
+            Assertions.assertEquals(18, accountant.writtenBytes);
+
+            Files.delete(lookupFile);
+            Files.delete(sstFile);
+            Files.delete(clusteringDir);
+            manager.reconcileDirectFileGrowth();
+            Assertions.assertEquals(0, accountant.currentBytes);
+            Assertions.assertEquals(18, accountant.releasedBytes);
+        }
+    }
+
     private static final class RecordingSpillAccountant implements DorisIOManager.SpillAccountant {
         private final Path[] spillDirectories;
         private long directoryRequests;
@@ -180,8 +235,14 @@ public class DorisIOManagerTest {
         private long writtenBytes;
         private long readBytes;
         private long releasedBytes;
+        private final long quotaBytes;
 
         private RecordingSpillAccountant(Path... spillDirectories) {
+            this(Long.MAX_VALUE, spillDirectories);
+        }
+
+        private RecordingSpillAccountant(long quotaBytes, Path... spillDirectories) {
+            this.quotaBytes = quotaBytes;
             this.spillDirectories = spillDirectories;
         }
 
@@ -194,7 +255,10 @@ public class DorisIOManagerTest {
         }
 
         @Override
-        public void reserve(String path, long bytes) {
+        public void reserve(String path, long bytes) throws IOException {
+            if (currentBytes + bytes > quotaBytes) {
+                throw new IOException("spill quota exceeded");
+            }
             reservedBytes += bytes;
             currentBytes += bytes;
         }
