@@ -22,6 +22,7 @@ import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo.HashType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
@@ -30,9 +31,13 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
+import org.apache.doris.planner.DistributionMode;
 import org.apache.doris.planner.ExchangeNode;
+import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.LocalExchangeNode;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.NestedLoopJoinNode;
+import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.SetOperationNode;
@@ -46,7 +51,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 
-/** SQL-to-thrift coverage of the storage layout INSIDE a set operation, not its parent join. */
+/** SQL-to-thrift coverage of storage layouts in set operations and broadcast joins. */
 public class IdentitySetOperationTest extends TestWithFeService {
     @Override
     protected int backendNum() {
@@ -62,6 +67,8 @@ public class IdentitySetOperationTest extends TestWithFeService {
         createTable("CREATE TABLE identity5(id BIGINT NOT NULL) DISTRIBUTED BY HASH(id) BUCKETS 5 "
                 + "PROPERTIES('replication_num'='1', 'distribution_hash_type'='identity')");
         createTable("CREATE TABLE crc7(id BIGINT NOT NULL) DISTRIBUTED BY HASH(id) BUCKETS 7 "
+                + "PROPERTIES('replication_num'='1')");
+        createTable("CREATE TABLE random8(id BIGINT NOT NULL) DISTRIBUTED BY RANDOM BUCKETS 8 "
                 + "PROPERTIES('replication_num'='1')");
         SessionVariable sv = connectContext.getSessionVariable();
         sv.setEnableLocalShufflePlanner(true);
@@ -93,6 +100,124 @@ public class IdentitySetOperationTest extends TestWithFeService {
     @Test
     public void testMixedCrc32Target() throws Exception {
         checkSetOperations("identity8", "crc7", 1, HashType.CRC32);
+    }
+
+    @Test
+    public void testRandomProbeIdentityBroadcastToThrift() throws Exception {
+        // Specify broadcast in LEADING so join reconstruction preserves it regardless of other tests' statistics.
+        checkBroadcastToThrift("SELECT /*+ LEADING(r broadcast i) */ r.id FROM random8 r "
+                + "JOIN [broadcast] identity8 i ON r.id = i.id", "random8", "identity8", 1);
+    }
+
+    @Test
+    public void testIdentityProbeRandomBroadcastToThrift() throws Exception {
+        checkBroadcastToThrift("SELECT /*+ LEADING(i broadcast r) */ i.id FROM identity8 i "
+                + "JOIN [broadcast] random8 r ON i.id = r.id", "identity8", "random8", 1);
+    }
+
+    @Test
+    public void testRandomProbeNestedIdentityBroadcastToThrift() throws Exception {
+        checkBroadcastToThrift("SELECT /*+ LEADING(r broadcast i broadcast j) */ r.id FROM random8 r "
+                + "JOIN [broadcast] identity8 i ON r.id = i.id "
+                + "JOIN [broadcast] identity8 j ON r.id = j.id", "random8", "identity8", 2);
+    }
+
+    @Test
+    public void testRandomProbeIdentityNestedLoopToThrift() throws Exception {
+        SessionVariable sv = connectContext.getSessionVariable();
+        boolean oldLocalShufflePlanner = sv.isEnableLocalShufflePlanner();
+        try {
+            for (boolean localShufflePlanner : new boolean[] {false, true}) {
+                sv.setEnableLocalShufflePlanner(localShufflePlanner);
+                String sql = "SELECT /*+ LEADING(r i) */ r.id FROM random8 r JOIN identity8 i ON r.id < i.id";
+                NereidsPlanner planner = (NereidsPlanner) executeNereidsSql("explain distributed plan " + sql)
+                        .planner();
+                int joinCount = 0;
+                for (PlanFragment fragment : planner.getFragments()) {
+                    List<NestedLoopJoinNode> joins = fragment.getPlanRoot()
+                            .collectInCurrentFragment(node -> node instanceof NestedLoopJoinNode);
+                    for (NestedLoopJoinNode join : joins) {
+                        joinCount++;
+                        List<OlapScanNode> probes = join.getChild(0)
+                                .collectInCurrentFragment(node -> node instanceof OlapScanNode);
+                        Assertions.assertEquals(1, probes.size());
+                        Assertions.assertEquals("random8", probes.get(0).getOlapTable().getName());
+                        if (!localShufflePlanner) {
+                            Assertions.assertNull(join.getStorageDistributionHashType());
+                        }
+                    }
+                    Assertions.assertDoesNotThrow(() -> fragment.toThrift(),
+                            "localShufflePlanner=" + localShufflePlanner + ": " + sql);
+                }
+                Assertions.assertEquals(1, joinCount);
+            }
+        } finally {
+            sv.setEnableLocalShufflePlanner(oldLocalShufflePlanner);
+        }
+    }
+
+    private void checkBroadcastToThrift(String sql, String probeTable, String buildTable, int expectedJoins)
+            throws Exception {
+        SessionVariable sv = connectContext.getSessionVariable();
+        boolean oldLocalShufflePlanner = sv.isEnableLocalShufflePlanner();
+        boolean oldForceToLocalShuffle = sv.isForceToLocalShuffle();
+        try {
+            sv.setForceToLocalShuffle(false);
+            for (boolean localShufflePlanner : new boolean[] {false, true}) {
+                sv.setEnableLocalShufflePlanner(localShufflePlanner);
+                String context = "localShufflePlanner=" + localShufflePlanner + ": " + sql;
+                NereidsPlanner planner = (NereidsPlanner) executeNereidsSql("explain distributed plan " + sql)
+                        .planner();
+                Assertions.assertTrue(SessionVariable.canUseNereidsDistributePlanner(connectContext), context);
+                List<PlanFragment> fragments = planner.getFragments();
+                int joinCount = 0;
+                for (PlanFragment fragment : fragments) {
+                    List<HashJoinNode> joins = fragment.getPlanRoot()
+                            .collectInCurrentFragment(node -> node instanceof HashJoinNode);
+                    for (HashJoinNode join : joins) {
+                        joinCount++;
+                        Assertions.assertEquals(DistributionMode.BROADCAST, join.getDistributionMode(), context);
+                        // Stay in this fragment: a build scan behind a broadcast exchange cannot define the probe layout.
+                        List<OlapScanNode> probes = join.getChild(0)
+                                .collectInCurrentFragment(node -> node instanceof OlapScanNode);
+                        Assertions.assertEquals(1, probes.size(), context);
+                        OlapTable probe = probes.get(0).getOlapTable();
+                        Assertions.assertEquals(probeTable, probe.getName(), context);
+                        if (probeTable.equals("random8")) {
+                            Assertions.assertInstanceOf(RandomDistributionInfo.class,
+                                    probe.getDefaultDistributionInfo(), context);
+                            Assertions.assertEquals(TPartitionType.RANDOM,
+                                    fragment.getDataPartition().getType(), context);
+                            if (!localShufflePlanner) {
+                                Assertions.assertNull(join.getStorageDistributionHashType(), context);
+                            }
+                        } else {
+                            Assertions.assertEquals(HashType.IDENTITY,
+                                    ((HashDistributionInfo) probe.getDefaultDistributionInfo()).getHashType(), context);
+                        }
+                        List<ExchangeNode> builds = join.getChild(1)
+                                .collectInCurrentFragment(node -> node instanceof ExchangeNode);
+                        Assertions.assertEquals(1, builds.size(), context);
+                        Assertions.assertEquals(TPartitionType.UNPARTITIONED,
+                                builds.get(0).getPartitionType(), context);
+                        PlanFragment sender = fragments.stream().filter(f -> f.getDestNode() == builds.get(0))
+                                .findFirst().orElseThrow();
+                        List<OlapScanNode> buildScans = sender.getPlanRoot()
+                                .collectInCurrentFragment(node -> node instanceof OlapScanNode);
+                        Assertions.assertEquals(1, buildScans.size(), context);
+                        Assertions.assertEquals(buildTable, buildScans.get(0).getOlapTable().getName(), context);
+                    }
+                }
+                Assertions.assertEquals(expectedJoins, joinCount, context);
+                // EXPLAIN does not serialize every fragment; exercise the fallback that incorrectly included the build.
+                for (PlanFragment fragment : fragments) {
+                    Assertions.assertDoesNotThrow(() -> fragment.toThrift(), context);
+                }
+            }
+        } finally {
+            sv.setEnableLocalShufflePlanner(oldLocalShufflePlanner);
+            sv.setForceToLocalShuffle(oldForceToLocalShuffle);
+        }
     }
 
     private void checkSetOperations(String left, String right, int basicIndex, HashType hashType)

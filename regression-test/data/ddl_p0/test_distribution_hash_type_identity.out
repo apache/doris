@@ -162,6 +162,12 @@ beta	2
 7	2	20
 8	3	30
 
+-- !random_probe_identity_broadcast_native --
+2
+
+-- !random_probe_identity_broadcast_fe --
+2
+
 -- !identity_multi_bucket_shuffle --
 -1	A	12	22
 1	A	10	20

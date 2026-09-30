@@ -212,6 +212,86 @@ public class LocalShuffleNodeCoverageTest {
     }
 
     @Test
+    public void testStorageHashCollectionStopsAtRemoteExchange() {
+        ExchangeNode exchange = new ExchangeNode(nextPlanNodeId(), storageLayoutNode(
+                HashDistributionInfo.HashType.IDENTITY));
+        exchange.setPartitionType(TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED);
+        exchange.setDistributionHashType(HashDistributionInfo.HashType.CRC32);
+        java.util.Set<HashDistributionInfo.HashType> collected = new java.util.HashSet<>();
+        exchange.collectStorageHashTypes(collected);
+        // The receiver rebuckets using CRC32; the sender's IDENTITY layout belongs to a different fragment.
+        Assertions.assertEquals(Collections.singleton(HashDistributionInfo.HashType.CRC32), collected);
+
+        for (TPartitionType type : new TPartitionType[] {TPartitionType.UNPARTITIONED,
+                TPartitionType.HASH_PARTITIONED, TPartitionType.RANDOM}) {
+            exchange.setPartitionType(type);
+            collected.clear();
+            exchange.collectStorageHashTypes(collected);
+            Assertions.assertTrue(collected.isEmpty(),
+                    "Default tags on non-bucket exchanges do not represent storage bucket layouts: " + type);
+        }
+    }
+
+    @Test
+    public void testBroadcastLayoutCollectionUsesOnlyProbe() {
+        for (HashDistributionInfo.HashType probeType : new HashDistributionInfo.HashType[] {
+                null, HashDistributionInfo.HashType.CRC32, HashDistributionInfo.HashType.IDENTITY}) {
+            PlanNode probe = storageLayoutNode(probeType);
+            PlanNode identityBuild = storageLayoutNode(HashDistributionInfo.HashType.IDENTITY);
+            ExchangeNode remoteBuild = new ExchangeNode(nextPlanNodeId(), identityBuild);
+            remoteBuild.setPartitionType(TPartitionType.UNPARTITIONED);
+            // Include builds without remote exchanges so the exchange fix alone cannot mask incorrect join traversal.
+            for (PlanNode build : Lists.newArrayList(identityBuild,
+                    new LocalExchangeNode(nextPlanNodeId(), identityBuild, LocalExchangeType.PASSTHROUGH),
+                    remoteBuild)) {
+                HashJoinNode join = new HashJoinNode(nextPlanNodeId(), probe, build,
+                        JoinOperator.INNER_JOIN, Collections.singletonList(Mockito.mock(BinaryPredicate.class)),
+                        Collections.emptyList(), null, null, false);
+                join.setDistributionMode(DistributionMode.BROADCAST);
+                java.util.Set<HashDistributionInfo.HashType> collected = new java.util.HashSet<>();
+                join.collectStorageHashTypes(collected);
+                Assertions.assertEquals(probeType == null ? Collections.emptySet()
+                        : Collections.singleton(probeType), collected);
+
+                NestedLoopJoinNode nested = new NestedLoopJoinNode(nextPlanNodeId(), probe, build,
+                        Collections.emptyList(), JoinOperator.CROSS_JOIN, false);
+                collected.clear();
+                nested.collectStorageHashTypes(collected);
+                Assertions.assertEquals(probeType == null ? Collections.emptySet()
+                        : Collections.singleton(probeType), collected);
+            }
+        }
+    }
+
+    @Test
+    public void testBroadcastDoesNotHideMixedProbeLayouts() {
+        UnionNode mixed = new UnionNode(nextPlanNodeId(), new TupleId(123));
+        mixed.addChild(storageLayoutNode(HashDistributionInfo.HashType.IDENTITY));
+        mixed.addChild(storageLayoutNode(HashDistributionInfo.HashType.CRC32));
+        HashJoinNode join = new HashJoinNode(nextPlanNodeId(), mixed, storageLayoutNode(null),
+                JoinOperator.INNER_JOIN, Collections.singletonList(Mockito.mock(BinaryPredicate.class)),
+                Collections.emptyList(), null, null, false);
+        join.setDistributionMode(DistributionMode.BROADCAST);
+        PlanFragment fragment = new PlanFragment(new PlanFragmentId(1), join, DataPartition.UNPARTITIONED);
+        IllegalStateException rejected = Assertions.assertThrows(IllegalStateException.class, fragment::toThrift);
+        Assertions.assertTrue(rejected.getMessage().contains("mixes distribution hash types"));
+    }
+
+    private static PlanNode storageLayoutNode(HashDistributionInfo.HashType hashType) {
+        return new TrackingPlanNode(nextPlanNodeId(), LocalExchangeType.NOOP) {
+            @Override
+            public HashDistributionInfo.HashType getStorageDistributionHashType() {
+                return hashType;
+            }
+
+            @Override
+            protected HashDistributionInfo.HashType getOwnStorageHashType() {
+                return hashType;
+            }
+        };
+    }
+
+    @Test
     public void testRequireSpecificAutoRequireHashPreservesSpecificHash() {
         // Pass-through operators (union / streaming agg / sort) forward their parent's specific
         // hash requirement downward via autoRequireHash() while leaving row placement to their

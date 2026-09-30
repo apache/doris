@@ -145,6 +145,16 @@ public class HashJoinNode extends JoinNodeBase {
     }
 
     @Override
+    public void collectStorageHashTypes(Set<HashDistributionInfo.HashType> hashTypes) {
+        if (distrMode == DistributionMode.BROADCAST) {
+            // Match output layout inference: exclude the build even when the probe has no bucket layout.
+            children.get(0).collectStorageHashTypes(hashTypes);
+        } else {
+            super.collectStorageHashTypes(hashTypes);
+        }
+    }
+
+    @Override
     public boolean requiresShuffleForCorrectness() {
         // BE: HashJoinBuild/Probe.is_shuffled_operator() = PARTITIONED || BUCKET_SHUFFLE || COLOCATE.
         // (BROADCAST and NONE are not shuffled — they don't depend on hash distribution.)

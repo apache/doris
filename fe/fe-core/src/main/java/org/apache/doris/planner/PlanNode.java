@@ -1204,10 +1204,9 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
     }
 
     /**
-     * Collect every distinct storage hash type declared by nodes in this subtree that have a
-     * definite layout opinion (OLAP scans, exchanges, local exchanges; nodes without one, like
-     * schema scans or empty-set nodes, stay silent). Used to distinguish a genuinely mixed
-     * subtree (both CRC32 and IDENTITY) from one that simply has no bucketed storage at all.
+     * Collect storage bucket layouts contributing to this fragment's output distribution, distinguishing
+     * mixed layouts from subtrees without a bucket layout. Exchanges stop at the sender boundary, and
+     * broadcast joins collect only the probe, matching each operator's output layout inference.
      */
     public void collectStorageHashTypes(Set<HashDistributionInfo.HashType> hashTypes) {
         HashDistributionInfo.HashType own = getOwnStorageHashType();

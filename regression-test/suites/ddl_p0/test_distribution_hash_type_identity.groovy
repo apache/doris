@@ -640,6 +640,42 @@ suite("test_distribution_hash_type_identity") {
     order_qt_identity_broadcast_then_bucket_fe "${broadcastThenBucketSql}"
     sql "set enable_local_shuffle_planner = false"
 
+    // A RANDOM probe has no storage hash layout; its IDENTITY broadcast build must not cause a serialization conflict.
+    sql "DROP TABLE IF EXISTS test_dist_hash_broadcast_random"
+    sql """
+        CREATE TABLE test_dist_hash_broadcast_random (id BIGINT NOT NULL)
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY RANDOM BUCKETS 8
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql "DROP TABLE IF EXISTS test_dist_hash_broadcast_identity"
+    sql """
+        CREATE TABLE test_dist_hash_broadcast_identity (id BIGINT NOT NULL)
+        DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 8
+        PROPERTIES ("replication_num" = "1", "distribution_hash_type" = "identity")
+    """
+    sql "INSERT INTO test_dist_hash_broadcast_random VALUES (1), (2)"
+    sql "INSERT INTO test_dist_hash_broadcast_identity VALUES (2), (3)"
+    def randomProbeBroadcastSql = """
+        SELECT /*+ LEADING(r broadcast i) */ r.id
+        FROM test_dist_hash_broadcast_random r
+        JOIN [broadcast] test_dist_hash_broadcast_identity i ON r.id = i.id
+    """
+    sql "set enable_local_shuffle_planner = false"
+    explain {
+        sql(randomProbeBroadcastSql)
+        contains "INNER JOIN(BROADCAST)"
+    }
+    order_qt_random_probe_identity_broadcast_native "${randomProbeBroadcastSql}"
+    sql "set enable_local_shuffle_planner = true"
+    explain {
+        sql(randomProbeBroadcastSql)
+        contains "INNER JOIN(BROADCAST)"
+    }
+    order_qt_random_probe_identity_broadcast_fe "${randomProbeBroadcastSql}"
+    sql "set enable_local_shuffle_planner = false"
+
     sql "DROP TABLE IF EXISTS test_dist_hash_bs_multi_right"
     sql """
         CREATE TABLE `test_dist_hash_bs_multi_right` (

@@ -114,6 +114,12 @@ public class NestedLoopJoinNode extends JoinNodeBase {
     }
 
     @Override
+    public void collectStorageHashTypes(Set<HashDistributionInfo.HashType> hashTypes) {
+        // Nested-loop joins inherit the probe distribution; exclude the build from storage layout validation.
+        children.get(0).collectStorageHashTypes(hashTypes);
+    }
+
+    @Override
     protected void toThrift(TPlanNode msg) {
         msg.nested_loop_join_node = new TNestedLoopJoinNode();
         msg.nested_loop_join_node.join_op = joinOp.toThrift();
