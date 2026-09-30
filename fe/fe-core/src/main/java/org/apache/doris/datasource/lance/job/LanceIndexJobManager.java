@@ -198,6 +198,7 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
             LanceIndexJob admitted = new LanceIndexJob(job);
             admitted.setMutationState(LanceIndexJobMutationState.PENDING);
             admitted.setRefreshState(LanceIndexJobRefreshState.NOT_REQUIRED);
+            admitted.setRefreshFailureTimeMs(null);
             admitted.setRevision(0);
             admitted.setCreateTimeMs(now);
             admitted.setUpdateTimeMs(now);
@@ -424,6 +425,13 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
             }
             LanceIndexJob updated = new LanceIndexJob(current);
             updated.setRefreshState(target);
+            if (target == LanceIndexJobRefreshState.FAILED) {
+                // The FAILED-refresh throttle measures from this dedicated timestamp,
+                // not the generic update time: an unrelated later transition (a
+                // termination proof) bumps the generic time without attempting the
+                // refresh and must not postpone the next retry by another interval.
+                updated.setRefreshFailureTimeMs(System.currentTimeMillis());
+            }
             updated.setRevision(current.getRevision() + 1);
             updated.setUpdateTimeMs(System.currentTimeMillis());
             writeEditLog(updated);

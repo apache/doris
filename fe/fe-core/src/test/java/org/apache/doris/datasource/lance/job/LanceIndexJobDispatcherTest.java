@@ -155,7 +155,7 @@ public class LanceIndexJobDispatcherTest {
         Mockito.doAnswer(invocation -> {
             events.add("refresh:" + invocation.getArgument(1) + "." + invocation.getArgument(2));
             return null;
-        }).when(refreshManager).handleRefreshTable(Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),
+        }).when(refreshManager).handleRefreshTable(Mockito.anyLong(), Mockito.anyString(), Mockito.anyString(),
                 Mockito.anyBoolean());
         Mockito.when(env.getRefreshManager()).thenReturn(refreshManager);
 

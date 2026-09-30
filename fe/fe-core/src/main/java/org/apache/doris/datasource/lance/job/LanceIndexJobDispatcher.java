@@ -233,6 +233,18 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
     }
 
     /**
+     * The clock the FAILED-refresh throttle measures from: the dedicated
+     * refresh-failure timestamp, falling back to the generic update time only for
+     * a legacy record replayed before the field existed. Measuring from the
+     * generic time would let an unrelated transition — a CHILD_REAPED proof or an
+     * epoch-gone release bumping it — postpone the next retry by a full interval
+     * while the fence and quota stay held.
+     */
+    private static long refreshThrottledSinceMs(LanceIndexJob job) {
+        return job.getRefreshFailureTimeMs() == null ? job.getUpdateTimeMs() : job.getRefreshFailureTimeMs();
+    }
+
+    /**
      * Refresh driver for terminal jobs with an unfinished refresh obligation.
      * Completing the refresh is the protocol duty that releases the same-name
      * fence and the unresolved quota once DONE; it is not a read-visibility
@@ -251,7 +263,7 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
                     continue;
                 }
                 if (job.getRefreshState() == LanceIndexJobRefreshState.FAILED
-                        && nowMs - job.getUpdateTimeMs()
+                        && nowMs - refreshThrottledSinceMs(job)
                                 < Config.lance_index_job_refresh_retry_second * 1000L) {
                     continue;
                 }
@@ -279,8 +291,11 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
         try {
             // A half-orphan target (its db or table already dropped externally) is a
             // silent no-op: nothing is left to invalidate, and DONE is the correct end
-            // state for the job.
-            Env.getCurrentEnv().getRefreshManager().handleRefreshTable(catalog.getName(),
+            // state for the job. The refresh is addressed by the persisted catalog id,
+            // never by the mutable name: a rename that hands this catalog's old name
+            // to a different catalog between the two resolutions must not refresh
+            // that one and bill the outcome to this job.
+            Env.getCurrentEnv().getRefreshManager().handleRefreshTable(job.getCatalogId(),
                     job.getDbName(), job.getTableName(), true);
         } catch (Throwable t) {
             // The typed DdlException is the expected failure; an unchecked exception out

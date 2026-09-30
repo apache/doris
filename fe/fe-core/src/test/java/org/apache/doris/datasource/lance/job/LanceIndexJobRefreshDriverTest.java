@@ -50,10 +50,12 @@ import java.util.Map;
  * refresh is mocked, the manager's edit-log seam captures every durable record,
  * and each round is one direct {@code runAfterCatalogReady} call, so the pinned
  * invariants are all observable: the driver runs markRefreshRunning, then
- * {@code handleRefreshTable(catalogName, db, table, ignoreIfNotExists=true)},
+ * {@code handleRefreshTable(catalogId, db, table, ignoreIfNotExists=true)} —
+ * addressed by the persisted catalog id, never the mutable name —
  * then DONE, which releases the fence and the unresolved quota; a
  * {@link DdlException} keeps the fence and retries on a later round; the retry
- * throttle delays only FAILED refreshes, never a first REQUIRED one; a silent
+ * throttle delays only FAILED refreshes and measures from the dedicated failure
+ * timestamp, never a first REQUIRED one; a silent
  * no-op refresh (a half-orphan target) still completes to DONE; force-released
  * jobs owe nothing; and a refresh stranded at RUNNING by a lost driver is
  * downgraded by the master-transfer sweep and then driven to DONE here.
@@ -82,7 +84,7 @@ public class LanceIndexJobRefreshDriverTest {
         mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
         Mockito.when(env.isMaster()).thenReturn(true);
         SystemInfoService systemInfo = Mockito.mock(SystemInfoService.class);
-        Mockito.when(systemInfo.selectBackendIdsByPolicy(Mockito.any(BeSelectionPolicy.class), Mockito.eq(1)))
+        Mockito.when(systemInfo.selectBackendIdsByPolicy(Mockito.any(BeSelectionPolicy.class), Mockito.eq(-1)))
                 .thenReturn(Collections.emptyList());
         mockedEnv.when(Env::getCurrentSystemInfo).thenReturn(systemInfo);
         Mockito.when(env.getFrontends(Mockito.any()))
@@ -103,7 +105,7 @@ public class LanceIndexJobRefreshDriverTest {
         Mockito.doAnswer(invocation -> {
             events.add("refresh:" + invocation.getArgument(1) + "." + invocation.getArgument(2));
             return null;
-        }).when(refreshManager).handleRefreshTable(Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),
+        }).when(refreshManager).handleRefreshTable(Mockito.anyLong(), Mockito.anyString(), Mockito.anyString(),
                 Mockito.anyBoolean());
         Mockito.when(env.getRefreshManager()).thenReturn(refreshManager);
 
@@ -136,13 +138,16 @@ public class LanceIndexJobRefreshDriverTest {
         Assertions.assertTrue(refreshRunningIdx < refreshTableIdx, events.toString());
         Assertions.assertTrue(refreshTableIdx < refreshDoneIdx, events.toString());
 
-        ArgumentCaptor<String> catalogName = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<Long> catalogId = ArgumentCaptor.forClass(Long.class);
         ArgumentCaptor<String> dbName = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> tableName = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<Boolean> ignoreIfNotExists = ArgumentCaptor.forClass(Boolean.class);
-        Mockito.verify(refreshManager, Mockito.times(1)).handleRefreshTable(catalogName.capture(), dbName.capture(),
+        Mockito.verify(refreshManager, Mockito.times(1)).handleRefreshTable(catalogId.capture(), dbName.capture(),
                 tableName.capture(), ignoreIfNotExists.capture());
-        Assertions.assertEquals("lance_cat", catalogName.getValue());
+        // The refresh is addressed by the persisted catalog id, never by the mutable
+        // name: a rename that hands the old name to another catalog must not redirect
+        // this job's refresh to it.
+        Assertions.assertEquals(CATALOG_ID, catalogId.getValue().longValue());
         Assertions.assertEquals("db1", dbName.getValue());
         Assertions.assertEquals("tbl1", tableName.getValue());
         // A half-orphan target is a legal input to the refresh call, not an error.
@@ -165,7 +170,7 @@ public class LanceIndexJobRefreshDriverTest {
         Mockito.doThrow(new DdlException("refresh exploded")).doAnswer(invocation -> {
             events.add("refresh:" + invocation.getArgument(1) + "." + invocation.getArgument(2));
             return null;
-        }).when(refreshManager).handleRefreshTable(Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),
+        }).when(refreshManager).handleRefreshTable(Mockito.anyLong(), Mockito.anyString(), Mockito.anyString(),
                 Mockito.anyBoolean());
         LanceIndexFenceKey fenceKey = manager.getJob(1L).fenceKey();
 
@@ -184,7 +189,7 @@ public class LanceIndexJobRefreshDriverTest {
         Assertions.assertEquals(LanceIndexJobRefreshState.DONE, manager.getJob(1L).getRefreshState());
         Assertions.assertFalse(manager.isFenceHeld(fenceKey));
         Assertions.assertEquals(0L, manager.getQuota().getGlobalCount());
-        Mockito.verify(refreshManager, Mockito.times(2)).handleRefreshTable(Mockito.anyString(), Mockito.anyString(),
+        Mockito.verify(refreshManager, Mockito.times(2)).handleRefreshTable(Mockito.anyLong(), Mockito.anyString(),
                 Mockito.anyString(), Mockito.anyBoolean());
     }
 
@@ -195,7 +200,7 @@ public class LanceIndexJobRefreshDriverTest {
         Mockito.doThrow(new IllegalStateException("metadata path exploded")).doAnswer(invocation -> {
             events.add("refresh:" + invocation.getArgument(1) + "." + invocation.getArgument(2));
             return null;
-        }).when(refreshManager).handleRefreshTable(Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),
+        }).when(refreshManager).handleRefreshTable(Mockito.anyLong(), Mockito.anyString(), Mockito.anyString(),
                 Mockito.anyBoolean());
         LanceIndexFenceKey fenceKey = manager.getJob(1L).fenceKey();
 
@@ -240,30 +245,61 @@ public class LanceIndexJobRefreshDriverTest {
         Config.lance_index_job_refresh_retry_second = 300;
         admitTerminalCommitted(1L, "IdxA");
         Mockito.doThrow(new DdlException("refresh exploded")).when(refreshManager)
-                .handleRefreshTable(Mockito.anyString(), Mockito.anyString(), Mockito.anyString(),
+                .handleRefreshTable(Mockito.anyLong(), Mockito.anyString(), Mockito.anyString(),
                         Mockito.anyBoolean());
 
         dispatcher.runAfterCatalogReady();
 
         Assertions.assertEquals(LanceIndexJobRefreshState.FAILED, manager.getJob(1L).getRefreshState());
+        Assertions.assertNotNull(manager.getJob(1L).getRefreshFailureTimeMs());
         int journalAfterFailure = manager.editLog.size();
 
-        // The FAILED transition just bumped updateTimeMs: the immediately following
-        // round is inside the retry window and must not even attempt the CAS.
+        // The FAILED transition just stamped the failure clock: the immediately
+        // following round is inside the retry window and must not even attempt the CAS.
         dispatcher.runAfterCatalogReady();
 
         Assertions.assertEquals(LanceIndexJobRefreshState.FAILED, manager.getJob(1L).getRefreshState());
         Assertions.assertEquals(journalAfterFailure, manager.editLog.size());
-        Mockito.verify(refreshManager, Mockito.times(1)).handleRefreshTable(Mockito.anyString(), Mockito.anyString(),
+        Mockito.verify(refreshManager, Mockito.times(1)).handleRefreshTable(Mockito.anyLong(), Mockito.anyString(),
                 Mockito.anyString(), Mockito.anyBoolean());
         Assertions.assertTrue(containsJob(manager.getJobsNeedingRefresh(), 1L));
     }
 
     @Test
+    public void lateProofDoesNotExtendTheFailedRefreshThrottleWindow() throws Exception {
+        Config.lance_index_job_refresh_retry_second = 300;
+        // A FAILED refresh whose failure aged past the retry window, while a later
+        // termination proof bumped the generic updateTimeMs just now (a CHILD_REAPED
+        // or epoch-gone release updates the record without attempting the refresh).
+        // The throttle must measure from the failure timestamp: measuring from the
+        // generic time would postpone the next retry by a full interval while the
+        // fence and quota stay held.
+        LanceIndexJob failed = newCreateJob(1L, "IdxA");
+        failed.setRevision(3L);
+        failed.setMutationState(LanceIndexJobMutationState.COMMITTED);
+        failed.setRefreshState(LanceIndexJobRefreshState.FAILED);
+        long failureTime = System.currentTimeMillis()
+                - (Config.lance_index_job_refresh_retry_second * 1000L + 60_000L);
+        failed.setCreateTimeMs(failureTime);
+        failed.setRefreshFailureTimeMs(failureTime);
+        failed.setUpdateTimeMs(System.currentTimeMillis());
+        manager.replayUpsertJob(failed);
+        LanceIndexFenceKey fenceKey = manager.getJob(1L).fenceKey();
+
+        dispatcher.runAfterCatalogReady();
+
+        Assertions.assertEquals(LanceIndexJobRefreshState.DONE, manager.getJob(1L).getRefreshState());
+        Assertions.assertFalse(manager.isFenceHeld(fenceKey));
+        Assertions.assertEquals(0L, manager.getQuota().getGlobalCount());
+        Mockito.verify(refreshManager, Mockito.times(1)).handleRefreshTable(Mockito.anyLong(), Mockito.anyString(),
+                Mockito.anyString(), Mockito.anyBoolean());
+    }
+
+    @Test
     public void staleFailedRefreshIsRetriedOncePastTheThrottleWindow() throws Exception {
         Config.lance_index_job_refresh_retry_second = 300;
-        // A FAILED refresh whose last transition aged past the retry window, built as
-        // a replayed durable record so its updateTimeMs is controllable.
+        // A legacy FAILED record replayed before the failure timestamp existed: it
+        // falls back to the generic update time, here aged past the retry window.
         LanceIndexJob stale = newCreateJob(1L, "IdxA");
         stale.setRevision(2L);
         stale.setMutationState(LanceIndexJobMutationState.COMMITTED);
@@ -280,7 +316,7 @@ public class LanceIndexJobRefreshDriverTest {
         Assertions.assertEquals(LanceIndexJobRefreshState.DONE, manager.getJob(1L).getRefreshState());
         Assertions.assertFalse(manager.isFenceHeld(fenceKey));
         Assertions.assertEquals(0L, manager.getQuota().getGlobalCount());
-        Mockito.verify(refreshManager, Mockito.times(1)).handleRefreshTable(Mockito.anyString(), Mockito.anyString(),
+        Mockito.verify(refreshManager, Mockito.times(1)).handleRefreshTable(Mockito.anyLong(), Mockito.anyString(),
                 Mockito.anyString(), Mockito.anyBoolean());
     }
 
@@ -289,7 +325,7 @@ public class LanceIndexJobRefreshDriverTest {
         admitTerminalCommitted(1L, "IdxA");
         // The target db/table was already dropped externally: the refresh call is a
         // silent no-op (nothing is left to invalidate), which is success here.
-        Mockito.doNothing().when(refreshManager).handleRefreshTable(Mockito.anyString(), Mockito.anyString(),
+        Mockito.doNothing().when(refreshManager).handleRefreshTable(Mockito.anyLong(), Mockito.anyString(),
                 Mockito.anyString(), Mockito.anyBoolean());
         LanceIndexFenceKey fenceKey = manager.getJob(1L).fenceKey();
 
@@ -313,7 +349,7 @@ public class LanceIndexJobRefreshDriverTest {
 
         dispatcher.runAfterCatalogReady();
 
-        Mockito.verify(refreshManager, Mockito.never()).handleRefreshTable(Mockito.anyString(), Mockito.anyString(),
+        Mockito.verify(refreshManager, Mockito.never()).handleRefreshTable(Mockito.anyLong(), Mockito.anyString(),
                 Mockito.anyString(), Mockito.anyBoolean());
         Assertions.assertEquals(LanceIndexJobRefreshState.REQUIRED, manager.getJob(1L).getRefreshState());
         Assertions.assertTrue(manager.editLog.isEmpty());
@@ -364,7 +400,7 @@ public class LanceIndexJobRefreshDriverTest {
         Assertions.assertEquals(LanceIndexJobRefreshState.FAILED, manager.getJob(1L).getRefreshState());
         Assertions.assertTrue(manager.isFenceHeld(fenceKey));
         Assertions.assertEquals(1L, manager.getQuota().getGlobalCount());
-        Mockito.verify(refreshManager, Mockito.never()).handleRefreshTable(Mockito.anyString(), Mockito.anyString(),
+        Mockito.verify(refreshManager, Mockito.never()).handleRefreshTable(Mockito.anyLong(), Mockito.anyString(),
                 Mockito.anyString(), Mockito.anyBoolean());
     }
 
