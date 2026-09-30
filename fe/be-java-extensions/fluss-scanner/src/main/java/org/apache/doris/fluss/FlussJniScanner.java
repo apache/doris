@@ -354,8 +354,12 @@ public class FlussJniScanner extends JniScanner {
         scanner = null;
         failure = closeQuietly(table, "table", failure);
         table = null;
-        failure = closeQuietly(connection, "connection", failure);
-        connection = null;
+        if (connection != null) {
+            // Closing a connection waits out netty's two-second graceful shutdown; see
+            // FlussConnectionCloser for why this range does not wait for it.
+            FlussConnectionCloser.close(connection);
+            connection = null;
+        }
         currentBatch = null;
         if (failure != null) {
             throw failure;

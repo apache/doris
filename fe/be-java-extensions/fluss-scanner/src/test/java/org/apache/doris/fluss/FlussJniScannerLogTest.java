@@ -452,6 +452,29 @@ public class FlussJniScannerLogTest {
                 "fluss client threads leaked: " + before + " before, " + countClientThreads() + " after");
     }
 
+    /**
+     * Closing a connection waits out netty's two-second graceful shutdown, and every range opens one of
+     * its own. The range must not wait for that: its client threads still go, as the test above checks,
+     * just not on the scanning thread's time.
+     */
+    @Test
+    public void closingTheScannerDoesNotWaitForItsConnectionToShutDown() throws Exception {
+        TablePath tablePath = TablePath.of(db, "close_latency");
+        createIntTable(tablePath);
+        appendInts(tablePath, 0, 3);
+
+        FlussJniScanner scanner = new FlussJniScanner(1024, params(tablePath, columns("id", "int"), 0, 3));
+        scanner.open();
+        while (scanner.getNextBatchMeta() != 0) {
+            scanner.resetTable();
+        }
+        scanner.releaseTable();
+        long start = System.nanoTime();
+        scanner.close();
+        long closeMillis = (System.nanoTime() - start) / 1_000_000;
+        Assertions.assertTrue(closeMillis < 1000, "closing the scanner took " + closeMillis + " ms");
+    }
+
     /** An unreadable range must name what is wrong, not hand fluss a null and fail somewhere inside. */
     @Test
     public void missingParameterIsNamed() {
