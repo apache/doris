@@ -72,6 +72,7 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.transaction.TransactionManager;
 
+import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -187,6 +188,7 @@ public abstract class ExternalCatalog
     protected MetaCache<ExternalDatabase<? extends ExternalTable>> metaCache;
     private ThreadLocal<Boolean> invalidateEngineCacheOnDatabaseRemoval =
             ThreadLocal.withInitial(() -> true);
+    private transient ThreadLocal<Boolean> invalidatingAllMetaCache = ThreadLocal.withInitial(() -> false);
     protected ExecutionAuthenticator executionAuthenticator;
     protected ThreadPoolExecutor threadPoolWithPreAuth;
     // Map lowercase database names to actual remote database names for case-insensitive lookup
@@ -427,13 +429,12 @@ public abstract class ExternalCatalog
                     Math.max(Config.max_meta_object_cache_num, 1),
                     ignored -> getFilteredDatabaseNames(),
                     this::updateLowerCaseToDatabaseName,
-                    (remoteName, localName) -> lowerCaseToDatabaseName.put(remoteName.toLowerCase(), remoteName),
-                    localName -> lowerCaseToDatabaseName.remove(localName.toLowerCase()),
+                    (remoteName, localName) -> lowerCaseToDatabaseName.put(foldDatabaseName(remoteName), remoteName),
+                    localName -> lowerCaseToDatabaseName.remove(foldDatabaseName(localName)),
                     localDbName -> Optional.ofNullable(
                             buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType,
                                     true)),
-                    (key, value, cause) -> value.ifPresent(
-                            v -> v.resetMetaToUninitialized(invalidateEngineCacheOnDatabaseRemoval.get())),
+                    (key, value, cause) -> handleDatabaseMetaCacheRemoval(value, cause),
                     this::acquireMetadataLoadEpoch,
                     this::isMetadataLoadEpochCurrent);
         }
@@ -580,20 +581,11 @@ public abstract class ExternalCatalog
 
         allDatabases = allDatabases.stream()
                 .filter(dbName -> isDatabaseAllowedByFilter(
-                        dbName, includeDatabaseMap, excludeDatabaseMap, false))
+                        dbName, includeDatabaseMap, excludeDatabaseMap, getLowerCaseDatabaseNames() != 0))
                 .collect(Collectors.toList());
 
         for (String remoteDbName : allDatabases) {
-            String localDbName = fromRemoteDatabaseName(remoteDbName);
-            // Apply lower_case_database_names mode to local name
-            int dbNameMode = getLowerCaseDatabaseNames();
-            if (dbNameMode == 1) {
-                localDbName = localDbName.toLowerCase();
-            } else if (dbNameMode == 2) {
-                // Mode 2: preserve original remote case for display
-                localDbName = remoteDbName;
-            }
-            remoteToLocalPairs.add(Pair.of(remoteDbName, localDbName));
+            remoteToLocalPairs.add(Pair.of(remoteDbName, localDatabaseNameFromRemote(remoteDbName)));
         }
 
         // Check for conflicts when lower_case_meta_names = true or lower_case_database_names = 2
@@ -603,7 +595,7 @@ public abstract class ExternalCatalog
 
             // Collect lowercased local names and their remote counterparts
             for (Pair<String, String> pair : remoteToLocalPairs) {
-                String lowerCaseLocalName = pair.second.toLowerCase();
+                String lowerCaseLocalName = foldDatabaseName(pair.second);
                 lowerCaseToRemoteNames.computeIfAbsent(lowerCaseLocalName, k -> Lists.newArrayList()).add(pair.first);
             }
 
@@ -626,12 +618,24 @@ public abstract class ExternalCatalog
         return remoteToLocalPairs;
     }
 
-    protected boolean isDatabaseAllowedByFilter(String dbName) {
-        return isDatabaseAllowedByFilter(dbName, getIncludeDatabaseMap(), getExcludeDatabaseMap(), false);
+    /** Use the same local identity for database discovery and HMS create events. */
+    protected final String localDatabaseNameFromRemote(String remoteDbName) {
+        String localDbName = fromRemoteDatabaseName(remoteDbName);
+        int mode = getLowerCaseDatabaseNames();
+        if (mode == 1) {
+            return foldDatabaseName(localDbName);
+        }
+        // Mode 2 preserves remote spelling for display and deterministic database IDs.
+        return mode == 2 ? remoteDbName : localDbName;
     }
 
-    protected boolean isDatabaseAllowedByFilterIgnoringCase(String dbName) {
-        return isDatabaseAllowedByFilter(dbName, getIncludeDatabaseMap(), getExcludeDatabaseMap(), true);
+    private static String foldDatabaseName(String dbName) {
+        return dbName.toLowerCase(Locale.ROOT);
+    }
+
+    protected boolean isDatabaseAllowedByFilter(String dbName) {
+        return isDatabaseAllowedByFilter(dbName, getIncludeDatabaseMap(), getExcludeDatabaseMap(),
+                getLowerCaseDatabaseNames() != 0);
     }
 
     private boolean isDatabaseAllowedByFilter(String dbName, Map<String, Boolean> includeDatabaseMap,
@@ -650,14 +654,14 @@ public abstract class ExternalCatalog
         if (!ignoreCase) {
             return databaseMap.containsKey(dbName);
         }
-        String normalizedDbName = dbName.toLowerCase(Locale.ROOT);
+        String normalizedDbName = foldDatabaseName(dbName);
         return databaseMap.keySet().stream()
-                .anyMatch(configuredName -> configuredName.toLowerCase(Locale.ROOT).equals(normalizedDbName));
+                .anyMatch(configuredName -> foldDatabaseName(configuredName).equals(normalizedDbName));
     }
 
     private void updateLowerCaseToDatabaseName(List<Pair<String, String>> names) {
         Map<String, String> updated = Maps.newConcurrentMap();
-        names.forEach(pair -> updated.put(pair.key().toLowerCase(), pair.key()));
+        names.forEach(pair -> updated.put(foldDatabaseName(pair.key()), pair.key()));
         lowerCaseToDatabaseName = updated;
     }
 
@@ -714,9 +718,12 @@ public abstract class ExternalCatalog
      */
     public void onRefreshCache(boolean invalidCache) {
         setLastUpdateTime(System.currentTimeMillis());
-        refreshMetaCacheOnly(invalidCache);
-        if (invalidCache) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(id);
+        try {
+            refreshMetaCacheOnly(invalidCache);
+        } finally {
+            if (invalidCache) {
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(id);
+            }
         }
     }
 
@@ -724,16 +731,29 @@ public abstract class ExternalCatalog
      * Refresh meta cache only (database level cache), without invalidating catalog level cache.
      */
     private void refreshMetaCacheOnly(boolean invalidCache) {
-        if (metaCache != null) {
-            // A catalog-wide engine invalidation below supersedes every database invalidation.
-            // The legacy cache uses a synchronous removal listener, so this thread-local scope
-            // prevents one full SDK-cache scan per cached database without affecting concurrent
-            // expiry callbacks on other threads.
-            invalidateEngineCacheOnDatabaseRemoval.set(!invalidCache);
-            try {
-                metaCache.invalidateAll();
-            } finally {
-                invalidateEngineCacheOnDatabaseRemoval.remove();
+        Runnable objectInvalidation;
+        ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+        synchronized (this) {
+            if (metaCache == null) {
+                return;
+            }
+            // Publish the names/object generation transition together, before allowing another
+            // catalog initialization. The old cache removal callbacks can be much slower.
+            cacheMgr.invalidateRowCountCache(id);
+            metaCache.invalidateNames();
+            objectInvalidation = metaCache.retireObjects();
+        }
+        // A catalog-wide engine invalidation below supersedes every database invalidation.
+        // Removal listeners are synchronous, but run them after releasing the catalog monitor.
+        invalidateEngineCacheOnDatabaseRemoval.set(!invalidCache);
+        invalidatingAllMetaCache.set(true);
+        try {
+            objectInvalidation.run();
+        } finally {
+            invalidatingAllMetaCache.remove();
+            invalidateEngineCacheOnDatabaseRemoval.remove();
+            if (!invalidCache) {
+                cacheMgr.invalidateRowCountCache(id);
             }
         }
     }
@@ -924,7 +944,7 @@ public abstract class ExternalCatalog
      * @return
      */
     public Optional<ExternalDatabase<? extends ExternalTable>> getDbForReplay(long dbId) {
-        if (!isInitialized()) {
+        if (!isInitialized() || metaCache == null) {
             return Optional.empty();
         }
         return metaCache.getMetaObjById(dbId);
@@ -941,7 +961,7 @@ public abstract class ExternalCatalog
             LOG.debug("getDbForReplay from metacache, db: {}.{}, catalog id: {}, is catalog init: {}",
                     this.name, dbName, this.id, isInitialized());
         }
-        if (!isInitialized()) {
+        if (!isInitialized() || metaCache == null) {
             return Optional.empty();
         }
 
@@ -952,6 +972,41 @@ public abstract class ExternalCatalog
         }
 
         return metaCache.tryGetMetaObj(localDbName);
+    }
+
+    /** Resolve a replay log's database identity without reloading an evicted database object. */
+    public Optional<Pair<String, Long>> getDbIdentityForReplay(String dbName, long dbId) {
+        if (!isInitialized() || metaCache == null) {
+            return Optional.empty();
+        }
+        if (dbName != null && !dbName.isEmpty()) {
+            String localName = getLocalDatabaseName(dbName, true);
+            return localName == null ? Optional.empty()
+                    : Optional.of(Pair.of(localName, Util.genIdByName(name, localName)));
+        }
+        return metaCache.getNameByIdIfPresent(dbId).map(localName -> Pair.of(localName, dbId));
+    }
+
+    /** A DROP must not follow a mode-2 mapping that has rebound to a case-only replacement. */
+    private Optional<Pair<String, Long>> getDbIdentityForDrop(String dbName) {
+        if (!isInitialized() || metaCache == null) {
+            return Optional.empty();
+        }
+        String localName = getLocalDatabaseName(dbName, true);
+        if (localName == null) {
+            return Optional.empty();
+        }
+        if (getLowerCaseDatabaseNames() == 2 && !localName.equals(dbName)) {
+            long historicalId = Util.genIdByName(name, dbName);
+            return metaCache.getNameByIdIfPresent(historicalId)
+                    .map(historicalName -> Pair.of(historicalName, historicalId));
+        }
+        return Optional.of(Pair.of(localName, Util.genIdByName(name, localName)));
+    }
+
+    /** Cache-only DROP lookup; normal replay lookups may follow a current case-insensitive alias. */
+    public Optional<ExternalDatabase<? extends ExternalTable>> getDbForDropReplay(String dbName) {
+        return getDbIdentityForDrop(dbName).flatMap(identity -> metaCache.tryGetMetaObj(identity.first));
     }
 
     /**
@@ -968,7 +1023,7 @@ public abstract class ExternalCatalog
             long dbId, InitCatalogLog.Type logType, boolean checkExists) {
         // Step 1: Map local database name if not already provided
         if (localDbName == null && remoteDbName != null) {
-            localDbName = fromRemoteDatabaseName(remoteDbName);
+            localDbName = localDatabaseNameFromRemote(remoteDbName);
         }
 
         // Step 2:
@@ -1059,6 +1114,7 @@ public abstract class ExternalCatalog
         objectCreated = false;
         metadataLoadEpoch = new AtomicLong();
         invalidateEngineCacheOnDatabaseRemoval = ThreadLocal.withInitial(() -> true);
+        invalidatingAllMetaCache = ThreadLocal.withInitial(() -> false);
         // TODO: This code is to compatible with older version of metadata.
         //  Could only remove after all users upgrate to the new version.
         if (logType == null) {
@@ -1131,14 +1187,15 @@ public abstract class ExternalCatalog
             throw new DdlException("Drop database is not supported for catalog: " + getName());
         }
         try {
-            if (!metadataOps.dropDb(dbName, ifExists, force)) {
+            Optional<String> resolvedDbName = metadataOps.dropDbWithResolvedName(dbName, ifExists, force);
+            if (!resolvedDbName.isPresent()) {
                 // No remote drop happened (for example DROP DATABASE IF EXISTS on a missing
                 // database). Do not journal the no-op, otherwise every follower would replay a
                 // post-drop hook that retires caches for a database that was never touched.
                 LOG.info("skip drop database {}.{} because the database does not exist", getName(), dbName);
                 return;
             }
-            DropDbInfo info = new DropDbInfo(getName(), dbName);
+            DropDbInfo info = new DropDbInfo(getName(), resolvedDbName.get(), resolvedDbName.get());
             Env.getCurrentEnv().getEditLog().logDropDb(info);
         } catch (Exception e) {
             LOG.warn("Failed to drop database {} in catalog {}", dbName, getName(), e);
@@ -1149,6 +1206,18 @@ public abstract class ExternalCatalog
     public void replayDropDb(String dbName) {
         if (metadataOps != null) {
             metadataOps.afterDropDb(dbName);
+        }
+    }
+
+    public void replayDropDb(String dbName, String resolvedDbName) {
+        if (resolvedDbName != null) {
+            replayDropDb(resolvedDbName);
+        } else if (getLowerCaseDatabaseNames() == 2) {
+            // An old name-only record cannot distinguish a historical DROP from an alias that
+            // targeted a case-only replacement. The dropped name must not remain visible either.
+            retireUnresolvedDatabaseGeneration(true);
+        } else {
+            replayDropDb(dbName);
         }
     }
 
@@ -1223,7 +1292,7 @@ public abstract class ExternalCatalog
         }
         try {
             metadataOps.dropTable(dorisTable, ifExists);
-            DropInfo info = new DropInfo(getName(), dbName, tableName);
+            DropInfo info = new DropInfo(getName(), db.getFullName(), dorisTable.getName(), db.getFullName());
             Env.getCurrentEnv().getEditLog().logDropTable(info);
         } catch (Exception e) {
             LOG.warn("Failed to drop a table", e);
@@ -1237,6 +1306,18 @@ public abstract class ExternalCatalog
         }
     }
 
+    public void replayDropTable(String dbName, String tblName, String resolvedDbName) {
+        if (resolvedDbName != null) {
+            replayDropTable(resolvedDbName, tblName);
+        } else if (getLowerCaseDatabaseNames() == 2) {
+            // Old logs carry only caller spelling, which can identify either side of a case-only
+            // database replacement. Never guess which cached database was actually dropped.
+            retireUnresolvedDatabaseGeneration();
+        } else {
+            replayDropTable(dbName, tblName);
+        }
+    }
+
     /**
      * Unregisters a database from the catalog.
      * Internally, remove the database meta from cache
@@ -1247,10 +1328,62 @@ public abstract class ExternalCatalog
         if (LOG.isDebugEnabled()) {
             LOG.debug("unregister database [{}]", dbName);
         }
-        if (isInitialized()) {
-            metaCache.invalidate(dbName, Util.genIdByName(name, dbName));
+        if (!isInitialized()) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), dbName);
+            return;
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), dbName);
+        Optional<Pair<String, Long>> identity = getDbIdentityForDrop(dbName);
+        if (!identity.isPresent()) {
+            // A mode-2 remote-to-local mapping can disappear (for example after a names refresh)
+            // while the resident database object survives. The canonical key is then unknown, so
+            // treat the scope as unknown: retire every cached database object and flush the engine
+            // caches and row counts catalog-wide instead of evicting the wrong local key.
+            retireAllDatabaseObjectsWithoutEngineInvalidation();
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(getId());
+            return;
+        }
+        unregisterDatabase(identity.get().first, identity.get().second);
+    }
+
+    /** A no-op remote DROP may retire matching resident history, but never unrelated databases. */
+    public void retireCachedDatabaseForNoOp(String dbName) {
+        if (!isInitialized() || metaCache == null) {
+            return;
+        }
+        for (Pair<String, Long> identity : metaCache.getCachedIdentitiesMatching(
+                dbName, getLowerCaseDatabaseNames() != 0)) {
+            unregisterDatabase(identity.first, identity.second);
+        }
+    }
+
+    private void unregisterDatabase(String localDbName, long dbId) {
+        // A cold database has no removal callback. Fence its deterministic table IDs before
+        // removing the name slot, so a same-name replacement cannot use an old completed count.
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(getId(), dbId);
+        // The explicit routed invalidation below owns this DROP. Suppress the object removal
+        // callback's routed work so a warm database does not flush the SDK cache twice.
+        invalidateEngineCacheOnDatabaseRemoval.set(false);
+        try {
+            metaCache.invalidate(localDbName, dbId);
+        } finally {
+            invalidateEngineCacheOnDatabaseRemoval.remove();
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), dbId, localDbName);
+        }
+    }
+
+    boolean shouldInvalidateRowCountOnDatabaseRemoval() {
+        return invalidateEngineCacheOnDatabaseRemoval.get() && !invalidatingAllMetaCache.get();
+    }
+
+    boolean shouldInvalidateRoutedCacheOnDatabaseRemoval() {
+        return invalidateEngineCacheOnDatabaseRemoval.get();
+    }
+
+    void handleDatabaseMetaCacheRemoval(Optional<ExternalDatabase<? extends ExternalTable>> value,
+            RemovalCause cause) {
+        value.ifPresent(v -> v.resetMetaToUninitialized(
+                shouldInvalidateRoutedCacheOnDatabaseRemoval(),
+                !cause.wasEvicted() && shouldInvalidateRowCountOnDatabaseRemoval()));
     }
 
     /**
@@ -1263,11 +1396,60 @@ public abstract class ExternalCatalog
         if (metaCache == null) {
             return;
         }
+        // A mode-2 mapping loss can hide an old object while its row count remains reachable.
+        // Close that window before swapping the database-object cache generation.
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(getId());
         invalidateEngineCacheOnDatabaseRemoval.set(false);
         try {
             metaCache.invalidateObjects();
         } finally {
             invalidateEngineCacheOnDatabaseRemoval.remove();
+            // The removal callbacks above suppress every per-database row-count fence, so publish
+            // one catalog-wide fence here; otherwise a recreated same-name object can reuse a stale
+            // count through its deterministic table id.
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(getId());
+        }
+    }
+
+    /**
+     * Best-effort cleanup for a drop event whose canonical database object cannot be resolved
+     * (for example a mode-2 name mapping was lost). Retires the hidden database-object generation
+     * and flushes the catalog-wide engine state so a same-name recreation cannot reuse the old
+     * incarnation, engine entries, or row counts.
+     */
+    public void retireUnresolvedDatabaseGeneration() {
+        retireUnresolvedDatabaseGeneration(false);
+    }
+
+    private void retireUnresolvedDatabaseGeneration(boolean invalidateNames) {
+        try {
+            if (invalidateNames && metaCache != null) {
+                // A name refresh can expose a new incarnation before the object generation swaps.
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(getId());
+                metaCache.invalidateNames();
+            }
+            retireAllDatabaseObjectsWithoutEngineInvalidation();
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(getId());
+        } catch (Exception e) {
+            LOG.warn("Failed to retire unresolved database objects for catalog {}: {}",
+                    getName(), e.getMessage(), e);
+        }
+    }
+
+    /** Retire a cold replay database narrowly when its canonical name survived object eviction. */
+    public void invalidateColdDatabaseForReplay(String dbName) {
+        try {
+            Optional<Pair<String, Long>> identity = getDbIdentityForDrop(dbName);
+            if (identity.isPresent()) {
+                Env.getCurrentEnv().getExtMetaCacheMgr()
+                        .invalidateDb(getId(), identity.get().second, identity.get().first);
+            } else {
+                retireUnresolvedDatabaseGeneration();
+            }
+        } catch (Exception e) {
+            // The remote DROP is already committed; local cleanup cannot suppress its edit log.
+            LOG.warn("Failed to invalidate cold database {} in catalog {}: {}",
+                    dbName, getName(), e.getMessage(), e);
         }
     }
 
@@ -1306,7 +1488,6 @@ public abstract class ExternalCatalog
             }
             tbls.add(tbl);
         }
-        LOG.info("debug get include table map: {}", includeTableMap);
         return includeTableMap;
     }
 
@@ -1365,14 +1546,14 @@ public abstract class ExternalCatalog
 
         if (mode == 1) {
             // Mode 1: Store as lowercase
-            finalName = dbName.toLowerCase();
+            finalName = foldDatabaseName(dbName);
         } else if (mode == 2) {
             // Mode 2: Case-insensitive comparison
-            finalName = lowerCaseToDatabaseName.get(dbName.toLowerCase());
+            finalName = lowerCaseToDatabaseName.get(foldDatabaseName(dbName));
             if (finalName == null && !isReplay) {
                 try {
                     metaCache.refreshNames();
-                    finalName = lowerCaseToDatabaseName.get(dbName.toLowerCase());
+                    finalName = lowerCaseToDatabaseName.get(foldDatabaseName(dbName));
                 } catch (Exception e) {
                     if (Thread.currentThread().isInterrupted()
                             && e instanceof java.util.concurrent.CompletionException
@@ -1489,7 +1670,16 @@ public abstract class ExternalCatalog
 
     @Override
     public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
-        CatalogIf.super.notifyPropertiesUpdated(updatedProps);
+        try {
+            CatalogIf.super.notifyPropertiesUpdated(updatedProps);
+        } finally {
+            // The committed ALTER already published the properties; the property-specific cache-group
+            // removal must still run when the reset's own client cleanup throws.
+            invalidatePropertySpecificCacheGroups(updatedProps);
+        }
+    }
+
+    private void invalidatePropertySpecificCacheGroups(Map<String, String> updatedProps) {
         String schemaCacheTtl = updatedProps.getOrDefault(SCHEMA_CACHE_TTL_SECOND, null);
         ExternalMetaCacheMgr extMetaCacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
         if (java.util.Objects.nonNull(schemaCacheTtl)

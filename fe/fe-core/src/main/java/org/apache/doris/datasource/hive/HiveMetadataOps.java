@@ -131,14 +131,20 @@ public class HiveMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException {
+        return dropDbImplWithResolvedName(dbName, ifExists, force).isPresent();
+    }
+
+    @Override
+    public Optional<String> dropDbImplWithResolvedName(String dbName, boolean ifExists, boolean force)
+            throws DdlException {
         ExternalDatabase dorisDb = catalog.getDbNullable(dbName);
         if (dorisDb == null) {
             if (ifExists) {
                 LOG.info("drop database[{}] which does not exist", dbName);
-                return false;
+                return Optional.empty();
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_DB_DROP_EXISTS, dbName);
-                return false;
+                return Optional.empty();
             }
         }
         try {
@@ -161,7 +167,7 @@ public class HiveMetadataOps implements ExternalMetadataOps {
                 }
             }
             client.dropDatabase(dorisDb.getRemoteName());
-            return true;
+            return Optional.of(dorisDb.getFullName());
         } catch (Exception e) {
             throw new RuntimeException(e.getMessage(), e);
         }
@@ -170,6 +176,11 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     @Override
     public void afterDropDb(String dbName) {
         catalog.unregisterDatabase(dbName);
+    }
+
+    @Override
+    public void afterDropDbNoOp(String dbName) {
+        catalog.retireCachedDatabaseForNoOp(dbName);
     }
 
     @Override
@@ -320,9 +331,13 @@ public class HiveMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void afterDropTable(String dbName, String tblName) {
-        Optional<ExternalDatabase<?>> db = catalog.getDbForReplay(dbName);
+        Optional<ExternalDatabase<?>> db = catalog.getDbForDropReplay(dbName);
         if (db.isPresent()) {
             db.get().unregisterTable(tblName);
+        } else {
+            // A cold object can retain a known canonical name; only a lost mode-2 mapping needs
+            // catalog-wide retirement of hidden objects and engine entries.
+            catalog.invalidateColdDatabaseForReplay(dbName);
         }
         LOG.info("after drop table {}.{}.{}, is db exists: {}",
                 getCatalog().getName(), dbName, tblName, db.isPresent());
@@ -348,8 +363,14 @@ public class HiveMetadataOps implements ExternalMetadataOps {
                 if (tbl.isPresent()) {
                     Env.getCurrentEnv().getRefreshManager()
                             .refreshTableInternal(db.get(), (ExternalTable) tbl.get(), updateTime);
+                    return;
                 }
             }
+            // The table or database object is cold. The event carries the caller's spelling, which may
+            // not match canonical local cache keys under lower_case_*_names=2, so widen to whatever
+            // scope still covers the event instead of routing the raw name.
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateTableByNameOrWider(catalog.getId(), dbName, tblName);
         } catch (Exception e) {
             LOG.warn("exception when calling afterTruncateTable for db: {}, table: {}, error: {}",
                     dbName, tblName, e.getMessage(), e);
