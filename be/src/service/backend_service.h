@@ -77,8 +77,7 @@ public:
     // slice; until then the request is answered as definitively NOT enqueued, so the
     // FE classifies a trusted pre-invocation rejection (terminal NOT_COMMITTED)
     // instead of an ambiguous result.
-    void submit_lance_index_job(TStatus& _return,
-                                const TLanceIndexJobDispatch& dispatch) override {
+    void submit_lance_index_job(TStatus& _return, const TLanceIndexJobDispatch& dispatch) override {
         _return.__set_status_code(TStatusCode::NOT_IMPLEMENTED_ERROR);
         _return.__set_error_msgs({"lance index worker is not available in this build"});
     }
