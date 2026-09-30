@@ -93,6 +93,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
     private volatile AbstractHiveProperties hmsProperties;
     private AtomicLong runtimeGeneration = new AtomicLong();
 
+    private transient volatile String eventIncludeTableList;
+    private transient volatile Map<String, List<String>> eventIncludeTableMap;
+
     public long getRuntimeGeneration() {
         return runtimeGeneration.get();
     }
@@ -307,8 +310,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
             LOG.debug("create database [{}]", dbName);
         }
 
-        // HMS notification events normalize database names to lowercase before reaching this boundary.
-        if (!isDatabaseAllowedByFilterIgnoringCase(dbName)) {
+        // The event caller passes the original remote spelling used by database-list filters.
+        if (isDatabaseEventTargetExcluded(dbName)) {
             return true;
         }
 
@@ -320,21 +323,59 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return false;
     }
 
+    /** HMS notifications are unfiltered; excluded targets must not change this catalog's caches. */
+    public boolean isDatabaseEventTargetExcluded(String dbName) {
+        return !isDatabaseAllowedByFilter(dbName);
+    }
+
+    public boolean isPartitionEventTargetExcluded(String dbName, String tableName) {
+        if (isDatabaseEventTargetExcluded(dbName)) {
+            return true;
+        }
+        List<String> includedTables = getEventIncludeTableMap().get(dbName);
+        return includedTables != null && !includedTables.isEmpty()
+                && includedTables.stream().noneMatch(name -> name.equalsIgnoreCase(tableName));
+    }
+
+    private Map<String, List<String>> getEventIncludeTableMap() {
+        String configuredList = catalogProperty.getOrDefault(INCLUDE_TABLE_LIST, "");
+        Map<String, List<String>> snapshot = eventIncludeTableMap;
+        if (snapshot == null || !configuredList.equals(eventIncludeTableList)) {
+            synchronized (this) {
+                configuredList = catalogProperty.getOrDefault(INCLUDE_TABLE_LIST, "");
+                snapshot = eventIncludeTableMap;
+                if (snapshot == null || !configuredList.equals(eventIncludeTableList)) {
+                    snapshot = getIncludeTableMap();
+                    eventIncludeTableMap = snapshot;
+                    eventIncludeTableList = configuredList;
+                }
+            }
+        }
+        return snapshot;
+    }
+
     @Override
     public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
-        super.notifyPropertiesUpdated(updatedProps);
-        String fileMetaCacheTtl = updatedProps.getOrDefault(FILE_META_CACHE_TTL_SECOND, null);
-        String partitionCacheTtl = updatedProps.getOrDefault(PARTITION_CACHE_TTL_SECOND, null);
-        if (Objects.nonNull(fileMetaCacheTtl) || Objects.nonNull(partitionCacheTtl)) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), HiveExternalMetaCache.ENGINE);
-        }
-        if (updatedProps.keySet().stream()
-                .anyMatch(key -> CacheSpec.isMetaCacheKeyForEngine(key, HudiExternalMetaCache.ENGINE))) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), HudiExternalMetaCache.ENGINE);
-        }
-        if (updatedProps.keySet().stream()
-                .anyMatch(key -> CacheSpec.isMetaCacheKeyForEngine(key, IcebergExternalMetaCache.ENGINE))) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), IcebergExternalMetaCache.ENGINE);
+        try {
+            super.notifyPropertiesUpdated(updatedProps);
+        } finally {
+            // The committed ALTER already published the properties; the engine-specific groups below
+            // must still be retired when the generic reset cleanup throws.
+            String fileMetaCacheTtl = updatedProps.getOrDefault(FILE_META_CACHE_TTL_SECOND, null);
+            String partitionCacheTtl = updatedProps.getOrDefault(PARTITION_CACHE_TTL_SECOND, null);
+            if (Objects.nonNull(fileMetaCacheTtl) || Objects.nonNull(partitionCacheTtl)) {
+                Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), HiveExternalMetaCache.ENGINE);
+            }
+            if (updatedProps.keySet().stream()
+                    .anyMatch(key -> CacheSpec.isMetaCacheKeyForEngine(key, HudiExternalMetaCache.ENGINE))) {
+                Env.getCurrentEnv().getExtMetaCacheMgr()
+                        .removeCatalogByEngine(getId(), HudiExternalMetaCache.ENGINE);
+            }
+            if (updatedProps.keySet().stream()
+                    .anyMatch(key -> CacheSpec.isMetaCacheKeyForEngine(key, IcebergExternalMetaCache.ENGINE))) {
+                Env.getCurrentEnv().getExtMetaCacheMgr()
+                        .removeCatalogByEngine(getId(), IcebergExternalMetaCache.ENGINE);
+            }
         }
     }
 

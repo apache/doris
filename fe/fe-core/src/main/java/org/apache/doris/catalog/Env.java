@@ -3580,7 +3580,7 @@ public class Env {
         } else {
             ExternalCatalog externalCatalog = (ExternalCatalog) catalogMgr.getCatalog(info.getCtlName());
             if (externalCatalog != null) {
-                externalCatalog.replayDropDb(info.getDbName());
+                externalCatalog.replayDropDb(info.getDbName(), info.getResolvedDbName());
             }
         }
     }

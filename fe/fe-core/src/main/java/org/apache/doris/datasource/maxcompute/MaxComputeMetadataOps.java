@@ -128,14 +128,20 @@ public class MaxComputeMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException {
+        return dropDbImplWithResolvedName(dbName, ifExists, force).isPresent();
+    }
+
+    @Override
+    public Optional<String> dropDbImplWithResolvedName(String dbName, boolean ifExists, boolean force)
+            throws DdlException {
         ExternalDatabase<?> dorisDb = dorisCatalog.getDbNullable(dbName);
         if (dorisDb == null) {
             if (ifExists) {
                 LOG.info("drop database[{}] which does not exist", dbName);
-                return false;
+                return Optional.empty();
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_DB_DROP_EXISTS, dbName);
-                return false;
+                return Optional.empty();
             }
         }
         if (force) {
@@ -153,12 +159,17 @@ public class MaxComputeMetadataOps implements ExternalMetadataOps {
             }
         }
         dorisCatalog.getMcStructureHelper().dropDb(odps, dbName, ifExists);
-        return true;
+        return Optional.of(dorisDb.getFullName());
     }
 
     @Override
     public void afterDropDb(String dbName) {
         dorisCatalog.unregisterDatabase(dbName);
+    }
+
+    @Override
+    public void afterDropDbNoOp(String dbName) {
+        dorisCatalog.retireCachedDatabaseForNoOp(dbName);
     }
 
     // ==================== Create Table ====================
@@ -290,9 +301,12 @@ public class MaxComputeMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void afterDropTable(String dbName, String tblName) {
-        Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForReplay(dbName);
+        Optional<ExternalDatabase<?>> db = dorisCatalog.getDbForDropReplay(dbName);
         if (db.isPresent()) {
             db.get().unregisterTable(tblName);
+        } else {
+            // Retire a cold known DB narrowly; a lost mode-2 mapping needs catalog-wide retirement.
+            dorisCatalog.invalidateColdDatabaseForReplay(dbName);
         }
         LOG.info("after drop table {}.{}.{}, is db exists: {}",
                 dorisCatalog.getName(), dbName, tblName, db.isPresent());

@@ -158,8 +158,13 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
         String catalogName = catalog.getName();
         Env.getCurrentEnv().getRefreshManager().removeFromRefreshMap(catalogId);
+        // Remove both lock-free mappings first: a row-count load admitted after the fence below
+        // could otherwise still resolve this catalog through them and alias a same-name
+        // replacement, because RowCountKey equality uses only tableId. Fence last, while this
+        // write lock still excludes a same-name CREATE.
         idToCatalog.remove(catalogId);
         nameToCatalog.remove(catalogName);
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(catalogId);
         return new RemovedCatalog(catalog, catalogName);
     }
 
@@ -476,7 +481,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             log.setNewProps(loggedProperties);
             replayAlterCatalogProps(log, oldProperties, false);
-            Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
+            if (!(catalog instanceof ExternalCatalog)) {
+                // External catalogs journal the committed change from the fenced helper once publication
+                // has happened; non-external catalogs only reach this point on success.
+                Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
+            }
         } finally {
             writeUnlock();
         }
@@ -931,15 +940,38 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             Integer[] sec = {metadataRefreshIntervalSec, metadataRefreshIntervalSec};
             Env.getCurrentEnv().getRefreshManager().addToRefreshMap(catalogId, sec);
         }
-        externalCatalog.modifyCatalogProps(newProps);
         // The commit reset the catalog's execution context and closed its SDK resources. Cached
         // base generations and projections are bound to the replaced context; retire them now so
         // the next statement loads a generation the planning fences accept, instead of retrying
-        // against an unplannable cached generation until managed refresh.
+        // against an unplannable cached generation until managed refresh. The properties are
+        // published before the reset's throwable cleanup, so retirement must run either way.
         Env currentEnv = Env.getCurrentEnv();
         ExternalMetaCacheMgr cacheMgr = currentEnv == null ? null : currentEnv.getExtMetaCacheMgr();
-        if (cacheMgr != null) {
-            cacheMgr.onCatalogOperationalContextChanged(externalCatalog.getId());
+        try {
+            if (cacheMgr != null) {
+                // Close the old row-count generation before publishing the new catalog context.
+                // The completion fence below also retires values loaded during the reset.
+                cacheMgr.invalidateRowCountCache(externalCatalog.getId());
+            }
+            externalCatalog.modifyCatalogProps(newProps);
+        } catch (RuntimeException e) {
+            if (!isReplay) {
+                throw e;
+            }
+            // A follower must not terminate because a local connector cleanup failed while applying
+            // an already-durable ALTER record. The property publication and the derived-state
+            // transitions above are failure-safe, so the record is considered applied.
+            LOG.warn("Failed to complete local cleanup while replaying ALTER CATALOG for {}: {}",
+                    externalCatalog.getName(), e.getMessage(), e);
+        } finally {
+            if (cacheMgr != null) {
+                cacheMgr.onCatalogOperationalContextChanged(externalCatalog.getId());
+            }
+            if (!isReplay && currentEnv != null) {
+                // Publication has happened once modifyCatalogProps is reached; journal it even if the
+                // reset's own cleanup throws. Pre-publication validation failures never reach here.
+                currentEnv.getEditLog().logCatalogLog(OperationType.OP_ALTER_CATALOG_PROPS, log);
+            }
         }
     }
 
@@ -1039,7 +1071,11 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support drop ExternalCatalog databases");
         }
-        ((HMSExternalCatalog) catalog).unregisterDatabase(dbName);
+        HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
+        if (hmsCatalog.isDatabaseEventTargetExcluded(dbName)) {
+            return;
+        }
+        hmsCatalog.unregisterDatabase(dbName);
     }
 
     public void registerExternalDatabaseFromEvent(String dbName, String catalogName)
@@ -1054,7 +1090,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
         HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
         long metadataLoadEpoch = hmsCatalog.acquireMetadataLoadEpoch();
-        long dbId = Util.genIdByName(catalogName, dbName);
+        long dbId = Util.genIdByName(catalogName, hmsCatalog.localDatabaseNameFromRemote(dbName));
         // -1L means it will be dropped later, ignore
         if (dbId == ExternalMetaIdMgr.META_ID_FOR_NOT_EXISTS) {
             return;
@@ -1075,8 +1111,29 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support ExternalCatalog");
         }
+        if (catalog instanceof HMSExternalCatalog
+                && ((HMSExternalCatalog) catalog).isPartitionEventTargetExcluded(dbName, tableName)) {
+            return;
+        }
+        // Partition events are already committed remotely. Fence the row count by cached identity
+        // before any database/table reload can fail and make the ignored-not-found path return.
+        Env.getCurrentEnv().getExtMetaCacheMgr()
+                .invalidateRowCountCache(catalog.getId(), dbName, tableName);
+        try {
+            addExternalPartitionsAfterFence(catalog, dbName, tableName, partitionNames, updateTime,
+                    ignoreIfNotExists);
+        } finally {
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateRowCountCache(catalog.getId(), dbName, tableName);
+        }
+    }
+
+    private void addExternalPartitionsAfterFence(CatalogIf catalog, String dbName, String tableName,
+            List<String> partitionNames, long updateTime, boolean ignoreIfNotExists) throws DdlException {
         DatabaseIf db = catalog.getDbNullable(dbName);
         if (db == null) {
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateTableByNameOrWider(catalog.getId(), dbName, tableName);
             if (!ignoreIfNotExists) {
                 throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
             }
@@ -1085,6 +1142,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
         TableIf table = db.getTableNullable(tableName);
         if (table == null) {
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateTableByNameOrWider(catalog.getId(), dbName, tableName);
             if (!ignoreIfNotExists) {
                 throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
             }
@@ -1118,8 +1177,29 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support ExternalCatalog");
         }
+        if (catalog instanceof HMSExternalCatalog
+                && ((HMSExternalCatalog) catalog).isPartitionEventTargetExcluded(dbName, tableName)) {
+            return;
+        }
+        // Partition events are already committed remotely. Fence the row count by cached identity
+        // before any database/table reload can fail and make the ignored-not-found path return.
+        Env.getCurrentEnv().getExtMetaCacheMgr()
+                .invalidateRowCountCache(catalog.getId(), dbName, tableName);
+        try {
+            dropExternalPartitionsAfterFence(catalog, dbName, tableName, partitionNames, updateTime,
+                    ignoreIfNotExists);
+        } finally {
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateRowCountCache(catalog.getId(), dbName, tableName);
+        }
+    }
+
+    private void dropExternalPartitionsAfterFence(CatalogIf catalog, String dbName, String tableName,
+            List<String> partitionNames, long updateTime, boolean ignoreIfNotExists) throws DdlException {
         DatabaseIf db = catalog.getDbNullable(dbName);
         if (db == null) {
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateTableByNameOrWider(catalog.getId(), dbName, tableName);
             if (!ignoreIfNotExists) {
                 throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
             }
@@ -1128,6 +1208,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
         TableIf table = db.getTableNullable(tableName);
         if (table == null) {
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .invalidateTableByNameOrWider(catalog.getId(), dbName, tableName);
             if (!ignoreIfNotExists) {
                 throw new DdlException("Table " + tableName + " does not exist in db " + dbName);
             }

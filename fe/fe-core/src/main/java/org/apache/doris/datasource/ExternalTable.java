@@ -413,7 +413,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         throw new NotImplementedException("implement in sub class");
     }
 
-    public void unsetObjectCreated() {
+    public synchronized void unsetObjectCreated() {
         this.objectCreated = false;
     }
 

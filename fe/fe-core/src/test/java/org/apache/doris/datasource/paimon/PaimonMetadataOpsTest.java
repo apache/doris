@@ -494,6 +494,22 @@ public class PaimonMetadataOpsTest {
     }
 
     @Test
+    public void testDropDatabaseUsesResolvedNameForLeaderCleanup() throws Exception {
+        ExternalCatalog dorisCatalog = Mockito.mock(ExternalCatalog.class);
+        ExternalDatabase<?> resolvedDb = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(resolvedDb.getFullName()).thenReturn("FOO");
+        Mockito.doReturn(resolvedDb).when(dorisCatalog).getDbNullable("Foo");
+        Catalog remoteCatalog = Mockito.mock(Catalog.class);
+        PaimonMetadataOps metadataOps = newMetadataOps(dorisCatalog, remoteCatalog);
+
+        Assert.assertEquals(Optional.of("FOO"), metadataOps.dropDbWithResolvedName("Foo", false, false));
+
+        Mockito.verify(remoteCatalog).dropDatabase("Foo", false, false);
+        Mockito.verify(dorisCatalog).unregisterDatabase("FOO");
+        Mockito.verify(dorisCatalog, Mockito.never()).unregisterDatabase("Foo");
+    }
+
+    @Test
     public void testCreateDatabaseWithPropertiesForSupportedCatalogs() throws Exception {
         List<String> supportedCatalogTypes = Arrays.asList(
                 PaimonExternalCatalog.PAIMON_HMS,

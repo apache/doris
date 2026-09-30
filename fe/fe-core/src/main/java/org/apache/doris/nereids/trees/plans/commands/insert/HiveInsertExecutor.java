@@ -83,18 +83,44 @@ public class HiveInsertExecutor extends BaseExternalTableInsertExecutor {
     protected void doAfterCommit() throws DdlException {
         HMSExternalTable hmsTable = (HMSExternalTable) table;
 
+        // The transaction is already committed. Fence the row-count cache by the held table
+        // identity before any fallible cache work (including isPartitionedTable reinitialization),
+        // so an evicted or partially reloaded table cannot retain the pre-insert count.
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(hmsTable);
+
         // For partitioned tables, do selective partition refresh
         // For non-partitioned tables, do full table cache invalidation
         List<String> modifiedPartNames = Lists.newArrayList();
         List<String> newPartNames = Lists.newArrayList();
-        if (hmsTable.isPartitionedTable() && partitionUpdates != null && !partitionUpdates.isEmpty()) {
-            HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                    .hive(hmsTable.getCatalog().getId());
-            cache.refreshAffectedPartitions(hmsTable, partitionUpdates, modifiedPartNames, newPartNames);
-        } else {
-            // Non-partitioned table or no partition updates, do full table refresh
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(hmsTable);
+        try {
+            if (hmsTable.isPartitionedTable() && partitionUpdates != null && !partitionUpdates.isEmpty()) {
+                HiveExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                        .hive(hmsTable.getCatalog().getId());
+                cache.refreshAffectedPartitions(hmsTable, partitionUpdates, modifiedPartNames, newPartNames);
+            } else {
+                // Non-partitioned table or no partition updates, do full table refresh
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(hmsTable);
+            }
+        } catch (RuntimeException e) {
+            // The transaction is already committed. Fall back to a full invalidation and a
+            // full-refresh edit log instead of reporting a failed insert or skipping peers.
+            LOG.warn("Failed to refresh caches after committing Hive insert for {}",
+                    hmsTable.getNameWithFullQualifiers(), e);
+            modifiedPartNames.clear();
+            newPartNames.clear();
+            try {
+                Env.getCurrentEnv().getExtMetaCacheMgr().invalidateTableCache(hmsTable);
+            } catch (RuntimeException fallbackException) {
+                LOG.warn("Failed to invalidate table cache after committing Hive insert for {}",
+                        hmsTable.getNameWithFullQualifiers(), fallbackException);
+            }
         }
+
+        // Engine invalidation does not retire the held HMS table parameters. A row-count load
+        // admitted during either refresh path may still read pre-commit numRows/totalSize, so
+        // rebuild that source and close the admission window for both selective and full paths.
+        hmsTable.unsetObjectCreated();
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateRowCountCache(hmsTable);
 
         // Write edit log to notify other FEs
         long updateTime = System.currentTimeMillis();

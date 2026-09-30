@@ -87,6 +87,29 @@ public class RefreshManagerReplayTest {
         }
     }
 
+    @Test
+    public void testReplayRefreshColdTableRetiresResidentEngineEntries() {
+        long catalogId = 4L;
+        ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
+        Mockito.when(catalog.getId()).thenReturn(catalogId);
+        @SuppressWarnings("unchecked")
+        ExternalDatabase<ExternalTable> db = Mockito.mock(ExternalDatabase.class);
+        Mockito.doReturn(Optional.of(db)).when(catalog).getDbForReplay("db");
+        Mockito.doReturn(Optional.empty()).when(db).getTableForReplay("table");
+        Mockito.when(db.getFullName()).thenReturn("db");
+        Mockito.when(db.getId()).thenReturn(5L);
+        Mockito.when(db.hasLocalTableName("table")).thenReturn(true);
+        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Env env = mockEnv(catalogId, catalog);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+            new RefreshManager().replayRefreshTable(
+                    ExternalObjectLog.createForRefreshTable(catalogId, "db", "table", 0L));
+        }
+        Mockito.verify(cacheMgr).invalidateTableByNameOrWider(catalogId, "db", "table");
+    }
+
     private Env mockEnv(long catalogId, ExternalCatalog catalog) {
         CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
         Mockito.doReturn(catalog).when(catalogMgr).getCatalog(catalogId);

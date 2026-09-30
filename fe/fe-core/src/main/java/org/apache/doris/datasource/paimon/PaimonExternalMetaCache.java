@@ -150,7 +150,9 @@ public class PaimonExternalMetaCache extends AbstractExternalMetaCache {
     @Override
     public void invalidateDb(long catalogId, String dbName) {
         try {
-            invalidatePaimonTables(catalogId, nameMapping -> matchDb(nameMapping, dbName));
+            // Match the SDK's own entries independently of Doris tableEntry: direct metadata
+            // paths can populate the SDK before any Doris table handle exists.
+            tableLoader.invalidateDatabase(catalogId, dbName);
         } finally {
             super.invalidateDb(catalogId, dbName);
         }

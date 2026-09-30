@@ -89,6 +89,15 @@ public class MetaCacheTest {
     }
 
     @Test
+    public void testCachedIdentityMatchingRespectsDatabaseCaseMode() {
+        metaCache.addObjForTest(1L, "foo", "foo");
+
+        Assert.assertTrue(metaCache.getCachedIdentitiesMatching("Foo", false).isEmpty());
+        Assert.assertEquals(1, metaCache.getCachedIdentitiesMatching("Foo", true).size());
+        Assert.assertEquals("foo", metaCache.getCachedIdentitiesMatching("foo", false).get(0).first);
+    }
+
+    @Test
     public void testRefreshNamesReloadsCompleteSnapshot() {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
         AtomicInteger loadCount = new AtomicInteger();
