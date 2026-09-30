@@ -30,7 +30,7 @@ import java.util.List;
 
 /**
  * Batch removal record of the Lance index job retention GC: one journal entry
- * carries every resolved job id removed in one clean round. A plain id list
+ * carries every resolved job id removed in one removal batch. A plain id list
  * suffices (no watermark): the journal is ordered, so every upsert of a removed
  * job precedes this record, and no later stale record can resurrect it.
  * Serialization is the standard Gson stream, see {@link LanceIndexJob}.
