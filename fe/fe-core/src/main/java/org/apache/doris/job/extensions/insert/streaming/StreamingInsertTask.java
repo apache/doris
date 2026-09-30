@@ -46,6 +46,7 @@ import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.transaction.TransactionException;
 
 import com.google.common.base.Preconditions;
 import lombok.Getter;
@@ -71,6 +72,7 @@ public class StreamingInsertTask extends AbstractStreamingTask {
     private StreamingJobProperties jobProperties;
     private Map<String, String> originTvfProps;
     private String cloudCluster;
+    private String commitOffsetJson;
     private String auditSql;
     private final boolean auditEnabled;
     SourceOffsetProvider offsetProvider;
@@ -96,6 +98,7 @@ public class StreamingInsertTask extends AbstractStreamingTask {
 
     @Override
     public void before() throws Exception {
+        commitOffsetJson = null;
         auditSql = null;
         if (getIsCanceled().get()) {
             log.info("streaming insert task has been canceled, task id is {}", getTaskId());
@@ -193,6 +196,18 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         return Collections.emptyList();
     }
 
+    public String getCommitOffsetJson() throws TransactionException {
+        // Reuse the same offset across transaction commit retries.
+        if (commitOffsetJson == null) {
+            String offsetJson = offsetProvider.getCommitOffsetJson(runningOffset, getTaskId(), getScanBackendIds());
+            if (StringUtils.isBlank(offsetJson)) {
+                throw new TransactionException("Cannot find offset for attachment, load job id is " + getTaskId());
+            }
+            commitOffsetJson = offsetJson;
+        }
+        return commitOffsetJson;
+    }
+
     @Override
     public boolean onSuccess() throws JobException {
         if (getIsCanceled().get()) {
@@ -232,6 +247,7 @@ public class StreamingInsertTask extends AbstractStreamingTask {
 
     @Override
     public void closeOrReleaseResources() {
+        commitOffsetJson = null;
         if (null != stmtExecutor) {
             stmtExecutor = null;
         }

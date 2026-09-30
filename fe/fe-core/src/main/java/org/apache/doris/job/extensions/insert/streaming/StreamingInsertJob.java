@@ -619,6 +619,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     public void cancelAllTasks(boolean needWaitCancelComplete) throws JobException {
         lock.writeLock().lock();
         try {
+            // Scheduler tasks are internal housekeeping and must not affect task statistics.
+            for (StreamingJobSchedulerTask task : getRunningTasks()) {
+                task.cancel(needWaitCancelComplete);
+            }
+            getRunningTasks().clear();
             if (runningStreamTask == null) {
                 return;
             }
@@ -1091,6 +1096,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         setLastTaskSuccessTime(replayJob.getLastTaskSuccessTime());
         setStartTimeMs(replayJob.getStartTimeMs());
         this.boundBackendId = replayJob.boundBackendId;
+        offsetProvider.setBoundBackendId(boundBackendId);
     }
 
     /**
@@ -1381,15 +1387,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             LoadJob loadJob = loadJobs.get(0);
             LoadStatistic loadStatistic = loadJob.getLoadStatistic();
 
-            String offsetJson = offsetProvider.getCommitOffsetJson(
-                    runningStreamTask.getRunningOffset(),
-                    runningStreamTask.getTaskId(),
-                    runningStreamTask.getScanBackendIds());
-
-            if (StringUtils.isBlank(offsetJson)) {
-                throw new TransactionException("Cannot find offset for attachment, load job id is "
-                        + runningStreamTask.getTaskId());
-            }
+            String offsetJson = ((StreamingInsertTask) runningStreamTask).getCommitOffsetJson();
             txnState.setTxnCommitAttachment(new StreamingTaskTxnCommitAttachment(
                         getJobId(),
                         runningStreamTask.getTaskId(),
@@ -1698,8 +1696,6 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (offsetProvider != null) {
             // when fe restart, offsetProvider.jobId/sourceProperties may be null
             offsetProvider.ensureInitialized(getJobId(), getProviderProps());
-            // replayOnUpdated skips the transient provider; resync routing BE.
-            offsetProvider.setBoundBackendId(boundBackendId);
             offsetProvider.replayIfNeed(this);
         }
     }
