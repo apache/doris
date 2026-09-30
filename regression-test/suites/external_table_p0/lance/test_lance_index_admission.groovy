@@ -27,12 +27,13 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String lanceRestPort = context.config.otherConfigs.get("lance_rest_port")
-    // Admitted jobs are durable and stay PENDING forever in this delivery slice: dispatch,
-    // FORCE_RELEASE and job GC only land in later slices, so their fences and quota charges
-    // can never be released here. Every index name (and the filesystem catalog itself,
-    // because fence/quota keys include the persisted catalog id) carries this per-run suffix
-    // so that rerunning the suite on a shared pipeline cluster can never collide with a
-    // previous run's leftovers.
+    // Admitted jobs are durable and stay PENDING in this delivery slice: no worker
+    // exists to execute a dispatched job and the dispatcher's dispatch phase is
+    // paused below, while FORCE_RELEASE and job GC only land in later slices, so
+    // their fences and quota charges can never be released here. Every index name (and the filesystem
+    // catalog itself, because fence/quota keys include the persisted catalog id) carries
+    // this per-run suffix so that rerunning the suite on a shared pipeline cluster can
+    // never collide with a previous run's leftovers.
     String runSuffix = "${System.currentTimeMillis()}"
     String filesystemCatalog = "test_lance_index_admission_${runSuffix}"
     String restCatalog = "test_lance_index_admission_rest"
@@ -55,7 +56,7 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
     sql """DROP CATALOG IF EXISTS `${restCatalog}`"""
     try_sql "DROP USER '${user}'@'%'"
 
-    // Both settings are masterOnly. Read them on the master even if the suite's
+    // All three settings are masterOnly. Read them on the master even if the suite's
     // ordinary JDBC connection points at a follower. SHOW uses the experimental
     // display name for the gate, while ADMIN SET accepts its unprefixed alias.
     def gateRows = master_sql """ADMIN SHOW FRONTEND CONFIG LIKE 'experimental_enable_lance_index_mutation'"""
@@ -64,6 +65,16 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
     assertEquals(1, quotaRows.size())
     String originalGate = gateRows[0][1].toString()
     String originalQuota = quotaRows[0][1].toString()
+    def dispatchIntervalRows = master_sql """ADMIN SHOW FRONTEND CONFIG LIKE 'lance_index_job_dispatch_interval_second'"""
+    assertEquals(1, dispatchIntervalRows.size())
+    String originalDispatchInterval = dispatchIntervalRows[0][1].toString()
+    // The suite never changes the polling interval; asserting the shipped default
+    // fails loudly if a shared pipeline cluster has drifted.
+    assertEquals("10", originalDispatchInterval)
+    def pausedRows = master_sql """ADMIN SHOW FRONTEND CONFIG LIKE 'lance_index_job_dispatcher_paused'"""
+    assertEquals(1, pausedRows.size())
+    String originalPaused = pausedRows[0][1].toString()
+    assertEquals("false", originalPaused)
     // The main scenario admits two jobs on one table, independently of the
     // cluster's original quota. The dedicated quota case temporarily lowers it.
     String suiteQuota = Math.max(2L, originalQuota.toLong()).toString()
@@ -71,6 +82,14 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
 
     try {
         master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_max_unresolved_per_table" = "${suiteQuota}")"""
+        // Pause the dispatch phase so no round can dispatch between admission and the
+        // PENDING assertions below: this slice's backends answer submit_lance_index_job
+        // with a clean not-implemented error, which converges a dispatched job to
+        // NOT_COMMITTED and would break this suite's PENDING premise. The dispatcher
+        // checks the switch at the dispatch-phase entry and before every job attempt,
+        // so setting it before the first admission is a hard barrier: no wait on the
+        // daemon's in-flight sleep is needed, and the polling interval is never touched.
+        master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_dispatcher_paused" = "true")"""
         // Open the mutation gate for this suite only. masterOnly configs set through
         // ADMIN SET land on the master node locally, which is where admission reads them;
         // the finally block below restores the gate no matter where the suite fails (T4).
@@ -249,6 +268,7 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
         [
             { master_sql """ADMIN SET FRONTEND CONFIG ("enable_lance_index_mutation" = "${originalGate}")""" },
             { master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_max_unresolved_per_table" = "${originalQuota}")""" },
+            { master_sql """ADMIN SET FRONTEND CONFIG ("lance_index_job_dispatcher_paused" = "${originalPaused}")""" },
             { sql "DROP USER IF EXISTS '${user}'@'%'" },
             { sql """DROP CATALOG IF EXISTS `${restCatalog}`""" }
         ].each { cleanup ->

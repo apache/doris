@@ -164,3 +164,102 @@ struct TFetchResourceResult {
     2: required i64 resourceVersion
     3: required map<string, TUserResource> resourceByUser
 }
+
+// Typed result code of one Lance index mutation invocation. PRE_INVOCATION_* codes are
+// complete trusted rejections before the native call (dataset version / schema
+// contract / credential / resource revalidation) and prove NOT_COMMITTED. NATIVE_*
+// codes are the saved Lance error code of the single native invocation, read before
+// the consuming error message. NO_TRUSTED_RESULT is produced FE-side only and never
+// appears on the wire.
+enum TLanceIndexJobResultCode {
+    PRE_INVOCATION_STALE_ADMISSION = 1,
+    PRE_INVOCATION_UNSUPPORTED_SCHEMA_CONTRACT = 2,
+    PRE_INVOCATION_CREDENTIAL_EXPIRED = 3,
+    PRE_INVOCATION_RESOURCE_REJECTED = 4,
+    NATIVE_OK = 5,
+    NATIVE_COMMIT_CONFLICT = 6,
+    NATIVE_NOT_FOUND = 7,
+    NATIVE_INVALID_ARGUMENT = 8,
+    NATIVE_NOT_SUPPORTED = 9,
+    NATIVE_INDEX = 10,
+    NATIVE_IO = 11,
+    NATIVE_INTERNAL = 12
+}
+
+enum TLanceIndexCompletionReason {
+    NONE = 1,
+    IF_CONDITION_NOOP = 2
+}
+
+// Possible-live termination proof carried by the result envelope or the termination
+// report. CHILD_REAPED proves the exact child process forked for the invocation was
+// reaped; NEVER_LAUNCHED proves the invocation never exec'd the worker program — a
+// supervisor rejection before fork of an accepted dispatch, or a forked child killed
+// before its barrier release (the release byte is written only after the cgroup
+// membership read-back, so a launch failure provably precedes execve). The FE-side
+// proven-never-enqueued evidence (a clean pre-enqueue error status, a client borrow
+// failure, or an UNKNOWN_METHOD answer) never appears on the wire either: the FE
+// derives its own internal proof from it. BE_PROCESS_EPOCH_GONE is likewise derived
+// FE-side from heartbeat epochs and never appears on the wire.
+enum TLanceIndexTerminationProof {
+    NONE = 1,
+    CHILD_REAPED = 2,
+    NEVER_LAUNCHED = 3
+}
+
+// Typed result envelope of one Lance index mutation invocation, reported by the BE
+// supervisor to the master FE. The envelope carries only what is needed to classify
+// the single invocation: the matching invocation identity and BE process epoch, the
+// typed result code, a bounded sanitized message, and the matching child-reap proof
+// when available. Only a complete identity-matched envelope proves COMMITTED or
+// NOT_COMMITTED; EOF, signal, timeout, OOM, BE loss, malformed/partial protocol, or
+// identity mismatch after acceptance yields UNKNOWN on the FE side. Stale or
+// identity-mismatched reports are logged and dropped.
+struct TLanceIndexJobReport {
+    1: required i64 job_id
+    2: required i64 dispatch_revision
+    3: required string invocation_id
+    4: required i64 be_process_epoch
+    5: required TLanceIndexJobResultCode result_code
+    6: optional TLanceIndexCompletionReason completion_reason
+    7: optional string sanitized_message
+    8: optional bool external_metadata_advanced
+    9: optional TLanceIndexTerminationProof termination_proof
+    // Echo of TLanceIndexJobDispatch.invocation_secret: the random per-dispatch secret
+    // the master FE generated at markRunning and handed only to the selected BE. The
+    // FE compares it in constant time against the journaled secret before trusting any
+    // part of this envelope (result or termination proof), because the FE thrift server
+    // cannot authenticate its caller and every other identity field of this envelope is
+    // readable from SHOW LANCE INDEX JOB. The secret is journaled with the job record
+    // but never shown or logged. Optional on the wire purely for generated-code
+    // compatibility during a rolling upgrade; a missing, blank, or wrong echo - or a
+    // durable record from before this field existed - makes the report unauthenticated
+    // and the whole envelope is dropped.
+    10: optional string invocation_secret
+}
+
+// Termination-only report of one Lance index mutation invocation, sent by the BE
+// supervisor when no trusted result code exists (kill, wall-clock timeout, OOM, or a
+// panic that prevented a complete result frame), or as the supervisor-side proof that
+// the invocation never launched. It carries only the invocation identity and the
+// proof: a matched proof releases the possible-live slot on the FE side but never
+// changes an UNKNOWN outcome and never releases the same-name fence. Stale or
+// identity-mismatched reports are logged and dropped.
+struct TLanceIndexJobTerminationReport {
+    1: required i64 job_id
+    2: required i64 dispatch_revision
+    3: required string invocation_id
+    4: required i64 be_process_epoch
+    5: required TLanceIndexTerminationProof proof
+    // Echo of TLanceIndexJobDispatch.invocation_secret: the random per-dispatch secret
+    // the master FE generated at markRunning and handed only to the selected BE. The
+    // FE compares it in constant time against the journaled secret before trusting
+    // the proof, because the FE thrift server cannot authenticate its caller and
+    // every other identity field of this report is readable from SHOW LANCE INDEX
+    // JOB, so a forged CHILD_REAPED could otherwise release the possible-live slot
+    // of a worker that may still be live. Optional on the wire purely for
+    // generated-code compatibility during a rolling upgrade; a missing, blank, or
+    // wrong echo - or a durable record from before this field existed - makes the
+    // report unauthenticated and the whole report is dropped.
+    6: optional string invocation_secret
+}

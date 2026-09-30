@@ -41,6 +41,7 @@ public class LanceIndexJobStateMachineTest {
     private static final long BACKEND_ID = 1001L;
     private static final long BE_EPOCH = 55L;
     private static final String INVOCATION_ID = "invocation-1";
+    private static final String INVOCATION_SECRET = "a3f1c02d97b64e8fad0c31b9e75d2468";
     private static final long DEADLINE_MS = 9999L;
 
     @Test
@@ -67,7 +68,8 @@ public class LanceIndexJobStateMachineTest {
     public void pendingToRunningToCommitted() throws DdlException {
         TestManager manager = new TestManager();
         manager.createJob(newCreateJob(1L, "IdxA"), 100, 100, 100);
-        Assertions.assertTrue(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                INVOCATION_SECRET, DEADLINE_MS));
 
         LanceIndexJob running = manager.getJob(1L);
         Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, running.getMutationState());
@@ -119,7 +121,8 @@ public class LanceIndexJobStateMachineTest {
     public void dropIfExistsNotFoundCompletesWithIfConditionNoop() throws DdlException {
         TestManager manager = new TestManager();
         manager.createJob(newDropJob(1L, "IdxA", true), 100, 100, 100);
-        Assertions.assertTrue(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                INVOCATION_SECRET, DEADLINE_MS));
         Assertions.assertTrue(manager.completeWithResult(1L, 1L, INVOCATION_ID, BE_EPOCH,
                 result(LanceIndexJobResultCode.NATIVE_NOT_FOUND)));
 
@@ -135,8 +138,10 @@ public class LanceIndexJobStateMachineTest {
         TestManager manager = new TestManager();
         createAndRun(manager, 1L, "IdxA");
 
-        Assertions.assertFalse(manager.markRunning(1L, 1L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
-        Assertions.assertFalse(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertFalse(manager.markRunning(1L, 1L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                INVOCATION_SECRET, DEADLINE_MS));
+        Assertions.assertFalse(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                INVOCATION_SECRET, DEADLINE_MS));
         Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, manager.getJob(1L).getMutationState());
         Assertions.assertEquals(1L, manager.getJob(1L).getRevision());
     }
@@ -146,8 +151,10 @@ public class LanceIndexJobStateMachineTest {
         TestManager manager = new TestManager();
         manager.createJob(newCreateJob(1L, "IdxA"), 100, 100, 100);
 
-        Assertions.assertFalse(manager.markRunning(1L, 5L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
-        Assertions.assertFalse(manager.markRunning(404L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertFalse(manager.markRunning(1L, 5L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                INVOCATION_SECRET, DEADLINE_MS));
+        Assertions.assertFalse(manager.markRunning(404L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                INVOCATION_SECRET, DEADLINE_MS));
         Assertions.assertEquals(LanceIndexJobMutationState.PENDING, manager.getJob(1L).getMutationState());
         Assertions.assertEquals(1, manager.editLog.size());
     }
@@ -177,7 +184,8 @@ public class LanceIndexJobStateMachineTest {
                 result(LanceIndexJobResultCode.NO_TRUSTED_RESULT)));
         int loggedRecords = manager.editLog.size();
 
-        Assertions.assertFalse(manager.markRunning(1L, 2L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertFalse(manager.markRunning(1L, 2L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                INVOCATION_SECRET, DEADLINE_MS));
         Assertions.assertFalse(manager.completeWithResult(1L, 2L, INVOCATION_ID, BE_EPOCH,
                 result(LanceIndexJobResultCode.NATIVE_OK)));
         Assertions.assertFalse(manager.markRefreshRunning(1L, 2L));
@@ -342,10 +350,148 @@ public class LanceIndexJobStateMachineTest {
     }
 
     @Test
+    public void provenNoEnqueueReleasesTheSlotInTheSameTransition() throws DdlException {
+        TestManager manager = new TestManager();
+        createAndRun(manager, 1L, "IdxA");
+
+        Assertions.assertTrue(manager.completeProvenNoEnqueue(1L, 1L, INVOCATION_ID, BE_EPOCH,
+                result(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED)));
+
+        LanceIndexJob stored = manager.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobMutationState.NOT_COMMITTED, stored.getMutationState());
+        Assertions.assertFalse(stored.holdsPossibleLiveSlot());
+        Assertions.assertEquals(LanceIndexTerminationProof.NOT_ENQUEUED, stored.getTerminationProof());
+        // A slot may still be proven exactly once: a later proof for the same identity
+        // only warns and changes nothing.
+        Assertions.assertFalse(manager.recordTerminationProof(1L, 1L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                LanceIndexTerminationProof.CHILD_REAPED));
+        Assertions.assertEquals(LanceIndexTerminationProof.NOT_ENQUEUED, manager.getJob(1L).getTerminationProof());
+    }
+
+    @Test
+    public void provenNoEnqueueKeepsAnEarlierTerminationProof() throws DdlException {
+        TestManager manager = new TestManager();
+        createAndRun(manager, 1L, "IdxA");
+        Assertions.assertTrue(manager.recordTerminationProof(1L, 1L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                LanceIndexTerminationProof.CHILD_REAPED));
+
+        Assertions.assertTrue(manager.completeProvenNoEnqueue(1L, 1L, INVOCATION_ID, BE_EPOCH,
+                result(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED)));
+
+        // The reaping proof is the stronger evidence and is kept; the slot was already
+        // released by it.
+        LanceIndexJob stored = manager.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobMutationState.NOT_COMMITTED, stored.getMutationState());
+        Assertions.assertEquals(LanceIndexTerminationProof.CHILD_REAPED, stored.getTerminationProof());
+        Assertions.assertFalse(stored.holdsPossibleLiveSlot());
+    }
+
+    @Test
+    public void plainCompletionNeverTouchesTheSlot() throws DdlException {
+        TestManager manager = new TestManager();
+        createAndRun(manager, 1L, "IdxA");
+
+        // Even a pre-invocation rejection reported by a worker keeps the slot: only the
+        // dispatcher's own proven no-enqueue and never-launched channels release it
+        // without a separate proof.
+        Assertions.assertTrue(manager.completeWithResult(1L, 1L, INVOCATION_ID, BE_EPOCH,
+                result(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED)));
+
+        LanceIndexJob stored = manager.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobMutationState.NOT_COMMITTED, stored.getMutationState());
+        Assertions.assertTrue(stored.holdsPossibleLiveSlot());
+        Assertions.assertEquals(LanceIndexTerminationProof.NONE, stored.getTerminationProof());
+    }
+
+    @Test
+    public void preInvocationRejectionCompletesAndProvesNeverLaunchedInOneRecord() throws DdlException {
+        TestManager manager = new TestManager();
+        createAndRun(manager, 1L, "IdxA");
+        LanceIndexFenceKey fenceKey = manager.getJob(1L).fenceKey();
+        Assertions.assertTrue(manager.getJob(1L).holdsPossibleLiveSlot());
+        int journalBefore = manager.editLog.size();
+
+        Assertions.assertTrue(manager.completePreInvocationRejected(1L, 1L, INVOCATION_ID, BE_EPOCH,
+                result(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED)));
+
+        // Result and proof landed atomically: exactly one journal record, carrying
+        // NOT_COMMITTED, the internal NEVER_LAUNCHED proof, and the released slot.
+        Assertions.assertEquals(journalBefore + 1, manager.editLog.size());
+        LanceIndexJob stored = manager.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobMutationState.NOT_COMMITTED, stored.getMutationState());
+        Assertions.assertEquals(LanceIndexJobRefreshState.NOT_REQUIRED, stored.getRefreshState());
+        Assertions.assertEquals(LanceIndexTerminationProof.NEVER_LAUNCHED, stored.getTerminationProof());
+        Assertions.assertFalse(stored.holdsPossibleLiveSlot());
+        // The known terminal outcome resolves the job: fence and quota are gone.
+        Assertions.assertFalse(manager.isFenceHeld(fenceKey));
+        Assertions.assertEquals(0L, manager.getQuota().getGlobalCount());
+
+        // The atomic transition is subject to exactly the callback identity checks of
+        // completeWithResult: a stale dispatch revision, invocation id, or epoch, and a
+        // non-RUNNING job, are all rejected without a journal record.
+        TestManager stale = new TestManager();
+        createAndRun(stale, 1L, "IdxB");
+        int staleJournalBefore = stale.editLog.size();
+        Assertions.assertFalse(stale.completePreInvocationRejected(1L, 99L, INVOCATION_ID, BE_EPOCH,
+                result(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED)));
+        Assertions.assertFalse(stale.completePreInvocationRejected(1L, 1L, "wrong-invocation", BE_EPOCH,
+                result(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED)));
+        Assertions.assertFalse(stale.completePreInvocationRejected(1L, 1L, INVOCATION_ID, BE_EPOCH + 1,
+                result(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED)));
+        Assertions.assertFalse(stale.completePreInvocationRejected(404L, 1L, INVOCATION_ID, BE_EPOCH,
+                result(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED)));
+        Assertions.assertEquals(staleJournalBefore, stale.editLog.size());
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, stale.getJob(1L).getMutationState());
+        Assertions.assertTrue(stale.completePreInvocationRejected(1L, 1L, INVOCATION_ID, BE_EPOCH,
+                result(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED)));
+        Assertions.assertFalse(stale.completePreInvocationRejected(1L, 1L, INVOCATION_ID, BE_EPOCH,
+                result(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED)));
+    }
+
+    @Test
+    public void preInvocationRejectionRequiresAPreInvocationResultCode() throws DdlException {
+        TestManager manager = new TestManager();
+        createAndRun(manager, 1L, "IdxA");
+
+        // NEVER_LAUNCHED is a proof, never a result code: only a PRE_INVOCATION_*
+        // classification may carry the never-launched evidence.
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> manager.completePreInvocationRejected(1L, 1L, INVOCATION_ID, BE_EPOCH,
+                        result(LanceIndexJobResultCode.NATIVE_OK)));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> manager.completePreInvocationRejected(1L, 1L, INVOCATION_ID, BE_EPOCH,
+                        result(LanceIndexJobResultCode.NO_TRUSTED_RESULT)));
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> manager.completePreInvocationRejected(1L, 1L, INVOCATION_ID, BE_EPOCH,
+                        result(LanceIndexJobResultCode.NATIVE_IO)));
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, manager.getJob(1L).getMutationState());
+        Assertions.assertTrue(manager.getJob(1L).holdsPossibleLiveSlot());
+        Assertions.assertEquals(2, manager.editLog.size());
+    }
+
+    @Test
+    public void preInvocationRejectionKeepsAnEarlierProof() throws DdlException {
+        TestManager manager = new TestManager();
+        createAndRun(manager, 1L, "IdxA");
+        // The epoch sweep races the dispatcher's pre-send failure: the slot already has
+        // its first proof, and the atomic transition must not overwrite it.
+        Assertions.assertTrue(manager.recordTerminationProof(1L, 1L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                LanceIndexTerminationProof.BE_PROCESS_EPOCH_GONE));
+
+        Assertions.assertTrue(manager.completePreInvocationRejected(1L, 1L, INVOCATION_ID, BE_EPOCH,
+                result(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED)));
+
+        LanceIndexJob stored = manager.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobMutationState.NOT_COMMITTED, stored.getMutationState());
+        Assertions.assertEquals(LanceIndexTerminationProof.BE_PROCESS_EPOCH_GONE, stored.getTerminationProof());
+        Assertions.assertFalse(stored.holdsPossibleLiveSlot());
+    }
+
+    @Test
     public void everyAcceptedTransitionWritesExactlyOneEditLogRecord() throws DdlException {
         TestManager manager = new TestManager();
         manager.createJob(newCreateJob(1L, "IdxA"), 100, 100, 100);
-        manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS);
+        manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, DEADLINE_MS);
         manager.completeWithResult(1L, 1L, INVOCATION_ID, BE_EPOCH, result(LanceIndexJobResultCode.NATIVE_OK));
         manager.markRefreshRunning(1L, 2L);
         manager.markRefreshDone(1L, 3L);
@@ -353,7 +499,8 @@ public class LanceIndexJobStateMachineTest {
 
         // Rejected transitions never reach the journal.
         Assertions.assertFalse(manager.markRefreshDone(1L, 4L));
-        Assertions.assertFalse(manager.markRunning(1L, 4L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertFalse(manager.markRunning(1L, 4L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                INVOCATION_SECRET, DEADLINE_MS));
         Assertions.assertEquals(5, manager.editLog.size());
     }
 
@@ -364,9 +511,10 @@ public class LanceIndexJobStateMachineTest {
 
         // A null/blank invocation identity would match a null field under Objects.equals
         // in completeWithResult and silently defeat the stale-callback guard.
-        Assertions.assertFalse(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, null, DEADLINE_MS));
-        Assertions.assertFalse(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, "", DEADLINE_MS));
-        Assertions.assertFalse(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, "  \t\n", DEADLINE_MS));
+        Assertions.assertFalse(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, null, INVOCATION_SECRET, DEADLINE_MS));
+        Assertions.assertFalse(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, "", INVOCATION_SECRET, DEADLINE_MS));
+        Assertions.assertFalse(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, "  \t\n",
+                INVOCATION_SECRET, DEADLINE_MS));
 
         LanceIndexJob stored = manager.getJob(1L);
         Assertions.assertEquals(LanceIndexJobMutationState.PENDING, stored.getMutationState());
@@ -375,8 +523,36 @@ public class LanceIndexJobStateMachineTest {
         Assertions.assertEquals(1, manager.editLog.size());
 
         // A well-formed dispatch is still accepted afterwards.
-        Assertions.assertTrue(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                INVOCATION_SECRET, DEADLINE_MS));
         Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, manager.getJob(1L).getMutationState());
+    }
+
+    @Test
+    public void markRunningRejectsBlankInvocationSecretAndJournalsTheRealOne() throws DdlException {
+        TestManager manager = new TestManager();
+        manager.createJob(newCreateJob(1L, "IdxA"), 100, 100, 100);
+
+        // A null/blank secret would leave the dispatch with no reporter authentication:
+        // every report against it would be unauthenticated (fail-closed in the handler).
+        Assertions.assertFalse(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, null, DEADLINE_MS));
+        Assertions.assertFalse(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, "", DEADLINE_MS));
+        Assertions.assertFalse(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, "  \t\n",
+                DEADLINE_MS));
+
+        LanceIndexJob stored = manager.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobMutationState.PENDING, stored.getMutationState());
+        Assertions.assertNull(stored.getInvocationSecret());
+        Assertions.assertEquals(1, manager.editLog.size());
+
+        // The accepted dispatch stores the secret on the record BEFORE the journal write,
+        // so the journaled RUNNING record itself carries it.
+        Assertions.assertTrue(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET,
+                DEADLINE_MS));
+        Assertions.assertEquals(INVOCATION_SECRET, manager.getJob(1L).getInvocationSecret());
+        LanceIndexJob journaled = manager.editLog.get(1);
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, journaled.getMutationState());
+        Assertions.assertEquals(INVOCATION_SECRET, journaled.getInvocationSecret());
     }
 
     @Test
@@ -478,7 +654,8 @@ public class LanceIndexJobStateMachineTest {
         Assertions.assertEquals(0L, manager.getJob(1L).getRevision());
         Assertions.assertEquals(1, manager.editLog.size());
 
-        Assertions.assertTrue(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                INVOCATION_SECRET, DEADLINE_MS));
         Assertions.assertTrue(manager.completeWithResult(1L, 1L, INVOCATION_ID, BE_EPOCH,
                 result(LanceIndexJobResultCode.NATIVE_OK)));
         // The terminal outcome does not release the slot; the proof still lands afterwards.
@@ -622,7 +799,8 @@ public class LanceIndexJobStateMachineTest {
 
     private static LanceIndexJob createAndRun(TestManager manager, long jobId, String displayName) throws DdlException {
         manager.createJob(newCreateJob(jobId, displayName), 100, 100, 100);
-        Assertions.assertTrue(manager.markRunning(jobId, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(jobId, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                INVOCATION_SECRET, DEADLINE_MS));
         return manager.getJob(jobId);
     }
 

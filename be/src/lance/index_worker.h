@@ -1,0 +1,89 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#pragma once
+
+#include <gen_cpp/MasterService_types.h>
+#include <lance/lance.h>
+
+#include <cstdint>
+#include <optional>
+
+namespace doris::lance {
+
+// Fixed protocol magic of the worker handshake frame: the five ASCII bytes of
+// "LANCE" (0x4C 41 4E 43 45) followed by 0x00 and the layout version byte 0x01,
+// read as one big-endian int64. Never an RPC surface; the supervisor compares it
+// against its own constant before decoding anything else on the pipe.
+inline constexpr int64_t HANDSHAKE_PROTOCOL_MAGIC = 0x4C414E43450001LL;
+inline constexpr int32_t HANDSHAKE_PROTOCOL_VERSION = 1;
+
+// Name of the single controlled-environment entry through which the supervisor
+// hands the worker its own pid (built by build_child_env, never inherited from
+// the operator environment). The worker re-arms PR_SET_PDEATHSIG at its library
+// entry (an execve into a file-capabilities binary clears the setting) and
+// rechecks getppid() against this value to close the arm-after-death race.
+inline constexpr const char* WORKER_EXPECTED_PPID_ENV = "DORIS_LANCE_WORKER_PPID";
+
+// Controlled-environment variable through which the supervisor hands the worker
+// its active fault-injection debug points (comma-separated names): snapshotted
+// by build_child_env in index_job_supervisor.cpp and re-registered by
+// run_index_worker in index_worker.cpp through this one shared spelling, so
+// the two sides cannot drift. The exec'd image starts with a default-off
+// debug-point gate and an empty registry, so without this handoff the
+// worker-side points could never fire outside unit tests. The fake worker's
+// own literal (be/test/lance/fake_worker/lance_fake_worker.c) is deliberately
+// separate: pure C, it cannot include this header.
+inline constexpr const char* WORKER_DEBUG_POINTS_ENV = "DORIS_LANCE_WORKER_DEBUG_POINTS";
+
+// Pure library entry of the isolated one-shot index worker: reads one
+// length-prefixed thrift-compact TLanceIndexJobDispatch frame from dispatch_fd,
+// writes one handshake frame followed by at most one result frame
+// (TLanceIndexJobReport) to result_fd, and emits bounded static diagnostic lines
+// to diag_fd. Returns the process exit code: 0 when a complete result frame (a
+// native outcome or a trusted pre-invocation rejection) was written, nonzero when
+// no trusted result exists (no result frame was written; the supervisor converges
+// via termination proof or the FE deadline).
+//
+// The function touches no BE global state (no config, logging, metrics, or
+// ExecEnv): a bare main can exec it directly, and unit tests can drive it over
+// pipe pairs with tuned bounds. Its first actions, before reading the dispatch,
+// are prctl(PR_SET_DUMPABLE, 0) (credentials in memory can never reach a core
+// file) and the exec-side PR_SET_PDEATHSIG re-arm + getppid recheck against
+// WORKER_EXPECTED_PPID_ENV (the parent-death backstop for deployment shapes
+// whose execve clears the setting).
+struct IndexWorkerParams {
+    int dispatch_fd = 0;
+    int result_fd = 1;
+    int diag_fd = 2;
+    // Protocol constants are injectable so unit tests can exercise the
+    // length-cap paths with small values.
+    uint32_t max_dispatch_bytes = 512 * 1024;
+    uint32_t max_result_bytes = 8 * 1024;
+};
+
+int run_index_worker(const IndexWorkerParams& params);
+
+// Unit-test seam: the single place a typed lance error code becomes a wire result
+// code (the R4 §1.7 mapping table). Only the codes with a wire counterpart map; any
+// other code (DATASET_ALREADY_EXISTS, PANIC, or unknown values) yields nullopt, and
+// run_index_worker then exits nonzero WITHOUT a result frame. Production reaches
+// the mapping only through run_index_worker.
+std::optional<TLanceIndexJobResultCode::type> wire_result_code_for_native_error(
+        LanceErrorCode code);
+
+} // namespace doris::lance

@@ -53,6 +53,10 @@ class TIngestBinlogRequest;
 class TIngestBinlogResult;
 class ThreadPool;
 
+namespace lance {
+class LanceIndexJobService;
+}
+
 // This class just forward rpc for actual handler
 // make this class because we can bind multiple service on single point
 class BaseBackendService : public BackendServiceIf {
@@ -71,6 +75,15 @@ public:
     void submit_tasks(TAgentResult& return_value,
                       const std::vector<TAgentTaskRequest>& tasks) override {
         _agent_server->submit_tasks(return_value, tasks);
+    }
+
+    // One-shot Lance index mutation dispatch. The isolated worker lands in a later
+    // slice; until then the request is answered as definitively NOT enqueued, so the
+    // FE classifies a trusted pre-invocation rejection (terminal NOT_COMMITTED)
+    // instead of an ambiguous result.
+    void submit_lance_index_job(TStatus& _return, const TLanceIndexJobDispatch& dispatch) override {
+        _return.__set_status_code(TStatusCode::NOT_IMPLEMENTED_ERROR);
+        _return.__set_error_msgs({"lance index worker is not available in this build"});
     }
 
     void publish_cluster_state(TAgentResult& result, const TAgentPublishRequest& request) override {
@@ -151,7 +164,10 @@ public:
     void warm_up_tablets(TWarmUpTabletsResponse& response,
                          const TWarmUpTabletsRequest& request) override;
 
-    void stop_works() { _agent_server->stop_report_workers(); }
+    // Best-effort stop of runtime workers started by start_thrift_dependencies();
+    // virtual so the local layer can also stop its own components (Lance index
+    // job service). Correctness never depends on this being called.
+    virtual void stop_works() { _agent_server->stop_report_workers(); }
 
 protected:
     void get_stream_load_record(TStreamLoadRecordResult& result, int64_t last_stream_record_time,
@@ -170,6 +186,14 @@ public:
     ~BackendService() override;
 
     Status start_thrift_dependencies() override;
+
+    // One-shot Lance index mutation dispatch. Overrides the base-class
+    // functional rejection for the local (non-cloud) layer; forwards to the
+    // LanceIndexJobService component which validates, deduplicates and
+    // bounded-enqueues the dispatch without ever executing inline.
+    void submit_lance_index_job(TStatus& _return, const TLanceIndexJobDispatch& dispatch) override;
+
+    void stop_works() override;
 
     void get_tablet_stat(TTabletStatResult& result) override;
 
@@ -194,6 +218,9 @@ public:
 
 private:
     StorageEngine& _engine;
+    // Constructed and started in start_thrift_dependencies(); the handler
+    // answers a definitive NOT-enqueued ERROR while it is null.
+    std::unique_ptr<lance::LanceIndexJobService> _lance_index_job_service;
 };
 
 } // namespace doris

@@ -17,17 +17,30 @@
 
 package org.apache.doris.datasource.lance.job;
 
+import org.apache.doris.persist.gson.GsonUtils;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
- * Coverage for the two read-side queries added to {@link LanceIndexJobManager} for the
- * admission slice: {@link LanceIndexJobManager#getAllJobsSnapshot()} (the data source of
- * SHOW LANCE INDEX JOBS: every job, copies only, ordered by job id) and
+ * Coverage for the read-side queries of {@link LanceIndexJobManager}: the admission-slice
+ * queries {@link LanceIndexJobManager#getAllJobsSnapshot()} (the data source of SHOW LANCE
+ * INDEX JOBS: every job, copies only, ordered by job id) and
  * {@link LanceIndexJobManager#hasUnresolvedJobsForCatalog(long)} (the catalog DDL guard
- * probe: any job still holding its fence and unresolved quota for the catalog).
+ * probe), plus the dispatcher-slice queries: {@link LanceIndexJobManager#getJobsNeedingDispatch()}
+ * (every PENDING record whose target identity is complete, in job id order, untruncated so
+ * the dispatcher's success-counted budget cannot be starved),
+ * {@link LanceIndexJobManager#getExpiredRunningJobs(long)} (only RUNNING past the
+ * deadline), {@link LanceIndexJobManager#getJobsHoldingPossibleLiveSlot()} (slot holders
+ * the termination-proof writer can address, regardless of mutation state), and the
+ * force-release filter of
+ * {@link LanceIndexJobManager#getJobsNeedingRefresh()}.
  */
 public class LanceIndexJobManagerQueryTest {
     private static final long CATALOG_ID = 10L;
@@ -36,6 +49,7 @@ public class LanceIndexJobManagerQueryTest {
     private static final long BACKEND_ID = 1001L;
     private static final long BE_EPOCH = 55L;
     private static final String INVOCATION_ID = "invocation-1";
+    private static final String INVOCATION_SECRET = "a3f1c02d97b64e8fad0c31b9e75d2468";
     private static final long DEADLINE_MS = 9999L;
 
     @Test
@@ -89,7 +103,8 @@ public class LanceIndexJobManagerQueryTest {
     public void releasedTerminalJobDoesNotCountAsUnresolved() throws Exception {
         TestManager manager = new TestManager();
         manager.createJob(newCreateJob(1L, "IdxA", CATALOG_ID), 100, 100, 100);
-        Assertions.assertTrue(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                INVOCATION_SECRET, DEADLINE_MS));
         Assertions.assertTrue(manager.completeWithResult(1L, 1L, INVOCATION_ID, BE_EPOCH,
                 new LanceIndexJobResult(LanceIndexJobResultCode.NATIVE_OK,
                         LanceIndexJobCompletionReason.NONE, "ok", false)));
@@ -114,12 +129,243 @@ public class LanceIndexJobManagerQueryTest {
         Assertions.assertTrue(manager.hasUnresolvedJobsForCatalog(OTHER_CATALOG_ID));
     }
 
+    // ------------------------------------------------------------------
+    // dispatcher-slice queries
+    // ------------------------------------------------------------------
+
+    @Test
+    public void dispatchQueryReturnsPendingJobsWithCompleteTargetIdentity() throws Exception {
+        TestManager manager = new TestManager();
+        // A durable PENDING record carrying the full dispatch identity is dispatchable.
+        manager.replayUpsertJob(dispatchablePending(1L, "IdxDispatchable"));
+        // An admitted PENDING record (the form createJob produces) carries no dispatch quad
+        // yet and is dispatchable too: the quad is written by markRunning, the very step
+        // this query feeds, so only the target identity is required here.
+        manager.createJob(newCreateJob(2L, "IdxAdmitted", CATALOG_ID), 100, 100, 100);
+        // Non-PENDING states are invisible to the dispatch sweep even with full identity.
+        manager.replayUpsertJob(runningRecord(4L, "IdxRunning"));
+        LanceIndexJob terminal = dispatchablePending(5L, "IdxTerminal");
+        terminal.setMutationState(LanceIndexJobMutationState.COMMITTED);
+        terminal.setRefreshState(LanceIndexJobRefreshState.DONE);
+        manager.replayUpsertJob(terminal);
+        // A corrupt identity-less PENDING record is never dispatchable (replayed last: it
+        // also fail-closes new admissions, which the createJob above must not hit).
+        manager.replayUpsertJob(GsonUtils.GSON.fromJson(
+                "{\"jid\":3,\"rev\":0,\"ms\":\"PENDING\"}", LanceIndexJob.class));
+
+        List<LanceIndexJob> dispatchable = manager.getJobsNeedingDispatch();
+        Assertions.assertEquals(2, dispatchable.size());
+        Assertions.assertEquals(1L, dispatchable.get(0).getJobId());
+        Assertions.assertEquals(2L, dispatchable.get(1).getJobId());
+        Assertions.assertEquals(LanceIndexJobMutationState.PENDING, dispatchable.get(0).getMutationState());
+        Assertions.assertEquals(LanceIndexJobMutationState.PENDING, dispatchable.get(1).getMutationState());
+    }
+
+    @Test
+    public void dispatchQueryReturnsEveryMatchInJobIdOrder() {
+        TestManager manager = new TestManager();
+        // Insertion order deliberately scrambled; the sweep returns job id order (FIFO).
+        for (long jobId : new long[]{5L, 1L, 4L, 2L, 3L}) {
+            manager.replayUpsertJob(dispatchablePending(jobId, "Idx" + jobId));
+        }
+
+        // Untruncated by contract: the dispatcher's per-round budget counts only jobs
+        // it actually made RUNNING, so no subset of undispatchable jobs can crowd out
+        // later ids — the query itself must never decide who is visible.
+        List<LanceIndexJob> all = manager.getJobsNeedingDispatch();
+        Assertions.assertEquals(5, all.size());
+        for (int i = 0; i < all.size(); i++) {
+            Assertions.assertEquals(i + 1L, all.get(i).getJobId());
+            Assertions.assertEquals(LanceIndexJobMutationState.PENDING, all.get(i).getMutationState());
+        }
+    }
+
+    @Test
+    public void expiredQueryReturnsOnlyRunningJobsPastTheirDeadline() throws Exception {
+        TestManager manager = new TestManager();
+        long now = 1_000L;
+        // RUNNING with an expired deadline is the sweep's only input.
+        manager.replayUpsertJob(runningRecord(1L, "IdxExpired", 999L));
+        // The boundary is strict: a deadline exactly at "now" has not expired.
+        manager.replayUpsertJob(runningRecord(2L, "IdxAtBoundary", now));
+        manager.replayUpsertJob(runningRecord(3L, "IdxStillWaiting", 1_001L));
+        // RUNNING without a deadline (an old record) never expires on its own.
+        LanceIndexJob deadlineless = runningRecord(4L, "IdxDeadlineless");
+        deadlineless.setDeadlineMs(null);
+        manager.replayUpsertJob(deadlineless);
+        // Non-RUNNING states are invisible even with an expired deadline in the record.
+        LanceIndexJob pending = dispatchablePending(5L, "IdxPending");
+        pending.setDeadlineMs(1L);
+        manager.replayUpsertJob(pending);
+        LanceIndexJob unknown = runningRecord(6L, "IdxUnknown", 1L);
+        unknown.setMutationState(LanceIndexJobMutationState.UNKNOWN);
+        manager.replayUpsertJob(unknown);
+
+        List<LanceIndexJob> expired = manager.getExpiredRunningJobs(now);
+        Assertions.assertEquals(1, expired.size());
+        Assertions.assertEquals(1L, expired.get(0).getJobId());
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, expired.get(0).getMutationState());
+    }
+
+    @Test
+    public void possibleLiveQueryReturnsSlotHoldersTheProofWriterCanAddress() throws Exception {
+        TestManager manager = new TestManager();
+        // A RUNNING dispatch holds a slot.
+        manager.replayUpsertJob(runningRecord(1L, "IdxRunning"));
+        // An UNKNOWN converged from RUNNING holds its slot exactly the same way: the release
+        // proof is independent of the outcome.
+        LanceIndexJob unknown = runningRecord(2L, "IdxUnknown");
+        unknown.setMutationState(LanceIndexJobMutationState.UNKNOWN);
+        unknown.setResult(new LanceIndexJobResult(LanceIndexJobResultCode.NO_TRUSTED_RESULT,
+                LanceIndexJobCompletionReason.NONE, "deadline expired", false));
+        unknown.setRevision(2L);
+        manager.replayUpsertJob(unknown);
+        // A slot already released by a termination proof is gone.
+        LanceIndexJob reaped = runningRecord(3L, "IdxReaped");
+        reaped.setTerminationProof(LanceIndexTerminationProof.CHILD_REAPED);
+        reaped.setPossibleLiveOwned(false);
+        manager.replayUpsertJob(reaped);
+        // A force-released record holds nothing.
+        LanceIndexJob forced = runningRecord(4L, "IdxForced");
+        forced.setMutationState(LanceIndexJobMutationState.UNKNOWN);
+        forced.setForceReleased(true);
+        manager.replayUpsertJob(forced);
+        // A corrupt record that claims a slot but lacks dispatch identity cannot be matched
+        // by the epoch sweep and is skipped.
+        manager.replayUpsertJob(GsonUtils.GSON.fromJson(
+                "{\"jid\":5,\"rev\":1,\"ms\":\"RUNNING\",\"plo\":true}", LanceIndexJob.class));
+        // A legacy holder without a dispatchRevision (recordTerminationProof falls back
+        // to the revision) and without the target fields the proof writer never reads
+        // (db/table/display name): it is charged by the capacity counter like any
+        // holder, so the sweep must be able to release it, or a replaced backend
+        // process could never free that capacity.
+        manager.replayUpsertJob(GsonUtils.GSON.fromJson(
+                "{\"jid\":6,\"rev\":4,\"cid\":10,\"prv\":\"directory\",\"loc\":\"s3://bucket/dataset\","
+                        + "\"nin\":\"idxlegacy\",\"ms\":\"RUNNING\",\"rs\":\"NOT_REQUIRED\",\"plo\":true,"
+                        + "\"bid\":1001,\"bpe\":55,\"iid\":\"invocation-1\"}", LanceIndexJob.class));
+
+        List<LanceIndexJob> holders = manager.getJobsHoldingPossibleLiveSlot();
+        Assertions.assertEquals(3, holders.size());
+        // The query does not promise an order; assert membership and each state.
+        List<Long> holderIds = new ArrayList<>();
+        for (LanceIndexJob holder : holders) {
+            holderIds.add(holder.getJobId());
+            Assertions.assertTrue(holder.holdsPossibleLiveSlot());
+        }
+        Collections.sort(holderIds);
+        Assertions.assertEquals(Arrays.asList(1L, 2L, 6L), holderIds);
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, manager.getJob(1L).getMutationState());
+        Assertions.assertEquals(LanceIndexJobMutationState.UNKNOWN, manager.getJob(2L).getMutationState());
+    }
+
+    @Test
+    public void possibleLiveSlotCountAggregatesOnlySlotHoldersByBackend() {
+        TestManager manager = new TestManager();
+        // BACKEND_ID: a RUNNING holder and an UNKNOWN holder — the outcome is
+        // irrelevant to capacity, only slot ownership counts.
+        manager.replayUpsertJob(runningRecord(1L, "IdxRunning"));
+        LanceIndexJob unknown = runningRecord(2L, "IdxUnknown");
+        unknown.setMutationState(LanceIndexJobMutationState.UNKNOWN);
+        unknown.setResult(new LanceIndexJobResult(LanceIndexJobResultCode.NO_TRUSTED_RESULT,
+                LanceIndexJobCompletionReason.NONE, "deadline expired", false));
+        manager.replayUpsertJob(unknown);
+        // A second backend with one holder.
+        LanceIndexJob otherBackend = runningRecord(3L, "IdxOtherBackend");
+        otherBackend.setBackendId(9999L);
+        manager.replayUpsertJob(otherBackend);
+        // Excluded: slot released by a proof, by the proven no-enqueue channel, by a
+        // force release, never taken (PENDING), and a holder without a backend id.
+        LanceIndexJob reaped = runningRecord(4L, "IdxReaped");
+        reaped.setTerminationProof(LanceIndexTerminationProof.CHILD_REAPED);
+        reaped.setPossibleLiveOwned(false);
+        manager.replayUpsertJob(reaped);
+        LanceIndexJob notEnqueued = runningRecord(5L, "IdxNotEnqueued");
+        notEnqueued.setTerminationProof(LanceIndexTerminationProof.NOT_ENQUEUED);
+        notEnqueued.setPossibleLiveOwned(false);
+        manager.replayUpsertJob(notEnqueued);
+        LanceIndexJob forced = runningRecord(6L, "IdxForced");
+        forced.setForceReleased(true);
+        manager.replayUpsertJob(forced);
+        manager.replayUpsertJob(dispatchablePending(7L, "IdxPending"));
+        LanceIndexJob backendless = runningRecord(8L, "IdxBackendless");
+        backendless.setBackendId(null);
+        manager.replayUpsertJob(backendless);
+
+        Map<Long, Integer> slots = manager.countPossibleLiveSlotsByBackend();
+        Assertions.assertEquals(2, slots.size());
+        Assertions.assertEquals(2, slots.get(BACKEND_ID).intValue());
+        Assertions.assertEquals(1, slots.get(9999L).intValue());
+    }
+
+    @Test
+    public void refreshQueryExcludesForceReleasedJobs() throws Exception {
+        TestManager manager = new TestManager();
+        // A terminal job owing its first refresh is the driver's input.
+        manager.createJob(newCreateJob(1L, "IdxOwed", CATALOG_ID), 100, 100, 100);
+        Assertions.assertTrue(manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                INVOCATION_SECRET, DEADLINE_MS));
+        Assertions.assertTrue(manager.completeWithResult(1L, 1L, INVOCATION_ID, BE_EPOCH,
+                new LanceIndexJobResult(LanceIndexJobResultCode.NATIVE_OK,
+                        LanceIndexJobCompletionReason.NONE, "ok", false)));
+
+        // The same terminal shape, but force-released: its fence is already gone and the
+        // driver must never pick it up again.
+        LanceIndexJob forced = newCreateJob(7L, "IdxForced", CATALOG_ID);
+        forced.setMutationState(LanceIndexJobMutationState.COMMITTED);
+        forced.setRefreshState(LanceIndexJobRefreshState.REQUIRED);
+        forced.setRevision(2L);
+        forced.setForceReleased(true);
+        manager.replayUpsertJob(forced);
+        // And the FAILED variant of a forced job, equally invisible.
+        LanceIndexJob forcedFailed = newCreateJob(8L, "IdxForcedFailed", CATALOG_ID);
+        forcedFailed.setMutationState(LanceIndexJobMutationState.NOT_COMMITTED);
+        forcedFailed.setRefreshState(LanceIndexJobRefreshState.FAILED);
+        forcedFailed.setRevision(3L);
+        forcedFailed.setForceReleased(true);
+        manager.replayUpsertJob(forcedFailed);
+
+        List<LanceIndexJob> needing = manager.getJobsNeedingRefresh();
+        Assertions.assertEquals(1, needing.size());
+        Assertions.assertEquals(1L, needing.get(0).getJobId());
+        Assertions.assertEquals(LanceIndexJobRefreshState.REQUIRED, needing.get(0).getRefreshState());
+        Assertions.assertFalse(needing.get(0).isForceReleased());
+    }
+
     private static LanceIndexJob newCreateJob(long jobId, String displayName, long catalogId) {
         return new LanceIndexJob(jobId, "tester", catalogId, "db1", "tbl1",
                 LanceIndexFenceKey.PROVIDER_DIRECTORY, LOCATOR,
                 displayName, LanceIndexNameNormalizer.normalize(displayName),
                 LanceIndexJobMutationType.CREATE, false, false, "IVF_PQ", "v",
                 null, 7L, null);
+    }
+
+    /**
+     * A durable PENDING record whose dispatch identity is complete, the form the dispatch
+     * sweep accepts. Built through setters and replayed verbatim, like a follower applying
+     * a journal record.
+     */
+    private static LanceIndexJob dispatchablePending(long jobId, String displayName) {
+        LanceIndexJob job = newCreateJob(jobId, displayName, CATALOG_ID);
+        job.setMutationState(LanceIndexJobMutationState.PENDING);
+        job.setRefreshState(LanceIndexJobRefreshState.NOT_REQUIRED);
+        job.setBackendId(BACKEND_ID);
+        job.setBeProcessEpoch(BE_EPOCH);
+        job.setInvocationId(INVOCATION_ID);
+        job.setDispatchRevision(1L);
+        job.setRevision(1L);
+        return job;
+    }
+
+    private static LanceIndexJob runningRecord(long jobId, String displayName) {
+        return runningRecord(jobId, displayName, DEADLINE_MS);
+    }
+
+    private static LanceIndexJob runningRecord(long jobId, String displayName, long deadlineMs) {
+        LanceIndexJob job = dispatchablePending(jobId, displayName);
+        job.setMutationState(LanceIndexJobMutationState.RUNNING);
+        job.setPossibleLiveOwned(true);
+        job.setDeadlineMs(deadlineMs);
+        return job;
     }
 
     private static class TestManager extends LanceIndexJobManager {

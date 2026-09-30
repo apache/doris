@@ -36,6 +36,7 @@ import org.apache.doris.datasource.lance.job.LanceIndexJobManager;
 import org.apache.doris.datasource.lance.job.LanceIndexJobMutationType;
 import org.apache.doris.datasource.lance.job.LanceIndexSchemaContract;
 import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import org.apache.arrow.vector.types.FloatingPointPrecision;
@@ -332,6 +333,9 @@ public class LanceIndexAdmissionTest {
         Assertions.assertEquals("v", job.getColumnName());
         Assertions.assertEquals(NORMALIZED_ANN_PROPERTIES_JSON, job.getPropertiesJson());
         Assertions.assertEquals(DATASET_VERSION, job.getAdmittedDatasetVersion());
+        // The effective IVF_PQ bounds at admission time ride the durable record.
+        Assertions.assertEquals(Integer.valueOf(4096), job.getAdmittedMaxNumPartitions());
+        Assertions.assertEquals(Integer.valueOf(256), job.getAdmittedMaxNumSubVectors());
 
         LanceIndexSchemaContract contract = job.getSchemaContract();
         Assertions.assertNotNull(contract);
@@ -354,6 +358,49 @@ public class LanceIndexAdmissionTest {
         Assertions.assertTrue(manager.isFenceHeld(job.fenceKey()));
         Assertions.assertEquals(1, manager.getUnresolvedJobs().size());
         Mockito.verify(env, Mockito.times(1)).getNextId();
+    }
+
+    @Test
+    public void admittedJobsSnapshotTheEffectiveBounds() throws Exception {
+        // The bounds are mutable master config: the durable record must capture the values
+        // in effect at admission, for CREATE and DROP alike, so a later config drift can
+        // never rebind what the dispatch replays to the worker.
+        int originalMaxNumPartitions = Config.lance_index_max_num_partitions;
+        int originalMaxNumSubVectors = Config.lance_index_max_num_sub_vectors;
+        try {
+            Config.lance_index_max_num_partitions = 64;
+            Config.lance_index_max_num_sub_vectors = 32;
+
+            LanceIndexAdmission.Outcome created = admitCreate(emptySnapshot(), annDef("IdxB", false, false),
+                    false);
+            LanceIndexJob createJob = manager.getJob(created.getJobId());
+            Assertions.assertEquals(Integer.valueOf(64), createJob.getAdmittedMaxNumPartitions());
+            Assertions.assertEquals(Integer.valueOf(32), createJob.getAdmittedMaxNumSubVectors());
+            // The journal record carries the same snapshot: it is durable state, not an
+            // in-memory convenience.
+            LanceIndexJob journaled = manager.editLog.get(manager.editLog.size() - 1);
+            Assertions.assertEquals(Integer.valueOf(64), journaled.getAdmittedMaxNumPartitions());
+            Assertions.assertEquals(Integer.valueOf(32), journaled.getAdmittedMaxNumSubVectors());
+
+            LanceIndexAdmissionSnapshot dropSnapshot = snapshot(
+                    Collections.singletonList(logicalIndex("idxgone", "v", "IVF_PQ", MATCHING_ANN_PROPERTIES_JSON)),
+                    Collections.singletonList(physicalIndex("idxgone", "VECTOR")));
+            LanceIndexAdmission.Outcome dropped = admitDrop(dropSnapshot, "IdxGone", false);
+            LanceIndexJob dropJob = manager.getJob(dropped.getJobId());
+            Assertions.assertEquals(Integer.valueOf(64), dropJob.getAdmittedMaxNumPartitions());
+            Assertions.assertEquals(Integer.valueOf(32), dropJob.getAdmittedMaxNumSubVectors());
+
+            // Restoring the config does not retro-rewrite the durable snapshots.
+            Config.lance_index_max_num_partitions = 4096;
+            Config.lance_index_max_num_sub_vectors = 256;
+            Assertions.assertEquals(Integer.valueOf(64), manager.getJob(created.getJobId())
+                    .getAdmittedMaxNumPartitions());
+            Assertions.assertEquals(Integer.valueOf(32), manager.getJob(created.getJobId())
+                    .getAdmittedMaxNumSubVectors());
+        } finally {
+            Config.lance_index_max_num_partitions = originalMaxNumPartitions;
+            Config.lance_index_max_num_sub_vectors = originalMaxNumSubVectors;
+        }
     }
 
     @Test
@@ -873,12 +920,93 @@ public class LanceIndexAdmissionTest {
         Assertions.assertEquals("idxa", job.getNormalizedIndexName());
         Assertions.assertTrue(job.isIfExists());
         Assertions.assertFalse(job.isIfNotExists());
+        // A DROP carries no build definition, but persists the resolved column and the
+        // recomputable contract so the worker revalidates one contract path for every
+        // mutation type against the pinned admitted version.
         Assertions.assertNull(job.getIndexType());
-        Assertions.assertNull(job.getColumnName());
+        Assertions.assertEquals("v", job.getColumnName());
         Assertions.assertNull(job.getPropertiesJson());
-        Assertions.assertNull(job.getSchemaContract());
         Assertions.assertEquals(DATASET_VERSION, job.getAdmittedDatasetVersion());
         Assertions.assertEquals(DATASET_URI, job.getNormalizedLocator());
+
+        LanceIndexSchemaContract contract = job.getSchemaContract();
+        Assertions.assertNotNull(contract);
+        Assertions.assertEquals(LanceIndexSchemaContract.SCHEMA_CONTRACT_VERSION_V1,
+                contract.getSchemaContractVersion());
+        Assertions.assertEquals(1, contract.getFields().size());
+        LanceIndexSchemaContract.IndexedField field = contract.getFields().get(0);
+        Assertions.assertEquals(1L, field.getFieldId());
+        Assertions.assertEquals("v", field.getNormalizedName());
+        Assertions.assertEquals("fixed_size_list", field.getNormalizedType());
+        Assertions.assertFalse(field.isNullable());
+        Assertions.assertEquals(4, field.getFixedSizeListDimension());
+        Assertions.assertEquals("float32", field.getVectorElementType());
+        Assertions.assertEquals(Boolean.TRUE, field.getVectorElementNullable());
+    }
+
+    @Test
+    public void dropCompositeIndexIsRejectedFailClosed() {
+        // A composite index is outside the single-column matrix: there is no one contract
+        // field to persist, so admission refuses instead of guessing (the same fail-closed
+        // rule matchesExistingDefinition applies).
+        LanceIndexAdmissionSnapshot snapshot = snapshot(
+                Collections.singletonList(new LanceShowIndexInfo("IdxA", Arrays.asList("v", "c"),
+                        "IVF_PQ", MATCHING_ANN_PROPERTIES_JSON)),
+                Collections.singletonList(physicalIndex("IdxA", "VECTOR")));
+
+        assertInvalid(() -> admitDrop(snapshot, "IdxA", false),
+                "index 'IdxA' is not a single-column index");
+        assertNothingPersisted();
+    }
+
+    @Test
+    public void dropIndexOnUnresolvableColumnIsRejectedFailClosed() {
+        // The stored index binds a path segment no top-level field produces (a nested
+        // binding or a column that disappeared without the index): admission cannot build
+        // a recomputable contract and refuses instead of journalling a guess.
+        LanceIndexAdmissionSnapshot snapshot = snapshot(
+                Collections.singletonList(logicalIndex("IdxA", "missing", "IVF_PQ",
+                        MATCHING_ANN_PROPERTIES_JSON)),
+                Collections.singletonList(physicalIndex("IdxA", "VECTOR")));
+
+        assertInvalid(() -> admitDrop(snapshot, "IdxA", false),
+                "index column of index 'IdxA' does not resolve to a top-level Lance field");
+        assertNothingPersisted();
+    }
+
+    @Test
+    public void dropResolvesEscapedColumnPathBackToTheRawFieldName() throws Exception {
+        // The logical column is a loader path segment: a field named "weird name" travels
+        // as "`weird name`". Admission must resolve it back to the raw field name, which is
+        // what the contract builder and the durable record key on.
+        LanceIndexAdmissionSnapshot snapshot = new LanceIndexAdmissionSnapshot(DATASET_VERSION,
+                DATASET_URI,
+                Collections.singletonList(logicalIndex("IdxA", "`weird name`", "IVF_PQ",
+                        MATCHING_ANN_PROPERTIES_JSON)),
+                Collections.singletonList(physicalIndex("IdxA", "VECTOR")),
+                Collections.singletonList(vectorField("weird name", 5)));
+
+        LanceIndexAdmission.Outcome outcome = admitDrop(snapshot, "IdxA", false);
+
+        LanceIndexJob job = manager.getJob(outcome.getJobId());
+        Assertions.assertEquals("weird name", job.getColumnName());
+        Assertions.assertNotNull(job.getSchemaContract());
+        Assertions.assertEquals(1, job.getSchemaContract().getFields().size());
+        Assertions.assertEquals(5L, job.getSchemaContract().getFields().get(0).getFieldId());
+        Assertions.assertEquals("weird name",
+                job.getSchemaContract().getFields().get(0).getNormalizedName());
+    }
+
+    @Test
+    public void legacyDropRecordWithoutContractReplaysWithNullContract() {
+        // A DROP record journaled before DROP admissions persisted a contract has no "sc"
+        // key; replay tolerates it with a null contract, and the dispatcher sends the empty
+        // contract string a new worker safely rejects.
+        LanceIndexJob job = GsonUtils.GSON.fromJson(
+                "{\"jid\":1,\"mt\":\"DROP\",\"ie\":true,\"ms\":\"PENDING\",\"rs\":\"NOT_REQUIRED\"}",
+                LanceIndexJob.class);
+        Assertions.assertEquals(LanceIndexJobMutationType.DROP, job.getMutationType());
+        Assertions.assertNull(job.getSchemaContract());
     }
 
     @Test
