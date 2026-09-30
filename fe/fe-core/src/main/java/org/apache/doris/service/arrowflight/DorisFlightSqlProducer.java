@@ -24,8 +24,10 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.service.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.service.arrowflight.results.FlightSqlResultCacheEntry;
 import org.apache.doris.service.arrowflight.sessions.FlightSessionsManager;
@@ -336,7 +338,13 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                     .substring(context.peerIdentity().length() + 1);
             // Another session's DDL can change the result after reanalysis but before execution
             // acquires table locks. Reject the actual schema before publishing a DoGet ticket.
-            if (!prepared.getRight().equals(info.getSchema())) {
+            StmtExecutor executor = connection.getExecutor();
+            boolean matches = !connection.isReturnResultFromLocal() && executor != null
+                    && executor.getParsedStmt() instanceof LogicalPlanAdapter
+                    ? FlightSqlQuerySchema.matchesExecutionSchema(prepared.getRight(), info.getSchema(),
+                            ((LogicalPlanAdapter) executor.getParsedStmt()).getColLabels())
+                    : prepared.getRight().equals(info.getSchema());
+            if (!matches) {
                 connection.removePreparedQuery(id);
                 try {
                     connection.cancelQuery(Status.CANCELLED);

@@ -89,6 +89,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /** Resolves result metadata without scheduling fragments or evaluating query expressions. */
 final class FlightSqlQuerySchema {
@@ -232,6 +233,45 @@ final class FlightSqlQuerySchema {
                 }
             }
         }
+    }
+
+    static boolean matchesExecutionSchema(Schema prepared, Schema actual, List<String> columnLabels) {
+        List<Field> expectedFields = prepared.getFields();
+        List<Field> actualFields = actual.getFields();
+        if (columnLabels == null || expectedFields.size() != actualFields.size()
+                || expectedFields.size() != columnLabels.size()
+                || !prepared.getCustomMetadata().equals(actual.getCustomMetadata())) {
+            return false;
+        }
+        for (int i = 0; i < expectedFields.size(); ++i) {
+            Field expected = expectedFields.get(i);
+            // Compare the final planner's semantic labels: BE labels may instead contain SQL
+            // text or type_name_index. Ignoring all names would hide a concurrent column rename.
+            if (!expected.getName().equals(columnLabels.get(i))
+                    || !matchesExecutionField(expected, actualFields.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean matchesExecutionField(Field expected, Field actual) {
+        // Rewrites can prove an expression non-null (e.g. a folded CAST). Such narrowing is
+        // compatible with Prepare's nullable field; the reverse violates its advertised contract.
+        if ((!expected.isNullable() && actual.isNullable()) || !expected.getType().equals(actual.getType())
+                || !expected.getMetadata().equals(actual.getMetadata())
+                || !Objects.equals(expected.getFieldType().getDictionary(), actual.getFieldType().getDictionary())
+                || expected.getChildren().size() != actual.getChildren().size()) {
+            return false;
+        }
+        for (int i = 0; i < expected.getChildren().size(); ++i) {
+            Field child = expected.getChildren().get(i);
+            Field actualChild = actual.getChildren().get(i);
+            if (!child.getName().equals(actualChild.getName()) || !matchesExecutionField(child, actualChild)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static ResultSetMetaData commandMetadata(ConnectContext context, Command command) throws Exception {

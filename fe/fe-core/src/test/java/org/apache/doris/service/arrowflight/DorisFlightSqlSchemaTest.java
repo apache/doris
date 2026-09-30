@@ -27,6 +27,7 @@ import org.apache.doris.datasource.lance.LanceExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.SqlDialectHelper;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -62,6 +63,7 @@ import org.mockito.Mockito;
 
 import java.io.ByteArrayInputStream;
 import java.nio.channels.Channels;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -685,6 +687,66 @@ public class DorisFlightSqlSchemaTest extends TestWithFeService {
             }
         } finally {
             connectContext.setExecutor(previous);
+        }
+    }
+
+    @Test
+    void backendWireLabelsAndNarrowedNullabilityDoNotExpirePreparedQueries() throws Exception {
+        Schema actual = new Schema(Arrays.asList(
+                Field.notNullable("Int64_0", new ArrowType.Int(64, true)),
+                Field.notNullable("String_1", new ArrowType.Utf8())));
+        assertPreparedExecutionSchema("SELECT id, name FROM schema_input WHERE name IS NOT NULL",
+                Arrays.asList("id", "name"), actual, true);
+    }
+
+    @Test
+    void actualSemanticRenameAndNullableWideningStillExpirePreparedQueries() throws Exception {
+        Schema renamed = new Schema(Collections.singletonList(
+                Field.notNullable("Int64_0", new ArrowType.Int(64, true))));
+        assertPreparedExecutionSchema("SELECT id FROM schema_input", Collections.singletonList("renamed"),
+                renamed, false);
+        Schema widened = new Schema(Collections.singletonList(
+                Field.nullable("id", new ArrowType.Int(64, true))));
+        assertPreparedExecutionSchema("SELECT id FROM schema_input", Collections.singletonList("id"),
+                widened, false);
+    }
+
+    private void assertPreparedExecutionSchema(String query, List<String> labels, Schema actual, boolean compatible)
+            throws Exception {
+        StmtExecutor previous = connectContext.getExecutor();
+        ActionCreatePreparedStatementResult result = prepare(query);
+        CommandPreparedStatementQuery command = CommandPreparedStatementQuery.newBuilder()
+                .setPreparedStatementHandle(result.getPreparedStatementHandle()).build();
+        StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+        LogicalPlanAdapter statement = Mockito.mock(LogicalPlanAdapter.class);
+        Mockito.when(statement.getColLabels()).thenReturn(new ArrayList<>(labels));
+        Mockito.when(executor.getParsedStmt()).thenReturn(statement);
+        try (MockedConstruction<FlightSqlConnectProcessor> processors = Mockito.mockConstruction(
+                FlightSqlConnectProcessor.class, (processor, context) -> {
+                    Mockito.doAnswer(invocation -> {
+                        connectContext.setExecutor(executor);
+                        connectContext.setReturnResultFromLocal(false);
+                        return null;
+                    }).when(processor).handleQuery(Mockito.anyString());
+                    Mockito.when(processor.getArrowSchema()).thenReturn(actual);
+                })) {
+            if (compatible) {
+                Assertions.assertEquals(actual, producer.getFlightInfoPreparedStatement(command,
+                        callContext, FlightDescriptor.command(new byte[0])).getSchema());
+                Assertions.assertEquals(schema(query), producer.getSchemaPreparedStatement(command,
+                        callContext, FlightDescriptor.command(new byte[0])).getSchema());
+                Mockito.verify(executor, Mockito.never()).cancel(Mockito.any(Status.class));
+            } else {
+                FlightRuntimeException error = Assertions.assertThrows(FlightRuntimeException.class,
+                        () -> producer.getFlightInfoPreparedStatement(command, callContext,
+                                FlightDescriptor.command(new byte[0])));
+                Assertions.assertEquals(FlightStatusCode.NOT_FOUND, error.status().code());
+                Mockito.verify(executor).cancel(Mockito.any(Status.class));
+            }
+        } finally {
+            connectContext.setExecutor(previous);
+            String handle = result.getPreparedStatementHandle().toStringUtf8();
+            connectContext.removePreparedQuery(handle.substring(handle.indexOf(':') + 1));
         }
     }
 
