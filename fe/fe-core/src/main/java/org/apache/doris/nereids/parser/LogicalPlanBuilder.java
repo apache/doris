@@ -7072,7 +7072,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitResolveLanceIndexJob(ResolveLanceIndexJobContext ctx) {
         long jobId = Long.parseLong(ctx.jobId.getText());
-        String comment = stripQuotes(ctx.comment.getText());
+        // The note is persisted as the durable audit text, so the literal is decoded
+        // (doubled quotes, backslash escapes) instead of only being unquoted: the raw
+        // form would store the escapes literally and could reject a valid decoded note
+        // at the byte bound.
+        String comment = SqlLiteralUtils.parseStringLiteral(ctx.comment.getText());
         return new ResolveLanceIndexJobCommand(jobId, comment);
     }
 
