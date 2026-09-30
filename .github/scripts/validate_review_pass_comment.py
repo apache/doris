@@ -22,6 +22,7 @@ ALLOWED_EFFORTS_BY_MODEL = {
     "claude-fable-5[1m]": frozenset({"xhigh", "max"}),
     "claude-fable-5-1": frozenset({"xhigh", "max"}),
     "claude-fable-5-1[1m]": frozenset({"xhigh", "max"}),
+    "gpt-6.1-sol": frozenset({"xhigh", "max", "ultra"}),
     "gpt-6-sol": frozenset({"xhigh", "max", "ultra"}),
     "gpt-6-astra": frozenset({"xhigh", "max", "ultra"}),
 }

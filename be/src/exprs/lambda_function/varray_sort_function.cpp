@@ -237,6 +237,11 @@ public:
                     // length; an inconsistent comparator yields an unspecified order instead.
                     DorisVector<size_t> scratch;
                     for (int row = 0; row < input_rows; ++row) {
+                        // Hidden nested values of an outer-NULL array must not invoke the lambda.
+                        if (outside_null_map.get() != nullptr &&
+                            assert_cast<const ColumnUInt8&>(*outside_null_map).get_data()[row]) {
+                            continue;
+                        }
                         auto start = off_data[row - 1];
                         auto end = off_data[row];
                         sort_with_untrusted_comparator(permutation.data() + start,

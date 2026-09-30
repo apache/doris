@@ -59,16 +59,13 @@ inline std::set<std::string> snii_temp_roots() {
     return roots;
 }
 
-// Full paths of the staging files named for `tag`, across every root.
-// StagedBlobFile::create names them "snii_bkdstage_<tag>_<pid>_<seq>.stage", so
-// the tag selects one producer's sub-files and leaves other suites' staging
-// alone. Compare the returned SETS, not their sizes: equal counts can still hide
+// Full paths of the temp files whose names start with `prefix`, across every
+// root. Compare the returned SETS, not their sizes: equal counts can still hide
 // one file leaking while another is created.
 //
 // A filesystem error fails the calling test rather than silently reporting an
 // empty set, which would make "nothing was left behind" unfalsifiable.
-inline std::set<std::string> snii_staged_files(const std::string& tag) {
-    const std::string prefix = "snii_bkdstage_" + tag;
+inline std::set<std::string> snii_temp_files(const std::string& prefix) {
     std::set<std::string> found;
     for (const std::string& root : snii_temp_roots()) {
         std::error_code ec;
@@ -89,6 +86,13 @@ inline std::set<std::string> snii_staged_files(const std::string& tag) {
         }
     }
     return found;
+}
+
+// The staging files named for `tag`. StagedBlobFile::create names them
+// "snii_bkdstage_<tag>_<pid>_<seq>.stage", so the tag selects one producer's
+// sub-files and leaves other suites' staging alone.
+inline std::set<std::string> snii_staged_files(const std::string& tag) {
+    return snii_temp_files("snii_bkdstage_" + tag);
 }
 
 } // namespace doris::snii_test
