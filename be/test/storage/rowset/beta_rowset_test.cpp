@@ -555,6 +555,60 @@ TEST_F(BetaRowsetTest, GetSegmentNumRowsCorruptedMeta) {
     sp->clear_trace();
 }
 
+TEST_F(BetaRowsetTest, GetSegmentNumRowsRetryAfterFailure) {
+    // A failed load must not be cached. The rowset lives as long as its tablet version, so a
+    // cached transient error (e.g. S3 SlowDown) would fail every later caller, such as compaction.
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    create_tablet_schema(tablet_schema);
+
+    auto rowset_meta = std::make_shared<RowsetMeta>();
+    init_rs_meta(rowset_meta, 1, 1);
+    // Use a dedicated rowset id so that no segment of other tests can be hit in segment cache.
+    RowsetId rowset_id;
+    rowset_id.init(540099);
+    rowset_meta->set_rowset_id(rowset_id);
+    rowset_meta->set_num_segments(2);
+    // No segment rows in meta and no segment files, so loading from segment footer fails.
+
+    auto rowset = std::make_shared<BetaRowset>(tablet_schema, rowset_meta, "");
+
+    auto sp = SyncPoint::get_instance();
+    int meta_path_count = 0;
+    int footer_path_count = 0;
+
+    sp->set_call_back("BetaRowset::get_segment_num_rows:use_segment_rows_from_meta",
+                      [&](auto&& args) { meta_path_count++; });
+
+    sp->set_call_back("BetaRowset::get_segment_num_rows:load_from_segment_footer",
+                      [&](auto&& args) { footer_path_count++; });
+
+    sp->enable_processing();
+
+    std::vector<uint32_t> segment_rows;
+    Status st = rowset->get_segment_num_rows(&segment_rows, false, &_stats);
+    ASSERT_FALSE(st.ok());
+    ASSERT_EQ(footer_path_count, 1);
+
+    // The failure is not cached, so the next call loads again and succeeds.
+    rowset_meta->set_num_segment_rows({100, 200});
+    st = rowset->get_segment_num_rows(&segment_rows, false, &_stats);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(segment_rows, (std::vector<uint32_t> {100, 200}));
+    ASSERT_EQ(meta_path_count, 1);
+
+    // The success is cached, so the following call does not load again.
+    std::vector<uint32_t> segment_rows_2;
+    st = rowset->get_segment_num_rows(&segment_rows_2, false, &_stats);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(segment_rows_2, (std::vector<uint32_t> {100, 200}));
+    ASSERT_EQ(meta_path_count, 1);
+    ASSERT_EQ(footer_path_count, 1);
+
+    sp->clear_all_call_backs();
+    sp->disable_processing();
+    sp->clear_trace();
+}
+
 TEST_F(BetaRowsetTest, GetNumSegmentRowsAPI) {
     // Test the simple get_num_segment_rows API (without loading)
     auto tablet_schema = std::make_shared<TabletSchema>();
