@@ -61,6 +61,23 @@
 // exactly like the worker-negative suite: a kernel without pidfd retains the
 // slot until the BE epoch sweep by design (D5/D16).
 //
+// Probe-outcome gate decision (the deliberate asymmetry with the tracer suite,
+// documented so it is a conscious choice rather than an accident): the tracer
+// fails loudly on a probe UNKNOWN because its positive proof is meaningless
+// without a committed build, while this suite degrades to envelope-only evidence
+// (case 4) on any non-COMMITTED probe outcome. A degraded dispatch path between
+// the tracer and faults runs therefore still reports this suite green on the
+// case-4 envelope alone - accepted, because cases 1-3 cannot distinguish
+// "worker killed" from "worker never existed" without a COMMITTED probe, and a
+// false worker-fault green is worse than no evidence.
+//
+// Per-run catalog leak convention: the UNKNOWN fault jobs (kill/hang/skip-drop)
+// hold their same-name fence until FORCE_RELEASE lands in a later slice, so the
+// run-suffixed catalog can never be DROP CATALOG-ed and each run leaves exactly
+// one catalog behind on a shared cluster. The accumulation is bounded at one
+// catalog per run and matches the worker-negative suite's documented convention;
+// it is tracked until FORCE_RELEASE makes these catalogs droppable.
+//
 // Case ordering: case 4 runs before the delegation-gated cases because it needs
 // no worker, converges in seconds, and leaves no worker-fault residue behind.
 //
@@ -267,8 +284,12 @@ suite("test_lance_index_worker_faults", "p0,external,nonConcurrent") {
     // exactly 'doris_be --lance-worker'; the pattern is start-anchored so the
     // shell wrapper running pgrep itself can never self-match, and the invocation
     // cgroup name carries the job id, which attributes the PID to this invocation
-    // precisely (pkill by pattern is never used). Falls back to a sole candidate
-    // when cgroup attribution is unreadable; returns null on timeout or
+    // precisely (pkill by pattern is never used). When cgroup attribution is
+    // unreadable the poll does NOT fall back to a sole candidate: on a shared BE
+    // host that PID could be another suite's worker, so an unattributed kill is
+    // never attempted — returning null degrades the case to the supervisor's
+    // wall-clock termination, which carries the convergence and survival
+    // assertions anyway (case 2's mechanism). Returns null on timeout or
     // ambiguity.
     def findWorkerPid = { String beIp, String jobId, long timeoutMs ->
         long deadlineMs = System.currentTimeMillis() + timeoutMs
@@ -284,13 +305,9 @@ suite("test_lance_index_worker_faults", "p0,external,nonConcurrent") {
                     if (ours.size() == 1) {
                         return ours[0]
                     }
-                    if (ours.isEmpty() && pids.size() == 1) {
-                        logger.info("cgroup attribution unavailable for worker pid ${pids[0]} on ${beIp}; " +
-                                "it is the only lance worker there, taking it for job ${jobId}")
-                        return pids[0]
-                    }
                     logger.info("worker pid attribution for job ${jobId} on ${beIp} is ambiguous: " +
-                            "candidates=${pids} attributed=${ours}; retrying")
+                            "candidates=${pids} attributed=${ours}; retrying (no unattributed kill " +
+                            "is ever attempted; unattributed degrades to the wall-clock path)")
                 }
             } catch (Throwable t) {
                 // A transient shell/ssh blip must not sink a forty-minute suite;
