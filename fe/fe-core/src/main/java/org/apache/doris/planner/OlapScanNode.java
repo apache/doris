@@ -512,22 +512,6 @@ public class OlapScanNode extends ScanNode {
         return pinnedBackendId;
     }
 
-    private List<Replica> keepReplicasOnPinnedBackend(long tabletId, List<Replica> replicas)
-            throws UserException {
-        List<Replica> pinnedReplicas = new ArrayList<>(1);
-        for (Replica replica : replicas) {
-            if (replica.getBackendIdWithoutException() == pinnedBackendId) {
-                pinnedReplicas.add(replica);
-            }
-        }
-        if (pinnedReplicas.isEmpty()) {
-            throw new UserException("tablet " + tabletId + " has no queryable replica on backend "
-                    + pinnedBackendId + ", the only alive backend when the query was planned;"
-                    + " the alive backends changed during planning, please retry");
-        }
-        return pinnedReplicas;
-    }
-
     private void addScanRangeLocations(Partition partition,
             List<Tablet> tablets, Map<Long, Set<Long>> backendAlivePathHashs) throws UserException {
         long visibleVersion = Partition.PARTITION_INIT_VERSION;
@@ -625,10 +609,6 @@ public class OlapScanNode extends ScanNode {
                     LOG.debug(sb.toString());
                 }
                 throw new UserException(sb.toString());
-            }
-
-            if (pinnedBackendId != -1) {
-                replicas = keepReplicasOnPinnedBackend(tabletId, replicas);
             }
 
             boolean querySelectionEvaluated = false;
@@ -747,6 +727,15 @@ public class OlapScanNode extends ScanNode {
                             + (backend != null ? " with tag " + backend.getLocationTag() : "")
                             + " does not exist or not alive";
                     errs.add(err);
+                    continue;
+                }
+                if (pinnedBackendId != -1 && backendId != pinnedBackendId) {
+                    // A CloudReplica picks its backend on every call, so the pin is checked
+                    // against the backend resolved right here, the one the location is
+                    // published with, and not against an earlier resolution of the replica.
+                    errs.add("replica " + replica.getId() + " is served by backend " + backendId
+                            + " instead of backend " + pinnedBackendId + ", the only alive backend when the"
+                            + " query was planned; the alive backends changed during planning, please retry");
                     continue;
                 }
                 if (!backend.isMixNode()) {

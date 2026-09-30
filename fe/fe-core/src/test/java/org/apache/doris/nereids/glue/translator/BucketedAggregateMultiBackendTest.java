@@ -18,6 +18,13 @@
 package org.apache.doris.nereids.glue.translator;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.LocalReplica;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.planner.BucketedAggregationNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
@@ -30,12 +37,15 @@ import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
+import mockit.Invocation;
 import mockit.Mock;
 import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class BucketedAggregateMultiBackendTest extends TestWithFeService {
 
@@ -125,6 +135,66 @@ public class BucketedAggregateMultiBackendTest extends TestWithFeService {
             Assertions.assertEquals(1, locations.getLocationsSize());
             Assertions.assertEquals(pinnedBackendId, locations.getLocations().get(0).getBackendId());
         }
+    }
+
+    @Test
+    public void testPinHoldsForTheBackendResolvedWhenTheLocationIsBuilt() throws Exception {
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        enableBucketedAggregation(sessionVariable);
+        sessionVariable.setBeNumberForTest(-1);
+        String sql = "SELECT kbint, sum(kint) FROM bucketed_aggregate_multi_be_test.t_two_replicas"
+                + " GROUP BY kbint";
+
+        List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+        Assertions.assertEquals(2, backendIds.size());
+        long pinnedBackendId = backendIds.get(0);
+        long recoveredBackendId = backendIds.get(1);
+
+        Map<Long, Long> replicaIdToBackendId = new HashMap<>();
+        OlapTable table = (OlapTable) Env.getCurrentInternalCatalog()
+                .getDbOrMetaException("bucketed_aggregate_multi_be_test")
+                .getTableOrMetaException("t_two_replicas");
+        for (Partition partition : table.getPartitions()) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                for (Tablet tablet : index.getTablets()) {
+                    for (Replica replica : tablet.getReplicas()) {
+                        replicaIdToBackendId.put(replica.getId(), replica.getBackendIdWithoutException());
+                    }
+                }
+            }
+        }
+        Assertions.assertTrue(replicaIdToBackendId.containsValue(pinnedBackendId));
+
+        new MockUp<SystemInfoService>() {
+            @Mock
+            public List<Long> getAllBackendByCurrentCluster(boolean needAlive) {
+                return Lists.newArrayList(pinnedBackendId);
+            }
+        };
+        // A cloud replica picks its backend on every call, so once another backend is alive
+        // again the backend resolved for the published location can differ from what an
+        // earlier resolution of the same replica returned. Simulate it: the resolution used
+        // to build the location (getBackendId) lands on the recovered backend, every other
+        // one (getBackendIdWithoutException) still returns the replica's original backend.
+        new MockUp<Replica>() {
+            @Mock
+            public long getBackendIdWithoutException(Invocation invocation) {
+                Replica replica = invocation.getInvokedInstance();
+                return replicaIdToBackendId.getOrDefault(replica.getId(), pinnedBackendId);
+            }
+        };
+        new MockUp<LocalReplica>() {
+            @Mock
+            public long getBackendId() {
+                return recoveredBackendId;
+            }
+        };
+        // No location of the fused scan may be published on the recovered backend: the pin is
+        // checked against the backend the location is built with, and the query asks for a retry.
+        Exception exception = Assertions.assertThrows(Exception.class, () -> getSQLPlanner(sql));
+        Assertions.assertTrue(exception.getMessage().contains("is served by backend " + recoveredBackendId
+                + " instead of backend " + pinnedBackendId), exception.getMessage());
+        Assertions.assertTrue(exception.getMessage().contains("please retry"), exception.getMessage());
     }
 
     private OlapScanNode singleOlapScanNode(Planner planner) {
