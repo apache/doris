@@ -175,7 +175,8 @@ public class LanceThriftContractTest {
                 .setDatasetUri("s3://warehouse/db/table.lance")
                 .setAdmittedDatasetVersion(42L)
                 .setSchemaContractJson("{\"version\":1}")
-                .setStorageOptions(lanceStorageOptions());
+                .setStorageOptions(lanceStorageOptions())
+                .setInvocationSecret("a3f1c02d97b64e8fad0c31b9e75d2468");
 
         TSerializer serializer = new TSerializer(new TCompactProtocol.Factory());
         byte[] bytes = serializer.serialize(source);
@@ -203,6 +204,9 @@ public class LanceThriftContractTest {
         Assert.assertEquals("{\"version\":1}", restored.getSchemaContractJson());
         Assert.assertTrue(restored.isSetStorageOptions());
         Assert.assertEquals(lanceStorageOptions(), restored.getStorageOptions());
+        // The per-dispatch report secret travels with the identity it authenticates.
+        Assert.assertTrue(restored.isSetInvocationSecret());
+        Assert.assertEquals("a3f1c02d97b64e8fad0c31b9e75d2468", restored.getInvocationSecret());
     }
 
     @Test
@@ -229,11 +233,14 @@ public class LanceThriftContractTest {
 
         // A dispatch without properties, IF flags, or credentials must round-trip with those
         // fields unset: the worker treats each absence as its own meaning, and a local
-        // dataset carries no storage options at all.
+        // dataset carries no storage options at all. The secret is optional on the wire
+        // only for generated-code compatibility during a rolling upgrade; the FE always
+        // sets it on a fresh dispatch.
         Assert.assertFalse(restored.isSetPropertiesJson());
         Assert.assertFalse(restored.isSetIfNotExists());
         Assert.assertFalse(restored.isSetIfExists());
         Assert.assertFalse(restored.isSetStorageOptions());
+        Assert.assertFalse(restored.isSetInvocationSecret());
         Assert.assertEquals(TLanceIndexMutationType.CREATE, restored.getMutationType());
         Assert.assertEquals("file:///data/ds", restored.getDatasetUri());
     }
@@ -249,7 +256,8 @@ public class LanceThriftContractTest {
                 .setCompletionReason(TLanceIndexCompletionReason.IF_CONDITION_NOOP)
                 .setSanitizedMessage("index absent on the provider")
                 .setExternalMetadataAdvanced(true)
-                .setTerminationProof(TLanceIndexTerminationProof.CHILD_REAPED);
+                .setTerminationProof(TLanceIndexTerminationProof.CHILD_REAPED)
+                .setInvocationSecret("a3f1c02d97b64e8fad0c31b9e75d2468");
 
         TSerializer serializer = new TSerializer(new TCompactProtocol.Factory());
         byte[] bytes = serializer.serialize(source);
@@ -267,6 +275,9 @@ public class LanceThriftContractTest {
         Assert.assertTrue(restored.isSetExternalMetadataAdvanced());
         Assert.assertTrue(restored.isExternalMetadataAdvanced());
         Assert.assertEquals(TLanceIndexTerminationProof.CHILD_REAPED, restored.getTerminationProof());
+        // The secret echo is what authenticates the envelope; it round-trips verbatim.
+        Assert.assertTrue(restored.isSetInvocationSecret());
+        Assert.assertEquals("a3f1c02d97b64e8fad0c31b9e75d2468", restored.getInvocationSecret());
     }
 
     @Test
@@ -285,11 +296,14 @@ public class LanceThriftContractTest {
         new TDeserializer(new TCompactProtocol.Factory()).deserialize(restored, bytes);
 
         // The minimal honest result: a code and nothing else. Each absent optional field is
-        // its own meaning (NONE reason, no message, no advancement, no proof).
+        // its own meaning (NONE reason, no message, no advancement, no proof). A report
+        // without the secret echo exists only on the wire of a rolling upgrade; the FE
+        // treats it as unauthenticated against any record that carries a secret.
         Assert.assertFalse(restored.isSetCompletionReason());
         Assert.assertFalse(restored.isSetSanitizedMessage());
         Assert.assertFalse(restored.isSetExternalMetadataAdvanced());
         Assert.assertFalse(restored.isSetTerminationProof());
+        Assert.assertFalse(restored.isSetInvocationSecret());
         Assert.assertEquals(TLanceIndexJobResultCode.NATIVE_OK, restored.getResultCode());
     }
 
@@ -375,6 +389,7 @@ public class LanceThriftContractTest {
         expectedDispatchIds.put("admitted_dataset_version", 14);
         expectedDispatchIds.put("schema_contract_json", 15);
         expectedDispatchIds.put("storage_options", 16);
+        expectedDispatchIds.put("invocation_secret", 17);
         Assert.assertEquals(expectedDispatchIds, fieldIdsByName(TLanceIndexJobDispatch.metaDataMap));
 
         Map<String, Integer> expectedReportIds = new HashMap<>();
@@ -387,6 +402,7 @@ public class LanceThriftContractTest {
         expectedReportIds.put("sanitized_message", 7);
         expectedReportIds.put("external_metadata_advanced", 8);
         expectedReportIds.put("termination_proof", 9);
+        expectedReportIds.put("invocation_secret", 10);
         Assert.assertEquals(expectedReportIds, fieldIdsByName(TLanceIndexJobReport.metaDataMap));
     }
 

@@ -23,18 +23,36 @@ import org.apache.doris.thrift.TLanceIndexTerminationProof;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Objects;
 
 /**
  * Applies one typed result envelope reported by a backend to the durable job
- * record. This is a thin shim over the manager transitions: dispatch-identity
- * checking and result classification all live in {@link LanceIndexJobManager},
- * so a stale or identity-mismatched report only logs a warning and changes
- * nothing. A malformed envelope (missing result code, a code this FE does not
- * know, or a sanitized message past the durable bound) has its result dropped
- * rather than trusted; the job then converges through the dispatcher's
- * deadline sweep. Only the typed codes are read: message text is never
- * inspected to infer an outcome.
+ * record. The dispatch identity has two halves, checked at two layers:
+ * the journaled identity quad (dispatch revision, invocation id, BE process
+ * epoch, backend) is matched inside {@link LanceIndexJobManager} and rejects
+ * reports that are merely stale, while the per-dispatch invocation secret is
+ * matched here, before the manager is touched at all, and rejects FORGED ones.
+ * The second half exists because the FE thrift server cannot authenticate its
+ * caller and SHOW LANCE INDEX JOB publishes every other identity field, so a
+ * client that can merely reach the port could otherwise assemble a
+ * well-matching envelope; only the secret - handed to the selected BE inside
+ * the dispatch request and never shown or logged - is unforgeable. An
+ * envelope whose secret echo is missing, blank, or wrong, or whose durable
+ * record carries no secret (a legacy record from before the field existed),
+ * is unauthenticated: the whole envelope is dropped, its termination proof
+ * included, because a forged CHILD_REAPED would release the possible-live
+ * slot of a worker that may still be live.
+ *
+ * <p>Beyond authentication this is a thin shim over the manager transitions:
+ * result classification lives in {@link LanceIndexJobManager}, so a stale or
+ * identity-mismatched report only logs a warning and changes nothing. A
+ * malformed envelope (missing result code, a code this FE does not know, or a
+ * sanitized message past the durable bound) has its result dropped rather
+ * than trusted; the job then converges through the dispatcher's deadline
+ * sweep. Only the typed codes are read: message text is never inspected to
+ * infer an outcome.
  *
  * <p>A termination proof is validated independently of the result, so a
  * CHILD_REAPED proof is recorded first and still lands when the result of the
@@ -57,17 +75,24 @@ public class LanceIndexJobReportHandler {
     }
 
     /**
-     * Handles one report: a matched report completes the job with its
-     * classified result, and a CHILD_REAPED termination proof additionally
-     * releases the possible-live slot, because reaping the exact child process
-     * proves that process ended (which still says nothing about the outcome).
-     * The proof is recorded before the result is parsed: the two are validated
-     * independently, and a malformed result must not take a valid proof down
-     * with it.
+     * Handles one report: authentication comes first and gates everything else,
+     * then a matched report completes the job with its classified result, and a
+     * CHILD_REAPED termination proof additionally releases the possible-live
+     * slot, because reaping the exact child process proves that process ended
+     * (which still says nothing about the outcome). The proof is recorded
+     * before the result is parsed: the two are validated independently, and a
+     * malformed result must not take a valid proof down with it.
      */
     public void handle(TLanceIndexJobReport report) {
         if (report == null) {
             LOG.warn("dropping null lance index job report");
+            return;
+        }
+        if (!isAuthenticated(report)) {
+            // Deliberately names no secret material, neither the expected nor the
+            // presented one: the log only records that the envelope was rejected.
+            LOG.warn("dropping unauthenticated lance index job report for job {}: invocation secret mismatch",
+                    report.getJobId());
             return;
         }
         if (report.getTerminationProof() == TLanceIndexTerminationProof.CHILD_REAPED) {
@@ -85,6 +110,30 @@ public class LanceIndexJobReportHandler {
         if (!completed) {
             LOG.warn("dropping stale lance index job report for job {}", report.getJobId());
         }
+    }
+
+    /**
+     * Whether the reporter proved it is the BE this dispatch was sent to: the
+     * durable record's journaled secret must exist and be echoed by the report.
+     * A blank or missing echo, a wrong value, or a durable record with no secret
+     * at all (a legacy record replayed from before the field existed) fails
+     * closed: such an envelope is unauthenticated and nothing in it may be
+     * applied. The comparison is constant-time over the UTF-8 bytes so a forger
+     * cannot mine the secret through timing; the secret values themselves never
+     * reach a log line.
+     */
+    private boolean isAuthenticated(TLanceIndexJobReport report) {
+        LanceIndexJob job = jobManager.getJob(report.getJobId());
+        if (job == null) {
+            return false;
+        }
+        String expected = job.getInvocationSecret();
+        String presented = report.getInvocationSecret();
+        if (expected == null || expected.isEmpty() || presented == null || presented.isEmpty()) {
+            return false;
+        }
+        return MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8),
+                presented.getBytes(StandardCharsets.UTF_8));
     }
 
     /**

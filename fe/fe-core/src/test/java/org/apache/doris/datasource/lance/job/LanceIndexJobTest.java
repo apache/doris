@@ -38,6 +38,7 @@ public class LanceIndexJobTest {
     private static final long BACKEND_ID = 1001L;
     private static final long BE_EPOCH = 55L;
     private static final String INVOCATION_ID = "invocation-1";
+    private static final String INVOCATION_SECRET = "a3f1c02d97b64e8fad0c31b9e75d2468";
 
     @Test
     public void fenceKeyCarriesIdentityAndHidesLocator() {
@@ -166,7 +167,7 @@ public class LanceIndexJobTest {
     public void terminationProofClearsSlotButKeepsFenceAndOutcome() throws Exception {
         TestManager manager = new TestManager();
         manager.createJob(newCreateJob(1L, "IdxA"), 100, 100, 100);
-        manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, 9999L);
+        manager.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, 9999L);
         LanceIndexFenceKey fenceKey = manager.getJob(1L).fenceKey();
 
         Assertions.assertTrue(manager.recordTerminationProof(1L, 1L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,

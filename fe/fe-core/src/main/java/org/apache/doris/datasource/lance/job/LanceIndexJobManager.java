@@ -206,6 +206,7 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
             admitted.setBackendId(null);
             admitted.setBeProcessEpoch(null);
             admitted.setInvocationId(null);
+            admitted.setInvocationSecret(null);
             admitted.setDispatchRevision(null);
             admitted.setDeadlineMs(null);
             admitted.setPossibleLiveOwned(false);
@@ -227,16 +228,26 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
      * (jobId, revision): only a PENDING job at the expected revision may be
      * dispatched, which is what makes redispatch after replay impossible.
      * Records the dispatch identity (backend, BE process epoch, immutable
-     * invocation id, deadline) and takes the possible-live slot.
+     * invocation id, per-dispatch report secret, deadline) and takes the
+     * possible-live slot. The secret is generated fresh by the caller for this
+     * one attempt, is journaled with the record, and must never be logged or
+     * shown: the dispatched BE proves itself by echoing it in the result report.
      *
      * @return false (with a warning) on any mismatch; the caller must not send
      */
     public boolean markRunning(long jobId, long expectedRevision, long backendId, long beProcessEpoch,
-            String invocationId, long deadlineMs) {
+            String invocationId, String invocationSecret, long deadlineMs) {
         if (StringUtils.isBlank(invocationId)) {
             // A null/blank invocation identity would silently match a null field under
             // Objects.equals in completeWithResult and defeat the stale-callback guard.
             LOG.warn("reject markRunning for lance index job {}: invocation id is null or blank", jobId);
+            return false;
+        }
+        if (StringUtils.isBlank(invocationSecret)) {
+            // A null/blank secret would leave the dispatch with no reporter
+            // authentication: every later report would be unauthenticated (fail-closed
+            // in the handler) and the dispatch could never be trusted to complete.
+            LOG.warn("reject markRunning for lance index job {}: invocation secret is null or blank", jobId);
             return false;
         }
         writeLock();
@@ -263,6 +274,7 @@ public class LanceIndexJobManager implements Writable, GsonPostProcessable {
             updated.setBackendId(backendId);
             updated.setBeProcessEpoch(beProcessEpoch);
             updated.setInvocationId(invocationId);
+            updated.setInvocationSecret(invocationSecret);
             updated.setDeadlineMs(deadlineMs);
             updated.setPossibleLiveOwned(true);
             long dispatchRevision = current.getRevision() + 1;

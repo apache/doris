@@ -216,4 +216,15 @@ struct TLanceIndexJobReport {
     7: optional string sanitized_message
     8: optional bool external_metadata_advanced
     9: optional TLanceIndexTerminationProof termination_proof
+    // Echo of TLanceIndexJobDispatch.invocation_secret: the random per-dispatch secret
+    // the master FE generated at markRunning and handed only to the selected BE. The
+    // FE compares it in constant time against the journaled secret before trusting any
+    // part of this envelope (result or termination proof), because the FE thrift server
+    // cannot authenticate its caller and every other identity field of this envelope is
+    // readable from SHOW LANCE INDEX JOB. The secret is journaled with the job record
+    // but never shown or logged. Optional on the wire purely for generated-code
+    // compatibility during a rolling upgrade; a missing, blank, or wrong echo - or a
+    // durable record from before this field existed - makes the report unauthenticated
+    // and the whole envelope is dropped.
+    10: optional string invocation_secret
 }
