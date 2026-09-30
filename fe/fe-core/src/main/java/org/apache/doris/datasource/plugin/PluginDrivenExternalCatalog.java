@@ -69,7 +69,9 @@ import org.apache.doris.datasource.connector.converter.ConnectorColumnConverter;
 import org.apache.doris.datasource.connector.converter.ConnectorPartitionFieldConverter;
 import org.apache.doris.datasource.log.ExternalObjectLog;
 import org.apache.doris.datasource.log.InitCatalogLog;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.foundation.security.JdbcDriverUrlSecurity;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
@@ -230,6 +232,7 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (IllegalArgumentException e) {
             throw new DdlException(e.getMessage());
         }
+        validateStorageProperties(catalogProperty);
         // Validate function_rules JSON if present (shared across all connector types).
         String functionRules = catalogProperty.getOrDefault("function_rules", null);
         ExternalFunctionRules.check(functionRules);
@@ -253,9 +256,31 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         } catch (IllegalArgumentException e) {
             throw new DdlException(e.getMessage(), e);
         }
+        validateStorageProperties(candidateProperty);
         checkDriverUrlsAgainstOperatorGate(candidate, updatedProperties);
         ExternalFunctionRules.check(candidateProperty.getOrDefault("function_rules", null));
         return true;
+    }
+
+    /**
+     * Bind Hive catalog storage properties during DDL validation so HDFS configuration errors are
+     * reported by CREATE/ALTER instead of being deferred until the first table access.
+     */
+    private void validateStorageProperties(CatalogProperty property) throws DdlException {
+        if (!"hms".equalsIgnoreCase(getType())) {
+            return;
+        }
+        String nameservices = property.getProperties().get("dfs.nameservices");
+        if (nameservices != null
+                && java.util.Arrays.stream(nameservices.split(","))
+                .map(String::trim).noneMatch(value -> !value.isEmpty())) {
+            throw new DdlException("Property dfs.nameservices must contain a nameservice");
+        }
+        try {
+            FileSystemFactory.bindAllStorageProperties(property.getProperties());
+        } catch (IllegalArgumentException | StoragePropertiesException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
     }
 
     /**
