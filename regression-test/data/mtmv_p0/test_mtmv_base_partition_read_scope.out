@@ -2,3 +2,13 @@
 -- !base_rows --
 3
 
+-- !scope_expired_day --
+0
+
+-- !scope_kept_days --
+2
+
+-- !list_scope --
+2020-01-01	EU	2
+2038-01-01	EU	3
+
