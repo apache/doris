@@ -755,11 +755,20 @@ fi
 # Foyer remains a local patch until its cache interface is accepted upstream.
 # All search fixes are supplied by the immutable lance-c dependency revision.
 if [[ " ${TP_ARCHIVES[*]} " =~ " LANCE_C " ]]; then
+    foyer_patch_checksum="$(cksum < "${TP_PATCH_DIR}/lance-c-foyer.patch")"
+    foyer_patch_marker="${TP_SOURCE_DIR}/${LANCE_C_SOURCE}/${PATCHED_MARK}_foyer"
+    # A new local patch must also replace previously patched cached sources.
+    # Empty markers from older builds cannot identify the applied patch version.
+    if [[ -f "${foyer_patch_marker}" ]] &&
+        [[ "$(cat "${foyer_patch_marker}")" != "${foyer_patch_checksum}" ]]; then
+        rm -rf "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
+        "${TAR_CMD}" xzf "${TP_SOURCE_DIR}/${LANCE_C_NAME}" -C "${TP_SOURCE_DIR}/"
+    fi
     cd "${TP_SOURCE_DIR}/${LANCE_C_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}_foyer" ]]; then
         patch --batch --forward --reject-file=- --fuzz=0 --no-backup-if-mismatch -s \
             -p1 <"${TP_PATCH_DIR}/lance-c-foyer.patch"
-        touch "${PATCHED_MARK}_foyer"
+        printf '%s\n' "${foyer_patch_checksum}" > "${PATCHED_MARK}_foyer"
     fi
     cd -
     echo "Finished patching ${LANCE_C_SOURCE}"

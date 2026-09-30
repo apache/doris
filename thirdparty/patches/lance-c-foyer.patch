@@ -492,7 +492,7 @@ diff --git a/src/dataset.rs b/src/dataset.rs
 diff --git a/src/foyer_data_cache.rs b/src/foyer_data_cache.rs
 --- /dev/null
 +++ b/src/foyer_data_cache.rs
-@@ -0,0 +1,1268 @@
+@@ -0,0 +1,1411 @@
 +// SPDX-License-Identifier: Apache-2.0
 +// SPDX-FileCopyrightText: Copyright The Lance Authors
 +
@@ -961,13 +961,12 @@ diff --git a/src/foyer_data_cache.rs b/src/foyer_data_cache.rs
 +                    },
 +                )
 +                .await?;
-+            // Extensions may carry request-specific state and cannot be replayed.
-+            if result.extensions.is_empty() {
-+                self.reader.cache.metadata.insert(
-+                    metadata_key,
-+                    (result.meta.clone(), result.attributes.clone()),
-+                );
-+            }
++            // HTTP responses carry transport extensions even for immutable files.
++            // Cache metadata independently; request-specific extensions are never replayed.
++            self.reader.cache.metadata.insert(
++                metadata_key,
++                (result.meta.clone(), result.attributes.clone()),
++            );
 +            (result.meta, result.attributes, result.extensions)
 +        };
 +        let object_size = metadata.size;
@@ -1357,6 +1356,150 @@ diff --git a/src/foyer_data_cache.rs b/src/foyer_data_cache.rs
 +    ) -> (Arc<dyn ObjectStore>, Arc<DatasetFoyerDataCache>) {
 +        let scope = cache.create_scope();
 +        (scope.wrap("memory://test", original), scope)
++    }
++
++    #[tokio::test]
++    async fn cached_http_ranges_do_not_repeat_head_requests() {
++        use object_store::aws::AmazonS3Builder;
++        use tokio::io::{AsyncReadExt, AsyncWriteExt};
++
++        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
++        let address = listener.local_addr().unwrap();
++        let heads = Arc::new(AtomicU64::new(0));
++        let gets = Arc::new(AtomicU64::new(0));
++        let server_heads = heads.clone();
++        let server_gets = gets.clone();
++        let data = Bytes::from((0..8192).map(|value| value as u8).collect::<Vec<_>>());
++        let server_data = data.clone();
++        let server = tokio::spawn(async move {
++            loop {
++                let (mut socket, _) = listener.accept().await.unwrap();
++                let mut request = Vec::new();
++                while !request.ends_with(b"\r\n\r\n") {
++                    request.push(socket.read_u8().await.unwrap());
++                    assert!(request.len() < 16 * 1024);
++                }
++                let request = String::from_utf8(request).unwrap();
++                let is_head = request.starts_with("HEAD ");
++                let range = request.lines().find_map(|line| {
++                    line.to_ascii_lowercase()
++                        .strip_prefix("range: bytes=")
++                        .map(|range| {
++                            let (start, end) = range.split_once('-').unwrap();
++                            start.parse::<usize>().unwrap()..end.parse::<usize>().unwrap() + 1
++                        })
++                });
++                let (status, content_range, range) = match range {
++                    Some(range) => (
++                        "206 Partial Content",
++                        format!(
++                            "Content-Range: bytes {}-{}/{}\r\n",
++                            range.start,
++                            range.end - 1,
++                            server_data.len()
++                        ),
++                        range,
++                    ),
++                    None => ("200 OK", String::new(), 0..server_data.len()),
++                };
++                if is_head {
++                    server_heads.fetch_add(1, Ordering::SeqCst);
++                } else {
++                    server_gets.fetch_add(1, Ordering::SeqCst);
++                }
++                let headers = format!(
++                    "HTTP/1.1 {status}\r\nContent-Length: {}\r\n{content_range}Last-Modified: Tue, 01 Sep 2026 00:00:00 GMT\r\nETag: \"sample\"\r\nContent-Type: application/octet-stream\r\nConnection: close\r\n\r\n",
++                    range.len()
++                );
++                socket.write_all(headers.as_bytes()).await.unwrap();
++                if !is_head {
++                    socket.write_all(&server_data[range]).await.unwrap();
++                }
++            }
++        });
++
++        // Use a real HTTP client: in-memory stores do not exercise transport extensions.
++        let original = Arc::new(
++            AmazonS3Builder::new()
++                .with_bucket_name("example-bucket")
++                .with_region("us-east-1")
++                .with_endpoint(format!("http://{address}"))
++                .with_allow_http(true)
++                // An explicit excluded proxy also disables environment proxy discovery.
++                .with_proxy_url("http://127.0.0.1:1")
++                .with_proxy_excludes("127.0.0.1")
++                .with_skip_signature(true)
++                .build()
++                .unwrap(),
++        );
++        let directory = tempfile::tempdir().unwrap();
++        let cache = FoyerDataCache::try_new(directory.path(), 128 * 1024, 1024 * 1024, 4096)
++            .await
++            .unwrap();
++        let path = Path::from("table.lance/data/sample.lance");
++        let (wrapped, _) = wrap_for_test(&cache, original.clone());
++        let first = wrapped
++            .get_opts(
++                &path,
++                GetOptions {
++                    range: Some(GetRange::Bounded(100..200)),
++                    ..Default::default()
++                },
++            )
++            .await
++            .unwrap();
++        assert!(
++            !first.extensions.is_empty(),
++            "HTTP response must exercise transport extensions"
++        );
++        let meta = first.meta.clone();
++        let attributes = first.attributes.clone();
++        assert_eq!(first.range, 100..200);
++        assert_eq!(first.bytes().await.unwrap(), data.slice(100..200));
++        assert_eq!(heads.load(Ordering::SeqCst), 1);
++        assert_eq!(gets.load(Ordering::SeqCst), 1);
++
++        // Metadata must be shared with fresh dataset scopes, just like cached blocks.
++        let (fresh, _) = wrap_for_test(&cache, original);
++        let mut replayed_extensions = false;
++        for store in [&wrapped, &fresh] {
++            let result = store
++                .get_opts(
++                    &path,
++                    GetOptions {
++                        range: Some(GetRange::Bounded(120..180)),
++                        ..Default::default()
++                    },
++                )
++                .await
++                .unwrap();
++            replayed_extensions |= !result.extensions.is_empty();
++            assert_eq!(result.meta, meta);
++            assert_eq!(result.attributes, attributes);
++            assert_eq!(result.range, 120..180);
++            assert_eq!(result.bytes().await.unwrap(), data.slice(120..180));
++        }
++        assert_eq!(
++            heads.load(Ordering::SeqCst),
++            1,
++            "cache hits must not issue HEAD"
++        );
++        assert_eq!(
++            gets.load(Ordering::SeqCst),
++            1,
++            "cache hits must not issue GET"
++        );
++        assert!(
++            !replayed_extensions,
++            "cached metadata must not replay response extensions"
++        );
++        wrapped.head(&path).await.unwrap();
++        assert_eq!(
++            heads.load(Ordering::SeqCst),
++            2,
++            "explicit HEAD must bypass cache"
++        );
++        server.abort();
 +    }
 +
 +    #[tokio::test]
