@@ -93,7 +93,16 @@ public class SPMFrozenTreeReplacer extends ExpressionVisitor<Expression, Map<Lon
                 return false;
             }
             String name = function.getName();
-            return CONST_VAR_FUNC.equals(name) || CONST_LIST_FUNC.equals(name);
+            if (!CONST_VAR_FUNC.equals(name) && !CONST_LIST_FUNC.equals(name)) {
+                return false;
+            }
+            // The marker ALWAYS carries a single INTEGER-literal id argument. A GLOBAL
+            // user UDF may legally be named _spm_const_var (an unqualified call has no
+            // namespace), and _spm_const_var(k) is exactly such a call - classifying it
+            // as an unresolved marker made the residue scan reject a perfectly replayable
+            // frozen plan (which, once persisted, has no parameterized-tree fallback and
+            // silently stops applying).
+            return placeholderId(function) != null;
         }
         return false;
     }

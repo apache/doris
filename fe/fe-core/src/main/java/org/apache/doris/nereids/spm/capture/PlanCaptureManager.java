@@ -262,6 +262,14 @@ public class PlanCaptureManager extends MasterDaemon {
     private boolean checkpointLoaded = false;
 
     /**
+     * Whether THIS process has ever seen a durable checkpoint row - read it from the store
+     * or written by this process. While it is false, the window a cycle consumes exists
+     * only in memory: runCaptureCycle records that window BEFORE scanning (see the
+     * initial reservation there), so a takeover can still resume it.
+     */
+    private boolean durableCheckpointObserved = false;
+
+    /**
      * Checkpoint read / write seams. Production talks to the internal table through
      * StatisticsUtil; tests replace them to simulate a failing first read and to observe
      * the exact statements a persist issues.
@@ -422,6 +430,25 @@ public class PlanCaptureManager extends MasterDaemon {
             pageStartCursorQueryId = cursorQueryId;
             pageStartCursorTail = cursorTail;
 
+            if (!durableCheckpointObserved) {
+                // FIRST cycle after a successful-but-EMPTY read: the store holds NO row
+                // describing the window this process is about to consume, so its bounds and
+                // page-top cursor exist only in memory. A restart / leader handoff between
+                // the scan and the final persist would leave the takeover with nothing to
+                // resume - it would derive a NEW window and permanently skip this page's
+                // unconsumed tail (the later overlap only reaches rows younger than the new
+                // watermark). Record the window TO CONSUME before consuming it: pending =
+                // this window, cursor = its top, watermark = the pre-page one. A failed
+                // write ABORTS the cycle: scanning on would advance progress no durable
+                // state could ever resume.
+                pendingWindowStart = scanStart;
+                pendingWindowEnd = scanEnd;
+                if (!persistCheckpoint()) {
+                    LOG.warn("Plan capture cycle skipped: the initial checkpoint row could not"
+                            + " be made durable");
+                    return;
+                }
+            }
             AuditLogScanner.ScanBatch batch = scanner.scan(scanStart, scanEnd,
                     batchSize, cursorQueryTime, cursorTime, cursorQueryId, cursorTail);
             Set<String> scannedQueryIds = new HashSet<>();
@@ -814,6 +841,9 @@ public class PlanCaptureManager extends MasterDaemon {
         failedCaptureQueue.clear();
         failedCaptureQueue.putAll(decodeRetryQueue(row.get(7)));
         failedCaptureAnchors.clear();
+        // a row was READ: this process now knows a durable record exists, so the initial
+        // reservation in runCaptureCycle never overwrites / takes over its role
+        durableCheckpointObserved = true;
         // Restored retries take the RESTORED cursor as their anchor. That is now always a
         // position BEFORE every persisted retry row: persistCheckpoint rewinds to the
         // oldest queued entry's PRE-PAGE anchor whenever the queue is non-empty (not only
@@ -829,11 +859,15 @@ public class PlanCaptureManager extends MasterDaemon {
     /**
      * Persists the current capture progress (window bounds + total-order cursor + retry
      * state) for the NEXT process. A failed write is logged and skipped - the checkpoint is
-     * a best-effort resume aid and must never break the cycle.
+     * a best-effort resume aid and must never break the cycle - but the RESULT is reported
+     * so the initial reservation can refuse to consume a window nothing durable describes.
+     *
+     * @return true when the progress is durable afterwards (or the store is disabled);
+     *         false when the write failed
      */
-    private void persistCheckpoint() {
+    private boolean persistCheckpoint() {
         if (!checkpointPersistenceEnabled()) {
-            return;
+            return true;
         }
         // Truncation guard: the two JSON maps below keep only the most recent
         // MAX_PERSISTED_RETRIES entries, so persisting the CURRENT cursor / watermark while
@@ -940,7 +974,10 @@ public class PlanCaptureManager extends MasterDaemon {
         } catch (Exception e) {
             LOG.warn("SPM capture checkpoint write failed (will retry next cycle): {}",
                     e.getMessage());
+            return false;
         }
+        durableCheckpointObserved = true;
+        return true;
     }
 
     private static long parseLongValue(String text) {
@@ -1171,6 +1208,7 @@ public class PlanCaptureManager extends MasterDaemon {
         failedCaptureQueue.clear();
         failedCaptureAnchors.clear();
         checkpointLoaded = false;
+        durableCheckpointObserved = false;
         // restore the production read / write seams (tests replace them)
         checkpointReader = () -> StatisticsUtil.executeQuery(
                 CHECKPOINT_SELECT_SQL, Collections.emptyMap(), CHECKPOINT_IO_TIMEOUT_SECONDS);
@@ -1293,6 +1331,11 @@ public class PlanCaptureManager extends MasterDaemon {
     @VisibleForTesting
     public boolean isCheckpointLoadedForTest() {
         return checkpointLoaded;
+    }
+
+    @VisibleForTesting
+    public boolean isDurableCheckpointObservedForTest() {
+        return durableCheckpointObserved;
     }
 
     @VisibleForTesting

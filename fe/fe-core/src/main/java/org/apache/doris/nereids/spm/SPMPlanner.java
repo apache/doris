@@ -425,8 +425,10 @@ public class SPMPlanner {
             return;
         }
         String current = SPMPlanTreeSupport.schemaFingerprintForReplay(
-                ctx, baseline.getParameterizedBindPlan(), plannedPlan);
+                ctx, baseline.getParameterizedBindPlan(), plannedPlan, baseline.getPlanSql());
         if (!stored.equals(current)) {
+            LOG.warn("SPM replay metadata mismatch for baseline {}: stored=[{}] current=[{}]",
+                    baselineId, stored, current);
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                     "SPM replay metadata changed between validation and planning; keeping"
                             + " the original query for baseline " + baselineId);
@@ -451,11 +453,18 @@ public class SPMPlanner {
      */
     @VisibleForTesting
     BaselinePlan buildBaseline(String bindSql, String planSql) throws UserException {
-        LogicalPlan bindPlan = parseSelect(bindSql, "SPM bindSql must be a SELECT statement: " + bindSql);
+        // both CREATE inputs are read inside ONE mode window, exactly like the production
+        // entry (parseSelectIsolated): a SET_VAR(sql_mode=...) hint carried by the first
+        // text must not decide how the second text is read.
+        final long creatorMode = SqlModeHelper.currentMode();
+        LogicalPlan bindPlan = parseSelectIsolated(creatorMode, bindSql,
+                "SPM bindSql must be a SELECT statement: " + bindSql);
         // bindSql == planSql: one parse is enough and the parameterized trees are the
         // same by construction (ids trivially aligned)
         LogicalPlan planPlan = bindSql.equals(planSql)
-                ? bindPlan : parseSelect(planSql, "SPM planSql must be a SELECT statement: " + planSql);
+                ? bindPlan
+                : parseSelectIsolated(creatorMode, planSql,
+                        "SPM planSql must be a SELECT statement: " + planSql);
         return buildBaseline(bindPlan, planPlan, bindSql, planSql, 0.0);
     }
 
@@ -486,6 +495,10 @@ public class SPMPlanner {
             // overload keeps its signature and surfaces the rejection as-is
             throw new RuntimeException(e.getMessage(), e);
         }
+        // key(...) folds a named secret into a constant during optimization and the parsed
+        // form of `KEY db.key` is a bound EncryptKeyRef (not an UnboundFunction): reject on
+        // BOTH inputs before parameterizing / assembling anything.
+        SPMPlanTreeSupport.rejectVolatileFunctionDependencies(bindPlan, planPlan);
         Pair<LogicalPlan, LogicalPlan> trees = parameterizeWholeTrees(bindPlan, planPlan);
         // the matching key is namespace-qualified like tryRewritePlan's user side, so the
         // in-memory (UT) create / rewrite pair stays consistent in any context
@@ -523,8 +536,10 @@ public class SPMPlanner {
         if (SPMPlanTreeSupport.containsReplayContextExpression(bindPlan)
                 || SPMPlanTreeSupport.containsReplayContextExpression(planPlan)) {
             throw new AnalysisException("SPM does not support replay-time context expressions"
-                    + " (session/user variables, current_user(), session_user(), database(),"
-                    + " connection_id()): the frozen SQL would persist the creator's value: "
+                    + " (user/session variables including a parsed @v, current_user(),"
+                    + " session_user(), user(), database(), current_catalog(), connection_id(),"
+                    + " last_query_id(), version(), and any * REPLACE payload carrying one):"
+                    + " the frozen SQL would persist the creator's value: "
                     + bindSql);
         }
     }
@@ -590,9 +605,21 @@ public class SPMPlanner {
         // frozen key was produced under the ambient one - no query could ever match both
         // again and the durable baseline stayed dead.
         final long creatorMode = SqlModeHelper.currentMode();
-        LogicalPlan bindPlan = parseSelect(bindSql, "SPM bindSql must be a SELECT statement: " + bindSql);
+        // Each parse runs INSIDE a window that pins the captured mode: a SET_VAR(sql_mode=...)
+        // hint inside the bind text is applied to the creating session while that text is
+        // processed, so the SECOND parse (the plan text, parsed separately) would otherwise
+        // read the ALREADY-SWITCHED session mode - `s1 || s2` built under OR in the bind
+        // text would then mean CONCAT in the plan text, and the frozen tree would carry an
+        // operator the persisted creatorSqlMode cannot express (every later re-parse of the
+        // stored bindSql under that mode would disagree with it). The window holds whatever
+        // the parse does to the session variable, so both texts are always read under ONE
+        // mode.
+        LogicalPlan bindPlan = parseSelectIsolated(creatorMode, bindSql,
+                "SPM bindSql must be a SELECT statement: " + bindSql);
         LogicalPlan planPlan = bindSql.equals(planSql)
-                ? bindPlan : parseSelect(planSql, "SPM planSql must be a SELECT statement: " + planSql);
+                ? bindPlan
+                : parseSelectIsolated(creatorMode, planSql,
+                        "SPM planSql must be a SELECT statement: " + planSql);
         // The destination of SELECT ... INTO OUTFILE lives outside the plan expressions:
         // the match cannot compare it and the rewritten tree keeps the captured sink, so
         // replay would export to the baseline's destination. Reject instead of freezing.
@@ -602,6 +629,10 @@ public class SPMPlanner {
                     "SPM does not support SELECT ... INTO OUTFILE statements: " + bindSql);
         }
         rejectReplayContextExpressions(bindPlan, planPlan, bindSql);
+        // key(...) folds a named secret into a constant during optimization, and the parsed
+        // form of `KEY db.key` is an EncryptKeyRef (NOT an UnboundFunction): reject on BOTH
+        // parsed inputs BEFORE optimizing / storing anything.
+        SPMPlanTreeSupport.rejectVolatileFunctionDependencies(bindPlan, planPlan);
         // Parameterize both whole trees with ONE shared builder (placeholder ids aligned
         // across bind / plan), then optimize the PARAMETERIZED plan tree so the frozen
         // planSql keeps the placeholder ids for the rewrite-time value substitution.
@@ -674,9 +705,12 @@ public class SPMPlanner {
         // (see SPMPlanTreeSupport#schemaFingerprintForCreate): the PLAN side comes from
         // the OPTIMIZED plan's own relations - the under-lock metadata snapshot the
         // frozen output slots were built from - and the BIND side keeps the bind-tree
-        // resolution; the union also covers tables only the stored plan uses.
+        // resolution; the union also covers tables only the stored plan uses. The
+        // function names come from the STORED TEXT (frozen.sql), so a re-plan that picks
+        // an equivalent builtin with another name (years_add vs date_add) cannot break
+        // the symmetric revalidation.
         baseline.setSchemaFingerprint(SPMPlanTreeSupport.schemaFingerprintForCreate(
-                ctx, bindPlan, optimizeResult.getPhysicalPlan()));
+                ctx, bindPlan, optimizeResult.getPhysicalPlan(), frozen.sql));
         return baseline;
     }
 
@@ -791,8 +825,9 @@ public class SPMPlanner {
             LogicalPlan parameterizedPlan, String bindSql, String planSql, double cost,
             String catalog, String db, long creatorSqlMode) {
         // Volatile non-table dependencies (key(...)) are rejected before anything is
-        // stored; alias-UDF bodies are tracked by the schema fingerprint instead.
-        SPMPlanTreeSupport.rejectVolatileFunctionDependencies(bindPlan);
+        // stored - on both inputs, including a bound EncryptKeyRef; alias-UDF bodies are
+        // tracked by the schema fingerprint instead.
+        SPMPlanTreeSupport.rejectVolatileFunctionDependencies(bindPlan, parameterizedPlan);
         BaselinePlan baseline = new BaselinePlan();
         baseline.setCreatorSqlMode(creatorSqlMode);
         baseline.setBindSql(bindSql);
@@ -831,6 +866,29 @@ public class SPMPlanner {
             throw new AnalysisException(errorMessage);
         }
         return (LogicalPlan) parsed;
+    }
+
+    /**
+     * Parses one CREATE input under the captured creator mode (see buildBaselineFromSql):
+     * the mode window keeps a SET_VAR(sql_mode=...) hint of ANOTHER input from leaking into
+     * this parse, and keeps this parse's own hint from leaking into the next one.
+     */
+    private static LogicalPlan parseSelectIsolated(long creatorMode, String sql,
+            String errorMessage) throws UserException {
+        final UserException[] failure = new UserException[1];
+        final LogicalPlan[] result = new LogicalPlan[1];
+        SqlModeHelper.withSqlMode(creatorMode, () -> {
+            try {
+                result[0] = parseSelect(sql, errorMessage);
+            } catch (UserException e) {
+                failure[0] = e;
+            }
+            return null;
+        });
+        if (failure[0] != null) {
+            throw failure[0];
+        }
+        return result[0];
     }
 
     /**

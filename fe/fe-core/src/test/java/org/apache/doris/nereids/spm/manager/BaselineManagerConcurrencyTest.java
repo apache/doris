@@ -667,4 +667,41 @@ public class BaselineManagerConcurrencyTest {
             manager.clearForTest();
         }
     }
+
+    // ==================== SHOW uses the confirmed read (round-15) ====================
+
+    /**
+     * SHOW BASELINE PLANS used the ASYNCHRONOUS getAllBaselines(): right after startup / a
+     * promotion (empty map, load not finished) it listed ZERO rows although durable
+     * baselines existed, and a failed read never converged. The command now requires
+     * ensureLoadedConfirmed(); the query-matching read stays nonblocking and empty.
+     */
+    @Test
+    public void testConfirmedLoadIsRequiredForShow() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        try {
+            // startup / promotion state: the store is NOT loaded and the table gate is on
+            manager.prepareLoadForTest();
+            manager.setPersistToTableForTest(true);
+            BaselineManager.snapshotReaderForTest = () -> {
+                throw new RuntimeException("internal table not ready");
+            };
+            Assertions.assertThrows(IllegalStateException.class,
+                    manager::ensureLoadedConfirmed,
+                    "SHOW must surface a retryable failure instead of listing ZERO rows"
+                            + " from an unreadable store");
+            Assertions.assertEquals(0, manager.getAllBaselines().size(),
+                    "the query-matching read stays nonblocking and simply empty");
+
+            BaselineManager.snapshotReaderForTest =
+                    () -> Map.of(7L, withId(baseline("d1", "p1"), 7L));
+            manager.ensureLoadedConfirmed();
+            Assertions.assertEquals(1, manager.getAllBaselines().size(),
+                    "the confirmed read publishes the durable rows for SHOW");
+        } finally {
+            BaselineManager.snapshotReaderForTest = null;
+            manager.clearForTest();
+        }
+    }
 }

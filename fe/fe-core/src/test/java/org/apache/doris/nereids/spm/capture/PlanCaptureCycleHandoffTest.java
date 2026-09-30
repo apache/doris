@@ -172,8 +172,9 @@ public class PlanCaptureCycleHandoffTest {
             Assertions.assertEquals("qid-t", fields[5]);
             Assertions.assertEquals(tail, fields[6],
                     "the FULL cursor tail must be kept in memory");
-            Assertions.assertEquals(1, persisted.size());
-            Assertions.assertEquals(tail, persisted.get(0).get("cursorTail"),
+            Assertions.assertEquals(2, persisted.size(),
+                    "the initial reservation AND the consumed page both persist");
+            Assertions.assertEquals(tail, persisted.get(1).get("cursorTail"),
                     "the tail must be persisted for the next leader");
 
             // the next cycle resumes inside the SAME pending window with the SAME tail
@@ -262,6 +263,67 @@ public class PlanCaptureCycleHandoffTest {
             Assertions.assertEquals(String.valueOf(manager.checkpointFieldsForTest()[0]),
                     persisted.get(0).get("lastScan"),
                     "the persisted watermark must match the advanced local state");
+        } finally {
+            manager.resetForTest();
+        }
+    }
+
+    /**
+     * The FIRST window after a successful-but-EMPTY read exists only in memory: if the
+     * first checkpoint write fails and the process dies / hands over before any later
+     * write succeeds, the takeover knows nothing about the window and derives a NEW one -
+     * permanently skipping this page's unconsumed tail (the later overlap only reaches
+     * rows younger than the new watermark). The cycle must record the window it is about
+     * to consume BEFORE consuming it, and must not scan at all while even that write
+     * fails (nothing durable could resume what it consumed).
+     */
+    @Test
+    public void testFirstWindowIsReservedBeforeScan() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            manager.setCheckpointReaderForTest(List::of); // successful EMPTY read
+            RecordingScanner scanner = new RecordingScanner(List.of(), true,
+                    AuditLogScanner.CURSOR_ABSENT, "", "", "");
+            manager.setScannerForTest(scanner);
+            AtomicInteger writes = new AtomicInteger();
+            List<Map<String, String>> persisted = new ArrayList<>();
+            manager.setCheckpointWriterForTest((sql, params) -> {
+                if (writes.incrementAndGet() == 1) {
+                    throw new RuntimeException("internal statement timed out after 10s");
+                }
+                persisted.add(new HashMap<>(params));
+            });
+
+            // cycle 1: the RESERVATION fails -> the window is NOT consumed, so a
+            // takeover still finds every row of it in the audit log
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(0, scanner.calls.get(),
+                    "a window that could not be made durable must not be scanned");
+            Assertions.assertEquals(1, writes.get(),
+                    "the failed reservation is the only attempted write");
+            Assertions.assertFalse(manager.isDurableCheckpointObservedForTest(),
+                    "the failed reservation leaves no durable state");
+
+            // cycle 2: the write succeeds -> the window is durable BEFORE the scan ...
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(1, scanner.calls.get(), "the retried cycle scans");
+            Assertions.assertFalse(persisted.isEmpty(), "the reservation must persist");
+            // ... describing the window the scan actually consumed, so a takeover in
+            // between resumes from THAT window instead of deriving a fresh one
+            Assertions.assertEquals(String.valueOf(scanner.windows.get(0)[0]),
+                    persisted.get(0).get("pendingStart"),
+                    "the reserved row must point at the window's start: " + persisted);
+            Assertions.assertEquals(String.valueOf(scanner.windows.get(0)[1]),
+                    persisted.get(0).get("pendingEnd"),
+                    "the reserved row must point at the window's end: " + persisted);
+            // the exhausted window then overwrites the reservation with its advanced state
+            Assertions.assertEquals(2, persisted.size(),
+                    "the exhausted cycle persists its advanced watermark: " + persisted);
+            Assertions.assertTrue(manager.isDurableCheckpointObservedForTest(),
+                    "once a row is durable the reservation is skipped");
         } finally {
             manager.resetForTest();
         }

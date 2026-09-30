@@ -78,6 +78,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnionProducer;
@@ -796,6 +797,17 @@ public class SPMPlan2SQLBuilderTest {
     }
 
     /**
+     * Builds a PhysicalQuickSort mock (a top-level ORDER BY WITHOUT the LIMIT).
+     */
+    private PhysicalQuickSort<?> mockQuickSort(Plan child, List<OrderKey> orderKeys) {
+        PhysicalQuickSort<?> sort = Mockito.mock(PhysicalQuickSort.class);
+        Mockito.when(sort.child(0)).thenReturn(child);
+        Mockito.when(sort.getOrderKeys()).thenReturn(List.copyOf(orderKeys));
+        stubAccept(sort);
+        return sort;
+    }
+
+    /**
      * Builds a PhysicalWindow mock over the child with the given window expressions.
      */
     private org.apache.doris.nereids.trees.plans.physical.PhysicalWindow<?> mockWindow(
@@ -961,6 +973,9 @@ public class SPMPlan2SQLBuilderTest {
         }
         if (plan instanceof PhysicalWorkTableReference) {
             return builder.visitPhysicalWorkTableReference((PhysicalWorkTableReference) plan, null);
+        }
+        if (plan instanceof PhysicalQuickSort) {
+            return builder.visitPhysicalQuickSort((PhysicalQuickSort<? extends Plan>) plan, null);
         }
         if (plan instanceof PhysicalOneRowRelation) {
             return builder.visitPhysicalOneRowRelation((PhysicalOneRowRelation) plan, null);
@@ -1531,14 +1546,37 @@ public class SPMPlan2SQLBuilderTest {
                 () -> builder.visit((Expression) new BitNot(a), relation),
                 "the generic fallback must reject a stale column instead of freezing it");
 
-        // a registered reference that still names the column is renderable
+        // toSql() prints only the BARE slot name. A QUALIFIED registered reference (the
+        // collision-renaming case) still names the column, but freezing "~(b)" while the
+        // relation exported "t_2.b" produces text that no longer resolves - and a
+        // persisted frozen row has no plan-tree fallback.
         SQLRelation qualified = new SQLRelation();
         SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
         qualified.registerRef(b.getExprId(), "t_2.b");
-        Assertions.assertDoesNotThrow(
+        Assertions.assertThrows(UnsupportedOperationException.class,
                 () -> SPMExprSqlBuilder.ensureNoRemappedSlots(new BitNot(b), qualified),
-                "a qualified reference still names the column and stays renderable");
-        Assertions.assertNotNull(builder.visit((Expression) new BitNot(b), qualified));
+                "toSql() cannot reproduce a qualified reference, so the fallback must be"
+                        + " rejected");
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> builder.visit((Expression) new BitNot(b), qualified));
+
+        // a QUOTED reference for a special-character column would be re-parsed as an
+        // expression ("a-b" is a subtraction)
+        SQLRelation quoted = new SQLRelation();
+        SlotReference dashed = new SlotReference("a-b", IntegerType.INSTANCE);
+        quoted.registerRef(dashed.getExprId(), "`a-b`");
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> SPMExprSqlBuilder.ensureNoRemappedSlots(new BitNot(dashed), quoted),
+                "toSql() would emit a-b which re-parses as a subtraction");
+
+        // only a byte-identical registered reference is renderable through the fallback
+        SQLRelation plain = new SQLRelation();
+        SlotReference c = new SlotReference("c", IntegerType.INSTANCE);
+        plain.registerRef(c.getExprId(), "c");
+        Assertions.assertDoesNotThrow(
+                () -> SPMExprSqlBuilder.ensureNoRemappedSlots(new BitNot(c), plain),
+                "a reference identical to the slot name stays renderable");
+        Assertions.assertNotNull(builder.visit((Expression) new BitNot(c), plain));
     }
 
     // ==================== DISTINCT restore for non-count merges ====================
@@ -2064,5 +2102,137 @@ public class SPMPlan2SQLBuilderTest {
         Assertions.assertTrue(rootIsLimit,
                 "mergeLimits can only adopt the user's limit when the frozen root IS a"
                         + " Limit: " + frozen.getClass().getSimpleName() + " / " + sql);
+    }
+
+    /**
+     * The same hoist must happen WITHOUT a LIMIT. "SELECT a FROM t ORDER BY b + 1"
+     * arrives as a Sort under the relabel wrapper, and an ORDER BY left inside the
+     * derived table is re-planned as a droppable hint - the replay then returned
+     * unordered rows although the user explicitly asked for an order.
+     */
+    @Test
+    public void testSinkRelabelWrapperHoistsOrderByWithoutLimit() {
+        SlotReference k = new SlotReference("k", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(k));
+        PhysicalProject<?> project = mockProject(List.of(k), scan);
+        PhysicalQuickSort<?> sort = mockQuickSort(project,
+                List.of(new OrderKey(k, true, true)));
+
+        Slot output = Mockito.mock(Slot.class);
+        Mockito.when(output.getExprId()).thenReturn(k.getExprId());
+        Mockito.when(output.getName()).thenReturn("k1");
+        org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink sink =
+                Mockito.mock(org.apache.doris.nereids.trees.plans.physical.PhysicalResultSink.class);
+        Mockito.when(sink.child(0)).thenReturn(sort);
+        Mockito.when(sink.getOutput()).thenReturn(List.of(output));
+
+        String sql = new SPMPlan2SQLBuilder().visitPhysicalSink(sink, null).toSQL();
+        Assertions.assertTrue(sql.trim().endsWith("NULLS FIRST"),
+                "the top-level ORDER BY must stay at the statement tail: " + sql);
+        Assertions.assertTrue(sql.indexOf("ORDER BY") > sql.lastIndexOf(")"),
+                "the ORDER BY must not stay buried inside the relabel wrapper: " + sql);
+    }
+
+    /**
+     * #15: a (final) Project over Sort must keep the user's ORDER BY at the OUTER query.
+     * NormalizeSort makes "SELECT a FROM t ORDER BY b + 1" a Project over Sort; inlining
+     * the child relation buried the clause one level down (droppable hint).
+     */
+    @Test
+    public void testProjectOverSortHoistsTopLevelOrderBy() {
+        SlotReference k = new SlotReference("k", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(k));
+        PhysicalProject<?> inner = mockProject(List.of(k), scan);
+        PhysicalQuickSort<?> sort = mockQuickSort(inner, List.of(new OrderKey(k, true, true)));
+        PhysicalProject<?> top = mockProject(List.of(k), sort);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(top);
+        Assertions.assertTrue(sql.trim().endsWith("NULLS FIRST"),
+                "the projection must keep the user's ORDER BY at the outer query: " + sql);
+        Assertions.assertTrue(sql.indexOf("ORDER BY") > sql.lastIndexOf(")"),
+                "the ORDER BY must not stay inside the derived table of the projection: "
+                        + sql);
+    }
+
+    /**
+     * #15: a (final) Project over TopN must keep BOTH clauses outside. The buried cap was
+     * invisible to mergeLimitNodes positional merge (the frozen root was a Project), so a
+     * matching "LIMIT 20" could not replace the captured one and the query kept the old
+     * cap.
+     */
+    @Test
+    public void testProjectOverTopNHoistsOrderByAndLimit() {
+        SlotReference k = new SlotReference("k", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(k));
+        PhysicalProject<?> inner = mockProject(List.of(k), scan);
+        PhysicalTopN<?> topN = mockTopN(inner, List.of(new OrderKey(k, true, true)), 20);
+        PhysicalProject<?> top = mockProject(List.of(k), topN);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(top);
+        Assertions.assertTrue(sql.trim().endsWith("LIMIT 20"),
+                "the cap must stay reachable at the statement tail: " + sql);
+        Assertions.assertTrue(sql.indexOf("ORDER BY") > sql.lastIndexOf(")"),
+                "both clauses must move OUT of the derived table: " + sql);
+
+        // the frozen root must carry a Limit so a matching user LIMIT replaces the value
+        LogicalPlan frozen = (LogicalPlan) new NereidsParser().parseSingle(sql);
+        boolean rootCarriesLimit = frozen
+                instanceof org.apache.doris.nereids.trees.plans.logical.LogicalLimit
+                || frozen instanceof org.apache.doris.nereids.trees.plans.logical.LogicalTopN
+                || (!frozen.children().isEmpty() && (frozen.child(0)
+                instanceof org.apache.doris.nereids.trees.plans.logical.LogicalLimit
+                || frozen.child(0)
+                instanceof org.apache.doris.nereids.trees.plans.logical.LogicalTopN));
+        Assertions.assertTrue(rootCarriesLimit,
+                "mergeLimits can only adopt the user's limit when the frozen root (or its"
+                        + " direct child) IS a Limit: "
+                        + frozen.getClass().getSimpleName() + " / " + sql);
+    }
+
+    /**
+     * #2: a RESERVED word is a legal QUOTED alias but not an unquoted one: freezing
+     * "sum(v) AS from" produced text the parser rejects, and a persisted frozen row has
+     * no plan-tree fallback - the baseline could never replay.
+     */
+    @Test
+    public void testReservedWordAliasIsQuoted() {
+        SlotReference v = new SlotReference("v", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(v));
+        PhysicalHashAggregate<?> agg = Mockito.mock(PhysicalHashAggregate.class);
+        Mockito.when(agg.child(0)).thenReturn(scan);
+        Mockito.when(agg.getAggPhase()).thenReturn(AggPhase.GLOBAL);
+        Mockito.when(agg.getGroupByExpressions()).thenReturn(List.of());
+        Mockito.when(agg.getOutputExpressions()).thenReturn(List.of(
+                (NamedExpression) new Alias(new AggregateExpression(new Sum(v),
+                        new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT)), "from")));
+        stubAccept(agg);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(agg);
+        Assertions.assertTrue(sql.contains("AS `from`"),
+                "a reserved word alias must freeze quoted: " + sql);
+        Assertions.assertNotNull(new NereidsParser().parseSingle(sql),
+                "the frozen text must re-parse: a persisted row has no fallback: " + sql);
+    }
+
+    /**
+     * #13: two SELECT items may collide in ANY case (a computed alias "x" next to a
+     * computed alias "X"). Doris resolves column names case-insensitively, so exporting
+     * both made every upper reference ambiguous after reload.
+     */
+    @Test
+    public void testCaseInsensitiveDuplicateOutputNamesAreRenamed() {
+        SlotReference k = new SlotReference("k", IntegerType.INSTANCE);
+        SlotReference v = new SlotReference("v", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(k, v));
+        Alias first = new Alias(new Add(k, new IntegerLiteral(1)), "x");
+        Alias second = new Alias(new Add(v, new IntegerLiteral(2)), "X");
+        PhysicalProject<?> project = mockProjectExprs(List.of(first, second), scan);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(project);
+        Assertions.assertEquals(1, sql.split(" AS X", -1).length - 1,
+                "only the LATER case-variant keeps its alias: " + sql);
+        Assertions.assertTrue(sql.contains(" AS c_"),
+                "the earlier item must be renamed when the names collide only by case: "
+                        + sql);
     }
 }

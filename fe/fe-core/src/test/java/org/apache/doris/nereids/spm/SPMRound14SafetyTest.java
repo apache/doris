@@ -95,7 +95,7 @@ public class SPMRound14SafetyTest {
 
         try {
             String fingerprint = SPMPlanTreeSupport.schemaFingerprintForCreate(
-                    ctx, bindPlan, planOver(planTable));
+                    ctx, bindPlan, planOver(planTable), null);
             Assertions.assertTrue(fingerprint.contains("t_bind|7|"),
                     "the bind-side table must stay in the fingerprint: " + fingerprint);
             Assertions.assertTrue(fingerprint.contains("t_plan|8|"),
@@ -124,15 +124,15 @@ public class SPMRound14SafetyTest {
 
         try {
             String stored = SPMPlanTreeSupport.schemaFingerprintForCreate(
-                    ctx, bindPlan, planOver(planTable));
+                    ctx, bindPlan, planOver(planTable), null);
             Assertions.assertEquals(stored, SPMPlanTreeSupport.schemaFingerprintForReplay(
-                            ctx, bindPlan, planOver(planTable)),
+                            ctx, bindPlan, planOver(planTable), null),
                     "the same metadata snapshot must reproduce the stored fingerprint");
 
             // id changed (DROP + CREATE of the plan-side table) between validation and
             // the replay planning
             String recreated = SPMPlanTreeSupport.schemaFingerprintForReplay(
-                    ctx, bindPlan, planOver(table("t_plan", 9L, "v")));
+                    ctx, bindPlan, planOver(table("t_plan", 9L, "v")), null);
             Assertions.assertNotEquals(stored, recreated,
                     "a plan-side table recreated under a NEW id must fail the"
                             + " revalidation");
@@ -140,7 +140,7 @@ public class SPMRound14SafetyTest {
             // the plan-side table vanished from the replayed tree entirely (it was
             // dropped before planning: the stale baseline must not replay)
             String withoutPlanTable = SPMPlanTreeSupport.schemaFingerprintForReplay(
-                    ctx, bindPlan, null);
+                    ctx, bindPlan, null, null);
             Assertions.assertNotEquals(stored, withoutPlanTable,
                     "a replayed plan without the captured plan-side table must fail"
                             + " the revalidation");
@@ -166,7 +166,7 @@ public class SPMRound14SafetyTest {
 
         try {
             String stored = SPMPlanTreeSupport.schemaFingerprintForCreate(
-                    ctx, bindPlan, planOver(planTable));
+                    ctx, bindPlan, planOver(planTable), null);
             String currentBind = SPMPlanTreeSupport.schemaFingerprint(ctx, bindPlan);
             Assertions.assertTrue(SPMPlanTreeSupport.schemaFingerprintBindSideContained(
                             stored, currentBind),
