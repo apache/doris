@@ -21,18 +21,24 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.BucketedAggregationNode;
 import org.apache.doris.planner.ExchangeNode;
+import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public class BucketedAggregateTranslatorTest extends TestWithFeService {
 
@@ -285,6 +291,171 @@ public class BucketedAggregateTranslatorTest extends TestWithFeService {
         }
     }
 
+    @Test
+    public void testAggregateBelowJoinExchangeIsFusedIntoBucketedAggregation() throws Exception {
+        // The join key is the aggregate output s, so the shuffle join enforces a hash exchange
+        // above the one-phase aggregate. That exchange keeps the aggregate's scan in a fragment
+        // of its own, so the fragment-merging join above must not stop the fusion below it;
+        // otherwise the plan pays for the raw-row exchange below a regular aggregate and for
+        // the enforcer exchange above it, while the cost model already granted the discount.
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        int oldAggPhase = sessionVariable.aggPhase;
+        int oldBeNumberForTest = sessionVariable.getBeNumberForTest();
+        long oldBucketedAggMinInputRows = sessionVariable.bucketedAggMinInputRows;
+        long oldBucketedAggMaxGroupKeys = sessionVariable.bucketedAggMaxGroupKeys;
+        double oldBucketedAggHighCardThreshold = sessionVariable.bucketedAggHighCardThreshold;
+        boolean oldEnableBucketedHashAgg = sessionVariable.enableBucketedHashAgg;
+        try {
+            sessionVariable.aggPhase = 1;
+            sessionVariable.setBeNumberForTest(1);
+            sessionVariable.bucketedAggMinInputRows = 0;
+            sessionVariable.bucketedAggMaxGroupKeys = 0;
+            sessionVariable.bucketedAggHighCardThreshold = 1.0;
+            sessionVariable.enableBucketedHashAgg = true;
+
+            Planner planner = getSQLPlanner("SELECT a.kbint, a.s, b.kint"
+                    + " FROM (SELECT kbint, sum(kint) AS s"
+                    + " FROM bucketed_aggregate_translator_test.agg_group_concat_table GROUP BY kbint) a"
+                    + " JOIN [shuffle] bucketed_aggregate_translator_test.agg_group_concat_table b"
+                    + " ON a.s = b.kbint");
+            String explain = explain(planner);
+            List<BucketedAggregationNode> bucketedNodes = collectNodes(planner, BucketedAggregationNode.class);
+            Assertions.assertEquals(1, bucketedNodes.size(), explain);
+            Assertions.assertTrue(collectNodes(planner, AggregationNode.class).isEmpty(), explain);
+            List<HashJoinNode> joinNodes = collectNodes(planner, HashJoinNode.class);
+            Assertions.assertEquals(1, joinNodes.size(), explain);
+            // The fused aggregate stays in its own fragment and feeds the join through the exchange.
+            PlanFragment fusedFragment = bucketedNodes.get(0).getFragment();
+            Assertions.assertNotSame(joinNodes.get(0).getFragment(), fusedFragment, explain);
+            Assertions.assertTrue(fusedFragment.getDestNode() instanceof ExchangeNode, explain);
+            assertAtMostOneOlapScanPerFragment(planner);
+        } finally {
+            sessionVariable.aggPhase = oldAggPhase;
+            sessionVariable.setBeNumberForTest(oldBeNumberForTest);
+            sessionVariable.bucketedAggMinInputRows = oldBucketedAggMinInputRows;
+            sessionVariable.bucketedAggMaxGroupKeys = oldBucketedAggMaxGroupKeys;
+            sessionVariable.bucketedAggHighCardThreshold = oldBucketedAggHighCardThreshold;
+            sessionVariable.enableBucketedHashAgg = oldEnableBucketedHashAgg;
+        }
+    }
+
+    @Test
+    public void testJoinOnGroupKeyConsumesRegularAggregateWithoutExtraExchange() throws Exception {
+        // The join key is the GROUP BY key. The enforcer distribute below the aggregate has
+        // shuffle type EXECUTION_BUCKETED (EnforceMissingPropertiesHelper), so the output
+        // property deriver keeps that hash property instead of ANY: the join consumes the
+        // aggregate directly, no exchange is enforced above it, and the translator keeps the
+        // regular aggregate because the join would otherwise absorb the fused scan.
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        int oldAggPhase = sessionVariable.aggPhase;
+        int oldBeNumberForTest = sessionVariable.getBeNumberForTest();
+        long oldBucketedAggMinInputRows = sessionVariable.bucketedAggMinInputRows;
+        long oldBucketedAggMaxGroupKeys = sessionVariable.bucketedAggMaxGroupKeys;
+        double oldBucketedAggHighCardThreshold = sessionVariable.bucketedAggHighCardThreshold;
+        boolean oldEnableBucketedHashAgg = sessionVariable.enableBucketedHashAgg;
+        try {
+            sessionVariable.aggPhase = 1;
+            sessionVariable.setBeNumberForTest(1);
+            sessionVariable.bucketedAggMinInputRows = 0;
+            sessionVariable.bucketedAggMaxGroupKeys = 0;
+            sessionVariable.bucketedAggHighCardThreshold = 1.0;
+            sessionVariable.enableBucketedHashAgg = true;
+
+            Planner planner = getSQLPlanner("SELECT a.kbint, a.s, b.kint"
+                    + " FROM (SELECT kbint, sum(kint) AS s"
+                    + " FROM bucketed_aggregate_translator_test.agg_group_concat_table GROUP BY kbint) a"
+                    + " JOIN [shuffle] bucketed_aggregate_translator_test.agg_group_concat_table b"
+                    + " ON a.kbint = b.kint");
+            String explain = explain(planner);
+            Assertions.assertTrue(collectNodes(planner, BucketedAggregationNode.class).isEmpty(), explain);
+            List<AggregationNode> aggregationNodes = collectNodes(planner, AggregationNode.class);
+            Assertions.assertEquals(1, aggregationNodes.size(), explain);
+            List<HashJoinNode> joinNodes = collectNodes(planner, HashJoinNode.class);
+            Assertions.assertEquals(1, joinNodes.size(), explain);
+            // The aggregate output is consumed in the join's fragment: no extra exchange between them.
+            Assertions.assertSame(joinNodes.get(0).getFragment(), aggregationNodes.get(0).getFragment(), explain);
+            Assertions.assertSame(aggregationNodes.get(0), joinNodes.get(0).getChild(0), explain);
+            assertAtMostOneOlapScanPerFragment(planner);
+        } finally {
+            sessionVariable.aggPhase = oldAggPhase;
+            sessionVariable.setBeNumberForTest(oldBeNumberForTest);
+            sessionVariable.bucketedAggMinInputRows = oldBucketedAggMinInputRows;
+            sessionVariable.bucketedAggMaxGroupKeys = oldBucketedAggMaxGroupKeys;
+            sessionVariable.bucketedAggHighCardThreshold = oldBucketedAggHighCardThreshold;
+            sessionVariable.enableBucketedHashAgg = oldEnableBucketedHashAgg;
+        }
+    }
+
+    @Test
+    public void testSetOperationChildAggregateKeepsOneOlapScanPerFragment() throws Exception {
+        // A union absorbs the plan trees of its children's fragments. An aggregate that the
+        // union consumes without an exchange in between must therefore keep its own exchange
+        // (no fusion), so that no fragment ends up with two olap scans.
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        int oldAggPhase = sessionVariable.aggPhase;
+        int oldBeNumberForTest = sessionVariable.getBeNumberForTest();
+        long oldBucketedAggMinInputRows = sessionVariable.bucketedAggMinInputRows;
+        long oldBucketedAggMaxGroupKeys = sessionVariable.bucketedAggMaxGroupKeys;
+        double oldBucketedAggHighCardThreshold = sessionVariable.bucketedAggHighCardThreshold;
+        boolean oldEnableBucketedHashAgg = sessionVariable.enableBucketedHashAgg;
+        try {
+            sessionVariable.aggPhase = 1;
+            sessionVariable.setBeNumberForTest(1);
+            sessionVariable.bucketedAggMinInputRows = 0;
+            sessionVariable.bucketedAggMaxGroupKeys = 0;
+            sessionVariable.bucketedAggHighCardThreshold = 1.0;
+            sessionVariable.enableBucketedHashAgg = true;
+
+            Planner planner = getSQLPlanner("SELECT kbint, sum(kint)"
+                    + " FROM bucketed_aggregate_translator_test.agg_group_concat_table GROUP BY kbint"
+                    + " UNION ALL SELECT kbint, max(kint)"
+                    + " FROM bucketed_aggregate_translator_test.agg_group_concat_table GROUP BY kbint");
+            String explain = explain(planner);
+            Assertions.assertEquals(2, collectNodes(planner, AggregationNode.class).size()
+                    + collectNodes(planner, BucketedAggregationNode.class).size(), explain);
+            assertAtMostOneOlapScanPerFragment(planner);
+        } finally {
+            sessionVariable.aggPhase = oldAggPhase;
+            sessionVariable.setBeNumberForTest(oldBeNumberForTest);
+            sessionVariable.bucketedAggMinInputRows = oldBucketedAggMinInputRows;
+            sessionVariable.bucketedAggMaxGroupKeys = oldBucketedAggMaxGroupKeys;
+            sessionVariable.bucketedAggHighCardThreshold = oldBucketedAggHighCardThreshold;
+            sessionVariable.enableBucketedHashAgg = oldEnableBucketedHashAgg;
+        }
+    }
+
+    /**
+     * The scan assignment rejects a fragment with several olap scans unless they belong to a
+     * colocate or bucket shuffle join, so bucketed fusion must never hand a scan over to a
+     * fragment-merging node. Exchange nodes are fragment boundaries and are not descended.
+     */
+    private void assertAtMostOneOlapScanPerFragment(Planner planner) {
+        for (PlanFragment fragment : planner.getFragments()) {
+            PlanNode root = fragment.getPlanRoot();
+            if (root != null) {
+                Assertions.assertTrue(countOlapScansInFragment(root) <= 1,
+                        "fragment " + fragment.getId() + " has more than one olap scan: " + explain(planner));
+            }
+        }
+    }
+
+    private static int countOlapScansInFragment(PlanNode node) {
+        if (node instanceof ExchangeNode) {
+            return 0;
+        }
+        int count = node instanceof OlapScanNode ? 1 : 0;
+        for (PlanNode child : node.getChildren()) {
+            count += countOlapScansInFragment(child);
+        }
+        return count;
+    }
+
+    private String explain(Planner planner) {
+        return planner.getFragments().stream()
+                .map(fragment -> fragment.getExplainString(TExplainLevel.NORMAL))
+                .collect(Collectors.joining("\n"));
+    }
+
     private void assertUsesRegularAggregation(String aggregateFunction) throws Exception {
         Planner planner = planAggregate(aggregateFunction);
         Assertions.assertTrue(collectNodes(planner, BucketedAggregationNode.class).isEmpty());
@@ -301,12 +472,24 @@ public class BucketedAggregateTranslatorTest extends TestWithFeService {
                 + " FROM bucketed_aggregate_translator_test.agg_group_concat_table GROUP BY kbint");
     }
 
+    /**
+     * Collects every node of the given type once. The fragments returned by the planner form a
+     * tree, so a plain collect over all fragment roots would count an inner node repeatedly.
+     */
     private <T extends PlanNode> List<T> collectNodes(Planner planner, Class<T> nodeClass) {
+        Set<PlanNode> seen = Collections.newSetFromMap(new IdentityHashMap<>());
         List<T> nodes = Lists.newArrayList();
         for (PlanFragment fragment : planner.getFragments()) {
             PlanNode root = fragment.getPlanRoot();
-            if (root != null) {
-                root.collect(nodeClass, nodes);
+            if (root == null) {
+                continue;
+            }
+            List<T> found = Lists.newArrayList();
+            root.collect(nodeClass, found);
+            for (T node : found) {
+                if (seen.add(node)) {
+                    nodes.add(node);
+                }
             }
         }
         return nodes;

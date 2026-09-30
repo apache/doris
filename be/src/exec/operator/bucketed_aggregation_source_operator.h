@@ -80,6 +80,13 @@ private:
 
     void _make_nullable_output_key(Block* block);
 
+    /// Account for the memory this source instance adds while merging: its merge arena
+    /// and the growth of the merge target's bucket hash tables caused by its merges.
+    /// The sink's memory counters stop updating once the sink has finished, so the
+    /// source-side merge is otherwise invisible to the profile and to the pipeline
+    /// task's memory reservation.
+    void _update_memusage(Arena& merge_arena);
+
     /// Wake up all source instances (including self) by setting their dependencies ready.
     /// Called when this source releases a bucket CAS lock, so that blocked
     /// source instances can re-check for available work.
@@ -102,6 +109,10 @@ private:
     RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
     RuntimeProfile::Counter* _insert_values_to_column_timer = nullptr;
     RuntimeProfile::Counter* _merge_timer = nullptr;
+    RuntimeProfile::Counter* _memory_usage_merge_arena = nullptr;
+    RuntimeProfile::Counter* _memory_usage_merged_hash_tables = nullptr;
+    /// Bytes the merge target's bucket hash tables grew by in this instance's merges.
+    int64_t _hash_table_merge_growth = 0;
 };
 
 class BucketedAggSourceOperatorX : public OperatorX<BucketedAggLocalState> {

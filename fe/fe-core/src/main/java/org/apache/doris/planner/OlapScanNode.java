@@ -216,6 +216,10 @@ public class OlapScanNode extends ScanNode {
 
     private BackendSelection.SelectionHint selectionHint;
     private boolean scanBackendOrderBySelection = false;
+    // Set by bucketed aggregation fusion: the plan merges the groups of this scan's fragment
+    // in memory on the only alive backend it saw, so the scan must not use replicas of a
+    // backend that becomes alive later. -1 means every alive backend may be used.
+    private long pinnedBackendId = -1;
     private long querySelectionPreferredHitTablets;
     private long querySelectionFallbackTablets;
 
@@ -495,6 +499,35 @@ public class OlapScanNode extends ScanNode {
         return maxVersion;
     }
 
+    /**
+     * Pin this scan to one backend: bucketed aggregation fusion calls this with the only
+     * alive backend the plan was made for, and the scan range locations built afterwards
+     * only offer that backend to the scan worker selection.
+     */
+    public void setPinnedBackendId(long backendId) {
+        this.pinnedBackendId = backendId;
+    }
+
+    public long getPinnedBackendId() {
+        return pinnedBackendId;
+    }
+
+    private List<Replica> keepReplicasOnPinnedBackend(long tabletId, List<Replica> replicas)
+            throws UserException {
+        List<Replica> pinnedReplicas = new ArrayList<>(1);
+        for (Replica replica : replicas) {
+            if (replica.getBackendIdWithoutException() == pinnedBackendId) {
+                pinnedReplicas.add(replica);
+            }
+        }
+        if (pinnedReplicas.isEmpty()) {
+            throw new UserException("tablet " + tabletId + " has no queryable replica on backend "
+                    + pinnedBackendId + ", the only alive backend when the query was planned;"
+                    + " the alive backends changed during planning, please retry");
+        }
+        return pinnedReplicas;
+    }
+
     private void addScanRangeLocations(Partition partition,
             List<Tablet> tablets, Map<Long, Set<Long>> backendAlivePathHashs) throws UserException {
         long visibleVersion = Partition.PARTITION_INIT_VERSION;
@@ -592,6 +625,10 @@ public class OlapScanNode extends ScanNode {
                     LOG.debug(sb.toString());
                 }
                 throw new UserException(sb.toString());
+            }
+
+            if (pinnedBackendId != -1) {
+                replicas = keepReplicasOnPinnedBackend(tabletId, replicas);
             }
 
             boolean querySelectionEvaluated = false;

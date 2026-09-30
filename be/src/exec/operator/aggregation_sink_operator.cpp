@@ -24,6 +24,7 @@
 #include "common/status.h"
 #include "core/data_type/primitive_type.h"
 #include "exec/common/hash_table/hash.h"
+#include "exec/operator/inline_count.h"
 #include "exec/operator/operator.h"
 #include "exprs/aggregate/aggregate_function_count.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
@@ -626,6 +627,7 @@ void AggSinkLocalState::_emplace_into_hash_table(AggregateDataPtr* places,
 // For the agg hashmap<key, value>, the value is a char* type which is exactly 64 bits.
 // Here we treat it as a uint64 counter: each time the same key is encountered, the counter
 // is incremented by 1. This avoids storing the full aggregate state, saving memory and computation overhead.
+// The counter is read and written through inline_count_get / inline_count_add only.
 void AggSinkLocalState::_emplace_into_hash_table_inline_count(ColumnRawPtrs& key_columns,
                                                               uint32_t num_rows) {
     std::visit(Overload {[&](std::monostate& arg) -> void {
@@ -649,10 +651,9 @@ void AggSinkLocalState::_emplace_into_hash_table_inline_count(ColumnRawPtrs& key
                              auto creator_for_null_key = [&](auto& mapped) { mapped = nullptr; };
 
                              SCOPED_TIMER(_hash_table_emplace_timer);
-                             lazy_emplace_batch(agg_method, state, num_rows, creator,
-                                                creator_for_null_key, [&](uint32_t, auto& mapped) {
-                                                    ++reinterpret_cast<UInt64&>(mapped);
-                                                });
+                             lazy_emplace_batch(
+                                     agg_method, state, num_rows, creator, creator_for_null_key,
+                                     [&](uint32_t, auto& mapped) { inline_count_add(mapped, 1); });
 
                              COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                          }},
@@ -691,8 +692,7 @@ void AggSinkLocalState::_merge_into_hash_table_inline_count(ColumnRawPtrs& key_c
                           SCOPED_TIMER(_hash_table_emplace_timer);
                           lazy_emplace_batch(agg_method, state, num_rows, creator,
                                              creator_for_null_key, [&](uint32_t i, auto& mapped) {
-                                                 reinterpret_cast<UInt64&>(mapped) +=
-                                                         col_data[i].count;
+                                                 inline_count_add(mapped, col_data[i].count);
                                              });
 
                           COUNTER_UPDATE(_hash_table_input_counter, num_rows);

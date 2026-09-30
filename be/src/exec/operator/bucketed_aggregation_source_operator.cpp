@@ -25,6 +25,7 @@
 #include "exec/common/hash_table/hash.h"
 #include "exec/common/util.hpp"
 #include "exec/operator/bucketed_aggregation_sink_operator.h"
+#include "exec/operator/inline_count.h"
 #include "exec/operator/operator.h"
 #include "exprs/vectorized_agg_fn.h"
 #include "runtime/runtime_profile.h"
@@ -91,16 +92,14 @@ auto hash_table_emplace(HashTable& ht, const Key& key, typename HashTable::Looku
 }
 
 /// Merge src aggregate state into dst_ref (a reference to the mapped slot).
-/// For simple_count, adds UInt64 counters directly via the reference.
+/// For simple_count, adds the inline counters and writes the sum back through the reference.
 /// For regular aggregates, calls merge() on each function then destroys src state.
 /// After return, src is consumed and must not be used.
 static void merge_agg_states(AggregateDataPtr& dst_ref, AggregateDataPtr src, bool use_simple_count,
                              const std::vector<AggFnEvaluator*>& evaluators, const Sizes& offsets,
                              Arena& arena) {
     if (use_simple_count) {
-        // simple_count: mapped slots hold UInt64 counters. MUST use reference
-        // to write back correctly.
-        reinterpret_cast<UInt64&>(dst_ref) += reinterpret_cast<UInt64>(src);
+        inline_count_add(dst_ref, inline_count_get(src));
     } else {
         const size_t num_fns = evaluators.size();
         for (size_t i = 0; i < num_fns; ++i) {
@@ -158,8 +157,19 @@ Status BucketedAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _insert_keys_to_column_timer = ADD_TIMER(custom_profile(), "InsertKeysToColumnTime");
     _insert_values_to_column_timer = ADD_TIMER(custom_profile(), "InsertValuesToColumnTime");
     _merge_timer = ADD_TIMER(custom_profile(), "MergeTime");
+    _memory_usage_merge_arena =
+            ADD_COUNTER(custom_profile(), "MemoryUsageMergeArena", TUnit::BYTES);
+    _memory_usage_merged_hash_tables =
+            ADD_COUNTER(custom_profile(), "MemoryUsageMergedHashTables", TUnit::BYTES);
 
     return Status::OK();
+}
+
+void BucketedAggLocalState::_update_memusage(Arena& merge_arena) {
+    int64_t arena_memory_usage = merge_arena.size();
+    COUNTER_SET(_memory_usage_merge_arena, arena_memory_usage);
+    COUNTER_SET(_memory_usage_merged_hash_tables, _hash_table_merge_growth);
+    COUNTER_SET(_memory_used_counter, arena_memory_usage + _hash_table_merge_growth);
 }
 
 Status BucketedAggLocalState::close(RuntimeState* state) {
@@ -222,6 +232,7 @@ int BucketedAggLocalState::_merge_bucket(int bucket, int merge_target) {
                     [&](auto& dst_method) -> void {
                         using AggMethodType = std::decay_t<decltype(dst_method)>;
                         auto& dst_data = *dst_method.hash_table;
+                        const int64_t dst_bytes_before = dst_data.get_buffer_size_in_bytes();
 
                         // Merge all finished sink instances (except merge_target itself)
                         // into the merge target's bucket.
@@ -315,9 +326,16 @@ int BucketedAggLocalState::_merge_bucket(int bucket, int merge_target) {
                                             }},
                                     src_agg_data.method_variant);
                         }
+                        // Emplacing the source entries can rehash the destination bucket.
+                        _hash_table_merge_growth +=
+                                static_cast<int64_t>(dst_data.get_buffer_size_in_bytes()) -
+                                dst_bytes_before;
                     }},
             dst_agg_data.method_variant);
 
+    if (merged_count > 0) {
+        _update_memusage(merge_arena);
+    }
     return merged_count;
 }
 
@@ -349,7 +367,7 @@ void BucketedAggLocalState::_build_output_block(Block* block, MutableColumns& ke
             DCHECK_EQ(agg_size, 1);
             auto* col = assert_cast<ColumnInt64*>(value_columns[0].get());
             for (uint32_t r = 0; r < num_rows; ++r) {
-                col->insert_value(static_cast<Int64>(reinterpret_cast<UInt64>(values[r])));
+                col->insert_value(static_cast<Int64>(inline_count_get(values[r])));
             }
         } else {
             for (size_t i = 0; i < agg_size; ++i) {
@@ -755,6 +773,10 @@ bool BucketedAggSourceOperatorX::is_blockable(RuntimeState* state) const {
 Status BucketedAggSourceOperatorX::get_block_impl(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
+    // Merging finished sinks (hash table rehash, aggregate merge() allocations) happens
+    // inside _get_results, so let the pipeline task reserve what the last round needed
+    // instead of only the minimum operator memory (see OperatorX::get_reserve_mem_size).
+    SCOPED_PEAK_MEM(&local_state.estimate_memory_usage());
 
     RETURN_IF_ERROR(local_state._get_results(state, block, eos));
 

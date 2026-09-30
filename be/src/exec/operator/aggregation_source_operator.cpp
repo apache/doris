@@ -22,6 +22,7 @@
 
 #include "common/exception.h"
 #include "core/column/column_fixed_length_object.h"
+#include "exec/operator/inline_count.h"
 #include "exec/operator/operator.h"
 #include "exprs/vectorized_agg_fn.h"
 #include "exprs/vexpr_fwd.h"
@@ -155,8 +156,7 @@ Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state, Bloc
                                   auto& it = agg_method.begin;
                                   while (it != agg_method.end && num_rows < state->batch_size()) {
                                       keys[num_rows] = it.get_first();
-                                      auto inline_count =
-                                              reinterpret_cast<const UInt64&>(it.get_second());
+                                      auto inline_count = inline_count_get(it.get_second());
                                       count_col.insert_data(
                                               reinterpret_cast<const char*>(&inline_count),
                                               sizeof(UInt64));
@@ -338,9 +338,8 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, Block
                                 auto& it = agg_method.begin;
                                 while (it != agg_method.end && num_rows < state->batch_size()) {
                                     keys[num_rows] = it.get_first();
-                                    auto& mapped = it.get_second();
-                                    count_column.insert_value(static_cast<Int64>(
-                                            reinterpret_cast<const UInt64&>(mapped)));
+                                    count_column.insert_value(
+                                            static_cast<Int64>(inline_count_get(it.get_second())));
                                     ++it;
                                     ++num_rows;
                                 }

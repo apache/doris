@@ -235,21 +235,8 @@ public class AggregateUtils {
             return false;
         }
         // Correctness gate: single-BE only (cross-BE in-memory merge is impossible).
-        // Scan ranges always go to the real alive backends, so count them directly
-        // (getBackendsNumber() would return be_number_for_test).
-        // Note: do not clamp to 1 — with zero backends bucketed agg must not be enabled.
-        SystemInfoService clusterInfo = ctx.getEnv().getClusterInfo();
-        List<Long> aliveBackendIds = clusterInfo.getAllBackendByCurrentCluster(true);
-        if (aliveBackendIds.size() != 1) {
+        if (getBucketedHashAggBackend(ctx) == null) {
             return false;
-        }
-        // Smooth upgrade safety net: old BE processes do not recognize
-        // BUCKETED_AGGREGATION_NODE plan node type
-        for (Long beId : aliveBackendIds) {
-            Backend be = clusterInfo.getBackend(beId);
-            if (be != null && be.isSmoothUpgradeSrc()) {
-                return false;
-            }
         }
         // Bucketed agg merges the live states built by different sink instances
         // directly, without serializing them. Java / Python UDAFs can only merge a
@@ -260,6 +247,31 @@ public class AggregateUtils {
             return false;
         }
         return true;
+    }
+
+    /**
+     * Returns the backend that a bucketed hash aggregation of this query would run on:
+     * the only alive backend of the current cluster. Returns null when the number of
+     * alive backends is not exactly one, or when that backend is a smooth-upgrade source
+     * (its old BE process does not know BUCKETED_AGGREGATION_NODE).
+     * <p>
+     * Scan ranges always go to the real alive backends, so they are counted directly
+     * (getBackendsNumber() would return be_number_for_test), and zero backends must not
+     * be clamped to one. PhysicalPlanTranslator reads the backend again when it fuses
+     * an aggregate and pins the scan of the fused fragment to it, so a backend that
+     * becomes alive after this check cannot receive tablets of that fragment.
+     */
+    public static Backend getBucketedHashAggBackend(ConnectContext ctx) {
+        SystemInfoService clusterInfo = ctx.getEnv().getClusterInfo();
+        List<Long> aliveBackendIds = clusterInfo.getAllBackendByCurrentCluster(true);
+        if (aliveBackendIds.size() != 1) {
+            return null;
+        }
+        Backend be = clusterInfo.getBackend(aliveBackendIds.get(0));
+        if (be == null || be.isSmoothUpgradeSrc()) {
+            return null;
+        }
+        return be;
     }
 
     /**

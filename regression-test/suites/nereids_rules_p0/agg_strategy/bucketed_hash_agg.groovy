@@ -323,4 +323,59 @@ suite("bucketed_hash_agg") {
         sql(countWithAssert)
         exception "count argument is evaluated"
     }
+
+    // ============================================================
+    // Test 9: Aggregate below a shuffle join on a non-group-by column. The
+    //         join enforces a hash exchange above the aggregate; that exchange
+    //         keeps the fused fragment apart from the join, so the aggregate
+    //         must still be fused below it instead of paying for a raw-row
+    //         exchange below a regular aggregate plus the enforcer exchange.
+    // ============================================================
+    sql "set enable_bucketed_hash_agg=true"
+    sql "set agg_phase=1"
+    sql "set be_number_for_test=1"
+    sql """ DROP TABLE IF EXISTS bucketed_agg_reg_dim; """
+    sql """
+        CREATE TABLE bucketed_agg_reg_dim (
+            k bigint,
+            name varchar(20)
+        ) DUPLICATE KEY(k)
+        DISTRIBUTED BY HASH(k) BUCKETS 3
+        PROPERTIES('replication_num' = '1');
+    """
+    // 200 and 370 are the sums of grp a and grp b after the inserts above.
+    sql """ INSERT INTO bucketed_agg_reg_dim VALUES (200, 'sum_a'), (370, 'sum_b'), (999, 'none'); """
+    String joinChildQuery = """
+        SELECT a.grp, a.s, d.name
+        FROM (SELECT grp, SUM(val) AS s FROM bucketed_agg_reg_test GROUP BY grp) a
+        JOIN [shuffle] bucketed_agg_reg_dim d ON a.s = d.k
+    """
+    explain {
+        sql(joinChildQuery)
+        contains("BUCKETED AGGREGATE")
+    }
+    order_qt_join_child_bucketed_result "${joinChildQuery}"
+    sql "set enable_bucketed_hash_agg=false"
+    explain {
+        sql(joinChildQuery)
+        notContains("BUCKETED AGGREGATE")
+    }
+    order_qt_join_child_regular_result "${joinChildQuery}"
+
+    // ============================================================
+    // Test 10: Aggregates that a UNION ALL consumes directly. The union absorbs
+    //          its children's fragments, so these aggregates keep their own
+    //          exchange (no fusion) and every fragment keeps one olap scan.
+    //          Results must be correct either way.
+    // ============================================================
+    sql "set enable_bucketed_hash_agg=true"
+    String unionChildrenQuery = """
+        SELECT grp, SUM(val) AS v FROM bucketed_agg_reg_test GROUP BY grp
+        UNION ALL
+        SELECT grp, MAX(val) AS v FROM bucketed_agg_reg_test GROUP BY grp
+    """
+    order_qt_union_children_result "${unionChildrenQuery}"
+    sql "set enable_bucketed_hash_agg=false"
+    order_qt_union_children_regular_result "${unionChildrenQuery}"
+    sql "set agg_phase=0"
 }

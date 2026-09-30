@@ -23,6 +23,7 @@
 
 #include "common/status.h"
 #include "exec/common/hash_table/hash.h"
+#include "exec/operator/inline_count.h"
 #include "exec/operator/operator.h"
 #include "exprs/vectorized_agg_fn.h"
 #include "runtime/runtime_profile.h"
@@ -299,7 +300,7 @@ void BucketedAggSinkLocalState::_emplace_into_hash_table(AggregateDataPtr* place
                                               agg_method.hash_values[row], creator,
                                               creator_for_null_key);
                                       if (use_simple_count) {
-                                          ++reinterpret_cast<UInt64&>(*mapped);
+                                          inline_count_add(*mapped, 1);
                                       } else {
                                           places[row] = *mapped;
                                       }

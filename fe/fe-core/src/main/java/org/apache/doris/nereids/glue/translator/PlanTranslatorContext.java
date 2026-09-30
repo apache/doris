@@ -131,6 +131,14 @@ public class PlanTranslatorContext {
      */
     private int fragmentMergeChildDepth = 0;
 
+    /**
+     * Backend that the olap scan translated next has to be pinned to, or -1. Bucketed
+     * aggregation fusion sets it around the translation of the aggregate's child subtree,
+     * see PhysicalPlanTranslator#visitBucketedFusion; visitPhysicalOlapScan applies it
+     * before OlapScanNode#init builds the scan range locations.
+     */
+    private long bucketedFusionBackendId = -1;
+
     private boolean isTopMaterializeNode = true;
 
     private final Set<SlotId> virtualColumnIds = Sets.newHashSet();
@@ -291,6 +299,31 @@ public class PlanTranslatorContext {
 
     public boolean isInFragmentMergeChild() {
         return fragmentMergeChildDepth > 0;
+    }
+
+    /**
+     * A distribute is an exchange boundary: the plan below it is translated into fragments
+     * of its own, so a fragment-merging ancestor (join / set operation / recursive union)
+     * cannot absorb a scan that sits below the exchange. Clears the fragment-merge child
+     * context while the child of the distribute is translated and returns the previous
+     * depth, which {@link #exitExchangeBoundary(int)} restores.
+     */
+    public int enterExchangeBoundary() {
+        int savedDepth = fragmentMergeChildDepth;
+        fragmentMergeChildDepth = 0;
+        return savedDepth;
+    }
+
+    public void exitExchangeBoundary(int savedDepth) {
+        fragmentMergeChildDepth = savedDepth;
+    }
+
+    public void setBucketedFusionBackendId(long backendId) {
+        this.bucketedFusionBackendId = backendId;
+    }
+
+    public long getBucketedFusionBackendId() {
+        return bucketedFusionBackendId;
     }
 
     /**

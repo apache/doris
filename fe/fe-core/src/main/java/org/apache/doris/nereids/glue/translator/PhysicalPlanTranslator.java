@@ -247,6 +247,7 @@ import org.apache.doris.planner.UnionNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticConstants;
+import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TExternalTableSinkHashAlgorithm;
 import org.apache.doris.thrift.TExternalTableSinkWriterAssignment;
@@ -364,7 +365,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalDistribute(PhysicalDistribute<? extends Plan> distribute,
             PlanTranslatorContext context) {
         Plan upstream = distribute.child(); // now they're in one fragment but will be split by ExchangeNode.
-        PlanFragment upstreamFragment = upstream.accept(this, context);
+        // The exchange keeps the upstream fragment apart from any fragment-merging ancestor,
+        // so an aggregate fused into BucketedAggregationNode below it is safe.
+        int fragmentMergeChildDepth = context.enterExchangeBoundary();
+        PlanFragment upstreamFragment;
+        try {
+            upstreamFragment = upstream.accept(this, context);
+        } finally {
+            context.exitExchangeBoundary(fragmentMergeChildDepth);
+        }
         List<List<Expr>> upstreamDistributeExprs = getDistributeExprs(upstream);
 
         DistributionSpec targetDistribution = distribute.getDistributionSpec();
@@ -1102,6 +1111,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         // create scan range
+        if (context.getBucketedFusionBackendId() != -1) {
+            // Below a bucketed aggregation: only the backend the single-BE gate saw may scan.
+            olapScanNode.setPinnedBackendId(context.getBucketedFusionBackendId());
+        }
         Utils.execWithUncheckedException(olapScanNode::init);
         context.addScanNode(olapScanNode, olapScan);
 
@@ -1304,7 +1317,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // Bucketed fusion path: fuse one-phase GLOBAL aggregate + distribute
         // into BucketedAggregationNode when applicable (single-BE, no exchange needed).
         if (shouldUseBucketedFusion(aggregate, context)) {
-            return visitBucketedFusion(aggregate, context);
+            // Read the single alive backend again right before the fused fragment is built
+            // and pin its scan to that backend. If the alive backends changed since the
+            // eligibility gate ran, keep the regular aggregate and its exchange instead.
+            Backend backend = AggregateUtils.getBucketedHashAggBackend(ConnectContext.get());
+            if (backend != null) {
+                return visitBucketedFusion(aggregate, context, backend.getId());
+            }
         }
 
         PlanFragment inputPlanFragment = aggregate.child(0).accept(this, context);
@@ -3237,11 +3256,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (!isSingleOlapScanPipeline(aggregate.child(0).child(0))) {
             return false;
         }
-        // The parent is a fragment-merging node (join / set-op) that consumes this
-        // fragment without an exchange boundary: fusing removes the exchange that
-        // keeps the scan in its own fragment, so multiple scans would end up in the
-        // same fragment and the scan-assignment would fail. Only fuse when the
-        // parent chain keeps an exchange boundary (e.g. a top-level aggregate).
+        // The parent is a fragment-merging node (join / set-op / recursive union) that
+        // consumes this fragment without an exchange boundary: fusing removes the
+        // exchange that keeps the scan in its own fragment, so multiple scans would end
+        // up in the same fragment and the scan-assignment would fail. A distribute
+        // between the merging node and this aggregate clears the context (see
+        // visitPhysicalDistribute), because its exchange keeps the fused fragment apart.
         if (context.isInFragmentMergeChild()) {
             return false;
         }
@@ -3301,14 +3321,24 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      * Fuse a one-phase GLOBAL hash aggregate and its PhysicalDistribute child
      * into a BucketedAggregationNode, skipping the exchange node entirely.
      * Visits the distribute's child directly to keep everything in one fragment.
+     * The olap scan below the aggregate is pinned to {@code backendId}, the only
+     * alive backend seen by the single-BE gate.
      */
     private PlanFragment visitBucketedFusion(
             PhysicalHashAggregate<? extends Plan> aggregate,
-            PlanTranslatorContext context) {
+            PlanTranslatorContext context, long backendId) {
         // Visit the distribute's direct child, bypassing the distribute entirely.
         // This avoids creating an ExchangeNode that bucketed agg does not need.
         Plan distributeChild = aggregate.child(0).child(0);
-        PlanFragment inputPlanFragment = distributeChild.accept(this, context);
+        int scanNodesBefore = context.getScanNodes().size();
+        PlanFragment inputPlanFragment;
+        context.setBucketedFusionBackendId(backendId);
+        try {
+            inputPlanFragment = distributeChild.accept(this, context);
+        } finally {
+            context.setBucketedFusionBackendId(-1);
+        }
+        checkBucketedFusionScanPinned(context, scanNodesBefore, backendId);
 
         List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
         List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
@@ -3353,6 +3383,27 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         updateLegacyPlanIdToPhysicalPlan(inputPlanFragment.getPlanRoot(), aggregate);
         return inputPlanFragment;
+    }
+
+    /**
+     * Bucketed aggregation merges the groups of its fragment in memory, so every tablet
+     * of the fused fragment has to be scanned on the backend the single-BE gate saw.
+     * OlapScanNode#init builds the scan range locations while the scan is translated,
+     * and the scan worker selection later picks any alive backend among them: a backend
+     * that became alive after the gate would receive part of the tablets and emit its own
+     * partial groups. visitPhysicalOlapScan therefore pins the scan (dropping the replicas
+     * of every other backend) while the fused subtree is translated; this verifies that
+     * exactly that one olap scan was translated and pinned.
+     */
+    private void checkBucketedFusionScanPinned(PlanTranslatorContext context, int scanNodesBefore,
+            long backendId) {
+        List<ScanNode> scanNodes = context.getScanNodes();
+        // isSingleOlapScanPipeline accepted the subtree, so it registers exactly one olap scan.
+        Preconditions.checkState(scanNodes.size() == scanNodesBefore + 1
+                        && scanNodes.get(scanNodesBefore) instanceof OlapScanNode
+                        && ((OlapScanNode) scanNodes.get(scanNodesBefore)).getPinnedBackendId() == backendId,
+                "bucketed aggregation fusion expects exactly one olap scan below the aggregate,"
+                        + " pinned to backend " + backendId);
     }
 
     /**

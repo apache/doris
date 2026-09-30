@@ -25,6 +25,7 @@
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "core/column/column_fixed_length_object.h"
+#include "exec/operator/inline_count.h"
 #include "exec/operator/operator.h"
 #include "exec/operator/streaming_agg_min_reduction.h"
 #include "exprs/aggregate/aggregate_function_count.h"
@@ -508,8 +509,7 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
                                 auto& it = agg_method.begin;
                                 while (it != agg_method.end && num_rows < state->batch_size()) {
                                     keys[num_rows] = it.get_first();
-                                    auto inline_count =
-                                            reinterpret_cast<const UInt64&>(it.get_second());
+                                    auto inline_count = inline_count_get(it.get_second());
                                     count_col.insert_data(
                                             reinterpret_cast<const char*>(&inline_count),
                                             sizeof(UInt64));
@@ -901,10 +901,9 @@ void StreamingAggLocalState::_emplace_into_hash_table_inline_count(ColumnRawPtrs
                              auto creator_for_null_key = [&](auto& mapped) { mapped = nullptr; };
 
                              SCOPED_TIMER(_hash_table_emplace_timer);
-                             lazy_emplace_batch(agg_method, state, num_rows, creator,
-                                                creator_for_null_key, [&](uint32_t, auto& mapped) {
-                                                    ++reinterpret_cast<UInt64&>(mapped);
-                                                });
+                             lazy_emplace_batch(
+                                     agg_method, state, num_rows, creator, creator_for_null_key,
+                                     [&](uint32_t, auto& mapped) { inline_count_add(mapped, 1); });
 
                              COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                          }},

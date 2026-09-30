@@ -64,3 +64,27 @@ c	2.29128784747792	340
 -- !distinct_var_pop_result --
 1400	4.5325443786982245
 
+-- !join_child_bucketed_result --
+a	200	sum_a
+b	370	sum_b
+
+-- !join_child_regular_result --
+a	200	sum_a
+b	370	sum_b
+
+-- !union_children_result --
+a	110
+a	200
+b	130
+b	370
+c	120
+c	340
+
+-- !union_children_regular_result --
+a	110
+a	200
+b	130
+b	370
+c	120
+c	340
+
