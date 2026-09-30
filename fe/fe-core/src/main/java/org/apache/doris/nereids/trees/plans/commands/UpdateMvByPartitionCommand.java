@@ -34,6 +34,7 @@ import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -439,6 +440,55 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             return super.visitLogicalSubQueryAlias(subQueryAlias, predicates);
         }
 
+        /**
+         * The ranges of the MV partitions this compensation removes, as a predicate on the base table's
+         * partition column, or nothing when they cannot be written on one column.
+         *
+         * <p>A default partition's rows belong to whichever MV partition their own key falls in, so this is
+         * what they are read through: pinning them to the partition's own key -- the sentinel those rows were
+         * placed by -- reads none of them, and reading them whole would add the rows of the MV partitions the
+         * plan still has. Only an MV partitioned by this one column can be written that way here.
+         */
+        private static Set<Expression> mvPartitionsToReadThrough(PredicateAddContext predicates,
+                BaseColInfo relatedTableColumnInfo, Slot partitionSlot) {
+            Set<Expression> res = Sets.newHashSet();
+            if (predicates.getMvPartitionsToRemove().isEmpty()) {
+                return res;
+            }
+            for (Map.Entry<BaseTableInfo, Set<String>> entry
+                    : predicates.getMvPartitionsToRemove().entrySet()) {
+                try {
+                    TableIf table = MTMVUtil.getTable(entry.getKey());
+                    if (!(table instanceof MTMV)) {
+                        continue;
+                    }
+                    MTMV mtmv = (MTMV) table;
+                    if (mtmv.getPartitionColumns().size() != 1
+                            || !mtmv.getPartitionColumns().get(0).getName()
+                                    .equalsIgnoreCase(relatedTableColumnInfo.getColName())) {
+                        continue;
+                    }
+                    Type columnType = mtmv.getPartitionColumns().get(0).getType();
+                    for (String partitionName : entry.getValue()) {
+                        PartitionItem item = mtmv.getPartitionItemOrAnalysisException(partitionName);
+                        if (!(item instanceof ListPartitionItem)) {
+                            continue;
+                        }
+                        List<Expression> values = ((ListPartitionItem) item).getItems().stream()
+                                .map(key -> convertPartitionKeyToLiteral(key, 0, Optional.of(columnType)))
+                                .collect(Collectors.toList());
+                        res.add(new InPredicate(partitionSlot, values));
+                    }
+                } catch (Exception e) {
+                    // The ranges are what narrows this read; if they cannot be read, the read is left as it
+                    // was rather than narrowed to a guess.
+                    LOG.warn("Failed to read the removed MV partitions for the base union filter", e);
+                    return Sets.newHashSet();
+                }
+            }
+            return res;
+        }
+
         @Override
         public Plan visitLogicalCatalogRelation(LogicalCatalogRelation catalogRelation,
                 PredicateAddContext predicates) {
@@ -518,10 +568,18 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                         // can be seen to be too wide rather than one that drops its rows.
                         boolean hasDefaultPartition = partitionHasDataItems.stream()
                                 .anyMatch(PartitionItem::isDefaultPartition);
-                        Set<Expression> preds = targetTable instanceof OlapTable && !hasDefaultPartition
-                                ? constructPredicatesOfBasePartitions(partitionHasDataItems,
-                                        (OlapTable) targetTable, relatedTableColumnInfo.getColName())
-                                : constructPredicates(partitionHasDataItems, partitionSlot);
+                        Set<Expression> mvPartitionPredicates = hasDefaultPartition
+                                ? mvPartitionsToReadThrough(predicates, relatedTableColumnInfo, partitionSlot)
+                                : Sets.newHashSet();
+                        Set<Expression> preds;
+                        if (!mvPartitionPredicates.isEmpty()) {
+                            preds = mvPartitionPredicates;
+                        } else if (targetTable instanceof OlapTable && !hasDefaultPartition) {
+                            preds = constructPredicatesOfBasePartitions(partitionHasDataItems,
+                                    (OlapTable) targetTable, relatedTableColumnInfo.getColName());
+                        } else {
+                            preds = constructPredicates(partitionHasDataItems, partitionSlot);
+                        }
                         return new LogicalFilter<>(
                                 ExpressionUtils.extractConjunctionToSet(ExpressionUtils.or(preds)),
                                 catalogRelation
@@ -541,14 +599,20 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
 
         private final Map<TableIf, Set<Expression>> predicates;
         private final Map<BaseColInfo, Set<String>> partitions;
+        // The MV partitions this compensation takes out of the rewritten plan, by MV. A base partition that
+        // takes the rows no other partition of it claims cannot be pinned through its own key -- that key is
+        // the sentinel those rows were placed by -- so it is read through the ranges of these MV partitions.
+        private final Map<BaseTableInfo, Set<String>> mvPartitionsToRemove;
         private boolean handleSuccess = true;
         // when add filter by partition, if partition has no data, doesn't need to add filter. should be false
         private boolean needAddFilter = true;
 
         public PredicateAddContext(Map<TableIf, Set<Expression>> predicates,
-                Map<BaseColInfo, Set<String>> partitions) {
+                Map<BaseColInfo, Set<String>> partitions,
+                Map<BaseTableInfo, Set<String>> mvPartitionsToRemove) {
             this.predicates = predicates;
             this.partitions = partitions;
+            this.mvPartitionsToRemove = mvPartitionsToRemove;
         }
 
         public Map<TableIf, Set<Expression>> getPredicates() {
@@ -557,6 +621,10 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
 
         public Map<BaseColInfo, Set<String>> getPartitions() {
             return partitions;
+        }
+
+        public Map<BaseTableInfo, Set<String>> getMvPartitionsToRemove() {
+            return mvPartitionsToRemove == null ? ImmutableMap.of() : mvPartitionsToRemove;
         }
 
         public boolean isEmpty() {
