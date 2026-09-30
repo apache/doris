@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.qe.ConnectContext;
@@ -503,36 +504,6 @@ public class DateUtils {
         if (ConnectContext.get() == null || ConnectContext.get().getSessionVariable() == null) {
             return ZoneId.systemDefault();
         }
-        return ZoneId.of(ConnectContext.get().getSessionVariable().getTimeZone());
-    }
-
-    /**Determine whether there is a fallback transition within the interval (lower, upper].
-     * @return If there is one, return true.*/
-    public static boolean hasFallbackTransitionInInstantRange(ZoneId zoneId, Instant lower, Instant upper) {
-        ZoneOffsetTransition transition = zoneId.getRules().nextTransition(lower);
-        while (transition != null && !transition.getInstant().isAfter(upper)) {
-            if (transition.isOverlap()) {
-                return true;
-            }
-            transition = zoneId.getRules().nextTransition(transition.getInstant());
-        }
-        return false;
-    }
-
-    /** Determine whether the local interval intersects a spring-forward gap. */
-    public static boolean hasGapTransitionInLocalDateTimeRange(
-            ZoneId zoneId, LocalDateTime lower, LocalDateTime upper) {
-        ZoneRules rules = zoneId.getRules();
-        Instant searchStart = lower.minusDays(2).atZone(zoneId).toInstant();
-        ZoneOffsetTransition transition = rules.nextTransition(searchStart);
-        while (transition != null && !transition.getDateTimeBefore().isAfter(upper)) {
-            if (transition.isGap()
-                    && upper.isAfter(transition.getDateTimeBefore())
-                    && lower.isBefore(transition.getDateTimeAfter())) {
-                return true;
-            }
-            transition = rules.nextTransition(transition.getInstant());
-        }
-        return false;
+        return TimeUtils.getDorisZoneId();
     }
 }
