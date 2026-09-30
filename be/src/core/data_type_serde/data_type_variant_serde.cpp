@@ -33,6 +33,7 @@
 #include "core/column/variant_v2/column_variant_v2.h"
 #include "core/column/variant_v2/column_variant_v2_typed_column.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_variant_v2.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_variant_v2_serde.h"
 #include "core/field.h"
@@ -40,6 +41,7 @@
 #include "core/types.h"
 #include "core/value/jsonb_value.h"
 #include "exec/common/variant_util.h"
+#include "exprs/function/cast/variant_v2/cast_variant_v2.h"
 #include "exprs/function/parse/variant_string_parse.h"
 #include "util/json/json_parser.h"
 #include "util/jsonb_writer.h"
@@ -184,42 +186,79 @@ Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const 
                         *typed, null_map, array_builder, start, end, ctz);
             }
         }
-        JsonToVariantOptions parse_options;
-        parse_options.throw_on_invalid_json = true;
-        // Stored keys were already accepted at ingestion; mutable parse limits must not reject reads.
-        parse_options.max_json_key_length = std::numeric_limits<uint32_t>::max();
-        parse_options.check_duplicate_json_path = false;
-        JsonStringToVariantEncoder encoder(parse_options);
-        FormatOptions options;
-        options.timezone = &ctz;
-        NullMap selected_nulls;
-        if (null_map != nullptr) {
-            selected_nulls.assign(null_map->begin() + start, null_map->begin() + end);
+        const size_t rows = end - start;
+        NullMap selected_nulls(rows, 0);
+        NullMap root_mask(rows, 1);
+        bool has_roots = false;
+        bool has_documents = false;
+        for (size_t row = 0; row < rows; ++row) {
+            selected_nulls[row] = null_map != nullptr && (*null_map)[start + row];
+            if (selected_nulls[row]) {
+                continue;
+            }
+            const bool root_visible = var->is_scalar_variant()
+                                              ? !var->get_root()->is_null_at(start + row)
+                                              : var->is_visible_root_value(start + row);
+            root_mask[row] = !root_visible;
+            has_roots |= root_visible;
+            has_documents |= !root_visible;
         }
-        for (int64_t row = start; row < end; ++row) {
-            std::string json;
-            if (null_map != nullptr && (*null_map)[row]) {
-                json = "null";
-            } else {
-                var->serialize_one_row_to_string(row, &json, options);
-                if (var->get_root_type()->get_primitive_type() == TYPE_STRING &&
-                    !var->get_root()->is_null_at(row)) {
-                    // The legacy root string serializer emits raw text, not a JSON string literal.
-                    auto quoted = ColumnString::create();
-                    VectorBufferWriter writer(*quoted);
-                    writer.write_json_string(json);
-                    writer.commit();
-                    json = quoted->get_data_at(0).to_string();
+        ColumnPtr roots;
+        if (has_roots) {
+            // JSON reparsing loses decimal/temporal identities and rejects non-finite numbers.
+            // Reuse typed CAST for every visible root, including arrays and mixed-path batches.
+            auto root_type = remove_nullable(var->get_root_type());
+            auto target_type = std::make_shared<DataTypeVariantV2>();
+            // Invisible roots, including nullable roots, are already masked above.
+            Block root_block {
+                    {remove_nullable(var->get_root())->cut(start, rows), root_type, "root"},
+                    {target_type->create_column(), target_type, "encoded"}};
+            auto encode_root = CastWrapper::create_cast_to_variant_v2_wrapper(root_type);
+            RETURN_IF_ERROR(encode_root(nullptr, root_block, {0}, 1, rows, root_mask.data()));
+            roots = root_block.get_by_position(1).column;
+        }
+        ColumnPtr documents;
+        if (has_documents || !has_roots) {
+            JsonToVariantOptions parse_options;
+            parse_options.throw_on_invalid_json = true;
+            // Stored keys were already accepted at ingestion; mutable parse limits must not reject reads.
+            parse_options.max_json_key_length = std::numeric_limits<uint32_t>::max();
+            JsonStringToVariantEncoder encoder(parse_options);
+            FormatOptions options;
+            options.timezone = &ctz;
+            for (size_t row = 0; row < rows; ++row) {
+                std::string json = "null";
+                if (root_mask[row] && !selected_nulls[row]) {
+                    var->serialize_one_row_to_string(start + row, &json, options);
+                }
+                auto status = encoder.try_add_json({json.data(), json.size()});
+                if (!status.ok()) {
+                    return Status::NotSupported(
+                            "Cannot encode legacy document as native Arrow Variant: {}. "
+                            "Native documents are limited to {} nested levels; "
+                            "use enable_arrow_flight_sql_native_variant=false for UTF8 output",
+                            status.to_string(), VARIANT_MAX_NESTING_DEPTH);
                 }
             }
-            encoder.add_json({json.data(), json.size()});
+            auto values = encoder.finish_batch();
+            auto encoded = ColumnVariantV2::create();
+            encoded->insert_encoded_batch(values);
+            documents = std::move(encoded);
         }
-        auto values = encoder.finish_batch();
-        auto encoded = ColumnVariantV2::create();
-        encoded->insert_encoded_batch(values);
-        return DataTypeVariantV2SerDe().write_column_to_arrow(
-                *encoded, null_map == nullptr ? nullptr : &selected_nulls, array_builder, 0,
-                end - start, ctz);
+        // Write contiguous root/document runs without building another copy of the encoded batch.
+        for (size_t first = 0; first < rows;) {
+            const bool use_root = static_cast<bool>(roots) && (!root_mask[first] || !documents);
+            size_t last = first + 1;
+            while (last < rows &&
+                   use_root == (static_cast<bool>(roots) && (!root_mask[last] || !documents))) {
+                ++last;
+            }
+            RETURN_IF_ERROR(DataTypeVariantV2SerDe().write_column_to_arrow(
+                    *(use_root ? roots : documents), &selected_nulls, array_builder, first, last,
+                    ctz));
+            first = last;
+        }
+        return Status::OK();
     }
     if (array_builder->type()->id() == arrow::Type::LARGE_STRING) {
         auto& builder = assert_cast<arrow::LargeStringBuilder&>(*array_builder);

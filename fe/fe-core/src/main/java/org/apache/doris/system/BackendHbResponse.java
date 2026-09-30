@@ -49,6 +49,8 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
     private long lastFragmentUpdateTime;
     @SerializedName(value = "isShutDown")
     private boolean isShutDown = false;
+    @SerializedName(value = "arrowFlightNativeVariantSupported")
+    private boolean arrowFlightNativeVariantSupported;
     // The physical memory available for use by BE.
     private long beMemory = 0;
     @SerializedName("supportsPaimonRustReader")
@@ -104,6 +106,14 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         this.host = host;
         this.hbTime = lastHbTime;
         this.msg = errMsg;
+    }
+
+    public boolean isArrowFlightNativeVariantSupported() {
+        return arrowFlightNativeVariantSupported;
+    }
+
+    public void setArrowFlightNativeVariantSupported(boolean supported) {
+        arrowFlightNativeVariantSupported = supported;
     }
 
     public long getFragmentNum() {

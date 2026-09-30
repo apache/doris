@@ -484,7 +484,8 @@ Status ArrowFlightArrowBlockConvertor::write_column(const std::shared_ptr<const 
         RETURN_IF_ERROR(convert_to_arrow_type(type, &native_type, ctz.name(), true, true));
         // Check the extension identity and its complete nested shape before allowing the
         // Variant SerDe to write binary storage. An arbitrary STRUCT is not a Variant binding.
-        if (native_type->Equals(field->type())) {
+        // Timestamp labels may differ for equivalent fixed offsets, including inside containers.
+        if (is_declared_plain_arrow_binding(type, native_type, field->type())) {
             return serde.write_column_to_arrow(column, null_map, array_builder, start, end, ctz);
         }
     }
