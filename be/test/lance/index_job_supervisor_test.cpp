@@ -1567,11 +1567,18 @@ TEST_F(LanceIndexSupervisorTest, DebugPointWorkerHangHitsDeadlineTermination) {
     EXPECT_LT(elapsed, 25000);
 
     // The handoff is a per-launch snapshot: once the point is removed the next
-    // invocation runs the same persona to a clean completion.
+    // invocation runs the same persona to a clean completion. The fake worker
+    // echoes its identity from argv, so the override must be re-pointed at the
+    // second dispatch (a stale override would echo phase-1's identity and the
+    // supervisor would drop the frame as an identity mismatch).
     DebugPoints::instance()->remove("LanceIndexWorker.hang");
     const auto second = make_dispatch("dbg-hang-off", epoch_millis() + 3600 * 1000, 10022);
+    supervisor.force_worker_exec_for_test(fake_worker_path(), persona_args("happy", second));
     ASSERT_TRUE(supervisor.submit(second).ok());
     ASSERT_TRUE(recorder.wait_results(1));
+    EXPECT_EQ(recorder.termination_count(), 1U)
+            << "the clean rerun must not produce another termination (check the exec "
+               "override's identity argv)";
     EXPECT_EQ(recorder.first_result().result_code, TLanceIndexJobResultCode::NATIVE_OK);
     supervisor.stop();
 }
@@ -1603,11 +1610,17 @@ TEST_F(LanceIndexSupervisorTest, DebugPointWorkerSkipReportYieldsProofOnly) {
             << "a silent-exit worker must never produce a trusted result";
 
     // Same per-launch snapshot discipline: removing the point restores the
-    // happy path for the next invocation.
+    // happy path for the next invocation. The exec override must be re-pointed
+    // at the second dispatch (the fake echoes its identity from argv; a stale
+    // override would trip the supervisor's identity-mismatch drop).
     DebugPoints::instance()->remove("LanceIndexWorker.skip_report");
     const auto second = make_dispatch("dbg-skip-off", epoch_millis() + 3600 * 1000, 10032);
+    supervisor.force_worker_exec_for_test(fake_worker_path(), persona_args("happy", second));
     ASSERT_TRUE(supervisor.submit(second).ok());
     ASSERT_TRUE(recorder.wait_results(1));
+    EXPECT_EQ(recorder.termination_count(), 1U)
+            << "the clean rerun must not produce another termination (check the exec "
+               "override's identity argv)";
     EXPECT_EQ(recorder.first_result().result_code, TLanceIndexJobResultCode::NATIVE_OK);
     supervisor.stop();
 }
