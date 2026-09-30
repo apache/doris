@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.FoldLiteralArguments;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionTrait;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
@@ -29,14 +28,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /** SequenceFunction */
-public interface SequenceFunction extends FunctionTrait, FoldLiteralArguments {
+public interface SequenceFunction extends FunctionTrait {
     Pattern EVENT_PATTERN = Pattern.compile("\\(\\?(\\d+)\\)");
-
-    @Override
-    default boolean needFoldToLiteral(int index) {
-        // the pattern
-        return index == 0;
-    }
 
     @Override
     default void checkLegalityBeforeTypeCoercion() {
@@ -52,10 +45,7 @@ public interface SequenceFunction extends FunctionTrait, FoldLiteralArguments {
                     + " function must be DATE, DATETIME, TIMESTAMP_NS or TIMESTAMPTZ, but it is "
                     + getArgumentType(1));
         }
-        // a pattern FE cannot fold is parsed by BE when it is evaluated
-        if (firstArg instanceof StringLikeLiteral) {
-            checkPattern(((StringLikeLiteral) firstArg).getStringValue());
-        }
+        checkLiteralPattern();
 
         for (int i = 2; i < arity(); i++) {
             if (!getArgumentType(i).isBooleanType()) {
@@ -66,8 +56,22 @@ public interface SequenceFunction extends FunctionTrait, FoldLiteralArguments {
         }
     }
 
-    /** check the pattern syntax and that every event it refers to is given */
-    default void checkPattern(String pattern) {
+    @Override
+    default void checkLegalityAfterRewrite() {
+        // An aggregate function is not removed by constant folding, so a constant pattern is validated once the
+        // rewrite has folded it to a literal.
+        checkLiteralPattern();
+    }
+
+    /**
+     * check the syntax of a literal pattern and that every event it refers to is given;
+     * a pattern FE cannot fold is parsed by BE when it is evaluated
+     */
+    default void checkLiteralPattern() {
+        if (!(getArgument(0) instanceof StringLikeLiteral)) {
+            return;
+        }
+        String pattern = ((StringLikeLiteral) getArgument(0)).getStringValue();
         if (!FunctionCallExpr.parsePattern(pattern)) {
             throw new AnalysisException("The format of pattern params is wrong: " + this.toSql());
         }
