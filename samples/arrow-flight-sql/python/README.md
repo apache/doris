@@ -55,9 +55,12 @@ and every registered BE has advertised native Variant support in its heartbeat,
 VARIANT fields (including nested fields) use the `arrow.parquet.variant` extension
 with `struct<metadata: binary not null, value: binary not null>` storage. SQL NULL is
 a null struct. V2 Variant null is a non-null struct containing the encoded null value.
-V2 values retain their binary representation. Supported legacy scalar roots use typed
-encoding (also for arrays and visible roots in mixed document batches); legacy documents
-use JSON conversion with the existing null/missing semantics.
+V2 values retain their binary representation. Legacy roots use recursive typed encoding,
+including MAP, STRUCT, ARRAY, TIMEV2 and nested VARIANT values. MAP keys become object
+field names; TIMEV2 retains its microseconds as a native Variant time value. Legacy
+documents use JSON conversion with the existing null/missing semantics. In particular,
+a legacy null root remains an empty object, including in a scalar-only batch; outer
+SQL NULL remains a null struct.
 Decimal256 scalar roots are rejected because the wire format has no Decimal256 primitive.
 Native encoding currently accepts at most 128 nested levels. Deeper legacy documents
 remain readable with `enable_arrow_flight_sql_native_variant=false`.
