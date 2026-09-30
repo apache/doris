@@ -15,10 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.arrow.driver.jdbc.shaded.com.google.protobuf.Any
 import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.CallOptions
 import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.FlightClient
 import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.Location
 import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.sql.FlightSqlClient
+import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.flight.sql.impl.FlightSql
 import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.memory.RootAllocator
 
 import java.util.concurrent.TimeUnit
@@ -39,11 +41,26 @@ suite("test_flight_native_variant", "arrow_flight_sql") {
             Location.forGrpcInsecure(frontend.Host.toString(), frontend.ArrowFlightSqlPort.toString().toInteger())).build()
     def client = new FlightSqlClient(feClient)
     def auth
-    def read = { String query, Closure inspect ->
+    def read = { String query, Closure inspect, boolean parallel = false, int resultBackendCount = 1 ->
         int count = 0
-        client.execute(query, auth).endpoints.each { endpoint ->
+        def info = client.execute(query, auth)
+        assertFalse(info.endpoints.isEmpty())
+        // Multiple buckets alone do not prove coverage of native output from different result BEs.
+        if (parallel) {
+            def resultAddresses = info.endpoints.collect { endpoint ->
+                def fields = Any.parseFrom(endpoint.ticket.bytes).unpack(FlightSql.TicketStatementQuery.class)
+                        .statementHandle.toStringUtf8().split("&")
+                "${fields[1]}:${fields[2]}".toString()
+            }
+            assertEquals(info.endpoints.size(), resultAddresses.toSet().size(), "Duplicate result backends")
+            if (resultBackendCount > 1) {
+                assertTrue(info.endpoints.size() > 1, "Expected multiple native Variant result backends")
+            }
+        }
+        info.endpoints.each { endpoint ->
             FlightClient.builder(allocator, endpoint.locations[0]).build().withCloseable { beClient ->
                 beClient.getStream(endpoint.ticket, auth, CallOptions.timeout(30, TimeUnit.SECONDS)).withCloseable { stream ->
+                    assertEquals(info.schema, stream.schema, "Result endpoints must share the published schema")
                     while (stream.next()) {
                         inspect(stream.root)
                         count += stream.root.rowCount
@@ -58,19 +75,25 @@ suite("test_flight_native_variant", "arrow_flight_sql") {
         auth = feClient.authenticateBasicToken(context.config.otherConfigs.get("extArrowFlightSqlUser"),
                 context.config.otherConfigs.get("extArrowFlightSqlPassword")).get()
         executeSetting("SET enable_sql_cache=false")
+        executeSetting("SET enable_nereids_distribute_planner=true")
+        executeSetting("SET parallel_pipeline_task_num=8")
         jdbc_sql("DROP TABLE IF EXISTS ${table}")
         jdbc_sql("""CREATE TABLE ${table} (id INT, v VARIANT)
-            DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 3
+            DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 60
             PROPERTIES("replication_num"="1")""")
-        jdbc_sql("""INSERT INTO ${table} VALUES
-            (1, ${variantV2Function}('42')), (2, ${variantV2Function}('"text"')),
-            (3, ${variantV2Function}('{"a":[1,null,"x"]}')), (4, NULL)""")
+        jdbc_sql("""INSERT INTO ${table}
+            SELECT number + 1, ${variantV2Function}(CASE number % 4
+                WHEN 0 THEN '42' WHEN 1 THEN '"text"'
+                WHEN 2 THEN '{"a":[1,null,"x"]}' ELSE NULL END)
+            FROM numbers("number"="60")""")
+        def resultBackendCount = jdbc_sql_return_maparray("SHOW TABLETS FROM ${table}")
+                .collect { it.BackendId }.unique().size()
         [false, true].each { parallel ->
             executeSetting("SET enable_parallel_result_sink=${parallel}")
             [false, true, false].each { nativeVariant ->
                 executeSetting("SET enable_arrow_flight_sql_native_variant=${nativeVariant}")
                 def seen = []
-                assertEquals(4, read("SELECT id, v FROM ${table}", { root ->
+                assertEquals(60, read("SELECT id, v FROM ${table}", { root ->
                     def vector = root.getVector(1)
                     def field = vector.field
                     if (nativeVariant) {
@@ -87,19 +110,19 @@ suite("test_flight_native_variant", "arrow_flight_sql") {
                     for (int i = 0; i < root.rowCount; i++) {
                         int id = root.getVector(0).get(i)
                         seen.add(id)
-                        assertEquals(id == 4, vector.isNull(i))
-                        if (nativeVariant && id != 4) {
+                        assertEquals(id % 4 == 0, vector.isNull(i))
+                        if (nativeVariant && id % 4 != 0) {
                             assertTrue(vector.getChild("metadata").get(i).length > 0)
                             assertTrue(vector.getChild("value").get(i).length > 0)
-                            if (id == 1) {
+                            if (id % 4 == 1) {
                                 assertEquals([12, 42], vector.getChild("value").get(i).collect { it & 0xff })
                             }
-                        } else if (!nativeVariant && id == 1) {
+                        } else if (!nativeVariant && id % 4 == 1) {
                             assertEquals("42", vector.getObject(i).toString())
                         }
                     }
-                }))
-                assertEquals([1, 2, 3, 4], seen.sort())
+                }, parallel, resultBackendCount))
+                assertEquals((1..60).toList(), seen.sort())
             }
         }
         executeSetting("SET enable_arrow_flight_sql_native_variant=true")

@@ -246,6 +246,80 @@ TEST(ArrowFlightVariantTest, LegacyDocumentsPreserveTypedPaths) {
     }
 }
 
+TEST(ArrowFlightVariantTest, LegacyPendingDocumentDefaultsPreserveValuesAndSlices) {
+    auto legacy = ColumnVariant::create(0);
+    auto root_type = make_nullable(std::make_shared<DataTypeString>());
+    auto roots = root_type->create_column();
+    roots->insert_many_defaults(3);
+    legacy->create_root(root_type, std::move(roots));
+    auto decimal_type = std::make_shared<DataTypeDecimal128>(20, 2);
+    auto decimals = ColumnDecimal128V3::create(0, 2);
+    const Int128 exact = 900719925474099301LL;
+    decimals->insert_value(Decimal128V3(exact));
+    ASSERT_TRUE(legacy->add_sub_column(PathInData("amount"), 3));
+    auto* amount = legacy->get_subcolumn(PathInData("amount"));
+    *amount = ColumnVariant::Subcolumn(1, true);
+    amount->insert(decimal_type->get_field_with_data_type(*decimals, 0));
+    amount->insert_default();
+    // Scans can return lazy prefix/suffix defaults; output must not finalize the shared input.
+    ASSERT_FALSE(amount->is_finalized());
+    auto nulls = ColumnUInt8::create();
+    nulls->get_data().assign({0, 0, 1});
+    Block block {{ColumnNullable::create(std::move(legacy), std::move(nulls)),
+                  make_nullable(std::make_shared<DataTypeVariant>()), "v"}};
+    ArrowFlightArrowBlockConvertor converter(arrow::schema({arrow::field("v", native_variant())}),
+                                             cctz::utc_time_zone());
+    std::shared_ptr<arrow::RecordBatch> batch;
+    auto status = converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(value_at(*batch->column(0), 0).num_elements(), 0);
+    VariantRef value;
+    ASSERT_TRUE(value_at(*batch->column(0), 1).object_find({"amount", 6}, &value));
+    EXPECT_EQ(value.get_decimal().unscaled, exact);
+    EXPECT_EQ(value.get_decimal().scale, 2);
+    EXPECT_TRUE(batch->column(0)->IsNull(2));
+    ASSERT_TRUE(converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch, 1, 3).ok());
+    ASSERT_TRUE(value_at(*batch->column(0), 0).object_find({"amount", 6}, &value));
+    EXPECT_EQ(value.get_decimal().unscaled, exact);
+    EXPECT_TRUE(batch->column(0)->IsNull(1));
+    EXPECT_FALSE(amount->is_finalized());
+}
+
+TEST(ArrowFlightVariantTest, LegacyScanDocumentWithPendingArrayDefaults) {
+    auto type = std::make_shared<DataTypeVariant>(9);
+    auto column = type->create_column();
+    DataTypeSerDe::FormatOptions options;
+    for (std::string json : {"42", R"("text")", R"({"a":[1,null,"x"]})", "null"}) {
+        Slice slice(json.data(), json.size());
+        ASSERT_TRUE(
+                type->get_serde()->deserialize_one_cell_from_json(*column, slice, options).ok());
+    }
+    auto& legacy = assert_cast<ColumnVariant&>(*column);
+    legacy.get_subcolumns().get_mutable_root()->data.finalize();
+    auto* array = legacy.get_subcolumn(PathInData("a"));
+    ASSERT_NE(array, nullptr);
+    ASSERT_FALSE(array->is_finalized());
+    auto nulls = ColumnUInt8::create();
+    nulls->get_data().assign({0, 0, 0, 1});
+    Block block {{ColumnNullable::create(std::move(column), std::move(nulls)), make_nullable(type),
+                  "v"}};
+    ArrowFlightArrowBlockConvertor converter(arrow::schema({arrow::field("v", native_variant())}),
+                                             cctz::utc_time_zone());
+    std::shared_ptr<arrow::RecordBatch> batch;
+    auto status = converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(value_at(*batch->column(0), 0).get_int(), 42);
+    EXPECT_EQ(value_at(*batch->column(0), 1).get_string().to_string(), "text");
+    VariantRef value;
+    ASSERT_TRUE(value_at(*batch->column(0), 2).object_find({"a", 1}, &value));
+    ASSERT_EQ(value.num_elements(), 3);
+    EXPECT_EQ(value.array_at(0).get_int(), 1);
+    EXPECT_TRUE(value.array_at(1).is_null());
+    EXPECT_EQ(value.array_at(2).get_string().to_string(), "x");
+    EXPECT_TRUE(batch->column(0)->IsNull(3));
+    EXPECT_FALSE(array->is_finalized());
+}
+
 TEST(ArrowFlightVariantTest, NativeResultPreservesValuesAndSqlNulls) {
     TimezoneUtils::load_timezones_to_cache();
     ASSERT_TRUE(register_arrow_variant_extension().ok());

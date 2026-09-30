@@ -28,6 +28,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BackendHbResponse;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TBackendInfo;
 import org.apache.doris.thrift.TColumnDesc;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TPrimitiveType;
@@ -159,6 +160,24 @@ public class FlightSqlNativeVariantTest {
         } finally {
             Config.max_backend_heartbeat_failure_tolerance_count = tolerance;
             Deencapsulation.setField(system, "idToBackendRef", original);
+        }
+    }
+
+    @Test
+    public void heartbeatCapabilitiesRemainIndependent() {
+        // Field 11 already belongs to Paimon; sharing its wire ID would enable the wrong reader.
+        Assert.assertEquals(11, TBackendInfo._Fields.SUPPORTS_PAIMON_RUST_READER.getThriftFieldId());
+        Assert.assertEquals(12, TBackendInfo._Fields.ARROW_FLIGHT_NATIVE_VARIANT_SUPPORTED.getThriftFieldId());
+        Backend backend = new Backend(12349, "127.0.0.1", 9050);
+        for (boolean paimon : new boolean[] {false, true}) {
+            for (boolean variant : new boolean[] {false, true}) {
+                BackendHbResponse response = heartbeat(backend.getId(), variant);
+                response.setPaimonRustReaderSupported(paimon);
+                backend.handleHbResponse(GsonUtils.GSON.fromJson(
+                        GsonUtils.GSON.toJson(response), BackendHbResponse.class), true);
+                Assert.assertEquals(paimon, backend.isPaimonRustReaderSupported());
+                Assert.assertEquals(variant, backend.isArrowFlightNativeVariantSupported());
+            }
         }
     }
 
