@@ -199,8 +199,15 @@ public class IcebergScanNode extends FileQueryScanNode {
     private List<String> orderedPartitionMetadataKeys;
     private boolean enableMappingVarbinaryForPartitionMetadata;
     private boolean enableMappingTimestampTzForPartitionMetadata;
+    // Whether the table's CURRENT default spec is partitioned. Display/accounting only: it gates what
+    // counts as a scanned partition (selectedPartitionNum, numApproximateSplits), preserving the legacy
+    // numbers for a table that evolved to an unpartitioned spec.
     private boolean isPartitionedTable;
     private Boolean requiresRowId;
+    // Whether ANY spec of the table is partitioned. This is the READ gate: data files written under an
+    // older partitioned spec still carry their identity values, and must keep sending them even after
+    // the default spec evolved to unpartitioned.
+    private boolean hasPartitionedSpec;
     private int formatVersion;
     private ExecutionAuthenticator preExecutionAuthenticator;
     private IcebergRuntimeContext runtimeContext;
@@ -318,6 +325,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             partitionMapInfos = new HashMap<>();
             initializePartitionMetadata();
             isPartitionedTable = icebergTable.spec().isPartitioned();
+            hasPartitionedSpec = IcebergUtils.hasPartitionedSpec(icebergTable);
             // Metadata tables (system tables) are not BaseTable instances, so we need to handle this case
             if (icebergTable instanceof BaseTable) {
                 formatVersion = ((BaseTable) icebergTable).operations().current().formatVersion();
@@ -510,18 +518,26 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         enableMappingVarbinaryForPartitionMetadata = getEnableMappingVarbinary();
         enableMappingTimestampTzForPartitionMetadata = getEnableMappingTimestampTz();
-        orderedPathPartitionKeys = Collections.unmodifiableList(
-                IcebergUtils.getCommonIdentityPartitionColumns(icebergTable,
-                        enableMappingVarbinaryForPartitionMetadata,
-                        enableMappingTimestampTzForPartitionMetadata));
         if (sessionVariable.enableFileScannerV2) {
-            orderedPartitionMetadataKeys = Collections.unmodifiableList(
+            // Classify every identity column of EVERY spec as a partition key, like master does. A file
+            // written under an older identity spec carries its value in the manifest only, and BE uses a
+            // split partition value just for a column FE marked as a partition key, so the intersection
+            // below would leave that value unused and the column read as NULL. Files that carry no value
+            // for the column (a spec without it) are unaffected: the v2 column mapper falls back to the
+            // physical field when the split has no partition value for a partition key.
+            orderedPathPartitionKeys = Collections.unmodifiableList(
                     IcebergUtils.getIdentityPartitionColumns(icebergTable,
                             enableMappingVarbinaryForPartitionMetadata,
                             enableMappingTimestampTzForPartitionMetadata));
         } else {
-            orderedPartitionMetadataKeys = orderedPathPartitionKeys;
+            // v1 has no such per-file fallback: a partition key it cannot fill from the split is not read
+            // from the file either. Keep the columns common to all specs so those files stay readable.
+            orderedPathPartitionKeys = Collections.unmodifiableList(
+                    IcebergUtils.getCommonIdentityPartitionColumns(icebergTable,
+                            enableMappingVarbinaryForPartitionMetadata,
+                            enableMappingTimestampTzForPartitionMetadata));
         }
+        orderedPartitionMetadataKeys = orderedPathPartitionKeys;
     }
 
     @VisibleForTesting
@@ -2611,7 +2627,10 @@ public class IcebergScanNode extends FileQueryScanNode {
         split.setPartitionSpecId(specId);
         PartitionData partitionData = (PartitionData) dataFile.partition();
         boolean includePartitionData = requiresRowId();
-        if (partitionData != null && (includePartitionData || isPartitionedTable)) {
+        // Gate identity values on the table's spec HISTORY, not on the current default spec: a file written
+        // under an older identity spec keeps its partition values in the manifest, and they are the only
+        // source for an identity partition column that the physical file does not store.
+        if (partitionData != null && (includePartitionData || hasPartitionedSpec)) {
             PartitionSpec partitionSpec = icebergTable.specs().get(specId);
             Preconditions.checkNotNull(partitionSpec, "Partition spec with specId %s not found for table %s",
                     specId, icebergTable.name());
@@ -2626,7 +2645,10 @@ public class IcebergScanNode extends FileQueryScanNode {
                             + specId + ". Rewrite historical data files before DELETE or UPDATE.", e);
                 }
             }
-            if (isPartitionedTable) {
+            // The cache doubles as the scanned-partition count only for a partitioned current spec. Otherwise
+            // cache only specs with identity fields, or transformed-only old partitions would grow it uselessly.
+            if (isPartitionedTable || partitionSpec.fields().stream()
+                    .anyMatch(field -> field.transform().isIdentity())) {
                 Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(
                         Pair.of(specId, partitionData), k -> IcebergUtils.getIdentityPartitionInfoMap(
                                 partitionData, partitionSpec, icebergTable, sessionVariable.getTimeZone(),
@@ -2808,7 +2830,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             for (FileScanTask task : customFileScanTasks) {
                 splits.add(createIcebergSplit(task));
             }
-            selectedPartitionNum = partitionMapInfos.size();
+            selectedPartitionNum = scannedPartitionNum();
             recordManifestCacheProfile();
             return splits;
         }
@@ -2845,7 +2867,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             }
         }
 
-        selectedPartitionNum = partitionMapInfos.size();
+        selectedPartitionNum = scannedPartitionNum();
         recordManifestCacheProfile();
         return splits;
     }
@@ -3228,9 +3250,21 @@ public class IcebergScanNode extends FileQueryScanNode {
         ((IcebergSplit) splits.get(size - 1)).setTableLevelRowCount(countPerSplit + totalCount % size);
     }
 
+    /**
+     * The number of scanned partitions reported to EXPLAIN ({@code partition=N/M}), the
+     * {@code sql_block_rule} {@code partition_num} guard and the batch-mode split estimate. A table whose
+     * CURRENT spec is unpartitioned reports no partitions at all, so the partitions that files of an older
+     * spec still carry must not start being counted — {@code partitionMapInfos} now collects them because
+     * it doubles as the per-(spec, partition) identity-value cache for the read path.
+     */
+    private int scannedPartitionNum() {
+        return isPartitionedTable ? partitionMapInfos.size() : 0;
+    }
+
     @Override
     public int numApproximateSplits() {
-        return NUM_SPLITS_PER_PARTITION * partitionMapInfos.size() > 0 ? partitionMapInfos.size() : 1;
+        int partitions = scannedPartitionNum();
+        return NUM_SPLITS_PER_PARTITION * partitions > 0 ? partitions : 1;
     }
 
     private Optional<NotSupportedException> checkNotSupportedException(Exception e) {
