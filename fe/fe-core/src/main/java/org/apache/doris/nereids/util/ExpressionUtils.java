@@ -32,6 +32,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.rules.expression.rules.TrySimplifyPredicateWithMarkJoinSlot;
 import org.apache.doris.nereids.trees.SuperClassId;
 import org.apache.doris.nereids.trees.TreeNode;
@@ -1523,6 +1524,20 @@ public class ExpressionUtils {
         }
 
         return Optional.empty();
+    }
+
+    /**
+     * Fold a constant function argument to the literal it evaluates to on FE, for a function that needs the
+     * value of the argument before the rewrite phase folds it: to compute its signature in
+     * prepareBeforeTypeCoercion, or to validate the value in checkLegalityBeforeTypeCoercion.
+     * An argument that is not constant, or that FE cannot fold, is returned unchanged.
+     */
+    public static Expression foldConstantArgument(Expression argument) {
+        if (argument instanceof Literal || !argument.isConstant()) {
+            return argument;
+        }
+        Expression folded = FoldConstantRuleOnFE.evaluateWithoutContext(argument);
+        return folded instanceof Literal ? folded : argument;
     }
 
     public static Optional<Literal> getLiteralAfterUnwrapNullable(Expression expr) {

@@ -21,7 +21,6 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.FoldLiteralArguments;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
@@ -32,6 +31,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -42,7 +42,7 @@ import java.util.List;
  * scalar function array_apply
  */
 public class ArrayApply extends ScalarFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable, FoldLiteralArguments {
+        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable {
     public static final List<FunctionSignature> FOLLOW_DATATYPE_SIGNATURE = ImmutableList.of(
             FunctionSignature.retArgType(0)
                     .args(ArrayType.of(new AnyDataType(0)), VarcharType.SYSTEM_DEFAULT,
@@ -66,13 +66,10 @@ public class ArrayApply extends ScalarFunction
     }
 
     @Override
-    public boolean needFoldToLiteral(int index) {
-        return index == 1;
-    }
-
-    @Override
     public void checkLegalityBeforeTypeCoercion() {
-        Expression arg1 = getArgument(1);
+        // validate the op FE can evaluate here, because constant folding may remove this function before any
+        // later check
+        Expression arg1 = ExpressionUtils.foldConstantArgument(getArgument(1));
         Expression arg2 = getArgument(2);
         if (!arg1.isConstant() || (arg1 instanceof Literal && !(arg1 instanceof StringLikeLiteral))) {
             throw new AnalysisException(

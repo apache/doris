@@ -21,7 +21,6 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.FoldLiteralArguments;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -36,7 +35,7 @@ import java.util.List;
 /** OrthogonalBitmapExprCalculate */
 public class OrthogonalBitmapExprCalculate extends NotNullableAggregateFunction
         implements OrthogonalBitmapFunction, ExplicitlyCastableSignature,
-        NullIgnoringAggregateFunction, FoldLiteralArguments {
+        NullIgnoringAggregateFunction {
 
     static final List<FunctionSignature> FUNCTION_SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(BitmapType.INSTANCE)
@@ -63,12 +62,6 @@ public class OrthogonalBitmapExprCalculate extends NotNullableAggregateFunction
     /** constructor for withChildren and reuse signature */
     private OrthogonalBitmapExprCalculate(AggregateFunctionParams functionParams) {
         super(functionParams);
-    }
-
-    @Override
-    public boolean needFoldToLiteral(int index) {
-        // the calculation expression; any other type is cast to VARCHAR by the type coercion
-        return index == 2 && getArgument(2).getDataType() instanceof CharacterType;
     }
 
     @Override

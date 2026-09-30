@@ -21,7 +21,6 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.FoldLiteralArguments;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -30,6 +29,7 @@ import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -41,7 +41,7 @@ import java.util.List;
  * GenerateFunction.
  */
 public class SplitByRegexp extends ScalarFunction
-        implements ExplicitlyCastableSignature, PropagateNullable, FoldLiteralArguments {
+        implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(ArrayType.of(VarcharType.SYSTEM_DEFAULT))
@@ -78,16 +78,12 @@ public class SplitByRegexp extends ScalarFunction
     }
 
     @Override
-    public boolean needFoldToLiteral(int index) {
-        return index == 2;
-    }
-
-    @Override
     public void checkLegalityBeforeTypeCoercion() {
         List<Expression> arguments = getArguments();
         if (arguments.size() == 3) {
-            Expression thirdArgument = getArgument(2);
-            // a constant FE cannot fold is validated by BE when it is evaluated
+            // validate the value FE can evaluate here, because constant folding may remove this function before
+            // any later check; a constant FE cannot fold is validated by BE when it is evaluated
+            Expression thirdArgument = ExpressionUtils.foldConstantArgument(getArgument(2));
             if (!thirdArgument.isConstant() || (thirdArgument instanceof Literal
                     && (!(thirdArgument instanceof IntegerLikeLiteral)
                     || ((IntegerLikeLiteral) thirdArgument).getIntValue() < 0))) {

@@ -24,7 +24,6 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.FoldLiteralArguments;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.StringType;
@@ -41,8 +40,7 @@ import java.util.List;
  * AggregateFunction 'AI_AGG'.
  */
 public class AIAgg extends NullableAggregateFunction
-        implements ExplicitlyCastableSignature, NotSupportAggState, NullIgnoringAggregateFunction,
-        FoldLiteralArguments {
+        implements ExplicitlyCastableSignature, NotSupportAggState, NullIgnoringAggregateFunction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE, StringType.INSTANCE),
@@ -75,12 +73,6 @@ public class AIAgg extends NullableAggregateFunction
     }
 
     @Override
-    public boolean needFoldToLiteral(int index) {
-        // the task, and the resource name when it is given
-        return index == arity() - 1 || (arity() == 3 && index == 0);
-    }
-
-    @Override
     public void checkLegalityAfterRewrite() {
         if (!child(arity() - 1).isLiteral()) {
             throw new AnalysisException("AI_AGG must accept literal for the task.");
@@ -91,24 +83,40 @@ public class AIAgg extends NullableAggregateFunction
             if (!child(0).isLiteral() || !child(2).isLiteral()) {
                 throw new AnalysisException("AI_AGG must accept literal for the resource name.");
             }
-
-            //Check if the resource is valid
-            String resourceName = getArgument(0).toString().replaceAll("^['\"]|['\"]$", "");
-            Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
-            if (!(resource instanceof AIResource)) {
-                throw new AnalysisException("AI resource '" + resourceName + "' does not exist");
-            }
-            if (!((AIResource) resource).hasCompleteGeneralProperties()) {
-                throw new AnalysisException("AI resource '" + resourceName
-                        + "' does not contain complete general AI properties");
-            }
-            Resource.registerUsedAIResourceName(resourceName);
+            checkResource();
         }
     }
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        checkLegalityAfterRewrite();
+        // An aggregate function is not removed by constant folding, so a constant task or resource name only has
+        // to be a literal in checkLegalityAfterRewrite, once the rewrite has folded it. A literal resource name
+        // is already validated here.
+        if (!child(arity() - 1).isConstant()) {
+            throw new AnalysisException("AI_AGG must accept literal for the task.");
+        }
+        if (arity() == 3) {
+            if (!child(0).isConstant()) {
+                throw new AnalysisException("AI_AGG must accept literal for the resource name.");
+            }
+            if (child(0).isLiteral()) {
+                checkResource();
+            }
+        }
+    }
+
+    private void checkResource() {
+        //Check if the resource is valid
+        String resourceName = getArgument(0).toString().replaceAll("^['\"]|['\"]$", "");
+        Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
+        if (!(resource instanceof AIResource)) {
+            throw new AnalysisException("AI resource '" + resourceName + "' does not exist");
+        }
+        if (!((AIResource) resource).hasCompleteGeneralProperties()) {
+            throw new AnalysisException("AI resource '" + resourceName
+                    + "' does not contain complete general AI properties");
+        }
+        Resource.registerUsedAIResourceName(resourceName);
     }
 
     @Override

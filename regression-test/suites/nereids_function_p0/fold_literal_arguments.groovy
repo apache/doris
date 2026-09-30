@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// Constant arguments whose values are validated are folded during analysis,
-// so a foldable constant expression is accepted like the literal it evaluates to,
-// and a constant expression FE cannot fold is evaluated and validated by BE.
+// A constant expression is accepted for an argument that a function requires to be constant.
+// FE folds the argument before type coercion only when the signature depends on its value (the precision of now,
+// the time unit of the string forms of date_trunc). The value of any other argument FE can evaluate is validated
+// like the literal it evaluates to, and a constant expression FE cannot fold is evaluated and validated by BE.
 suite("fold_literal_arguments") {
     sql "drop table if exists fold_literal_arguments_t"
     sql """
@@ -53,8 +54,8 @@ suite("fold_literal_arguments") {
             date_trunc(concat('2024-03-15', ' 10:00:00.123'), 'month') c2
     """
     qt_date_trunc_string_value_type "desc fold_literal_arguments_ctas"
-    // the time unit next to a typed date literal is folded; when both arguments are foldable strings, only the
-    // time unit is folded, so the derived return type is the same as with a literal time unit
+    // when both arguments are foldable strings, only the time unit is folded before type coercion, so the derived
+    // return type is the same as with a literal time unit
     qt_date_trunc_typed_date """select date_trunc(DATE '2024-03-15', concat('mon', 'th')),
             date_trunc(concat('ye', 'ar'), TIMESTAMP '2024-03-15 10:00:00')"""
     sql "drop table if exists fold_literal_arguments_ctas_zoned"
@@ -86,7 +87,7 @@ suite("fold_literal_arguments") {
     qt_topn """select topn(s, 1 + 1) from
             (select 'a' s union all select 'a' union all select 'b' union all select 'b' union all select 'b' union all select 'c') t"""
 
-    // INSERT ... VALUES does not run the rewrite phase
+    // INSERT ... VALUES does not run the rewrite phase, so the arguments are not folded on FE
     sql "drop table if exists fold_literal_arguments_insert"
     sql """
         create table fold_literal_arguments_insert (k int, s string)
@@ -96,7 +97,7 @@ suite("fold_literal_arguments") {
             (1, sha2('abc', 200 + 56)), (2, regexp_replace('abc', 'a', 'b', concat('', '')))"""
     order_qt_insert_values "select * from fold_literal_arguments_insert"
 
-    // the folded value is still validated
+    // the value FE can evaluate is validated like the literal
     test {
         sql "select sha2('abc', 200 + 100)"
         exception "sha2 functions only support digest length of"
@@ -112,6 +113,28 @@ suite("fold_literal_arguments") {
     test {
         sql "select now(3 + 7)"
         exception "Precision of NOW must be between 0 and"
+    }
+    test {
+        sql "select date_trunc(dt, concat('mon', 'x')) from fold_literal_arguments_t"
+        exception "date_trunc function time unit param only support argument is"
+    }
+    // constant folding removes these functions, so the value is validated before it
+    test {
+        sql "select sha2(null, 200 + 100)"
+        exception "sha2 functions only support digest length of"
+    }
+    test {
+        sql "select tokenize(null, concat('par', 'ser'))"
+        exception "tokenize second argument must be properties format"
+    }
+    // an aggregate function is validated once the rewrite has folded its arguments
+    test {
+        sql "select topn(s, 1 - 1) from fold_literal_arguments_t"
+        exception "must be a constant positive integer"
+    }
+    test {
+        sql "select sequence_match(concat('(?1)', '(?9)'), dt, k = 1, k = 2) from fold_literal_arguments_t"
+        exception "Event number 9 is out of range"
     }
 
     // a non-constant argument is still rejected
@@ -234,7 +257,7 @@ suite("fold_literal_arguments") {
         exception "NOW precision argument must be a constant literal"
     }
 
-    // without constant folding, the arguments are still literals when they reach the rewrite checks
+    // without constant folding, FE still validates the values before type coercion, and BE evaluates the arguments
     sql "set debug_skip_fold_constant = true"
     qt_topn_skip_fold """select topn(s, 1 + 1) from
             (select 'a' s union all select 'a' union all select 'b' union all select 'b' union all select 'b' union all select 'c') t"""
@@ -244,4 +267,9 @@ suite("fold_literal_arguments") {
     qt_sha2_skip_fold "select sha2('abc', 200 + 56)"
     qt_array_apply_skip_fold "select array_apply([1, 2, 3], concat('>', '='), 2)"
     order_qt_date_trunc_skip_fold "select k, date_trunc(dt, concat('mon', 'th')) from fold_literal_arguments_t"
+    qt_now_skip_fold "select length(cast(now(1 + 2) as string))"
+    test {
+        sql "select sha2('abc', 200 + 100)"
+        exception "sha2 functions only support digest length of"
+    }
 }
