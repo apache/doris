@@ -39,6 +39,12 @@ test_drop_unreferenced_column_mtmv_scope_add_mv	NORMAL	SUCCESS	true
 -- !scope_add_state --
 test_drop_unreferenced_column_mtmv_scope_add_mv	SCHEMA_CHANGE	SUCCESS	false
 
+-- !scope_rename_baseline --
+1
+
+-- !scope_rename_state --
+test_drop_unreferenced_column_mtmv_scope_rename_mv	SCHEMA_CHANGE	SUCCESS	false
+
 -- !qualified_baseline --
 1
 

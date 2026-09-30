@@ -205,6 +205,41 @@ suite("test_drop_unreferenced_column_mtmv") {
     sql """ALTER TABLE ${scopeAddInner} ADD COLUMN flag INT DEFAULT 0"""
     order_qt_scope_add_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${scopeAddMv}'"
 
+    // A rename takes a name over the same way an add gives one, and it does it with two names at once: the
+    // one the query spelled, which the column no longer answers for, and the one that answers for it from
+    // then on. Neither of the two says on its own whether the query moved -- the old name is one no query
+    // reaches any more, and the new one is only a move where the old name was the query's before -- so the
+    // rename reports both. Here the inner table has `x` and no `flag`, so `flag` is the outer table's, and
+    // renaming `x` to `flag` hands the name to the inner scope: the query goes on producing `o.id` out of
+    // the rows of a column it never read, and the MV is invalidated.
+    String scopeRenameOuter = "${suiteName}_scope_rename_outer"
+    String scopeRenameInner = "${suiteName}_scope_rename_inner"
+    String scopeRenameMv = "${suiteName}_scope_rename_mv"
+    sql """drop materialized view if exists ${scopeRenameMv}"""
+    sql """drop table if exists ${scopeRenameOuter}"""
+    sql """drop table if exists ${scopeRenameInner}"""
+    sql """
+        CREATE TABLE ${scopeRenameOuter} (id INT, flag INT) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        CREATE TABLE ${scopeRenameInner} (id INT, x INT) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO ${scopeRenameOuter} VALUES (1, 1)"""
+    sql """INSERT INTO ${scopeRenameInner} VALUES (1, 0)"""
+    sql """
+        CREATE MATERIALIZED VIEW ${scopeRenameMv}
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+        AS SELECT o.id FROM ${scopeRenameOuter} o
+        WHERE EXISTS (SELECT 1 FROM ${scopeRenameInner} i WHERE i.id = o.id AND flag = 1)
+    """
+    waitingMTMVTaskFinishedByMvName(scopeRenameMv)
+    order_qt_scope_rename_baseline "SELECT id FROM ${scopeRenameMv}"
+    sql """ALTER TABLE ${scopeRenameInner} RENAME COLUMN x flag"""
+    order_qt_scope_rename_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${scopeRenameMv}'"
+
     // ---- a name another table answers for is not this one's to give or take ----
     // `flag` here is written with the qualifier of the second table, so what the query reads does not turn
     // on anything the first table does with a `flag` of its own: a name bound where it is written is one no
