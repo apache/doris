@@ -41,8 +41,6 @@ import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.lance.namespace.LanceNamespace;
-import org.lance.namespace.errors.NamespaceNotFoundException;
-import org.lance.namespace.errors.TableNotFoundException;
 import org.lance.namespace.model.ListNamespacesRequest;
 import org.lance.namespace.model.ListTablesRequest;
 
@@ -118,28 +116,56 @@ public class LanceExternalCatalog extends ExternalCatalog {
      * that take a durable action on the verdict and must not fold "verified gone"
      * and "could not tell" together. {@link #resolveCurrentIndexJobLocator} returns
      * null for both on purpose (SHOW's fail-closed rule folds them); this form
-     * distinguishes them: a {@code TableNotFound}/{@code NamespaceNotFound} answer
-     * from the namespace is positive evidence of absence, while any other failure is
-     * logged (the sanitized client chain already masks locators and credentials)
-     * and reported as {@link LanceIndexDatasetCheck.Outcome#UNRESOLVED}.
+     * distinguishes them.
      *
-     * <p>Callers must pass the REMOTE names of the relations when they hold the
-     * resolved objects (admission persists local names, and the namespace is
-     * case-sensitive); a caller with no resolved object falls back to its local
-     * names, which is correct whenever the local layer could not resolve them
-     * either — a case-mapped remote name resolves locally, so a local miss with a
-     * reachable namespace means no case-insensitive match exists at all.
+     * <p>Callers pass their LOCAL spelling of the names — no remote-cased names are
+     * required or assumed. Admission persists local database and table names, which
+     * can be lowercase while the namespace stores {@code Foo.Bar}, and the local
+     * lookup itself can miss transiently, so a case-sensitive resolve of the local
+     * spelling could false-prove absence ({@code Foo.Bar} would read as gone and a
+     * durable caller would act on it). Absence is therefore proven only through
+     * full case-insensitive listings: {@code VERIFIED_ABSENT} requires the whole
+     * database listing to miss the database, or the found remote database's table
+     * listing to miss the table. A name found in a listing is resolved under its
+     * REMOTE spelling to obtain the durable locator; any listing or resolve failure
+     * — provider unreachable, credentials expired, a namespace answer that
+     * contradicts its own listing — is logged (the sanitized client chain already
+     * masks locators and credentials) and reported as
+     * {@link LanceIndexDatasetCheck.Outcome#UNRESOLVED}, so an outage can never be
+     * read as "dataset gone".
+     *
+     * <p>The listings are paid only on the local-resolution-miss path: callers
+     * reach this check after their own local db/table lookup already came back
+     * empty, so the namespace round-trips buy the absence proof instead of adding
+     * overhead to the resolvable common path.
      */
     public LanceIndexDatasetCheck checkIndexJobDataset(String dbName, String tableName) {
         try {
-            String locator = withClient(current -> current.resolveCurrentIndexJobLocator(dbName, tableName));
-            return LanceIndexDatasetCheck.present(locator);
-        } catch (TableNotFoundException | NamespaceNotFoundException e) {
-            return LanceIndexDatasetCheck.verifiedAbsent();
+            String remoteDbName = findIgnoreCase(withClient(current -> current.listDatabaseNames()), dbName);
+            if (remoteDbName == null) {
+                return LanceIndexDatasetCheck.verifiedAbsent();
+            }
+            String remoteTableName = findIgnoreCase(
+                    withClient(current -> current.listTableNames(remoteDbName)), tableName);
+            if (remoteTableName == null) {
+                return LanceIndexDatasetCheck.verifiedAbsent();
+            }
+            return LanceIndexDatasetCheck.present(
+                    withClient(current -> current.resolveCurrentIndexJobLocator(remoteDbName, remoteTableName)));
         } catch (Exception e) {
             LOG.warn("failed to check the dataset of {}.{} in lance catalog {}", dbName, tableName, getName(), e);
             return LanceIndexDatasetCheck.unresolved();
         }
+    }
+
+    /** Returns the listed name that matches {@code target} ignoring case, or null when none does. */
+    private static String findIgnoreCase(List<String> names, String target) {
+        for (String name : names) {
+            if (name.equalsIgnoreCase(target)) {
+                return name;
+            }
+        }
+        return null;
     }
 
     public LanceExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
