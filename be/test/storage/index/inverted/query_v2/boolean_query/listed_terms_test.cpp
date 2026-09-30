@@ -191,15 +191,17 @@ protected:
         return rows;
     }
 
-    // Both strategies answer the query alike; the batching source is returned.
+    // Both sources answer the query alike; the batching source is returned. A streaming source
+    // `lists` its terms together only for an unscored conjunction it may answer.
     std::shared_ptr<FakeIndexSource> expect_alike(const MakeQuery& make_query,
                                                   const roaring::Roaring& true_rows,
-                                                  const roaring::Roaring& null_rows) const {
+                                                  const roaring::Roaring& null_rows,
+                                                  bool lists = false) const {
         auto streamed = source(false);
         const auto streamed_rows = evaluate(make_query, streamed);
         EXPECT_EQ(streamed_rows.true_rows, true_rows);
         EXPECT_EQ(streamed_rows.null_rows, null_rows);
-        EXPECT_TRUE(streamed->opened_together.empty());
+        EXPECT_EQ(streamed->opened_together.empty(), !lists);
         auto listed = source(true);
         const auto listed_rows = evaluate(make_query, listed);
         EXPECT_EQ(listed_rows.true_rows, true_rows);
@@ -255,7 +257,8 @@ TEST_F(ListedTermsTest, AConjunctionChainsItsTermsFromTheCheapest) {
             [&] {
                 return boolean(OperatorType::OP_AND, {term("a"), term("b"), term("c")});
             },
-            roaring::Roaring::bitmapOf(2, 3U, 8U), roaring::Roaring::bitmapOf(2, 40U, 41U));
+            roaring::Roaring::bitmapOf(2, 3U, 8U), roaring::Roaring::bitmapOf(2, 40U, 41U),
+            /*lists=*/true);
     EXPECT_EQ(listed->opened_together, (std::vector<std::vector<std::string>> {{"a", "b", "c"}}));
     ASSERT_EQ(listed->prefetches["c"].size(), 1U);
     EXPECT_TRUE(listed->prefetches["c"][0].whole);
@@ -296,6 +299,8 @@ TEST_F(ListedTermsTest, AnAbsentTermMakesTheConjunctionFalseEverywhere) {
                 return boolean(OperatorType::OP_AND, {term("a"), term("absent")});
             },
             roaring::Roaring(), roaring::Roaring());
+    // A term surely absent opens nothing on either source.
+    EXPECT_TRUE(listed->opened_together.empty());
     EXPECT_TRUE(listed->prefetches["a"].empty());
     expect_alike(
             [&] {
@@ -320,7 +325,7 @@ TEST_F(ListedTermsTest, OtherClausesRunInCostOrderAroundTheChain) {
                                         roaring::Roaring::bitmapOf(4, 2U, 3U, 8U, 30U)),
                                 term("b")});
             },
-            roaring::Roaring::bitmapOf(3, 2U, 3U, 8U), roaring::Roaring());
+            roaring::Roaring::bitmapOf(3, 2U, 3U, 8U), roaring::Roaring(), /*lists=*/true);
     EXPECT_EQ(listed->opened_together, (std::vector<std::vector<std::string>> {{"a", "b"}}));
     ASSERT_EQ(listed->prefetches["b"].size(), 1U);
     EXPECT_EQ(listed->prefetches["b"][0].candidates, (std::vector<uint32_t> {2, 3, 8, 30}));
@@ -332,8 +337,33 @@ TEST_F(ListedTermsTest, OtherClausesRunInCostOrderAroundTheChain) {
                                         roaring::Roaring::bitmapOf(6, 1U, 3U, 8U, 30U, 31U, 32U)),
                                 term("c")});
             },
-            roaring::Roaring::bitmapOf(2, 3U, 8U), roaring::Roaring());
+            roaring::Roaring::bitmapOf(2, 3U, 8U), roaring::Roaring(), /*lists=*/true);
     EXPECT_TRUE(listed->prefetches["c"][0].whole);
+}
+
+// An unscored conjunction chains its terms on a source reading them one at a time too: the
+// chain seeks the blocks the cheaper terms' rows fall in, and the source has no round to fetch.
+TEST_F(ListedTermsTest, AConjunctionOnAStreamingSourceChainsItsTermsToo) {
+    auto streamed = source(false);
+    const auto rows = evaluate(
+            [&] {
+                return boolean(OperatorType::OP_AND, {term("a"), term("b"), term("c")});
+            },
+            streamed);
+    EXPECT_EQ(rows.true_rows, roaring::Roaring::bitmapOf(2, 3U, 8U));
+    EXPECT_EQ(rows.null_rows, roaring::Roaring::bitmapOf(2, 40U, 41U));
+    EXPECT_EQ(streamed->opened_together, (std::vector<std::vector<std::string>> {{"a", "b", "c"}}));
+    ASSERT_EQ(streamed->prefetches["c"].size(), 1U);
+    EXPECT_TRUE(streamed->prefetches["c"][0].whole);
+    ASSERT_EQ(streamed->prefetches["b"].size(), 1U);
+    EXPECT_EQ(streamed->prefetches["b"][0].candidates, (std::vector<uint32_t> {3, 8, 20}));
+    ASSERT_EQ(streamed->prefetches["a"].size(), 1U);
+    EXPECT_EQ(streamed->prefetches["a"][0].candidates, (std::vector<uint32_t> {3, 8}));
+    EXPECT_EQ(streamed->fetches, 0U);
+    // A disjunction on it still streams.
+    auto any = source(false);
+    evaluate([&] { return boolean(OperatorType::OP_OR, {term("a"), term("c")}); }, any);
+    EXPECT_TRUE(any->opened_together.empty());
 }
 
 // A scored conjunction on a batching source lists its rows as a chain and scores them on the

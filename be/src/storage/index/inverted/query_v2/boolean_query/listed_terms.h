@@ -34,9 +34,10 @@
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-// The term clauses of one boolean that read one source batching its reads. They are listed
-// together instead of one document at a time: the conjunction as a chain narrowing the
-// cheapest term's rows, the disjunction as one round of reads over every term. Scored, the
+// The term clauses of one boolean that read one source batching its reads, or of an unscored
+// conjunction on any source. They are listed together instead of one document at a time: the
+// conjunction as a chain narrowing the cheapest term's rows block by block, the disjunction as
+// one round of reads over every term. Scored, the
 // conjunction scores its listed rows on the positions read in one more round and the source's
 // norms, and the disjunction merges the terms' scores from the frequencies and norms read with
 // their postings.
