@@ -48,6 +48,7 @@ public class LanceIndexJobManagerReplayTest {
     private static final long BACKEND_ID = 1001L;
     private static final long BE_EPOCH = 55L;
     private static final String INVOCATION_ID = "invocation-1";
+    private static final String INVOCATION_SECRET = "a3f1c02d97b64e8fad0c31b9e75d2468";
     private static final long DEADLINE_MS = 9999L;
 
     @Test
@@ -57,9 +58,12 @@ public class LanceIndexJobManagerReplayTest {
         target.replayUpsertJob(records.get(0));
 
         Assertions.assertEquals(LanceIndexJobMutationState.PENDING, target.getJob(1L).getMutationState());
-        Assertions.assertTrue(target.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
-        Assertions.assertFalse(target.markRunning(1L, 1L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
-        Assertions.assertFalse(target.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertTrue(target.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                INVOCATION_SECRET, DEADLINE_MS));
+        Assertions.assertFalse(target.markRunning(1L, 1L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                INVOCATION_SECRET, DEADLINE_MS));
+        Assertions.assertFalse(target.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                INVOCATION_SECRET, DEADLINE_MS));
         Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, target.getJob(1L).getMutationState());
     }
 
@@ -74,6 +78,9 @@ public class LanceIndexJobManagerReplayTest {
         // A follower tailing a live master must not transform a fresh RUNNING record.
         Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, stored.getMutationState());
         Assertions.assertEquals(1L, stored.getRevision());
+        // The dispatch secret replayed verbatim too: a follower that later wins an
+        // election must still be able to authenticate reports against it.
+        Assertions.assertEquals(INVOCATION_SECRET, stored.getInvocationSecret());
         Assertions.assertTrue(stored.holdsPossibleLiveSlot());
         Assertions.assertTrue(target.isFenceHeld(stored.fenceKey()));
         Assertions.assertEquals(1L, target.getQuota().getGlobalCount());
@@ -102,9 +109,12 @@ public class LanceIndexJobManagerReplayTest {
         Assertions.assertTrue(containsJob(target.getUnresolvedJobs(), swept.getJobId()));
         Assertions.assertEquals(1, target.editLog.size());
 
-        Assertions.assertFalse(target.markRunning(1L, 2L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
-        Assertions.assertFalse(target.markRunning(1L, 1L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
-        Assertions.assertFalse(target.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertFalse(target.markRunning(1L, 2L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                INVOCATION_SECRET, DEADLINE_MS));
+        Assertions.assertFalse(target.markRunning(1L, 1L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                INVOCATION_SECRET, DEADLINE_MS));
+        Assertions.assertFalse(target.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                INVOCATION_SECRET, DEADLINE_MS));
         Assertions.assertEquals(LanceIndexJobMutationState.UNKNOWN, target.getJob(1L).getMutationState());
     }
 
@@ -112,7 +122,7 @@ public class LanceIndexJobManagerReplayTest {
     public void transferToMasterDowngradesRunningRefreshToRequired() throws DdlException {
         TestManager source = new TestManager();
         source.createJob(newCreateJob(1L, "IdxA"), 100, 100, 100);
-        source.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS);
+        source.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, DEADLINE_MS);
         source.completeWithResult(1L, 1L, INVOCATION_ID, BE_EPOCH, okResult());
         source.markRefreshRunning(1L, 2L);
 
@@ -136,7 +146,7 @@ public class LanceIndexJobManagerReplayTest {
     public void replayedTerminalWithRefreshRequiredOnlyAllowsRefreshPath() throws DdlException {
         TestManager source = new TestManager();
         source.createJob(newCreateJob(1L, "IdxA"), 100, 100, 100);
-        source.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS);
+        source.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, DEADLINE_MS);
         source.completeWithResult(1L, 1L, INVOCATION_ID, BE_EPOCH, okResult());
 
         TestManager target = new TestManager();
@@ -149,7 +159,8 @@ public class LanceIndexJobManagerReplayTest {
         LanceIndexFenceKey fenceKey = stored.fenceKey();
 
         // The mutation lifecycle is closed; only the refresh transitions remain.
-        Assertions.assertFalse(target.markRunning(1L, 2L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertFalse(target.markRunning(1L, 2L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                INVOCATION_SECRET, DEADLINE_MS));
         Assertions.assertFalse(target.completeWithResult(1L, 2L, INVOCATION_ID, BE_EPOCH, okResult()));
         Assertions.assertTrue(containsJob(target.getJobsNeedingRefresh(), stored.getJobId()));
         Assertions.assertTrue(target.isFenceHeld(fenceKey));
@@ -166,7 +177,7 @@ public class LanceIndexJobManagerReplayTest {
     public void replayedUnresolvedUnknownFencesTheSameName() throws DdlException {
         TestManager source = new TestManager();
         source.createJob(newCreateJob(1L, "IdxA"), 100, 100, 100);
-        source.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS);
+        source.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, DEADLINE_MS);
         source.completeWithResult(1L, 1L, INVOCATION_ID, BE_EPOCH,
                 new LanceIndexJobResult(LanceIndexJobResultCode.NO_TRUSTED_RESULT,
                         LanceIndexJobCompletionReason.NONE, "ambiguous", false));
@@ -242,7 +253,7 @@ public class LanceIndexJobManagerReplayTest {
     public void lowerRevisionRecordNeverOverwritesHigherRevision() throws DdlException {
         TestManager source = new TestManager();
         source.createJob(newCreateJob(1L, "IdxA"), 100, 100, 100);
-        source.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS);
+        source.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, DEADLINE_MS);
         source.completeWithResult(1L, 1L, INVOCATION_ID, BE_EPOCH, okResult());
         // Records: PENDING rev0, RUNNING rev1, COMMITTED+REQUIRED rev2.
 
@@ -279,7 +290,8 @@ public class LanceIndexJobManagerReplayTest {
         Assertions.assertEquals(0L, target.getQuota().getGlobalCount());
         Assertions.assertEquals(LanceIndexJobMutationState.PENDING, target.getJob(5L).getMutationState());
         Assertions.assertTrue(target.getUnresolvedJobs().isEmpty());
-        Assertions.assertFalse(target.markRunning(5L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertFalse(target.markRunning(5L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                INVOCATION_SECRET, DEADLINE_MS));
 
         // Out of the books does not mean invisible: it blocks all new admissions
         // fail-closed, and the rejection leaves nothing behind.
@@ -304,7 +316,8 @@ public class LanceIndexJobManagerReplayTest {
                 () -> target.createJob(newCreateJob(9L, "IdxA"), 100, 100, 100));
         Assertions.assertTrue(initialConflict.getMessage().contains("unresolved job 1"));
 
-        Assertions.assertTrue(target.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertTrue(target.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                INVOCATION_SECRET, DEADLINE_MS));
         Assertions.assertTrue(target.completeWithResult(1L, 1L, INVOCATION_ID, BE_EPOCH,
                 new LanceIndexJobResult(LanceIndexJobResultCode.PRE_INVOCATION_RESOURCE_REJECTED,
                         LanceIndexJobCompletionReason.NONE, "rejected before invocation", false)));
@@ -339,7 +352,8 @@ public class LanceIndexJobManagerReplayTest {
         Assertions.assertFalse(target.getJob(1L).isForceReleased());
 
         target.createJob(newCreateJob(2L, "IdxB"), 100, 100, 100);
-        Assertions.assertTrue(target.markRunning(2L, 0L, BACKEND_ID, BE_EPOCH, "invocation-2", DEADLINE_MS));
+        Assertions.assertTrue(target.markRunning(2L, 0L, BACKEND_ID, BE_EPOCH, "invocation-2",
+                INVOCATION_SECRET, DEADLINE_MS));
         Assertions.assertTrue(target.completeWithResult(2L, 1L, "invocation-2", BE_EPOCH, okResult()));
         LanceIndexJob refreshCandidate = target.getJobsNeedingRefresh().get(0);
         refreshCandidate.setRefreshState(LanceIndexJobRefreshState.DONE);
@@ -445,7 +459,8 @@ public class LanceIndexJobManagerReplayTest {
         Assertions.assertThrows(DdlException.class,
                 () -> target.createJob(newCreateJob(10L, "IdxC"), 100, 100, 100));
 
-        Assertions.assertTrue(target.markRunning(9L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertTrue(target.markRunning(9L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                INVOCATION_SECRET, DEADLINE_MS));
         Assertions.assertTrue(target.completeWithResult(9L, 1L, INVOCATION_ID, BE_EPOCH, okResult()));
         Assertions.assertEquals(LanceIndexJobMutationState.COMMITTED, target.getJob(9L).getMutationState());
     }
@@ -491,12 +506,12 @@ public class LanceIndexJobManagerReplayTest {
         TestManager manager = new TestManager();
         manager.createJob(newCreateJob(1L, "IdxPending"), 100, 100, 100);
         manager.createJob(newCreateJob(2L, "IdxCommitted"), 100, 100, 100);
-        manager.markRunning(2L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS);
+        manager.markRunning(2L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, DEADLINE_MS);
         manager.completeWithResult(2L, 1L, INVOCATION_ID, BE_EPOCH, okResult());
         manager.markRefreshRunning(2L, 2L);
         manager.markRefreshDone(2L, 3L);
         manager.createJob(newCreateJob(3L, "IdxRunning"), 100, 100, 100);
-        manager.markRunning(3L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS);
+        manager.markRunning(3L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, DEADLINE_MS);
         // Journal so far: create(1), create+run+complete+refreshRun+refreshDone(2), create+run(3).
         Assertions.assertEquals(8, manager.editLog.size());
 
@@ -562,6 +577,70 @@ public class LanceIndexJobManagerReplayTest {
         Assertions.assertFalse(manager.isFenceHeld(newCreateJob(1L, "IdxB").fenceKey()));
     }
 
+    @Test
+    public void replayedRemovalConvergesWithTheSource() throws DdlException {
+        TestManager source = new TestManager();
+        source.createJob(newCreateJob(1L, "IdxGone"), 100, 100, 100);
+        source.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, DEADLINE_MS);
+        source.completeWithResult(1L, 1L, INVOCATION_ID, BE_EPOCH, okResult());
+        source.markRefreshRunning(1L, 2L);
+        source.markRefreshDone(1L, 3L);
+        // A resolved record still holds its possible-live slot until the child is
+        // proven reaped; the retention GC holds such records back, so the proof
+        // arrives before the removal round sees the job as collectable.
+        source.recordTerminationProof(1L, 1L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                LanceIndexTerminationProof.CHILD_REAPED);
+        source.createJob(newCreateJob(2L, "IdxStay"), 100, 100, 100);
+        Assertions.assertEquals(Collections.singletonList(1L), source.removeResolvedJobsOlderThan(-1L, 1024));
+        Assertions.assertEquals(1, source.removeLog.size());
+
+        TestManager target = new TestManager();
+        // The journal is ordered: every upsert of a removed job precedes the batch
+        // removal record, and an image is never older than the removals it includes.
+        // A follower replaying in order therefore never sees a stale upsert after the
+        // removal, so no watermark is needed to keep a removed job from resurrecting.
+        for (LanceIndexJob record : source.editLog) {
+            target.replayUpsertJob(record);
+        }
+        Assertions.assertEquals(2, target.getJobCount());
+        target.replayRemoveJob(source.removeLog.get(0));
+
+        // The follower serves the same view as the master: the GC'd job is gone, the
+        // unresolved survivor keeps its fence and quota charge.
+        Assertions.assertNull(target.getJob(1L));
+        Assertions.assertNotNull(target.getJob(2L));
+        Assertions.assertEquals(1, target.getJobCount());
+        Assertions.assertEquals(1L, target.getQuota().getGlobalCount());
+        Assertions.assertTrue(target.isFenceHeld(target.getJob(2L).fenceKey()));
+        // Replay itself never writes the journal.
+        Assertions.assertTrue(target.editLog.isEmpty());
+        Assertions.assertTrue(target.removeLog.isEmpty());
+    }
+
+    @Test
+    public void replayedRemovalToleratesUnknownIdsAndRepeats() {
+        TestManager target = new TestManager();
+        // Tolerant of null, empty, and ids that were never present or are already gone.
+        target.replayRemoveJob(null);
+        target.replayRemoveJob(Collections.emptyList());
+        target.replayRemoveJob(Collections.singletonList(404L));
+        Assertions.assertEquals(0, target.getJobCount());
+
+        // The corrupt admission blocker leaves together with its job record.
+        target.replayUpsertJob(GsonUtils.GSON.fromJson(
+                "{\"jid\":5,\"rev\":0,\"ms\":\"UNKNOWN\"}", LanceIndexJob.class));
+        Assertions.assertEquals(Collections.singletonList(5L), target.getCorruptUnresolvedJobIds());
+        target.replayRemoveJob(Arrays.asList(5L, 404L));
+        Assertions.assertNull(target.getJob(5L));
+        Assertions.assertTrue(target.getCorruptUnresolvedJobIds().isEmpty());
+
+        // Replaying the same removal again is a no-op.
+        target.replayRemoveJob(Collections.singletonList(5L));
+        Assertions.assertEquals(0, target.getJobCount());
+        Assertions.assertTrue(target.editLog.isEmpty());
+        Assertions.assertTrue(target.removeLog.isEmpty());
+    }
+
     private static LanceIndexJob newCreateJob(long jobId, String displayName) {
         return new LanceIndexJob(jobId, "tester", CATALOG_ID, "db1", "tbl1",
                 LanceIndexFenceKey.PROVIDER_DIRECTORY, LOCATOR,
@@ -593,7 +672,7 @@ public class LanceIndexJobManagerReplayTest {
     private static List<LanceIndexJob> runningRecords(long jobId, String displayName) throws DdlException {
         TestManager source = new TestManager();
         source.createJob(newCreateJob(jobId, displayName), 100, 100, 100);
-        source.markRunning(jobId, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS);
+        source.markRunning(jobId, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, DEADLINE_MS);
         return source.editLog;
     }
 
@@ -615,14 +694,20 @@ public class LanceIndexJobManagerReplayTest {
     }
 
     /**
-     * Edit-log seam: captures every durable record instead of writing the journal.
+     * Edit-log seams: capture every durable record instead of writing the journal.
      */
     private static class TestManager extends LanceIndexJobManager {
         private final List<LanceIndexJob> editLog = new ArrayList<>();
+        private final List<List<Long>> removeLog = new ArrayList<>();
 
         @Override
         protected void writeEditLog(LanceIndexJob job) {
             editLog.add(job);
+        }
+
+        @Override
+        protected void writeRemoveLog(List<Long> jobIds) {
+            removeLog.add(new ArrayList<>(jobIds));
         }
     }
 }

@@ -148,6 +148,27 @@ public class RefreshManager {
         if (catalog == null) {
             throw new DdlException("Catalog " + catalogName + " doesn't exist.");
         }
+        handleRefreshTable(catalog, dbName, tableName, ignoreIfNotExists);
+    }
+
+    /**
+     * Refreshes by the immutable catalog identity. Callers that hold a persisted
+     * catalog id (journal replay, the Lance index job refresh driver) must not
+     * re-resolve a mutable name: a rename that hands the old name to a different
+     * catalog between the two resolutions would refresh that catalog instead and
+     * bill the outcome to the original one.
+     */
+    public void handleRefreshTable(long catalogId, String dbName, String tableName, boolean ignoreIfNotExists)
+            throws DdlException {
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
+        if (catalog == null) {
+            throw new DdlException("Catalog " + catalogId + " doesn't exist.");
+        }
+        handleRefreshTable(catalog, dbName, tableName, ignoreIfNotExists);
+    }
+
+    private void handleRefreshTable(CatalogIf catalog, String dbName, String tableName, boolean ignoreIfNotExists)
+            throws DdlException {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support refresh ExternalCatalog Tables");
         }

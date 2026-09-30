@@ -67,6 +67,9 @@ import java.util.List;
  * fields.
  */
 public class ShowLanceIndexJobCommandTest {
+    /** Marker that must never surface in any rendered cell: it authorizes reports. */
+    private static final String INVOCATION_SECRET = "a3f1c02d97b64e8fad0c31b9e75d2468";
+
     @Mocked
     private Env env;
     @Mocked
@@ -500,6 +503,30 @@ public class ShowLanceIndexJobCommandTest {
         Assertions.assertEquals("note", row.get(colIndex(resultSet, "ForceNote")));
         Assertions.assertEquals("warn", row.get(colIndex(resultSet, "ForceWarning")));
         Assertions.assertEquals("1", row.get(colIndex(resultSet, "SchemaContractVersion")));
+    }
+
+    @Test
+    public void testInvocationSecretNeverReachesTheDetailRow() throws Exception {
+        // A dispatched job carrying the report-authorizing secret. The visible identity
+        // fields (invocation id, BE epoch, revision) may keep being shown because they no
+        // longer authorize anything alone; the secret must never gain a column or a value.
+        LanceIndexJob job = newJob(42L);
+        job.setMutationState(LanceIndexJobMutationState.RUNNING);
+        job.setBackendId(1001L);
+        job.setBeProcessEpoch(55L);
+        job.setInvocationId("inv-1");
+        job.setInvocationSecret(INVOCATION_SECRET);
+        expectEnv(job);
+        expectLanceCatalog("s3://bucket/dataset", true);
+
+        ShowResultSet resultSet = new ShowLanceIndexJobCommand(42L).doRun(connectContext, null);
+        Assertions.assertFalse(
+                ShowLanceIndexJobCommand.TITLE_NAMES.toString().toLowerCase().contains("secret"));
+        List<String> row = resultSet.getResultRows().get(0);
+        Assertions.assertEquals("inv-1", row.get(colIndex(resultSet, "InvocationId")));
+        for (String cell : row) {
+            Assertions.assertNotEquals(INVOCATION_SECRET, cell);
+        }
     }
 
     @Test
