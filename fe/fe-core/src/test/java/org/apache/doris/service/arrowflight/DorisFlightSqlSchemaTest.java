@@ -57,6 +57,7 @@ import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.Schema;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
@@ -655,6 +656,7 @@ public class DorisFlightSqlSchemaTest extends TestWithFeService {
                 CommandPreparedStatementQuery command = CommandPreparedStatementQuery.newBuilder()
                         .setPreparedStatementHandle(result.getPreparedStatementHandle()).build();
                 StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+                FlightSqlConnectProcessor cleanup = new FlightSqlConnectProcessor(connectContext);
                 try (MockedConstruction<FlightSqlConnectProcessor> processors = Mockito.mockConstruction(
                         FlightSqlConnectProcessor.class, (processor, context) -> {
                             // Simulate replanning after another session changes the table, after schema reanalysis.
@@ -665,13 +667,20 @@ public class DorisFlightSqlSchemaTest extends TestWithFeService {
                                 return null;
                             }).when(processor).handleQuery(Mockito.anyString());
                             Mockito.when(processor.getArrowSchema()).thenReturn(changed);
+                            Mockito.doAnswer(invocation -> {
+                                cleanup.close();
+                                return null;
+                            }).when(processor).close();
                         })) {
                     FlightRuntimeException error = Assertions.assertThrows(FlightRuntimeException.class,
                             () -> producer.getFlightInfoPreparedStatement(command, callContext,
                                     FlightDescriptor.command(new byte[0])));
                     Assertions.assertEquals(FlightStatusCode.NOT_FOUND, error.status().code());
-                    Mockito.verify(executor).cancel(Mockito.any(Status.class));
-                    Mockito.verify(executor).finalizeArrowFlightQuery();
+                    Assertions.assertNull(connectContext.getExecutor());
+                    Mockito.verify(processors.constructed().get(0)).close();
+                    InOrder cleanupOrder = Mockito.inOrder(executor);
+                    cleanupOrder.verify(executor).cancel(Mockito.any(Status.class));
+                    cleanupOrder.verify(executor).finalizeArrowFlightQuery();
                     Assertions.assertEquals(0, connectContext.getFlightSqlChannel().resultNum());
                     Assertions.assertTrue(connectContext.getFlightSqlEndpointsLocations().isEmpty());
                     String handle = result.getPreparedStatementHandle().toStringUtf8();
@@ -721,14 +730,21 @@ public class DorisFlightSqlSchemaTest extends TestWithFeService {
         LogicalPlanAdapter statement = Mockito.mock(LogicalPlanAdapter.class);
         Mockito.when(statement.getColLabels()).thenReturn(new ArrayList<>(labels));
         Mockito.when(executor.getParsedStmt()).thenReturn(statement);
+        FlightSqlConnectProcessor cleanup = new FlightSqlConnectProcessor(connectContext);
         try (MockedConstruction<FlightSqlConnectProcessor> processors = Mockito.mockConstruction(
                 FlightSqlConnectProcessor.class, (processor, context) -> {
                     Mockito.doAnswer(invocation -> {
                         connectContext.setExecutor(executor);
+                        connectContext.addFlightSqlDeferredExecutor(executor);
                         connectContext.setReturnResultFromLocal(false);
                         return null;
                     }).when(processor).handleQuery(Mockito.anyString());
                     Mockito.when(processor.getArrowSchema()).thenReturn(actual);
+                    // Exercise real processor cleanup: it clears the context's executor before validation.
+                    Mockito.doAnswer(invocation -> {
+                        cleanup.close();
+                        return null;
+                    }).when(processor).close();
                 })) {
             if (compatible) {
                 Assertions.assertEquals(actual, producer.getFlightInfoPreparedStatement(command,
@@ -736,14 +752,20 @@ public class DorisFlightSqlSchemaTest extends TestWithFeService {
                 Assertions.assertEquals(schema(query), producer.getSchemaPreparedStatement(command,
                         callContext, FlightDescriptor.command(new byte[0])).getSchema());
                 Mockito.verify(executor, Mockito.never()).cancel(Mockito.any(Status.class));
+                Mockito.verify(executor, Mockito.never()).finalizeArrowFlightQuery();
             } else {
                 FlightRuntimeException error = Assertions.assertThrows(FlightRuntimeException.class,
                         () -> producer.getFlightInfoPreparedStatement(command, callContext,
                                 FlightDescriptor.command(new byte[0])));
                 Assertions.assertEquals(FlightStatusCode.NOT_FOUND, error.status().code());
-                Mockito.verify(executor).cancel(Mockito.any(Status.class));
+                InOrder cleanupOrder = Mockito.inOrder(executor);
+                cleanupOrder.verify(executor).cancel(Mockito.any(Status.class));
+                cleanupOrder.verify(executor).finalizeArrowFlightQuery();
             }
+            Assertions.assertNull(connectContext.getExecutor());
+            Mockito.verify(processors.constructed().get(0)).close();
         } finally {
+            connectContext.closeFlightSqlDeferredExecutors();
             connectContext.setExecutor(previous);
             String handle = result.getPreparedStatementHandle().toStringUtf8();
             connectContext.removePreparedQuery(handle.substring(handle.indexOf(':') + 1));

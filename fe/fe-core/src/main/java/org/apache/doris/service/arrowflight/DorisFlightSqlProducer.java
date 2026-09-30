@@ -192,11 +192,14 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             final FlightDescriptor descriptor) {
         // Schema discovery temporarily installs session state; execution must not mutate that clone.
         synchronized (connectContext) {
-            return executeQueryStatementLocked(peerIdentity, connectContext, query, descriptor);
+            return executeQueryStatementLocked(peerIdentity, connectContext, query, descriptor).getLeft();
         }
     }
 
-    private FlightInfo executeQueryStatementLocked(String peerIdentity, ConnectContext connectContext, String query,
+    // Processor.close() clears the context's executor before returning. Retain the final executor
+    // with its result so prepared-schema validation and cancellation use the query that actually ran.
+    private Pair<FlightInfo, StmtExecutor> executeQueryStatementLocked(String peerIdentity,
+            ConnectContext connectContext, String query,
             final FlightDescriptor descriptor) {
         try {
             Preconditions.checkState(null != connectContext);
@@ -224,9 +227,9 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                         final ByteString handle = ByteString.copyFromUtf8(peerIdentity + ":" + queryId);
                         TicketStatementQuery ticketStatement = TicketStatementQuery.newBuilder()
                                 .setStatementHandle(handle).build();
-                        return getFlightInfoForSchema(ticketStatement, descriptor,
+                        return Pair.of(getFlightInfoForSchema(ticketStatement, descriptor,
                                 connectContext.getFlightSqlChannel().getResult(queryId).getVectorSchemaRoot()
-                                        .getSchema());
+                                        .getSchema()), connectContext.getExecutor());
                     } else {
                         // A Flight Sql request can only contain one statement that returns result,
                         // otherwise expected thrown exception during execution.
@@ -240,9 +243,10 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                                 peerIdentity + ":" + DebugUtil.printId(connectContext.queryId()));
                         TicketStatementQuery ticketStatement = TicketStatementQuery.newBuilder()
                                 .setStatementHandle(handle).build();
-                        return getFlightInfoForSchema(ticketStatement, descriptor, connectContext.getFlightSqlChannel()
-                                .getResult(DebugUtil.printId(connectContext.queryId())).getVectorSchemaRoot()
-                                .getSchema());
+                        return Pair.of(getFlightInfoForSchema(ticketStatement, descriptor,
+                                connectContext.getFlightSqlChannel()
+                                        .getResult(DebugUtil.printId(connectContext.queryId())).getVectorSchemaRoot()
+                                        .getSchema()), connectContext.getExecutor());
                     }
                 } else {
                     // Now only query stmt will pull results from BE.
@@ -292,7 +296,8 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                         endpoints.add(new FlightEndpoint(ticket, location));
                     }
                     // TODO Set in BE callback after query end, Client will not callback.
-                    return new FlightInfo(flightSQLConnectProcessor.getArrowSchema(), descriptor, endpoints, -1, -1);
+                    return Pair.of(new FlightInfo(flightSQLConnectProcessor.getArrowSchema(), descriptor,
+                            endpoints, -1, -1), connectContext.getExecutor());
                 }
             }
         } catch (Throwable e) {
@@ -333,12 +338,14 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         ConnectContext connection = flightSessionsManager.getConnectContext(context.peerIdentity());
         synchronized (connection) {
             Pair<String, Schema> prepared = preparedQuery(connection, context, command);
-            FlightInfo info = executeQueryStatement(context.peerIdentity(), connection, prepared.getLeft(), descriptor);
+            Pair<FlightInfo, StmtExecutor> result = executeQueryStatementLocked(
+                    context.peerIdentity(), connection, prepared.getLeft(), descriptor);
+            FlightInfo info = result.getLeft();
             String id = command.getPreparedStatementHandle().toStringUtf8()
                     .substring(context.peerIdentity().length() + 1);
             // Another session's DDL can change the result after reanalysis but before execution
             // acquires table locks. Reject the actual schema before publishing a DoGet ticket.
-            StmtExecutor executor = connection.getExecutor();
+            StmtExecutor executor = result.getRight();
             boolean matches = !connection.isReturnResultFromLocal() && executor != null
                     && executor.getParsedStmt() instanceof LogicalPlanAdapter
                     ? FlightSqlQuerySchema.matchesExecutionSchema(prepared.getRight(), info.getSchema(),
@@ -347,7 +354,9 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             if (!matches) {
                 connection.removePreparedQuery(id);
                 try {
-                    connection.cancelQuery(Status.CANCELLED);
+                    if (executor != null) {
+                        executor.cancel(Status.CANCELLED);
+                    }
                 } catch (Exception e) {
                     LOG.warn("Failed to cancel Flight query after prepared schema changed", e);
                 } finally {
