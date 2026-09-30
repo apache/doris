@@ -339,11 +339,11 @@ public class InsertOverwriteTableCommand extends Command
                         throw cancelledBeforeTheRowsWereCommitted("after an insert that committed nothing", ctx);
                     }
                     // Too late to cancel: insertIntoPartitions returns only once its transaction has committed
-                    // and published the rows into the temp partitions, and everything the read consumed -- the
-                    // base table stream offsets among it -- was committed with that same transaction. Dropping
-                    // the temp partitions here is exactly what would lose those rows against an advanced
-                    // offset, while the swap below is what publishes them. The overwrite completes, and it is
-                    // the outcome the statement reports.
+                    // the rows into the temp partitions -- visible, or still waiting for a publication that
+                    // timed out -- and everything the read consumed, the base table stream offsets among it,
+                    // was committed with that same transaction. Dropping the temp partitions here is exactly
+                    // what would lose those rows against an advanced offset, while the swap below is what
+                    // publishes them. The overwrite completes, and it is the outcome the statement reports.
                     LOG.info("insert overwrite is cancelled after its rows were committed, completing it,"
                             + " queryId: {}", ctx.getQueryIdentifier());
                 }
