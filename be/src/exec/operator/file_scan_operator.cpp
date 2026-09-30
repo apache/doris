@@ -329,9 +329,12 @@ Status FileScanLocalState::_process_conjuncts(RuntimeState* state) {
 Status FileScanOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ScanOperatorX<FileScanLocalState>::prepare(state));
     // Sharded for the scanners that can reach the cache at once, which are now every instance's:
-    // as many as the per-instance caches it replaces had between them.
-    const int shard_num = std::min(ScannerScheduler::default_remote_scan_thread_num(),
-                                   parallelism(state) * file_scanners_per_instance(state));
+    // as many as the per-instance caches it replaces had between them. That is the fragment's
+    // instances, not this operator's parallelism: a serial operator has one instance, and it runs
+    // the scanners of all of them (max_scanners_concurrency).
+    const int shard_num =
+            std::min(ScannerScheduler::default_remote_scan_thread_num(),
+                     state->query_parallel_instance_num() * file_scanners_per_instance(state));
     _kv_cache = std::make_unique<ShardedKVCache>(cast_set<uint32_t>(std::max(shard_num, 1)));
     if (state->get_query_ctx() != nullptr &&
         state->get_query_ctx()->file_scan_range_params_map.contains(node_id())) {
