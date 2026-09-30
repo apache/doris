@@ -1897,6 +1897,26 @@ void IndexJobSupervisor::_invoke_termination_callback(
     }
 }
 
+// Echoes the per-dispatch invocation secret into an outgoing report: the FE
+// compares it in constant time against the journaled secret before trusting any
+// part of the envelope, so every report this supervisor builds carries it. The
+// secret otherwise stays inside the BE trust boundary - the isolated worker
+// never reads it out of its dispatch frame, and it is never logged. A dispatch
+// without one (the rolling-upgrade shape) echoes nothing, which the FE pairs
+// with its fail-closed read of a legacy record that journals no secret.
+void echo_invocation_secret(const TLanceIndexJobDispatch& dispatch, TLanceIndexJobReport* report) {
+    if (dispatch.__isset.invocation_secret) {
+        report->__set_invocation_secret(dispatch.invocation_secret);
+    }
+}
+
+void echo_invocation_secret(const TLanceIndexJobDispatch& dispatch,
+                            TLanceIndexJobTerminationReport* report) {
+    if (dispatch.__isset.invocation_secret) {
+        report->__set_invocation_secret(dispatch.invocation_secret);
+    }
+}
+
 void IndexJobSupervisor::_report_never_launched(const TLanceIndexJobDispatch& dispatch,
                                                 const char* static_category) {
     // Full-envelope async rejection (D6 path 3): the invocation provably never
@@ -1907,6 +1927,7 @@ void IndexJobSupervisor::_report_never_launched(const TLanceIndexJobDispatch& di
     report.dispatch_revision = dispatch.dispatch_revision;
     report.invocation_id = dispatch.invocation_id;
     report.be_process_epoch = dispatch.be_process_epoch;
+    echo_invocation_secret(dispatch, &report);
     report.result_code = TLanceIndexJobResultCode::PRE_INVOCATION_RESOURCE_REJECTED;
     report.__set_termination_proof(TLanceIndexTerminationProof::NEVER_LAUNCHED);
     const std::string message = sanitize_message(static_category, dispatch);
@@ -2085,6 +2106,9 @@ void IndexJobSupervisor::_execute(const TLanceIndexJobDispatch& dispatch) {
         // Ending (a): a complete, identity-matched result frame is the only
         // trusted result. The proof rides when the evidence allows it.
         TLanceIndexJobReport report = std::move(sup.report);
+        // The worker's frame never carries the secret (the isolated worker stays
+        // inside the BE trust boundary); the supervisor stamps the echo here.
+        echo_invocation_secret(dispatch, &report);
         if (proof) {
             report.__set_termination_proof(TLanceIndexTerminationProof::CHILD_REAPED);
         }
@@ -2118,6 +2142,7 @@ void IndexJobSupervisor::_execute(const TLanceIndexJobDispatch& dispatch) {
             report.dispatch_revision = dispatch.dispatch_revision;
             report.invocation_id = dispatch.invocation_id;
             report.be_process_epoch = dispatch.be_process_epoch;
+            echo_invocation_secret(dispatch, &report);
             report.result_code = TLanceIndexJobResultCode::PRE_INVOCATION_RESOURCE_REJECTED;
             report.__set_termination_proof(TLanceIndexTerminationProof::CHILD_REAPED);
             const std::string message = sanitize_message(
@@ -2159,6 +2184,7 @@ void IndexJobSupervisor::_execute(const TLanceIndexJobDispatch& dispatch) {
         termination.dispatch_revision = dispatch.dispatch_revision;
         termination.invocation_id = dispatch.invocation_id;
         termination.be_process_epoch = dispatch.be_process_epoch;
+        echo_invocation_secret(dispatch, &termination);
         termination.proof = TLanceIndexTerminationProof::CHILD_REAPED;
         _invoke_termination_callback(termination);
     } else {

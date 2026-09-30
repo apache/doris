@@ -80,6 +80,9 @@ protected:
                 R"({"scv":1,"flds":[{"fid":0,"nn":"v","nt":"fixed_size_list","nul":false,"fsd":4,"vet":"float32","ven":true}]})";
         dispatch.__set_max_num_partitions(1024);
         dispatch.__set_max_num_sub_vectors(64);
+        // A fresh FE dispatch always carries the per-dispatch secret; the worker
+        // receives it inside the frame but never echoes it (asserted below).
+        dispatch.__set_invocation_secret("be-ut-invocation-secret-0123456789abcdef");
         return dispatch;
     }
 
@@ -134,6 +137,10 @@ protected:
         EXPECT_EQ(frames.report->dispatch_revision, dispatch.dispatch_revision);
         EXPECT_EQ(frames.report->invocation_id, dispatch.invocation_id);
         EXPECT_EQ(frames.report->be_process_epoch, dispatch.be_process_epoch);
+        // The isolated worker never echoes the dispatch secret even though it
+        // arrived inside the frame: the secret stays inside the BE trust
+        // boundary, and the supervisor stamps the echo after decoding.
+        EXPECT_FALSE(frames.report->__isset.invocation_secret);
     }
 
     // Runs the worker on raw dispatch bytes that must be rejected as a malformed

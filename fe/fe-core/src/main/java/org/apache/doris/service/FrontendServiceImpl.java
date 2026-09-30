@@ -1167,10 +1167,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     /**
      * Termination-only report of one Lance index mutation invocation that produced no
-     * trusted result code. A matched proof releases only the possible-live slot; stale
-     * or identity-mismatched reports are logged and dropped, and a duplicate proof is
-     * answered OK the same way. This layer stays thin, exactly like the result-report
-     * entry point above it.
+     * trusted result code. A matched proof releases only the possible-live slot; stale,
+     * identity-mismatched, or unauthenticated reports are logged and dropped, and a
+     * duplicate proof is answered OK the same way. This layer stays thin, exactly like
+     * the result-report entry point above it.
      */
     @Override
     public TStatus reportLanceIndexJobTermination(TLanceIndexJobTerminationReport report) throws TException {

@@ -587,7 +587,7 @@ public class LanceIndexJobManagerReplayTest {
         admitted.setAdmittedMaxNumPartitions(64);
         admitted.setAdmittedMaxNumSubVectors(32);
         source.createJob(admitted, 100, 100, 100);
-        source.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS);
+        source.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, DEADLINE_MS);
 
         TestManager target = new TestManager();
         for (LanceIndexJob record : source.editLog) {

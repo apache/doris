@@ -48,8 +48,9 @@ import java.util.List;
  * envelope is malformed; a malformed envelope (missing or unknown result code,
  * sanitized message past the durable bound) has its result dropped whole so the
  * dispatcher's deadline sweep converges the job. The termination-only channel
- * accepts the same two proofs for invocations without any trusted result code
- * and drops a NONE/unknown proof outright. Message text is stored verbatim and
+ * is gated by the same authentication first and accepts the same two proofs
+ * for invocations without any trusted result code, dropping a NONE/unknown
+ * proof outright. Message text is stored verbatim and
  * never inspected to infer an outcome, and NO_TRUSTED_RESULT never arrives on
  * the wire.
  */
@@ -336,6 +337,78 @@ public class LanceIndexJobReportHandlerTest {
         Assertions.assertTrue(manager.editLog.isEmpty());
     }
 
+    // The termination-only channel is gated by the same authentication: a forged
+    // CHILD_REAPED would release the possible-live slot of a worker that may
+    // still be live, so every shape that fails the secret check is dropped whole.
+
+    @Test
+    public void wrongSecretDropsTheWholeTerminationReport() throws DdlException {
+        TestManager manager = runningManager(1L, "IdxTermForged", LanceIndexJobMutationType.CREATE, false);
+        LanceIndexJobReportHandler handler = new LanceIndexJobReportHandler(manager);
+
+        // Exactly the identity SHOW LANCE INDEX JOB publishes, plus the payload a
+        // forger wants (a CHILD_REAPED that releases the slot). Only the secret
+        // echo is wrong.
+        handler.handleTermination(matchingTermination(TLanceIndexTerminationProof.CHILD_REAPED)
+                .setInvocationSecret("00000000000000000000000000000000"));
+
+        LanceIndexJob stored = manager.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, stored.getMutationState());
+        Assertions.assertEquals(LanceIndexTerminationProof.NONE, stored.getTerminationProof());
+        Assertions.assertTrue(stored.holdsPossibleLiveSlot());
+        Assertions.assertTrue(manager.editLog.isEmpty());
+
+        // The genuine BE termination report still releases the slot afterwards.
+        handler.handleTermination(matchingTermination(TLanceIndexTerminationProof.CHILD_REAPED));
+        Assertions.assertEquals(LanceIndexTerminationProof.CHILD_REAPED,
+                manager.getJob(1L).getTerminationProof());
+        Assertions.assertFalse(manager.getJob(1L).holdsPossibleLiveSlot());
+    }
+
+    @Test
+    public void missingOrBlankSecretEchoIsUnauthenticatedOnTheTerminationChannel() throws DdlException {
+        TestManager manager = runningManager(1L, "IdxTermNoEcho", LanceIndexJobMutationType.CREATE, false);
+        LanceIndexJobReportHandler handler = new LanceIndexJobReportHandler(manager);
+
+        TLanceIndexJobTerminationReport withoutEcho =
+                matchingTermination(TLanceIndexTerminationProof.CHILD_REAPED);
+        withoutEcho.unsetInvocationSecret();
+        handler.handleTermination(withoutEcho);
+
+        handler.handleTermination(matchingTermination(TLanceIndexTerminationProof.CHILD_REAPED)
+                .setInvocationSecret("   "));
+
+        assertManagerUnchangedByDroppedEnvelope(manager);
+    }
+
+    @Test
+    public void legacyRecordWithoutASecretFailsClosedOnTheTerminationChannel() throws DdlException {
+        // The same legacy RUNNING record replayed from its JSON form (null secret):
+        // neither a new-BE echo nor a legacy-BE report with no echo may release
+        // the possible-live slot against it.
+        TestManager manager = new TestManager();
+        String legacy = "{\"jid\":1,\"cr\":\"tester\",\"rev\":1,\"cid\":10,\"dbn\":\"db1\",\"tbn\":\"tbl1\","
+                + "\"prv\":\"" + LanceIndexFenceKey.PROVIDER_DIRECTORY + "\",\"loc\":\"" + LOCATOR
+                + "\",\"din\":\"IdxTermLegacy\",\"nin\":\"idxtermlegacy\",\"mt\":\"CREATE\",\"ms\":\"RUNNING\","
+                + "\"rs\":\"NOT_REQUIRED\",\"bid\":1001,\"bpe\":55,\"drv\":1,\"iid\":\"" + INVOCATION_ID
+                + "\",\"dlm\":" + Long.MAX_VALUE + ",\"plo\":true}";
+        manager.replayUpsertJob(GsonUtils.GSON.fromJson(legacy, LanceIndexJob.class));
+        Assertions.assertNull(manager.getJob(1L).getInvocationSecret());
+        LanceIndexJobReportHandler handler = new LanceIndexJobReportHandler(manager);
+
+        handler.handleTermination(matchingTermination(TLanceIndexTerminationProof.CHILD_REAPED));
+        TLanceIndexJobTerminationReport legacyReport =
+                matchingTermination(TLanceIndexTerminationProof.CHILD_REAPED);
+        legacyReport.unsetInvocationSecret();
+        handler.handleTermination(legacyReport);
+
+        LanceIndexJob stored = manager.getJob(1L);
+        Assertions.assertEquals(LanceIndexJobMutationState.RUNNING, stored.getMutationState());
+        Assertions.assertEquals(LanceIndexTerminationProof.NONE, stored.getTerminationProof());
+        Assertions.assertTrue(stored.holdsPossibleLiveSlot());
+        Assertions.assertTrue(manager.editLog.isEmpty());
+    }
+
     // ------------------------------------------------------------------
     // CHILD_REAPED termination proof
     // ------------------------------------------------------------------
@@ -495,6 +568,7 @@ public class LanceIndexJobReportHandlerTest {
                 .setJobId(1L)
                 .setDispatchRevision(1L)
                 .setInvocationId(INVOCATION_ID)
+                .setInvocationSecret(INVOCATION_SECRET)
                 .setBeProcessEpoch(BE_EPOCH);
         report.setProof(proof);
         return report;

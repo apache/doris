@@ -65,7 +65,10 @@ import java.util.Objects;
  * <p>Invocations that produced no trusted result code at all (kill,
  * wall-clock timeout, OOM, or a panic) report through the separate
  * termination-only channel, {@link #handleTermination}, which carries the
- * invocation identity and one proof value and nothing else.
+ * invocation identity, one proof value, and the same secret echo, gated by the
+ * same authentication: a forged CHILD_REAPED would release the possible-live
+ * slot of a worker that may still be live, so an unauthenticated termination
+ * report is dropped whole exactly like an unauthenticated result envelope.
  *
  * <p>The handler runs on the report RPC thread and performs no I/O beyond the
  * manager's own edit-log write. It starts no refresh: the metadata refresh a
@@ -133,12 +136,21 @@ public class LanceIndexJobReportHandler {
      * reach a log line.
      */
     private boolean isAuthenticated(TLanceIndexJobReport report) {
-        LanceIndexJob job = jobManager.getJob(report.getJobId());
+        return secretMatches(jobManager.getJob(report.getJobId()), report.getInvocationSecret());
+    }
+
+    /**
+     * The one constant-time secret comparison both report channels share: the
+     * journaled secret of the durable record against the echo a report presented.
+     * A missing record, a record with no secret, or a missing, blank, or wrong
+     * echo fails closed. Static and side-effect free so the termination channel
+     * gates through the exact discipline the result channel does.
+     */
+    private static boolean secretMatches(LanceIndexJob job, String presented) {
         if (job == null) {
             return false;
         }
         String expected = job.getInvocationSecret();
-        String presented = report.getInvocationSecret();
         if (expected == null || expected.isEmpty() || presented == null || presented.isEmpty()) {
             return false;
         }
@@ -147,16 +159,22 @@ public class LanceIndexJobReportHandler {
     }
 
     /**
-     * Handles one termination-only report: an invocation without a trusted result
-     * code (kill/timeout/OOM/panic), or the supervisor-side proof of never-launch.
-     * A matched proof releases only the possible-live slot — it never changes an
-     * UNKNOWN outcome and never releases the fence. A malformed report (missing or
-     * unknown proof value) and a stale or identity-mismatched one are dropped with
-     * a warning and change nothing.
+     * Handles one termination-only report: authentication comes first and gates
+     * everything else, then a matched proof releases only the possible-live slot
+     * — it never changes an UNKNOWN outcome and never releases the fence. A
+     * malformed report (missing or unknown proof value) and a stale or
+     * identity-mismatched one are dropped with a warning and change nothing.
      */
     public void handleTermination(TLanceIndexJobTerminationReport report) {
         if (report == null) {
             LOG.warn("dropping null lance index job termination report");
+            return;
+        }
+        if (!secretMatches(jobManager.getJob(report.getJobId()), report.getInvocationSecret())) {
+            // Same discipline as the result channel: names no secret material, only
+            // that the envelope was rejected.
+            LOG.warn("dropping unauthenticated lance index job termination report for job {}:"
+                    + " invocation secret mismatch", report.getJobId());
             return;
         }
         LanceIndexTerminationProof proof = toProof(report.getProof());
