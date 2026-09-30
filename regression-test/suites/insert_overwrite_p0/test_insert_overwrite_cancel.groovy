@@ -16,8 +16,8 @@
 // under the License.
 
 /**
- * What a cancelled overwrite owes the rows it has already committed, and what it owes the caller when it has
- * committed nothing.
+ * What an overwrite owes the rows it has already committed, whether it is cancelled or comes back with an
+ * error, and what it owes the caller when it has committed nothing.
  *
  * <p>An overwrite commits its rows into temporary partitions and publishes them with a swap afterwards, so a
  * cancellation that lands between the two halves cannot take the rows back: they are durable, and everything
@@ -28,16 +28,24 @@
  * cancellation still has everything to take back, and completing the swap there would publish an empty table
  * for a statement the client cancelled.
  *
- * <p>Each case is injected by its own debug point in the overwrite, scoped by table name, so it lands on a
- * real statement rather than on a race. The same window is asserted twice: once for the rows it publishes,
- * once for the empty plan, whose statement fails only if the injection reached the window.
+ * <p>The same boundary decides what an error response may do to those rows: a load whose publication times out
+ * after its commit is committed, and the session's visibility-timeout mode reports that timeout as an error.
+ * The response is an error, but the rows exist, so the swap has to run for that case too.
+ *
+ * <p>The cancellation cases are injected by their own debug point in the overwrite, scoped by table name, so
+ * they land on real statements rather than on a race; the window is asserted twice, once for the rows it
+ * publishes and once for the empty plan, whose statement fails only if the injection reached the window. The
+ * publication timeout is driven by blocking the publish daemon, as test_insert_visible_timeout_return_mode
+ * does.
  */
 suite("test_insert_overwrite_cancel", "nonConcurrent") {
     def beforePoint = "InsertOverwriteTableCommand.cancelBeforeTheInsertOfAnOverwrite"
     def betweenPoint = "InsertOverwriteTableCommand.cancelBetweenTheTwoHalvesOfAnOverwrite"
+    def stopPublishPoint = "PublishVersionDaemon.stop_publish"
 
     GetDebugPoint().disableDebugPointForAllFEs(beforePoint)
     GetDebugPoint().disableDebugPointForAllFEs(betweenPoint)
+    GetDebugPoint().disableDebugPointForAllFEs(stopPublishPoint)
     sql """DROP TABLE IF EXISTS test_iot_cancel_src"""
     sql """DROP TABLE IF EXISTS test_iot_cancel_dst"""
     sql """DROP TABLE IF EXISTS test_iot_cancel_flat_src"""
@@ -155,4 +163,37 @@ suite("test_insert_overwrite_cancel", "nonConcurrent") {
         GetDebugPoint().disableDebugPointForAllFEs(betweenPoint)
     }
     order_qt_dst_after_the_cancelled_empty_overwrite """SELECT id, dt, amount FROM test_iot_cancel_flat_dst"""
+
+    // An error response over committed rows: `insert_visible_timeout_return_mode=error` turns a publication
+    // timeout that follows the commit into an error, but the rows the overwrite wrote are durable, so the
+    // overwrite has to be published rather than dropped with the temporary partitions. The row the overwrite
+    // reads is new, so the table only holds it if the swap ran.
+    sql """INSERT INTO test_iot_cancel_src VALUES (5, '2026-01-25', 500)"""
+    try {
+        GetDebugPoint().enableDebugPointForAllFEs(stopPublishPoint, [timeout: "10"])
+        sql """SET insert_visible_timeout_ms = 1000"""
+        sql """SET insert_visible_timeout_return_mode = 'error'"""
+        test {
+            sql """INSERT OVERWRITE TABLE test_iot_cancel_dst SELECT * FROM test_iot_cancel_src"""
+            exception "transaction commit successfully, BUT data did not become visible"
+        }
+    } finally {
+        GetDebugPoint().disableDebugPointForAllFEs(stopPublishPoint)
+        // Back to the defaults (DEFAULT_INSERT_VISIBLE_TIMEOUT_MS = 60000, 'committed').
+        sql """SET insert_visible_timeout_ms = 60000"""
+        sql """SET insert_visible_timeout_return_mode = 'committed'"""
+    }
+
+    // Publish resumes on its own, and the rows that were committed under the error come with it.
+    def published = false
+    for (int i = 0; i < 15; i++) {
+        def rows = sql """SELECT count(*) FROM test_iot_cancel_dst"""
+        if ((rows[0][0] as long) == 3L) {
+            published = true
+            break
+        }
+        sleep(1000)
+    }
+    assertTrue(published, "The committed overwrite should become visible after publish resumes")
+    order_qt_dst_after_the_publish_timeout """SELECT id, dt, amount FROM test_iot_cancel_dst"""
 }

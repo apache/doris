@@ -287,7 +287,7 @@ public class InsertOverwriteTableCommand extends Command
                 // partitions and return. for transactional, the replacement will really occur when insert successed,
                 // i.e. `insertInto` finished. then we call taskGroupSuccess to make replacement.
                 InsertCommandContext insertCtx = insertIntoAutoDetect(ctx, executor, taskId);
-                if (isCancelled.get() && insertCtx.hasCommittedNothing()) {
+                if (isCancelled.get() && !insertCtx.hasCommitted()) {
                     // The load committed no row, so the cancellation still has everything to take back: the
                     // catch drops the group's temp partitions (there are none), and the statement fails
                     // rather than publishing a replacement the client cancelled.
@@ -320,12 +320,12 @@ public class InsertOverwriteTableCommand extends Command
                 InsertCommandContext insertCtx = insertIntoPartitions(ctx, executor, tempPartitionNames, wholeTable);
                 cancelTheOverwriteAt(DEBUG_POINT_CANCEL_BETWEEN_THE_HALVES_OF_AN_OVERWRITE, targetTable);
                 if (isCancelled.get()) {
-                    if (insertCtx.hasCommittedNothing()) {
-                        // The insert took the path that begins no transaction -- its plan folded to an empty
-                        // relation and there was no stream offset to commit -- so this window holds no durable
-                        // work at all. Completing the swap would publish an empty table for a statement the
-                        // client cancelled; the catch drops the empty temp partitions instead and the
-                        // statement fails, which is the same boundary the cancellations above sit on.
+                    if (!insertCtx.hasCommitted()) {
+                        // The insert committed nothing: its plan folded to an empty relation, so it took the
+                        // path that begins no transaction, and this window holds no durable work at all.
+                        // Completing the swap would publish an empty table for a statement the client
+                        // cancelled; the catch drops the empty temp partitions instead and the statement
+                        // fails, which is the same boundary the cancellations above sit on.
                         throw cancelledBeforeTheRowsWereCommitted("after an insert that committed nothing", ctx);
                     }
                     // Too late to cancel: insertIntoPartitions returns only once its transaction has committed
@@ -466,6 +466,16 @@ public class InsertOverwriteTableCommand extends Command
                 Optional.of(insertCtx), Optional.empty(), false, branchName);
         insertCommand.run(ctx, executor);
         if (ctx.getState().getStateType() == MysqlStateType.ERR) {
+            if (insertCtx.hasCommitted()) {
+                // The rows are durable and only their publication timed out, which the session's
+                // visibility-timeout mode turns into this error (`insert_visible_timeout_return_mode=error`).
+                // Dropping the temp partitions for it would lose exactly what the error says was committed,
+                // so the overwrite keeps going: the swap below publishes the rows, and the error the client
+                // gets stays what it is -- a statement about visibility, not about whether the overwrite ran.
+                LOG.info("insert overwrite continues over an error state whose rows are committed, queryId: {}",
+                        ctx.getQueryIdentifier());
+                return;
+            }
             String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
             LOG.warn("InsertInto state error:{}", errMsg);
             throw new UserException(errMsg);

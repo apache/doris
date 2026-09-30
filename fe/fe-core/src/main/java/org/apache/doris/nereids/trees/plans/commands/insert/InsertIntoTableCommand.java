@@ -756,10 +756,10 @@ public class InsertIntoTableCommand extends Command
         AbstractInsertExecutor insertExecutor = initPlan(ctx, executor);
         // An empty Table Stream read still needs to commit its offset update atomically.
         if (!insertExecutor.requiresTransaction()) {
-            // Nothing was committed here and nothing will be, so a caller that treats a cancellation
-            // arriving after this insert as too late has nothing to keep: it has to know that the rows it
-            // was going to publish do not exist. See InsertCommandContext#setCommittedNothing.
-            insertCtx.ifPresent(insertCommandContext -> insertCommandContext.setCommittedNothing(true));
+            // Nothing is committed on this path, so a caller that asks whether the rows are durable is told
+            // they are not -- no row and no offset was written, which is what it needs before treating a
+            // cancellation or a later failure here as too late to take back.
+            // See InsertCommandContext#setCommitted.
             return;
         }
         if (insertExecutorListener != null) {
