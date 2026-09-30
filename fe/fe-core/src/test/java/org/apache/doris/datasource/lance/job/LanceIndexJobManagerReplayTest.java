@@ -581,10 +581,15 @@ public class LanceIndexJobManagerReplayTest {
     public void replayedRemovalConvergesWithTheSource() throws DdlException {
         TestManager source = new TestManager();
         source.createJob(newCreateJob(1L, "IdxGone"), 100, 100, 100);
-        source.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS);
+        source.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, DEADLINE_MS);
         source.completeWithResult(1L, 1L, INVOCATION_ID, BE_EPOCH, okResult());
         source.markRefreshRunning(1L, 2L);
         source.markRefreshDone(1L, 3L);
+        // A resolved record still holds its possible-live slot until the child is
+        // proven reaped; the retention GC holds such records back, so the proof
+        // arrives before the removal round sees the job as collectable.
+        source.recordTerminationProof(1L, 1L, BACKEND_ID, BE_EPOCH, INVOCATION_ID,
+                LanceIndexTerminationProof.CHILD_REAPED);
         source.createJob(newCreateJob(2L, "IdxStay"), 100, 100, 100);
         Assertions.assertEquals(Collections.singletonList(1L), source.removeResolvedJobsOlderThan(-1L, 1024));
         Assertions.assertEquals(1, source.removeLog.size());

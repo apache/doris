@@ -297,7 +297,7 @@ public class LanceIndexJobManagerPersistTest {
     public void managerImageShrinksAfterRetentionGc() throws Exception {
         TestManager source = new TestManager();
         source.createJob(newCreateJob(1L, "IdxGone"), 100, 100, 100);
-        source.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, 9999L);
+        source.markRunning(1L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, 9999L);
         source.completeWithResult(1L, 1L, INVOCATION_ID, BE_EPOCH,
                 new LanceIndexJobResult(LanceIndexJobResultCode.NO_TRUSTED_RESULT,
                         LanceIndexJobCompletionReason.NONE, "lost", false));

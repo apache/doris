@@ -50,6 +50,7 @@ public class LanceIndexJobManagerGcTest {
     private static final long BACKEND_ID = 1001L;
     private static final long BE_EPOCH = 55L;
     private static final String INVOCATION_ID = "invocation-1";
+    private static final String INVOCATION_SECRET = "a3f1c02d97b64e8fad0c31b9e75d2468";
     private static final long DEADLINE_MS = 9999L;
 
     @Test
@@ -61,7 +62,7 @@ public class LanceIndexJobManagerGcTest {
         // Family (b): a terminal job whose refresh ran to DONE and whose worker was
         // proven gone (the record holds no possible-live slot anymore).
         manager.createJob(newCreateJob(2L, "IdxDone"), 100, 100, 100);
-        Assertions.assertTrue(manager.markRunning(2L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(2L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, DEADLINE_MS));
         Assertions.assertTrue(manager.completeWithResult(2L, 1L, INVOCATION_ID, BE_EPOCH,
                 result(LanceIndexJobResultCode.NATIVE_OK)));
         Assertions.assertTrue(manager.markRefreshRunning(2L, 2L));
@@ -72,7 +73,7 @@ public class LanceIndexJobManagerGcTest {
         // owns the only count of a possibly live worker, so even a negative keep window
         // must not collect it.
         manager.createJob(newCreateJob(4L, "IdxSlotOwner"), 100, 100, 100);
-        Assertions.assertTrue(manager.markRunning(4L, 0L, BACKEND_ID, BE_EPOCH, "inv-4", DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(4L, 0L, BACKEND_ID, BE_EPOCH, "inv-4", INVOCATION_SECRET, DEADLINE_MS));
         Assertions.assertTrue(manager.completeWithResult(4L, 1L, "inv-4", BE_EPOCH,
                 result(LanceIndexJobResultCode.NATIVE_OK)));
         Assertions.assertTrue(manager.markRefreshRunning(4L, 2L));
@@ -132,11 +133,11 @@ public class LanceIndexJobManagerGcTest {
         TestManager manager = new TestManager();
         manager.createJob(newCreateJob(1L, "IdxPending"), 100, 100, 100);
         manager.createJob(newCreateJob(2L, "IdxRunning"), 100, 100, 100);
-        Assertions.assertTrue(manager.markRunning(2L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(2L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, DEADLINE_MS));
         createRunAndLoseResult(manager, 3L, "IdxUnknown");
         // A terminal job whose refresh is still REQUIRED is unresolved too.
         manager.createJob(newCreateJob(4L, "IdxCommitted"), 100, 100, 100);
-        Assertions.assertTrue(manager.markRunning(4L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(4L, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, DEADLINE_MS));
         Assertions.assertTrue(manager.completeWithResult(4L, 1L, INVOCATION_ID, BE_EPOCH,
                 result(LanceIndexJobResultCode.NATIVE_OK)));
         // A corrupt identity-less record is unresolved by construction.
@@ -284,7 +285,7 @@ public class LanceIndexJobManagerGcTest {
     private static void createRunAndLoseResult(TestManager manager, long jobId, String displayName)
             throws DdlException {
         manager.createJob(newCreateJob(jobId, displayName), 100, 100, 100);
-        Assertions.assertTrue(manager.markRunning(jobId, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, DEADLINE_MS));
+        Assertions.assertTrue(manager.markRunning(jobId, 0L, BACKEND_ID, BE_EPOCH, INVOCATION_ID, INVOCATION_SECRET, DEADLINE_MS));
         Assertions.assertTrue(manager.completeWithResult(jobId, 1L, INVOCATION_ID, BE_EPOCH,
                 result(LanceIndexJobResultCode.NO_TRUSTED_RESULT)));
         Assertions.assertEquals(LanceIndexJobMutationState.UNKNOWN, manager.getJob(jobId).getMutationState());
