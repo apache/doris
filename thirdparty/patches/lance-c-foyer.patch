@@ -1,13 +1,16 @@
-# Retained Foyer data-cache integration from lance-format/lance-c#73.
-# Rebased onto the pinned upstream lance-c revision; search fixes live upstream.
+# Foyer data-cache integration for lance-format/lance-c#73.
+# Base: 9bd730add2ac70316c1d642b8459011e2dd92022
+# Source: https://github.com/Gabriel39/lance-c/commit/98271597a0535902b7abce912cd19819e84bc681
+# Regenerate the payload in lance-c; do not maintain separate downstream edits:
+# git diff --full-index --binary 9bd730add2ac70316c1d642b8459011e2dd92022 98271597a0535902b7abce912cd19819e84bc681 -- . | sed 's/^ $//'
 diff --git a/Cargo.lock b/Cargo.lock
+index 78812f1330e146db295a14276f90f9e28654f399..daf9f85daf3e0ea59bb906e8e3c32470519b084b 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
-@@ -1192,6 +1192,17 @@
- version = "0.8.7"
+@@ -1193,6 +1193,17 @@ version = "0.8.7"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
-+
+
 +[[package]]
 +name = "core_affinity"
 +version = "0.8.3"
@@ -18,13 +21,15 @@ diff --git a/Cargo.lock b/Cargo.lock
 + "num_cpus",
 + "winapi",
 +]
-
++
  [[package]]
  name = "countio"
-@@ -2242,6 +2253,16 @@
+ version = "0.3.0"
+@@ -2241,6 +2252,16 @@ version = "0.2.3"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "f8eb564c5c7423d25c886fb561d1e4ee69f72354d16918afa32c08811f6b6a55"
 
- [[package]]
++[[package]]
 +name = "fastant"
 +version = "0.1.11"
 +source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -34,16 +39,13 @@ diff --git a/Cargo.lock b/Cargo.lock
 + "web-time",
 +]
 +
-+[[package]]
+ [[package]]
  name = "fastrand"
  version = "2.3.0"
- source = "registry+https://github.com/rust-lang/crates.io-index"
-@@ -2310,6 +2331,26 @@
- checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
- dependencies = [
+@@ -2312,6 +2333,26 @@ dependencies = [
   "percent-encoding",
-+]
-+
+ ]
+
 +[[package]]
 +name = "foyer"
 +version = "0.22.5"
@@ -62,13 +64,16 @@ diff --git a/Cargo.lock b/Cargo.lock
 + "pin-project",
 + "serde",
 + "tracing",
++]
++
+ [[package]]
+ name = "foyer-common"
+ version = "0.22.6"
+@@ -2362,6 +2403,38 @@ dependencies = [
+  "tracing",
  ]
 
- [[package]]
-@@ -2363,6 +2404,38 @@
- ]
-
- [[package]]
++[[package]]
 +name = "foyer-storage"
 +version = "0.22.6"
 +source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -100,15 +105,13 @@ diff --git a/Cargo.lock b/Cargo.lock
 + "zstd",
 +]
 +
-+[[package]]
+ [[package]]
  name = "foyer-tokio"
  version = "0.22.6"
- source = "registry+https://github.com/rust-lang/crates.io-index"
-@@ -2376,6 +2449,16 @@
- version = "1.20260821.5"
+@@ -2377,6 +2450,16 @@ version = "1.20260821.5"
  source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "36a80a7406da302e04bfd2ca987907590d3a1f3c69958947c43890abd7426b2f"
-+
+
 +[[package]]
 +name = "fs4"
 +version = "0.13.1"
@@ -118,10 +121,11 @@ diff --git a/Cargo.lock b/Cargo.lock
 + "rustix",
 + "windows-sys 0.59.0",
 +]
-
++
  [[package]]
  name = "fs_extra"
-@@ -3720,8 +3803,10 @@
+ version = "1.3.0"
+@@ -3720,8 +3803,10 @@ dependencies = [
   "arrow-array",
   "arrow-schema",
   "async-trait",
@@ -132,7 +136,7 @@ diff --git a/Cargo.lock b/Cargo.lock
   "futures",
   "half",
   "lance",
-@@ -3735,6 +3820,7 @@
+@@ -3735,6 +3820,7 @@ dependencies = [
   "lance-table",
   "libc",
   "log",
@@ -140,39 +144,40 @@ diff --git a/Cargo.lock b/Cargo.lock
   "opendal",
   "pin-project",
   "prost",
-@@ -6629,6 +6715,12 @@
+@@ -6628,6 +6714,12 @@ version = "0.4.12"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
  checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
- [[package]]
++[[package]]
 +name = "small_ctor"
 +version = "0.1.2"
 +source = "registry+https://github.com/rust-lang/crates.io-index"
 +checksum = "88414a5ca1f85d82cc34471e975f0f74f6aa54c40f062efa42c0080e7f763f81"
 +
-+[[package]]
+ [[package]]
  name = "smallvec"
  version = "1.15.1"
- source = "registry+https://github.com/rust-lang/crates.io-index"
-@@ -7893,6 +7985,15 @@
- version = "0.52.0"
- source = "registry+https://github.com/rust-lang/crates.io-index"
- checksum = "282be5f36a8ce781fad8c8ae18fa3f9beff57ec1b52cb3de0789201425d9a33d"
-+dependencies = [
-+ "windows-targets 0.52.6",
-+]
-+
+@@ -7897,6 +7989,15 @@ dependencies = [
+  "windows-targets 0.52.6",
+ ]
+
 +[[package]]
 +name = "windows-sys"
 +version = "0.59.0"
 +source = "registry+https://github.com/rust-lang/crates.io-index"
 +checksum = "1e38bc4d79ed67fd075bcc251a1c39b32a1776bbe92e5bef1f0bf1f8c531853b"
- dependencies = [
-  "windows-targets 0.52.6",
- ]
++dependencies = [
++ "windows-targets 0.52.6",
++]
++
+ [[package]]
+ name = "windows-sys"
+ version = "0.60.2"
 diff --git a/Cargo.toml b/Cargo.toml
+index 18654b862440a90aa6bf0dd846e8f1ad6036fd7c..fd134a7151e1df61da201d867a642e9bcbf645d5 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -35,6 +35,7 @@
+@@ -35,6 +35,7 @@ datafusion = { version = "54.0.0", default-features = false }
  arrow = { version = "58.0.0", features = ["prettyprint", "ffi"] }
  arrow-array = "58.0.0"
  arrow-schema = "58.0.0"
@@ -180,7 +185,7 @@ diff --git a/Cargo.toml b/Cargo.toml
  # Direct to name `chrono::TimeDelta` (the field type of lance's public
  # `AutoCleanupParams`) and `chrono::DateTime`/`Utc` (index metadata
  # timestamps); already in the graph transitively via lance.
-@@ -42,10 +43,12 @@
+@@ -42,10 +43,12 @@ chrono = { version = "0.4", default-features = false }
  half = "2"
  tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
  futures = "0.3"
@@ -194,9 +199,10 @@ diff --git a/Cargo.toml b/Cargo.toml
  prost = "0.14"
  snafu = "0.9"
 diff --git a/README.md b/README.md
+index 9ceccdc4f3f6b5d13dc271be3d2659c7be400306..9d5a318d911ea8f8efba82a447275ebf6e88901f 100644
 --- a/README.md
 +++ b/README.md
-@@ -68,6 +68,7 @@
+@@ -68,6 +68,7 @@ Based on the [liblance RFC](https://github.com/lance-format/lance/discussions/60
  | [x] | Async scan | Callback-based `lance_scanner_scan_async()` for non-blocking scans |
  | [x] | Dataset metadata | `lance_dataset_version()`, `lance_dataset_count_rows()`, `lance_dataset_latest_version()` |
  | [x] | Filter pushdown | `lance_scanner_set_substrait_filter()` accepts a serialized Substrait `ExtendedExpression`; `lance_scanner_additional_sql_filter()` adds SQL predicates with AND before scanning starts |
@@ -204,12 +210,10 @@ diff --git a/README.md b/README.md
 
  ## Multi-vector search
 
-@@ -229,6 +230,29 @@
-     1ULL * 1024 * 1024 * 1024);
- auto ds = lance::Dataset::open_with_session(session, "data.lance");
+@@ -231,6 +232,29 @@ auto ds = lance::Dataset::open_with_session(session, "data.lance");
  auto stats = session.cache_stats();
-+```
-+
+ ```
+
 +To add a process-local memory/disk cache for remote Lance data-file reads,
 +create the session with Foyer configuration. The cache is deliberately narrow:
 +whole-object, single-range, and batched range reads of direct `data/*.lance`
@@ -231,16 +235,20 @@ diff --git a/README.md b/README.md
 +    1ULL * 1024 * 1024 * 1024,
 +    data_cache);
 +auto ds = lance::Dataset::open_with_session(session, "s3://bucket/data.lance");
- ```
-
++```
++
  ### Open at a specific version
+
+ `lance_dataset_open` takes a `version` argument — `0` means the latest, any
 diff --git a/include/lance/lance.h b/include/lance/lance.h
+index 7630913fd7849d0bff2cb0f31e1ab1199cb9f0fb..1c1d0752efdda5023b29eafe5aa9a87e03dc5303 100644
 --- a/include/lance/lance.h
 +++ b/include/lance/lance.h
-@@ -215,6 +215,36 @@
+@@ -214,6 +214,36 @@ typedef struct LanceSessionCacheStats {
+     uint64_t metadata_cache_size_bytes;
  } LanceSessionCacheStats;
 
- /**
++/**
 + * Configuration for the optional Foyer cache of immutable Lance data files.
 + *
 + * Whole-object, single-range, and batched range reads of direct
@@ -270,16 +278,13 @@ diff --git a/include/lance/lance.h b/include/lance/lance.h
 +    uint64_t bytes_read_from_remote;
 +} LanceDataCacheStatistics;
 +
-+/**
+ /**
   * Create a session that can share metadata and index caches across datasets.
   *
-  * Cache limits are specified in bytes. Pass 0 to request zero capacity.
-@@ -223,6 +253,25 @@
- LanceSession* lance_session_new(
-     uint64_t index_cache_size_bytes,
+@@ -225,6 +255,25 @@ LanceSession* lance_session_new(
      uint64_t metadata_cache_size_bytes
-+);
-+
+ );
+
 +/**
 + * Create a shared Lance session with a Foyer data-file cache.
 + *
@@ -297,15 +302,15 @@ diff --git a/include/lance/lance.h b/include/lance/lance.h
 +    uint64_t index_cache_size_bytes,
 +    uint64_t metadata_cache_size_bytes,
 +    const LanceDataCacheOptions* data_cache_options
- );
-
- /**
-@@ -279,6 +328,20 @@
-     const char* const* storage_opts,
-     uint64_t version,
-     const LanceSession* session
 +);
 +
+ /**
+  * Close a session handle. Safe to call with NULL. Datasets previously opened
+  * with the session remain valid and retain the shared cache state.
+@@ -281,6 +330,20 @@ LanceDataset* lance_dataset_open_with_session(
+     const LanceSession* session
+ );
+
 +/**
 + * Copy this dataset handle's cumulative data-cache statistics.
 + *
@@ -318,13 +323,16 @@ diff --git a/include/lance/lance.h b/include/lance/lance.h
 +int32_t lance_dataset_get_data_cache_statistics(
 +    const LanceDataset* dataset,
 +    LanceDataCacheStatistics* out_statistics
- );
-
++);
++
  /** Close and free a dataset handle. Safe to call with NULL. */
+ void lance_dataset_close(LanceDataset* dataset);
+
 diff --git a/include/lance/lance.hpp b/include/lance/lance.hpp
+index 286724e96736e354785e046f2fcfe5ae7c65147b..5070d423453a5d60d31d03ce758ad7dbe83a6ea2 100644
 --- a/include/lance/lance.hpp
 +++ b/include/lance/lance.hpp
-@@ -176,12 +176,34 @@
+@@ -176,6 +176,13 @@ struct SqlColumn {
 
  // ─── Shared Session ──────────────────────────────────────────────────────────
 
@@ -338,12 +346,10 @@ diff --git a/include/lance/lance.hpp b/include/lance/lance.hpp
  class Session {
      Handle<LanceSession, lance_session_close> handle_;
 
- public:
-     Session(uint64_t index_cache_size_bytes, uint64_t metadata_cache_size_bytes)
-         : handle_(lance_session_new(index_cache_size_bytes, metadata_cache_size_bytes)) {
-+        if (!handle_) check_error();
-+    }
-+
+@@ -185,6 +192,21 @@ public:
+         if (!handle_) check_error();
+     }
+
 +    Session(uint64_t index_cache_size_bytes,
 +            uint64_t metadata_cache_size_bytes,
 +            const DataCacheOptions& data_cache_options) {
@@ -356,24 +362,29 @@ diff --git a/include/lance/lance.hpp b/include/lance/lance.hpp
 +        handle_ = Handle<LanceSession, lance_session_close>(
 +            lance_session_new_with_data_cache(
 +                index_cache_size_bytes, metadata_cache_size_bytes, &options));
-         if (!handle_) check_error();
-     }
-
-@@ -348,6 +370,13 @@
-             uri.c_str(), opts_ptr, version, session.c_handle());
-         if (!ds) check_error();
-         return Dataset(ds);
++        if (!handle_) check_error();
 +    }
 +
+     LanceSessionCacheStats cache_stats() const {
+         LanceSessionCacheStats stats{};
+         if (lance_session_get_cache_stats(handle_.get(), &stats) != 0)
+@@ -350,6 +372,13 @@ public:
+         return Dataset(ds);
+     }
+
 +    LanceDataCacheStatistics data_cache_statistics() const {
 +        LanceDataCacheStatistics statistics{};
 +        if (lance_dataset_get_data_cache_statistics(handle_.get(), &statistics) != 0)
 +            check_error();
 +        return statistics;
-     }
-
++    }
++
      /// Write an Arrow record batch stream to a Lance dataset and return the
+     /// open dataset at the committed version.
+     ///
 diff --git a/src/data_cache.rs b/src/data_cache.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..430b4c891f91d31f202e2318e18db64c7a12ae9d
 --- /dev/null
 +++ b/src/data_cache.rs
 @@ -0,0 +1,68 @@
@@ -446,9 +457,10 @@ diff --git a/src/data_cache.rs b/src/data_cache.rs
 +    Ok(0)
 +}
 diff --git a/src/dataset.rs b/src/dataset.rs
+index cc1f87ce3f7dfe8dd33aeb6ab7f54d02e31a220a..76fd39ef9e456d1fab6978b6b2cb3c27fab1c2f3 100644
 --- a/src/dataset.rs
 +++ b/src/dataset.rs
-@@ -14,6 +14,7 @@
+@@ -14,6 +14,7 @@ use lance::Dataset;
  use lance::dataset::builder::DatasetBuilder;
  use lance_core::Result;
 
@@ -456,7 +468,7 @@ diff --git a/src/dataset.rs b/src/dataset.rs
  use crate::error::{ffi_try, swallow_unwind};
  use crate::helpers;
  use crate::runtime::block_on;
-@@ -23,6 +24,7 @@
+@@ -23,6 +24,7 @@ use crate::stream_guard::guarded_ffi_stream_from_reader;
  /// Opaque handle representing an opened Lance dataset.
  pub struct LanceDataset {
      pub(crate) inner: RwLock<Arc<Dataset>>,
@@ -464,7 +476,7 @@ diff --git a/src/dataset.rs b/src/dataset.rs
  }
 
  impl LanceDataset {
-@@ -182,8 +184,16 @@
+@@ -182,8 +184,16 @@ unsafe fn open_dataset_inner(
      }
 
      let dataset = block_on(builder.load())?;
@@ -481,7 +493,7 @@ diff --git a/src/dataset.rs b/src/dataset.rs
      };
      Ok(Box::into_raw(Box::new(handle)))
  }
-@@ -519,6 +529,7 @@
+@@ -519,6 +529,7 @@ mod tests {
          .unwrap();
          let handle = LanceDataset {
              inner: RwLock::new(Arc::new(dataset)),
@@ -490,6 +502,8 @@ diff --git a/src/dataset.rs b/src/dataset.rs
          (tmp, handle)
      }
 diff --git a/src/foyer_data_cache.rs b/src/foyer_data_cache.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..c892311be04c4a2b21026954cb386f930a4aab98
 --- /dev/null
 +++ b/src/foyer_data_cache.rs
 @@ -0,0 +1,1411 @@
@@ -1905,9 +1919,10 @@ diff --git a/src/foyer_data_cache.rs b/src/foyer_data_cache.rs
 +    }
 +}
 diff --git a/src/lib.rs b/src/lib.rs
+index 34817600548d8d68c0081597d2f0ea9a41efc8d8..4a96bb58652b467d3ff278596b4f4fd95eea97fb 100644
 --- a/src/lib.rs
 +++ b/src/lib.rs
-@@ -26,11 +26,13 @@
+@@ -26,11 +26,13 @@ mod async_dispatcher;
  mod batch;
  mod blob;
  mod compact;
@@ -1921,7 +1936,7 @@ diff --git a/src/lib.rs b/src/lib.rs
  mod fragment_writer;
  mod fts_query;
  mod helpers;
-@@ -55,6 +57,7 @@
+@@ -55,6 +57,7 @@ pub use alter_columns::*;
  pub use batch::*;
  pub use blob::*;
  pub use compact::*;
@@ -1929,7 +1944,7 @@ diff --git a/src/lib.rs b/src/lib.rs
  pub use data_statistics::*;
  pub use dataset::*;
  pub use delete::*;
-@@ -62,6 +65,7 @@
+@@ -62,6 +65,7 @@ pub use drop_columns::*;
  pub use error::{
      LanceErrorCode, lance_free_string, lance_last_error_code, lance_last_error_message,
  };
@@ -1938,9 +1953,10 @@ diff --git a/src/lib.rs b/src/lib.rs
  pub use fts_query::*;
  pub use index::*;
 diff --git a/src/restore.rs b/src/restore.rs
+index 7804b55818c3b0ed2f14de5cc9f632098e0eb25e..fa2d26da5670c78224a3e33f98f747b24190b6d6 100644
 --- a/src/restore.rs
 +++ b/src/restore.rs
-@@ -65,8 +65,16 @@
+@@ -65,8 +65,16 @@ unsafe fn restore_inner(dataset: *const LanceDataset, version: u64) -> Result<*m
          Ok::<_, lance_core::Error>(checked_out)
      })?;
 
@@ -1958,9 +1974,10 @@ diff --git a/src/restore.rs b/src/restore.rs
      Ok(Box::into_raw(Box::new(handle)))
  }
 diff --git a/src/session.rs b/src/session.rs
+index 60a16234557eaeb93e8eaad971a9eba73a562a83..9ed8cfe4b5207afc78c65163e8cc4c7dc1faab09 100644
 --- a/src/session.rs
 +++ b/src/session.rs
-@@ -8,12 +8,14 @@
+@@ -8,12 +8,14 @@ use std::sync::Arc;
  use lance::session::Session;
  use lance_core::Result;
 
@@ -1976,10 +1993,11 @@ diff --git a/src/session.rs b/src/session.rs
  }
 
  /// Snapshot of a session's metadata and index cache statistics.
-@@ -48,6 +50,14 @@
+@@ -47,6 +49,14 @@ pub extern "C" fn lance_session_new(
+ fn session_new_inner(
      index_cache_size_bytes: u64,
      metadata_cache_size_bytes: u64,
- ) -> Result<*mut LanceSession> {
++) -> Result<*mut LanceSession> {
 +    session_new_with_data_cache_factory(index_cache_size_bytes, metadata_cache_size_bytes, None)
 +}
 +
@@ -1987,11 +2005,10 @@ diff --git a/src/session.rs b/src/session.rs
 +    index_cache_size_bytes: u64,
 +    metadata_cache_size_bytes: u64,
 +    data_cache_factory: Option<Arc<dyn DataCacheFactory>>,
-+) -> Result<*mut LanceSession> {
+ ) -> Result<*mut LanceSession> {
      let index_cache_size_bytes = u64_to_usize(index_cache_size_bytes, "index_cache_size_bytes")?;
      let metadata_cache_size_bytes =
-         u64_to_usize(metadata_cache_size_bytes, "metadata_cache_size_bytes")?;
-@@ -58,6 +68,7 @@
+@@ -58,6 +68,7 @@ fn session_new_inner(
      );
      Ok(Box::into_raw(Box::new(LanceSession {
          inner: Arc::new(session),
@@ -2000,9 +2017,10 @@ diff --git a/src/session.rs b/src/session.rs
  }
 
 diff --git a/src/writer.rs b/src/writer.rs
+index 1971510de4a13ee6f04fc39c159b088e78e21d55..ba51c87a8cebb6897c48fb55509f71dabb58f3b4 100644
 --- a/src/writer.rs
 +++ b/src/writer.rs
-@@ -282,6 +282,7 @@
+@@ -282,6 +282,7 @@ unsafe fn write_dataset_inner(
      if !out_dataset.is_null() {
          let handle = LanceDataset {
              inner: RwLock::new(Arc::new(dataset)),
@@ -2011,9 +2029,10 @@ diff --git a/src/writer.rs b/src/writer.rs
          // SAFETY: `out_dataset` is non-NULL (checked above) and the caller
          // guarantees it points to caller-owned, writable storage of size
 diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
+index 1a25e34a8ca50623812ffedaa7bb5a8c54f7850e..b63a26a7c2135026e7ccf761565cc7746fde79f5 100644
 --- a/tests/c_api_test.rs
 +++ b/tests/c_api_test.rs
-@@ -100,8 +100,81 @@
+@@ -100,10 +100,83 @@ fn create_large_dataset(num_rows: i32) -> (tempfile::TempDir, String) {
      (tmp, uri)
  }
 
@@ -2056,8 +2075,8 @@ diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
 +
  fn c_str(s: &str) -> CString {
      CString::new(s).unwrap()
-+}
-+
+ }
+
 +fn file_object_store_uri(path: &str) -> CString {
 +    let path = path.replace('\\', "/");
 +    let leading_slash = if path.starts_with('/') { "" } else { "/" };
@@ -2092,13 +2111,16 @@ diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
 +        .iter()
 +        .map(RecordBatch::num_rows)
 +        .sum()
- }
-
++}
++
  #[derive(Default)]
-@@ -446,6 +519,120 @@
+ struct CapturedScanStatistics {
+     calls: usize,
+@@ -445,6 +518,120 @@ fn test_shared_session_rejects_null_inputs() {
+     }
  }
 
- #[test]
++#[test]
 +fn test_session_with_data_cache_serves_repeated_scan() {
 +    let (tmp, uri) = create_large_multi_fragment_dataset(10_000);
 +    let c_uri = file_object_store_uri(&uri);
@@ -2212,16 +2234,13 @@ diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
 +    assert_eq!(lance_last_error_code(), LanceErrorCode::InvalidArgument);
 +}
 +
-+#[test]
+ #[test]
  fn test_open_nonexistent() {
      let c_uri = c_str("memory://nonexistent_dataset_xyz");
-     let ds = unsafe { lance_dataset_open(c_uri.as_ptr(), ptr::null(), 0) };
-@@ -3316,6 +3503,40 @@
-
-     unsafe { lance_dataset_close(restored) };
+@@ -3318,6 +3505,40 @@ fn test_dataset_restore_to_prior_version() {
      unsafe { lance_dataset_close(ds) };
-+}
-+
+ }
+
 +#[test]
 +fn test_restored_handle_has_independent_data_cache_statistics() {
 +    let (_tmp, uri) = create_large_multi_fragment_dataset(10_000);
@@ -2254,18 +2273,19 @@ diff --git a/tests/c_api_test.rs b/tests/c_api_test.rs
 +        lance_dataset_close(restored);
 +        lance_dataset_close(source);
 +    }
- }
-
- #[test]
-diff --git a/tests/cpp/test_c_api.c b/tests/cpp/test_c_api.c
---- a/tests/cpp/test_c_api.c
-+++ b/tests/cpp/test_c_api.c
-@@ -169,6 +169,37 @@
-     lance_dataset_close(ds);
-     printf("metadata_entries=%llu... OK\n",
-            (unsigned long long)stats.metadata_cache_entries);
 +}
 +
+ #[test]
+ fn test_dataset_restore_to_current_latest_writes_new_manifest() {
+     // Restoring to the current latest still writes a new manifest. The
+diff --git a/tests/cpp/test_c_api.c b/tests/cpp/test_c_api.c
+index 5df9cde4d8fa971823b9e6c974a8a0db6c9ec9ca..1444e55161631ac8ad976f427d867ad91d358195 100644
+--- a/tests/cpp/test_c_api.c
++++ b/tests/cpp/test_c_api.c
+@@ -171,6 +171,37 @@ static void test_shared_session(const char *uri) {
+            (unsigned long long)stats.metadata_cache_entries);
+ }
+
 +static void test_data_cache_session(const char *uri, const char *write_uri) {
 +    printf("  test_data_cache_session... ");
 +
@@ -2295,10 +2315,12 @@ diff --git a/tests/cpp/test_c_api.c b/tests/cpp/test_c_api.c
 +           "dataset should remain valid after data-cache session close");
 +    lance_dataset_close(ds);
 +    printf("OK\n");
- }
-
++}
++
  static void test_scan(const char *uri) {
-@@ -1323,6 +1354,7 @@
+     printf("  test_scan... ");
+
+@@ -1323,6 +1354,7 @@ int main(int argc, char **argv) {
 
      test_open_and_metadata(uri);
      test_shared_session(uri);
@@ -2307,15 +2329,13 @@ diff --git a/tests/cpp/test_c_api.c b/tests/cpp/test_c_api.c
      test_scan_with_limit(uri);
      test_scanner_blob_handling(blob_uri);
 diff --git a/tests/cpp/test_cpp_api.cpp b/tests/cpp/test_cpp_api.cpp
+index 0332d1a2687354984d0551e10716df08344a4013..ef64ab0d02bed2f1750c3d388792e4aa44265e24 100644
 --- a/tests/cpp/test_cpp_api.cpp
 +++ b/tests/cpp/test_cpp_api.cpp
-@@ -128,6 +128,28 @@
+@@ -131,6 +131,28 @@ static void test_shared_session(const std::string& uri) {
+     PASS();
+ }
 
-     printf("metadata_entries=%llu... ",
-            (unsigned long long)stats.metadata_cache_entries);
-+    PASS();
-+}
-+
 +static void test_data_cache_session(const std::string& uri,
 +                                    const std::string& write_uri) {
 +    TEST(test_data_cache_session);
@@ -2335,10 +2355,13 @@ diff --git a/tests/cpp/test_cpp_api.cpp b/tests/cpp/test_cpp_api.cpp
 +    session.reset();
 +    assert(ds.count_rows() > 0);
 +
-     PASS();
- }
++    PASS();
++}
++
+ static void test_dataset_schema(const std::string& uri) {
+     TEST(test_dataset_schema);
 
-@@ -1211,6 +1233,7 @@
+@@ -1211,6 +1233,7 @@ int main(int argc, char** argv) {
 
      test_dataset_open(uri);
      test_shared_session(uri);
