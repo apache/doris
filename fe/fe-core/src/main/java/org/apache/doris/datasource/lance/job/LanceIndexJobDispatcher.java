@@ -17,8 +17,8 @@
 
 package org.apache.doris.datasource.lance.job;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
@@ -74,10 +74,11 @@ import java.util.function.Supplier;
  * old backend) converges it NOT_COMMITTED through the no-enqueue channel,
  * which releases the possible-live slot in the same durable transition;
  * anything ambiguous after the invocation may have started converges UNKNOWN
- * with the slot retained. The blocking time of the send loop is bounded per
- * round (one backend RPC timeout), because this thread is also the only thread
- * running the sweeps and the refresh driver — see
- * {@link #dispatchPendingJobs()}.
+ * with the slot retained. The blocking time of the send loop and of the
+ * refresh loop is bounded per round (one backend RPC timeout each), because
+ * this thread is also the only thread running the sweeps — see
+ * {@link #dispatchPendingJobs()} and
+ * {@link #driveRequiredRefreshes(LanceIndexJobManager, long)}.
  *
  * <p>The manager is resolved from the supplier once per round rather than
  * captured at construction: {@code Env.loadLanceIndexJobManager} replaces the
@@ -259,8 +260,22 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
      * DONE or FAILED: a FAILED job keeps its fence and is retried, throttled to
      * one attempt per retry interval, while a first REQUIRED refresh is never
      * delayed. UNKNOWN jobs never appear here; they owe no refresh.
+     *
+     * <p>The blocking time of this loop is bounded per round exactly like the
+     * dispatch send loop ({@link #dispatchPendingJobs()}): one owed refresh can
+     * initialize a Lance catalog and list remote databases or tables, so a slow
+     * provider can consume a whole metadata timeout, and several owed jobs
+     * could multiply that delay before the next deadline or epoch sweep and
+     * before PENDING jobs dispatch. At most one backend RPC timeout of blocking
+     * refresh work runs per round; the remaining owed jobs are logged and
+     * deferred to the next round with their durable state untouched (REQUIRED
+     * or FAILED, never a stranded RUNNING), so the FAILED throttle and the
+     * markRefreshRunning semantics keep their meaning.
      */
     private void driveRequiredRefreshes(LanceIndexJobManager jobManager, long nowMs) {
+        // fe.conf bypasses the validator, so a non-positive timeout is clamped to keep
+        // at least one refresh attempt per round.
+        long blockingBudgetMs = Math.max(1L, Config.backend_rpc_timeout_ms);
         for (LanceIndexJob job : jobManager.getJobsNeedingRefresh()) {
             try {
                 if (job.getRefreshState() == LanceIndexJobRefreshState.RUNNING) {
@@ -273,11 +288,21 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
                                 < Config.lance_index_job_refresh_retry_second * 1000L) {
                     continue;
                 }
-                if (!jobManager.markRefreshRunning(job.getJobId(), job.getRevision())) {
-                    // A concurrent driver won the compare-and-set; nothing to do here.
-                    continue;
+                if (blockingBudgetMs <= 0) {
+                    LOG.info("lance index job dispatcher spent this round's blocking-refresh budget;"
+                            + " deferring lance index job {} to a later round", job.getJobId());
+                    break;
                 }
-                driveOneRefresh(jobManager, job);
+                long attemptStartMs = nowMs();
+                try {
+                    if (!jobManager.markRefreshRunning(job.getJobId(), job.getRevision())) {
+                        // A concurrent driver won the compare-and-set; nothing to do here.
+                        continue;
+                    }
+                    driveOneRefresh(jobManager, job);
+                } finally {
+                    blockingBudgetMs -= nowMs() - attemptStartMs;
+                }
             } catch (Throwable t) {
                 LOG.warn("failed to drive the refresh of lance index job " + job.getJobId(), t);
             }
@@ -296,8 +321,7 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
         }
         // DONE is reserved for a refresh that verifiably did its work: a null db/table
         // lookup is NOT that evidence (a cold cache or a transient remote failure also
-        // yields null and handleRefreshTable would silently skip the invalidation and
-        // the journal), so the local resolution decides how completion is proven.
+        // yields null), so the local resolution decides how completion is proven.
         DatabaseIf<? extends TableIf> db;
         TableIf table;
         try {
@@ -330,8 +354,17 @@ public class LanceIndexJobDispatcher extends MasterDaemon {
             // by the persisted catalog id, never by the mutable name: a rename that
             // hands this catalog's old name to a different catalog between the two
             // resolutions must not refresh that one and bill the outcome to this job.
+            // ignoreIfNotExists is deliberately false so the obligation survives a
+            // re-resolution miss: RefreshManager resolves the names again on its own,
+            // and with true a null db or table would silently return — DONE without
+            // any refresh — exactly when the re-resolution failed (a catalog
+            // initialization that could not list the namespace, a cold re-resolution,
+            // or a genuine drop inside this window). With false the miss throws
+            // DdlException instead, the catch below marks the refresh FAILED and the
+            // job retries; a genuine drop converges next round through the
+            // VERIFIED_ABSENT path above.
             Env.getCurrentEnv().getRefreshManager().handleRefreshTable(job.getCatalogId(),
-                    job.getDbName(), job.getTableName(), true);
+                    job.getDbName(), job.getTableName(), false);
         } catch (Throwable t) {
             // The typed DdlException is the expected failure; an unchecked exception out
             // of the metadata path must still leave the durable refresh state, or the
