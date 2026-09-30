@@ -18,9 +18,24 @@ test_drop_unreferenced_column_mtmv_mow_mv	SCHEMA_CHANGE	SUCCESS	false
 2	200
 
 -- !dup_state_after_unreferenced_drop --
-test_drop_unreferenced_column_mtmv_dup_mv	NORMAL	SUCCESS	true
+test_drop_unreferenced_column_mtmv_dup_mv	SCHEMA_CHANGE	SUCCESS	false
 
 -- !dup_rows_after_unreferenced_drop --
 1	100
 2	200
+
+-- !scope_drop_baseline --
+1
+
+-- !scope_drop_state --
+test_drop_unreferenced_column_mtmv_scope_drop_mv	SCHEMA_CHANGE	SUCCESS	false
+
+-- !scope_add_baseline --
+1
+
+-- !scope_add_unreached --
+test_drop_unreferenced_column_mtmv_scope_add_mv	NORMAL	SUCCESS	true
+
+-- !scope_add_state --
+test_drop_unreferenced_column_mtmv_scope_add_mv	SCHEMA_CHANGE	SUCCESS	false
 

@@ -22,7 +22,9 @@ import org.apache.doris.catalog.OlapTable;
 
 import org.apache.commons.lang3.NotImplementedException;
 
+import java.util.Collections;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * AlterOp
@@ -44,19 +46,28 @@ public abstract class AlterOp {
     public abstract boolean needChangeMTMVState();
 
     /**
-     * Whether re-analysing a materialized view's query is what decides if this operation invalidates it.
+     * The columns this operation gives the table or takes away from it, for the operations whose effect on
+     * a view is decided by that view's own query; empty for every operation whose effect the query does not
+     * decide.
      *
-     * <p>Marked on the operations whose only way of reaching a view is through a column its query names:
-     * a column that is dropped or renamed either is named by the query -- and then the query stops
-     * analysing -- or it is not, and the view's rows are the ones they already were. A type change is not
-     * one of these: the query keeps analysing, and re-analysis compares the columns the query produces,
-     * so a column the query only filters or joins on can change what the view's rows mean while
-     * re-analysis reports nothing.
+     * <p>Marked on the operations whose only way of reaching a view is through a column, in either
+     * direction. A column that is dropped or renamed is either one the view's query reaches -- and then the
+     * view cannot be computed from the table as it now stands, or is computed from another column that
+     * answers to the same name -- or it is one the query never reaches, and the view's rows are the ones
+     * they already were. A column that is added can move a name the query reaches: the name is answered by
+     * the column nearest to it in the query's scopes, so one added there takes it away from wherever the
+     * query reached it. A type change is neither: the query keeps analysing, and re-analysis compares the
+     * columns the query produces, so a column the query only filters or joins on can change what the view's
+     * rows mean while re-analysis reports nothing.
      *
-     * <p>Default false: the operation invalidates every view that reads the table.
+     * <p>The names are what the judgement is about, rather than the operation as a whole: they are the
+     * columns the view's query is asked about, and what the answer is checked against once it has been
+     * given. See {@code MTMVRelationManager}, which asks the query and holds the answer to these names.
+     *
+     * <p>Default empty: the operation invalidates every view that reads the table.
      */
-    public boolean needQueryUsabilityCheck() {
-        return false;
+    public Set<String> queryJudgedColumnNames() {
+        return Collections.emptySet();
     }
 
     /**

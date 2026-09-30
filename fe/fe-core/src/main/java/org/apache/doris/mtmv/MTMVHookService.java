@@ -29,6 +29,8 @@ import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.BooleanSupplier;
 
 /**
  * Contains all operations that affect the mtmv
@@ -88,12 +90,39 @@ public interface MTMVHookService {
      * @param oldTableInfo info before alter
      * @param newTableInfo info after alter
      * @param isReplace
-     * @param judgeStateByQueryUsability whether re-analysing each dependent MV's query decides the state
-     *                                   it ends in; the alter says so for the column changes it has already
-     *                                   applied, see {@code AlterOp#needQueryUsabilityCheck}
+     * @param queryJudgedChange the change, left to the judgement of the query of each MV that reads the
+     *                          table, or null when the alter is not one a query decides
      */
     void alterTable(BaseTableInfo oldTableInfo, Optional<BaseTableInfo> newTableInfo, boolean isReplace,
-            boolean judgeStateByQueryUsability);
+            QueryJudgedChange queryJudgedChange);
+
+    /**
+     * A change to a base table that is left to the query of each view that reads it.
+     *
+     * <p>It carries the two things such an answer is held against. The columns are what the query is asked
+     * about: they are the names the change gives the table or takes away from it, and a name is what the
+     * change moves -- a column added where the query reaches a name answers for it from then on, and one
+     * taken away leaves the name to whatever else answers to it. Whether the change has reached the table is
+     * asked again after the query has been analysed, because a table moves on between the two, and the
+     * answer has to be about the table the change left rather than about a later one.
+     */
+    class QueryJudgedChange {
+        private final Set<String> columns;
+        private final BooleanSupplier hasReachedTheTable;
+
+        public QueryJudgedChange(Set<String> columns, BooleanSupplier hasReachedTheTable) {
+            this.columns = columns;
+            this.hasReachedTheTable = hasReachedTheTable;
+        }
+
+        public Set<String> columns() {
+            return columns;
+        }
+
+        public boolean hasReachedTheTable() {
+            return hasReachedTheTable.getAsBoolean();
+        }
+    }
 
     /**
      * Triggered when pause mtmv

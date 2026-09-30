@@ -94,6 +94,13 @@ suite("test_drop_unreferenced_column_mtmv") {
     String dupMv = "${suiteName}_dup_mv"
     String dupQuery = "SELECT k1, SUM(amount) AS total FROM ${dupTable} GROUP BY k1"
 
+    String scopeDropOuter = "${suiteName}_scope_drop_outer"
+    String scopeDropInner = "${suiteName}_scope_drop_inner"
+    String scopeDropMv = "${suiteName}_scope_drop_mv"
+    String scopeAddOuter = "${suiteName}_scope_add_outer"
+    String scopeAddInner = "${suiteName}_scope_add_inner"
+    String scopeAddMv = "${suiteName}_scope_add_mv"
+
     sql """drop materialized view if exists ${dupMv}"""
     sql """drop table if exists ${dupTable}"""
     sql """
@@ -105,7 +112,7 @@ suite("test_drop_unreferenced_column_mtmv") {
         )
         DUPLICATE KEY(k1)
         DISTRIBUTED BY HASH(k1) BUCKETS 2
-        PROPERTIES ("replication_num" = "1")
+        PROPERTIES ("replication_num" = "1", "light_schema_change" = "false")
     """
     sql """INSERT INTO ${dupTable} VALUES (1, 100, 7), (2, 200, 8)"""
     sql """
@@ -122,13 +129,73 @@ suite("test_drop_unreferenced_column_mtmv") {
     // part in it before the change, and a change that invalidated the MV would take it out.
     mv_rewrite_success_without_check_chosen(dupQuery, dupMv)
 
-    // The same shape as the first half, on a table where dropping a column with data in it is not a light
-    // change and a job does the data rewrite. The column is out of the table's schema before the hook runs
-    // all the same -- measured, and it is what makes the same answer the right one here: the query is
-    // analysed against a table that has the change, and a column it does not name leaves it analysable.
+    // The other half of the answer, on a table where a job applies the change rather than the statement.
+    // The hook runs where that job has not run yet, so the table still holds the column and every query
+    // analyses against it: nothing can be concluded about the column from a query, and the MV is
+    // invalidated the way it was before the queries were asked at all.
     sql """ALTER TABLE ${dupTable} DROP COLUMN spare"""
     assertEquals("FINISHED", getAlterColumnFinalState("${dupTable}"))
     order_qt_dup_state_after_unreferenced_drop "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${dupMv}'"
-    mv_rewrite_success_without_check_chosen(dupQuery, dupMv)
+    mv_not_part_in(dupQuery, dupMv)
     order_qt_dup_rows_after_unreferenced_drop "SELECT k1, total FROM ${dupMv}"
+
+    // ---- the name a query reaches a column by can move, and that is the query's to judge ----
+    // `flag` below is unqualified inside the subquery, so it is the inner table's column while that table
+    // has one: the column nearest to a name in the query's scopes answers for it. Taking that column away
+    // leaves the name to the outer table and the query still analyses with the columns it always produced,
+    // while its rows are the ones of the column that went away.
+    sql """drop materialized view if exists ${scopeDropMv}"""
+    sql """drop table if exists ${scopeDropOuter}"""
+    sql """drop table if exists ${scopeDropInner}"""
+    sql """
+        CREATE TABLE ${scopeDropOuter} (id INT, flag INT) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        CREATE TABLE ${scopeDropInner} (id INT, flag INT) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO ${scopeDropOuter} VALUES (1, 0)"""
+    sql """INSERT INTO ${scopeDropInner} VALUES (1, 1)"""
+    sql """
+        CREATE MATERIALIZED VIEW ${scopeDropMv}
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+        AS SELECT o.id FROM ${scopeDropOuter} o
+        WHERE EXISTS (SELECT 1 FROM ${scopeDropInner} i WHERE i.id = o.id AND flag = 1)
+    """
+    waitingMTMVTaskFinishedByMvName(scopeDropMv)
+    order_qt_scope_drop_baseline "SELECT id FROM ${scopeDropMv}"
+    sql """ALTER TABLE ${scopeDropInner} DROP COLUMN flag"""
+    order_qt_scope_drop_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${scopeDropMv}'"
+
+    // And the same name can be taken over by a column that arrives. The inner table has no `flag` here, so
+    // the name is the outer table's to answer; a column added inside the subquery's scope answers for it
+    // from then on. A column added that no query reaches a name by leaves every MV alone.
+    sql """drop materialized view if exists ${scopeAddMv}"""
+    sql """drop table if exists ${scopeAddOuter}"""
+    sql """drop table if exists ${scopeAddInner}"""
+    sql """
+        CREATE TABLE ${scopeAddOuter} (id INT, flag INT) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        CREATE TABLE ${scopeAddInner} (id INT) DUPLICATE KEY(id)
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+    """
+    sql """INSERT INTO ${scopeAddOuter} VALUES (1, 1)"""
+    sql """INSERT INTO ${scopeAddInner} VALUES (1)"""
+    sql """
+        CREATE MATERIALIZED VIEW ${scopeAddMv}
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES ("replication_num" = "1")
+        AS SELECT o.id FROM ${scopeAddOuter} o
+        WHERE EXISTS (SELECT 1 FROM ${scopeAddInner} i WHERE i.id = o.id AND flag = 1)
+    """
+    waitingMTMVTaskFinishedByMvName(scopeAddMv)
+    order_qt_scope_add_baseline "SELECT id FROM ${scopeAddMv}"
+    sql """ALTER TABLE ${scopeAddInner} ADD COLUMN unrelated BIGINT"""
+    order_qt_scope_add_unreached "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${scopeAddMv}'"
+    sql """ALTER TABLE ${scopeAddInner} ADD COLUMN flag INT DEFAULT 0"""
+    order_qt_scope_add_state "select Name,State,RefreshState,SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${scopeAddMv}'"
 }

@@ -27,7 +27,12 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
+import org.apache.doris.nereids.lineage.LineageInfo;
+import org.apache.doris.nereids.lineage.LineageInfoExtractor;
 import org.apache.doris.nereids.rules.exploration.mv.PartitionCompensator;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
@@ -38,6 +43,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
+import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
@@ -349,39 +355,39 @@ public class MTMVRelationManager implements MTMVHookService {
         // because a dropped table is the one change whose query is gone beyond doubt. What the two record
         // is the same state either way. Unlike a rename it stays an invalidation: the table is gone for
         // good, so the state is not something a later alter can make obsolete.
-        processBaseTableChange(new BaseTableInfo(table), "The base table has been deleted:", false);
+        processBaseTableChange(new BaseTableInfo(table), "The base table has been deleted:", null);
     }
 
     /**
      * update mtmv status to `SCHEMA_CHANGE`.
      *
      * @param isReplace
-     * @param judgeStateByQueryUsability whether the alter is one re-analysing each MV's query decides; the
-     *                                   operations that say so are the column changes, see
-     *                                   {@code AlterOp#needQueryUsabilityCheck}, and the caller only asks
-     *                                   for it once the change it carries has reached the table
+     * @param queryJudgedColumns the columns the alter takes away and leaves the judgement about each MV's
+     *                           state to that MV's own query, or null when the alter is not one a query
+     *                           decides. The columns are named rather than judged before the call because
+     *                           the judgement is about them; see
+     *                           {@code AlterOp#queryJudgedColumnName} for which operations name one, and
+     *                           {@link #invalidateMvUnlessQueryHolds} for what is asked about it. A rename
+     *                           of the base table names no column: it is left to the record below, which
+     *                           says what the MV that keeps spelling the old name needs to hear
      */
     @Override
     public void alterTable(BaseTableInfo oldTableInfo, Optional<BaseTableInfo> newTableInfo, boolean isReplace,
-            boolean judgeStateByQueryUsability) {
+            QueryJudgedChange queryJudgedChange) {
         // when replace, need deal two table
         if (isReplace) {
             // REPLACE TABLE already invalidates the IVM baseline explicitly, see Alter#processReplaceTable
-            processBaseTableChange(newTableInfo.get(), "The base table has been updated:", false);
+            processBaseTableChange(newTableInfo.get(), "The base table has been updated:", null);
         }
-        boolean renamed = !isReplace && newTableInfo.isPresent()
-                && !Objects.equals(oldTableInfo.getTableName(), newTableInfo.get().getTableName());
-        // A rename is the one change whose query check is skipped: the MV query keeps spelling the old
-        // name, so it is unanalyzable by construction, and the reason it would be invalidated with --
-        // "the query is no longer analyzable" -- says less than the message this call records anyway.
-        boolean checkQueryUsable = !renamed && judgeStateByQueryUsability;
-        processBaseTableChange(oldTableInfo, "The base table has been updated:", checkQueryUsable);
+        processBaseTableChange(oldTableInfo, "The base table has been updated:", queryJudgedChange);
     }
 
 
     /**
-     * An MV's query is only as good as the base table schema it was analyzed against. Re-analyzing the
-     * MV query here (right after the alter was applied) is what detects a changed column identity:
+     * An MV's query is only as good as the base table schema it was analyzed against, and a query that
+     * analyses is not enough on its own: a name it reaches a column by can move to another column, and the
+     * table can move on between the analysis and the answer. Re-analyzing the MV query here (right after
+     * the alter was applied) is what detects a changed column identity:
      * dropping or renaming a column the MV uses makes the query unanalyzable, and a column re-added with
      * the same name is a different column, so pre-existing rows read its default value instead.
      *
@@ -400,11 +406,53 @@ public class MTMVRelationManager implements MTMVHookService {
      * same one a change to that table records. What an IVM MV has on top of it is a per-partition
      * requirement, and that is decided elsewhere, from a query that analyzed.
      *
-     * @return whether the MV was invalidated. False is the answer for a query that still analyzes, and it
-     *         is the whole record for this change: there is nothing to write, and writing the generic
-     *         "the base table has been updated" anyway would stand for a rebuild the MV does not owe.
+     * @return whether the MV was invalidated. False is the answer for a change that reaches neither the
+     *         query nor the rows it computed, and it is the whole record for that change: there is nothing to
+     *         write, and writing the generic "the base table has been updated" anyway would stand for a
+     *         rebuild the MV does not owe.
      */
-    private boolean invalidateMvIfQueryUnusable(BaseTableInfo baseTableInfo, Table mvTable) {
+    /**
+     * Whether the query, as it is analysed now, reads a column of any of these names.
+     *
+     * <p>The names are matched rather than the columns, and matched case-insensitively, because a name is
+     * what the change moves: the column that goes away leaves its name to whatever else answers to it, and
+     * the query that reaches the name afterwards is reading a column this view's rows were not built from.
+     */
+    private static boolean reachesAnyColumnOf(Plan plan, Set<String> columnNames) {
+        if (plan == null) {
+            // A query whose plan was not kept is one this cannot be answered about, and "it does" is the
+            // answer that keeps the view safe.
+            return true;
+        }
+        Set<String> names = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        names.addAll(columnNames);
+        LineageInfo lineage = LineageInfoExtractor.extractLineageInfo(plan);
+        for (SetMultimap<?, Expression> byType : lineage.getDirectLineageMap().values()) {
+            if (reachesAnyColumn(byType.values(), names)) {
+                return true;
+            }
+        }
+        for (SetMultimap<?, Expression> byType : lineage.getInDirectLineageMapByDataset().values()) {
+            if (reachesAnyColumn(byType.values(), names)) {
+                return true;
+            }
+        }
+        return reachesAnyColumn(lineage.getDatasetIndirectLineageMap().values(), names);
+    }
+
+    private static boolean reachesAnyColumn(Collection<Expression> expressions, Set<String> names) {
+        for (Expression expression : expressions) {
+            for (Slot slot : expression.getInputSlots()) {
+                if (names.contains(slot.getName())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean invalidateMvUnlessQueryHolds(BaseTableInfo baseTableInfo, Table mvTable,
+            QueryJudgedChange queryJudgedChange) {
         if (!(mvTable instanceof MTMV)) {
             return false;
         }
@@ -412,9 +460,10 @@ public class MTMVRelationManager implements MTMVHookService {
         // Analyse in a context owned by this check, never the session that issued the alter: the check
         // must not disturb the running statement, and it has to work on threads that have no session.
         // Setting a thread local is how a context is made current, so restore the previous one.
+        MTMVAnalyzeQueryInfo analyzedQueryInfo;
         ConnectContext previousCtx = ConnectContext.get();
         try {
-            MTMVPlanUtil.ensureMTMVQueryUsable(mtmv,
+            analyzedQueryInfo = MTMVPlanUtil.ensureMTMVQueryUsable(mtmv,
                     MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK));
         } catch (Exception e) {
             LOG.info("Invalidate MV, the MV query is no longer usable. baseTable={}, mtmv={}, reason={}",
@@ -427,6 +476,38 @@ public class MTMVRelationManager implements MTMVHookService {
             } else {
                 ConnectContext.remove();
             }
+        }
+        // A query that still analyses has not necessarily kept its meaning: a name can move. The column a
+        // query reaches a name by is the nearest one to it in the query's scopes, so a column the change
+        // takes away leaves the name to whatever else answers to it -- an unqualified name inside a subquery
+        // falls back to a correlated outer one, or to one of a table joined there -- and a column the change
+        // adds can answer for the name from then on. Either way the query produces the columns it always
+        // produced while their rows come from elsewhere, and the view's rows are no longer the ones the
+        // query computes. What the query reads is read from the analysed query's lineage, which names the
+        // columns the query really reaches -- through its projections, filters, joins and aggregation, and
+        // through whatever views stand between them -- so an alias or a string that happens to read the same
+        // is not one of them, and one reached inside a view is.
+        if (reachesAnyColumnOf(analyzedQueryInfo.getAnalyzedPlan(), queryJudgedChange.columns())) {
+            LOG.info("Invalidate MV, the MV query reads a column the change takes away. "
+                            + "baseTable={}, columns={}, mtmv={}", baseTableInfo, queryJudgedChange.columns(),
+                    mtmv.getName());
+            mtmv.invalidateWholeMv("The MV query reads a column the change takes away: " + baseTableInfo)
+                    .await();
+            return true;
+        }
+        // And the answer has to be about the table the change left. The analysis reads the table as it is
+        // now, and a light change is applied before this hook runs, so a table that has moved on since --
+        // a column taken away and added back under the same name, say -- would have been analysed in that
+        // later state: the same shapes, a different column. Asked of the change itself rather than of the
+        // columns, because what the table should hold is what that change asked for, and the answer is the
+        // one the analysis was given about only while it still holds.
+        if (!queryJudgedChange.hasReachedTheTable()) {
+            LOG.info("Invalidate MV, the table is no longer the one the change was applied to. "
+                            + "baseTable={}, columns={}, mtmv={}", baseTableInfo, queryJudgedChange.columns(),
+                    mtmv.getName());
+            mtmv.invalidateWholeMv("The table is no longer the one the change was applied to: "
+                    + baseTableInfo).await();
+            return true;
         }
         return false;
     }
@@ -492,13 +573,13 @@ public class MTMVRelationManager implements MTMVHookService {
 
     /**
      * Puts every MV that reads this base table into {@code SCHEMA_CHANGE} -- or, for the changes that ask
-     * for it, every MV whose query no longer analyses.
+     * for it, every MV that change does not leave alone.
      *
-     * @param checkQueryUsable whether re-analysing each MV's query is what decides; see
-     *                         {@link #invalidateMvIfQueryUnusable}
+     * @param queryJudgedChange the change, left to each MV's own query, or null when the alter is not one a
+     *                          query decides; see {@link #invalidateMvUnlessQueryHolds}
      */
     private void processBaseTableChange(BaseTableInfo baseTableInfo, String msgPrefix,
-            boolean checkQueryUsable) {
+            QueryJudgedChange queryJudgedChange) {
         Set<BaseTableInfo> mtmvsByBaseTable = getMtmvsByBaseTableOneLevelAndFromView(baseTableInfo);
         if (CollectionUtils.isEmpty(mtmvsByBaseTable)) {
             return;
@@ -511,17 +592,18 @@ public class MTMVRelationManager implements MTMVHookService {
                 LOG.warn(e);
                 continue;
             }
-            if (checkQueryUsable) {
-                // The query has the last word on this change: a view whose query still analyses holds the
-                // rows it should hold, and invalidating it would discard the result of a refresh running
-                // against it on the strength of a change that never reached it. Nothing else is recorded
-                // here either -- the invalidation carries its reason, and a second record would land on
-                // the same state with the blunter "the base table has been updated", having bumped the
-                // version and dropped the snapshot a second time for one change.
-                if (invalidateMvIfQueryUnusable(baseTableInfo, mvTable)) {
+            if (queryJudgedChange != null) {
+                // The change is left to each view's own query, which is asked and whose answer is held to
+                // the two things that can move under it -- see invalidateMvUnlessQueryHolds. A view the
+                // change leaves alone is not invalidated: that would discard the result of a refresh
+                // running against it on the strength of a change that never reached it. Nothing else is
+                // recorded here either -- the invalidation carries its reason, and a second record would
+                // land on the same state with the blunter "the base table has been updated", having bumped
+                // the version and dropped the snapshot a second time for one change.
+                if (invalidateMvUnlessQueryHolds(baseTableInfo, mvTable, queryJudgedChange)) {
                     LOG.info("Invalidated MV, baseTable={}, mv={}", baseTableInfo, mvTable.getName());
                 } else {
-                    LOG.info("The MV query still analyses, nothing to invalidate. baseTable={}, mv={}",
+                    LOG.info("The change leaves the MV alone, nothing to invalidate. baseTable={}, mv={}",
                             baseTableInfo, mvTable.getName());
                 }
                 continue;

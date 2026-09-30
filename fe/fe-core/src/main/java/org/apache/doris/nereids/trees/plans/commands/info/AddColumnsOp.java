@@ -27,10 +27,12 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * AddColumnsOp
@@ -108,7 +110,18 @@ public class AddColumnsOp extends AlterTableOp {
 
     @Override
     public boolean needChangeMTMVState() {
-        return false;
+        // As in {@link AddColumnOp}: a name a view's query reaches a column by can be taken over by one of
+        // these, and that is the view's query to judge.
+        return true;
+    }
+
+    @Override
+    public Set<String> queryJudgedColumnNames() {
+        Set<String> names = Sets.newHashSetWithExpectedSize(columns.size());
+        for (Column column : columns) {
+            names.add(column.getName());
+        }
+        return names;
     }
 
     @Override

@@ -35,6 +35,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
+import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 
@@ -173,8 +174,8 @@ public class DropColumnOp extends AlterTableOp {
     }
 
     @Override
-    public boolean needQueryUsabilityCheck() {
-        return true;
+    public Set<String> queryJudgedColumnNames() {
+        return Collections.singleton(getColName());
     }
 
     @Override

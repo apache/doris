@@ -51,6 +51,7 @@ import org.apache.doris.common.util.PropertyAnalyzer.RewriteProperty;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVHookService;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPropertyUtil;
 import org.apache.doris.mtmv.MTMVRelation;
@@ -373,19 +374,30 @@ public class Alter {
             throw new DdlException("Invalid alter operations: " + currentAlterOps);
         }
         if (needChangeMTMVState(alterOps)) {
-            // Whether the state a dependent MV ends in is decided by re-analysing its query is the
-            // operation's to say, see AlterOp#needQueryUsabilityCheck -- and the operation is asked whether
-            // the change it carries has reached the table, because the query is analysed against the table
-            // as it is now. A schema change that is not a light one is applied by a job, and where that job
-            // has not run yet the table is the one from before the change: every query still analyses
-            // against it, and an invalidation decided on that answer would be about the wrong table. A
-            // change that has not been seen that way keeps invalidating the MVs that read the table, which
-            // is what it did before the queries were asked at all.
-            boolean judgeStateByQueryUsability = alterOps.stream().anyMatch(AlterOp::needQueryUsabilityCheck)
-                    && alterOps.stream().filter(AlterOp::needQueryUsabilityCheck)
-                            .allMatch(op -> op.hasReachedTheTable(olapTable));
+            // Which columns an operation's effect on a view turns on is the operation's to say, see
+            // AlterOp#queryJudgedColumnNames, and every clause of the alter has to name them: a batch that
+            // mixes a dropped column with a type change is decided by neither -- no query says anything
+            // about a type change -- and stays invalidated the way it was before the queries were asked at
+            // all. Each of them also has to have reached the table. A schema change that is not a light one
+            // is applied by a job, which may not have run where this hook runs: the table still holds the
+            // column the change takes away, every query still analyses against it, and an invalidation
+            // decided on that answer would be about the table from before the change. What is asked is
+            // whether the change has reached the table, which is the same fact the re-analysis reads, so
+            // the two answers cannot disagree.
+            boolean judgedByQuery = alterOps.stream().allMatch(op -> !op.queryJudgedColumnNames().isEmpty()
+                    && op.hasReachedTheTable(olapTable));
+            // The names of those columns go to the hook rather than a verdict: what the judgement is about
+            // is the column, and the hook holds the query's answer against it -- both while asking, in case
+            // the query can reach the name some other way now, and once it has answered, in case the table
+            // is no longer the one that answered. See MTMVRelationManager.
+            MTMVHookService.QueryJudgedChange queryJudgedChange = judgedByQuery
+                    ? new MTMVHookService.QueryJudgedChange(
+                            alterOps.stream().map(AlterOp::queryJudgedColumnNames).flatMap(Set::stream)
+                                    .collect(Collectors.toSet()),
+                            () -> alterOps.stream().allMatch(op -> op.hasReachedTheTable(olapTable)))
+                    : null;
             Env.getCurrentEnv().getMtmvService().alterTable(oldBaseTableInfo, newBaseTableInfo,
-                    currentAlterOps.hasReplaceTableOp(), judgeStateByQueryUsability);
+                    currentAlterOps.hasReplaceTableOp(), queryJudgedChange);
         }
         olapTable.writeLock();
         try {

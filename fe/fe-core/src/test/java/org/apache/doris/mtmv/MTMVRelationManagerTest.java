@@ -202,7 +202,8 @@ public class MTMVRelationManagerTest {
         try (MockedStatic<MTMVUtil> util = Mockito.mockStatic(MTMVUtil.class)) {
             util.when(() -> MTMVUtil.getTable(Mockito.any(BaseTableInfo.class))).thenReturn(mtmv);
 
-            manager.alterTable(t3, Optional.of(t4), false, true);
+            // A rename of the table names no column, so the alter does not hand the judgement to a query.
+            manager.alterTable(t3, Optional.of(t4), false, null);
         }
 
         ArgumentCaptor<String> detail = ArgumentCaptor.forClass(String.class);
@@ -213,9 +214,10 @@ public class MTMVRelationManagerTest {
     }
 
     /**
-     * A change the alter cannot ask the queries about is invalidated as a base table change was before the
-     * queries were asked at all. The alter says so with the flag: it is false where the schema change has
-     * not reached the table yet, and asking then would answer for the table from before the change.
+     * A change the alter does not hand to the queries is invalidated as a base table change was before the
+     * queries were asked at all. The alter says so by naming no column: it does that where every clause of
+     * it is not one a query decides, and where the schema change has not reached the table yet -- asking
+     * then would answer for the table from before the change.
      */
     @Test
     public void testAChangeTheQueryCannotBeAskedAboutInvalidates() {
@@ -228,8 +230,8 @@ public class MTMVRelationManagerTest {
         try (MockedStatic<MTMVUtil> util = Mockito.mockStatic(MTMVUtil.class)) {
             util.when(() -> MTMVUtil.getTable(Mockito.any(BaseTableInfo.class))).thenReturn(mtmv);
 
-            // The same table on both sides: this is not a rename, so the flag alone decides.
-            manager.alterTable(t3, Optional.of(t3), false, false);
+            // The same table on both sides: this is not a rename, so what the alter names alone decides.
+            manager.alterTable(t3, Optional.of(t3), false, null);
         }
 
         Mockito.verify(mtmv).invalidateWholeMv(Mockito.anyString());
