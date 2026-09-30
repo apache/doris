@@ -287,8 +287,8 @@ suite("test_lance_index_admission", "p0,external,nonConcurrent") {
                 sleep(2000)
             }
         }
-        assertTrue("admitted lance index jobs did not converge to NOT_COMMITTED after the pause release",
-                converged)
+        assertTrue(converged,
+                "admitted lance index jobs did not converge to NOT_COMMITTED after the pause release")
     } catch (Throwable failure) {
         suiteFailure = failure
         throw failure
