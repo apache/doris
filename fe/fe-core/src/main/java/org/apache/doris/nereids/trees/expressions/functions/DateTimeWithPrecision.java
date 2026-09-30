@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunctio
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import java.util.Locale;
 
@@ -33,7 +34,7 @@ import java.util.Locale;
  *
  * e.g. now(1) return datetime v2(1)
  */
-public abstract class DateTimeWithPrecision extends ScalarFunction implements FoldLiteralArguments {
+public abstract class DateTimeWithPrecision extends ScalarFunction {
 
     public DateTimeWithPrecision(String name, Expression... arguments) {
         super(name, arguments);
@@ -44,8 +45,9 @@ public abstract class DateTimeWithPrecision extends ScalarFunction implements Fo
     }
 
     @Override
-    public boolean needFoldToLiteral(int index) {
-        return true;
+    public Expression prepareBeforeTypeCoercion() {
+        // computeSignature derives the return type from the value of the precision
+        return withChildren(ExpressionUtils::foldConstantArgument);
     }
 
     @Override

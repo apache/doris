@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.OrthogonalBitmapExprCalculate;
@@ -58,117 +57,169 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 
-public class FoldLiteralArgumentsTest {
+/**
+ * Constant expressions as the arguments that functions require to be constant.
+ * prepareBeforeTypeCoercion folds only the arguments whose values the signature depends on. The value of any
+ * other argument is validated without replacing the argument: before type coercion for a scalar function, which
+ * constant folding may remove, and after the rewrite for an aggregate function.
+ */
+public class ConstantFunctionArgumentTest {
 
     @Test
-    public void testScalarFunctions() {
-        assertLiteral(analyze("select sha2('abc', 200 + 56)", Sha2.class).child(1));
-        assertLiteral(analyze("select split_by_regexp('a,b,c', ',', 1 + 1)", SplitByRegexp.class).child(2));
-        assertLiteral(analyze("select regexp_replace('abc', 'a', 'b', concat('', ''))",
-                RegexpReplace.class).child(3));
-        assertLiteral(analyze("select regexp_replace_one('abc', 'a', 'b', concat('', ''))",
-                RegexpReplaceOne.class).child(3));
-        assertLiteral(analyze("select tokenize('x', concat('\"parser\"=\"', 'english\"'))",
-                Tokenize.class).child(1));
-        // 2 + 3 folds to a SMALLINT literal, narrowed to the TINYINT parameter by a cast
-        Expression bucketNum = analyze("select width_bucket(1.5, 0, 10, 2 + 3)", WidthBucket.class).child(3);
-        Assertions.assertInstanceOf(Cast.class, bucketNum, bucketNum.toSql());
-        assertLiteral(bucketNum.child(0));
-        assertLiteral(analyze("select array_apply([1, 2, 3], concat('>', '='), 2)", ArrayApply.class).child(1));
-        assertLiteral(analyze("select date_trunc(cast('2024-03-15 10:00:00' as datetime), concat('mon', 'th'))",
-                DateTrunc.class).child(1));
-        assertLiteral(analyze("select date_trunc(concat('ye', 'ar'), cast('2024-03-15 10:00:00' as datetime))",
-                DateTrunc.class).child(0));
+    public void testPrepareFoldsArgumentsTheSignatureDependsOn() {
+        Now now = analyze("select now(1 + 2)", Now.class);
+        assertLiteral(now.child(0));
+        Assertions.assertEquals(DateTimeV2Type.of(3), now.getDataType());
+        UtcTimestamp utcTimestamp = analyze("select utc_timestamp(1 + 2)", UtcTimestamp.class);
+        assertLiteral(utcTimestamp.child(0));
+        Assertions.assertEquals(DateTimeV2Type.of(3), utcTimestamp.getDataType());
+        UtcTime utcTime = analyze("select utc_time(1 + 2)", UtcTime.class);
+        assertLiteral(utcTime.child(0));
+        Assertions.assertEquals(TimeV2Type.of(3), utcTime.getDataType());
+
+        // without a date argument, the literal time unit tells which argument is the date value
+        DateTrunc stringColumn = analyze("select date_trunc(s, concat('mon', 'th')) from (select '2024-03-15' s) t",
+                DateTrunc.class);
+        assertLiteral(stringColumn.child(1));
+        DateTrunc stringColumnUnitFirst = analyze("select date_trunc(concat('ye', 'ar'), s)"
+                + " from (select '2024-03-15' s) t", DateTrunc.class);
+        assertLiteral(stringColumnUnitFirst.child(0));
         // a string date value is not folded when the time unit is already a literal,
         // so the return type is still derived from a non-literal string
         DateTrunc stringValue = analyze("select date_trunc(concat('2024-03-15', ' 10:00:00'), 'month')",
                 DateTrunc.class);
-        Assertions.assertFalse(stringValue.child(0) instanceof Literal, stringValue.toSql());
+        assertNotLiteral(stringValue.child(0));
         Assertions.assertEquals(DateTimeV2Type.of(6), stringValue.getDataType());
-        // the time unit next to a typed date literal is folded
-        assertLiteral(analyze("select date_trunc(DATE '2024-03-15', concat('mon', 'th'))", DateTrunc.class).child(1));
-        assertLiteral(analyze("select date_trunc(concat('ye', 'ar'), TIMESTAMP '2024-03-15 10:00:00')",
-                DateTrunc.class).child(0));
         // when both arguments are foldable strings, only the time unit is folded, so the return type is the same
         // as with a literal time unit
         DateTrunc bothFoldable = analyze("select date_trunc(concat('2024-01-01 01:02:03+08:00', ''),"
                 + " concat('mon', 'th'))", DateTrunc.class);
-        Assertions.assertFalse(bothFoldable.child(0) instanceof Literal, bothFoldable.toSql());
+        assertNotLiteral(bothFoldable.child(0));
         assertLiteral(bothFoldable.child(1));
         Assertions.assertEquals(analyze("select date_trunc(concat('2024-01-01 01:02:03+08:00', ''), 'month')",
                 DateTrunc.class).getDataType(), bothFoldable.getDataType());
         DateTrunc bothFoldableUnitFirst = analyze("select date_trunc(concat('mon', 'th'),"
                 + " concat('2024-01-01 01:02:03+08:00', ''))", DateTrunc.class);
         assertLiteral(bothFoldableUnitFirst.child(0));
-        Assertions.assertFalse(bothFoldableUnitFirst.child(1) instanceof Literal, bothFoldableUnitFirst.toSql());
+        assertNotLiteral(bothFoldableUnitFirst.child(1));
 
-        Random rand = analyze("select rand(1 + 1)", Random.class);
-        assertLiteral(rand.child(0));
-        Random random = analyze("select random(1, 5 + 5)", Random.class);
-        assertLiteral(random.child(0));
-        assertLiteral(random.child(1));
-        Uniform uniform = analyze("select uniform(1, 5 + 5, k) from (select 1 k) t", Uniform.class);
-        assertLiteral(uniform.child(0));
-        assertLiteral(uniform.child(1));
+        // beside a date argument the other argument is the time unit, so the signature does not need its value
+        DateTrunc typedDate = analyze("select date_trunc(cast('2024-03-15 10:00:00' as datetime),"
+                + " concat('mon', 'th'))", DateTrunc.class);
+        assertNotLiteral(typedDate.child(1));
+        Assertions.assertEquals(DateTimeV2Type.of(0), typedDate.getDataType());
+        assertNotLiteral(analyze("select date_trunc(concat('ye', 'ar'), TIMESTAMP '2024-03-15 10:00:00')",
+                DateTrunc.class).child(0));
+        assertNotLiteral(analyze("select date_trunc(DATE '2024-03-15', concat('mon', 'th'))",
+                DateTrunc.class).child(1));
 
-        assertLiteral(analyze("select now(1 + 2)", Now.class).child(0));
-        assertLiteral(analyze("select utc_timestamp(1 + 2)", UtcTimestamp.class).child(0));
-        UtcTime utcTime = analyze("select utc_time(1 + 2)", UtcTime.class);
-        assertLiteral(utcTime.child(0));
-        Assertions.assertEquals(TimeV2Type.of(3), utcTime.getDataType());
+        assertAnalysisError("select now(3 + 7)", "Precision of NOW must be between 0 and");
     }
 
     @Test
-    public void testAggregateFunctions() {
-        String table = " from (select 1 k, cast('2024-01-01' as datetime) dt, 'a' s) t";
-        assertLiteral(analyze("select sequence_match(concat('(?1)', '(?2)'), dt, k = 1, k = 2)" + table,
-                SequenceMatch.class).child(0));
-        assertLiteral(analyze("select sequence_count(concat('(?1)', '(?2)'), dt, k = 1, k = 2)" + table,
-                SequenceCount.class).child(0));
-        assertLiteral(analyze("select orthogonal_bitmap_expr_calculate(to_bitmap(k), cast(k as varchar),"
-                + " concat('1', '&2'))" + table, OrthogonalBitmapExprCalculate.class).child(2));
-        assertLiteral(analyze("select orthogonal_bitmap_expr_calculate_count(to_bitmap(k), cast(k as varchar),"
-                + " concat('1', '&2'))" + table, OrthogonalBitmapExprCalculateCount.class).child(2));
-        // a STRING formula is accepted before the type coercion casts it to VARCHAR
-        assertLiteral(analyze("select orthogonal_bitmap_expr_calculate(to_bitmap(k), cast(k as varchar),"
-                + " concat(cast('1' as string), cast('&2' as string)))" + table,
-                OrthogonalBitmapExprCalculate.class).child(2));
-        assertLiteral(analyze("select orthogonal_bitmap_expr_calculate_count(to_bitmap(k), cast(k as varchar),"
-                + " concat(cast('1' as string), cast('&2' as string)))" + table,
-                OrthogonalBitmapExprCalculateCount.class).child(2));
-        // a formula that is not a string is cast to VARCHAR by the type coercion instead of being folded
-        assertNotLiteral(analyze("select orthogonal_bitmap_expr_calculate(to_bitmap(k), cast(k as varchar),"
-                + " 1 + 1)" + table, OrthogonalBitmapExprCalculate.class).child(2));
-        assertNotLiteral(analyze("select orthogonal_bitmap_expr_calculate_count(to_bitmap(k), cast(k as varchar),"
-                + " 1 + 1)" + table, OrthogonalBitmapExprCalculateCount.class).child(2));
-        assertLiteral(analyze("select topn(s, 1 + 1)" + table, TopN.class).child(1));
-        assertLiteral(analyze("select topn_array(s, 1 + 1)" + table, TopNArray.class).child(1));
-        assertLiteral(analyze("select topn_weighted(s, k, 1 + 1)" + table, TopNWeighted.class).child(2));
+    public void testScalarFunctionArgumentsAreNotFoldedByAnalysis() {
+        // only the rewrite folds an argument whose value the signature does not depend on
+        assertFoldedByRewrite("select sha2('abc', 200 + 56)", Sha2.class, 1);
+        assertFoldedByRewrite("select split_by_regexp('a,b,c', ',', 1 + 1)", SplitByRegexp.class, 2);
+        assertFoldedByRewrite("select regexp_replace('abc', 'a', 'b', concat('', ''))", RegexpReplace.class, 3);
+        assertFoldedByRewrite("select regexp_replace_one('abc', 'a', 'b', concat('', ''))",
+                RegexpReplaceOne.class, 3);
+        assertFoldedByRewrite("select tokenize('x', concat('\"parser\"=\"', 'english\"'))", Tokenize.class, 1);
+        assertFoldedByRewrite("select width_bucket(1.5, 0, 10, 2 + 3)", WidthBucket.class, 3);
+        assertFoldedByRewrite("select array_apply([1, 2, 3], concat('>', '='), 2)", ArrayApply.class, 1);
+        assertFoldedByRewrite("select rand(1 + 1)", Random.class, 0);
+        assertFoldedByRewrite("select random(1, 5 + 5)", Random.class, 1);
+        assertFoldedByRewrite("select uniform(1, 5 + 5, crc32('x'))", Uniform.class, 1);
     }
 
     @Test
-    public void testTopNWithoutFoldConstant() {
-        ConnectContext connectContext = MemoTestUtils.createConnectContext();
-        connectContext.getSessionVariable().debugSkipFoldConstant = true;
-        PlanChecker.from(connectContext)
-                .analyze("select topn(s, 1 + 1) from (select 'a' s) t")
-                .rewrite();
-    }
-
-    @Test
-    public void testFoldedValueIsStillChecked() {
+    public void testScalarFunctionValueIsCheckedBeforeTypeCoercion() {
         assertAnalysisError("select sha2('abc', 200 + 100)", "sha2 functions only support digest length of");
         assertAnalysisError("select split_by_regexp('a,b,c', ',', 0 - 1)", "must be a positive constant");
         assertAnalysisError("select array_apply([1, 2, 3], concat('>', '>'), 2)", "op support =, >=, <=, >, <, !=");
+        assertAnalysisError("select tokenize('x', concat('par', 'ser'))",
+                "tokenize second argument must be properties format");
         assertAnalysisError("select date_trunc(cast('2024-03-15 10:00:00' as datetime), concat('mon', 'x'))",
                 "date_trunc function time unit param only support argument is");
-        assertAnalysisError("select date_trunc(DATE '2024-03-15', concat('mon', 'x'))",
+        assertAnalysisError("select date_trunc(concat('mon', 'x'), DATE '2024-03-15')",
                 "date_trunc function time unit param only support argument is");
-        assertAnalysisError("select now(3 + 7)", "Precision of NOW must be between 0 and");
         assertAnalysisError("select embed(concat('no_such_', 'resource'), 'x')",
                 "AI resource 'no_such_resource' does not exist");
-        assertAnalysisError("select ai_agg(concat('no_such_', 'resource'), s, concat('ta', 'sk'))"
-                + " from (select 'a' s) t", "AI resource 'no_such_resource' does not exist");
+
+        // constant folding removes these functions, so no check after the rewrite would see the arguments
+        assertAnalysisError("select sha2(null, 200 + 100)", "sha2 functions only support digest length of");
+        assertAnalysisError("select split_by_regexp(null, ',', 0 - 1)", "must be a positive constant");
+        assertAnalysisError("select array_apply(null, concat('>', '>'), 2)", "op support =, >=, <=, >, <, !=");
+        assertAnalysisError("select tokenize(null, concat('par', 'ser'))",
+                "tokenize second argument must be properties format");
+        assertAnalysisError("select date_trunc(cast(null as datetime), concat('mon', 'x'))",
+                "date_trunc function time unit param only support argument is");
+        assertAnalysisError("select embed(concat('no_such_', 'resource'), null)",
+                "AI resource 'no_such_resource' does not exist");
+    }
+
+    @Test
+    public void testAggregateFunctionValueIsCheckedAfterRewrite() {
+        String table = " from (select 1 k, cast('2024-01-01' as datetime) dt, 'a' s) t";
+        assertFoldedByRewrite("select sequence_match(concat('(?1)', '(?2)'), dt, k = 1, k = 2)" + table,
+                SequenceMatch.class, 0);
+        assertFoldedByRewrite("select sequence_count(concat('(?1)', '(?2)'), dt, k = 1, k = 2)" + table,
+                SequenceCount.class, 0);
+        assertFoldedByRewrite("select orthogonal_bitmap_expr_calculate(to_bitmap(k), cast(k as varchar),"
+                + " concat('1', '&2'))" + table, OrthogonalBitmapExprCalculate.class, 2);
+        assertFoldedByRewrite("select orthogonal_bitmap_expr_calculate_count(to_bitmap(k), cast(k as varchar),"
+                + " concat('1', '&2'))" + table, OrthogonalBitmapExprCalculateCount.class, 2);
+        // a STRING formula is accepted before the type coercion casts it to VARCHAR
+        assertFoldedByRewrite("select orthogonal_bitmap_expr_calculate(to_bitmap(k), cast(k as varchar),"
+                + " concat(cast('1' as string), cast('&2' as string)))" + table,
+                OrthogonalBitmapExprCalculate.class, 2);
+        assertFoldedByRewrite("select orthogonal_bitmap_expr_calculate_count(to_bitmap(k), cast(k as varchar),"
+                + " concat(cast('1' as string), cast('&2' as string)))" + table,
+                OrthogonalBitmapExprCalculateCount.class, 2);
+        // a formula that is not a string is cast to VARCHAR by the type coercion
+        assertFoldedByRewrite("select orthogonal_bitmap_expr_calculate(to_bitmap(k), cast(k as varchar),"
+                + " 1 + 1)" + table, OrthogonalBitmapExprCalculate.class, 2);
+        assertFoldedByRewrite("select topn(s, 1 + 1)" + table, TopN.class, 1);
+        assertFoldedByRewrite("select topn_array(s, 1 + 1)" + table, TopNArray.class, 1);
+        assertFoldedByRewrite("select topn_weighted(s, k, 1 + 1)" + table, TopNWeighted.class, 2);
+
+        assertRewriteError("select topn(s, 1 - 1)" + table, "must be a constant positive integer");
+        assertRewriteError("select topn_array(s, 1 - 1)" + table, "must be a constant positive integer");
+        assertRewriteError("select topn_weighted(s, k, 1 - 1)" + table, "must be a constant positive integer");
+        assertRewriteError("select sequence_match(concat('(?1)', '(?9)'), dt, k = 1, k = 2)" + table,
+                "Event number 9 is out of range");
+        assertRewriteError("select sequence_count(concat('(?1)', '(?9)'), dt, k = 1, k = 2)" + table,
+                "Event number 9 is out of range");
+        assertRewriteError("select ai_agg(concat('no_such_', 'resource'), s, concat('ta', 'sk'))" + table,
+                "AI resource 'no_such_resource' does not exist");
+        // the state combinator checks its nested function at the same points
+        PlanChecker.from(MemoTestUtils.createConnectContext())
+                .analyze("select topn_state(s, 1 + 1)" + table).rewrite();
+        PlanChecker.from(MemoTestUtils.createConnectContext())
+                .analyze("select sequence_match_state(concat('(?1)', '(?2)'), dt, k = 1, k = 2)" + table).rewrite();
+        assertRewriteError("select topn_state(s, 1 - 1)" + table, "must be a constant positive integer");
+        assertRewriteError("select sequence_match_state(concat('(?1)', '(?9)'), dt, k = 1, k = 2)" + table,
+                "Event number 9 is out of range");
+        // a literal is still validated by the analysis
+        assertAnalysisError("select sequence_match('(?1)(?9)', dt, k = 1, k = 2)" + table,
+                "Event number 9 is out of range");
+        assertAnalysisError("select ai_agg('no_such_resource', s, 'task')" + table,
+                "AI resource 'no_such_resource' does not exist");
+    }
+
+    @Test
+    public void testWithoutFoldConstant() {
+        // the rewrite does not fold the arguments, which are left to BE like the constants FE cannot fold
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        connectContext.getSessionVariable().debugSkipFoldConstant = true;
+        String table = " from (select 1 k, cast('2024-01-01' as datetime) dt, 'a' s) t";
+        for (String sql : new String[] {
+                "select topn(s, 1 + 1)" + table,
+                "select sequence_match(concat('(?1)', '(?2)'), dt, k = 1, k = 2)" + table,
+                "select sha2(s, 200 + 56)" + table,
+                "select date_trunc(dt, concat('mon', 'th'))" + table}) {
+            PlanChecker.from(connectContext).analyze(sql).rewrite();
+        }
     }
 
     @Test
@@ -193,6 +244,12 @@ public class FoldLiteralArgumentsTest {
                 "array_apply(arr, op, val): op support const value only.");
         assertAnalysisError("select orthogonal_bitmap_expr_calculate(to_bitmap(k), cast(k as varchar), s)"
                 + " from (select 1 k, '1' s) t", "must be a string constant");
+        assertAnalysisError("select embed(s, 'x') from (select 'resource' s) t",
+                "AI Function must accept literal for the resource name");
+        assertAnalysisError("select ai_agg(s, s, 'task') from (select 'resource' s) t",
+                "AI_AGG must accept literal for the resource name");
+        assertAnalysisError("select ai_agg('resource', s, s) from (select 'task' s) t",
+                "AI_AGG must accept literal for the task");
     }
 
     @Test
@@ -248,6 +305,18 @@ public class FoldLiteralArgumentsTest {
         // which argument is the time unit is unknown when neither argument is a date or a literal
         assertAnalysisError("select date_trunc(lpad('ay', 3, 'd'), concat('2024-03-15', crc32('')))",
                 "must be a string constant");
+        // FE resolves the AI resource, so it must know the resource name
+        assertAnalysisError("select embed(lpad('resource', 9, 'x'), 'x')",
+                "AI Function must accept literal for the resource name");
+        assertRewriteError("select ai_agg(lpad('resource', 9, 'x'), s, 'task')" + table,
+                "AI_AGG must accept literal for the resource name");
+    }
+
+    /** the analysis keeps the argument as written, and the rewrite folds it to a literal */
+    private static <T extends BoundFunction> void assertFoldedByRewrite(String sql, Class<T> functionClass,
+            int argumentIndex) {
+        assertNotLiteral(analyze(sql, functionClass).child(argumentIndex));
+        assertLiteral(analyzeAndRewrite(sql, functionClass).child(argumentIndex));
     }
 
     private static <T extends BoundFunction> T analyze(String sql, Class<T> functionClass) {
@@ -278,6 +347,12 @@ public class FoldLiteralArgumentsTest {
 
     private static void assertLiteral(Expression argument) {
         Assertions.assertInstanceOf(Literal.class, argument, argument.toSql());
+    }
+
+    private static void assertRewriteError(String sql, String message) {
+        PlanChecker analyzed = PlanChecker.from(MemoTestUtils.createConnectContext()).analyze(sql);
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class, analyzed::rewrite, sql);
+        Assertions.assertTrue(exception.getMessage().contains(message), exception.getMessage());
     }
 
     private static void assertAnalysisError(String sql, String message) {

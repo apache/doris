@@ -45,7 +45,6 @@ import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
-import org.apache.doris.nereids.trees.expressions.functions.FoldLiteralArguments;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateMap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CreateStruct;
@@ -842,36 +841,11 @@ public class TypeCoercionUtils {
     }
 
     /**
-     * Fold the constant arguments that a {@link FoldLiteralArguments} function requires to be literals,
-     * so that its legality checks see the literal a foldable constant expression evaluates to.
-     * An argument FE cannot fold is kept unchanged and left to the function's own checks.
-     */
-    public static BoundFunction foldLiteralArguments(BoundFunction boundFunction) {
-        if (!(boundFunction instanceof FoldLiteralArguments)) {
-            return boundFunction;
-        }
-        FoldLiteralArguments function = (FoldLiteralArguments) boundFunction;
-        List<Expression> newChildren = new ArrayList<>(boundFunction.arity());
-        boolean changed = false;
-        for (int i = 0; i < boundFunction.arity(); i++) {
-            Expression argument = boundFunction.child(i);
-            if (function.needFoldToLiteral(i) && !(argument instanceof Literal) && argument.isConstant()) {
-                Expression folded = FoldConstantRuleOnFE.evaluateWithoutContext(argument);
-                if (folded instanceof Literal && function.acceptFoldedLiteral(i, (Literal) folded)) {
-                    argument = folded;
-                    changed = true;
-                }
-            }
-            newChildren.add(argument);
-        }
-        return changed ? (BoundFunction) boundFunction.withChildren(newChildren) : boundFunction;
-    }
-
-    /**
      * process BoundFunction type coercion
      */
     public static Expression processBoundFunction(BoundFunction boundFunction) {
-        boundFunction = foldLiteralArguments(boundFunction);
+        // prepare, before the legality check and the signature read the arguments
+        boundFunction = (BoundFunction) boundFunction.prepareBeforeTypeCoercion();
         // check
         boundFunction.checkLegalityBeforeTypeCoercion();
         if (boundFunction instanceof CreateMap && boundFunction.arity() == 0) {

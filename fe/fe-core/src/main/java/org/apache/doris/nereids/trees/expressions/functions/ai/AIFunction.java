@@ -23,10 +23,10 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.FoldLiteralArguments;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
@@ -35,7 +35,7 @@ import com.google.common.base.Strings;
  * Base class for AI related functions.
  */
 public abstract class AIFunction extends ScalarFunction
-        implements PropagateNullable, ExplicitlyCastableSignature, FoldLiteralArguments {
+        implements PropagateNullable, ExplicitlyCastableSignature {
     /**
      * constructor with at least 1 argument.
      */
@@ -49,31 +49,29 @@ public abstract class AIFunction extends ScalarFunction
     public abstract int getMaxArgsNum();
 
     @Override
-    public boolean needFoldToLiteral(int index) {
-        // the resource name
-        return index == 0 && arity() == getMaxArgsNum();
-    }
-
-    @Override
     public void checkLegalityAfterRewrite() {
         if (arity() == getMaxArgsNum()) {
-            //The resource must be literal
-            if (!child(0).isLiteral()) {
-                throw new AnalysisException("AI Function must accept literal for the resource name.");
-            }
-
-            //Check if the resource is valid
-            String resourceName = getArgument(0).toString().replaceAll("^['\"]|['\"]$", "");
-            Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
-            if (!(resource instanceof AIResource)) {
-                throw new AnalysisException("AI resource '" + resourceName + "' does not exist");
-            }
-            if (!((AIResource) resource).hasCompleteGeneralProperties()) {
-                throw new AnalysisException("AI resource '" + resourceName
-                        + "' does not contain complete general AI properties");
-            }
-            Resource.registerUsedAIResourceName(resourceName);
+            checkResource(getArgument(0));
         }
+    }
+
+    private void checkResource(Expression resourceNameArgument) {
+        //The resource must be literal
+        if (!resourceNameArgument.isLiteral()) {
+            throw new AnalysisException("AI Function must accept literal for the resource name.");
+        }
+
+        //Check if the resource is valid
+        String resourceName = resourceNameArgument.toString().replaceAll("^['\"]|['\"]$", "");
+        Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
+        if (!(resource instanceof AIResource)) {
+            throw new AnalysisException("AI resource '" + resourceName + "' does not exist");
+        }
+        if (!((AIResource) resource).hasCompleteGeneralProperties()) {
+            throw new AnalysisException("AI resource '" + resourceName
+                    + "' does not contain complete general AI properties");
+        }
+        Resource.registerUsedAIResourceName(resourceName);
     }
 
     /**
@@ -94,7 +92,12 @@ public abstract class AIFunction extends ScalarFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        checkLegalityAfterRewrite();
+        // The rewrite folds a constant resource name before checkLegalityAfterRewrite resolves it. Resolve the
+        // name FE can evaluate here too, because constant folding, e.g. of a NULL argument, may remove this
+        // function before that check.
+        if (arity() == getMaxArgsNum()) {
+            checkResource(ExpressionUtils.foldConstantArgument(getArgument(0)));
+        }
     }
 
     @Override
