@@ -562,9 +562,8 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
             }
             Lsn requestedLsn = ((PostgresOffset) startingOffset).getLsn();
             Lsn restartLsn = slotState.slotRestartLsn();
-            // restart_lsn must stay <= committed position; a higher one means the slot was
-            // recreated
-            // and the WAL between them was discarded, so resuming would silently skip data.
+            // A higher restart_lsn may indicate slot recreation or other slot advancement;
+            // safe recovery from the committed position can no longer be guaranteed.
             if (requestedLsn != null
                     && requestedLsn.asLong() > 0
                     && restartLsn != null
@@ -572,8 +571,8 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                 throw new CdcClientException(
                         String.format(
                                 "Replication slot invalidated for job %s: slot %s restart_lsn %s is"
-                                        + " ahead of the committed position %s (slot recreated),"
-                                        + " cannot resume without data loss.",
+                                        + " ahead of the committed position %s (e.g. slot recreated),"
+                                        + " cannot guarantee recovery without data loss.",
                                 baseReq.getJobId(),
                                 dialect.getSlotName(),
                                 restartLsn,
