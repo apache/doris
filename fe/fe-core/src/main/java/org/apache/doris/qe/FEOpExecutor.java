@@ -198,6 +198,14 @@ public class FEOpExecutor {
         }
 
         // session variables
+        // SESSION-scope SPM baselines belong to THIS connection and live only in this
+        // FE's store: attach the currently ENABLED rows (rebuilt from the store HERE, so a
+        // client SET cannot inject rows) - the master otherwise plans the forwarded
+        // statement in a fresh context with an empty store and silently ignores the very
+        // baseline this connection created.
+        ctx.getSessionVariable().setSpmForwardedSessionBaselines(
+                org.apache.doris.nereids.spm.SPMForwardedSession.serialize(
+                        ctx.getSessionBaselineStore()));
         params.setSessionVariables(ctx.getSessionVariable().getForwardVariables());
         params.setUserVariables(getForwardUserVariables(ctx.getUserVars()));
         if (null != ctx.queryId()) {

@@ -55,6 +55,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
@@ -2194,6 +2195,79 @@ public final class SPMPlanTreeSupport {
                 && Objects.equals(bind.getListParams(), user.getListParams());
     }
 
+    /**
+     * Removes the CHECK ROW POLICY / DATA MASK markers from a plan tree. SPM optimizes the
+     * frozen plan in the CREATOR's context, so leaving the markers in place makes the
+     * rewrite resolve the CREATOR's row filter / data mask into the frozen SQL - another
+     * user who merely matches the same bind query would then replay the creator's policy
+     * as an ordinary predicate / projection (rows disappear or values stay masked).
+     *
+     * <p>The STORED parameterized trees keep their markers: an in-memory fallback replay
+     * still evaluates the EXECUTING user's policy. A frozen text is re-parsed at replay,
+     * which re-creates the markers for that user as well - so every replay keeps the
+     * normal policy checks of whoever runs it, while the frozen plan itself carries none
+     * of the creator's.
+     *
+     * @param plan the tree to strip (may be null)
+     * @return the same structure without LogicalCheckPolicy nodes
+     */
+    public static LogicalPlan stripCheckPolicy(LogicalPlan plan) {
+        if (plan == null) {
+            return null;
+        }
+        Plan stripped = stripCheckPolicyNodes(plan);
+        return stripped instanceof LogicalPlan ? (LogicalPlan) stripped : plan;
+    }
+
+    /** Recursive worker of {@link #stripCheckPolicy}. */
+    private static Plan stripCheckPolicyNodes(Plan plan) {
+        if (plan instanceof LogicalCTE) {
+            // CTE bodies live OUTSIDE children()
+            LogicalCTE<?> cte = (LogicalCTE<?>) plan;
+            List<LogicalSubQueryAlias<Plan>> newAliasQueries =
+                    new ArrayList<>(cte.getAliasQueries().size());
+            boolean changed = false;
+            for (LogicalSubQueryAlias<Plan> alias : cte.getAliasQueries()) {
+                Plan stripped = stripCheckPolicyNodes(alias);
+                newAliasQueries.add((LogicalSubQueryAlias<Plan>) stripped);
+                if (stripped != alias) {
+                    changed = true;
+                }
+            }
+            Plan newChild = cte.child(0) == null ? null : stripCheckPolicyNodes(cte.child(0));
+            if (newChild != cte.child(0)) {
+                changed = true;
+            }
+            if (!changed) {
+                return cte;
+            }
+            try {
+                return new LogicalCTE<Plan>(cte.isRecursive(), newAliasQueries, newChild);
+            } catch (RuntimeException e) {
+                return cte;
+            }
+        }
+        List<Plan> children = plan.children();
+        boolean changed = false;
+        List<Plan> newChildren = new ArrayList<>(children.size());
+        for (Plan child : children) {
+            Plan stripped = stripCheckPolicyNodes(child);
+            newChildren.add(stripped);
+            if (stripped != child) {
+                changed = true;
+            }
+        }
+        Plan current = plan;
+        if (changed) {
+            try {
+                current = plan.withChildren(newChildren);
+            } catch (RuntimeException e) {
+                current = plan;
+            }
+        }
+        return current instanceof LogicalCheckPolicy ? current.child(0) : current;
+    }
+
     // ==================== non-expression literal merge (LIMIT / OFFSET) ====================
 
     /**
@@ -2225,6 +2299,17 @@ public final class SPMPlanTreeSupport {
         if (plan instanceof LogicalCTE && user instanceof LogicalCTE) {
             LogicalCTE<?> cte = (LogicalCTE<?>) plan;
             LogicalCTE<?> userCte = (LogicalCTE<?>) user;
+            // Separate bind / plan texts: the SPM optimizer preserves the CTE definitions
+            // of both in the frozen SQL, and a matching query may declare FEWER (or more)
+            // CTEs. The positional recursion must never run off the shorter list - an
+            // IndexOutOfBounds here aborted the whole rewrite, and the caller silently
+            // ignored the accepted baseline on EVERY match. Unmatched subtrees stay
+            // unchanged (there is no corresponding position to merge a limit from).
+            if (cte.getAliasQueries().size() != userCte.getAliasQueries().size()
+                    || cte.children().size() != userCte.children().size()
+                    || (cte.child(0) == null) != (userCte.child(0) == null)) {
+                return plan;
+            }
             Plan newChild = cte.child(0) == null ? null
                     : mergeLimitNode(cte.child(0), userCte.child(0));
             boolean childChanged = newChild != cte.child(0);
@@ -2254,6 +2339,10 @@ public final class SPMPlanTreeSupport {
         // merge the children first
         List<Plan> children = plan.children();
         List<Plan> userChildren = user.children();
+        if (children.size() != userChildren.size()) {
+            // same class with a different arity (defensive): never index past the end
+            return plan;
+        }
         boolean changed = false;
         List<Plan> newChildren = new ArrayList<>(children.size());
         for (int i = 0; i < children.size(); i++) {

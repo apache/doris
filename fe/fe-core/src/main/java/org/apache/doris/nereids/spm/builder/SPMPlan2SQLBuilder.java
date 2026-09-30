@@ -3358,13 +3358,28 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             outputNameCounts.merge(normalizedOutputName(outputs.get(j).getName()), 1,
                     Integer::sum);
         }
+        // Positional references must be UNIQUE across ALL set outputs: an output already
+        // named c_1 (a user column) next to a duplicate whose ExprId is 1 produced
+        // (c_1, c_2, c_1) - both branches and the result sink then referenced an AMBIGUOUS
+        // c_1 as soon as the frozen SQL was re-parsed. Trailing underscores resolve the
+        // collision (same rule as the other dedupe helpers).
+        Set<String> usedOutputNames = new HashSet<>();
+        for (Slot output : outputs) {
+            usedOutputNames.add(normalizedOutputName(output.getName()));
+        }
         List<String> registeredOutputNames = new ArrayList<>();
         for (int j = 0; j < outputs.size(); j++) {
             Slot output = outputs.get(j);
-            registeredOutputNames.add(
-                    outputNameCounts.getOrDefault(normalizedOutputName(output.getName()), 0) > 1
-                            ? quoteIdentifier("c_" + output.getExprId())
-                            : quoteIdentifier(output.getName()));
+            if (outputNameCounts.getOrDefault(normalizedOutputName(output.getName()), 0) > 1) {
+                String unique = "c_" + output.getExprId();
+                while (usedOutputNames.contains(normalizedOutputName(unique))) {
+                    unique = unique + "_";
+                }
+                usedOutputNames.add(normalizedOutputName(unique));
+                registeredOutputNames.add(quoteIdentifier(unique));
+            } else {
+                registeredOutputNames.add(quoteIdentifier(output.getName()));
+            }
         }
         List<String> branchSqls = Lists.newArrayList();
         for (int i = 0; i < set.children().size(); i++) {

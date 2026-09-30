@@ -562,6 +562,13 @@ public abstract class ConnectProcessor {
 
         if (request.isSetSessionVariables()) {
             ctx.getSessionVariable().setForwardedSessionVariables(request.getSessionVariables());
+            // SESSION-scope SPM baselines of the forwarding connection (see
+            // SPMForwardedSession): rebuilt into THIS context's store before the statement
+            // is planned, so SPM matching observes them exactly like the connection's own
+            // FE would.
+            org.apache.doris.nereids.spm.SPMForwardedSession.importInto(ctx,
+                    request.getSessionVariables().get(
+                            SessionVariable.SPM_FORWARDED_SESSION_BASELINES));
         }
 
         if (request.isSetUserVariables()) {

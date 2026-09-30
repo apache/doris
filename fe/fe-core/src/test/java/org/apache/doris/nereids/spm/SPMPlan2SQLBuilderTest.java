@@ -2235,4 +2235,42 @@ public class SPMPlan2SQLBuilderTest {
                 "the earlier item must be renamed when the names collide only by case: "
                         + sql);
     }
+
+    /**
+     * #9: positional aliases of a SET must be unique across ALL its outputs. A duplicate
+     * output whose ExprId is 1 generated c_1 while another output was ALREADY named c_1 -
+     * the registered names were (c_1, c_2, c_1), and both the branches and the result sink
+     * referenced an ambiguous c_1 after the frozen SQL was re-parsed.
+     */
+    @Test
+    public void testSetPositionalAliasAvoidsLiveOutputName() {
+        SlotReference live = new SlotReference("c_1", IntegerType.INSTANCE);
+        SlotReference first = new SlotReference(new org.apache.doris.nereids.trees.expressions.ExprId(1),
+                "x", IntegerType.INSTANCE, true, List.of());
+        SlotReference second = new SlotReference(new org.apache.doris.nereids.trees.expressions.ExprId(2),
+                "X", IntegerType.INSTANCE, true, List.of());
+        PhysicalUnion union = Mockito.mock(PhysicalUnion.class);
+        Mockito.when(union.getQualifier()).thenReturn(Qualifier.ALL);
+        Mockito.when(union.children()).thenReturn(List.of());
+        Mockito.when(union.getRegularChildrenOutputs()).thenReturn(List.of());
+        Mockito.when(union.getOutput()).thenReturn(List.of(live, first, second));
+        Mockito.when(union.getConstantExprsList()).thenReturn(List.of(List.of(
+                (NamedExpression) new Alias(new IntegerLiteral(1), "c_1"),
+                (NamedExpression) new Alias(new IntegerLiteral(2), "x"),
+                (NamedExpression) new Alias(new IntegerLiteral(3), "X"))));
+        stubAccept(union);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(union);
+        Assertions.assertTrue(sql.contains(" AS c_1_"),
+                "the colliding positional alias must be made unique: " + sql);
+        java.util.regex.Matcher names = java.util.regex.Pattern
+                .compile(" AS ([A-Za-z_][A-Za-z0-9_]*)").matcher(sql);
+        java.util.List<String> emitted = new java.util.ArrayList<>();
+        while (names.find()) {
+            String name = names.group(1).toLowerCase(java.util.Locale.ROOT);
+            Assertions.assertFalse(emitted.contains(name),
+                    "every set output name must be unique, saw " + name + " twice: " + sql);
+            emitted.add(name);
+        }
+    }
 }

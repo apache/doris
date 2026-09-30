@@ -155,6 +155,19 @@ public class ExplainCommand extends Command implements NoForward {
             }
             try {
                 planner.plan(logicalPlanAdapter, explainCtx.getSessionVariable().toThrift());
+                if (explainCtx.getStatementContext().isSpmBaselineApplied()) {
+                    // Mirror the query path (StmtExecutor): the pre-match fingerprint guard
+                    // ran BEFORE the planner took its metadata locks, so an ALTER TABLE
+                    // committing in between would drift between validation and planning.
+                    // Ordinary execution revalidates the frozen baseline against the
+                    // metadata the REPLAYED plan was actually planned with; without that
+                    // check EXPLAIN reported a baseline and a plan that the equivalent
+                    // query would not use. A mismatch throws into the catch below, which
+                    // applies the same fallback / surfacing policy (enable_spm_fallback).
+                    SPMPlanner.verifyReplayMetadata(explainCtx,
+                            explainCtx.getStatementContext().getSpmUsedBaselineId(),
+                            planner.getPhysicalPlan());
+                }
             } catch (Throwable t) {
                 // A failed planning of the REPLACEMENT tree must degrade like the query
                 // path (StmtExecutor): clear the applied flag and replan the ORIGINAL

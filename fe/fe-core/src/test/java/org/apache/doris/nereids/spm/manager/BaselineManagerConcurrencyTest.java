@@ -20,6 +20,7 @@ package org.apache.doris.nereids.spm.manager;
 import org.apache.doris.nereids.spm.BaselinePlan;
 import org.apache.doris.nereids.spm.BaselineSource;
 import org.apache.doris.nereids.spm.BaselineStatus;
+import org.apache.doris.statistics.repository.ResultRow;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -704,4 +705,113 @@ public class BaselineManagerConcurrencyTest {
             manager.clearForTest();
         }
     }
-}
+    // ==================== unresolved deletes / temporary markers (round-18) ====================
+
+    /** Scripted identity store: the durable rows plus injectable read / delete failures. */
+    private static final class IdentityStoreSimulator
+            implements BaselineManager.IdAllocatorStoreForTest {
+        private final Map<Long, BaselinePlan> rows = new java.util.concurrent.ConcurrentHashMap<>();
+        private boolean failDelete;
+        private boolean failRead;
+
+        @Override
+        public long watermark() {
+            return 0;
+        }
+
+        @Override
+        public void insert(BaselinePlan plan) {
+            rows.put(plan.getId(), plan);
+        }
+
+        @Override
+        public List<BaselinePlan> readById(long id) {
+            if (failRead) {
+                throw new RuntimeException("tablet unavailable");
+            }
+            BaselinePlan row = rows.get(id);
+            return row == null ? List.of() : List.of(row);
+        }
+
+        @Override
+        public void deleteByIdentity(BaselinePlan plan) {
+            if (failDelete) {
+                throw new RuntimeException("internal statement timed out after 10s");
+            }
+            rows.remove(plan.getId());
+        }
+    }
+
+    /**
+     * A failed DELETE whose reconciliation READ also fails must NOT be treated as proof
+     * that the row is gone: dropBaseline would remove the cached entry and report success
+     * although the durable row still existed, and the next refresh / restart resurrected
+     * the dropped baseline.
+     */
+    @Test
+    public void testUnconfirmableDeleteKeepsTheDropFailed() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        IdentityStoreSimulator store = new IdentityStoreSimulator();
+        try {
+            long id = manager.createBaseline(baseline("d-drop", "p-drop"));
+            BaselinePlan created = manager.getBaseline(id);
+            store.rows.put(id, created);
+            BaselineManager.idAllocatorStoreForTest = store;
+
+            store.failDelete = true;
+            store.failRead = true;
+            RuntimeException failure = Assertions.assertThrows(RuntimeException.class,
+                    () -> manager.dropBaseline(id),
+                    "an unconfirmable delete must surface as a failure");
+            Assertions.assertTrue(failure.getMessage().contains("could not be confirmed"),
+                    failure.getMessage());
+            Assertions.assertNotNull(manager.getBaseline(id),
+                    "the unconfirmed drop must keep the cached row");
+
+            // the row is READABLE and still present: still a failure
+            store.failRead = false;
+            Assertions.assertThrows(RuntimeException.class, () -> manager.dropBaseline(id));
+            Assertions.assertNotNull(manager.getBaseline(id));
+
+            // only a readable ABSENT row proves the delete landed
+            store.rows.clear();
+            Assertions.assertTrue(manager.dropBaseline(id));
+            Assertions.assertNull(manager.getBaseline(id));
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * The temporary-table marker inside ordinary TEXT (a predicate literal like
+     * {@code s = '_#TEMP#_'} or a comment) is NOT a temporary-relation reference: the old
+     * raw substring test rejected the persisted bind SQL on every refresh, so the
+     * baseline silently vanished from every FE although its row stayed durable.
+     */
+    @Test
+    public void testTemporaryMarkerInLiteralIsNotATemporaryRelation() throws Exception {
+        BaselinePlan parsed = BaselineManager.parsePersistedRowForTest(row(
+                "SELECT k FROM t1 WHERE s = '_#TEMP#_'",
+                "SELECT k FROM t1 WHERE s = 'x'"));
+        Assertions.assertEquals("SELECT k FROM t1 WHERE s = '_#TEMP#_'",
+                parsed.getBindSql());
+        Assertions.assertNotNull(parsed.getParameterizedBindPlan(),
+                "the row must be fully usable after the load");
+
+        // a legacy row that genuinely references the creator's temporary table by NAME
+        // still fails closed
+        Assertions.assertThrows(RuntimeException.class,
+                () -> BaselineManager.parsePersistedRowForTest(row(
+                        "SELECT k FROM `111_#TEMP#_t`",
+                        "SELECT k FROM `111_#TEMP#_t`")));
+    }
+
+    /** One internal-table row (column order mirrors fromRow). */
+    private static ResultRow row(String bindSql, String planSql) {
+        return new ResultRow(List.of(
+                "77", bindSql, "d-temp", "7", planSql, "NaN", "0", "0",
+                "USER", "ENABLED", "2026-01-01 00:00:00", "2026-01-01 00:00:00",
+                "0", "0", "false", ""));
+    }}
