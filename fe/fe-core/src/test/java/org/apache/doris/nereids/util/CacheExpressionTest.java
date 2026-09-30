@@ -20,6 +20,7 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.FunctionVolatility;
+import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -34,7 +35,9 @@ import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdf;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -110,6 +113,35 @@ class CacheExpressionTest {
         Assertions.assertFalse(uncacheable(new Cast(time, TimeV2Type.of(6))));
         Assertions.assertFalse(uncacheable(new Cast(
                 new SlotReference("dt", DateTimeV2Type.SYSTEM_DEFAULT), DateV2Type.INSTANCE)));
+    }
+
+    @Test
+    void testNullTimeCastsFoldBeforeCacheEligibility() {
+        for (DataType target : ImmutableList.of(DateType.INSTANCE, DateV2Type.INSTANCE,
+                DateTimeType.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT, DateTimeV2Type.of(6))) {
+            Expression cast = new Cast(new Cast(NullLiteral.INSTANCE, TimeV2Type.SYSTEM_DEFAULT), target);
+            Expression folded = FoldConstantRuleOnFE.evaluateWithoutContext(cast);
+            Assertions.assertEquals(new NullLiteral(target), folded);
+            Assertions.assertFalse(uncacheable(folded));
+        }
+        // NULL folding must not bypass the legality check for unsupported cast pairs.
+        Expression unsupported = new Cast(new NullLiteral(TimeV2Type.SYSTEM_DEFAULT),
+                TimeStampTzType.SYSTEM_DEFAULT);
+        Assertions.assertSame(unsupported, FoldConstantRuleOnFE.evaluateWithoutContext(unsupported));
+    }
+
+    @Test
+    void testNullShuffleArgumentsFoldBeforeCacheEligibility() {
+        ArrayType arrayType = ArrayType.of(IntegerType.INSTANCE);
+        Expression nullArray = new Cast(NullLiteral.INSTANCE, arrayType);
+        Expression array = new SlotReference("a", arrayType);
+        for (Expression shuffle : ImmutableList.of(new ArrayShuffle(nullArray),
+                new ArrayShuffle(nullArray, new BigIntLiteral(1)),
+                new ArrayShuffle(array, new NullLiteral(BigIntType.INSTANCE)))) {
+            Expression folded = FoldConstantRuleOnFE.evaluateWithoutContext(shuffle);
+            Assertions.assertEquals(new NullLiteral(arrayType), folded);
+            Assertions.assertFalse(uncacheable(folded));
+        }
     }
 
     private boolean uncacheable(Expression expression) {
