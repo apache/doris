@@ -30,6 +30,9 @@ suite("test_flight_native_variant", "arrow_flight_sql") {
     assertNotNull(frontend)
     assertTrue(frontend.ArrowFlightSqlPort.toString().toInteger() > 0)
     def database = jdbc_sql("SELECT DATABASE()")[0][0]
+    // Match ingestion to the configured Variant representation; legacy expression roots
+    // cannot be cast to a table Variant with a different subcolumn limit.
+    def variantV2Function = getFeConfig("enable_variant_v2").toBoolean() ? "parse_to_variant" : ""
     def table = "${database}.flight_native_variant_input"
     def allocator = new RootAllocator(Long.MAX_VALUE)
     def feClient = FlightClient.builder(allocator,
@@ -60,8 +63,8 @@ suite("test_flight_native_variant", "arrow_flight_sql") {
             DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 3
             PROPERTIES("replication_num"="1")""")
         jdbc_sql("""INSERT INTO ${table} VALUES
-            (1, CAST(42 AS VARIANT)), (2, CAST('text' AS VARIANT)),
-            (3, parse_to_variant('{"a":[1,null,"x"]}')), (4, NULL)""")
+            (1, ${variantV2Function}('42')), (2, ${variantV2Function}('"text"')),
+            (3, ${variantV2Function}('{"a":[1,null,"x"]}')), (4, NULL)""")
         [false, true].each { parallel ->
             executeSetting("SET enable_parallel_result_sink=${parallel}")
             [false, true, false].each { nativeVariant ->
