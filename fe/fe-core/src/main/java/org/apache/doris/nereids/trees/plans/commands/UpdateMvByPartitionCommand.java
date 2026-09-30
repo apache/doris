@@ -19,10 +19,12 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.ListPartitionInfo;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.TableIf;
@@ -64,6 +66,7 @@ import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -181,6 +184,18 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             for (String partitionName : readable) {
                 items.add(olapTable.getPartitionItemOrAnalysisException(partitionName));
             }
+            if (hasDefaultListPartition(olapTable)) {
+                // A list partitioned table's default partition takes the rows no other partition of it
+                // claims, and it is not a partition of that table the MV's own partition is recorded with:
+                // a partition of the MV takes the rows whose own key falls in it, wherever the base table
+                // put them, so the rows this refresh is about are the ones the MV partition's key range
+                // names rather than the ones the base partition it is recorded with holds. A table that has
+                // such a partition is therefore read the way an unscoped one is. That read can be seen to be
+                // too wide -- it is the one this scope exists to narrow -- rather than one that drops rows
+                // which belong to the MV partition being refreshed.
+                builder.put(table, constructPredicates(mvItems, colName));
+                continue;
+            }
             builder.put(table, constructPredicatesOfBasePartitions(items, olapTable, colName));
         }
         return builder.build();
@@ -212,7 +227,7 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             }
         } else {
             for (PartitionItem item : partitions) {
-                predicates.add(convertRangePartitionToCompare(item, colSlot));
+                predicates.add(convertRangePartitionToCompare(item, colSlot, Optional.empty()));
             }
         }
         return predicates;
@@ -236,18 +251,39 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
      */
     private static Set<Expression> constructPredicatesOfBasePartitions(Set<PartitionItem> partitions,
             OlapTable baseTable, String colName) throws AnalysisException {
+        List<Column> partitionColumns = baseTable.getPartitionColumns();
+        List<Type> partitionColumnTypes = Lists.transform(partitionColumns, Column::getType);
         if (!(partitions.iterator().next() instanceof ListPartitionItem)) {
-            return constructPredicates(partitions, colName);
+            Set<Expression> predicates = new HashSet<>();
+            for (PartitionItem item : partitions) {
+                predicates.add(convertRangePartitionToCompare(item, new UnboundSlot(colName),
+                        Optional.of(partitionColumnTypes.get(0))));
+            }
+            return predicates;
         }
         List<Slot> partitionSlots = Lists.newArrayList();
-        for (Column partitionColumn : baseTable.getPartitionColumns()) {
+        for (Column partitionColumn : partitionColumns) {
             partitionSlots.add(new UnboundSlot(partitionColumn.getName()));
         }
         Set<Expression> predicates = new HashSet<>();
         for (PartitionItem item : partitions) {
-            predicates.add(convertListPartitionToKey(item, partitionSlots));
+            predicates.add(convertListPartitionToKey(item, partitionSlots, partitionColumnTypes));
         }
         return predicates;
+    }
+
+    /**
+     * Whether this table has a list partition that takes the rows no other partition of it claims. Such a
+     * partition holds rows for every key its table can be read by, so which rows of it belong to a partition
+     * of the MV is the MV partition's own question and not the partition's.
+     */
+    private static boolean hasDefaultListPartition(OlapTable table) {
+        PartitionInfo partitionInfo = table.getPartitionInfo();
+        if (!(partitionInfo instanceof ListPartitionInfo)) {
+            return false;
+        }
+        return ((ListPartitionInfo) partitionInfo).getIdToItem(false).values().stream()
+                .anyMatch(PartitionItem::isDefaultPartition);
     }
 
     /**
@@ -255,34 +291,45 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
      * what tells it apart from a partition that shares a key with it, and the value of a key a row does not
      * have is asked for as {@code IS NULL}, since no comparison to it is ever true.
      *
-     * <p>A partition that holds no key at all -- a list partitioned table's default partition, which takes
-     * the rows no other partition claims -- is read in full, as it was before this scope existed: what it
-     * holds cannot be said with a predicate on the partition columns, and reading it in full keeps its rows
-     * in the MV, which is the reading that can be seen to be too wide rather than one that loses them
-     * quietly.
+     * <p>A list partitioned table's default partition is not one of these: its key is the sentinel the rows
+     * no other partition claims are placed by rather than a value, and a partition of the MV takes the rows
+     * whose own key falls in it wherever the base table put them. What it holds cannot be said with a
+     * predicate on the partition columns, so a table that has one is read the way an unscoped one is, see
+     * {@code constructTableWithPredicates}.
      */
-    private static Expression convertListPartitionToKey(PartitionItem item, List<Slot> partitionSlots) {
+    private static Expression convertListPartitionToKey(PartitionItem item, List<Slot> partitionSlots,
+            List<Type> partitionColumnTypes) {
         List<Expression> keys = new ArrayList<>();
         for (PartitionKey key : ((ListPartitionItem) item).getItems()) {
             List<Expression> oneKey = new ArrayList<>();
             for (int pos = 0; pos < partitionSlots.size(); pos++) {
-                Expression value = convertPartitionKeyToLiteral(key, pos);
+                Expression value = convertPartitionKeyToLiteral(key, pos,
+                        Optional.of(partitionColumnTypes.get(pos)));
                 oneKey.add(value instanceof NullLiteral ? new IsNull(partitionSlots.get(pos))
                         : new EqualTo(partitionSlots.get(pos), value));
             }
             keys.add(ExpressionUtils.and(oneKey));
         }
-        return keys.isEmpty() ? BooleanLiteral.TRUE : ExpressionUtils.or(keys);
+        Preconditions.checkState(!keys.isEmpty(), "a list partition holds at least one key: %s", item);
+        return ExpressionUtils.or(keys);
     }
 
-    private static Expression convertPartitionKeyToLiteral(PartitionKey key, int keyPos) {
+    /**
+     * A partition key is a value of the partition column it is written against, and what tells two of them
+     * apart can be a scale the key's primitive type does not carry: a literal rounded to a coarser one is
+     * one no row of the partition compares equal to, and the rows of the partition are then read as none.
+     * The callers that have the column pass its type; the ones that do not leave the key's own primitive
+     * type, which is what a reader of these predicates was given before.
+     */
+    private static Expression convertPartitionKeyToLiteral(PartitionKey key, int keyPos,
+            Optional<Type> columnType) {
         return Literal.fromLegacyLiteral(key.getKeys().get(keyPos),
-                Type.fromPrimitiveType(key.getTypes().get(keyPos)));
+                columnType.orElseGet(() -> Type.fromPrimitiveType(key.getTypes().get(keyPos))));
     }
 
     private static Expression convertListPartitionToIn(PartitionItem item, Slot col) {
         List<Expression> inValues = ((ListPartitionItem) item).getItems().stream()
-                .map(key -> convertPartitionKeyToLiteral(key, 0))
+                .map(key -> convertPartitionKeyToLiteral(key, 0, Optional.empty()))
                 .collect(ImmutableList.toImmutableList());
         List<Expression> predicates = new ArrayList<>();
         if (inValues.stream().anyMatch(NullLiteral.class::isInstance)) {
@@ -301,16 +348,17 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         return ExpressionUtils.or(predicates);
     }
 
-    private static Expression convertRangePartitionToCompare(PartitionItem item, Slot col) {
+    private static Expression convertRangePartitionToCompare(PartitionItem item, Slot col,
+            Optional<Type> columnType) {
         Range<PartitionKey> range = item.getItems();
         List<Expression> expressions = new ArrayList<>();
         if (range.hasLowerBound() && !range.lowerEndpoint().isMinValue()) {
             PartitionKey key = range.lowerEndpoint();
-            expressions.add(new GreaterThanEqual(col, convertPartitionKeyToLiteral(key, 0)));
+            expressions.add(new GreaterThanEqual(col, convertPartitionKeyToLiteral(key, 0, columnType)));
         }
         if (range.hasUpperBound() && !range.upperEndpoint().isMaxValue()) {
             PartitionKey key = range.upperEndpoint();
-            expressions.add(new LessThan(col, convertPartitionKeyToLiteral(key, 0)));
+            expressions.add(new LessThan(col, convertPartitionKeyToLiteral(key, 0, columnType)));
         }
         if (expressions.isEmpty()) {
             return BooleanLiteral.of(true);

@@ -29,53 +29,55 @@ suite("test_mtmv_base_partition_read_scope") {
     def today = java.time.LocalDate.now()
     def expiredDay = today.minusDays(5)
     def keptDay = today.minusDays(1)
+
     // The expired day is read by a refresh only while it falls inside a retained MV partition's range, and
-    // both days are inside the same year only from the third of January on. Skipped rather than asserted
-    // when they are not, so that a run that exercises the case is a run that can fail without the change.
-    org.junit.Assume.assumeTrue("the expired day and today are in the same year",
-            expiredDay.getYear() == today.getYear())
+    // both days are inside the same year only from the sixth of January on. The part below is left out
+    // where they are not, rather than asserted on days the change cannot be told apart on -- and rather
+    // than through an assumption, which this runner records as a failure of the suite, taking the calendar
+    // independent parts of it down with it.
+    if (expiredDay.getYear() == today.getYear()) {
+        sql """drop materialized view if exists mv_read_scope"""
+        sql """drop table if exists base_read_scope"""
+        sql """
+            create table base_read_scope (
+                k1 date not null,
+                value int not null
+            ) duplicate key(k1)
+            partition by range(k1) (
+                partition p_expired values [("${expiredDay}"), ("${expiredDay.plusDays(1)}")),
+                partition p_kept values [("${keptDay}"), ("${keptDay.plusDays(1)}")),
+                partition p_today values [("${today}"), ("${today.plusDays(1)}"))
+            )
+            distributed by hash(k1) buckets 1
+            properties("replication_num" = "1")
+        """
+        sql """insert into base_read_scope values ("${expiredDay}", 1), ("${keptDay}", 2), ("${today}", 3)"""
 
-    sql """drop materialized view if exists mv_read_scope"""
-    sql """drop table if exists base_read_scope"""
-    sql """
-        create table base_read_scope (
-            k1 date not null,
-            value int not null
-        ) duplicate key(k1)
-        partition by range(k1) (
-            partition p_expired values [("${expiredDay}"), ("${expiredDay.plusDays(1)}")),
-            partition p_kept values [("${keptDay}"), ("${keptDay.plusDays(1)}")),
-            partition p_today values [("${today}"), ("${today.plusDays(1)}"))
-        )
-        distributed by hash(k1) buckets 1
-        properties("replication_num" = "1")
-    """
-    sql """insert into base_read_scope values ("${expiredDay}", 1), ("${keptDay}", 2), ("${today}", 3)"""
+        sql """
+            create materialized view mv_read_scope
+            build immediate refresh complete on manual
+            partition by (date_trunc(k1,'year'))
+            distributed by random buckets 1
+            properties(
+                "replication_num" = "1",
+                "partition_sync_limit" = "2",
+                "partition_sync_time_unit" = "DAY"
+            )
+            as select k1, sum(value) as total from base_read_scope group by k1
+        """
+        sql """refresh materialized view mv_read_scope complete"""
+        waitingMTMVTaskFinishedByMvName("mv_read_scope")
+        // The expectations below are read from the base table, so they must not be answered from the MV.
+        sql """set enable_materialized_view_rewrite = false"""
 
-    sql """
-        create materialized view mv_read_scope
-        build immediate refresh complete on manual
-        partition by (date_trunc(k1,'year'))
-        distributed by random buckets 1
-        properties(
-            "replication_num" = "1",
-            "partition_sync_limit" = "2",
-            "partition_sync_time_unit" = "DAY"
-        )
-        as select k1, sum(value) as total from base_read_scope group by k1
-    """
-    sql """refresh materialized view mv_read_scope complete"""
-    waitingMTMVTaskFinishedByMvName("mv_read_scope")
-    // The expectations below are read from the base table, so they must not be answered from the MV.
-    sql """set enable_materialized_view_rewrite = false"""
+        // The data the refresh had to work with, so that the count below is not read as an empty base table.
+        order_qt_base_rows """select count(*) from base_read_scope"""
 
-    // The data the refresh had to work with, so that the count below is not read as an empty base table.
-    order_qt_base_rows """select count(*) from base_read_scope"""
-
-    // The day the window left out is the one missing from the MV, and the days it kept are there: read
-    // separately rather than as a total, so that the case does not turn on where the window's edge falls.
-    order_qt_scope_expired_day "select count(*) from mv_read_scope where k1 = '${expiredDay}'"
-    order_qt_scope_kept_days "select count(*) from mv_read_scope where k1 >= '${keptDay}'"
+        // The day the window left out is the one missing from the MV, and the days it kept are there: read
+        // separately rather than as a total, so that the case does not turn on where the window's edge falls.
+        order_qt_scope_expired_day "select count(*) from mv_read_scope where k1 = '${expiredDay}'"
+        order_qt_scope_kept_days "select count(*) from mv_read_scope where k1 >= '${keptDay}'"
+    }
 
     // A partition of a list partitioned table holds one key per partition column, and a read pinned to one
     // of those columns reaches the partitions that differ in the others. The expired partition below shares
@@ -103,5 +105,60 @@ suite("test_mtmv_base_partition_read_scope") {
         AS SELECT d, region, SUM(amount) AS total FROM list_scope_base GROUP BY d, region
     """
     waitingMTMVTaskFinishedByMvName("list_scope_mv")
-    order_qt_list_scope "SELECT d, region, total FROM list_scope_mv ORDER BY d, region"
+    order_qt_list_scope "SELECT d, region, total FROM list_scope_mv"
+
+    // Two shapes cannot be pinned to what the base partitions hold, and both are read the way the MV
+    // partition's own key range reads them -- a reading that can be seen to be too wide, rather than one
+    // that leaves rows of the MV partition unread.
+    //
+    // The first is a list partitioned table's default partition, which takes the rows no other partition of
+    // it claims: the row below is in it while its `d` puts it in the MV partition the explicit partition is
+    // read through, so pinning the read to that partition's key would lose it.
+    sql """drop materialized view if exists list_default_mv"""
+    sql """drop table if exists list_default_base"""
+    sql """
+        CREATE TABLE list_default_base (d DATE NOT NULL, k INT NOT NULL, amount BIGINT)
+        DUPLICATE KEY(d, k)
+        PARTITION BY LIST(d, k) (
+            PARTITION p_explicit VALUES IN ((\"2020-01-01\", 2)),
+            PARTITION p_default
+        )
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+    """
+    sql """INSERT INTO list_default_base VALUES (\"2020-01-01\", 2, 2), (\"2020-01-01\", 3, 1)"""
+    sql """
+        CREATE MATERIALIZED VIEW list_default_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        PARTITION BY (d)
+        DISTRIBUTED BY HASH(d) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+        AS SELECT d, k, SUM(amount) AS total FROM list_default_base GROUP BY d, k
+    """
+    waitingMTMVTaskFinishedByMvName("list_default_mv")
+    order_qt_list_default "SELECT d, k, total FROM list_default_mv"
+
+    // The second is a key whose value carries a scale: what a partition of a DATETIME(3) partitioned table
+    // holds is the value written with its milliseconds, and a read pinned to that value at a coarser scale
+    // is one no row of the partition compares equal to.
+    sql """drop materialized view if exists fractional_key_mv"""
+    sql """drop table if exists fractional_key_base"""
+    sql """
+        CREATE TABLE fractional_key_base (ts DATETIME(3) NOT NULL, amount BIGINT)
+        DUPLICATE KEY(ts)
+        PARTITION BY LIST(ts) (
+            PARTITION p_fraction VALUES IN ((\"2024-02-01 00:00:00.123\")),
+            PARTITION p_whole VALUES IN ((\"2024-03-01 00:00:00\"))
+        )
+        DISTRIBUTED BY HASH(ts) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+    """
+    sql """INSERT INTO fractional_key_base VALUES
+        (\"2024-02-01 00:00:00.123\", 5), (\"2024-03-01 00:00:00\", 6)"""
+    sql """
+        CREATE MATERIALIZED VIEW fractional_key_mv
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        PARTITION BY (ts)
+        DISTRIBUTED BY HASH(ts) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")
+        AS SELECT ts, SUM(amount) AS total FROM fractional_key_base GROUP BY ts
+    """
+    waitingMTMVTaskFinishedByMvName("fractional_key_mv")
+    order_qt_fractional_key "SELECT ts, total FROM fractional_key_mv"
 }
