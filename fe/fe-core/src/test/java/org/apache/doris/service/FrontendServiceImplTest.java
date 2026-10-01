@@ -521,7 +521,7 @@ public class FrontendServiceImplTest extends TestWithFeService {
                 + "DISTRIBUTED BY HASH(event_day, site_id) BUCKETS 2\n"
                 + "PROPERTIES(\"replication_num\" = \"1\", \"binlog.enable\" = \"true\", "
                 + "\"binlog.format\" = \"ROW\");";
-        createTable(createOlapTblStmt);
+        createTableWithRowBinlog(createOlapTblStmt);
 
         Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
         OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_range_with_row_binlog");

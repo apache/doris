@@ -70,7 +70,7 @@ public class RangerHiveAccessControllerFactory implements AuthorizationPluginFac
      * <p>A stack outlives the binding that started it, but not the process. The last binding letting go does
      * not stop it, because a plain {@code ALTER CATALOG} detaches and re-attaches the catalog's access
      * controller and a stack stopped between those two costs a {@code cleanup()} on the DDL thread - it
-     * interrupts the policy refresher and joins it without a timeout - and two synchronous admin REST calls
+     * interrupts the policy refresher and joins it without a timeout - and three synchronous admin REST calls
      * on the way back up. What happens instead is that a stack nothing reads any more is stopped after
      * {@link #idleStackGraceSeconds}, and anything asking for that service again in the meantime cancels
      * the stop. Without it the map would grow by one entry, one policy refresher thread and one download
@@ -168,9 +168,9 @@ public class RangerHiveAccessControllerFactory implements AuthorizationPluginFac
                         return held.controller;
                     }
                 }
-                // Nothing reads this service yet, and starting to read it talks to the Ranger admin twice
-                // before it returns: RangerBasePlugin.init() loads the service's roles and its policies
-                // synchronously, before the refresher thread starts. Built with no lock held, so that a slow
+                // Nothing reads this service yet, and starting to read it talks to the Ranger admin three
+                // times before it returns: RangerBasePlugin.init() loads the service's roles, policies and user
+                // store synchronously, before the refresher thread starts. Built with no lock held, so that a slow
                 // or unreachable admin cannot queue every other binding's create - and close - behind it.
                 // Losing the race that opens costs one plugin, stopped in the finally below.
                 built = RangerHiveAuditStack.startFor(serviceName);

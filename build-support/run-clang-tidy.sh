@@ -50,7 +50,6 @@ EXCLUDED_PATTERNS=(
     "be/src/util/mustache/"
     "be/src/util/sse2neo.h"
     "be/src/util/sse2neon.h"
-    "be/src/util/utf8_check.cpp"
     "cloud/src/common/defer.h"
     "contrib/"
 )

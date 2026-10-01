@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TimeStampNsLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
@@ -34,7 +35,10 @@ import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeStampNsType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TinyIntType;
@@ -267,6 +271,74 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
             return true;
         }
         return false;
+    }
+
+    /**
+     * Whether converting a non-null value can fail. A strict CAST reports such a failure as an
+     * error; a non-strict CAST may produce NULL, including inside an ARRAY, MAP, or STRUCT;
+     * TRY_CAST can turn a reported error into NULL. This property is independent of the input's
+     * nullability and of the cast mode. It is conservative for conversions without a proven
+     * failure-free BE implementation. It does not cover unrelated execution errors.
+     */
+    public boolean mayFailOnNonNullInput() {
+        return mayFailOnNonNullInput(child().getDataType(), targetType);
+    }
+
+    /** Whether the BE conversion from sourceType to targetType can fail on a non-null input. */
+    public static boolean mayFailOnNonNullInput(DataType sourceType, DataType targetType) {
+        if (sourceType.equals(targetType)) {
+            return false;
+        }
+        if (sourceType instanceof ArrayType && targetType instanceof ArrayType) {
+            return mayFailOnNonNullInput(((ArrayType) sourceType).getItemType(),
+                    ((ArrayType) targetType).getItemType());
+        }
+        if (sourceType instanceof MapType && targetType instanceof MapType) {
+            MapType sourceMap = (MapType) sourceType;
+            MapType targetMap = (MapType) targetType;
+            return mayFailOnNonNullInput(sourceMap.getKeyType(), targetMap.getKeyType())
+                    || mayFailOnNonNullInput(sourceMap.getValueType(), targetMap.getValueType());
+        }
+        if (sourceType instanceof StructType && targetType instanceof StructType) {
+            List<StructField> sourceFields = ((StructType) sourceType).getFields();
+            List<StructField> targetFields = ((StructType) targetType).getFields();
+            if (sourceFields.size() != targetFields.size()) {
+                return true;
+            }
+            for (int i = 0; i < sourceFields.size(); i++) {
+                StructField sourceField = sourceFields.get(i);
+                StructField targetField = targetFields.get(i);
+                if ((sourceField.isNullable() && !targetField.isNullable())
+                        || mayFailOnNonNullInput(sourceField.getDataType(), targetField.getDataType())) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // BE casts to a character type through to_string_batch for these source types.
+        // JSON and VARIANT take separate paths and are intentionally left conservative.
+        boolean concreteNumber = (sourceType.isIntegralType() && sourceType.width() > 0)
+                || sourceType.isFloatLikeType() || sourceType.isDecimalLikeType();
+        if (targetType.isStringLikeType()) {
+            return !(sourceType.isStringLikeType() || sourceType.isBooleanType() || concreteNumber
+                    || sourceType.isDateLikeType() || sourceType.isTimeType()
+                    || sourceType.isArrayType() || sourceType.isMapType() || sourceType.isStructType());
+        }
+        // The number-to-boolean and number-to-floating BE kernels cannot report a conversion
+        // failure. Precision loss (including floating overflow to infinity) is not a failure.
+        if (targetType.isBooleanType() || targetType.isFloatLikeType()) {
+            return !(sourceType.isBooleanType() || concreteNumber);
+        }
+        // All Doris integral types are signed; a cast to an equal or wider integral type fits.
+        if (sourceType.isIntegralType() && sourceType.width() > 0
+                && targetType.isIntegralType() && targetType.width() > 0) {
+            return sourceType.width() > targetType.width();
+        }
+        if (sourceType.isBooleanType() && targetType.isIntegralType() && targetType.width() > 0) {
+            return false;
+        }
+        return true;
     }
 
     @Override

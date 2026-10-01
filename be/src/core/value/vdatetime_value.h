@@ -209,6 +209,10 @@ static constexpr uint64_t MAX_DATETIME_V2 = ((uint64_t)MAX_DATE_V2 << TIME_PART_
 static constexpr uint64_t MIN_DATETIME_V2 = (uint64_t)MIN_DATE_V2 << TIME_PART_LENGTH;
 
 static constexpr uint32_t MAX_YEAR = 9999;
+// UTC 9999-12-31 23:59:59 plus one day for time zone offsets. Reject larger inputs
+// before narrowing the civil year; the converted date still needs its exact range check.
+static constexpr int64_t MAX_UNIX_TIMESTAMP_WITH_TIMEZONE =
+        253402300799LL + HOUR_PER_DAY * SECOND_PER_HOUR;
 static constexpr uint32_t MAX_MONTH = 12;
 static constexpr uint32_t MAX_HOUR = 23;
 static constexpr uint32_t MAX_MINUTE = 59;

@@ -110,6 +110,33 @@ class ResolveCodeReviewStatusTest(unittest.TestCase):
         result = resolve_status([], [], head_sha=HEAD_SHA)
         self.assertEqual("pending", result.state)
 
+    def test_completed_blocking_review_is_failure(self) -> None:
+        result = resolve_status([pull(123)], [status(1, source="automated", state="failure")], head_sha=HEAD_SHA)
+        self.assertEqual("failure", result.state)
+        self.assertIn("P0/P1", result.description)
+
+    def test_local_or_skip_success_can_override_blocking_review(self) -> None:
+        for source in ("local", "skip"):
+            with self.subTest(source=source):
+                result = resolve_status([pull(123)], [status(1, source="automated", state="failure"),
+                    status(2, source=source)], head_sha=HEAD_SHA)
+                self.assertEqual("success", result.state)
+
+    def test_stale_blocking_result_is_not_reused(self) -> None:
+        for pulls in ([pull(123, base=OTHER_BASE_SHA)], [pull(124)], [pull(123, head=OTHER_HEAD_SHA)]):
+            with self.subTest(pulls=pulls):
+                result = resolve_status(pulls, [status(1, source="automated", state="failure")], head_sha=HEAD_SHA)
+                self.assertEqual("pending", result.state)
+
+    def test_latest_automated_result_replaces_blocker(self) -> None:
+        result = resolve_status([pull(123)], [status(1, source="automated", state="failure"),
+            status(2, source="automated")], head_sha=HEAD_SHA)
+        self.assertEqual("success", result.state)
+
+    def test_shared_head_blocker_takes_precedence_over_pending(self) -> None:
+        result = resolve_status([pull(123), pull(124)], [status(1, source="automated", state="failure")], head_sha=HEAD_SHA)
+        self.assertEqual("failure", result.state)
+
     def test_rejects_malformed_api_data(self) -> None:
         with self.assertRaisesRegex(ResolutionError, "base SHA"):
             resolve_status([pull(123, base="short")], [], head_sha=HEAD_SHA)

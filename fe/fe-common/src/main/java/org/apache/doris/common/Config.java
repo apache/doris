@@ -1859,6 +1859,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_quantile_state_type = true;
 
+    @ConfField(mutable = true, masterOnly = true, description = "Temporary compatibility switch that allows HLL, "
+            + "QUANTILE_STATE, and AGG_STATE columns in non-aggregate key tables. Disabled by default. This switch "
+            + "is intended only for migration and will be removed after the compatibility transition period.")
+    public static boolean enable_non_aggregate_table_state_types = false;
+
     /*---------------------- JOB CONFIG START------------------------*/
     /**
      * The number of threads used to dispatch timer job.
@@ -2306,6 +2311,42 @@ public class Config extends ConfigBase {
                     + "pruning.")
     public static int cache_partition_meta_table_manage_num = 100;
 
+    @ConfField(
+            mutable = true,
+            callback = NonNegativeMtmvCacheNumConfHandler.class,
+            callbackClassString = "org.apache.doris.mtmv.MTMVCacheManager$UpdateConfig",
+            description = "Max mtmv plan cache entries kept by MTMVCacheManager. 0 disables the cache, "
+                    + "negative values are rejected. Default 3000.")
+    public static int mtmv_cache_manage_num = 3000;
+
+    public static class NonNegativeMtmvCacheNumConfHandler implements ConfHandler {
+        @Override
+        public void handle(Field field, String value) throws Exception {
+            int parsed = Integer.parseInt(value.trim());
+            if (parsed < 0) {
+                throw new ConfigException(field.getName() + " must not be negative, 0 disables the cache");
+            }
+            field.setInt(null, parsed);
+        }
+    }
+
+    public static void validateMtmvCacheConfig() throws ConfigException {
+        if (mtmv_cache_manage_num < 0) {
+            throw new ConfigException("mtmv_cache_manage_num must not be negative, 0 disables the cache");
+        }
+    }
+
+    @ConfField(
+            mutable = true,
+            callbackClassString = "org.apache.doris.mtmv.MTMVCacheManager$UpdateConfig",
+            description = "Idle expiration in seconds for entries in MTMVCacheManager. Default 86400.")
+    public static long expire_mtmv_cache_in_fe_second = 86400;
+
+    @ConfField(
+            mutable = true,
+            description = "Row cap for SHOW PROC '/mtmv_cache/hot'. Default 500.")
+    public static int mtmv_cache_hot_show_num = 500;
+
     /**
      * HBO plan stats. cache number which can be reused for the next query.
      */
@@ -2657,18 +2698,20 @@ public class Config extends ConfigBase {
             + " both count against qe_max_connection and the user's max_user_connections. This is the sub-quota of"
             + " Arrow Flight SQL sessions within that pool: -1 (the default) is half of qe_max_connection (512 with"
             + " the default pool of 1024), and an explicit value never exceeds qe_max_connection (a larger one is"
-            + " capped, with a warning at startup). Mind how a Flight session ends: with CloseSession, a KILL"
-            + " CONNECTION from another connection, wait_timeout, or the expiry or eviction of its bearer token"
-            + " (arrow_flight_token_alive_time_second; the token cache, see below; and per user at most"
-            + " max_user_connections / 2 tokens). Most Flight clients never send CloseSession, so a session whose"
-            + " client has gone stays in the pool until wait_timeout (8 hours by default) or its token's expiry"
-            + " (24 hours by default), whichever comes first; the default leaves the other half of the pool to"
-            + " MySQL connections however many such sessions there are. Raise it with qe_max_connection, or set"
-            + " it to qe_max_connection on an FE that serves Arrow Flight SQL only. The bearer token cache is"
-            + " sized to this sub-quota (capped by arrow_flight_token_cache_size), so the Flight limit shows as"
-            + " the eviction of the oldest token and its session rather than as a refusal. -1 is accepted from"
-            + " this version on: an older FE that serves Arrow Flight SQL exits at startup with -1 in fe.conf;"
-            + " remove the setting or set a positive value before a downgrade.")
+            + " capped, with a warning at startup). A session that does not fit is refused when it is opened, at"
+            + " the handshake that authenticates the user, in the words a MySQL client is refused in. A Flight"
+            + " session ends with CloseSession, a KILL CONNECTION from another connection, or wait_timeout, and"
+            + " its bearer token is valid exactly as long as it. A client that closes without CloseSession (the"
+            + " ADBC drivers send it; the Flight SQL JDBC driver only for a connection opened with a catalog) or"
+            + " that died leaves its session in the pool until wait_timeout (8 hours by default; lower it,"
+            + " globally or for the session, to reclaim such sessions sooner), and the default leaves the other"
+            + " half of the pool to MySQL connections however many such sessions there are. Raise it with"
+            + " qe_max_connection, or set it to qe_max_connection on an FE that serves Arrow Flight SQL only."
+            + " A client that authenticates again for each connection it opens to fetch a result (the Flight SQL"
+            + " JDBC driver before 15.0.0; later versions reuse the token) opens a session each time, which"
+            + " stays until wait_timeout as well. -1 is accepted from this version on: an older FE that serves"
+            + " Arrow Flight SQL exits at startup with -1 in fe.conf; remove the setting or set a positive value"
+            + " before a downgrade.")
     public static int arrow_flight_max_connections = -1;
 
     @ConfField(mutable = true, description = "Arrow Flight SQL only. A query that scans an external table in "
@@ -2697,17 +2740,31 @@ public class Config extends ConfigBase {
             + "an abnormal case and triggers an alert.")
     public static double autobucket_out_of_bounds_percent_threshold = 0.5;
 
-    @ConfField(description = "The cap of the bearer token cache of the Arrow Flight SQL server. The cache holds"
-            + " as many tokens as the Arrow Flight SQL sub-quota of the connection pool allows"
-            + " (arrow_flight_max_connections, half of qe_max_connection by default) but never more than"
-            + " this; beyond that the oldest token is evicted by LRU, and the session it names is closed with it."
-            + " Arrow Flight SQL clients rarely close their session, so the effective cache size - the sub-quota"
-            + " unless this is smaller - is what bounds their sessions in practice, and per user"
-            + " max_user_connections / 2 tokens. The effective cache size is logged when the server starts.")
+    /**
+     * @deprecated No-op: a bearer token of the Arrow Flight SQL server is the credential of exactly one
+     *     session and lives as long as it, so there is no token cache to size; the sessions are bounded by
+     *     the connection pool (qe_max_connection, arrow_flight_max_connections, max_user_connections).
+     *     Retained for one release so operator fe.conf that sets it still parses (a value other than the
+     *     default is reported at startup); will be removed later.
+     */
+    @Deprecated
+    @ConfField(description = "Deprecated and not read: a bearer token of the Arrow Flight SQL server is the"
+            + " credential of exactly one session and lives as long as it (see arrow_flight_max_connections for"
+            + " what bounds the sessions). Kept so that a fe.conf setting it still parses; it will be removed in"
+            + " a later release.")
     public static int arrow_flight_token_cache_size = 4096;
 
-    @ConfField(description = "The alive time of the user token in Arrow Flight Server (expire after write), in "
-            + "seconds. The default value is 86400, which is 1 day.")
+    /**
+     * @deprecated No-op: a bearer token of the Arrow Flight SQL server lives exactly as long as its session,
+     *     which ends with CloseSession, KILL CONNECTION or wait_timeout; there is no expiry of its own.
+     *     Retained for one release so operator fe.conf that sets it still parses (a value other than the
+     *     default is reported at startup); will be removed later.
+     */
+    @Deprecated
+    @ConfField(description = "Deprecated and not read: a bearer token of the Arrow Flight SQL server lives"
+            + " exactly as long as its session, which ends with CloseSession, KILL CONNECTION or wait_timeout"
+            + " (see arrow_flight_max_connections). Kept so that a fe.conf setting it still parses; it will be"
+            + " removed in a later release.")
     public static int arrow_flight_token_alive_time_second = 86400;
 
     @ConfField(mutable = true, description = "To ensure compatibility with the MySQL ecosystem, Doris includes a "

@@ -22,6 +22,7 @@ import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogUtils;
 import org.apache.paimon.catalog.Database;
+import org.apache.paimon.catalog.DelegateCatalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.privilege.PrivilegedFileStoreTable;
@@ -304,23 +305,27 @@ public interface PaimonCatalogOps {
         public Table getTable(Identifier identifier) throws Catalog.TableNotExistException {
             Table table = catalog.getTable(identifier);
             Map<String, String> optionsForCopy = PaimonTableOptions.forCopy(tableOptions);
-            // Relation options are applied after this cached handle is returned. Defer final
-            // validation so a safe relation value can override an unsafe physical value.
             return optionsForCopy.isEmpty() ? table : table.copy(optionsForCopy);
         }
 
         @Override
         public List<Partition> listPartitions(Identifier identifier, Table table)
                 throws Catalog.TableNotExistException {
-            if (catalog instanceof RESTCatalog) {
+            RESTCatalog restCatalog = restCatalog(catalog);
+            if (restCatalog != null) {
                 // REST owns partition visibility when its endpoint is implemented; the bridge
                 // retains this effective relation copy only for the endpoint's filesystem fallback.
                 return PaimonRestCatalogPartitions.listPartitions(
-                        (RESTCatalog) catalog, identifier, table);
+                        restCatalog, identifier, table);
             }
             // The supplied handle already contains catalog and relation policy. Reloading by identifier
             // would discard those copies before manifest enumeration reaches the final scan guard.
             return CatalogUtils.listPartitionsFromFileSystem(table);
+        }
+
+        static RESTCatalog restCatalog(Catalog catalog) {
+            Catalog rootCatalog = DelegateCatalog.rootCatalog(catalog);
+            return rootCatalog instanceof RESTCatalog ? (RESTCatalog) rootCatalog : null;
         }
 
         @Override

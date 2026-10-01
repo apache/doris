@@ -84,7 +84,7 @@ public class DropMaterializedViewTest extends TestWithFeService {
         String db = UnitTestUtil.DB_NAME;
         String baseTable = "ivm_drop_test_base";
 
-        createTable(String.format("CREATE TABLE %s.%s (k1 int, v1 int) "
+        createTableWithRowBinlog(String.format("CREATE TABLE %s.%s (k1 int, v1 int) "
                 + "UNIQUE KEY(k1) DISTRIBUTED BY HASH(k1) BUCKETS 1 "
                 + "PROPERTIES ('replication_num' = '1', 'enable_unique_key_merge_on_write' = 'true', "
                 + "'binlog.enable' = 'true', 'binlog.format' = 'ROW', "
@@ -120,9 +120,9 @@ public class DropMaterializedViewTest extends TestWithFeService {
         String tableProperties = "PROPERTIES ('replication_num' = '1', "
                 + "'enable_unique_key_merge_on_write' = 'true', 'binlog.enable' = 'true', "
                 + "'binlog.format' = 'ROW', 'binlog.need_historical_value' = 'true')";
-        createTable(String.format("CREATE TABLE %s.%s (k1 int, v1 int) UNIQUE KEY(k1) "
+        createTableWithRowBinlog(String.format("CREATE TABLE %s.%s (k1 int, v1 int) UNIQUE KEY(k1) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1 %s", dbName, baseTable1, tableProperties));
-        createTable(String.format("CREATE TABLE %s.%s (k1 int, v1 int) UNIQUE KEY(k1) "
+        createTableWithRowBinlog(String.format("CREATE TABLE %s.%s (k1 int, v1 int) UNIQUE KEY(k1) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 1 %s", dbName, baseTable2, tableProperties));
 
         String mvName = "ivm_drop_owner_mv";

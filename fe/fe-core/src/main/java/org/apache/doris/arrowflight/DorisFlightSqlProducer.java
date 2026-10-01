@@ -159,7 +159,9 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         String[] handleParts = handle.split(":");
         String executedPeerIdentity = handleParts[0];
         String queryId = handleParts[1];
-        // The tokens used for authentication between getStreamStatement and getFlightInfoStatement are different.
+        // The DoGet may come under another bearer token than the GetFlightInfo did: a client that opens
+        // a second connection for the endpoint may authenticate again on it. The ticket names the
+        // session that ran the statement, which must still be open.
         ConnectContext connectContext = flightSessionsManager.getConnectContext(executedPeerIdentity);
         // The result is streamed under the session's command lock: the next statement of the
         // session resets the channel, which would close the VectorSchemaRoot while it is being sent.
@@ -248,9 +250,8 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                         // otherwise expected thrown exception during execution.
                         Preconditions.checkState(connectContext.getFlightSqlChannel().resultNum() == 1);
 
-                        // The tokens used for authentication between getStreamStatement and getFlightInfoStatement
-                        // are different. So put the peerIdentity into the ticket and then getStreamStatement is used to
-                        // find the correct ConnectContext.
+                        // The DoGet may come under another bearer token than this GetFlightInfo (see
+                        // getStreamStatementResult), so the ticket names this session by its peer identity;
                         // queryId is used to find query results.
                         final ByteString handle = ByteString.copyFromUtf8(
                                 peerIdentity + ":" + DebugUtil.printId(connectContext.queryId()));
@@ -733,10 +734,12 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     }
 
     /**
-     * Closes the session: its bearer token is invalidated at once, which unregisters its
-     * ConnectContext (releasing the cached results, the deferred executors and the transaction), and
-     * every later call made with that token is refused as UNAUTHENTICATED. The ADBC Flight SQL driver
-     * calls this from Connection.Close() and the Flight SQL JDBC driver from Connection.close().
+     * Closes the session the way a MySQL client's COM_QUIT ends a connection: its ConnectContext
+     * leaves the pool (releasing the cached results, the deferred executors, the transaction and
+     * the temporary tables), a statement still running is cancelled, and every later call made
+     * with the session's bearer token is refused as UNAUTHENTICATED, since the token is nothing but
+     * the name the session had in the pool. The ADBC Flight SQL driver calls this from
+     * Connection.Close() and the Flight SQL JDBC driver from Connection.close().
      */
     @Override
     public void closeSession(CloseSessionRequest request, final CallContext context,

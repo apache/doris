@@ -356,6 +356,10 @@ Status PipelineFragmentContext::_build_and_prepare_full_pipeline(ThreadPool* thr
 }
 
 Status PipelineFragmentContext::prepare(ThreadPool* thread_pool) {
+    DBUG_EXECUTE_IF("fault_inject::PipelineFragmentContext::prepare.skip", {
+        _prepared = true;
+        return Status::OK();
+    });
     if (_prepared) {
         return Status::InternalError("Already prepared");
     }
@@ -2593,7 +2597,8 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
                                            PrintThriftNetworkAddress(req.coord_addr), e.what());
     }
 
-    const bool requires_external_file_ack = params.__isset.iceberg_commit_datas;
+    const bool requires_external_file_ack =
+            params.__isset.iceberg_commit_datas || params.__isset.connector_commit_data;
     if (rpc_status.ok() && requires_external_file_ack &&
         (!res.__isset.external_file_commit_data_accepted ||
          !res.external_file_commit_data_accepted)) {

@@ -18,6 +18,7 @@
 package org.apache.doris.arrowflight;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.arrowflight.auth2.FlightAuthResult;
 import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
@@ -192,12 +193,12 @@ public class DorisFlightSqlProducerTest {
 
         FlightSessionsManager sessionsManager = new FlightSessionsManager() {
             @Override
-            public ConnectContext getConnectContext(String peerIdentity) {
-                return connectContext;
+            public String openSession(FlightAuthResult authResult) {
+                throw new UnsupportedOperationException("not exercised by this test");
             }
 
             @Override
-            public ConnectContext createConnectContext(String peerIdentity) {
+            public ConnectContext getConnectContext(String peerIdentity) {
                 return connectContext;
             }
 

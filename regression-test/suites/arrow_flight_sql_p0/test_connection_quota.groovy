@@ -34,14 +34,10 @@ import org.apache.arrow.driver.jdbc.shaded.org.apache.arrow.memory.RootAllocator
 
 // An Arrow Flight SQL session is a connection of the same pool a MySQL connection is in: the
 // user's max_user_connections counts both, whichever came first, and a refusal reads the same
-// over either protocol - over Flight as the RESOURCE_EXHAUSTED status of the request that would
-// have opened the session, since a session opens on its first request, not when the token is
-// issued.
-//
-// The limit is 4 rather than 1 because the token manager still keeps at most
-// max_user_connections / 2 bearer tokens per user and evicts the oldest - session included - when
-// one more is issued; three MySQL connections take the slots a token cannot, so that the second
-// Flight session is the one the pool refuses. (The per-user token cache goes with PR-3.2.)
+// over either protocol - over Flight as the RESOURCE_EXHAUSTED status of the handshake that would
+// have opened the session (authenticateBasicToken), since a session opens, and its bearer token
+// is issued, when the user's password is authenticated. A session that does not fit is refused;
+// no session already open is evicted for it, and no token is left of it.
 //
 // Not in the 'arrow_flight_sql' group on purpose: `sql` stays the MySQL control connection, and
 // the sessions under test are raw Flight SQL clients and plain MySQL connections of their own.
@@ -51,7 +47,7 @@ suite("test_connection_quota") {
 
     String user = "flight_quota_user"
     String password = "Quota_12345"
-    int limit = 4
+    int limit = 1
     // What both protocols say when the user's limit is reached; only the count at the refusal varies.
     Pattern refusal = Pattern.compile("^Reach limit of connections\\. Total: (\\d+), User: ${limit}, Current: \\d+")
 
@@ -133,38 +129,41 @@ suite("test_connection_quota") {
             }
             openTokens.remove(cred)
         }
-        // Whether the pool refused this token's session: its RESOURCE_EXHAUSTED refusal message, or null
-        // when the session was admitted. The quota is checked when the session is registered, before the
-        // probe query runs (DorisFlightSqlProducer.getFlightInfoStatement gets the ConnectContext, which
-        // registers it, and only then executes the statement). So a RESOURCE_EXHAUSTED is the refusal --
-        // the session never entered the pool and the frontend invalidated the token -- while any other
-        // outcome (success, or the statement failing for a reason outside this suite's scope, e.g. an
-        // environment-specific query error) means the session was admitted and is in the pool; the
-        // connectionsOf() checks below verify that count. The token is tracked before the request so a
-        // session that opened is closed at the end.
-        def refusalOf = { cred ->
-            openTokens << cred
+        // Opens a Flight session, the way the drivers do: the handshake that authenticates the user's
+        // password and answers with the session's bearer token. Returns [token, null] when the session
+        // was admitted, and [null, refusal] when the pool refused it -- the RESOURCE_EXHAUSTED status of
+        // the handshake, whose description is the pool's message; no token is issued then, so there is
+        // nothing to close. An admitted session is tracked so it is closed at the end.
+        def open = {
             try {
-                flight.execute("SELECT 1", cred).getEndpoints()
-                return null
+                def cred = client.authenticateBasicToken(user, password).get()
+                openTokens << cred
+                return [cred, null]
             } catch (FlightRuntimeException e) {
-                def code = e.status().code()
-                if (code == FlightStatusCode.RESOURCE_EXHAUSTED) {
-                    openTokens.remove(cred)
-                    return e.status().description()
+                if (e.status().code() == FlightStatusCode.RESOURCE_EXHAUSTED) {
+                    return [null, e.status().description()]
                 }
-                if (code == FlightStatusCode.INTERNAL) {
-                    // Admitted: the pool check passed and the session was registered before the statement
-                    // ran, so it counts (the connectionsOf() checks confirm it). The probe query then
-                    // failed for a reason outside a connection-quota test's scope -- an environment-
-                    // specific execution error -- which is logged here so it stays diagnosable.
-                    logger.warn("test_connection_quota: an admitted Flight session's probe query failed "
-                            + "with ${code}: ${e.status().description()}")
-                    return null
-                }
-                // Neither a quota refusal nor an admitted session (e.g. UNAUTHENTICATED); let it surface.
+                // Not a quota refusal (e.g. UNAUTHENTICATED for a wrong password); let it surface.
                 throw e
             }
+        }
+        // A session that was admitted is a session that works: a statement the frontend answers itself
+        // runs on it and its rows are pulled from the frontend over the same session (a query's rows
+        // would be on a backend, which this raw client does not connect to).
+        def probe = { cred ->
+            def names = []
+            def info = flight.execute("SHOW VARIABLES LIKE 'wait_timeout'", cred)
+            info.getEndpoints().each { endpoint ->
+                flight.getStream(endpoint.getTicket(), cred).withCloseable { stream ->
+                    while (stream.next()) {
+                        def root = stream.getRoot()
+                        for (int i = 0; i < root.getRowCount(); i++) {
+                            names << root.getFieldVectors()[0].getObject(i).toString()
+                        }
+                    }
+                }
+            }
+            assertEquals(["wait_timeout"], names, "the admitted Flight session should answer SHOW VARIABLES")
         }
         // The pool's limit named by a refusal, asserting the refusal is worded as MySQL's is.
         def totalOf = { String message ->
@@ -182,37 +181,51 @@ suite("test_connection_quota") {
             }
         }
 
-        // 1. Three MySQL connections, then the first Flight session: the user's four.
-        (1..limit - 1).each { assertNull(mysqlRefusal(), "MySQL connection ${it} of ${limit - 1} was refused") }
-        awaitConnections(limit - 1)
-        def first = client.authenticateBasicToken(user, password).get()
-        assertNull(refusalOf(first), "the Flight session should open as the user's last connection")
-        assertEquals(limit, connectionsOf(), "the Flight session is a connection of the user's like the others")
+        // 1. The first Flight session is the user's one connection, opened at the handshake: it is in
+        //    the pool before it has run anything.
+        awaitConnections(0)
+        def (first, firstRefusal) = open()
+        assertNull(firstRefusal, "the first Flight session should open as the user's one connection")
+        assertEquals(limit, connectionsOf(), "the Flight session is a connection of the user's from the handshake on")
+        probe(first)
 
-        // 2. The second Flight session is refused, in MySQL's words...
-        def second = client.authenticateBasicToken(user, password).get()
-        String flightRefused = refusalOf(second)
-        assertNotNull(flightRefused, "the second Flight session opened although the user's limit is reached")
+        // 2. The second Flight session is refused at its handshake, in MySQL's words, and the first
+        //    one is untouched by the attempt...
+        def (second, flightRefused) = open()
+        assertNull(second, "the second Flight session opened although the user's limit is reached")
         String total = totalOf(flightRefused)
+        assertEquals(limit, connectionsOf(), "a refused Flight session must leave the pool as it was")
+        probe(first)
 
         // 3. ...and so is a MySQL connection, in the same words.
         String mysqlRefused = mysqlRefusal()
         assertNotNull(mysqlRefused, "the MySQL connection opened although the user's limit is reached")
         assertEquals(total, totalOf(mysqlRefused))
 
-        // 4. CloseSession releases the Flight session's connection: a MySQL connection opens now, and
-        //    once it is closed again a Flight session does.
+        // 4. CloseSession releases the Flight session's connection, and its token with it: a MySQL
+        //    connection opens now, and once it is closed again a Flight session does.
         assertEquals("CLOSED", flight.closeSession(new CloseSessionRequest(), first).getStatus().name())
         openTokens.remove(first)
-        awaitConnections(limit - 1)
+        awaitConnections(0)
+        try {
+            flight.execute("SHOW VARIABLES LIKE 'wait_timeout'", first)
+            throw new AssertionError("the closed session's token was still accepted")
+        } catch (FlightRuntimeException e) {
+            assertEquals(FlightStatusCode.UNAUTHENTICATED, e.status().code(), e.status().description())
+        }
         assertNull(mysqlRefusal(), "the MySQL connection should open once the Flight session is closed")
+        awaitConnections(limit)
+        def (none, refusedByMysql) = open()
+        assertNull(none, "a Flight session opened although the MySQL connection holds the user's limit")
+        assertEquals(total, totalOf(refusedByMysql))
         mysqlConnections.remove(mysqlConnections.size() - 1).close()
-        awaitConnections(limit - 1)
-        def third = client.authenticateBasicToken(user, password).get()
-        assertNull(refusalOf(third), "the Flight session should open once the MySQL connection is closed")
-        assertEquals(limit, connectionsOf(), "the reopened Flight session must be the user's ${limit}th connection")
+        awaitConnections(0)
+        def (third, thirdRefusal) = open()
+        assertNull(thirdRefusal, "the Flight session should open once the MySQL connection is closed")
+        assertEquals(limit, connectionsOf(), "the reopened Flight session must be the user's one connection")
+        probe(third)
         closeSession(third)
-        awaitConnections(limit - 1)
+        awaitConnections(0)
     } finally {
         // Sessions outlive the client: close the ones still open, or a rerun on the same frontend
         // starts against a user whose slots they hold until wait_timeout (DROP USER does not end them).

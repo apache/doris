@@ -268,7 +268,8 @@ public class ConnectPoolMgrTest {
     // was already holding the pool increment -- and register a connection that fits on another thread:
     // it must be admitted. The staged code refused it (the frozen attempt's pool increment made the pool
     // look full); the single admission critical section admits it, because the pool is reserved only
-    // inside the lock and getMaxConn is read before the lock. Without the synchronized block this fails.
+    // inside the lock and getMaxConn is read before the lock. What this pins is that nothing is reserved
+    // before every check has passed, not the lock itself: getMaxConn is read outside it.
     @Test
     @Timeout(30)
     public void testConcurrentAdmissionDoesNotRefuseAFittingConnectionWhileAnotherIsInFlight() throws Exception {
