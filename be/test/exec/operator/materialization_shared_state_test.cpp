@@ -62,9 +62,21 @@ void set_lance_fetch_profile(PMultiGetBlockV2* response_block, int64_t scale) {
 TEST(MaterializationOperatorTimingTest, PushDoesNotDuplicateFrameworkExecTimer) {
     ObjectPool pool;
     MockRuntimeState state;
+    // Even an empty-block timing test needs a real tuple: OperatorXBase builds
+    // a RowDescriptor from the plan and requires non-empty, resolvable tuple IDs.
+    TTupleDescriptor tuple;
+    tuple.__set_id(0);
+    TDescriptorTable thrift_desc;
+    thrift_desc.__set_tupleDescriptors({tuple});
+    DescriptorTbl* desc_tbl = nullptr;
+    ASSERT_TRUE(DescriptorTbl::create(&pool, thrift_desc, &desc_tbl).ok());
+    state.set_desc_tbl(desc_tbl);
+
     TPlanNode node;
     node.__set_node_id(0);
     node.__set_node_type(TPlanNodeType::MATERIALIZATION_NODE);
+    node.__set_row_tuples({0});
+    node.__set_nullable_tuples({false});
     MaterializationOperator op(&pool, node, 0, state.desc_tbl());
     RuntimeProfile profile("materialization_timing");
     auto local = MaterializationLocalState::create_unique(&state, &op);
