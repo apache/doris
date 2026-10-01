@@ -259,13 +259,14 @@ public class BucketedAggregateTranslatorTest extends TestWithFeService {
     }
 
     @Test
-    public void testUnknownGroupKeyStatisticsKeepBucketedAggregation() throws Exception {
+    public void testUnknownGroupKeyStatisticsKeepRegularAggregationByDefault() throws Exception {
         // The table is never analyzed, so the GROUP BY key has unknown statistics and
-        // StatsCalculator only estimates the aggregate output as input rows / 3. That
-        // fallback is not a real group cardinality, so the output-ratio gate of
-        // ChildrenPropertiesRegulator must not compare it with the default
-        // bucketed_agg_high_card_threshold (0.3): 1/3 > 0.3 would otherwise ban
-        // bucketed aggregation for every un-analyzed table.
+        // StatsCalculator estimates the aggregate output as input rows / 3. As on master,
+        // the output-ratio gate of ChildrenPropertiesRegulator compares that estimate with
+        // the default bucketed_agg_high_card_threshold (0.3), so an un-analyzed table keeps
+        // the regular two-phase aggregation. The fuzzy session variables set
+        // bucketed_agg_min_input_rows to 0 for half of the connections; without this gate
+        // the plan of every small un-analyzed table would depend on the connection.
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         int oldAggPhase = sessionVariable.aggPhase;
         int oldBeNumberForTest = sessionVariable.getBeNumberForTest();
@@ -283,6 +284,10 @@ public class BucketedAggregateTranslatorTest extends TestWithFeService {
             sessionVariable.bucketedAggHighCardThreshold = new SessionVariable().bucketedAggHighCardThreshold;
             sessionVariable.enableBucketedHashAgg = true;
 
+            assertTwoPhaseRegularAggregation(planAggregate("sum(kint)"));
+
+            // A threshold that admits the fallback estimate fuses the same aggregate.
+            sessionVariable.bucketedAggHighCardThreshold = 1.0;
             Assertions.assertFalse(collectBucketedAggregationNodes("sum(kint)").isEmpty());
         } finally {
             sessionVariable.aggPhase = oldAggPhase;
