@@ -92,4 +92,10 @@ suite("test_javaudaf_bucketed_agg") {
     order_qt_udaf_one_phase """
         SELECT k, test_javaudaf_bucketed_agg_sum(v) FROM test_javaudaf_bucketed_agg_tbl GROUP BY k
     """
+
+    // Restore defaults: this worker thread's connection is reused by later suites,
+    // so the forced phase and lowered gates here would otherwise leak into unrelated tests.
+    sql "set agg_phase=0"
+    sql "set bucketed_agg_min_input_rows=100000"
+    sql "set bucketed_agg_high_card_threshold=0.3"
 }

@@ -70,4 +70,10 @@ suite("percentile_bucketed_agg_merge") {
         SELECT shard, PERCENTILE(v, 0.625), PERCENTILE_ARRAY(v, [0, 0.25, 0.5, 1])
         FROM percentile_bucketed_agg_merge_t GROUP BY shard
     """
+
+    // Restore defaults: this worker thread's connection is reused by later suites,
+    // so the disabled feature and lowered gates here would otherwise leak into unrelated tests.
+    sql "set enable_bucketed_hash_agg=true"
+    sql "set bucketed_agg_min_input_rows=100000"
+    sql "set bucketed_agg_high_card_threshold=0.3"
 }

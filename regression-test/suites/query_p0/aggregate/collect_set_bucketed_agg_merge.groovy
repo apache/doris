@@ -77,4 +77,10 @@ suite("collect_set_bucketed_agg_merge") {
                sum(cast(murmur_hash3_64(concat(k, ':', array_join(array_sort(cs), ','))) AS LARGEINT))
         FROM (${query}) q
     """
+
+    // Restore defaults: this worker thread's connection is reused by later suites,
+    // so the disabled feature and lowered gates here would otherwise leak into unrelated tests.
+    sql "set enable_bucketed_hash_agg=true"
+    sql "set bucketed_agg_min_input_rows=100000"
+    sql "set bucketed_agg_high_card_threshold=0.3"
 }

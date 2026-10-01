@@ -114,4 +114,10 @@ suite ("testBucketedAggSyncMV") {
         GROUP BY dt, advertiser
         ORDER BY dt, advertiser;
     """
+
+    // Restore defaults: this worker thread's connection is reused by later suites,
+    // so the disabled feature and lowered gates here would otherwise leak into unrelated tests.
+    sql "set enable_bucketed_hash_agg = true;"
+    sql "set bucketed_agg_min_input_rows = 100000;"
+    sql "set bucketed_agg_high_card_threshold = 0.3;"
 }

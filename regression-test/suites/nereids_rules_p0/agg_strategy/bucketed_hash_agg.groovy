@@ -407,4 +407,9 @@ suite("bucketed_hash_agg") {
     }
     order_qt_window_subset_key_regular_result "${windowSubsetKeyQuery}"
     sql "set enable_bucketed_hash_agg=true"
+
+    // Restore defaults: this worker thread's connection is reused by later suites,
+    // so lowered gates here would otherwise leak into unrelated tests.
+    sql "set bucketed_agg_min_input_rows=100000"
+    sql "set bucketed_agg_high_card_threshold=0.3"
 }
