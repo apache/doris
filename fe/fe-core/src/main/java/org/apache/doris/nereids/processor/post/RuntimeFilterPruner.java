@@ -141,11 +141,42 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         // statistics are unknown (always the case for external tables).
         cteAnchor.child(0).accept(this, context);
         RuntimeFilterContext rfCtx = context.getRuntimeFilterContext();
-        if (rfCtx.isEffectiveSrcNode(cteAnchor.child(0))) {
-            effectiveCteProducers.put(cteAnchor.getCteId(), rfCtx.getEffectiveSrcType(cteAnchor.child(0)));
+        // Only a producer whose output is genuinely BOUNDED may pass its effectiveness to consumers.
+        // NATIVE is also set when a join's build side is selective, and that is a property of one
+        // join key, not of the relation: for c = Project(A.k, B.v) -> LeftJoin(A, Limit(1) -> B) the
+        // left join still preserves every A.k, yet the join visitor marks the producer NATIVE. A
+        // consumer that only keeps B.v live would then inherit a flag it cannot justify and keep a
+        // runtime filter that rejects no row.
+        if (rfCtx.isEffectiveSrcNode(cteAnchor.child(0))
+                && rfCtx.getEffectiveSrcType(cteAnchor.child(0))
+                        == RuntimeFilterContext.EffectiveSrcType.NATIVE
+                && hasBoundedOutput(cteAnchor.child(0).child(0))) {
+            effectiveCteProducers.put(cteAnchor.getCteId(), RuntimeFilterContext.EffectiveSrcType.NATIVE);
         }
         cteAnchor.child(1).accept(this, context);
         return cteAnchor;
+    }
+
+    /**
+     * Whether the plan produces a bounded number of rows on its own, i.e. whether "few rows" is a
+     * property of the whole relation rather than of one join key. Only these operators may hand
+     * their effectiveness to another subtree through a CTE.
+     */
+    private boolean hasBoundedOutput(Plan plan) {
+        if (plan instanceof PhysicalLimit || plan instanceof PhysicalTopN
+                || plan instanceof PhysicalAssertNumRows) {
+            return true;
+        }
+        if (plan instanceof PhysicalHashAggregate) {
+            return ((PhysicalHashAggregate<?>) plan).getGroupByExpressions().isEmpty();
+        }
+        if (plan instanceof PhysicalPartitionTopN) {
+            PhysicalPartitionTopN<?> topN = (PhysicalPartitionTopN<?>) plan;
+            return topN.hasGlobalLimit()
+                    || (topN.getFunction() == WindowFuncType.ROW_NUMBER
+                            && topN.getPartitionKeys().isEmpty());
+        }
+        return false;
     }
 
     @Override

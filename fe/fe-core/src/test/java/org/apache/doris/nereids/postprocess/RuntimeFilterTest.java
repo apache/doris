@@ -193,6 +193,47 @@ public class RuntimeFilterTest extends SSBTestBase {
     }
 
     @Test
+    public void cteDoesNotInheritJoinKeySelectivity() {
+        // c = Project(A.k, B.v) -> LeftJoin(A, Limit(1) -> B): the join visitor marks the producer
+        // NATIVE because its build side is limited, but a LEFT JOIN preserves every A.k, so the
+        // producer output is not bounded. Neither consumer may inherit that flag, whichever
+        // producer column it keeps live.
+        CascadesContext context = MemoTestUtils.createCascadesContext(connectContext, "select 1");
+        RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
+        SlotReference aKey = new SlotReference("a_k", IntegerType.INSTANCE);
+        SlotReference bValue = new SlotReference("b_v", IntegerType.INSTANCE);
+        CTEId cteId = new CTEId(4);
+        GroupPlan left = newGroupPlan(aKey);
+        GroupPlan rightBase = newGroupPlan(bValue);
+        PhysicalLimit<GroupPlan> limitedRight =
+                new PhysicalLimit<>(1, 0, LimitPhase.GLOBAL, rightBase.getLogicalProperties(), rightBase);
+        LogicalProperties joinProperties = new LogicalProperties(
+                () -> ImmutableList.of(aKey, bValue), () -> DataTrait.EMPTY_TRAIT);
+        PhysicalHashJoin<Plan, Plan> join = new PhysicalHashJoin<>(JoinType.LEFT_OUTER_JOIN,
+                ImmutableList.of(new EqualTo(aKey, bValue)), ImmutableList.of(),
+                new DistributeHint(DistributeType.NONE), Optional.empty(), joinProperties,
+                left, limitedRight);
+        PhysicalCTEProducer<Plan> producer = new PhysicalCTEProducer<>(cteId, null, join);
+        PhysicalCTEConsumer keyConsumer = new PhysicalCTEConsumer(new RelationId(10), cteId,
+                ImmutableMap.of(aKey, aKey), ImmutableMultimap.of(aKey, aKey), null);
+        PhysicalCTEAnchor<PhysicalCTEProducer<Plan>, PhysicalCTEConsumer> anchor =
+                new PhysicalCTEAnchor<>(cteId, null, producer, keyConsumer);
+        RuntimeFilterPruner pruner = new RuntimeFilterPruner();
+        anchor.accept(pruner, context);
+
+        Assertions.assertTrue(rfContext.isEffectiveSrcNode(join),
+                "the setup must reproduce the reviewed case: the join is marked from its build side");
+        Assertions.assertFalse(rfContext.isEffectiveSrcNode(keyConsumer),
+                "a consumer keeping A.k live must not inherit the join's key selectivity");
+
+        PhysicalCTEConsumer valueConsumer = new PhysicalCTEConsumer(new RelationId(11), cteId,
+                ImmutableMap.of(bValue, bValue), ImmutableMultimap.of(bValue, bValue), null);
+        valueConsumer.accept(pruner, context);
+        Assertions.assertFalse(rfContext.isEffectiveSrcNode(valueConsumer),
+                "a consumer keeping B.v live must not inherit the join's key selectivity");
+    }
+
+    @Test
     public void testGenerateRuntimeFilter() {
         String sql = "SELECT * FROM lineorder JOIN customer on c_custkey = lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
