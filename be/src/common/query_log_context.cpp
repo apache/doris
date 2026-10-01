@@ -124,12 +124,23 @@ void append_query_log_identity(std::ostream& stream) {
     const bool has_query = identity.query_hi != 0 || identity.query_lo != 0;
     const bool has_instance = identity.instance_hi != 0 || identity.instance_lo != 0;
     if (has_query) {
-        stream << " [query_id=";
+        stream << " [";
         write_log_id(stream, identity.query_hi, identity.query_lo);
     }
     if (has_instance) {
-        stream << (has_query ? " fragment_instance_id=" : " [fragment_instance_id=");
-        write_log_id(stream, identity.instance_hi, identity.instance_lo);
+        if (has_query && identity.instance_hi == identity.query_hi) {
+            // Instance IDs normally share the query's high half. Unsigned subtraction
+            // preserves the low-half offset even when ID generation wraps around.
+            char buffer[20]; // Maximum decimal length of a uint64_t.
+            auto result = std::to_chars(buffer, buffer + sizeof(buffer),
+                                        identity.instance_lo - identity.query_lo);
+            stream.put('/');
+            stream.write(buffer, static_cast<std::streamsize>(result.ptr - buffer));
+        } else {
+            // Load IDs can give an instance a different high half; retain the full ID.
+            stream << (has_query ? " fragment_instance_id=" : " [fragment_instance_id=");
+            write_log_id(stream, identity.instance_hi, identity.instance_lo);
+        }
     }
     if (has_query || has_instance) {
         stream << ']';

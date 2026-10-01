@@ -194,6 +194,10 @@ public class Log4jConfig extends XmlConfiguration {
     //     loggers, all logs will be printed to console.
     public static boolean foreground = false;
 
+    static String getQueryLogPattern() {
+        return Config.sys_log_enable_query_id ? "%notEmpty{[%X{" + QueryLogContext.QUERY_ID + "}] }" : "";
+    }
+
     private static void reconfig() throws IOException {
         String newXmlConfTemplate = xmlConfTemplateBuilder.toString();
 
@@ -253,8 +257,7 @@ public class Log4jConfig extends XmlConfiguration {
         }
         newXmlConfTemplate = newXmlConfTemplate.replaceAll(VERBOSE_MODULE_PLACEHOLDER, sb.toString());
 
-        newXmlConfTemplate = newXmlConfTemplate.replace(QUERY_LOG_PLACEHOLDER,
-                Config.sys_log_enable_query_id ? "%notEmpty{[query_id=%X{query_id}] }" : "");
+        newXmlConfTemplate = newXmlConfTemplate.replace(QUERY_LOG_PLACEHOLDER, getQueryLogPattern());
 
         // BRIEF: async, no location
         // ASYNC: async, with location
