@@ -40,5 +40,9 @@ struct PrxFrameView {
 // window. Decoding still checks the CRC and rejects corrupt frames.
 Status read_prx_frame(ByteSource* source, PrxFrameView* frame, bool verify_crc = true);
 
+// Adds to `work` the decode work of the frames in `frames`, read from their headers without
+// checking CRCs: a PFOR frame's position count, another frame's plaintext length.
+Status add_prx_frames_position_work(Slice frames, uint64_t* work);
+
 } // namespace format
 } // namespace doris::snii

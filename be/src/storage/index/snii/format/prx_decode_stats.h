@@ -48,6 +48,8 @@ struct PrxDecodeStats {
     uint64_t selected_docs = 0;
     uint64_t total_positions = 0;
     uint64_t selected_positions = 0;
+    // Frames whose documents' positions were decoded as they were read.
+    uint64_t streaming_frames = 0;
     // Inclusive successful-frame time: header/CRC validation, optional
     // decompression, and payload decode.
     uint64_t decode_ns = 0;

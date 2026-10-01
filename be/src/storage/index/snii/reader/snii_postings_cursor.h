@@ -32,6 +32,7 @@
 #include "storage/index/snii/format/frq_prelude.h"
 #include "storage/index/snii/format/norms_pod.h"
 #include "storage/index/snii/format/prx_decode_stats.h"
+#include "storage/index/snii/format/prx_position_iterator.h"
 #include "storage/index/snii/io/batch_range_fetcher.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 
@@ -74,7 +75,8 @@ private:
 // posting for a slim or inline term), term frequencies as the position counts of the window's
 // PRX frame (one per document on an index without positions), norms from the norms section,
 // and positions from the frame, decoded once per window when they are first asked (with the
-// frequencies when scoring). A cursor opened with
+// frequencies when scoring), or, for the documents a block is asked to stream, each as it is
+// read, the rest of the frame checked once the last of them is finished. A cursor opened with
 // positions keeps the docids it decodes, so listing again after a rewind decodes nothing twice.
 //
 // Reads: an inline term needs none. A slim term reads its dd region, and its PRX frame when
@@ -110,6 +112,8 @@ public:
     uint32_t doc_freq() const override { return _entry.df; }
     Status prefetch(const std::vector<uint32_t>* candidates, bool positions) override;
     Status rewind() override;
+    Status positions_per_doc(uint64_t* out) override;
+    Status stream_positions(std::span<const uint32_t> ordinals) override;
     Status next_block(index_query::PostingsBlock* block, bool* eof) override;
     Status seek_block(uint32_t target, index_query::PostingsBlock* block, bool* eof) override;
     Status shallow_seek(uint32_t target, bool* moved) override;
@@ -220,6 +224,15 @@ private:
     uint64_t _doc_count = 0;
     bool _bound_known = false;
     bool _positions_decoded = false;
+
+    // The listed documents of the current block streamed from its frame: the open one and the
+    // last, whose finish checks the rest of the frame.
+    format::PrxPositionIterator _stream;
+    format::PrxDecodeContext _stream_context;
+    uint32_t _stream_ordinal = 0;
+    uint32_t _stream_last = 0;
+    bool _streaming = false;
+    bool _doc_streamed = false;
 
     // The open document's positions and the next one to hand out.
     std::span<const uint32_t> _doc_positions;

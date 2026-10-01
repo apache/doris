@@ -183,6 +183,18 @@ constexpr BenchQuery kDocIdQueries[] = {
 
 // Lookups on an untokenized index of the same rows: a value about nine rows hold, a value none
 // holds, and a prefix that expands to many values.
+// Phrases over long documents whose terms hold many positions in each: one matching early in
+// almost every document, one whose terms never meet, one matching somewhere in most of them.
+constexpr BenchQuery kLongQueries[] = {{.label = "long_early",
+                                        .type = InvertedIndexQueryType::MATCH_PHRASE_QUERY,
+                                        .text = "harbor crane"},
+                                       {.label = "long_absent",
+                                        .type = InvertedIndexQueryType::MATCH_PHRASE_QUERY,
+                                        .text = "pier tide"},
+                                       {.label = "long_mid",
+                                        .type = InvertedIndexQueryType::MATCH_PHRASE_QUERY,
+                                        .text = "crane tide"}};
+
 constexpr BenchQuery kKeywordQueries[] = {
         {.label = "kw_equal",
          .type = InvertedIndexQueryType::EQUAL_QUERY,
@@ -237,6 +249,43 @@ std::vector<std::string> build_corpus(uint32_t doc_count) {
                     fmt::format("Request {} completed latency {}", r % 1000000, (r >> 10) % 1000));
             break;
         }
+    }
+    return docs;
+}
+
+// Documents of 200 to 300 words: "harbor crane" often, "harbor", "crane", "pier" and "tide" alone
+// often, "tide" never right after "pier", and the rest from a few thousand others.
+std::vector<std::string> build_long_corpus(uint32_t doc_count) {
+    std::mt19937 rng(20261001);
+    std::vector<std::string> docs;
+    docs.reserve(doc_count);
+    for (uint32_t docid = 0; docid < doc_count; ++docid) {
+        const uint32_t words = 200 + rng() % 101;
+        std::string doc;
+        std::string_view previous;
+        for (uint32_t word = 0; word < words; ++word) {
+            const uint32_t r = rng() % 100;
+            std::string_view next;
+            if (r < 6) {
+                next = "harbor crane";
+            } else if (r < 11) {
+                next = "harbor";
+            } else if (r < 16) {
+                next = "crane";
+            } else if (r < 21) {
+                next = "pier";
+            } else if (r < 26 && previous != "pier") {
+                next = "tide";
+            }
+            if (!next.empty()) {
+                doc.append(next).push_back(' ');
+                previous = next;
+                continue;
+            }
+            doc.append(fmt::format("w{} ", rng() % 4000));
+            previous = {};
+        }
+        docs.push_back(std::move(doc));
     }
     return docs;
 }
@@ -563,6 +612,27 @@ void benchmark_keyword_reader(InvertedIndexReader* reader, std::string_view form
     benchmark_docid_queries(reader, format_name, "keyword", kKeywordQueries, iterations);
 }
 
+// Runs each long-document phrase over the whole segment and over random and clustered candidates.
+void benchmark_long_reader(InvertedIndexReader* reader, std::string_view format_name,
+                           uint32_t doc_count, uint32_t iterations) {
+    for (const BenchQuery& query : kLongQueries) {
+        if (!selected("PHRASE_CANDIDATE_BENCH_CASES", query.label)) {
+            continue;
+        }
+        roaring::Roaring full;
+        median_query_ms(reader, query, nullptr, iterations, &full,
+                        fmt::format("reader/{}/long/{}/full", format_name, query.label));
+        for (const bool clustered : {false, true}) {
+            const roaring::Roaring candidates = make_candidates(doc_count, 0.05, clustered);
+            roaring::Roaring restricted;
+            median_query_ms(reader, query, &candidates, iterations, &restricted,
+                            fmt::format("reader/{}/long/{}/{}/0.050", format_name, query.label,
+                                        clustered ? "range" : "random"));
+            EXPECT_EQ(restricted, full & candidates) << query.label;
+        }
+    }
+}
+
 TEST_F(PhraseCandidatePushdownBench, DISABLED_RestrictedVersusFullPhrase) {
     const uint32_t doc_count = env_or("PHRASE_CANDIDATE_BENCH_DOCS", 200000);
     const uint32_t iterations = env_or("PHRASE_CANDIDATE_BENCH_ITERATIONS", 10);
@@ -614,6 +684,25 @@ TEST_F(PhraseCandidatePushdownBench, DISABLED_RestrictedVersusFullPhrase) {
         const auto keyword_reader = open_reader(index_prefix(_keyword_meta, keyword_name), format,
                                                 doc_count, /*keyword=*/true);
         benchmark_keyword_reader(keyword_reader.get(), format_name, iterations);
+    }
+}
+
+// Long documents, written per launch: PHRASE_CANDIDATE_BENCH_LONG_DOCS documents (default 20000).
+TEST_F(PhraseCandidatePushdownBench, DISABLED_LongDocumentPhrases) {
+    const uint32_t doc_count = env_or("PHRASE_CANDIDATE_BENCH_LONG_DOCS", 20000);
+    const uint32_t iterations = env_or("PHRASE_CANDIDATE_BENCH_ITERATIONS", 10);
+    const std::vector<std::string> docs = build_long_corpus(doc_count);
+    for (const auto format :
+         {InvertedIndexStorageFormatPB::V2, InvertedIndexStorageFormatPB::SNII}) {
+        const bool is_snii = format == InvertedIndexStorageFormatPB::SNII;
+        const std::string_view format_name = is_snii ? "SNII" : "V2";
+        if (!selected("PHRASE_CANDIDATE_BENCH_FORMATS", format_name)) {
+            continue;
+        }
+        const std::string name = fmt::format("{}_long_{}", is_snii ? "snii" : "clucene", doc_count);
+        const auto reader = open_reader(write_index(docs, _meta, format, name), format, doc_count,
+                                        /*keyword=*/false);
+        benchmark_long_reader(reader.get(), format_name, doc_count, iterations);
     }
 }
 

@@ -24,6 +24,7 @@
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/format/frq_pod.h"
 #include "storage/index/snii/format/prx_decode_stats.h"
+#include "storage/index/snii/format/prx_frame.h"
 #include "storage/index/snii/format/prx_pod.h"
 #include "storage/index/snii/reader/windowed_posting.h"
 
@@ -193,12 +194,55 @@ Status SniiPostingsCursor::prefetch(const std::vector<uint32_t>* candidates, boo
 }
 
 Status SniiPostingsCursor::rewind() {
+    DORIS_CHECK(!_streaming);
     _next_window = 0;
     _current_window = kNoWindow;
     _single_decoded = false;
     _bound_known = false;
     _positions_decoded = false;
     _doc_open = false;
+    return Status::OK();
+}
+
+// Counts the frames read for positions, from their headers; a window whose positions were not
+// read is left out.
+Status SniiPostingsCursor::positions_per_doc(uint64_t* out) {
+    uint64_t work = 0;
+    uint64_t docs = 0;
+    for (uint32_t window = 0; window < _window_count; ++window) {
+        if (!_windows[window].prx_available) {
+            continue;
+        }
+        RETURN_IF_ERROR(format::add_prx_frames_position_work(_windows[window].prx, &work));
+        if (_kind != Kind::kWindowed) {
+            docs += _entry.df;
+            continue;
+        }
+        WindowMeta meta;
+        RETURN_IF_ERROR(_prelude->window(window, &meta));
+        docs += meta.doc_count;
+    }
+    *out = docs == 0 ? 0 : work / docs;
+    return Status::OK();
+}
+
+// A block whose positions were already decoded whole serves them as they are.
+Status SniiPostingsCursor::stream_positions(std::span<const uint32_t> ordinals) {
+    if (!_positions_wanted) {
+        return Status::NotSupported("This posting type does not support positions");
+    }
+    DORIS_CHECK(_current_window != kNoWindow);
+    DORIS_CHECK(!_streaming);
+    DORIS_CHECK(!ordinals.empty());
+    if (_positions_decoded) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_ensure_prx(_current_window));
+    _stream_context = {.stats = _prx_stats};
+    RETURN_IF_ERROR(_stream.reset(_windows[_current_window].prx, static_cast<uint32_t>(_doc_count),
+                                  ordinals, &_stream_context));
+    _stream_last = ordinals.back();
+    _streaming = true;
     return Status::OK();
 }
 
@@ -526,6 +570,7 @@ Status SniiPostingsCursor::_window_docids(uint32_t window, const WindowMeta& met
 }
 
 Status SniiPostingsCursor::_decode_window(uint32_t window, index_query::PostingsBlock* block) {
+    DORIS_CHECK(!_streaming);
     _doc_open = false;
     WindowMeta meta;
     RETURN_IF_ERROR(_prelude->window(window, &meta));
@@ -553,6 +598,7 @@ Status SniiPostingsCursor::_decode_window(uint32_t window, index_query::Postings
 }
 
 Status SniiPostingsCursor::_decode_single(index_query::PostingsBlock* block) {
+    DORIS_CHECK(!_streaming);
     _doc_open = false;
     if (_docs.empty()) {
         RETURN_IF_ERROR(
@@ -666,6 +712,14 @@ Status SniiPostingsCursor::open_positions(uint32_t ordinal, index_query::Positio
         return Status::NotSupported("This posting type does not support positions");
     }
     DORIS_CHECK(_current_window != kNoWindow);
+    if (_streaming) {
+        RETURN_IF_ERROR(_stream.seek(ordinal));
+        _stream_ordinal = ordinal;
+        _doc_streamed = true;
+        _doc_open = true;
+        *out = this;
+        return Status::OK();
+    }
     RETURN_IF_ERROR(_ensure_positions());
     _doc_positions = _positions_of(ordinal);
     _doc_position_next = 0;
@@ -725,11 +779,14 @@ Status SniiPostingsCursor::_decode_selected(std::span<const uint32_t> ordinals,
 
 uint32_t SniiPostingsCursor::frequency() const {
     DORIS_CHECK(_doc_open);
-    return static_cast<uint32_t>(_doc_positions.size());
+    return _doc_streamed ? _stream.freq() : static_cast<uint32_t>(_doc_positions.size());
 }
 
 Status SniiPostingsCursor::next_position(uint32_t* position, bool* available) {
     DORIS_CHECK(_doc_open);
+    if (_doc_streamed) {
+        return _stream.next_position(position, available);
+    }
     if (_doc_position_next >= _doc_positions.size()) {
         *available = false;
         return Status::OK();
@@ -739,14 +796,27 @@ Status SniiPostingsCursor::next_position(uint32_t* position, bool* available) {
     return Status::OK();
 }
 
+// Finishing the last streamed document checks the rest of its frame.
 Status SniiPostingsCursor::finish_doc() {
     DORIS_CHECK(_doc_open);
     _doc_open = false;
-    return Status::OK();
+    if (!_doc_streamed) {
+        return Status::OK();
+    }
+    _doc_streamed = false;
+    RETURN_IF_ERROR(_stream.finish_doc());
+    if (_stream_ordinal != _stream_last) {
+        return Status::OK();
+    }
+    _streaming = false;
+    return _stream.finish_frame();
 }
 
 std::optional<std::span<const uint32_t>> SniiPostingsCursor::view() const {
     DORIS_CHECK(_doc_open);
+    if (_doc_streamed) {
+        return std::nullopt;
+    }
     return _doc_positions;
 }
 

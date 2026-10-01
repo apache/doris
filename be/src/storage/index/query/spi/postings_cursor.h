@@ -109,6 +109,20 @@ public:
     // Starts the listing over from the first block, keeping what was read. Only an adapter
     // that keeps its bytes supports it.
     virtual Status rewind() { return Status::NotSupported("this posting type cannot rewind"); }
+    // The mean work of decoding one document's positions, in positions, over the blocks whose
+    // positions were read; 0 when the adapter cannot tell.
+    virtual Status positions_per_doc(uint64_t* out) {
+        *out = 0;
+        return Status::OK();
+    }
+    // The current block's documents at the strictly ascending `ordinals` are opened through
+    // open_positions in that order and each finished: an adapter may decode each document's
+    // positions as they are read instead of the block's, and check what it skipped once the last
+    // is finished. Ignored by default.
+    virtual Status stream_positions(std::span<const uint32_t> ordinals) {
+        (void)ordinals;
+        return Status::OK();
+    }
     // Ordinals advance within the decoded block; each document is opened at most once.
     virtual Status open_positions(uint32_t ordinal, PositionCursor** out) {
         *out = nullptr;

@@ -35,7 +35,8 @@
 
 namespace doris::index_query::testing {
 
-// A one-block posting held in memory, recording the prefetches it is asked for.
+// A one-block posting held in memory, recording the prefetches and the streamed ordinals it is
+// asked for, and reporting `position_work` as its positions' decode work per document.
 class FakePostingsCursor final : public PostingsCursor, public PositionCursor {
 public:
     struct Posting {
@@ -50,12 +51,15 @@ public:
 
     FakePostingsCursor(std::vector<Posting> postings, bool positions, bool scoring,
                        std::vector<Prefetch>* prefetches = nullptr,
-                       std::vector<uint32_t> norms = {})
+                       std::vector<uint32_t> norms = {}, uint64_t position_work = 0,
+                       std::vector<std::vector<uint32_t>>* streams = nullptr)
             : _postings(std::move(postings)),
               _norms(std::move(norms)),
               _positions(positions),
               _scoring(scoring),
-              _prefetches(prefetches) {
+              _prefetches(prefetches),
+              _position_work(position_work),
+              _streams(streams) {
         for (const Posting& posting : _postings) {
             _docs.push_back(posting.doc);
             _freqs.push_back(std::max<uint32_t>(1, posting.positions.size()));
@@ -76,6 +80,18 @@ public:
 
     Status rewind() override {
         _read = false;
+        return Status::OK();
+    }
+
+    Status positions_per_doc(uint64_t* out) override {
+        *out = _position_work;
+        return Status::OK();
+    }
+
+    Status stream_positions(std::span<const uint32_t> ordinals) override {
+        if (_streams != nullptr) {
+            _streams->emplace_back(ordinals.begin(), ordinals.end());
+        }
         return Status::OK();
     }
 
@@ -146,6 +162,8 @@ private:
     bool _positions;
     bool _scoring;
     std::vector<Prefetch>* _prefetches;
+    uint64_t _position_work;
+    std::vector<std::vector<uint32_t>>* _streams;
     bool _read = false;
     size_t _current = 0;
     size_t _next_position = 0;
@@ -246,6 +264,8 @@ public:
     bool is_live(uint32_t doc) const override { return !_deleted.contains(doc); }
 
     bool batches = false;
+    // The decode work per document every cursor reports for its positions.
+    uint64_t position_work = 0;
     // What every expansion returns before it enumerates.
     Status expand_status = Status::OK();
     // The encoded norm of each document that has one.
@@ -257,6 +277,8 @@ public:
     std::vector<std::vector<std::string>> opened_together;
     std::vector<std::string> expanded;
     std::map<std::string, std::vector<Prefetch>> prefetches;
+    // The ordinals each term's cursor was asked to stream, block by block.
+    std::map<std::string, std::vector<std::vector<uint32_t>>> streams;
     size_t fetches = 0;
 
 private:
@@ -269,9 +291,9 @@ private:
         for (const Posting& posting : it->second) {
             posting_norms.push_back(norm_of(posting.doc));
         }
-        return std::make_unique<FakePostingsCursor>(it->second, positions, scoring,
-                                                    &prefetches[std::string(term)],
-                                                    std::move(posting_norms));
+        return std::make_unique<FakePostingsCursor>(
+                it->second, positions, scoring, &prefetches[std::string(term)],
+                std::move(posting_norms), position_work, &streams[std::string(term)]);
     }
 
     std::map<std::string, std::vector<Posting>> _terms;

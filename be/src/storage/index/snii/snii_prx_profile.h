@@ -36,6 +36,7 @@ inline void add_prx_decode_stats(OlapReaderStatistics* target,
     stats.prx_selected_docs += static_cast<int64_t>(delta.selected_docs);
     stats.prx_total_positions += static_cast<int64_t>(delta.total_positions);
     stats.prx_selected_positions += static_cast<int64_t>(delta.selected_positions);
+    stats.prx_streaming_frames += static_cast<int64_t>(delta.streaming_frames);
     stats.prx_decode_ns += static_cast<int64_t>(delta.decode_ns);
 }
 
@@ -58,6 +59,8 @@ public:
                                                         RuntimeProfile::ROOT_COUNTER, 1);
         selected_positions_ = profile->add_nonzero_counter("SniiPrxSelectedPositions", TUnit::UNIT,
                                                            RuntimeProfile::ROOT_COUNTER, 1);
+        streaming_frames_ = profile->add_nonzero_counter(
+                "SniiPhraseStreamingPrxFrames", TUnit::UNIT, RuntimeProfile::ROOT_COUNTER, 1);
         decode_ns_ = profile->add_nonzero_counter("SniiPrxInclusiveDecodeTime", TUnit::TIME_NS,
                                                   RuntimeProfile::ROOT_COUNTER, 1);
     }
@@ -72,6 +75,7 @@ public:
         COUNTER_UPDATE(selected_docs_, s.prx_selected_docs);
         COUNTER_UPDATE(total_positions_, s.prx_total_positions);
         COUNTER_UPDATE(selected_positions_, s.prx_selected_positions);
+        COUNTER_UPDATE(streaming_frames_, s.prx_streaming_frames);
         COUNTER_UPDATE(decode_ns_, s.prx_decode_ns);
     }
 
@@ -84,6 +88,7 @@ private:
     RuntimeProfile::Counter* selected_docs_ = nullptr;
     RuntimeProfile::Counter* total_positions_ = nullptr;
     RuntimeProfile::Counter* selected_positions_ = nullptr;
+    RuntimeProfile::Counter* streaming_frames_ = nullptr;
     RuntimeProfile::Counter* decode_ns_ = nullptr;
 };
 

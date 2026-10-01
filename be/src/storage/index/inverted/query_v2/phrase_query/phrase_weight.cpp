@@ -18,6 +18,7 @@
 #include "storage/index/inverted/query_v2/phrase_query/phrase_weight.h"
 
 #include <algorithm>
+#include <functional>
 #include <iterator>
 #include <limits>
 #include <memory>
@@ -38,6 +39,7 @@
 #include "storage/index/inverted/util/string_helper.h"
 #include "storage/index/query/exec/cursor_chained_postings.h"
 #include "storage/index/query/phrase/exact_phrase_matcher.h"
+#include "storage/index/query/phrase/exact_phrase_stream_matcher.h"
 #include "storage/index/query/phrase/phrase_verifier.h"
 #include "storage/index/query/phrase/position_span.h"
 #include "storage/index/query/spi/postings_cursor.h"
@@ -539,6 +541,58 @@ Status verify_rows(std::vector<Walk>& walks, std::span<const uint32_t> rows,
                    : verify_rows<false, Walk>(walks, rows, clauses, options, matched, frequencies);
 }
 
+// An exact phrase reads its rows' positions as the match goes, each document's only as far as it
+// needs, when one of its terms holds this many per document and the rows hold this many in all;
+// lighter positions decode faster a block at a time.
+constexpr uint64_t kStreamedPositionsPerDoc = 8;
+constexpr uint64_t kStreamedPositions = 512;
+
+// Whether an exact phrase of distinct single-term slots streams its rows' positions.
+Status streams_positions(std::span<const SlotCursors> slots, std::span<const uint32_t> rows,
+                         const PhraseClauses& clauses,
+                         const index_query::PhraseQueryOptions& options, bool* streams) {
+    *streams = false;
+    if (options.slop != 0 || clauses.slots.size() != slots.size() ||
+        std::ranges::adjacent_find(clauses.offsets, std::greater_equal {}) !=
+                clauses.offsets.end()) {
+        return Status::OK();
+    }
+    uint64_t heaviest = 0;
+    uint64_t per_row = 0;
+    for (const SlotCursors& cursors : slots) {
+        uint64_t per_doc = 0;
+        RETURN_IF_ERROR(cursors.front()->positions_per_doc(&per_doc));
+        heaviest = std::max(heaviest, per_doc);
+        per_row += per_doc;
+    }
+    *streams = heaviest >= kStreamedPositionsPerDoc &&
+               per_row >= (kStreamedPositions + rows.size() - 1) / rows.size();
+    return Status::OK();
+}
+
+// Verifies an exact phrase of distinct single-term slots on the listed rows with each row's
+// positions streamed.
+Status verify_streamed(std::span<const SlotCursors> slots, std::span<const uint32_t> rows,
+                       const PhraseClauses& clauses, std::vector<uint32_t>* matched) {
+    std::vector<StreamWalk> walks;
+    walks.reserve(slots.size());
+    for (const SlotCursors& cursors : slots) {
+        walks.emplace_back(*cursors.front(), rows);
+    }
+    const std::span<StreamWalk> cursors(walks);
+    index_query::validate_exact_phrase_stream_inputs(cursors, std::span(clauses.slots),
+                                                     std::span(clauses.offsets));
+    for (const uint32_t row : rows) {
+        bool hit = false;
+        RETURN_IF_ERROR(index_query::match_exact_phrase_document(
+                cursors, std::span(clauses.slots), std::span(clauses.offsets), row, &hit));
+        if (hit) {
+            matched->push_back(row);
+        }
+    }
+    return Status::OK();
+}
+
 // Verifies the phrase on the listed rows, the slots' cursors rewound after the chain, and
 // counts the phrase's frequency per row into `frequencies` when given. Slots of one term each
 // are walked directly, and a phrase with a slot of several terms merges their positions per
@@ -554,6 +608,13 @@ Status verify_slots(std::span<const SlotCursors> slots, std::span<const uint32_t
     }
     if (std::ranges::all_of(slots,
                             [](const SlotCursors& cursors) { return cursors.size() == 1; })) {
+        bool streams = false;
+        if (frequencies == nullptr) {
+            RETURN_IF_ERROR(streams_positions(slots, rows, clauses, options, &streams));
+        }
+        if (streams) {
+            return verify_streamed(slots, rows, clauses, matched);
+        }
         std::vector<TermWalk> walks;
         walks.reserve(slots.size());
         for (const SlotCursors& cursors : slots) {

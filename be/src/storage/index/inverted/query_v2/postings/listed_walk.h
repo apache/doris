@@ -30,26 +30,13 @@
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
-// One term walked over listed rows, all of which it holds, in ascending order. Entering a block
-// reads the positions of every listed row it holds in one call; they stay viewed until the walk
-// leaves the block.
-class TermWalk {
-public:
-    TermWalk(index_query::PostingsCursor& cursor, std::span<const uint32_t> rows)
+// The listed rows a term holds, in ascending order, grouped by the term's blocks: entering the
+// block holding a row lists the ordinals of the listed rows it holds.
+class ListedBlocks {
+protected:
+    ListedBlocks(index_query::PostingsCursor& cursor, std::span<const uint32_t> rows)
             : _cursor(cursor), _rows(rows) {}
 
-    Status positions_of(size_t row, uint32_t /*doc*/, index_query::PhrasePositionSpan* span) {
-        if (row >= _end) {
-            RETURN_IF_ERROR(_enter_block(row));
-        }
-        const size_t chosen = row - _begin;
-        const size_t k = _positions.by_ordinal ? _asked[chosen] : chosen;
-        *span = {_positions.flat.data() + _positions.offsets[k],
-                 _positions.flat.data() + _positions.offsets[k + 1]};
-        return Status::OK();
-    }
-
-private:
     // The listed rows in the block are some of its documents, and all of them when they are as
     // many.
     Status _enter_block(size_t row) {
@@ -65,14 +52,23 @@ private:
                 _every.push_back(ordinal);
             }
             _asked = std::span(_every).first(count);
-            return _cursor.block_positions(_asked, &_buffer, &_positions);
+            return Status::OK();
         }
         _ordinals.resize(count);
         _list_ordinals(_rows.subspan(_begin, count), _ordinals.data());
         _asked = _ordinals;
-        return _cursor.block_positions(_asked, &_buffer, &_positions);
+        return Status::OK();
     }
 
+    index_query::PostingsCursor& _cursor;
+    std::span<const uint32_t> _rows;
+    // The ordinals of the current block's listed rows, the first of which is _rows[_begin], and
+    // the listed row after the block.
+    std::span<const uint32_t> _asked;
+    size_t _begin = 0;
+    size_t _end = 0;
+
+private:
     // The ordinals of `listed`, some of the current block's documents, in the block. A few skip
     // ahead to each; at least half step through the block once, without a branch on each
     // comparison.
@@ -103,18 +99,67 @@ private:
         }
     }
 
-    index_query::PostingsCursor& _cursor;
-    std::span<const uint32_t> _rows;
     index_query::PostingsBlock _block;
     // 0, 1, 2, ...: the ordinals of a block whose every document is listed.
     std::vector<uint32_t> _every;
     std::vector<uint32_t> _ordinals;
-    // The ordinals the current block's positions were asked for.
-    std::span<const uint32_t> _asked;
+};
+
+// One term walked over listed rows, all of which it holds, in ascending order. Entering a block
+// reads the positions of every listed row it holds in one call; they stay viewed until the walk
+// leaves the block.
+class TermWalk : private ListedBlocks {
+public:
+    TermWalk(index_query::PostingsCursor& cursor, std::span<const uint32_t> rows)
+            : ListedBlocks(cursor, rows) {}
+
+    Status positions_of(size_t row, uint32_t /*doc*/, index_query::PhrasePositionSpan* span) {
+        if (row >= _end) {
+            RETURN_IF_ERROR(_enter_block(row));
+            RETURN_IF_ERROR(_cursor.block_positions(_asked, &_buffer, &_positions));
+        }
+        const size_t chosen = row - _begin;
+        const size_t k = _positions.by_ordinal ? _asked[chosen] : chosen;
+        *span = {_positions.flat.data() + _positions.offsets[k],
+                 _positions.flat.data() + _positions.offsets[k + 1]};
+        return Status::OK();
+    }
+
+private:
     index_query::PositionsBuffer _buffer;
     index_query::BlockPositions _positions;
-    size_t _begin = 0;
-    size_t _end = 0;
+};
+
+// One term walked over listed rows, all of which it holds, in ascending order, as the streaming
+// exact phrase matcher reads it: each row is opened in turn and its positions decode only as far
+// as they are read.
+class StreamWalk : private ListedBlocks {
+public:
+    StreamWalk(index_query::PostingsCursor& cursor, std::span<const uint32_t> rows)
+            : ListedBlocks(cursor, rows) {}
+
+    // Opens the next listed row, which is `doc`.
+    Status seek(uint32_t doc) {
+        DCHECK_LT(_next, _rows.size());
+        DCHECK_EQ(_rows[_next], doc);
+        if (_next >= _end) {
+            RETURN_IF_ERROR(_enter_block(_next));
+            RETURN_IF_ERROR(_cursor.stream_positions(_asked));
+        }
+        const uint32_t ordinal = _asked[_next - _begin];
+        ++_next;
+        return _cursor.open_positions(ordinal, &_positions);
+    }
+
+    Status next_position(uint32_t* position, bool* available) {
+        return _positions->next_position(position, available);
+    }
+
+    Status finish_doc() { return _positions->finish_doc(); }
+
+private:
+    size_t _next = 0;
+    index_query::PositionCursor* _positions = nullptr;
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

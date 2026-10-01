@@ -35,6 +35,7 @@ struct SniiQueryStats {
     int64_t prx_selected_docs = 0;
     int64_t prx_total_positions = 0;
     int64_t prx_selected_positions = 0;
+    int64_t prx_streaming_frames = 0;
     int64_t prx_decode_ns = 0;
 };
 

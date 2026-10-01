@@ -86,6 +86,7 @@ void PrxPositionIterator::reset_state(PrxDecodeContext* context) {
 
 Status PrxPositionIterator::initialize_frame(Slice framed_window, uint32_t expected_doc_count,
                                              std::span<const uint32_t> selected_doc_ordinals) {
+    frame_stats_.streaming_frames = 1;
     ByteSource frame_source(framed_window);
     PrxFrameView frame;
     Status status = read_prx_frame(&frame_source, &frame);

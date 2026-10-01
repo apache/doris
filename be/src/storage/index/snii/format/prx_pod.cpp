@@ -45,6 +45,7 @@ void PrxDecodeStats::merge(const PrxDecodeStats& other) {
     selected_docs += other.selected_docs;
     total_positions += other.total_positions;
     selected_positions += other.selected_positions;
+    streaming_frames += other.streaming_frames;
     decode_ns += other.decode_ns;
 }
 

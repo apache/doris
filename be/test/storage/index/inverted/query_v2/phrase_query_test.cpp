@@ -1055,6 +1055,46 @@ TEST_F(PhraseQueryV2Test, AListedScoredPhraseScoresLikeTheStreamedOne) {
     }
 }
 
+// An exact phrase whose terms hold many positions per document streams them: the block's listed
+// rows are opened in turn instead of the block's positions being decoded at once.
+TEST_F(PhraseQueryV2Test, AListedExactPhraseStreamsHeavyPositions) {
+    auto source = fake_phrase_source(true);
+    source->position_work = 128;
+    EXPECT_EQ(fake_phrase_docs(source, {"quick", "brown"}, {}), (std::set<uint32_t> {0, 1, 8}));
+    // The chain keeps rows 0, 1, 5 and 8, the first four documents of either term.
+    const std::vector<std::vector<uint32_t>> first_four = {{0, 1, 2, 3}};
+    EXPECT_EQ(source->streams["quick"], first_four);
+    EXPECT_EQ(source->streams["brown"], first_four);
+}
+
+// Light positions, a sloppy or scored phrase, and a phrase repeating a term decode the block's
+// positions as before.
+TEST_F(PhraseQueryV2Test, AListedPhraseStreamsOnlyHeavyExactUnscoredDistinctTerms) {
+    // Four rows: below 8 positions per document, or below 512 positions in all.
+    for (const uint64_t work : {7, 63}) {
+        auto source = fake_phrase_source(true);
+        source->position_work = work;
+        EXPECT_EQ(fake_phrase_docs(source, {"quick", "brown"}, {}), (std::set<uint32_t> {0, 1, 8}));
+        EXPECT_TRUE(source->streams["quick"].empty()) << work;
+    }
+    auto sloppy = fake_phrase_source(true);
+    sloppy->position_work = 128;
+    EXPECT_EQ(fake_phrase_docs(sloppy, {"quick", "brown"}, {.slop = 1}),
+              (std::set<uint32_t> {0, 1, 5, 8}));
+    EXPECT_TRUE(sloppy->streams["quick"].empty());
+    auto repeated = fake_phrase_source(true);
+    repeated->position_work = 128;
+    EXPECT_TRUE(fake_phrase_docs(repeated, {"quick", "brown", "quick"}, {}).empty());
+    EXPECT_TRUE(repeated->streams["quick"].empty());
+    auto scored = fake_phrase_source(true);
+    scored->position_work = 128;
+    query_v2::PhraseWeight weight(L"content", phrase_terms({"quick", "brown"}), {},
+                                  std::make_shared<BM25Similarity>(2.0F, 8.0F),
+                                  /*enable_scoring=*/true, /*nullable=*/false);
+    EXPECT_EQ(scored_docs(weight, scored).size(), 3U);
+    EXPECT_TRUE(scored->streams["quick"].empty());
+}
+
 TEST_F(PhraseQueryV2Test, AListedScoredPhrasePrefixScoresLikeTheStreamedOne) {
     std::map<uint32_t, float> streamed;
     for (const bool batches : {false, true}) {

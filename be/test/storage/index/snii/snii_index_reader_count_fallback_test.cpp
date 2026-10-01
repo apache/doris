@@ -91,7 +91,7 @@ constexpr const char* kTestDir = "./ut_dir/snii_index_reader_count_fallback_test
 constexpr const char* kIndexPathPrefix =
         "./ut_dir/snii_index_reader_count_fallback_test/positional_segment";
 
-using PrxStatsSnapshot = std::array<int64_t, 9>;
+using PrxStatsSnapshot = std::array<int64_t, 10>;
 
 struct SingleFlightFollowerCounts {
     std::atomic<uint32_t> count_consumers {0};
@@ -129,11 +129,11 @@ void record_searcher_open(void* opaque) noexcept {
 }
 
 PrxStatsSnapshot prx_stats_snapshot(const OlapReaderStatistics& stats) {
-    return {stats.snii_stats.prx_raw_frames,      stats.snii_stats.prx_zstd_frames,
-            stats.snii_stats.prx_pfor_frames,     stats.snii_stats.prx_plaintext_bytes,
-            stats.snii_stats.prx_total_docs,      stats.snii_stats.prx_selected_docs,
-            stats.snii_stats.prx_total_positions, stats.snii_stats.prx_selected_positions,
-            stats.snii_stats.prx_decode_ns};
+    return {stats.snii_stats.prx_raw_frames,       stats.snii_stats.prx_zstd_frames,
+            stats.snii_stats.prx_pfor_frames,      stats.snii_stats.prx_plaintext_bytes,
+            stats.snii_stats.prx_total_docs,       stats.snii_stats.prx_selected_docs,
+            stats.snii_stats.prx_total_positions,  stats.snii_stats.prx_selected_positions,
+            stats.snii_stats.prx_streaming_frames, stats.snii_stats.prx_decode_ns};
 }
 
 void set_prx_stats_sentinel(OlapReaderStatistics* stats) {
@@ -145,6 +145,7 @@ void set_prx_stats_sentinel(OlapReaderStatistics* stats) {
     stats->snii_stats.prx_selected_docs = 106;
     stats->snii_stats.prx_total_positions = 107;
     stats->snii_stats.prx_selected_positions = 108;
+    stats->snii_stats.prx_streaming_frames = 109;
     stats->snii_stats.prx_decode_ns = 110;
 }
 

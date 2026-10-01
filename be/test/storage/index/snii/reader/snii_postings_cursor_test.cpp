@@ -448,6 +448,77 @@ TEST(SniiPostingsCursor, AScoringCursorPrefetchReadsTheFramesWithTheWindows) {
     EXPECT_EQ(fixture.rounds(), prefetched);
 }
 
+// Streams the `chosen` documents of the cursor's current block, the odd-numbered of them left
+// after their first position, each compared with the decoder's positions of the block's documents
+// in `expected`.
+void expect_streamed_block(SniiPostingsCursor& cursor, const std::vector<uint32_t>& chosen,
+                           std::span<const std::vector<uint32_t>> expected) {
+    assert_ok(cursor.stream_positions(chosen));
+    for (size_t i = 0; i < chosen.size(); ++i) {
+        index_query::PositionCursor* positions = nullptr;
+        assert_ok(cursor.open_positions(chosen[i], &positions));
+        EXPECT_FALSE(positions->view().has_value());
+        const std::vector<uint32_t>& want = expected[chosen[i]];
+        EXPECT_EQ(positions->frequency(), want.size());
+        if (i % 2 == 0) {
+            std::vector<uint32_t> streamed;
+            assert_ok(positions->append_remaining_positions(0, streamed));
+            EXPECT_EQ(streamed, want);
+            continue;
+        }
+        uint32_t position = 0;
+        bool available = false;
+        assert_ok(positions->next_position(&position, &available));
+        ASSERT_TRUE(available);
+        EXPECT_EQ(position, want.front());
+        assert_ok(positions->finish_doc());
+    }
+}
+
+// Every other document of each block streams the decoder's positions, a document left after its
+// first position included, and each block's frame is checked once its last chosen document is
+// finished.
+TEST(SniiPostingsCursor, StreamedPositionsMatchTheDecoder) {
+    Fixture fixture;
+    assert_ok(fixture.open_scored());
+    const Term term = fixture.lookup("wide");
+    const auto expected = fixture.oracle_positions(term);
+    format::PrxDecodeStats stats;
+    SniiPostingsCursor cursor(fixture.index, term.entry, term.frq_base, term.prx_base,
+                              /*positions=*/true, /*scoring=*/false, nullptr, nullptr, &stats);
+    index_query::PostingsBlock block;
+    bool eof = false;
+    size_t doc_index = 0;
+    uint64_t blocks = 0;
+    while (true) {
+        assert_ok(cursor.next_block(&block, &eof));
+        if (eof) {
+            break;
+        }
+        std::vector<uint32_t> chosen;
+        for (uint32_t ordinal = 0; ordinal < block.size(); ordinal += 2) {
+            chosen.push_back(ordinal);
+        }
+        expect_streamed_block(cursor, chosen, std::span(expected).subspan(doc_index));
+        doc_index += block.size();
+        ++blocks;
+    }
+    EXPECT_GT(blocks, 1U);
+    EXPECT_EQ(stats.streaming_frames, blocks);
+}
+
+// A term holding one to three positions per document reports a light decode for each.
+TEST(SniiPostingsCursor, PositionsPerDocumentEstimatesTheDecodeWork) {
+    Fixture fixture;
+    assert_ok(fixture.open_scored());
+    const Term term = fixture.lookup("wide");
+    auto cursor = fixture.cursor(term, /*positions=*/true);
+    uint64_t per_doc = 0;
+    assert_ok(cursor->positions_per_doc(&per_doc));
+    EXPECT_GE(per_doc, 1U);
+    EXPECT_LT(per_doc, 8U);
+}
+
 TEST(SniiPostingsCursor, AGivenPreludeMakesTheSpanOneRound) {
     Fixture fixture;
     assert_ok(fixture.open_standard());
