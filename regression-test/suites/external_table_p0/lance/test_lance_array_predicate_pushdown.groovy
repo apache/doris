@@ -53,8 +53,14 @@ suite("test_lance_array_predicate_pushdown", "p0,external") {
             ["NOT (${green})", [0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15], -1, -1],
             ["category IN (0, 1)", [0, 1, 3, 4, 6, 7, 9, 10, 12, 13, 15], 11, 6],
             ["category = 0 OR category = 1", [0, 1, 3, 4, 6, 7, 9, 10, 12, 13, 15], 11, 6],
-            ["${red} AND category = 1", [7, 10, 13], null]
+            ["${red} AND category = 1", [7, 10, 13], null],
+            ["${red} AND category <> 1", [0, 2, 5, 8, 15], null]
         ]
+        for (int size : [64, 65]) {
+            String needles = (["'red'"] + (1..<size).collect { "'absent_${it}'" }).join(", ")
+            cases.add(["arrays_overlap(labels, [${needles}])", [0, 2, 5, 7, 8, 10, 13, 15],
+                    size == 64 ? 8 : -1, size == 64 ? 4 : -1])
+        }
         for (String table : ["indexed", "partial", "unindexed"]) {
             String relation = "${catalog}.`default`.`${table}`"
             cases.eachWithIndex { c, caseId ->
@@ -64,16 +70,18 @@ suite("test_lance_array_predicate_pushdown", "p0,external") {
                     sql(query)
                     contains "lancePushdownPredicate="
                     notContains "predicates:"
-                    if (table != "unindexed") {
+                    if (table != "unindexed" && c[2] != -1) {
                         contains "lanceScalarIndexScan=SEGMENT"
                     } else {
                         notContains "lanceScalarIndexScan=SEGMENT"
+                        contains "lanceFragmentGrouping=FRAGMENT"
+                        contains "lanceFragments=2"
                     }
                 }
                 assertEquals(c[1], sql(query).collect { (it[0] as Number).intValue() })
                 // A pushed predicate is not necessarily indexed: also verify runtime searches
                 // and candidate counts, so a non-indexed fallback cannot satisfy this test.
-                if (table != "unindexed" && c[2] != null) {
+                if (table != "unindexed" && (c[2] != null || c[0] == "${red} AND category <> 1")) {
                     String profile = profiles.getProfileBySql(token,
                             ["LanceScalarIndexSegmentsSearched", "LanceScalarIndexCandidateRows",
                              "LanceScalarIndexSegmentFallbacks"])
@@ -82,10 +90,11 @@ suite("test_lance_array_predicate_pushdown", "p0,external") {
                         assertTrue(matches.find(), "Missing counter ${name}: ${profile}")
                         return matches.group(1).toLong()
                     }
-                    // Complements retain one task per covered fragment, sharing the segment UUID.
-                    long expectedSearches = c[2] == -1 && table == "indexed" ? 2L : 1L
+                    // Broad complements stay as parallel scans without repeated segment searches.
+                    long expectedSearches = c[2] == -1 ? 0L : 1L
                     assertEquals(expectedSearches, counter("LanceScalarIndexSegmentsSearched"))
-                    long expectedCandidates = (c[table == "partial" ? 3 : 2] as Number).longValue()
+                    long expectedCandidates = c[2] == null ? -1L :
+                            (c[table == "partial" ? 3 : 2] as Number).longValue()
                     if (expectedCandidates >= 0) {
                         assertEquals(expectedCandidates, counter("LanceScalarIndexCandidateRows"))
                     }

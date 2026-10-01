@@ -17,12 +17,14 @@
 
 package org.apache.doris.datasource.lance.source;
 
+import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.ArrayType;
@@ -44,6 +46,7 @@ import org.lance.index.IndexType;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -53,17 +56,17 @@ public class LanceScalarIndexPlannerTest {
         Expr key = equal("key", 1);
         Expr otherKey = equal("key", 2);
         Expr residual = equal("other", 3);
-        for (Expr filter : Arrays.asList(or(key, otherKey), not(key), not(or(key, otherKey)),
+        for (Expr filter : Arrays.asList(or(key, otherKey),
                 or(and(key, residual), and(otherKey, residual)), and(not(and(key, residual)), key))) {
             LanceScalarIndexPlanner.Plan plan = plan(filter);
             Assertions.assertNotNull(plan, filter.toSql());
             Assertions.assertEquals("key_idx", plan.indexName);
             Assertions.assertEquals(1, plan.splits.splitCount());
             Assertions.assertTrue(plan.splits.isCoveredByIndexSegment(1));
-            Assertions.assertFalse(plan.splits.isCoveredByIndexSegment(2));
+            Assertions.assertTrue(plan.splits.isCoveredByIndexSegment(2));
         }
         // Pruning either an OR branch or an AND below NOT could drop matching rows.
-        for (Expr filter : Arrays.asList(or(key, residual), not(and(key, residual)),
+        for (Expr filter : Arrays.asList(not(key), not(or(key, otherKey)), or(key, residual), not(and(key, residual)),
                 not(or(key, residual)), or(and(key, residual), residual))) {
             Assertions.assertNull(plan(filter), filter.toSql());
         }
@@ -82,7 +85,7 @@ public class LanceScalarIndexPlannerTest {
                         Collections.singletonList(9), Collections.singletonList(1L), IndexType.LABEL_LIST, null)));
         FunctionCallExpr red = contains("red");
         FunctionCallExpr blue = contains("blue");
-        for (Expr filter : Arrays.asList(red, and(red, blue), or(red, blue), not(red))) {
+        for (Expr filter : Arrays.asList(red, and(red, blue), or(red, blue))) {
             LancePredicateConverter.ConversionResult converted =
                     new LancePredicateConverter(schema).convert(Collections.singletonList(filter));
             Assertions.assertTrue(converted.getResidualConjuncts().isEmpty());
@@ -91,6 +94,81 @@ public class LanceScalarIndexPlannerTest {
             Assertions.assertNotNull(plan);
             Assertions.assertEquals("labels_idx", plan.indexName);
             Assertions.assertEquals(1, plan.splits.splitCount());
+        }
+    }
+
+    @Test
+    public void testPositiveDriverWithComplementSearchesSegmentOnce() {
+        Expr key = equal("key", 1);
+        Expr otherNotEqual = new BinaryPredicate(BinaryPredicate.Operator.NE,
+                new SlotRef(null, "other"), new IntLiteral(0));
+        Assertions.assertEquals(1, plan(Arrays.asList(key, otherNotEqual), false).splits.splitCount());
+        Assertions.assertEquals(1, plan(and(key, otherNotEqual)).splits.splitCount());
+        Assertions.assertEquals(1, plan(and(key, not(equal("key", 2)))).splits.splitCount());
+    }
+
+    @Test
+    public void testUnindexableOrBranchDoesNotGroupFragments() {
+        Expr suffix = new LikePredicate(LikePredicate.Operator.LIKE,
+                new SlotRef(null, "key"), new StringLiteral("%y%"));
+        Expr key = new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                new SlotRef(null, "key"), new StringLiteral("x"));
+        Assertions.assertNull(plan(Collections.singletonList(or(key, suffix)), true));
+        Assertions.assertNotNull(plan(Collections.singletonList(and(key, suffix)), true));
+        Expr prefix = new LikePredicate(LikePredicate.Operator.LIKE,
+                new SlotRef(null, "key"), new StringLiteral("y%"));
+        Assertions.assertEquals(1, plan(Collections.singletonList(or(key, prefix)), true).splits.splitCount());
+    }
+
+    @Test
+    public void testExpressionDepthBudget() {
+        Expr filter = equal("key", 1);
+        for (int depth = 1; depth <= 32; depth++) {
+            filter = and(filter, equal("key", depth));
+        }
+        Assertions.assertNotNull(plan(filter));
+        Assertions.assertNull(plan(and(filter, equal("key", 33))));
+    }
+
+    @Test
+    public void testOverlapExpressionBudget() throws Exception {
+        Schema schema = new Schema(Collections.singletonList(new Field("labels",
+                FieldType.nullable(ArrowType.List.INSTANCE),
+                Collections.singletonList(Field.nullable("item", ArrowType.Utf8.INSTANCE)))));
+        LanceFragmentInfo first = new LanceFragmentInfo(1, 10, 10);
+        LanceFragmentInfo second = new LanceFragmentInfo(2, 10, 10);
+        Map<Long, LanceFragmentInfo> fragments = new HashMap<>();
+        fragments.put(1L, first);
+        fragments.put(2L, second);
+        LanceTableMetadata metadata = LanceTableMetadata.createSnapshotWithIndexes(
+                new LanceTableAccess("s3://bucket/labels.lance", Collections.emptyMap()), 42, schema,
+                Arrays.asList(first, second), Collections.singletonMap("labels", 9),
+                Collections.singletonList(new LanceIndexSegmentInfo(UUID.randomUUID(), "labels_idx",
+                        Collections.singletonList(9), Arrays.asList(1L, 2L), IndexType.LABEL_LIST, null)));
+        for (int count : Arrays.asList(64, 65)) {
+            StringLiteral[] labels = new StringLiteral[count];
+            for (int i = 0; i < count; i++) {
+                labels[i] = new StringLiteral("label_" + i);
+            }
+            FunctionCallExpr overlap = new FunctionCallExpr("arrays_overlap", Arrays.asList(
+                    new SlotRef(null, "labels"), new ArrayLiteral(ArrayType.create(Type.STRING, true), labels)));
+            overlap.setFn(new ScalarFunction(new FunctionName("arrays_overlap"),
+                    Arrays.asList(ArrayType.create(Type.STRING, true), ArrayType.create(Type.STRING, true)),
+                    Type.BOOLEAN, false, true));
+            LancePredicateConverter.ConversionResult converted = new LancePredicateConverter(schema)
+                    .convert(Collections.singletonList(overlap));
+            Assertions.assertTrue(converted.getResidualConjuncts().isEmpty());
+            LanceScalarIndexPlanner.Plan selected = LanceScalarIndexPlanner.plan(metadata,
+                    converted.getPushedConjuncts(), fragments);
+            if (count == 64) {
+                Assertions.assertNotNull(selected);
+                Assertions.assertEquals(1, selected.splits.splitCount());
+                // Count the enclosing AND and its other leaf, not just overlap's 127 nodes.
+                Assertions.assertNull(LanceScalarIndexPlanner.plan(metadata,
+                        Arrays.asList(overlap, contains("extra")), fragments));
+            } else {
+                Assertions.assertNull(selected);
+            }
         }
     }
 
@@ -103,6 +181,10 @@ public class LanceScalarIndexPlannerTest {
     }
 
     private static LanceScalarIndexPlanner.Plan plan(Expr filter) {
+        return plan(Collections.singletonList(filter), false);
+    }
+
+    private static LanceScalarIndexPlanner.Plan plan(List<Expr> filters, boolean stringKey) {
         LanceFragmentInfo first = new LanceFragmentInfo(1, 10, 10);
         LanceFragmentInfo second = new LanceFragmentInfo(2, 10, 10);
         Map<Long, LanceFragmentInfo> fragments = new HashMap<>();
@@ -113,12 +195,12 @@ public class LanceScalarIndexPlannerTest {
         fields.put("other", 10);
         LanceTableMetadata metadata = LanceTableMetadata.createSnapshotWithIndexes(
                 new LanceTableAccess("s3://bucket/labels.lance", Collections.emptyMap()), 42,
-                new Schema(Arrays.asList(Field.nullable("key", new ArrowType.Int(64, true)),
+                new Schema(Arrays.asList(Field.nullable("key", stringKey ? ArrowType.Utf8.INSTANCE : new ArrowType.Int(64, true)),
                         Field.nullable("other", new ArrowType.Int(64, true)))),
                 Arrays.asList(first, second), fields, Collections.singletonList(new LanceIndexSegmentInfo(
                         UUID.randomUUID(), "key_idx", Collections.singletonList(9),
-                        Collections.singletonList(1L), IndexType.BTREE, null)));
-        return LanceScalarIndexPlanner.plan(metadata, Collections.singletonList(filter), fragments);
+                        Arrays.asList(1L, 2L), IndexType.BTREE, null)));
+        return LanceScalarIndexPlanner.plan(metadata, filters, fragments);
     }
 
     private static Expr equal(String column, int value) {

@@ -195,7 +195,9 @@ final class LanceScanPlanner {
         } else {
             plan = new LanceSplitBuilder(metadata.getDatasetUri(), metadata.getVersion(), 0);
         }
-        plan.addUncoveredFragments(visibleFragments.values(), 1, scalarIndexPlan != null);
+        // A rejected segment driver must not be rediscovered independently by every
+        // fragment scanner. Keep the pushed filter, but evaluate it in parallel scans.
+        plan.addUncoveredFragments(visibleFragments.values(), 1, !lancePushedConjuncts.isEmpty());
         return plan.buildSplits();
     }
 

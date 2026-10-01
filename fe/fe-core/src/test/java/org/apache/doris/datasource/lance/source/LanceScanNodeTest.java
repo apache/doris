@@ -228,7 +228,8 @@ public class LanceScanNodeTest {
                 TFileRangeDesc range = new TFileRangeDesc();
                 node.setScanParams(range, split);
                 Assert.assertFalse(range.getTableFormatParams().getLanceParams().isSetIndexSegmentUuids());
-                Assert.assertFalse(range.getTableFormatParams().getLanceParams().isSetUseScalarIndex());
+                Assert.assertTrue(range.getTableFormatParams().getLanceParams().isSetUseScalarIndex());
+                Assert.assertFalse(range.getTableFormatParams().getLanceParams().isUseScalarIndex());
             }
         }
     }
@@ -244,17 +245,25 @@ public class LanceScanNodeTest {
                     scalarSegment(UUID.randomUUID(), IndexType.BTREE, Arrays.asList(1L, 2L, 3L, 4L)))));
             setPushedConjuncts(node, filter);
             int expectedSplits = ((CompoundPredicate) filter).getOp() == CompoundPredicate.Operator.NOT ? 4 : 1;
-            Assert.assertEquals(expectedSplits, node.getSplits(20).size());
+            List<Split> initialSplits = node.getSplits(20);
+            Assert.assertEquals(expectedSplits, initialSplits.size());
+            if (expectedSplits == 4) {
+                for (Split split : initialSplits) {
+                    TFileRangeDesc range = new TFileRangeDesc();
+                    node.setScanParams(range, split);
+                    TLanceFileDesc params = range.getTableFormatParams().getLanceParams();
+                    Assert.assertFalse(params.isSetIndexSegmentUuids());
+                    Assert.assertTrue(params.isSetUseScalarIndex());
+                    Assert.assertFalse(params.isUseScalarIndex());
+                }
+            }
             setPushedConjuncts(node, new CompoundPredicate(CompoundPredicate.Operator.AND, filter, predicate));
             List<Split> splits = node.getSplits(20);
-            Assert.assertEquals(expectedSplits, splits.size());
+            Assert.assertEquals(1, splits.size());
             List<Long> assignedFragments = new ArrayList<>();
             for (Split split : splits) {
                 assignedFragments.addAll(((LanceSplit) split).getFragmentIds());
                 Assert.assertTrue(((LanceSplit) split).getIndexSegmentUuid().isPresent());
-                if (expectedSplits == 4) {
-                    Assert.assertEquals(1, ((LanceSplit) split).getFragmentIds().size());
-                }
             }
             Collections.sort(assignedFragments);
             Assert.assertEquals(Arrays.asList(1L, 2L, 3L, 4L), assignedFragments);

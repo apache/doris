@@ -440,6 +440,7 @@ if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && ${BUILD_
 fi
 
 # build thirdparty libraries if necessary. check last thirdparty lib installation
+source "${DORIS_HOME}/thirdparty/lance-install.sh"
 if [[ "${TARGET_SYSTEM}" == 'Darwin' ]]; then
     LAST_THIRDPARTY_LIB='libbrotlienc.a'
 else
@@ -455,7 +456,8 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ||
       ! -f "${DORIS_THIRDPARTY}/installed/include/paimon_rust/paimon.h" ||
       ! -s "${DORIS_THIRDPARTY}/installed/lib64/libpaimon_c.a" ||
       ! -s "${DORIS_THIRDPARTY}/installed/include/paimon_rust/paimon.h" ||
-      -e "${DORIS_THIRDPARTY}/installed/lib64/.paimon-installing" ]]; then
+      -e "${DORIS_THIRDPARTY}/installed/lib64/.paimon-installing" ]] ||
+        ! lance_c_install_is_current "${DORIS_HOME}/thirdparty" "${DORIS_THIRDPARTY}/installed"; then
     # Compilation images may contain only installed artifacts; never erase them without a rebuild source.
     if [[ ! -f "${DORIS_THIRDPARTY}/build-thirdparty.sh" ]]; then
         echo "Third-party dependencies require a rebuild, but build-thirdparty.sh is missing." >&2
@@ -470,6 +472,11 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ||
         bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
     else
         bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" --clean
+    fi
+    # An external build script can itself be stale. Never link its old output silently.
+    if ! lance_c_install_is_current "${DORIS_HOME}/thirdparty" "${DORIS_THIRDPARTY}/installed"; then
+        echo "Lance dependency revision does not match this checkout. Refresh the third-party build tree." >&2
+        exit 1
     fi
 fi
 
