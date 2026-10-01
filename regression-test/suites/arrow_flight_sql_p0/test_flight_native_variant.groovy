@@ -150,6 +150,22 @@ suite("test_flight_native_variant", "arrow_flight_sql") {
             }
         }
         executeSetting("SET enable_arrow_flight_sql_native_variant=true")
+        // Each row owns its wire dictionary; unrelated keys must not multiply Arrow metadata.
+        def keyExpression = "CONCAT(REPEAT('k', 244), LPAD(CAST(number AS STRING), 6, '0'))"
+        def variantExpression = variantV2Function
+                ? """parse_to_variant(CONCAT('{"', ${keyExpression}, '":', CAST(number AS STRING), '}'))"""
+                : "CAST(MAP(${keyExpression}, number) AS VARIANT)"
+        def metadataRows = []
+        assertEquals(128, read("SELECT number AS id, ${variantExpression} AS v FROM numbers(\"number\"=\"128\")", { root ->
+            def variant = root.getVector(1)
+            assertEquals("arrow.parquet.variant", variant.field.metadata.get("ARROW:extension:name"))
+            for (int i = 0; i < root.rowCount; ++i) {
+                metadataRows.add(root.getVector(0).get(i).intValue())
+                assertTrue(variant.getChild("metadata").get(i).length < 270,
+                        "A row must not repeat the batch dictionary")
+            }
+        }))
+        assertEquals((0..<128).toList(), metadataRows.sort())
         // A folded constant must use the same wire representation as a scanned Variant column.
         assertEquals(1, read("SELECT CAST(42 AS VARIANT) AS v", { root ->
             assertEquals("arrow.parquet.variant", root.getVector(0).field.metadata.get("ARROW:extension:name"))

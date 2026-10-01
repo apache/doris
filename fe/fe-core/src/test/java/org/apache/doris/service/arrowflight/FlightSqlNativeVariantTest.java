@@ -53,6 +53,12 @@ import java.nio.channels.Channels;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 public class FlightSqlNativeVariantTest {
     @Test
@@ -136,6 +142,50 @@ public class FlightSqlNativeVariantTest {
     }
 
     @Test
+    public void metadataWaitsForScopedQuerySessionToBeRestored() throws Exception {
+        SystemInfoService system = Env.getCurrentSystemInfo();
+        Object original = system.getAllBackendsByAllCluster();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Backend backend = new Backend(12350, "127.0.0.1", 9050);
+            backend.handleHbResponse(heartbeat(backend.getId(), true), true);
+            Deencapsulation.setField(system, "idToBackendRef", ImmutableMap.of(backend.getId(), backend));
+            ConnectContext context = new ConnectContext();
+            for (boolean nativeVariant : new boolean[] {false, true}) {
+                SessionVariable permanent = context.getSessionVariable();
+                permanent.setEnableArrowFlightSqlNativeVariant(nativeVariant);
+                Assert.assertEquals(nativeVariant, FlightSqlNativeVariant.isEnabled(context));
+                Future<Boolean> metadata;
+                synchronized (context) {
+                    SessionVariable scoped = new SessionVariable();
+                    scoped.setEnableArrowFlightSqlNativeVariant(!nativeVariant);
+                    context.setSessionVariable(scoped);
+                    try {
+                        // Schema analysis holds this monitor while a SET_VAR clone is temporarily installed.
+                        CountDownLatch started = new CountDownLatch(1);
+                        metadata = executor.submit(() -> {
+                            started.countDown();
+                            return FlightSqlNativeVariant.isEnabled(context);
+                        });
+                        Assert.assertTrue(started.await(5, TimeUnit.SECONDS));
+                        Assert.assertThrows(TimeoutException.class, () -> metadata.get(200, TimeUnit.MILLISECONDS));
+                    } finally {
+                        context.setSessionVariable(permanent);
+                    }
+                }
+                Assert.assertEquals(nativeVariant, metadata.get(5, TimeUnit.SECONDS));
+            }
+        } finally {
+            try {
+                executor.shutdownNow();
+                Assert.assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+            } finally {
+                Deencapsulation.setField(system, "idToBackendRef", original);
+            }
+        }
+    }
+
+    @Test
     public void sinkCapturesOptInWithoutChangingMysql() throws Exception {
         Assert.assertFalse(new SessionVariable().isEnableArrowFlightSqlNativeVariant());
         SystemInfoService system = Env.getCurrentSystemInfo();
@@ -166,34 +216,88 @@ public class FlightSqlNativeVariantTest {
     }
 
     @Test
-    public void failedHeartbeatClearsCapabilityBeforeBackendIsMarkedDead() throws Exception {
+    public void heartbeatReplayPreservesLivenessAndCapability() {
+        long originalTolerance = Config.max_backend_heartbeat_failure_tolerance_count;
+        try {
+            for (int tolerance : new int[] {0, 1, 3}) {
+                Config.max_backend_heartbeat_failure_tolerance_count = tolerance;
+                for (boolean supported : new boolean[] {false, true}) {
+                    Backend leader = new Backend(12348, "127.0.0.1", 9050);
+                    Backend follower = new Backend(12348, "127.0.0.1", 9050);
+                    Assert.assertTrue(applyHeartbeatAndReplay(leader, follower, heartbeat(leader.getId(), supported)));
+                    int deathThreshold = Math.max(1, tolerance);
+                    for (int failure = 1; failure <= deathThreshold + 1; failure++) {
+                        BackendHbResponse failed = new BackendHbResponse(leader.getId(), "127.0.0.1", 1, "timeout");
+                        // HeartbeatMgr journals only changed responses; every journaled BAD means death on replay.
+                        Assert.assertEquals(failure == deathThreshold, applyHeartbeatAndReplay(leader, follower, failed));
+                        Assert.assertEquals(failure < deathThreshold, leader.isAlive());
+                        Assert.assertEquals(leader.isAlive(), follower.isAlive());
+                        Assert.assertEquals(supported && leader.isAlive(), leader.isArrowFlightNativeVariantSupported());
+                        Assert.assertEquals(leader.isArrowFlightNativeVariantSupported(),
+                                follower.isArrowFlightNativeVariantSupported());
+                    }
+                    Assert.assertTrue(applyHeartbeatAndReplay(leader, follower, heartbeat(leader.getId(), supported)));
+                    Assert.assertTrue(leader.isAlive());
+                    Assert.assertTrue(follower.isAlive());
+                    Assert.assertEquals(supported, leader.isArrowFlightNativeVariantSupported());
+                    Assert.assertEquals(supported, follower.isArrowFlightNativeVariantSupported());
+                }
+            }
+        } finally {
+            Config.max_backend_heartbeat_failure_tolerance_count = originalTolerance;
+        }
+    }
+
+    @Test
+    public void toleratedFailureAndRecoveryRetainLastSuccessfulCapability() throws Exception {
         SystemInfoService system = Env.getCurrentSystemInfo();
         Object original = system.getAllBackendsByAllCluster();
         long tolerance = Config.max_backend_heartbeat_failure_tolerance_count;
         try {
             Config.max_backend_heartbeat_failure_tolerance_count = 3;
-            Backend backend = new Backend(12348, "127.0.0.1", 9050);
-            Deencapsulation.setField(system, "idToBackendRef", ImmutableMap.of(backend.getId(), backend));
+            Backend leader = new Backend(12348, "127.0.0.1", 9050);
+            Backend follower = new Backend(12348, "127.0.0.1", 9050);
+            Deencapsulation.setField(system, "idToBackendRef", ImmutableMap.of(leader.getId(), leader));
             ConnectContext context = new ConnectContext();
             context.getSessionVariable().setEnableArrowFlightSqlNativeVariant(true);
-            backend.handleHbResponse(heartbeat(backend.getId(), true), false);
+            applyHeartbeatAndReplay(leader, follower, heartbeat(leader.getId(), true));
+            BackendHbResponse failed = new BackendHbResponse(leader.getId(), "127.0.0.1", 1, "timeout");
+            Assert.assertFalse(applyHeartbeatAndReplay(leader, follower, failed));
+            Assert.assertTrue(leader.isAlive());
+            Assert.assertTrue(follower.isAlive());
             Assert.assertTrue(FlightSqlNativeVariant.isEnabled(context));
-            BackendHbResponse failed = new BackendHbResponse(backend.getId(), "127.0.0.1", 1, "timeout");
-            // A capability change must be journaled even within the heartbeat failure tolerance.
-            Assert.assertTrue(backend.handleHbResponse(failed, false));
-            Assert.assertTrue(backend.isAlive());
-            Assert.assertFalse(backend.isArrowFlightNativeVariantSupported());
+            Assert.assertTrue(follower.isArrowFlightNativeVariantSupported());
+            applyHeartbeatAndReplay(leader, follower, heartbeat(leader.getId(), true));
+            // A successful heartbeat resets the failure count before a later missed heartbeat.
+            Assert.assertFalse(applyHeartbeatAndReplay(leader, follower, failed));
+            Assert.assertFalse(applyHeartbeatAndReplay(leader, follower, failed));
+            Assert.assertTrue(applyHeartbeatAndReplay(leader, follower, failed));
             Assert.assertFalse(FlightSqlNativeVariant.isEnabled(context));
-            backend.handleHbResponse(heartbeat(backend.getId(), true), false);
+            Assert.assertFalse(leader.isAlive());
+            Assert.assertFalse(follower.isAlive());
+            applyHeartbeatAndReplay(leader, follower, heartbeat(leader.getId(), true));
             Assert.assertTrue(FlightSqlNativeVariant.isEnabled(context));
-            backend.handleHbResponse(failed, true);
-            Assert.assertFalse(backend.isArrowFlightNativeVariantSupported());
-            backend.handleHbResponse(heartbeat(backend.getId(), false), false);
+            // The next successful process report remains authoritative, including an absent legacy bit.
+            String legacy = GsonUtils.GSON.toJson(heartbeat(leader.getId(), true))
+                    .replace(",\"arrowFlightNativeVariantSupported\":true", "");
+            applyHeartbeatAndReplay(leader, follower, GsonUtils.GSON.fromJson(legacy, BackendHbResponse.class));
+            Assert.assertTrue(leader.isAlive());
+            Assert.assertTrue(follower.isAlive());
             Assert.assertFalse(FlightSqlNativeVariant.isEnabled(context));
+            Assert.assertFalse(follower.isArrowFlightNativeVariantSupported());
         } finally {
             Config.max_backend_heartbeat_failure_tolerance_count = tolerance;
             Deencapsulation.setField(system, "idToBackendRef", original);
         }
+    }
+
+    private static boolean applyHeartbeatAndReplay(Backend leader, Backend follower, BackendHbResponse response) {
+        boolean changed = leader.handleHbResponse(response, false);
+        if (changed) {
+            follower.handleHbResponse(GsonUtils.GSON.fromJson(
+                    GsonUtils.GSON.toJson(response), BackendHbResponse.class), true);
+        }
+        return changed;
     }
 
     @Test
