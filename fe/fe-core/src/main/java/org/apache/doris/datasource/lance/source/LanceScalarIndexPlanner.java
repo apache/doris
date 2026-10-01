@@ -67,17 +67,24 @@ final class LanceScalarIndexPlanner {
                 || !metadata.getIndexMetadataState().canPlanIndexSegments()) {
             return null;
         }
-        int nodes = Math.max(0, pushedConjuncts.size() - 1);
-        for (Expr expr : pushedConjuncts) {
-            nodes += expressionNodes(expr, Math.max(0, pushedConjuncts.size() - 1));
-            if (nodes > MAX_EXPRESSION_NODES) {
-                return null;
-            }
+        if (exceedsExpressionBudget(pushedConjuncts)) {
+            return null;
         }
         // Metadata already groups physical segments by logical index. Name order
         // provides a stable winner when multiple indices cover the same number of rows.
         List<LanceIndexSegmentGroup> indices = new ArrayList<>(metadata.getIndexes());
         indices.sort(java.util.Comparator.comparing(LanceIndexSegmentGroup::getName));
+        // Native chooses the first matching parser, not the index with the widest
+        // coverage. Without its dispatch order, leave competing logical indexes to native.
+        Set<Integer> indexedFields = new HashSet<>();
+        Set<Integer> ambiguousFields = new HashSet<>();
+        for (LanceIndexSegmentGroup index : indices) {
+            for (Integer field : index.getSegments().get(0).getFieldIds()) {
+                if (!indexedFields.add(field)) {
+                    ambiguousFields.add(field);
+                }
+            }
+        }
         Plan selected = null;
         Map<IndexType, Set<Integer>> fieldsByIndexType = new HashMap<>();
         for (LanceIndexSegmentGroup logicalIndex : indices) {
@@ -89,6 +96,7 @@ final class LanceScalarIndexPlanner {
             if ((index.getIndexType() != IndexType.BTREE && index.getIndexType() != IndexType.BITMAP
                     && index.getIndexType() != IndexType.LABEL_LIST)
                     || index.getFieldIds().size() != 1
+                    || ambiguousFields.contains(index.getFieldIds().get(0))
                     || !fieldsByIndexType.computeIfAbsent(index.getIndexType(),
                             type -> collectFilterFields(metadata, pushedConjuncts, type))
                             .contains(index.getFieldIds().get(0))) {
@@ -106,21 +114,28 @@ final class LanceScalarIndexPlanner {
             List<Expr> pushedConjuncts, IndexType indexType) {
         Set<Integer> fields = new HashSet<>();
         for (Expr expr : pushedConjuncts) {
-            fields.addAll(collectDriverFields(metadata, expr, indexType));
+            fields.addAll(collectDriverFields(metadata, expr, indexType, false));
         }
         return fields;
     }
 
-    private static Set<Integer> collectDriverFields(LanceTableMetadata metadata, Expr expr, IndexType indexType) {
+    private static Set<Integer> collectDriverFields(LanceTableMetadata metadata, Expr expr,
+            IndexType indexType, boolean requireExact) {
         Set<Integer> fields = new HashSet<>();
         if (expr instanceof CompoundPredicate) {
             CompoundPredicate.Operator op = ((CompoundPredicate) expr).getOp();
             if (op == CompoundPredicate.Operator.NOT) {
                 return fields;
             }
-            Set<Integer> left = collectDriverFields(metadata, expr.getChild(0), indexType);
-            Set<Integer> right = collectDriverFields(metadata, expr.getChild(1), indexType);
+            boolean exactBranches = requireExact || op == CompoundPredicate.Operator.OR;
+            Set<Integer> left = collectDriverFields(metadata, expr.getChild(0), indexType, exactBranches);
+            Set<Integer> right = collectDriverFields(metadata, expr.getChild(1), indexType, exactBranches);
             if (op == CompoundPredicate.Operator.AND) {
+                // A refine-only conjunct anywhere below OR makes native reject the
+                // union, even if its sibling could independently drive this index.
+                if (requireExact && (left.isEmpty() || right.isEmpty())) {
+                    return fields;
+                }
                 left.addAll(right);
             } else {
                 // Sharing a slot is insufficient: both OR branches must actually be
@@ -129,7 +144,7 @@ final class LanceScalarIndexPlanner {
             }
             return left;
         }
-        if (!isPositiveIndexLeaf(expr, indexType)) {
+        if (!isPositiveIndexLeaf(expr, indexType, requireExact)) {
             return fields;
         }
         Set<SlotRef> slots = new HashSet<>();
@@ -140,7 +155,7 @@ final class LanceScalarIndexPlanner {
         return fields;
     }
 
-    private static boolean isPositiveIndexLeaf(Expr expr, IndexType indexType) {
+    private static boolean isPositiveIndexLeaf(Expr expr, IndexType indexType, boolean requireExact) {
         if (indexType == IndexType.LABEL_LIST) {
             if (!(expr instanceof FunctionCallExpr) || expr.getChildren().size() != 2) {
                 return false;
@@ -165,23 +180,31 @@ final class LanceScalarIndexPlanner {
         if (expr instanceof IsNullPredicate) {
             return !((IsNullPredicate) expr).isNotNull() && expr.getChild(0) instanceof SlotRef;
         }
-        // Bitmap has no prefix-query support. Keep only unambiguous BTree prefixes;
-        // escaped and other LIKE shapes remain pushed filters in fragment scans.
+        // Bitmap has no prefix-query support. A refined LIKE can drive an AND,
+        // but native's OR planner rejects branches that need a residual recheck.
         if (indexType != IndexType.BTREE || expr.getChildren().size() != 2
                 || !(expr.getChild(0) instanceof SlotRef) || !(expr.getChild(1) instanceof StringLiteral)) {
             return false;
         }
         String name = expr instanceof FunctionCallExpr
                 ? ((FunctionCallExpr) expr).getFnName().getFunction() : "";
+        String prefix = ((StringLiteral) expr.getChild(1)).getStringValue();
+        if ("starts_with".equalsIgnoreCase(name)) {
+            // Unlike LIKE, every character in starts_with is literal, including % and _.
+            return !prefix.isEmpty();
+        }
         boolean like = (expr instanceof LikePredicate && ((LikePredicate) expr).getOp() == LikePredicate.Operator.LIKE)
                 || "like".equalsIgnoreCase(name);
-        String prefix = ((StringLiteral) expr.getChild(1)).getStringValue();
-        if (like && prefix.endsWith("%")) {
-            prefix = prefix.substring(0, prefix.length() - 1);
-        } else if (!"starts_with".equalsIgnoreCase(name)) {
+        if (!like || prefix.isEmpty() || prefix.indexOf('\\') >= 0) {
             return false;
         }
-        return !prefix.isEmpty() && prefix.indexOf('%') < 0 && prefix.indexOf('_') < 0 && prefix.indexOf('\\') < 0;
+        for (int i = 0; i < prefix.length(); i++) {
+            char character = prefix.charAt(i);
+            if (character == '%' || character == '_') {
+                return i > 0 && (!requireExact || (character == '%' && i == prefix.length() - 1));
+            }
+        }
+        return true;
     }
 
     private static int overlapSize(Expr expr) {
@@ -195,6 +218,51 @@ final class LanceScalarIndexPlanner {
             }
         }
         return 0;
+    }
+
+    static boolean shouldDisableFragmentIndex(List<Expr> pushedConjuncts) {
+        if (pushedConjuncts.isEmpty()) {
+            return false;
+        }
+        // Missing metadata or an ambiguous index name is not evidence against native
+        // index use. Disable only known expensive shapes, independent of FE discovery.
+        return exceedsExpressionBudget(pushedConjuncts)
+                || pushedConjuncts.stream().noneMatch(LanceScalarIndexPlanner::hasPositivePredicate);
+    }
+
+    private static boolean hasPositivePredicate(Expr expr) {
+        if (expr instanceof CompoundPredicate) {
+            return ((CompoundPredicate) expr).getOp() != CompoundPredicate.Operator.NOT
+                    && expr.getChildren().stream().anyMatch(LanceScalarIndexPlanner::hasPositivePredicate);
+        }
+        if (expr instanceof BinaryPredicate) {
+            return ((BinaryPredicate) expr).getOp() != BinaryPredicate.Operator.NE;
+        }
+        if (expr instanceof InPredicate) {
+            return !((InPredicate) expr).isNotIn();
+        }
+        if (expr instanceof IsNullPredicate) {
+            return !((IsNullPredicate) expr).isNotNull();
+        }
+        return true;
+    }
+
+    private static boolean exceedsExpressionBudget(List<Expr> conjuncts) {
+        return conjunctionNodes(conjuncts, 0, conjuncts.size(), 0) > MAX_EXPRESSION_NODES;
+    }
+
+    private static int conjunctionNodes(List<Expr> conjuncts, int begin, int end, int depth) {
+        if (begin == end) {
+            return 0;
+        }
+        if (end - begin == 1) {
+            return expressionNodes(conjuncts.get(begin), depth);
+        }
+        // The converter emits n-ary and:bool; DataFusion splits its arguments in
+        // halves. Preserve each leaf's actual depth instead of assuming a left-deep AND.
+        int middle = begin + (end - begin) / 2;
+        return 1 + conjunctionNodes(conjuncts, begin, middle, depth + 1)
+                + conjunctionNodes(conjuncts, middle, end, depth + 1);
     }
 
     private static int expressionNodes(Expr expr, int depth) {
@@ -219,6 +287,20 @@ final class LanceScalarIndexPlanner {
                 return MAX_EXPRESSION_NODES + 1;
             }
             return 2 * labels - 1;
+        }
+        if (expr instanceof InPredicate) {
+            InPredicate in = (InPredicate) expr;
+            int values = in.getInElementNum();
+            // DataFusion 54 expands up to three values into a left-deep OR (or
+            // AND of negated equalities for NOT IN) before the native budget check.
+            if (values > 0 && values <= 3) {
+                int negation = in.isNotIn() ? 1 : 0;
+                if (depth + values - 1 + negation > MAX_EXPRESSION_DEPTH) {
+                    return MAX_EXPRESSION_NODES + 1;
+                }
+                return (2 + negation) * values - 1;
+            }
+            return in.isNotIn() ? 2 : 1;
         }
         return 1;
     }

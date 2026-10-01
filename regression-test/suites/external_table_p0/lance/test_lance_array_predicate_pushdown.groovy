@@ -61,6 +61,13 @@ suite("test_lance_array_predicate_pushdown", "p0,external") {
             cases.add(["arrays_overlap(labels, [${needles}])", [0, 2, 5, 7, 8, 10, 13, 15],
                     size == 64 ? 8 : -1, size == 64 ? 4 : -1])
         }
+        // Native expands a two-value IN into three index-expression nodes. With
+        // 63 memberships the combined tree exceeds 128 nodes and must stay parallel.
+        for (int size : [62, 63]) {
+            String needles = (["'red'"] + (1..<size).collect { "'absent_${it}'" }).join(", ")
+            cases.add(["arrays_overlap(labels, [${needles}]) AND category IN (0, 1)",
+                    [0, 7, 10, 13, 15], size == 62 ? null : -1, -1])
+        }
         for (String table : ["indexed", "partial", "unindexed"]) {
             String relation = "${catalog}.`default`.`${table}`"
             cases.eachWithIndex { c, caseId ->
@@ -81,7 +88,7 @@ suite("test_lance_array_predicate_pushdown", "p0,external") {
                 assertEquals(c[1], sql(query).collect { (it[0] as Number).intValue() })
                 // A pushed predicate is not necessarily indexed: also verify runtime searches
                 // and candidate counts, so a non-indexed fallback cannot satisfy this test.
-                if (table != "unindexed" && (c[2] != null || c[0] == "${red} AND category <> 1")) {
+                if (table != "unindexed") {
                     String profile = profiles.getProfileBySql(token,
                             ["LanceScalarIndexSegmentsSearched", "LanceScalarIndexCandidateRows",
                              "LanceScalarIndexSegmentFallbacks"])

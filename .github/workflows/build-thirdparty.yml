@@ -20,6 +20,7 @@ name: Build Third Party Libraries
 on:
   pull_request:
     paths:
+      - 'build.sh'
       - 'thirdparty/**'
       - 'env.sh'
       - '.github/workflows/build-thirdparty.yml'

@@ -23,6 +23,7 @@ import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.SlotRef;
@@ -43,6 +44,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.lance.index.IndexType;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -169,6 +171,75 @@ public class LanceScalarIndexPlannerTest {
             } else {
                 Assertions.assertNull(selected);
             }
+        }
+    }
+
+    @Test
+    public void testWideConjunctionUsesBalancedDepth() {
+        List<Expr> filters = new ArrayList<>();
+        filters.add(equal("key", 1));
+        for (int i = 0; i < 33; i++) {
+            filters.add(equal("filter_" + i, i));
+        }
+        Assertions.assertNotNull(plan(filters, false));
+    }
+
+    @Test
+    public void testShortInExpansionAtOverlapBudgetBoundary() throws Exception {
+        Schema schema = new Schema(Arrays.asList(new Field("labels",
+                FieldType.nullable(ArrowType.List.INSTANCE),
+                Collections.singletonList(Field.nullable("item", ArrowType.Utf8.INSTANCE))),
+                Field.nullable("category", new ArrowType.Int(64, true))));
+        List<LanceFragmentInfo> fragments = Arrays.asList(
+                new LanceFragmentInfo(1, 10, 10), new LanceFragmentInfo(2, 10, 10));
+        Map<String, Integer> fields = new HashMap<>();
+        fields.put("labels", 9);
+        fields.put("category", 10);
+        LanceTableMetadata metadata = LanceTableMetadata.createSnapshotWithIndexes(
+                new LanceTableAccess("s3://bucket/labels.lance", Collections.emptyMap()), 42, schema,
+                fragments, fields, Arrays.asList(
+                        new LanceIndexSegmentInfo(UUID.randomUUID(), "labels_idx", Collections.singletonList(9),
+                                Arrays.asList(1L, 2L), IndexType.LABEL_LIST, null),
+                        new LanceIndexSegmentInfo(UUID.randomUUID(), "category_idx", Collections.singletonList(10),
+                                Arrays.asList(1L, 2L), IndexType.BTREE, null)));
+        Map<Long, LanceFragmentInfo> visible = new HashMap<>();
+        fragments.forEach(fragment -> visible.put(fragment.getId(), fragment));
+        for (int count : Arrays.asList(62, 63)) {
+            StringLiteral[] labels = new StringLiteral[count];
+            for (int i = 0; i < count; i++) {
+                labels[i] = new StringLiteral("label_" + i);
+            }
+            Expr overlap = new FunctionCallExpr("arrays_overlap", Arrays.asList(
+                    new SlotRef(null, "labels"), new ArrayLiteral(ArrayType.create(Type.STRING, true), labels)));
+            Expr in = new InPredicate(new SlotRef(null, "category"),
+                    Arrays.asList(new IntLiteral(0), new IntLiteral(1)), false);
+            LanceScalarIndexPlanner.Plan selected = LanceScalarIndexPlanner.plan(metadata,
+                    Arrays.asList(overlap, in), visible);
+            if (count == 62) {
+                Assertions.assertNotNull(selected);
+            } else {
+                Assertions.assertNull(selected);
+            }
+        }
+    }
+
+    @Test
+    public void testLiteralAndRefinedPrefixes() {
+        Expr key = new BinaryPredicate(BinaryPredicate.Operator.EQ,
+                new SlotRef(null, "key"), new StringLiteral("x"));
+        for (String prefix : Arrays.asList("test_ns$", "literal%value", "literal\\value")) {
+            Expr startsWith = new FunctionCallExpr("starts_with",
+                    Arrays.asList(new SlotRef(null, "key"), new StringLiteral(prefix)));
+            Assertions.assertNotNull(plan(Collections.singletonList(startsWith), true));
+            Assertions.assertNotNull(plan(Collections.singletonList(or(key, startsWith)), true));
+        }
+        for (String pattern : Arrays.asList("foo%bar%", "foo_bar%")) {
+            Expr like = new LikePredicate(LikePredicate.Operator.LIKE,
+                    new SlotRef(null, "key"), new StringLiteral(pattern));
+            Assertions.assertNotNull(plan(Collections.singletonList(like), true));
+            // Native cannot union an index branch that still carries a refine predicate.
+            Assertions.assertNull(plan(Collections.singletonList(or(key, like)), true));
+            Assertions.assertNull(plan(Collections.singletonList(or(and(key, like), key)), true));
         }
     }
 
