@@ -54,6 +54,7 @@ import org.lance.namespace.model.ListTablesRequest;
 import org.lance.namespace.model.ListTablesResponse;
 import org.lance.namespace.model.NamespaceExistsRequest;
 import org.lance.namespace.model.RegisterTableRequest;
+import org.lance.namespace.model.RenameTableRequest;
 import org.lance.namespace.model.TableExistsRequest;
 import org.lance.namespace.model.TableVersion;
 
@@ -174,6 +175,10 @@ final class LanceNamespaceClient {
         return rootDatabase.equals(dbName);
     }
 
+    boolean isRootNamespace(String dbName) throws DdlException {
+        return isRootDatabase(dbName);
+    }
+
     boolean databaseExists(String dbName) {
         if (isRootDatabase(dbName)) {
             return true;
@@ -213,6 +218,19 @@ final class LanceNamespaceClient {
                         .id(namespaceId)
                         .mode(ifExists ? "Skip" : "Fail")
                         .behavior(force ? "Cascade" : "Restrict"));
+            }
+        } catch (DdlException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    void renameTable(String dbName, String oldName, String newName) {
+        try {
+            RenameTableRequest request = new RenameTableRequest()
+                    .id(buildTableId(dbName, oldName))
+                    .newTableName(newName);
+            synchronized (namespaceLock) {
+                namespace.renameTable(request);
             }
         } catch (DdlException e) {
             throw new RuntimeException(e);
@@ -372,14 +390,20 @@ final class LanceNamespaceClient {
                 } catch (TableNotFoundException | NamespaceNotFoundException e) {
                     throw originalException;
                 }
+                String expectedLocation = tableName + ".lance";
                 try {
                     // DirectoryNamespace only accepts locations relative to its warehouse root.
                     namespace.registerTable(new RegisterTableRequest()
                             .id(tableId)
-                            .location(tableName + ".lance")
+                            .location(expectedLocation)
                             .mode("Create"));
                 } catch (TableAlreadyExistsException e) {
-                    // Another mutation registered the external dataset first.
+                    String registeredLocation = describeTable(tableId).getLocation();
+                    if (!expectedLocation.equals(registeredLocation)) {
+                        throw new DdlException("Refusing to mutate Lance table " + tableName
+                                + " because it was concurrently registered at "
+                                + registeredLocation + " instead of " + expectedLocation);
+                    }
                 }
                 mutation.run();
             }
@@ -440,7 +464,8 @@ final class LanceNamespaceClient {
                         + ", whose versions the namespace manages");
             }
             if (StringUtils.isNotBlank(table.getTableUri())
-                    && !withoutQuery(table.getTableUri()).equals(withoutQuery(table.getLocation()))) {
+                    && !LanceManifestPaths.normalizedLocation(table.getTableUri())
+                            .equals(LanceManifestPaths.normalizedLocation(table.getLocation()))) {
                 throw new RuntimeException("Lance namespace returned a table_uri that differs from location for "
                         + "managed table " + tableId);
             }
@@ -453,14 +478,6 @@ final class LanceNamespaceClient {
         // namespace's current one, and must be checked against the location the namespace
         // reports now, not against one it reported before moving the table.
         return new CachedTableAccess(access, managed ? 0 : tableAccessTtlNanos(datasetUri, table.getStorageOptions()));
-    }
-
-    /**
-     * A location without its query and trailing slash. A fragment is kept: Lance ignores it, but
-     * joins a branch directory after it, so it would move the branch onto the table root.
-     */
-    private static String withoutQuery(String uri) {
-        return StringUtils.removeEnd(StringUtils.substringBefore(uri, "?"), "/");
     }
 
     /**

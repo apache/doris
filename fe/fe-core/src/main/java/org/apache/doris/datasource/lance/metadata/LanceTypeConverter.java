@@ -67,6 +67,7 @@ public final class LanceTypeConverter {
 
     /** Builds the typed NULL expression required by the Lance Namespace add-columns API. */
     public static String toAddColumnExpression(Type type) {
+        validateRoundTrippableDorisType(type, "ADD COLUMN");
         String sqlType;
         switch (type.getPrimitiveType()) {
             case BOOLEAN:
@@ -127,6 +128,7 @@ public final class LanceTypeConverter {
      * AlterTableAlterColumns.
      */
     public static String toAlterColumnType(Type type) {
+        validateRoundTrippableDorisType(type, "MODIFY COLUMN");
         if (type.getPrimitiveType() == PrimitiveType.JSONB) {
             throw new IllegalArgumentException(
                     "Doris type is not supported for Lance MODIFY COLUMN: " + type.toSql());
@@ -190,6 +192,7 @@ public final class LanceTypeConverter {
     }
 
     private static ArrowType toArrowType(Type type) {
+        validateRoundTrippableDorisType(type, "table creation");
         PrimitiveType primitiveType = type.getPrimitiveType();
         switch (primitiveType) {
             case NULL_TYPE:
@@ -248,6 +251,15 @@ public final class LanceTypeConverter {
             default:
                 throw new IllegalArgumentException(
                         "Doris type is not supported for Lance table creation: " + type.toSql());
+        }
+    }
+
+    private static void validateRoundTrippableDorisType(Type type, String operation) {
+        PrimitiveType primitiveType = type.getPrimitiveType();
+        if (primitiveType == PrimitiveType.DATE || primitiveType == PrimitiveType.DECIMALV2) {
+            throw new IllegalArgumentException("Doris type " + type.toSql()
+                    + " is not supported for Lance " + operation
+                    + " because it cannot be read back losslessly; use DATEV2 or DECIMALV3 instead");
         }
     }
 

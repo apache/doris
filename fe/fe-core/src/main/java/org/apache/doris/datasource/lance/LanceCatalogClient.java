@@ -237,6 +237,10 @@ final class LanceCatalogClient implements AutoCloseable {
         return namespaceClient.isRootDatabase(dbName);
     }
 
+    boolean isRootNamespace(String dbName) throws DdlException {
+        return namespaceClient.isRootNamespace(dbName);
+    }
+
     boolean databaseExists(String dbName) {
         return namespaceClient.databaseExists(dbName);
     }
@@ -255,6 +259,10 @@ final class LanceCatalogClient implements AutoCloseable {
 
     void dropTable(String dbName, String tableName) {
         namespaceClient.dropTable(dbName, tableName);
+    }
+
+    void renameTable(String dbName, String oldName, String newName) {
+        namespaceClient.renameTable(dbName, oldName, newName);
     }
 
     void addColumns(String dbName, String tableName, List<AddColumnsEntry> columns) {
