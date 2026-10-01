@@ -128,6 +128,20 @@ public class ShowFunctionsCommandTest extends TestWithFeService {
 
         Assertions.assertTrue(properties.contains("SYMBOL=com.example.ScalarFn"));
         Assertions.assertTrue(properties.contains("VOLATILITY=immutable"));
+        Assertions.assertTrue(properties.contains("STATIC_LOAD=false"));
+    }
+
+    @Test
+    void testBuildProperties_javaUdfEmitsStaticLoad() {
+        ShowFunctionsCommand sf = new ShowFunctionsCommand("test", true, null);
+        ScalarFunction fn = ScalarFunction.createUdf(Function.BinaryType.JAVA_UDF,
+                new FunctionName("test", "java_static_load_fn"), new Type[] {Type.INT},
+                Type.INT, false, null, "com.example.StaticLoadFn", null, null);
+        fn.setStaticLoad(true);
+
+        String properties = sf.buildPropertiesForTest(fn);
+
+        Assertions.assertTrue(properties.contains("STATIC_LOAD=true"));
     }
 
     @Test
