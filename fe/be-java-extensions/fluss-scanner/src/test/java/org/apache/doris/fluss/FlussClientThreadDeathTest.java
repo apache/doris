@@ -20,20 +20,23 @@ package org.apache.doris.fluss;
 import org.apache.fluss.utils.FatalExitExceptionHandler;
 import org.apache.fluss.utils.concurrent.ExecutorThreadFactory;
 import org.apache.fluss.utils.concurrent.FutureUtils;
+import org.apache.fluss.utils.concurrent.ShutdownableThread;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
  * A fluss client thread that dies must not take the process with it. Fluss's own handler for these
- * threads calls {@code System.exit}, and inside BE that runs the C++ global destructors under a BE
- * that is still serving; the plugin ships a handler of the same name that only logs.
+ * threads, and the base class of its remote log download threads, call {@code System.exit}, and inside
+ * BE that runs the C++ global destructors under a BE that is still serving; the plugin ships classes
+ * of the same names that only log.
  *
- * <p>Should fluss's handler come back - the patched class dropped, or found after fluss-client's -
- * these tests do not fail with an assertion: the JVM running them exits, and surefire reports a
- * forked VM that terminated without saying goodbye.
+ * <p>Should one of fluss's come back - a patched class dropped, or found after fluss-client's - these
+ * tests do not fail with an assertion: the JVM running them exits, and surefire reports a forked VM
+ * that terminated without saying goodbye.
  */
 public class FlussClientThreadDeathTest {
 
@@ -57,5 +60,25 @@ public class FlussClientThreadDeathTest {
         FutureUtils.assertNoException(future);
         future.completeExceptionally(new IllegalStateException("simulated"));
         Assertions.assertTrue(future.isCompletedExceptionally());
+    }
+
+    @Test
+    public void downloadThreadThatDiesOfAnErrorLeavesTheProcessRunning() throws Exception {
+        Assertions.assertSame(ShutdownableThread.class,
+                Class.forName("org.apache.fluss.client.table.scanner.log.RemoteLogDownloader$DownloadRemoteLogThread")
+                        .getSuperclass(),
+                "fluss no longer runs its remote log download on this class; the patch may not be needed any more");
+        ShutdownableThread thread = new ShutdownableThread("doris-fatal-exit-test") {
+            @Override
+            public void doWork() {
+                throw new OutOfMemoryError("simulated: Java heap space");
+            }
+        };
+
+        thread.start();
+        thread.join(TimeUnit.SECONDS.toMillis(60));
+        Assertions.assertFalse(thread.isAlive(), "the thread was meant to die");
+        // What closing its log scanner does with it afterwards: must return, not wait on the dead thread.
+        Assertions.assertTimeoutPreemptively(Duration.ofSeconds(60), thread::shutdown);
     }
 }

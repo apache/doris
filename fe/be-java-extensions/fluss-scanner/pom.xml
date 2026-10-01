@@ -226,14 +226,15 @@ under the License.
                 </configuration>
             </plugin>
             <!--
-              The plugin's own classes go into fluss-scanner.jar; the fluss class it patches
-              (org.apache.fluss.utils.FatalExitExceptionHandler, see its header: fluss's version
-              stops the whole BE when one of the client's threads dies) goes into a jar of its own,
-              written straight into target/lib so that build.sh deploys it with the dependencies.
-              That jar names the class in Doris-Shadows-Classes, which is what makes PluginRuntime
-              search it ahead of fluss-client's copy; the layout check (tools/be-java-plugins/
-              check_plugin_layout.py) requires a shadowing jar to hold nothing but the classes it
-              names, hence two jars from one module. Merged with the parent's
+              The plugin's own classes go into fluss-scanner.jar; the fluss classes it patches
+              (org.apache.fluss.utils.FatalExitExceptionHandler and
+              org.apache.fluss.utils.concurrent.ShutdownableThread, see their headers: fluss's
+              versions stop the whole BE when one of the client's threads dies) go into a jar of
+              their own, written straight into target/lib so that build.sh deploys it with the
+              dependencies. That jar names the classes in Doris-Shadows-Classes, which is what makes
+              PluginRuntime search it ahead of fluss-client's copies; the layout check
+              (tools/be-java-plugins/check_plugin_layout.py) requires a shadowing jar to hold nothing
+              but the classes it names, hence two jars from one module. Merged with the parent's
               Doris-Jni-Plugin-Api-Version entry, not replacing it. The tests need none of this:
               surefire puts target/classes ahead of every dependency.
             -->
@@ -263,7 +264,7 @@ under the License.
                             </includes>
                             <archive>
                                 <manifestEntries>
-                                    <Doris-Shadows-Classes>org.apache.fluss.utils.FatalExitExceptionHandler</Doris-Shadows-Classes>
+                                    <Doris-Shadows-Classes>org.apache.fluss.utils.FatalExitExceptionHandler,org.apache.fluss.utils.concurrent.ShutdownableThread</Doris-Shadows-Classes>
                                 </manifestEntries>
                             </archive>
                         </configuration>
