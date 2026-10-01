@@ -156,8 +156,6 @@ if [[ ! -f "${TP_DIR}/vars.sh" ]]; then
 fi
 
 . "${TP_DIR}/vars.sh"
-. "${TP_DIR}/lance-install.sh"
-LANCE_C_INSTALL_FINGERPRINT="$(lance_c_install_fingerprint "${TP_DIR}")"
 
 cd "${TP_DIR}"
 
@@ -2230,14 +2228,9 @@ build_lance_c() {
     env "${cargo_env[@]}" "${cargo_bin}" "${cargo_args[@]}"
 
     mkdir -p "${TP_INSTALL_DIR}/include" "${TP_INSTALL_DIR}/lib64"
-    # Invalidate before publishing either file so interrupted installs cannot reuse
-    # a matching marker with a partial header/archive pair.
-    rm -f "${TP_INSTALL_DIR}/lib64/.lance-c-fingerprint"
     rm -rf "${TP_INSTALL_DIR}/include/lance"
     cp -av include/lance "${TP_INSTALL_DIR}/include/"
     install_rust_archive "${BUILD_DIR}/release/liblance_c.a"
-    printf '%s\n' "${LANCE_C_INSTALL_FINGERPRINT}" > "${TP_INSTALL_DIR}/lib64/.lance-c-fingerprint.tmp"
-    mv "${TP_INSTALL_DIR}/lib64/.lance-c-fingerprint.tmp" "${TP_INSTALL_DIR}/lib64/.lance-c-fingerprint"
 }
 
 # paimon-rust
