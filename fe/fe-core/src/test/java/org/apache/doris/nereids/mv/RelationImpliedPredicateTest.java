@@ -414,8 +414,11 @@ public class RelationImpliedPredicateTest extends SqlTestBase {
     void testIvmOutputPredicatesSkipHiddenColumns(boolean showHiddenColumns) throws Exception {
         initMvRewriteSession();
         boolean originalEnableTableStream = Config.enable_table_stream;
+        boolean originalEnableFeatureBinlog = Config.enable_feature_binlog;
         boolean originalShowHiddenColumns = connectContext.getSessionVariable().showHiddenColumns();
         Config.enable_table_stream = true;
+        // master gates ROW-binlog table creation behind enable_feature_binlog; the IVM base table needs it.
+        Config.enable_feature_binlog = true;
         try {
             dropMvByNereids("drop materialized view if exists mv_relation_implied_ivm");
             dropTableWithSql("drop table if exists relation_implied_ivm_base");
@@ -455,6 +458,7 @@ public class RelationImpliedPredicateTest extends SqlTestBase {
         } finally {
             connectContext.getSessionVariable().setShowHiddenColumns(originalShowHiddenColumns);
             Config.enable_table_stream = originalEnableTableStream;
+            Config.enable_feature_binlog = originalEnableFeatureBinlog;
             dropMvByNereids("drop materialized view if exists mv_relation_implied_ivm");
             dropTableWithSql("drop table if exists relation_implied_ivm_base");
         }
