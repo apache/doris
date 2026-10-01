@@ -17,7 +17,12 @@
 
 package org.apache.doris.service.arrowflight;
 
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -45,6 +50,8 @@ import org.junit.Test;
 
 import java.io.ByteArrayInputStream;
 import java.nio.channels.Channels;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 
 public class FlightSqlNativeVariantTest {
@@ -73,6 +80,32 @@ public class FlightSqlNativeVariantTest {
         Field legacy = Deencapsulation.invoke(FlightSqlSchemaHelper.class, "buildField",
                 "test_db", "test_table", variant, false);
         Assert.assertEquals(new ArrowType.Utf8(), legacy.getType());
+    }
+
+    @Test
+    public void querySchemaPreservesNativeVariantInNestedFields() {
+        Type nested = new StructType(new ArrayList<>(Arrays.asList(
+                new StructField("scalar", Type.VARIANT),
+                new StructField("array", new ArrayType(Type.VARIANT, true)),
+                new StructField("map", new MapType(Type.STRING, Type.VARIANT)))));
+        for (boolean nativeVariant : new boolean[] {false, true}) {
+            Field result = Deencapsulation.invoke(FlightSqlQuerySchema.class, "field",
+                    "s", nested, true, true, "UTC", nativeVariant);
+            Field scalar = result.getChildren().get(0);
+            Field item = result.getChildren().get(1).getChildren().get(0);
+            Field value = result.getChildren().get(2).getChildren().get(0).getChildren().get(1);
+            for (Field leaf : Arrays.asList(scalar, item, value)) {
+                Assert.assertEquals(nativeVariant ? new ArrowType.Struct() : new ArrowType.Utf8(), leaf.getType());
+                if (nativeVariant) {
+                    Assert.assertEquals("arrow.parquet.variant", leaf.getMetadata().get("ARROW:extension:name"));
+                    Assert.assertEquals("", leaf.getMetadata().get("ARROW:extension:metadata"));
+                    Assert.assertEquals(Arrays.asList(Field.notNullable("metadata", new ArrowType.Binary()),
+                            Field.notNullable("value", new ArrowType.Binary())), leaf.getChildren());
+                } else {
+                    Assert.assertTrue(leaf.getMetadata().isEmpty());
+                }
+            }
+        }
     }
 
     @Test

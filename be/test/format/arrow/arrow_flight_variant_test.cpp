@@ -592,6 +592,74 @@ TEST(ArrowFlightVariantTest, LegacyDepthLimitExplainsNativeModeRestriction) {
               std::string::npos);
 }
 
+TEST(ArrowFlightVariantTest, LegacyJsonbLeafIncludesEnclosingDepth) {
+    for (int outer_depth : {28, 29}) {
+        std::string json = "1";
+        for (int i = 0; i < 99; ++i) {
+            json = R"({"a":)" + json + "}";
+        }
+        json = "[" + json + "]";
+        for (int i = 0; i < outer_depth; ++i) {
+            json = R"({"a":)" + json + "}";
+        }
+        auto type = std::make_shared<DataTypeVariant>();
+        auto values = type->create_column();
+        Slice slice(json.data(), json.size());
+        DataTypeSerDe::FormatOptions options;
+        ASSERT_TRUE(
+                type->get_serde()->deserialize_one_cell_from_json(*values, slice, options).ok());
+        assert_cast<ColumnVariant&>(*values).finalize();
+        Block block {{std::move(values), type, "v"}};
+        ArrowFlightArrowBlockConvertor utf8(block, "UTC", cctz::utc_time_zone());
+        ASSERT_TRUE(utf8.init().ok());
+        std::shared_ptr<arrow::RecordBatch> batch;
+        ASSERT_TRUE(utf8.convert_to_arrow(block, arrow::default_memory_pool(), &batch).ok());
+        ArrowFlightArrowBlockConvertor native(
+                arrow::schema({arrow::field("v", native_variant(), false)}), cctz::utc_time_zone());
+        auto status = native.convert_to_arrow(block, arrow::default_memory_pool(), &batch);
+        // The leaf fits JSONB's limit, but its enclosing paths count toward Variant's limit.
+        if (outer_depth == 28) {
+            ASSERT_TRUE(status.ok()) << status;
+            EXPECT_EQ(value_at(*batch->column(0), 0).basic_type(), VariantBasicType::OBJECT);
+        } else {
+            EXPECT_FALSE(status.ok());
+            EXPECT_NE(status.to_string().find("enable_arrow_flight_sql_native_variant=false"),
+                      std::string::npos);
+        }
+    }
+}
+
+TEST(ArrowFlightVariantTest, LegacyDecimal256RespectsOuterSqlNulls) {
+    auto decimal_type = std::make_shared<DataTypeDecimal256>(76, 2);
+    auto decimals = decimal_type->create_column();
+    for (int i = 0; i < 3; ++i) {
+        decimals->insert_default();
+    }
+    auto values = ColumnVariant::create(0);
+    values->create_root(decimal_type, std::move(decimals));
+    values->finalize();
+    auto nulls = ColumnUInt8::create();
+    nulls->get_data().assign({1, 1, 1});
+    Block block {{ColumnNullable::create(std::move(values), std::move(nulls)),
+                  make_nullable(std::make_shared<DataTypeVariant>()), "v"}};
+    ArrowFlightArrowBlockConvertor converter(arrow::schema({arrow::field("v", native_variant())}),
+                                             cctz::utc_time_zone());
+    std::shared_ptr<arrow::RecordBatch> batch;
+    // A masked physical decimal is not a value to encode, even for scalar-only batches.
+    auto status = converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(batch->column(0)->null_count(), 3);
+    auto& nullable =
+            assert_cast<ColumnNullable&>(*block.get_by_position(0).column->assert_mutable());
+    nullable.get_null_map_data()[0] = 0;
+    status = converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch, 1, 3);
+    ASSERT_TRUE(status.ok()) << status;
+    EXPECT_EQ(batch->column(0)->null_count(), 2);
+    status = converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch, 0, 1);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find(decimal_type->get_name()), std::string::npos);
+}
+
 TEST(ArrowFlightVariantTest, LegacyScalarNullKeepsEmptyObjectAndSqlNull) {
     auto type = std::make_shared<DataTypeVariant>();
     auto column = type->create_column();
