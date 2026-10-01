@@ -1614,10 +1614,8 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 // CTE column not emitted under its own exprId: match the exported alias
                 String name = cteCol.getName();
                 for (Pair<ExprId, String> select : selects) {
-                    String value = select.value();
-                    int asIdx = value.toLowerCase().lastIndexOf(" as ");
-                    String alias = asIdx >= 0 ? value.substring(asIdx + 4).trim() : value;
-                    if (alias.equals(name)) {
+                    // top-level AS only: a quoted name may itself contain " as "
+                    if (selectOutputName(select.value()).equals(name)) {
                         match = select;
                         break;
                     }
@@ -3064,7 +3062,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             // its expression (a previous alias is stripped first) and gains a unique
             // exported name; the later item keeps the shared name upper layers use.
             String value = first.value();
-            int asIdx = value.toLowerCase(java.util.Locale.ROOT).lastIndexOf(" as ");
+            int asIdx = topLevelAsIndex(value);
             String core = asIdx >= 0 ? value.substring(0, asIdx).trim() : value;
             if (core.isEmpty()) {
                 continue;
@@ -3079,11 +3077,62 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         }
     }
 
-    /** The output name of one SELECT item: its alias, or the item itself. */
+    /**
+     * The output name of one SELECT item: the alias of a TOP-LEVEL " AS " token, or the
+     * item itself. " AS " inside a backtick-quoted identifier, inside a single-quoted
+     * literal or inside nested parentheses is NOT the alias separator: a legal column
+     * named `a as b` exported by an inner layer was read as "b`" by the naive
+     * lastIndexOf, and the next frozen layer referenced an identifier that no longer
+     * parses.
+     */
     private static String selectOutputName(String item) {
-        int asIdx = item.toLowerCase().lastIndexOf(" as ");
+        int asIdx = topLevelAsIndex(item);
         String name = asIdx >= 0 ? item.substring(asIdx + 4).trim() : item;
         return name.replace("`", "");
+    }
+
+    /**
+     * Index of the LAST top-level " AS " token of one SELECT item, or -1: outside
+     * backticks / single-quoted literals and at parenthesis depth zero.
+     */
+    private static int topLevelAsIndex(String item) {
+        String lower = item.toLowerCase(java.util.Locale.ROOT);
+        int depth = 0;
+        int found = -1;
+        boolean backtick = false;
+        boolean quote = false;
+        for (int i = 0; i < item.length(); i++) {
+            char c = item.charAt(i);
+            if (backtick) {
+                if (c == '`') {
+                    backtick = false;
+                }
+                continue;
+            }
+            if (quote) {
+                if (c == '\'') {
+                    if (i + 1 < item.length() && item.charAt(i + 1) == '\'') {
+                        i++; // '' escape inside a literal
+                    } else {
+                        quote = false;
+                    }
+                }
+                continue;
+            }
+            if (c == '`') {
+                backtick = true;
+            } else if (c == '\'') {
+                quote = true;
+            } else if (c == '(') {
+                depth++;
+            } else if (c == ')') {
+                depth = Math.max(0, depth - 1);
+            } else if (depth == 0 && c == ' ' && lower.startsWith(" as ", i)) {
+                found = i;
+                i += 3;
+            }
+        }
+        return found;
     }
 
     /** Whether a SELECT item is a plain column reference (no expression / qualifier). */
@@ -3175,7 +3224,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     continue;
                 }
                 // "expr AS alias" / "t_a.X AS c_5" -> reference the exported alias only
-                int asIdx = value.toLowerCase().lastIndexOf(" as ");
+                int asIdx = topLevelAsIndex(value);
                 String ref = asIdx >= 0 ? value.substring(asIdx + 4).trim() : value;
                 if (ref.isEmpty()) {
                     continue;

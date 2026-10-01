@@ -139,6 +139,21 @@ public class BaselineManager {
     public static volatile IdAllocatorStoreForTest idAllocatorStoreForTest;
 
     /**
+     * Test seam for the read-back visibility confirmation of a reported-successful write
+     * (see {@link #confirmInsertVisible}): one call is ONE probe attempt, true = the row
+     * (insert) or its status row is READABLE, false = not yet visible. A test
+     * decrements an invisible window here to simulate the COMMITTED-but-not-yet-published
+     * state the real store exposes. Null in production.
+     */
+    @VisibleForTesting
+    interface DurableVisibilityProbeForTest {
+        boolean isReadable(long id, BaselineStatus status);
+    }
+
+    @VisibleForTesting
+    public static volatile DurableVisibilityProbeForTest durableVisibilityProbeForTest;
+
+    /**
      * Test seam replacing the snapshot READ of the load path (loadFromInternalTable /
      * the promotion reload): lets a unit test return a controlled snapshot and, together
      * with {@link #snapshotReadStartedHookForTest}, invalidate the store WHILE a load is
@@ -250,6 +265,17 @@ public class BaselineManager {
      * reported).
      */
     private static final int BASELINE_WRITE_TIMEOUT_SECONDS = 10;
+
+    /**
+     * Bounded read-back confirmation of a reported-successful durable write (see
+     * {@link #confirmInsertVisible}): the attempts times the retry delay must cover a
+     * normal publication lag; a longer invisible window fails the write retryably
+     * instead of publishing an id no read can ever confirm.
+     */
+    private static final int BASELINE_VISIBILITY_ATTEMPTS = 5;
+
+    /** Delay between two visibility probes of a reported-successful write (ms). */
+    private static final long BASELINE_VISIBILITY_RETRY_MILLIS = 200L;
 
     /** How long a management caller waits for an in-flight background load. */
     private static final long MANAGEMENT_LOAD_WAIT_MILLIS = 5_000L;
@@ -1395,6 +1421,7 @@ public class BaselineManager {
             persistToTable = false; // and never write the table from a unit test
             statusProtocolStoreForTest = null; // and never route through a leaked test seam
             idAllocatorStoreForTest = null; // (the create-time collision seam, same reason)
+            durableVisibilityProbeForTest = null; // (the write-visibility seam, same reason)
             snapshotReadStartedHookForTest = null; // (the load-generation seam, same reason)
             snapshotReaderForTest = null; // (the load snapshot seam, same reason)
             baselines.clear();
@@ -2252,10 +2279,12 @@ public class BaselineManager {
     private static void persistInsert(BaselinePlan p) {
         if (idAllocatorStoreForTest != null) {
             idAllocatorStoreForTest.insert(p);
+            confirmInsertVisible(p);
             return;
         }
         if (statusProtocolStoreForTest != null) {
             statusProtocolStoreForTest.insert(p);
+            confirmInsertVisible(p);
             return;
         }
         if (!persistenceEnabled()) {
@@ -2304,6 +2333,111 @@ public class BaselineManager {
                 return;
             }
             throw new RuntimeException("SPM persist (insert) failed: " + e.getMessage(), e);
+        }
+        // A reported SUCCESS still does not prove the row is READABLE: the default insert
+        // return mode accepts SQL OK with the transaction merely COMMITTED (publication
+        // timed out). Publishing the id into this FE's cache and returning it would let a
+        // leadership change before publication re-allocate the same id from an older
+        // MAX(id) - both rows then become visible and the winner rule silently discards
+        // one version.
+        confirmInsertVisible(p);
+    }
+
+    /**
+     * Confirms a reported-successful INSERT (or the insert half of a status flip) is
+     * READABLE before its id may be published / returned. Bounded retries cover a short
+     * publication lag; a row that never becomes readable fails the write RETRYABLY while
+     * the caller keeps no in-memory state (the row itself may still become visible, and
+     * a retry adopts it through the durable-key dedup). Simulator stores are synchronous
+     * and confirm nothing unless the visibility seam is set (that is where a test
+     * simulates the committed-but-invisible window).
+     *
+     * @param p the row that was just written
+     */
+    private static void confirmInsertVisible(BaselinePlan p) {
+        if (durableVisibilityProbeForTest == null
+                && (idAllocatorStoreForTest != null || statusProtocolStoreForTest != null)) {
+            return;
+        }
+        for (int attempt = 0; attempt < BASELINE_VISIBILITY_ATTEMPTS; attempt++) {
+            boolean readable = durableVisibilityProbeForTest != null
+                    ? durableVisibilityProbeForTest.isReadable(p.getId(), p.getStatus())
+                    : probeDurableRow(p.getId(), p.getBindSqlDigest(), p.getPlanSql(),
+                            p.getStatus()) == DurablePresence.PRESENT;
+            if (readable) {
+                return;
+            }
+            sleepBeforeVisibilityRetry();
+        }
+        throw new IllegalStateException("SPM persist (insert) reported success but baseline "
+                + p.getId() + " is not readable yet; an id no read can see could be"
+                + " re-allocated after a leadership change - retry the statement");
+    }
+
+    /**
+     * Confirms a reported-successful identity DELETE left no READABLE row behind (the
+     * caller removes its cache entry only afterwards): a delete that returned OK with the
+     * transaction merely COMMITTED is not yet a delete, and reporting success early would
+     * let a refresh / restart resurrect the baseline.
+     *
+     * @param p the deleted row
+     */
+    private static void confirmIdentityGone(BaselinePlan p) {
+        if (durableVisibilityProbeForTest == null
+                && (idAllocatorStoreForTest != null || statusProtocolStoreForTest != null)) {
+            return;
+        }
+        for (int attempt = 0; attempt < BASELINE_VISIBILITY_ATTEMPTS; attempt++) {
+            boolean gone = durableVisibilityProbeForTest != null
+                    ? !durableVisibilityProbeForTest.isReadable(p.getId(), null)
+                    : probeDurableRow(p.getId(), p.getBindSqlDigest(), p.getPlanSql())
+                            == DurablePresence.ABSENT;
+            if (gone) {
+                return;
+            }
+            sleepBeforeVisibilityRetry();
+        }
+        throw new IllegalStateException("SPM persist (delete) reported success but baseline "
+                + p.getId() + " is still readable; retry the statement");
+    }
+
+    /**
+     * Confirms the OLD-status row of a reported-successful status flip is gone durably
+     * (the caller then publishes the flip). Real-store only: the status seam simulators
+     * are synchronous.
+     *
+     * @param id     the baseline id
+     * @param status the status whose row must be gone
+     */
+    private static void confirmStatusRowGoneOrThrow(long id, BaselineStatus status) {
+        if (durableVisibilityProbeForTest == null
+                && (idAllocatorStoreForTest != null || statusProtocolStoreForTest != null)) {
+            return;
+        }
+        for (int attempt = 0; attempt < BASELINE_VISIBILITY_ATTEMPTS; attempt++) {
+            boolean gone;
+            try {
+                gone = durableVisibilityProbeForTest != null
+                        ? !durableVisibilityProbeForTest.isReadable(id, status)
+                        : durableRowCount(id, status) == 0;
+            } catch (RuntimeException e) {
+                gone = false; // unconfirmable: retry, never report success blind
+            }
+            if (gone) {
+                return;
+            }
+            sleepBeforeVisibilityRetry();
+        }
+        throw new IllegalStateException("SPM persist (delete by status) reported success but"
+                + " baseline " + id + " still carries status " + status
+                + "; retry the statement");
+    }
+
+    private static void sleepBeforeVisibilityRetry() {
+        try {
+            Thread.sleep(BASELINE_VISIBILITY_RETRY_MILLIS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -2373,20 +2507,20 @@ public class BaselineManager {
         try {
             if (idAllocatorStoreForTest != null) {
                 idAllocatorStoreForTest.deleteByIdentity(p);
-                return;
+            } else {
+                if (!persistenceEnabled()) {
+                    return;
+                }
+                Map<String, String> params = new HashMap<>();
+                params.put("id", String.valueOf(p.getId()));
+                params.put("bindSqlDigest", StatisticsUtil.escapeSQL(p.getBindSqlDigest()));
+                params.put("planSql", StatisticsUtil.escapeSQL(p.getPlanSql()));
+                inInternalIoMode(() -> {
+                    StatisticsUtil.execUpdate(DELETE_BY_IDENTITY_SQL, params,
+                            BASELINE_WRITE_TIMEOUT_SECONDS);
+                    return null;
+                });
             }
-            if (!persistenceEnabled()) {
-                return;
-            }
-            Map<String, String> params = new HashMap<>();
-            params.put("id", String.valueOf(p.getId()));
-            params.put("bindSqlDigest", StatisticsUtil.escapeSQL(p.getBindSqlDigest()));
-            params.put("planSql", StatisticsUtil.escapeSQL(p.getPlanSql()));
-            inInternalIoMode(() -> {
-                StatisticsUtil.execUpdate(DELETE_BY_IDENTITY_SQL, params,
-                        BASELINE_WRITE_TIMEOUT_SECONDS);
-                return null;
-            });
         } catch (Exception e) {
             // A reported error may hide a committed DELETE: the row being GONE is the
             // ONLY proof the drop landed. An unconfirmable read (UNKNOWN) must NOT be
@@ -2404,6 +2538,9 @@ public class BaselineManager {
                     + (presence == DurablePresence.UNKNOWN
                             ? " (the durable row could not be confirmed deleted)" : ""), e);
         }
+        // A reported SUCCESS may still be an unpublished COMMITTED transaction: report
+        // the drop only once no read can see the row any more.
+        confirmIdentityGone(p);
     }
 
     /** Removes the row(s) with the given id whose status matches the previous status. */
@@ -2440,6 +2577,9 @@ public class BaselineManager {
             }
             throw new RuntimeException("SPM persist (delete by status) failed: " + e.getMessage(), e);
         }
+        // Success is confirmed like the insert half: the flip may only be published once
+        // the old-status row is provably gone from every read.
+        confirmStatusRowGoneOrThrow(id, status);
     }
 
     /** Epoch millis -> internal-table DATETIME literal ('yyyy-MM-dd HH:mm:ss'). */

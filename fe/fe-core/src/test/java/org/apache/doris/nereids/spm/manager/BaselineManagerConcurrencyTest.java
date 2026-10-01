@@ -997,6 +997,99 @@ public class BaselineManagerConcurrencyTest {
         }
     }
 
+    // ==================== round-22: write visibility is confirmed ====================
+
+    /**
+     * An internal INSERT can report OK with the transaction merely COMMITTED: the create
+     * must not publish / return the id until the row is READABLE, and a short publication
+     * lag is absorbed by the bounded read-back retries (the visibility seam simulates the
+     * invisible window).
+     */
+    @Test
+    public void testCreateWaitsForTheInsertToBecomeReadable() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            AtomicInteger probes = new AtomicInteger();
+            // the first two read-backs still see the pre-publication state
+            BaselineManager.durableVisibilityProbeForTest =
+                    (id, status) -> probes.incrementAndGet() > 2;
+
+            long id = manager.createBaseline(baseline("d-vis", "p-vis"));
+
+            Assertions.assertTrue(probes.get() >= 3,
+                    "the create must keep probing until the row is readable: " + probes.get());
+            Assertions.assertNotNull(manager.getBaseline(id),
+                    "the confirmed row is published under the returned id");
+            Assertions.assertEquals(1, store.rowsOf(id).size());
+        } finally {
+            BaselineManager.durableVisibilityProbeForTest = null;
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * A row that NEVER becomes readable fails the create RETRYABLY and publishes nothing:
+     * an id handed out for an invisible row could be re-allocated by a new master reading
+     * the old MAX(id), and the winner rule would later discard one of the two rows.
+     */
+    @Test
+    public void testUnreadableInsertFailsWithoutPublishingTheId() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            BaselineManager.durableVisibilityProbeForTest = (id, status) -> false;
+
+            RuntimeException failure = Assertions.assertThrows(RuntimeException.class,
+                    () -> manager.createBaseline(baseline("d-hidden", "p-hidden")));
+            Assertions.assertTrue(failure.getMessage().contains("not readable"),
+                    failure.getMessage());
+            Assertions.assertTrue(manager.getAllBaselines().isEmpty(),
+                    "an unconfirmed write must not be published into the cache");
+            Assertions.assertTrue(store.watermark() > 0,
+                    "the committed row itself stays in the store (a retry adopts it)");
+        } finally {
+            BaselineManager.durableVisibilityProbeForTest = null;
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * The DROP half: the cache entry is removed only after the identity delete is
+     * provably invisible; an unconfirmed delete keeps the row and reports a retryable
+     * failure instead of a success a refresh would undo.
+     */
+    @Test
+    public void testDropWaitsForTheDeleteToBecomeInvisible() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            long id = manager.createBaseline(baseline("d-drop", "p-drop"));
+
+            BaselineManager.durableVisibilityProbeForTest = (rowId, status) -> true;
+            Assertions.assertThrows(RuntimeException.class, () -> manager.dropBaseline(id));
+            Assertions.assertNotNull(manager.getBaseline(id),
+                    "the unconfirmed delete must keep the cache entry");
+
+            BaselineManager.durableVisibilityProbeForTest = (rowId, status) -> false;
+            Assertions.assertTrue(manager.dropBaseline(id),
+                    "a confirmed-invisible delete completes the drop");
+            Assertions.assertNull(manager.getBaseline(id));
+        } finally {
+            BaselineManager.durableVisibilityProbeForTest = null;
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
     // ==================== round-20: ALTER cache-miss / winner reconciliation ====================
 
     /**

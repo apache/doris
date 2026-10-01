@@ -115,6 +115,35 @@ public class SPMMatchingSafetyTest {
                 "a different subquery OFFSET must not match");
     }
 
+    // ==================== derived-table TopN is part of the match ====================
+
+    /**
+     * round-22 #6: a derived table's ORDER BY ... LIMIT (LogicalTopN) is not reachable by
+     * the positional limit merge once the frozen join order differs from the user's - the
+     * limited derived table pairs with the OTHER relation and the class-mismatch guard
+     * leaves the captured slice. Nested TopN limits must therefore take part in the exact
+     * match, like the nested LOGICAL LIMIT above.
+     */
+    @Test
+    public void testDerivedTableTopNIsPartOfMatch() {
+        String bind = "SELECT * FROM (SELECT k FROM t1 ORDER BY k LIMIT 1) d"
+                + " JOIN t2 ON d.k = t2.k";
+        Assertions.assertTrue(matches(bind,
+                "SELECT * FROM (SELECT k FROM t1 ORDER BY k LIMIT 1) d"
+                        + " JOIN t2 ON d.k = t2.k"),
+                "identical derived-table limits must match");
+        Assertions.assertFalse(matches(bind,
+                "SELECT * FROM (SELECT k FROM t1 ORDER BY k LIMIT 2) d"
+                        + " JOIN t2 ON d.k = t2.k"),
+                "a different derived-table ORDER BY ... LIMIT must not match");
+        Assertions.assertFalse(matches(
+                "SELECT * FROM (SELECT k FROM t1 ORDER BY k LIMIT 5 OFFSET 1) d"
+                        + " JOIN t2 ON d.k = t2.k",
+                "SELECT * FROM (SELECT k FROM t1 ORDER BY k LIMIT 5 OFFSET 2) d"
+                        + " JOIN t2 ON d.k = t2.k"),
+                "a different derived-table OFFSET must not match");
+    }
+
     // ==================== TVF properties are part of the match ====================
 
     @Test

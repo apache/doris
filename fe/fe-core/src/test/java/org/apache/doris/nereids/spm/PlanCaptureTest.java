@@ -27,6 +27,7 @@ import org.apache.doris.nereids.spm.capture.PlanCaptureFilter;
 import org.apache.doris.nereids.spm.capture.PlanCaptureManager;
 import org.apache.doris.nereids.spm.manager.BaselineManager;
 import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.statistics.repository.ResultRow;
 
 import org.junit.jupiter.api.Assertions;
@@ -134,6 +135,36 @@ public class PlanCaptureTest {
                 "WITH c AS (SELECT * FROM t1) SELECT * FROM c x JOIN c y ON x.a = y.a");
         Assertions.assertEquals(1, reused.size(),
                 "two consumers of one CTE alias: " + reused);
+    }
+
+    /**
+     * round-22 #3: with lower_case_table_names != 0 the analyzer resolves `t` and `T` to
+     * the SAME physical table, so a self-join of one table must not be counted as a
+     * two-table workload - the documented Level 3 filter excludes it, and a
+     * case-sensitive set made the capturer create an unnecessary GLOBAL baseline.
+     */
+    @Test
+    public void testTableNamesAreDeduplicatedUnderLowerCaseTableNames() {
+        String sql = "SELECT * FROM spm_case_t a JOIN SPM_CASE_T b ON a.k = b.k";
+        int original = GlobalVariable.lowerCaseTableNames;
+        try {
+            GlobalVariable.lowerCaseTableNames = 1;
+            List<String> tables = PlanCaptureFilter.extractTableNames(sql);
+            Assertions.assertEquals(1, tables.size(),
+                    "both spellings resolve to ONE physical table: " + tables);
+            AuditEvent event = new AuditEvent();
+            event.isQuery = true;
+            event.isNereids = true;
+            event.isInternal = false;
+            event.queryTime = 5000;
+            event.scanRows = 100000;
+            Assertions.assertFalse(filter.shouldCapture(event, tables),
+                    "a self-join of one physical table is not a two-table workload");
+        } finally {
+            GlobalVariable.lowerCaseTableNames = original;
+        }
+        // control: under the default case-sensitive rule both spellings stay distinct
+        Assertions.assertEquals(2, PlanCaptureFilter.extractTableNames(sql).size());
     }
 
     // ==================== quoted dotted names / audit-mode prefilter (round-11) ====================

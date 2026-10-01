@@ -1142,6 +1142,18 @@ public final class SPMPlanTreeSupport {
                 return false;
             }
         }
+        // LogicalTopN carries its ORDER BY ... LIMIT / OFFSET pair as a node of its own (it
+        // does not extend LogicalLimit). Inside a nested query block the positional merge
+        // gives up as soon as the frozen join order differs from the user's: the limited
+        // derived table then pairs with the OTHER relation, the class-mismatch guard
+        // leaves the captured TopN untouched and the replay returns the captured slice.
+        // Comparing the pair exactly keeps such a query from matching at all.
+        if (insideSubquery && bind instanceof LogicalTopN && user instanceof LogicalTopN) {
+            if (((LogicalTopN<?>) bind).getLimit() != ((LogicalTopN<?>) user).getLimit()
+                    || ((LogicalTopN<?>) bind).getOffset() != ((LogicalTopN<?>) user).getOffset()) {
+                return false;
+            }
+        }
         // compare this node's expressions first (bind side is parameterized)
         if (!checkNodeExpressions(bind, user, placeholderValues)) {
             return false;
