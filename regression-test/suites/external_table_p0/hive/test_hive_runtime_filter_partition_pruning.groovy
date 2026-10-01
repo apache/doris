@@ -110,18 +110,28 @@ suite("test_hive_runtime_filter_partition_pruning", "p0,external") {
                 values (20),(21)"""
             hive_docker """insert into default.hive_partition_value_parquet partition(p=2,q='b') values (22)"""
             hive_docker """insert into default.hive_partition_value_parquet partition(p=3,q='c') values (30)"""
-            hive_docker """set hive.exec.dynamic.partition.mode=nonstrict;
-                insert into default.hive_partition_value_parquet partition(p=4,q)
+            // hive_docker submits the whole string as ONE PreparedStatement, so a SET must be its
+            // own call. The connection is thread-local and reused, so the setting carries over.
+            hive_docker """set hive.exec.dynamic.partition.mode=nonstrict"""
+            hive_docker """insert into default.hive_partition_value_parquet partition(p=4,q)
                 select 40, cast(null as string)"""
             hive_docker """alter table default.hive_partition_value_parquet
                 add partition(p=9,q='empty')"""
             hive_docker """drop table if exists default.hive_partition_value_orc"""
             hive_docker """create table default.hive_partition_value_orc (v int)
                 partitioned by (p int, q string) stored as orc"""
-            hive_docker """set hive.exec.dynamic.partition.mode=nonstrict;
-                insert into default.hive_partition_value_orc partition(p,q)
+            hive_docker """set hive.exec.dynamic.partition.mode=nonstrict"""
+            hive_docker """insert into default.hive_partition_value_orc partition(p,q)
                 select v,p,q from default.hive_partition_value_parquet"""
             hive_docker """alter table default.hive_partition_value_orc add partition(p=9,q='empty')"""
+            // Prove the fixture itself: a silently skipped insert would make every comparison below
+            // vacuous, because baseline and optimized queries would read the same reduced data.
+            for (String table : ["hive_partition_value_parquet", "hive_partition_value_orc"]) {
+                assertEquals("1", hive_docker("select count(*) from default.${table} where p=4")[0][0].toString(),
+                        "${table} must carry the null partition value")
+                assertEquals("0", hive_docker("select count(*) from default.${table} where p=9")[0][0].toString(),
+                        "${table} must carry an empty partition")
+            }
             sql """refresh catalog ${catalog_name}"""
             sql """use `${catalog_name}`.`default`"""
             def originalSettings = ["enable_file_scanner_v2", "enable_partition_column_value_only_optimization",
