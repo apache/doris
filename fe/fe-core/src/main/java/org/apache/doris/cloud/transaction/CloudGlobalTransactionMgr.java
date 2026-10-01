@@ -871,7 +871,19 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         // when ready to send, while retaining the existing table locks and callback cleanup scope.
         Database database = Env.getCurrentInternalCatalog().getDbOrMetaException(builder.getDbId());
         Set<Long> commitTsoTableIds = tableList.stream().map(Table::getId).collect(Collectors.toSet());
-        long commitTso = TransactionUtil.getCommitTSO(transactionId, database, commitTsoTableIds);
+        long commitTso;
+        try {
+            commitTso = TransactionUtil.getCommitTSO(transactionId, database, commitTsoTableIds);
+        } catch (TransactionCommitFailedException e) {
+            // A previous commit may have succeeded before its response was lost. Recover its TSO
+            // and let the existing commit RPC handle idempotency, lazy publish and 2PC status checks.
+            TransactionState persisted = getTransactionState(builder.getDbId(), transactionId);
+            if (persisted == null || (persisted.getTransactionStatus() != TransactionStatus.COMMITTED
+                    && persisted.getTransactionStatus() != TransactionStatus.VISIBLE)) {
+                throw e;
+            }
+            commitTso = persisted.getCommitTSO();
+        }
         if (commitTso > 0) {
             builder.setCommitTso(commitTso).setEnableCheckCommitTsoFence(true);
         }
@@ -1636,6 +1648,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
                                                List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis)
             throws UserException {
+        return commitAndPublishTransactionWithRetry(db, tableList, transactionId, tabletCommitInfos, timeoutMillis,
+                null, Collections.emptyList());
+    }
+
+    @Override
+    public boolean commitAndPublishTransactionWithRetry(DatabaseIf db, List<Table> tableList, long transactionId,
+            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
+            TxnCommitAttachment txnCommitAttachment, List<TableStreamUpdateInfo> streamUpdateInfos)
+            throws UserException {
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         int retryTimes = 0;
@@ -1644,7 +1665,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             while (true) {
                 try {
                     res = commitAndPublishTransaction(db, tableList, transactionId, tabletCommitInfos, timeoutMillis,
-                            null);
+                            txnCommitAttachment, streamUpdateInfos);
                     break;
                 } catch (UserException e) {
                     LOG.warn("failed to commit txn, txnId={},retryTimes={},exception={}",

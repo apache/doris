@@ -334,23 +334,21 @@ class IcebergRestCatalog {
     assertTrue(enableFileScannerV2Rows.size() > 0,
             "Session variable enable_file_scanner_v2 is not found")
     String originalEnableFileScannerV2 = enableFileScannerV2Rows[0][1].toString()
+    def expectedDvCount = sql """ SELECT count(*) FROM dv_test; """
     try {
-        sql """set enable_file_scanner_v2=false"""
-        GetDebugPoint().clearDebugPointsForAllBEs()
-        GetDebugPoint().enableDebugPointForAllBEs(
-                "IcebergDeleteFileReader.read_deletion_vector.io_error")
-        test {
-            sql """ SELECT count(*) FROM dv_test; """
-            exception "injected Iceberg deletion vector read failure"
-        }
-
-        sql """set enable_file_scanner_v2=true"""
-        GetDebugPoint().clearDebugPointsForAllBEs()
-        GetDebugPoint().enableDebugPointForAllBEs(
-                "TableReader.parse_deletion_vector.io_error")
-        test {
-            sql """ SELECT count(*) FROM dv_test; """
-            exception "injected format v2 deletion vector read failure"
+        // Versioned Iceberg scans require V2 even when the session switch is disabled, so the
+        // failure injection must target TableReader for both settings.
+        [false, true].each { boolean enableFileScannerV2 ->
+            sql """set enable_file_scanner_v2=${enableFileScannerV2}"""
+            GetDebugPoint().clearDebugPointsForAllBEs()
+            GetDebugPoint().enableDebugPointForAllBEs(
+                    "TableReader.parse_deletion_vector.io_error")
+            test {
+                sql """ SELECT count(*) FROM dv_test; """
+                exception "injected format v2 deletion vector read failure"
+            }
+            GetDebugPoint().clearDebugPointsForAllBEs()
+            assertEquals(expectedDvCount, sql("SELECT count(*) FROM dv_test;"))
         }
     } finally {
         GetDebugPoint().clearDebugPointsForAllBEs()

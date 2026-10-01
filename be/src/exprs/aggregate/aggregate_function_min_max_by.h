@@ -34,12 +34,14 @@ namespace doris {
 
 struct MaxMinValueBase {
     virtual ~MaxMinValueBase() = default;
-    virtual void write(BufferWritable& buf) const = 0;
-    virtual void read(BufferReadable& buf, Arena& arena) = 0;
+    virtual void write(BufferWritable& buf, const DataTypePtr& data_type,
+                       int be_exec_version) const = 0;
+    virtual void read(BufferReadable& buf, const DataTypePtr& data_type, int be_exec_version,
+                      Arena& arena) = 0;
     virtual void insert_result_into(IColumn& to) const = 0;
     virtual void reset() = 0;
-    virtual void change(const IColumn& column, size_t row_num, Arena& arena) = 0;
-    virtual void change(const MaxMinValueBase& to, Arena& arena) = 0;
+    virtual void set(const IColumn& column, size_t row_num, Arena& arena) = 0;
+    virtual void set(const MaxMinValueBase& to, Arena& arena) = 0;
 };
 
 template <typename VT>
@@ -48,30 +50,33 @@ struct MaxMinValue : public MaxMinValueBase {
 
     MaxMinValue() = default;
 
-    MaxMinValue(const DataTypes& argument_types, int be_version)
-            : value(argument_types, be_version) {}
-
     ~MaxMinValue() override = default;
 
-    void write(BufferWritable& buf) const override { value.write(buf); }
+    void write(BufferWritable& buf, const DataTypePtr& data_type,
+               int be_exec_version) const override {
+        value.write(buf, data_type, be_exec_version);
+    }
 
-    void read(BufferReadable& buf, Arena& arena) override { value.read(buf, arena); }
+    void read(BufferReadable& buf, const DataTypePtr& data_type, int be_exec_version,
+              Arena& arena) override {
+        value.read(buf, data_type, be_exec_version, arena);
+    }
 
     void insert_result_into(IColumn& to) const override { value.insert_result_into(to); }
 
     void reset() override { value.reset(); }
 
-    void change(const IColumn& column, size_t row_num, Arena& arena) override {
-        value.change(column, row_num, arena);
+    void set(const IColumn& column, size_t row_num, Arena& arena) override {
+        value.set(column, row_num, arena);
     }
 
-    void change(const MaxMinValueBase& to, Arena& arena) override {
+    void set(const MaxMinValueBase& to, Arena& arena) override {
         const auto& derived = assert_cast<const MaxMinValue&>(to);
-        value.change(derived.value, arena);
+        value.set(derived.value, arena);
     }
 };
 
-std::unique_ptr<MaxMinValueBase> create_max_min_value(const DataTypePtr& type, int be_version);
+std::unique_ptr<MaxMinValueBase> create_max_min_value(const DataTypePtr& type);
 
 /// For bitmap value
 struct BitmapValueData {
@@ -98,27 +103,28 @@ public:
         }
     }
 
-    void write(BufferWritable& buf) const {
+    void write(BufferWritable& buf, const DataTypePtr&, int) const {
         buf.write_binary(has());
         if (has()) {
             DataTypeBitMap::serialize_as_stream(value, buf);
         }
     }
 
-    void read(BufferReadable& buf, Arena&) {
+    void read(BufferReadable& buf, const DataTypePtr&, int, Arena&) {
         buf.read_binary(has_value);
         if (has()) {
             DataTypeBitMap::deserialize_as_stream(value, buf);
         }
     }
 
-    void change(const IColumn& column, size_t row_num, Arena&) {
+    void set(const IColumn& column, size_t row_num, Arena&) {
         has_value = true;
         value = assert_cast<const ColumnBitmap&, TypeCheckOnRelease::DISABLE>(column)
                         .get_data()[row_num];
     }
 
-    void change(const Self& to, Arena&) {
+    void set(const Self& to, Arena&) {
+        DORIS_CHECK(to.has());
         has_value = true;
         value = to.value;
     }
@@ -139,7 +145,7 @@ public:
  * In contrast, the value type VT is intentionally not made a template parameter.
  * On one hand, templating both key and value types would lead to an n × n
  * explosion in template instantiations, increasing compile time and code size.
- * On the other hand, value objects typically only invoke the change method; for
+ * On the other hand, value objects typically only invoke the set method; for
  * random data, this method is called approximately log(x) times (where x is the
  * data size), making the overhead acceptable.
  */
@@ -152,16 +158,8 @@ protected:
 public:
     AggregateFunctionMinMaxByBaseData() {}
 
-    AggregateFunctionMinMaxByBaseData(const DataTypes argument_types, int be_version)
-        requires(std::is_same_v<KT, SingleValueDataComplexType>)
-            : key(SingleValueDataComplexType(DataTypes {argument_types[1]}, be_version)) {
-        value = create_max_min_value(argument_types[0], be_version);
-    }
-
-    AggregateFunctionMinMaxByBaseData(const DataTypes argument_types, int be_version)
-        requires(!std::is_same_v<KT, SingleValueDataComplexType>)
-    {
-        value = create_max_min_value(argument_types[0], be_version);
+    explicit AggregateFunctionMinMaxByBaseData(const DataTypes& argument_types) {
+        value = create_max_min_value(argument_types[0]);
     }
 
     void insert_result_into(IColumn& to) const { value->insert_result_into(to); }
@@ -170,14 +168,16 @@ public:
         value->reset();
         key.reset();
     }
-    void write(BufferWritable& buf) const {
-        value->write(buf);
-        key.write(buf);
+    void write(BufferWritable& buf, const DataTypePtr& value_type, const DataTypePtr& key_type,
+               int be_exec_version) const {
+        value->write(buf, value_type, be_exec_version);
+        key.write(buf, key_type, be_exec_version);
     }
 
-    void read(BufferReadable& buf, Arena& arena) {
-        value->read(buf, arena);
-        key.read(buf, arena);
+    void read(BufferReadable& buf, const DataTypePtr& value_type, const DataTypePtr& key_type,
+              int be_exec_version, Arena& arena) {
+        value->read(buf, value_type, be_exec_version, arena);
+        key.read(buf, key_type, be_exec_version, arena);
     }
 };
 
@@ -187,32 +187,32 @@ struct AggregateFunctionMaxByData : public AggregateFunctionMinMaxByBaseData<KT>
 
     AggregateFunctionMaxByData() {}
 
-    AggregateFunctionMaxByData(const DataTypes argument_types, int be_version)
-            : AggregateFunctionMinMaxByBaseData<KT>(argument_types, be_version) {}
+    explicit AggregateFunctionMaxByData(const DataTypes& argument_types)
+            : AggregateFunctionMinMaxByBaseData<KT>(argument_types) {}
 
     void change_if_better(const IColumn& value_column, const IColumn& key_column, size_t row_num,
                           Arena& arena) {
-        if (this->key.change_if_greater(key_column, row_num, arena)) {
-            this->value->change(value_column, row_num, arena);
+        if (this->key.set_if_greater(key_column, row_num, arena)) {
+            this->value->set(value_column, row_num, arena);
         }
     }
 
     void change_if_better_batch(const IColumn& value_column, const IColumn& key_column,
                                 size_t batch_size, Arena& arena) {
-        size_t max_pos = -1;
+        size_t best_pos = batch_size;
         for (size_t i = 0; i < batch_size; ++i) {
-            if (this->key.change_if_greater(key_column, i, arena)) {
-                max_pos = i;
+            if (this->key.set_if_greater(key_column, i, arena)) {
+                best_pos = i;
             }
         }
-        if (max_pos != static_cast<size_t>(-1)) {
-            this->value->change(value_column, max_pos, arena);
+        if (best_pos < batch_size) {
+            this->value->set(value_column, best_pos, arena);
         }
     }
 
     void change_if_better(const Self& to, Arena& arena) {
-        if (this->key.change_if_greater(to.key, arena)) {
-            this->value->change(*to.value, arena);
+        if (this->key.set_if_greater(to.key, arena)) {
+            this->value->set(*to.value, arena);
         }
     }
 
@@ -225,32 +225,32 @@ struct AggregateFunctionMinByData : public AggregateFunctionMinMaxByBaseData<KT>
 
     AggregateFunctionMinByData() {}
 
-    AggregateFunctionMinByData(const DataTypes argument_types, int be_version)
-            : AggregateFunctionMinMaxByBaseData<KT>(argument_types, be_version) {}
+    explicit AggregateFunctionMinByData(const DataTypes& argument_types)
+            : AggregateFunctionMinMaxByBaseData<KT>(argument_types) {}
 
     void change_if_better(const IColumn& value_column, const IColumn& key_column, size_t row_num,
                           Arena& arena) {
-        if (this->key.change_if_less(key_column, row_num, arena)) {
-            this->value->change(value_column, row_num, arena);
+        if (this->key.set_if_smaller(key_column, row_num, arena)) {
+            this->value->set(value_column, row_num, arena);
         }
     }
 
     void change_if_better_batch(const IColumn& value_column, const IColumn& key_column,
                                 size_t batch_size, Arena& arena) {
-        size_t min_pos = -1;
+        size_t best_pos = batch_size;
         for (size_t i = 0; i < batch_size; ++i) {
-            if (this->key.change_if_less(key_column, i, arena)) {
-                min_pos = i;
+            if (this->key.set_if_smaller(key_column, i, arena)) {
+                best_pos = i;
             }
         }
-        if (min_pos != static_cast<size_t>(-1)) {
-            this->value->change(value_column, min_pos, arena);
+        if (best_pos < batch_size) {
+            this->value->set(value_column, best_pos, arena);
         }
     }
 
     void change_if_better(const Self& to, Arena& arena) {
-        if (this->key.change_if_less(to.key, arena)) {
-            this->value->change(*to.value, arena);
+        if (this->key.set_if_smaller(to.key, arena)) {
+            this->value->set(*to.value, arena);
         }
     }
 
@@ -263,23 +263,23 @@ class AggregateFunctionsMinMaxBy final
           MultiExpression,
           NullableAggregateFunction {
 private:
-    DataTypePtr& value_type;
-    DataTypePtr& key_type;
+    const DataTypePtr& _value_type;
+    const DataTypePtr& _key_type;
 
 public:
     AggregateFunctionsMinMaxBy(const DataTypes& arguments)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionsMinMaxBy<Data>>(
                       {arguments[0], arguments[1]}),
-              value_type(this->argument_types[0]),
-              key_type(this->argument_types[1]) {}
+              _value_type(this->argument_types[0]),
+              _key_type(this->argument_types[1]) {}
 
     void create(AggregateDataPtr __restrict place) const override {
-        new (place) Data(IAggregateFunction::argument_types, IAggregateFunction::version);
+        new (place) Data(IAggregateFunction::argument_types);
     }
 
     String get_name() const override { return Data::name(); }
 
-    DataTypePtr get_return_type() const override { return value_type; }
+    DataTypePtr get_return_type() const override { return _value_type; }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena& arena) const override {
@@ -299,12 +299,12 @@ public:
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        this->data(place).write(buf);
+        this->data(place).write(buf, _value_type, _key_type, IAggregateFunction::version);
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena& arena) const override {
-        this->data(place).read(buf, arena);
+        this->data(place).read(buf, _value_type, _key_type, IAggregateFunction::version, arena);
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
@@ -326,15 +326,9 @@ AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
     auto call = [&](const auto& dispatch_type) -> bool {
         using DispatchType = std::decay_t<decltype(dispatch_type)>;
         constexpr auto PT = DispatchType::PType;
-        if constexpr (is_decimal(PT)) {
-            result = creator_without_type::create_multi_arguments<
-                    AggregateFunctionsMinMaxBy<Data<SingleValueDataDecimal<PT>>>>(
-                    argument_types, result_is_nullable, attr);
-        } else {
-            result = creator_without_type::create_multi_arguments<
-                    AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<PT>>>>(
-                    argument_types, result_is_nullable, attr);
-        }
+        result = creator_without_type::create_multi_arguments<
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataFixed<PT>>>>(
+                argument_types, result_is_nullable, attr);
         return true;
     };
     // Keep nano dispatch local because the shared scalar dispatcher is also used by templates
@@ -356,8 +350,8 @@ AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
                                                                          result_is_nullable, attr);
     case PrimitiveType::TYPE_ARRAY:
         return creator_without_type::create_multi_arguments<
-                AggregateFunctionsMinMaxBy<Data<SingleValueDataComplexType>>>(
-                argument_types, result_is_nullable, attr);
+                AggregateFunctionsMinMaxBy<Data<SingleValueDataColumn>>>(argument_types,
+                                                                         result_is_nullable, attr);
     default:
         return nullptr;
     }

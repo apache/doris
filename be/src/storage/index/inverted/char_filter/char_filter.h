@@ -31,6 +31,24 @@ public:
 
     virtual void initialize() = 0;
 
+    virtual int32_t correct_offset(int32_t current_offset) const {
+        if (const auto* nested = dynamic_cast<const DorisCharFilter*>(_reader.get());
+            nested != nullptr) {
+            return nested->correct_offset(current_offset);
+        }
+        return current_offset;
+    }
+
+    // Map an offset that starts a term. A position inside an expanded edit belongs to the source
+    // start of that edit, while correct_offset() maps it to the edit's source end.
+    virtual int32_t correct_start_offset(int32_t current_offset) const {
+        if (const auto* nested = dynamic_cast<const DorisCharFilter*>(_reader.get());
+            nested != nullptr) {
+            return nested->correct_start_offset(current_offset);
+        }
+        return current_offset;
+    }
+
     int64_t position() override {
         throw Exception(ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, "CharFilter::position");
     }

@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_timestamptz_stream_load") {
+    // Named zones retain historical second offsets when loaded timestamps are rendered.
+    sql "set time_zone = 'Asia/Shanghai'"
     def csvFile = """test_timestamptz_stream_load.csv"""
     def prepare_table_dup_key = {
         sql """ DROP TABLE IF EXISTS test_timestamptz_stream_load_dup_key"""

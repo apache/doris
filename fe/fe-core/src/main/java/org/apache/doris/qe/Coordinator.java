@@ -768,6 +768,10 @@ public class Coordinator implements CoordInterface {
     // A call to Exec() must precede all other member function calls.
     @Override
     public void exec() throws Exception {
+        Status status = getQueryStatus();
+        if (!status.ok()) {
+            throw new UserException(status.getErrorMsg());
+        }
         // LoadTask does not have context, not controlled by queue now
         if (context != null) {
             if (Config.enable_workload_group) {
@@ -786,8 +790,12 @@ public class Coordinator implements CoordInterface {
                     // AllBackendComputeGroup may assocatiate with multiple workload groups
                     queryQueue = wgs.get(0).getQueryQueue();
                     queueToken = queryQueue.getToken(context.getSessionVariable().wgQuerySlotCount);
-                    queueToken.get(DebugUtil.printId(queryId),
-                            this.queryOptions.getExecutionTimeout() * 1000);
+                    try {
+                        queueToken.get(DebugUtil.printId(queryId),
+                                this.queryOptions.getExecutionTimeout() * 1000);
+                    } catch (UserException e) {
+                        throw preferTerminalReason(e);
+                    }
                 }
                 context.setWorkloadGroupName(wgs.get(0).getName());
             } else {
@@ -929,6 +937,9 @@ public class Coordinator implements CoordInterface {
     protected void sendPipelineCtx() throws Exception {
         lock();
         try {
+            if (!queryStatus.ok()) {
+                throw new UserException(queryStatus.getErrorMsg());
+            }
             Multiset<TNetworkAddress> hostCounter = HashMultiset.create();
             for (FragmentExecParams params : fragmentExecParamsMap.values()) {
                 for (FInstanceExecParam fi : params.instanceExecParams) {
@@ -1422,12 +1433,6 @@ public class Coordinator implements CoordInterface {
     }
 
     private void cancelQuery(Status cancelReason) {
-        if (queueToken != null) {
-            queueToken.cancel();
-        }
-        for (ScanNode scanNode : scanNodes) {
-            scanNode.stop();
-        }
         if (cancelReason.ok()) {
             throw new RuntimeException("Should use correct cancel reason, but it is "
                     + cancelReason.toString());
@@ -1452,6 +1457,21 @@ public class Coordinator implements CoordInterface {
         } finally {
             unlock();
         }
+        if (queueToken != null) {
+            queueToken.cancel();
+        }
+        // Scan cleanup is best-effort and must never escape: the terminal status and interval cancellation
+        // above are already published, and a throwing scan would otherwise skip the remaining scans (and the
+        // caller's coordinator close), masking the retained reason. A scan whose first stop() threw still
+        // removes its own sources on the close-time retry because SplitAssignment.stop() is idempotent.
+        for (ScanNode scanNode : scanNodes) {
+            try {
+                scanNode.stop();
+            } catch (Throwable t) {
+                LOG.error("error happens when scannode stop during cancel, query id: {}",
+                        DebugUtil.printId(queryId), t);
+            }
+        }
     }
 
     public boolean isQueryCancelled() {
@@ -1461,6 +1481,28 @@ public class Coordinator implements CoordInterface {
         } finally {
             unlock();
         }
+    }
+
+    protected Status getQueryStatus() {
+        lock();
+        try {
+            return new Status(queryStatus);
+        } finally {
+            unlock();
+        }
+    }
+
+    /**
+     * A queue wait can be unblocked by {@code cancel()}, which records the real TIMEOUT/KILL reason on the
+     * coordinator before cancelling the token, while {@link QueueToken#get} can only report a generic
+     * "query is cancelled". Prefer the retained terminal reason when one is present.
+     */
+    protected UserException preferTerminalReason(UserException queueFailure) {
+        Status current = getQueryStatus();
+        if (!current.ok()) {
+            return new UserException(current.getErrorMsg());
+        }
+        return queueFailure;
     }
 
     private void cancelLatch() {
@@ -2784,8 +2826,7 @@ public class Coordinator implements CoordInterface {
         }
 
         PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
-        boolean hasExternalCommitData = params.isSetHivePartitionUpdates()
-                || params.isSetIcebergCommitDatas() || params.isSetMcCommitDatas();
+        boolean hasExternalCommitData = CommitDataSerializer.hasCommitData(params);
         if (ctx == null) {
             if (hasExternalCommitData) {
                 throw new IllegalStateException("Missing fragment handler for external-file report");
@@ -2855,18 +2896,9 @@ public class Coordinator implements CoordInterface {
             if (params.isSetErrorTabletInfos()) {
                 updateErrorTabletInfos(params.getErrorTabletInfos());
             }
-            if (params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas()
-                    || params.isSetMcCommitDatas()) {
+            if (CommitDataSerializer.hasCommitData(params)) {
                 Transaction txn = Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(reportTxnId);
-                if (params.isSetHivePartitionUpdates()) {
-                    CommitDataSerializer.feed(txn, params.getHivePartitionUpdates());
-                }
-                if (params.isSetIcebergCommitDatas()) {
-                    CommitDataSerializer.feed(txn, params.getIcebergCommitDatas());
-                }
-                if (params.isSetMcCommitDatas()) {
-                    CommitDataSerializer.feed(txn, params.getMcCommitDatas());
-                }
+                CommitDataSerializer.feed(txn, params);
             }
 
             accepted = true;

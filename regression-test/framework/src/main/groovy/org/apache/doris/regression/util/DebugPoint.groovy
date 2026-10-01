@@ -38,6 +38,11 @@ class DebugPoint {
         this.suite = suite
     }
 
+    private static String buildDebugPointUrl(String host, int httpPort, String path) {
+        String scheme = Http.enableTls ? "https" : "http"
+        return "${scheme}://${host}:${httpPort}${path}"
+    }
+
     /* Enable debug point in regression
      * Note: set BE config::enable_debug_points = true to take effect
      * Parameters:
@@ -48,7 +53,7 @@ class DebugPoint {
      *    params:      timeout, execute, or other customized input params
      */
     static def enableDebugPoint(String host, int httpPort, NodeType type, String name, Map<String, String> params = null) {
-        def url = 'http://' + host + ':' + httpPort + '/api/debug_point/add/' + name
+        def url = buildDebugPointUrl(host, httpPort, '/api/debug_point/add/' + name)
         if (params != null && params.size() > 0) {
             url += '?' + params.collect((k, v) -> k + '=' + v).join('&')
         }
@@ -64,7 +69,7 @@ class DebugPoint {
      *    name:        debug point name
      */
     static def disableDebugPoint(String host, int httpPort, NodeType type, String name) {
-        def url = 'http://' + host + ':' + httpPort + '/api/debug_point/remove/' + name
+        def url = buildDebugPointUrl(host, httpPort, '/api/debug_point/remove/' + name)
         def result = Http.POST(url, null, true)
         Http.checkHttpResult(result, type)
     }
@@ -76,7 +81,7 @@ class DebugPoint {
      *    type:        NodeType.BE or NodeType.FE
      */
     static def clearDebugPoints(String host, int httpPort, NodeType type) {
-        def url = 'http://' + host + ':' + httpPort + '/api/debug_point/clear'
+        def url = buildDebugPointUrl(host, httpPort, '/api/debug_point/clear')
         def result = Http.POST(url, null, true)
         Http.checkHttpResult(result, type)
     }
@@ -197,4 +202,3 @@ class DebugPoint {
         }
     }
 }
-

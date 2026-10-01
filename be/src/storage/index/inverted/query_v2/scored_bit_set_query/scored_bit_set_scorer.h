@@ -21,7 +21,7 @@
 #include <utility>
 
 #include "roaring/roaring.hh"
-#include "storage/compaction/collection_similarity.h"
+#include "storage/index/collection_similarity.h"
 #include "storage/index/inverted/query_v2/bit_set_query/bit_set_scorer.h"
 #include "storage/index/inverted/query_v2/scorer.h"
 

@@ -23,6 +23,14 @@ import org.junit.jupiter.api.Test;
 public class JdbcMySQLConnectorClientTest {
 
     @Test
+    void testIsDorisServerIdentity() {
+        Assertions.assertTrue(JdbcMySQLConnectorClient.isDorisServerIdentity("apache_doris"));
+        Assertions.assertTrue(JdbcMySQLConnectorClient.isDorisServerIdentity("APACHE_DORIS"));
+        Assertions.assertFalse(JdbcMySQLConnectorClient.isDorisServerIdentity("mysql"));
+        Assertions.assertFalse(JdbcMySQLConnectorClient.isDorisServerIdentity(null));
+    }
+
+    @Test
     void testIsDorisCompatibleVersionComment() {
         Assertions.assertTrue(JdbcMySQLConnectorClient.isDorisCompatibleVersionComment(
                 "Apache Doris version 3.1.0"));
@@ -32,6 +40,8 @@ public class JdbcMySQLConnectorClientTest {
                 "VeloDB version 2.1.0"));
         Assertions.assertTrue(JdbcMySQLConnectorClient.isDorisCompatibleVersionComment(
                 "enterprise version enterprise-4.0.5-rc01-0724569463d (Cloud Mode)"));
+        Assertions.assertTrue(JdbcMySQLConnectorClient.isDorisCompatibleVersionComment(
+                "enterprise version enterprise-current"));
 
         Assertions.assertFalse(JdbcMySQLConnectorClient.isDorisCompatibleVersionComment(
                 "MySQL Community Server - GPL"));
