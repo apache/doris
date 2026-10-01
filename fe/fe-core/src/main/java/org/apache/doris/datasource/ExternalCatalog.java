@@ -1176,7 +1176,7 @@ public abstract class ExternalCatalog
 
     public void replayCreateDb(String dbName) {
         if (metadataOps != null) {
-            metadataOps.afterCreateDb();
+            metadataOps.afterCreateDb(dbName);
         }
     }
 
@@ -1189,13 +1189,16 @@ public abstract class ExternalCatalog
         try {
             Optional<String> resolvedDbName = metadataOps.dropDbWithResolvedName(dbName, ifExists, force);
             if (!resolvedDbName.isPresent()) {
-                // No remote drop happened (for example DROP DATABASE IF EXISTS on a missing
-                // database). Do not journal the no-op, otherwise every follower would replay a
-                // post-drop hook that retires caches for a database that was never touched.
-                LOG.info("skip drop database {}.{} because the database does not exist", getName(), dbName);
-                return;
+                if (!metadataOps.shouldJournalDropDbNoOp()) {
+                    // No remote drop happened (for example DROP DATABASE IF EXISTS on a missing
+                    // database). Do not journal the no-op unless the connector needs follower FEs
+                    // to replay cache reconciliation.
+                    LOG.info("skip drop database {}.{} because the database does not exist", getName(), dbName);
+                    return;
+                }
             }
-            DropDbInfo info = new DropDbInfo(getName(), resolvedDbName.get(), resolvedDbName.get());
+            String journalDbName = resolvedDbName.orElse(dbName);
+            DropDbInfo info = new DropDbInfo(getName(), journalDbName, journalDbName);
             Env.getCurrentEnv().getEditLog().logDropDb(info);
         } catch (Exception e) {
             LOG.warn("Failed to drop database {} in catalog {}", dbName, getName(), e);

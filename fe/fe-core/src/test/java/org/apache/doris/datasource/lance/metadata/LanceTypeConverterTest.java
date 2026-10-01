@@ -320,7 +320,7 @@ public class LanceTypeConverterTest {
     public void testAddColumnExpressionsPreserveScalarTypes() {
         Assertions.assertEquals("CAST(NULL AS INT)",
                 LanceTypeConverter.toAddColumnExpression(Type.INT));
-        Assertions.assertEquals("CAST(NULL AS VARCHAR)",
+        Assertions.assertEquals("CAST(NULL AS STRING)",
                 LanceTypeConverter.toAddColumnExpression(Type.STRING));
         Assertions.assertEquals("CAST(NULL AS DECIMAL(18, 4))",
                 LanceTypeConverter.toAddColumnExpression(
@@ -393,6 +393,24 @@ public class LanceTypeConverterTest {
                 () -> LanceTypeConverter.toArrowSchema(
                         Collections.singletonList(new Column("large", Type.LARGEINT, true))));
         Assertions.assertTrue(exception.getMessage().contains("largeint"));
+    }
+
+    @Test
+    public void testLegacyDateAndDecimalV2AreRejectedForRoundTripSafety() {
+        for (Type legacyType : Arrays.asList(Type.DATE, ScalarType.createDecimalV2Type(10, 2))) {
+            IllegalArgumentException create = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> LanceTypeConverter.toArrowSchema(
+                            Collections.singletonList(new Column("legacy", legacyType, true))));
+            Assertions.assertTrue(create.getMessage().contains("cannot be read back losslessly"));
+
+            IllegalArgumentException add = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> LanceTypeConverter.toAddColumnExpression(legacyType));
+            Assertions.assertTrue(add.getMessage().contains("cannot be read back losslessly"));
+
+            IllegalArgumentException modify = Assertions.assertThrows(IllegalArgumentException.class,
+                    () -> LanceTypeConverter.toAlterColumnType(legacyType));
+            Assertions.assertTrue(modify.getMessage().contains("cannot be read back losslessly"));
+        }
     }
 
     /** Creates a field with Arrow extension metadata. */

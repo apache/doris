@@ -21,7 +21,10 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.io.ByteArrayOutputStream;
 import java.math.BigInteger;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayDeque;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
@@ -108,7 +111,7 @@ final class LanceManifestPaths {
             throw new IllegalArgumentException("Lance namespace returned no table location");
         }
         if (!URL_SCHEME.matcher(location).find()) {
-            return StringUtils.strip(location, "/");
+            return normalizeObjectPath(StringUtils.strip(location, "/"));
         }
         String path = StringUtils.substringBefore(StringUtils.substringBefore(location, "?"), "#");
         path = path.substring(path.indexOf(':') + 1);
@@ -116,7 +119,64 @@ final class LanceManifestPaths {
             int slash = path.indexOf('/', 2);
             path = slash < 0 ? "" : path.substring(slash);
         }
-        return StringUtils.strip(percentDecode(path), "/");
+        return normalizeObjectPath(StringUtils.strip(percentDecode(path), "/"));
+    }
+
+    private static String normalizeObjectPath(String path) {
+        if (path.isEmpty()) {
+            return "";
+        }
+        ArrayDeque<String> segments = new ArrayDeque<>();
+        for (String segment : path.split("/+")) {
+            if (segment.isEmpty() || ".".equals(segment)) {
+                continue;
+            }
+            if ("..".equals(segment)) {
+                if (!segments.isEmpty() && !"..".equals(segments.peekLast())) {
+                    segments.removeLast();
+                } else {
+                    segments.addLast(segment);
+                }
+            } else {
+                segments.addLast(segment);
+            }
+        }
+        return String.join("/", segments);
+    }
+
+    static String normalizedLocation(String location) {
+        if (location == null) {
+            throw new IllegalArgumentException("Lance namespace returned no table location");
+        }
+        String stripped = StringUtils.substringBefore(StringUtils.substringBefore(location, "?"), "#");
+        if (!URL_SCHEME.matcher(stripped).find()) {
+            return normalizeObjectPath(StringUtils.strip(stripped, "/"));
+        }
+        try {
+            URI uri = new URI(stripped);
+            String path = normalizeObjectPath(StringUtils.strip(percentDecode(uri.getRawPath()), "/"));
+            StringBuilder result = new StringBuilder();
+            result.append(uri.getScheme()).append(":");
+            if (uri.getRawAuthority() != null) {
+                result.append("//").append(uri.getRawAuthority());
+            }
+            if (!path.isEmpty()) {
+                result.append("/").append(path);
+            }
+            return result.toString();
+        } catch (URISyntaxException e) {
+            String path = stripped.substring(stripped.indexOf(':') + 1);
+            if (path.startsWith("//")) {
+                int slash = path.indexOf('/', 2);
+                String authority = slash < 0 ? path.substring(2) : path.substring(2, slash);
+                String objectPath = slash < 0 ? ""
+                        : normalizeObjectPath(StringUtils.strip(percentDecode(path.substring(slash)), "/"));
+                return stripped.substring(0, stripped.indexOf(':') + 1) + "//" + authority
+                        + (objectPath.isEmpty() ? "" : "/" + objectPath);
+            }
+            return stripped.substring(0, stripped.indexOf(':') + 1)
+                    + normalizeObjectPath(StringUtils.strip(percentDecode(path), "/"));
+        }
     }
 
     /** Decodes {@code %XX} escapes as UTF-8 bytes and keeps anything else, as Rust's percent_decode does. */

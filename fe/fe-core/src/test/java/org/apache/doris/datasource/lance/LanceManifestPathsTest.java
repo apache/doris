@@ -95,6 +95,18 @@ public class LanceManifestPathsTest {
         }
     }
 
+    @Test
+    public void testNormalizedLocationPreservesAuthorityAndNormalizesPath() {
+        Assertions.assertEquals("s3://bucket/warehouse/items.lance",
+                LanceManifestPaths.normalizedLocation(
+                        "s3://bucket/warehouse//./staged/../items.lance/?X-Amz-Signature=example#fragment"));
+        Assertions.assertEquals("warehouse/items.lance",
+                LanceManifestPaths.normalizedLocation("/warehouse//./staged/../items.lance/"));
+        Assertions.assertNotEquals(
+                LanceManifestPaths.normalizedLocation("s3://bucket-a/warehouse/items.lance"),
+                LanceManifestPaths.normalizedLocation("s3://bucket-b/warehouse/items.lance"));
+    }
+
     /**
      * The path lance-io addresses a location by: after the bucket, percent-decoded for a URL, as
      * is without a scheme.
@@ -115,6 +127,10 @@ public class LanceManifestPathsTest {
         Assertions.assertEquals("tmp/a b/t.lance", LanceManifestPaths.objectStorePath("file:///tmp/a%20b/t.lance"));
         Assertions.assertEquals("tmp/t.lance", LanceManifestPaths.objectStorePath("file:/tmp/t.lance"));
         Assertions.assertEquals("tmp/a%20b/t.lance", LanceManifestPaths.objectStorePath("/tmp/a%20b/t.lance"));
+        Assertions.assertEquals("warehouse/items.lance",
+                LanceManifestPaths.objectStorePath("s3://bucket/warehouse//./staged/../items.lance/"));
+        Assertions.assertEquals("warehouse/items.lance",
+                LanceManifestPaths.objectStorePath("/warehouse//./staged/../items.lance/"));
         Assertions.assertEquals("t%zz.lance", LanceManifestPaths.objectStorePath("s3://bucket/t%zz.lance"));
     }
 }

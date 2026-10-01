@@ -25,7 +25,7 @@ suite("test_lance_ddl", "p0,external") {
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String catalogName = "test_lance_ddl"
-    String databaseName = "lance_ddl_db"
+    String databaseName = "default"
     String tableName = "events"
 
     sql """DROP CATALOG IF EXISTS `${catalogName}`"""
@@ -43,8 +43,7 @@ suite("test_lance_ddl", "p0,external") {
             )
         """
 
-        sql """DROP DATABASE IF EXISTS `${catalogName}`.`${databaseName}` FORCE"""
-        sql """CREATE DATABASE `${catalogName}`.`${databaseName}`"""
+        sql """DROP TABLE IF EXISTS `${catalogName}`.`${databaseName}`.`${tableName}`"""
         sql """
             CREATE TABLE `${catalogName}`.`${databaseName}`.`${tableName}` (
                 id INT NOT NULL COMMENT 'identifier',
@@ -116,7 +115,7 @@ suite("test_lance_ddl", "p0,external") {
 
         String showCreate = sql("""SHOW CREATE TABLE `${catalogName}`.`${databaseName}`.`${tableName}`""")[0][1]
         assertTrue(showCreate.contains("ENGINE=LANCE"))
-        assertTrue(showCreate.contains("COMMENT 'Lance DDL regression table'"))
+        assertTrue(showCreate.contains("COMMENT \"Lance DDL regression table\""))
         assertTrue(showCreate.contains("\"owner\" = \"doris\""))
         assertFalse(showCreate.contains("password"))
 
@@ -126,7 +125,6 @@ suite("test_lance_ddl", "p0,external") {
         }
 
         sql """DROP TABLE `${catalogName}`.`${databaseName}`.`${tableName}`"""
-        sql """DROP DATABASE `${catalogName}`.`${databaseName}`"""
     } finally {
         sql """DROP CATALOG IF EXISTS `${catalogName}`"""
     }
