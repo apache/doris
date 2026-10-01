@@ -34,6 +34,8 @@ import java.util.Map;
 /** Properties for a Lance directory namespace backed by a filesystem warehouse. */
 public class LanceFileSystemMetastoreProperties extends AbstractLanceProperties {
     public static final String WAREHOUSE = "warehouse";
+    private static final String DIR_LISTING_TO_MANIFEST_MIGRATION_ENABLED =
+            "dir_listing_to_manifest_migration_enabled";
 
     @ConnectorProperty(
             names = {WAREHOUSE},
@@ -56,6 +58,9 @@ public class LanceFileSystemMetastoreProperties extends AbstractLanceProperties 
             BufferAllocator allocator, Map<String, String> javaStorageOptions) {
         Map<String, String> namespaceProperties = new HashMap<>();
         namespaceProperties.put("root", warehouse);
+        // Prefer manifest metadata for managed root tables while retaining directory discovery
+        // for externally created datasets that have not been registered yet.
+        namespaceProperties.put(DIR_LISTING_TO_MANIFEST_MIGRATION_ENABLED, "true");
         javaStorageOptions.forEach(
                 (key, value) -> namespaceProperties.put("storage." + key, value));
         return LanceNamespace.connect("dir", namespaceProperties, allocator);

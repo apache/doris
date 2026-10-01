@@ -121,6 +121,13 @@ public interface ExternalMetadataOps {
     }
 
     /**
+     * Whether a no-op drop still needs to be journaled so follower FEs replay its cache cleanup.
+     */
+    default boolean shouldJournalDropDbNoOp() {
+        return false;
+    }
+
+    /**
      * @param createTableInfo
      * @return return false means table does not exist and is created this time
      * @throws UserException

@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.lance.LanceExternalTable;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -314,6 +315,49 @@ public class AlterTableCommandTest {
                     () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(sql).getNereidsOps()));
             Assertions.assertTrue(exception.getMessage()
                     .contains("Multiple Iceberg ALTER clauses are not supported"));
+        }
+
+        AlterTableCommand.checkColumnOperationsSupported(table,
+                parseAlter("ALTER TABLE t ADD COLUMN (c1 INT NULL, c2 BIGINT NULL)").getNereidsOps());
+    }
+
+    @Test
+    void testRejectUnsupportedLanceColumnOptions() {
+        LanceExternalTable table = Mockito.mock(LanceExternalTable.class);
+        for (String sql : Arrays.asList(
+                "ALTER TABLE t ADD COLUMN c STRING NULL TO r1",
+                "ALTER TABLE t ADD COLUMN (c1 STRING NULL, c2 INT NULL) IN r1",
+                "ALTER TABLE t DROP COLUMN c FROM r1",
+                "ALTER TABLE t MODIFY COLUMN c STRING FROM r1")) {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(sql).getNereidsOps()));
+            Assertions.assertTrue(exception.getMessage()
+                    .contains("Rollup is not supported for Lance column operations"));
+        }
+
+        for (String sql : Arrays.asList(
+                "ALTER TABLE t ADD COLUMN c STRING NULL PROPERTIES ('k' = 'v')",
+                "ALTER TABLE t ADD COLUMN (c1 STRING NULL, c2 INT NULL) PROPERTIES ('k' = 'v')",
+                "ALTER TABLE t DROP COLUMN c PROPERTIES ('k' = 'v')",
+                "ALTER TABLE t MODIFY COLUMN c STRING PROPERTIES ('k' = 'v')")) {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(sql).getNereidsOps()));
+            Assertions.assertTrue(exception.getMessage()
+                    .contains("PROPERTIES are not supported for Lance column operations"));
+        }
+    }
+
+    @Test
+    void testRejectCompoundLanceColumnOperations() throws AnalysisException {
+        LanceExternalTable table = Mockito.mock(LanceExternalTable.class);
+        for (String sql : Arrays.asList(
+                "ALTER TABLE t ADD COLUMN c INT NULL, DROP COLUMN d",
+                "ALTER TABLE t RENAME COLUMN c TO c2, RENAME COLUMN d TO d2",
+                "ALTER TABLE t MODIFY COLUMN c COMMENT 'c', MODIFY COLUMN d COMMENT 'd'")) {
+            AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                    () -> AlterTableCommand.checkColumnOperationsSupported(table, parseAlter(sql).getNereidsOps()));
+            Assertions.assertTrue(exception.getMessage()
+                    .contains("Multiple Lance ALTER clauses are not supported"));
         }
 
         AlterTableCommand.checkColumnOperationsSupported(table,
