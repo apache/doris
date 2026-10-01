@@ -408,6 +408,9 @@ public class MTMVTest {
         EditLog editLog = Mockito.mock(EditLog.class);
         EditLogItem editLogItem = Mockito.mock(EditLogItem.class);
         Mockito.when(env.getEditLog()).thenReturn(editLog);
+        // The invalidation path drops the rewrite cache under the MV lock, so the mocked env
+        // has to serve a real cache manager, otherwise invalidateRewriteCache hits a null one.
+        Mockito.when(env.getMtmvCacheManager()).thenReturn(new MTMVCacheManager());
         Mockito.when(editLog.submitEdit(Mockito.eq(OperationType.OP_ALTER_MTMV), Mockito.any(AlterMTMV.class)))
                 .thenAnswer(invocation -> {
                     Assertions.assertTrue(mvRwLock.isWriteLockedByCurrentThread());
