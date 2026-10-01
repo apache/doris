@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_gram_pattern_recall", "p0") {
+    sql "SET enable_common_expr_pushdown=true"
+    sql "SET enable_common_expr_pushdown_for_inverted_index=true"
     sql "DROP INVERTED INDEX TOKENIZER IF EXISTS gram_recall_invalid_tokenizer"
     test {
         sql """CREATE INVERTED INDEX TOKENIZER gram_recall_invalid_tokenizer

@@ -18,6 +18,8 @@
 // Compaction rebuilds docs-only gram indexes from merged rows. Verify query results
 // and index availability before and after compaction.
 suite("test_gram_compaction", "p0") {
+    sql "SET enable_common_expr_pushdown=true"
+    sql "SET enable_common_expr_pushdown_for_inverted_index=true"
     def waitAnalyzerInstalled = { String name ->
         def deadline = System.currentTimeMillis() + 180_000
         Exception lastNotFound = null

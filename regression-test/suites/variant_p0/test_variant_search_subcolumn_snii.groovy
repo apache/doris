@@ -17,6 +17,8 @@
 
 // Verify SNII SEARCH against direct, nested, and special-character VARIANT paths.
 suite("test_variant_search_subcolumn_snii") {
+    sql "SET enable_common_expr_pushdown=true"
+    sql "SET enable_common_expr_pushdown_for_inverted_index=true"
     def table_name = "test_variant_search_subcolumn_snii"
     sql "set default_variant_doc_materialization_min_rows = 0"
 

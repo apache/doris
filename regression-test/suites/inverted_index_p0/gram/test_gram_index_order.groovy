@@ -28,6 +28,8 @@ import org.apache.doris.regression.action.ProfileAction
 //      whichever tokenized index came first. A docs-only index in that place -- and a gram index
 //      is docs-only by default -- made a valid query fail.
 suite("test_gram_index_order", "p0") {
+    sql "SET enable_common_expr_pushdown=true"
+    sql "SET enable_common_expr_pushdown_for_inverted_index=true"
     def sparseTok = "gram_order_sparse_tok"
     def sparseAna = "gram_order_sparse"
     def positionalAna = "gram_order_positional"

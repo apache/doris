@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_storage_format_snii", "p0, nonConcurrent") {
+    sql "SET enable_common_expr_pushdown=true"
+    sql "SET enable_common_expr_pushdown_for_inverted_index=true"
     sql "DROP TABLE IF EXISTS test_storage_format_snii"
     sql "DROP TABLE IF EXISTS test_storage_format_snii_array"
     sql "DROP TABLE IF EXISTS test_storage_format_snii_add_index"

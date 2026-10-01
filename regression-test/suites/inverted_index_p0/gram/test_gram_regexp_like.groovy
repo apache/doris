@@ -22,6 +22,8 @@ import org.apache.doris.regression.action.ProfileAction
 // Compare LIKE and REGEXP results with and without gram index pushdown.
 // The original expression must still decide which candidate rows match.
 suite("test_gram_regexp_like", "p0") {
+    sql "SET enable_common_expr_pushdown=true"
+    sql "SET enable_common_expr_pushdown_for_inverted_index=true"
     def tbl = "t_gram_regexp_like"
     // Policy names are globally unique: tokenizers and analyzers share one namespace, so the two
     // names must differ
