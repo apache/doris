@@ -230,6 +230,25 @@ public class AuditLogScannerCursorTest {
                 "the resumed page skips the content-duplicate group explicitly: " + resumed);
     }
 
+    /**
+     * The window lower bound must be COMPLETION-aware: audit_log.time is the query's
+     * START time, so a long-running query started before the window is published only
+     * after it finishes - without the completion predicate the next window's start-time
+     * lower bound excludes its row FOREVER.
+     */
+    @Test
+    public void testScanLowerBoundIsCompletionAware() {
+        String sql = AuditLogScanner.buildScanSql(
+                "2026-01-01 11:55:00", "2026-01-01 15:00:00", 500, 1000, 100000);
+        Assertions.assertTrue(sql.contains("timestampadd(SECOND"),
+                "the lower bound must also admit rows whose START predates the window but"
+                        + " whose COMPLETION reaches into it: " + sql);
+        Assertions.assertTrue(sql.contains("`time` >= '2026-01-01 11:55:00'"),
+                "the start-time bound stays: " + sql);
+        Assertions.assertTrue(sql.contains("`time` < '2026-01-01 15:00:00'"),
+                "the upper bound stays start-time based: " + sql);
+    }
+
     @Test
     public void testScanSqlCarriesTotalOrderAndCursor() {
         String sql = AuditLogScanner.buildScanSql(

@@ -85,6 +85,19 @@ public class ExplainCommand extends Command implements NoForward {
         this.showPlanProcess = showPlanProcess;
     }
 
+    /**
+     * Whether this EXPLAIN wraps a QUERY (mirrors StmtExecutor.isQuery). The forced
+     * forwarding policy that sends a SELECT to the master must route its EXPLAIN the same
+     * way: EXPLAIN is a Command (NoForward), so an observer whose baseline cache predates
+     * a baseline just created on the master reported "no hit" although the immediately
+     * following SELECT is forwarded and uses that baseline.
+     *
+     * @return true when the explained statement is a query rather than a command
+     */
+    public boolean isQueryExplain() {
+        return !(logicalPlan instanceof Command);
+    }
+
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!(logicalPlan instanceof Explainable)) {

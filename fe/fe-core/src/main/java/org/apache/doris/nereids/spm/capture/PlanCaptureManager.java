@@ -82,6 +82,12 @@ public class PlanCaptureManager extends MasterDaemon {
      */
     static final int CHECKPOINT_IO_TIMEOUT_SECONDS = 10;
 
+    /** Bounded read-back attempts confirming the first reservation is VISIBLE. */
+    private static final int CHECKPOINT_VISIBILITY_ATTEMPTS = 5;
+
+    /** Delay between the reservation visibility reads (millis). */
+    private static final long CHECKPOINT_VISIBILITY_RETRY_MILLIS = 200L;
+
     private static final Logger LOG = LogManager.getLogger(PlanCaptureManager.class);
 
     private static final PlanCaptureManager INSTANCE = new PlanCaptureManager();
@@ -443,9 +449,10 @@ public class PlanCaptureManager extends MasterDaemon {
                 // state could ever resume.
                 pendingWindowStart = scanStart;
                 pendingWindowEnd = scanEnd;
-                if (!persistCheckpoint()) {
+                if (!persistCheckpointAndConfirm()) {
                     LOG.warn("Plan capture cycle skipped: the initial checkpoint row could not"
-                            + " be made durable");
+                            + " be confirmed VISIBLE (a reservation nothing can read cannot"
+                            + " protect the window)");
                     return;
                 }
             }
@@ -978,6 +985,49 @@ public class PlanCaptureManager extends MasterDaemon {
         }
         durableCheckpointObserved = true;
         return true;
+    }
+
+    /**
+     * First-cycle reservation with VISIBILITY confirmation. An internal INSERT can return
+     * SQL OK with transaction status COMMITTED although the publication timed out (the
+     * default return mode is committed), so a successful write does not prove the row is
+     * READABLE: consuming the window then relies on a reservation no takeover can read -
+     * a leadership change before publication makes the next FE derive a later window and
+     * permanently skip the unconsumed tail of a truncated page (the failed-UPSERT abort
+     * does not cover this OK/COMMITTED path). The write is followed by a bounded read-back
+     * through the same reader the load path uses; until the row is visible the cycle is
+     * skipped and {@code durableCheckpointObserved} stays false, so the next cycle
+     * re-persists (idempotent UPSERT) and re-confirms.
+     *
+     * @return true when the reservation is durable AND readable (or persistence is off)
+     */
+    private boolean persistCheckpointAndConfirm() {
+        if (!checkpointPersistenceEnabled()) {
+            return true;
+        }
+        if (!persistCheckpoint()) {
+            return false;
+        }
+        for (int attempt = 0; attempt < CHECKPOINT_VISIBILITY_ATTEMPTS; attempt++) {
+            try {
+                List<ResultRow> rows = checkpointReader.get();
+                if (rows != null && !rows.isEmpty()) {
+                    return true;
+                }
+            } catch (Exception e) {
+                LOG.debug("SPM capture checkpoint visibility probe failed: {}", e.getMessage());
+            }
+            try {
+                Thread.sleep(CHECKPOINT_VISIBILITY_RETRY_MILLIS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        durableCheckpointObserved = false;
+        LOG.warn("SPM capture: the checkpoint reservation is not readable yet; the cycle"
+                + " will retry");
+        return false;
     }
 
     private static long parseLongValue(String text) {

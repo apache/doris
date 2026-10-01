@@ -66,6 +66,8 @@ public class BaselineManagerConcurrencyTest {
     /** In-memory simulation of the shared durable store (two masters, lock-free). */
     private static final class SimulatedStore implements BaselineManager.IdAllocatorStoreForTest {
         private final Map<Long, List<BaselinePlan>> rows = new ConcurrentHashMap<>();
+        /** When set, every INSERT fails BEFORE committing (an ambiguous write). */
+        private boolean failInsert;
         /** When set, the FIRST by-id probe blocks on it until released. */
         private CountDownLatch probeEntered;
         private CountDownLatch probeRelease;
@@ -93,6 +95,9 @@ public class BaselineManagerConcurrencyTest {
 
         @Override
         public void insert(BaselinePlan plan) {
+            if (failInsert) {
+                throw new RuntimeException("internal statement timed out after 10s");
+            }
             rows.compute(plan.getId(), (id, current) -> {
                 List<BaselinePlan> updated = current == null
                         ? new ArrayList<>() : new ArrayList<>(current);
@@ -1124,6 +1129,40 @@ public class BaselineManagerConcurrencyTest {
                     "two durable versions without update times must fail closed");
         } finally {
             BaselineManager.statusProtocolStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * An ALTER whose persistInsert(durablePlan) reports an error BEFORE committing must
+     * not be "confirmed" by the still-present OLD-status row: the reconciliation probe
+     * checks the STATUS it wrote, so it sees ABSENT and the write fails visibly - the
+     * old-version delete never runs. The old unconstrained probe matched the old row,
+     * updateStatus then deleted it and NO durable version remained (the next refresh /
+     * restart lost the baseline).
+     */
+    @Test
+    public void testAmbiguousInsertIsNotConfirmedByTheOldStatusRow() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            long id = manager.createBaseline(baseline("d-ins", "p-ins"));
+            store.failInsert = true;
+
+            Assertions.assertThrows(RuntimeException.class,
+                    () -> manager.updateStatus(id, BaselineStatus.DISABLED),
+                    "an INSERT that never committed must not be confirmed by the OLD row");
+            Assertions.assertEquals(BaselineStatus.ENABLED, manager.getBaseline(id).getStatus(),
+                    "the failed ALTER must not flip the live object");
+            Assertions.assertEquals(1, store.rowsOf(id).size(),
+                    "the old version must survive: " + store.rowsOf(id));
+            Assertions.assertEquals(BaselineStatus.ENABLED, store.rowsOf(id).get(0).getStatus(),
+                    "no durable version may be deleted: " + store.rowsOf(id));
+        } finally {
+            store.failInsert = false;
+            BaselineManager.idAllocatorStoreForTest = null;
             manager.clearForTest();
         }
     }

@@ -28,6 +28,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Full capture-cycle checkpoint handoff tests.
@@ -145,6 +146,22 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
+     * The reader seam of a checkpoint store: a row is readable only AFTER the writer
+     * made it visible (see {@link #checkpointRow}), so the reservation confirmation
+     * exercises the same read path the load does.
+     */
+    private static ResultRow checkpointRow(Map<String, String> params) {
+        return new ResultRow(List.of(
+                params.get("lastScan"), params.get("pendingStart"), params.get("pendingEnd"),
+                params.get("cursorQueryTime"),
+                params.getOrDefault("cursorTime", ""),
+                params.getOrDefault("cursorQueryId", ""),
+                params.getOrDefault("failedAttempts", "{}"),
+                params.getOrDefault("retryQueue", "{}"),
+                params.getOrDefault("cursorTail", "")));
+    }
+
+    /**
      * A TRUNCATED batch (limit reached) must persist the FULL cursor of its last raw row
      * - including the tail - and the next cycle must resume with exactly that tail.
      */
@@ -157,11 +174,17 @@ public class PlanCaptureCycleHandoffTest {
             RecordingScanner scanner = new RecordingScanner(List.of(), false,
                     42L, "2026-01-02 00:00:00", "qid-t", tail);
             manager.setScannerForTest(scanner);
-            // the internal table exists but has no row yet (a successful empty read)
-            manager.setCheckpointReaderForTest(List::of);
+            // the internal table exists but has no row yet (a successful empty read); the
+            // writer makes every persisted row READABLE, so the reservation confirmation
+            // (persistCheckpointAndConfirm) sees it
+            AtomicReference<Map<String, String>> visible = new AtomicReference<>();
+            manager.setCheckpointReaderForTest(() -> visible.get() == null
+                    ? List.of() : List.of(checkpointRow(visible.get())));
             List<Map<String, String>> persisted = new ArrayList<>();
-            manager.setCheckpointWriterForTest((sql, params) ->
-                    persisted.add(new HashMap<>(params)));
+            manager.setCheckpointWriterForTest((sql, params) -> {
+                persisted.add(new HashMap<>(params));
+                visible.set(new HashMap<>(params));
+            });
 
             manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
                     manager.getFilter());
@@ -282,7 +305,9 @@ public class PlanCaptureCycleHandoffTest {
         PlanCaptureManager manager = PlanCaptureManager.getInstance();
         manager.resetForTest();
         try {
-            manager.setCheckpointReaderForTest(List::of); // successful EMPTY read
+            AtomicReference<Map<String, String>> visible = new AtomicReference<>();
+            manager.setCheckpointReaderForTest(() -> visible.get() == null
+                    ? List.of() : List.of(checkpointRow(visible.get()))); // successful EMPTY read
             RecordingScanner scanner = new RecordingScanner(List.of(), true,
                     AuditLogScanner.CURSOR_ABSENT, "", "", "");
             manager.setScannerForTest(scanner);
@@ -293,6 +318,9 @@ public class PlanCaptureCycleHandoffTest {
                     throw new RuntimeException("internal statement timed out after 10s");
                 }
                 persisted.add(new HashMap<>(params));
+                // the write only becomes readable once it succeeded: the reservation is
+                // consumed after the visibility confirmation (persistCheckpointAndConfirm)
+                visible.set(new HashMap<>(params));
             });
 
             // cycle 1: the RESERVATION fails -> the window is NOT consumed, so a
@@ -324,6 +352,53 @@ public class PlanCaptureCycleHandoffTest {
                     "the exhausted cycle persists its advanced watermark: " + persisted);
             Assertions.assertTrue(manager.isDurableCheckpointObservedForTest(),
                     "once a row is durable the reservation is skipped");
+        } finally {
+            manager.resetForTest();
+        }
+    }
+
+    /**
+     * A reservation whose internal INSERT returned OK with transaction status COMMITTED
+     * (publication timed out) is NOT readable yet. Consuming the window anyway relies on
+     * a reservation no takeover can read: a leadership change before publication makes
+     * the next FE derive a LATER window - the overlap only reaches younger rows - and
+     * permanently skips this page's unconsumed tail. The cycle must wait for a READABLE
+     * row (bounded) and, when it never becomes visible, skip without consuming.
+     */
+    @Test
+    public void testReservationRequiresAReadableRow() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            // the write reports OK but the store never publishes: reader stays empty
+            manager.setCheckpointReaderForTest(List::of);
+            RecordingScanner scanner = new RecordingScanner(List.of(), true,
+                    AuditLogScanner.CURSOR_ABSENT, "", "", "");
+            manager.setScannerForTest(scanner);
+            AtomicInteger writes = new AtomicInteger();
+            manager.setCheckpointWriterForTest((sql, params) -> writes.incrementAndGet());
+
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(1, writes.get(), "the reservation attempts the write");
+            Assertions.assertEquals(0, scanner.calls.get(),
+                    "an unreadable reservation must not consume the window");
+            Assertions.assertFalse(manager.isDurableCheckpointObservedForTest(),
+                    "the unconfirmed reservation must stay retryable");
+
+            // the publication lands: the next cycle re-persists (idempotent UPSERT) and
+            // only then consumes the window
+            AtomicReference<Map<String, String>> visible = new AtomicReference<>();
+            manager.setCheckpointReaderForTest(() -> visible.get() == null
+                    ? List.of() : List.of(checkpointRow(visible.get())));
+            manager.setCheckpointWriterForTest((sql, params) -> {
+                writes.incrementAndGet();
+                visible.set(new HashMap<>(params));
+            });
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(1, scanner.calls.get(),
+                    "the confirmed reservation lets the cycle consume the window");
         } finally {
             manager.resetForTest();
         }
