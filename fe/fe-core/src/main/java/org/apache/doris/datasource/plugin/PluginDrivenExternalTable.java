@@ -55,6 +55,7 @@ import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
 import org.apache.doris.datasource.systable.PartitionsSysTable;
 import org.apache.doris.datasource.systable.PluginDrivenSysTable;
 import org.apache.doris.datasource.systable.SysTable;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.statistics.analysis.AnalysisInfo;
@@ -1446,6 +1447,56 @@ public class PluginDrivenExternalTable extends ExternalTable {
         }
     }
 
+    @Override
+    public long getRowCountForSelectedPartitions(SelectedPartitions selectedPartitions,
+            Optional<MvccSnapshot> snapshot) {
+        ConnectContext context = ConnectContext.get();
+        if (!GlobalVariable.enable_get_row_count_from_file_list
+                || !selectedPartitions.isPruned
+                || selectedPartitions.totalPartitionNum == 0
+                || selectedPartitions.selectedPartitions.size() >= selectedPartitions.totalPartitionNum
+                || context != null && context.getStatementContext() != null
+                        && context.getStatementContext().hasAnyPlanReadLockTable()) {
+            // Selected-partition estimation can synchronously load HMS metadata and file listings. A mixed
+            // internal/external query derives statistics while holding its internal-table read locks, so it must
+            // fall back to the existing table-level estimate rather than add selected-partition remote I/O
+            // in that critical section.
+            return UNKNOWN_ROW_COUNT;
+        }
+
+        try {
+            makeSureInitialized();
+            PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+            Connector connector = pluginCatalog.getConnector();
+            ConnectorSession session = pluginCatalog.buildConnectorSession();
+            ConnectorMetadata metadata = PluginDrivenMetadata.get(session, connector);
+            Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+            if (!handleOpt.isPresent()) {
+                return UNKNOWN_ROW_COUNT;
+            }
+
+            ConnectorTableHandle handle = handleOpt.get();
+            if (snapshot.isPresent() && snapshot.get() instanceof PluginDrivenMvccSnapshot) {
+                ConnectorMvccSnapshot connectorSnapshot =
+                        ((PluginDrivenMvccSnapshot) snapshot.get()).getConnectorSnapshot();
+                handle = metadata.applySnapshot(session, handle, connectorSnapshot);
+            }
+            long dataSize = metadata.estimateDataSizeByListingFiles(
+                    session, handle, new ArrayList<>(selectedPartitions.selectedPartitions.keySet()));
+            if (dataSize < 0) {
+                return UNKNOWN_ROW_COUNT;
+            }
+            if (dataSize == 0) {
+                return 0;
+            }
+            long rowWidth = estimatedRowWidth(true, snapshot);
+            return rowWidth > 0 ? dataSize / rowWidth : UNKNOWN_ROW_COUNT;
+        } catch (RuntimeException e) {
+            LOG.debug("Failed to estimate selected partition row count for table {}", name, e);
+            return UNKNOWN_ROW_COUNT;
+        }
+    }
+
     private long fetchRowCount(ConnectorSession session, ConnectorMetadata metadata) {
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
@@ -1569,6 +1620,22 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return 0;
         }
         List<Column> partitionColumns = excludePartitionColumns ? getPartitionColumns() : null;
+        long rowWidth = 0;
+        for (Column column : schema) {
+            if (partitionColumns != null && partitionColumns.contains(column)) {
+                continue;
+            }
+            rowWidth += column.getDataType().getSlotSize();
+        }
+        return rowWidth;
+    }
+
+    private long estimatedRowWidth(boolean excludePartitionColumns, Optional<MvccSnapshot> snapshot) {
+        List<Column> schema = getFullSchema(snapshot);
+        if (schema == null) {
+            return 0;
+        }
+        List<Column> partitionColumns = excludePartitionColumns ? getPartitionColumns(snapshot) : null;
         long rowWidth = 0;
         for (Column column : schema) {
             if (partitionColumns != null && partitionColumns.contains(column)) {

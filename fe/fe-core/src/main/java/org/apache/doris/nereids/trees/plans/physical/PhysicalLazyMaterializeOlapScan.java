@@ -48,6 +48,7 @@ public class PhysicalLazyMaterializeOlapScan extends PhysicalOlapScan {
                 physicalOlapScan.getSelectedIndexId(),
                 physicalOlapScan.getSelectedTabletIds(),
                 physicalOlapScan.getSelectedPartitionIds(),
+                physicalOlapScan.hasPartitionPredicate(),
                 physicalOlapScan.getDistributionSpec(),
                 physicalOlapScan.getPreAggStatus(),
                 physicalOlapScan.getBaseOutputs(),
@@ -62,7 +63,10 @@ public class PhysicalLazyMaterializeOlapScan extends PhysicalOlapScan {
                 physicalOlapScan.getScoreLimit(),
                 physicalOlapScan.getScoreRangeInfo(),
                 physicalOlapScan.getAnnOrderKeys(),
-                physicalOlapScan.getAnnLimit()
+                physicalOlapScan.getAnnLimit(),
+                physicalOlapScan.getTableAlias(),
+                physicalOlapScan.getPartitionPrunablePredicates(),
+                physicalOlapScan.getScanParams()
         );
         this.scan = physicalOlapScan;
         this.rowId = rowId;

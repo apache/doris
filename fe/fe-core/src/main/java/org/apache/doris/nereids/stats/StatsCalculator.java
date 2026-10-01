@@ -32,6 +32,9 @@ import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -49,6 +52,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.PartitionPrunablePredicate;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
@@ -76,6 +80,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
@@ -135,6 +140,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticConstants;
@@ -162,6 +168,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -401,28 +408,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return getColumnStatistic(catalogRelation.getTable(), slot.getName(), idxId);
     }
 
-    private double getSelectedPartitionRowCount(OlapScan olapScan, double tableRowCount) {
-        // the number of partitions whose row count is not available
-        double unknownPartitionCount = 0;
-        double partRowCountSum = 0;
-        for (long id : olapScan.getSelectedPartitionIds()) {
-            long partRowCount = olapScan.getTable()
-                    .getRowCountForPartitionIndex(id, olapScan.getSelectedIndexId(), true);
-            if (partRowCount == -1) {
-                unknownPartitionCount++;
-            } else {
-                partRowCountSum += partRowCount;
-            }
-        }
-        // estimate row count for unknownPartitionCount
-        if (unknownPartitionCount > 0) {
-            // each selected partition has at least one row
-            partRowCountSum += Math.max(unknownPartitionCount,
-                    tableRowCount * unknownPartitionCount / olapScan.getTable().getPartitionNum());
-        }
-        return partRowCountSum;
-    }
-
     private void setHasUnknownColStatsInStatementContext() {
         if (ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null) {
             ConnectContext.get().getStatementContext().setHasUnknownColStats(true);
@@ -512,7 +497,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             LOG.info("computeOlapScan optStats isPresent {}, tableRowCount is {}, table name is {}",
                     optStats.isPresent(), tableRowCount, olapTable.getQualifiedName());
             if (optStats.isPresent()) {
-                double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan, tableRowCount);
+                double selectedPartitionsRowCount = olapTable.getRowCountForSelectedPartitions(
+                        olapScan.getSelectedPartitionIds(), olapScan.getSelectedIndexId(), tableRowCount);
                 if (isRegisteredRowCount(olapScan)) {
                     // If a row count is injected for the materialized view, use it to fix the issue where
                     // the materialized view cannot be selected by cbo stable due to selectedPartitionsRowCount being 0,
@@ -579,7 +565,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 && olapScan.getSelectedPartitionIds().size() < olapScan.getTable().getPartitionNum()) {
             // partition pruned
             // try to use selected partition stats, if failed, fall back to table stats
-            double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan, tableRowCount);
+            double selectedPartitionsRowCount = olapTable.getRowCountForSelectedPartitions(
+                    olapScan.getSelectedPartitionIds(), olapScan.getSelectedIndexId(), tableRowCount);
             List<String> selectedPartitionNames = new ArrayList<>(olapScan.getSelectedPartitionIds().size());
             olapScan.getSelectedPartitionIds().forEach(id -> {
                 selectedPartitionNames.add(olapScan.getTable().getPartition(id).getName());
@@ -606,6 +593,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
             checkIfUnknownStatsUsedAsKey(builder);
             builder.setRowCount(selectedPartitionsRowCount);
+            builder.setConjunctsAppliedToRowCount(getPrunableConjuncts(olapScan));
         } else {
             // get table level stats
             for (SlotReference slot : visibleOutputSlots) {
@@ -616,8 +604,18 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
             checkIfUnknownStatsUsedAsKey(builder);
             builder.setRowCount(tableRowCount);
+            if (olapScan.getSelectedPartitionIds().size() >= olapScan.getTable().getPartitionNum()) {
+                builder.setConjunctsAppliedToRowCount(getPrunableConjuncts(olapScan));
+            }
         }
         return computeVirtualColumnStats(olapScan, builder.build());
+    }
+
+    private Set<Expression> getPrunableConjuncts(OlapScan olapScan) {
+        Optional<PartitionPrunablePredicate> prunablePredicate = olapScan.getPartitionPrunablePredicates();
+        return prunablePredicate
+                .map(predicate -> predicate.getPrunableConjuncts())
+                .orElse(ImmutableSet.of());
     }
 
     private Statistics computeVirtualColumnStats(OlapScan relation, Statistics stats) {
@@ -816,7 +814,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     @Override
     public Statistics visitLogicalFileScan(LogicalFileScan fileScan, Void context) {
-        return computeCatalogRelation(fileScan);
+        return computeFileScan(fileScan);
     }
 
     @Override
@@ -1020,7 +1018,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
 
     @Override
     public Statistics visitPhysicalFileScan(PhysicalFileScan fileScan, Void context) {
-        return computeCatalogRelation(fileScan);
+        return computeFileScan(fileScan);
     }
 
     @Override
@@ -1171,7 +1169,90 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      * computeFilter
      */
     public Statistics computeFilter(Filter filter, Statistics inputStats) {
-        return new FilterEstimation().estimate(filter.getPredicate(), inputStats);
+        Set<Expression> appliedConjuncts = new LinkedHashSet<>(filter.getConjuncts());
+        appliedConjuncts.retainAll(inputStats.getConjunctsAppliedToRowCount());
+        Statistics inputWithConstrainedColumns = constrainColumnsWithoutReducingRows(appliedConjuncts, inputStats);
+
+        Set<Expression> remainingConjuncts = new LinkedHashSet<>(filter.getConjuncts());
+        remainingConjuncts.removeAll(appliedConjuncts);
+        return new FilterEstimation().estimate(ExpressionUtils.and(remainingConjuncts),
+                inputWithConstrainedColumns);
+    }
+
+    private Statistics constrainColumnsWithoutReducingRows(Set<Expression> conjuncts, Statistics inputStats) {
+        Map<Slot, List<Expression>> conjunctsBySlot = new LinkedHashMap<>();
+        for (Expression conjunct : conjuncts) {
+            Set<Slot> inputSlots = conjunct.getInputSlots();
+            if (inputSlots.size() != 1) {
+                // A relationship between multiple partition columns (for example a = b) does not bound either
+                // column independently. FilterEstimation derives a reduced row count for such predicates and then
+                // caps both NDVs to it, which is not valid after restoring the scan cardinality.
+                continue;
+            }
+            Slot slot = inputSlots.iterator().next();
+            conjunctsBySlot.computeIfAbsent(slot, ignored -> new ArrayList<>()).add(conjunct);
+        }
+
+        StatisticsBuilder constrainedBuilder = new StatisticsBuilder(inputStats);
+        for (Map.Entry<Slot, List<Expression>> entry : conjunctsBySlot.entrySet()) {
+            Slot slot = entry.getKey();
+            ColumnStatistic currentColumnStats = inputStats.findColumnStatistics(slot);
+            if (currentColumnStats == null) {
+                continue;
+            }
+
+            // The scan row count may already be much smaller than the table-level NDV. Estimate all constraints
+            // on this slot against one stable base, then restore the selected row count once. When OLAP partition
+            // metadata has already narrowed min/max, retain those proven bounds while borrowing the uncapped NDV
+            // and row count from the original table statistic.
+            ColumnStatistic estimationColumnStats = currentColumnStats;
+            double estimationRowCount = inputStats.getRowCount();
+            if (currentColumnStats.getOriginal() != null) {
+                ColumnStatisticBuilder estimationColumnBuilder =
+                        new ColumnStatisticBuilder(currentColumnStats.getOriginal());
+                if (Double.isFinite(currentColumnStats.minValue)) {
+                    estimationColumnBuilder.setMinValue(currentColumnStats.minValue)
+                            .setMinExpr(currentColumnStats.minExpr);
+                }
+                if (Double.isFinite(currentColumnStats.maxValue)) {
+                    estimationColumnBuilder.setMaxValue(currentColumnStats.maxValue)
+                            .setMaxExpr(currentColumnStats.maxExpr);
+                }
+                estimationColumnStats = estimationColumnBuilder.build();
+                estimationRowCount = Math.max(estimationRowCount, estimationColumnStats.count);
+            }
+            Statistics estimated = new StatisticsBuilder()
+                    .setRowCount(estimationRowCount)
+                    .putColumnStatistics(slot, estimationColumnStats)
+                    .build();
+            for (Expression conjunct : entry.getValue()) {
+                estimated = new FilterEstimation().estimate(conjunct, estimated);
+            }
+            if (estimated.getRowCount() <= 0) {
+                continue;
+            }
+            ColumnStatistic columnStatistic = estimated.findColumnStatistics(slot);
+            if (columnStatistic == null) {
+                continue;
+            }
+
+            ColumnStatisticBuilder columnBuilder = new ColumnStatisticBuilder(
+                    columnStatistic, inputStats.getRowCount());
+            if (!columnStatistic.isUnKnown) {
+                double restoredNdv = Math.min(columnStatistic.ndv, inputStats.getRowCount());
+                columnBuilder.setNdv(restoredNdv);
+                if (columnStatistic.numNulls >= 0) {
+                    double restoredNulls = columnStatistic.numNulls;
+                    if (estimated.getRowCount() > 0) {
+                        restoredNulls *= inputStats.getRowCount() / estimated.getRowCount();
+                    }
+                    columnBuilder.setNumNulls(Math.max(0, Math.min(
+                            restoredNulls, inputStats.getRowCount() - restoredNdv)));
+                }
+            }
+            constrainedBuilder.putColumnStatistics(slot, columnBuilder.build());
+        }
+        return constrainedBuilder.build();
     }
 
     private ColumnStatistic getColumnStatistic(TableIf table, String colName, long idxId) {
@@ -1248,17 +1329,55 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return olapTableStatistics.getColumnStatistics(colName, connectContext);
     }
 
+    public Statistics computeFileScan(LogicalFileScan fileScan) {
+        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(
+                fileScan.getTable(), fileScan.getTableSnapshot(), fileScan.getScanParams());
+        return buildFileScanStats(fileScan, fileScan.getTable(), fileScan.getSelectedPartitions(), snapshot);
+    }
+
+    public Statistics computeFileScan(PhysicalFileScan fileScan) {
+        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(
+                fileScan.getTable(), fileScan.getTableSnapshot(), fileScan.getScanParams());
+        return buildFileScanStats(fileScan, fileScan.getTable(), fileScan.getSelectedPartitions(), snapshot);
+    }
+
+    private Statistics buildFileScanStats(CatalogRelation fileScan, ExternalTable table,
+            SelectedPartitions selectedPartitions, Optional<MvccSnapshot> snapshot) {
+        long selectedPartitionRowCount = table.getRowCountForSelectedPartitions(selectedPartitions, snapshot);
+        if (selectedPartitionRowCount != TableIf.UNKNOWN_ROW_COUNT) {
+            return buildCatalogRelationStats(fileScan, selectedPartitionRowCount,
+                    selectedPartitions.getPrunableConjuncts(), true);
+        }
+
+        boolean tableRowCountMatchesSelection = selectedPartitions.totalPartitionNum > 0
+                && selectedPartitions.selectedPartitions.size() == selectedPartitions.totalPartitionNum;
+        return buildCatalogRelationStats(fileScan, table.getRowCount(),
+                tableRowCountMatchesSelection
+                        ? selectedPartitions.getPrunableConjuncts() : ImmutableSet.of(),
+                false);
+    }
+
     /**
      * compute stats for catalogRelations except OlapScan
      */
     public Statistics computeCatalogRelation(CatalogRelation catalogRelation) {
+        return buildCatalogRelationStats(catalogRelation, catalogRelation.getTable().getRowCount(),
+                ImmutableSet.of(), false);
+    }
+
+    private Statistics buildCatalogRelationStats(CatalogRelation catalogRelation, double scanRowCount,
+            Set<Expression> conjunctsAppliedToRowCount, boolean scaleColumnStatsToScanRowCount) {
         StatisticsBuilder builder = new StatisticsBuilder();
-        double tableRowCount = catalogRelation.getTable().getRowCount();
+        boolean hasKnownScanRowCount = scanRowCount != TableIf.UNKNOWN_ROW_COUNT;
+        double estimatedScanRowCount = scanRowCount;
         // for FeUt, use ColumnStatistic.UNKNOWN
         if (!FeConstants.enableInternalSchemaDb
                 || ConnectContext.get() == null
                 || ConnectContext.get().getState().isInternal()) {
-            builder.setRowCount(Math.max(1, tableRowCount));
+            builder.setRowCount(hasKnownScanRowCount ? Math.max(1, scanRowCount) : 1);
+            if (hasKnownScanRowCount) {
+                builder.setConjunctsAppliedToRowCount(conjunctsAppliedToRowCount);
+            }
             for (Slot slot : catalogRelation.getOutput()) {
                 builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN);
             }
@@ -1274,12 +1393,14 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
         }
         Set<SlotReference> slotSet = slotSetBuilder.build();
-        if (tableRowCount <= 0) {
-            tableRowCount = 1;
+        if (hasKnownScanRowCount) {
+            scanRowCount = Math.max(1, scanRowCount);
+        } else {
+            scanRowCount = 1;
             // try to get row count from col stats
             for (SlotReference slot : slotSet) {
                 ColumnStatistic cache = getColumnStatsFromTableCache(catalogRelation, slot);
-                tableRowCount = Math.max(cache.count, tableRowCount);
+                scanRowCount = Math.max(cache.count, scanRowCount);
             }
         }
         for (SlotReference slot : slotSet) {
@@ -1289,11 +1410,26 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             } else {
                 cache = getColumnStatsFromTableCache(catalogRelation, slot);
             }
-            ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache, tableRowCount);
+            ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache, scanRowCount);
+            if (scaleColumnStatsToScanRowCount && !cache.isUnKnown) {
+                // External catalogs currently expose table-level column statistics. Keep their ratios when the
+                // scan cardinality has been narrowed to selected partitions.
+                double scaledNulls = 0;
+                if (cache.count > 0 && cache.numNulls >= 0) {
+                    double scale = Math.min(1, Math.max(0, estimatedScanRowCount) / cache.count);
+                    scaledNulls = Math.min(cache.numNulls * scale, scanRowCount);
+                    colStatsBuilder.setNumNulls(scaledNulls);
+                }
+                colStatsBuilder.setNdv(Math.min(cache.ndv, scanRowCount - scaledNulls));
+            }
             builder.putColumnStatistics(slot, colStatsBuilder.build());
         }
         checkIfUnknownStatsUsedAsKey(builder);
-        return builder.setRowCount(tableRowCount).build();
+        builder.setRowCount(scanRowCount);
+        if (hasKnownScanRowCount) {
+            builder.setConjunctsAppliedToRowCount(conjunctsAppliedToRowCount);
+        }
+        return builder.build();
     }
 
     /**

@@ -87,9 +87,9 @@ public class ConnectorPluginSurfaceTest {
             Assertions.assertNotNull(in, "missing connector plugin API version resource");
             version.load(in);
         }
-        // Major 12 adds the SUPPORTS_FIELD_ID_ACCESS_PATH and SUPPORTS_SYS_TABLE_NESTED_COLUMN_PRUNE
-        // capabilities: a plugin naming either constant cannot link against an older FE.
-        Assertions.assertEquals("12.0", version.getProperty("api.version"));
+        // Major 13 在 major 12 的接口基础上新增所选分区的数据量估算重载。
+        // 旧 FE 必须在链接不兼容字节码前拒绝使用该重载的插件。
+        Assertions.assertEquals("13.0", version.getProperty("api.version"));
     }
 
     /** Root entry points plus provider/handle types returned to connector plugins. */

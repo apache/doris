@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.plugin;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.connector.spi.Connector;
@@ -26,13 +27,21 @@ import org.apache.doris.connector.spi.ConnectorSession;
 import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorTableStatistics;
 import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+import org.apache.doris.connector.spi.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.mvcc.PluginDrivenMvccSnapshot;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Arrays;
@@ -196,6 +205,122 @@ public class PluginDrivenExternalTableRowCountTest {
             PluginDrivenExternalTable table = tableWith(Optional.empty(), 10,
                     Arrays.asList(intCol("a"), intCol("b"), intCol("c")), Collections.emptyList());
             Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, table.fetchRowCount());
+        });
+    }
+
+    @Test
+    public void selectedPartitionFileListEstimateUsesOnlySelectedPartitionNames() {
+        withFileListGate(true, () -> {
+            ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+            ConnectorSession session = Mockito.mock(ConnectorSession.class);
+            Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
+            ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+            Mockito.when(metadata.getTableHandle(session, "REMOTE_DB", "REMOTE_TBL"))
+                    .thenReturn(Optional.of(handle));
+            Mockito.when(metadata.estimateDataSizeByListingFiles(
+                    session, handle, Collections.singletonList("p1"))).thenReturn(400L);
+            TestablePluginCatalog catalog = new TestablePluginCatalog(metadata, session);
+
+            @SuppressWarnings("unchecked")
+            ExternalDatabase<PluginDrivenExternalTable> db = Mockito.mock(ExternalDatabase.class);
+            Mockito.when(db.getRemoteName()).thenReturn("REMOTE_DB");
+            List<Column> schema = Arrays.asList(intCol("v"), bigintCol("dt"));
+            PluginDrivenSchemaCacheValue cacheValue = new PluginDrivenSchemaCacheValue(
+                    schema, Collections.singletonList(schema.get(1)), Collections.singletonList("dt"));
+            PluginDrivenExternalTable table = new PluginDrivenExternalTable(
+                    1L, "tbl", "REMOTE_TBL", catalog, db) {
+                @Override
+                protected synchronized void makeSureInitialized() {
+                }
+
+                @Override
+                public Optional<SchemaCacheValue> getSchemaCacheValue() {
+                    return Optional.of(cacheValue);
+                }
+            };
+
+            PartitionItem p1 = Mockito.mock(PartitionItem.class);
+            PartitionItem p2 = Mockito.mock(PartitionItem.class);
+            SelectedPartitions selectedPartitions = new SelectedPartitions(
+                    2, ImmutableMap.of("p1", p1, "p2", p2), false)
+                    .withPruneResult(ImmutableMap.of("p1", p1), true,
+                            ImmutableList.of(), Collections.emptySet());
+
+            Assertions.assertEquals(100L,
+                    table.getRowCountForSelectedPartitions(selectedPartitions, Optional.empty()));
+            Mockito.verify(metadata, Mockito.never()).estimateDataSizeByListingFiles(session, handle);
+        });
+    }
+
+    @Test
+    public void selectedPartitionEstimateSkipsRemoteListingWhenInternalTablesNeedPlanLocks() {
+        withFileListGate(true, () -> {
+            PluginDrivenExternalTable table = tableForFileList(
+                    400L, Arrays.asList(intCol("v"), bigintCol("dt")), Collections.singletonList(1));
+            PartitionItem p1 = Mockito.mock(PartitionItem.class);
+            PartitionItem p2 = Mockito.mock(PartitionItem.class);
+            SelectedPartitions selectedPartitions = new SelectedPartitions(
+                    2, ImmutableMap.of("p1", p1, "p2", p2), false)
+                    .withPruneResult(ImmutableMap.of("p1", p1), true,
+                            ImmutableList.of(), Collections.emptySet());
+            ConnectContext context = Mockito.mock(ConnectContext.class);
+            StatementContext statementContext = Mockito.mock(StatementContext.class);
+            Mockito.when(context.getStatementContext()).thenReturn(statementContext);
+            Mockito.when(statementContext.hasAnyPlanReadLockTable()).thenReturn(true);
+
+            try (MockedStatic<ConnectContext> mockedContext = Mockito.mockStatic(ConnectContext.class)) {
+                mockedContext.when(ConnectContext::get).thenReturn(context);
+                Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT,
+                        table.getRowCountForSelectedPartitions(selectedPartitions, Optional.empty()));
+            }
+        });
+    }
+
+    @Test
+    public void selectedPartitionEstimateUsesThePinnedSnapshotHandle() {
+        withFileListGate(true, () -> {
+            ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+            ConnectorSession session = Mockito.mock(ConnectorSession.class);
+            Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
+            ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+            ConnectorTableHandle pinnedHandle = Mockito.mock(ConnectorTableHandle.class);
+            ConnectorMvccSnapshot connectorSnapshot = ConnectorMvccSnapshot.builder().snapshotId(7).build();
+            PluginDrivenMvccSnapshot snapshot = new PluginDrivenMvccSnapshot(
+                    connectorSnapshot, Collections.emptyMap(), Collections.emptyMap());
+            Mockito.when(metadata.getTableHandle(session, "REMOTE_DB", "REMOTE_TBL"))
+                    .thenReturn(Optional.of(handle));
+            Mockito.when(metadata.applySnapshot(session, handle, connectorSnapshot)).thenReturn(pinnedHandle);
+            Mockito.when(metadata.estimateDataSizeByListingFiles(
+                    session, pinnedHandle, Collections.singletonList("p1"))).thenReturn(400L);
+            TestablePluginCatalog catalog = new TestablePluginCatalog(metadata, session);
+
+            @SuppressWarnings("unchecked")
+            ExternalDatabase<PluginDrivenExternalTable> db = Mockito.mock(ExternalDatabase.class);
+            Mockito.when(db.getRemoteName()).thenReturn("REMOTE_DB");
+            List<Column> schema = Arrays.asList(intCol("v"), bigintCol("dt"));
+            PluginDrivenSchemaCacheValue cacheValue = new PluginDrivenSchemaCacheValue(
+                    schema, Collections.singletonList(schema.get(1)), Collections.singletonList("dt"));
+            PluginDrivenExternalTable table = new PluginDrivenExternalTable(
+                    1L, "tbl", "REMOTE_TBL", catalog, db) {
+                @Override
+                protected synchronized void makeSureInitialized() {
+                }
+
+                @Override
+                public Optional<SchemaCacheValue> getSchemaCacheValue() {
+                    return Optional.of(cacheValue);
+                }
+            };
+
+            PartitionItem p1 = Mockito.mock(PartitionItem.class);
+            PartitionItem p2 = Mockito.mock(PartitionItem.class);
+            SelectedPartitions selectedPartitions = new SelectedPartitions(
+                    2, ImmutableMap.of("p1", p1, "p2", p2), false)
+                    .withPruneResult(ImmutableMap.of("p1", p1), true,
+                            ImmutableList.of(), Collections.emptySet());
+
+            Assertions.assertEquals(100L,
+                    table.getRowCountForSelectedPartitions(selectedPartitions, Optional.of(snapshot)));
         });
     }
 

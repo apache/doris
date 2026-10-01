@@ -24,6 +24,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.catalog.stream.StreamReadMode;
@@ -35,11 +36,13 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
@@ -150,6 +153,42 @@ class PullUpJoinFromUnionAllTest {
         PullUpJoinFromUnionAll.LogicalPlanComparator comparator =
                 new PullUpJoinFromUnionAll().new LogicalPlanComparator();
         Assertions.assertFalse(comparator.isLogicalEqual(firstPartitionScan, secondPartitionScan));
+    }
+
+    @Test
+    void comparatorIgnoresPruningProofExprIdsButKeepsPartitionScope() {
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getId()).thenReturn(48L);
+        Mockito.when(table.getName()).thenReturn("common_partitioned_file");
+        Mockito.when(table.getDatabase()).thenReturn(null);
+        Mockito.when(table.getBaseSchema()).thenReturn(ImmutableList.of(new Column("dt", Type.INT, true)));
+        PartitionItem p1 = Mockito.mock(PartitionItem.class);
+        PartitionItem p2 = Mockito.mock(PartitionItem.class);
+        SelectedPartitions initial = new SelectedPartitions(2, ImmutableMap.of("p1", p1, "p2", p2), false);
+
+        LogicalFileScan left = newFileScan(table, Optional.empty());
+        Slot leftSlot = left.getOutput().get(0);
+        EqualTo leftPredicate = new EqualTo(leftSlot, new IntegerLiteral(1));
+        left = left.withSelectedPartitions(initial.withPruneResult(ImmutableMap.of("p1", p1), true,
+                ImmutableList.of(leftSlot), ImmutableSet.of(leftPredicate)));
+
+        LogicalFileScan right = newFileScan(table, Optional.empty());
+        Slot rightSlot = right.getOutput().get(0);
+        EqualTo rightPredicate = new EqualTo(rightSlot, new IntegerLiteral(1));
+        right = right.withSelectedPartitions(initial.withPruneResult(ImmutableMap.of("p1", p1), true,
+                ImmutableList.of(rightSlot), ImmutableSet.of(rightPredicate)));
+
+        PullUpJoinFromUnionAll.LogicalPlanComparator comparator =
+                new PullUpJoinFromUnionAll().new LogicalPlanComparator();
+        Assertions.assertNotEquals(left.getSelectedPartitions(), right.getSelectedPartitions());
+        Assertions.assertTrue(comparator.isLogicalEqual(
+                new LogicalFilter<>(ImmutableSet.of(leftPredicate), left),
+                new LogicalFilter<>(ImmutableSet.of(rightPredicate), right)));
+
+        LogicalFileScan differentPartition = left.withSelectedPartitions(initial.withPruneResult(
+                ImmutableMap.of("p2", p2), true, ImmutableList.of(leftSlot),
+                ImmutableSet.of(new EqualTo(leftSlot, new IntegerLiteral(2)))));
+        Assertions.assertFalse(comparator.isLogicalEqual(left, differentPartition));
     }
 
     @Test

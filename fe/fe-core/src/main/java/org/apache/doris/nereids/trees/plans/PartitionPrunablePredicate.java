@@ -19,11 +19,14 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -43,22 +46,22 @@ import java.util.Set;
  *
  * <p>The predicate lives on the scan itself (see {@code LogicalOlapScan} and
  * {@code PhysicalOlapScan}) so we no longer need to match it back to its scan
- * via a table identifier. Because rewrites between recording and removal may
- * rebuild the scan with fresh slot ids, {@link #snapshotPartitionSlots}
- * captures the slots that appear in the recorded conjuncts. The post-processor
- * maps them onto the actual scan's output slots by column name before
- * performing the conjunct removal.
+ * via a table identifier. {@link #partitionSlots} always belong to the scan
+ * state carrying this proof. A scan transformation that changes its output
+ * slots must explicitly call {@link #rebindSlots(Map)} or discard the
+ * proof, so statistics derivation and physical post-processing never need to
+ * infer slot lineage on the read path.
  */
 public class PartitionPrunablePredicate {
     private final Set<Long> selectedPartitionIds;
-    private final List<Slot> snapshotPartitionSlots;
+    private final List<Slot> partitionSlots;
     private final Set<Expression> prunableConjuncts;
 
     public PartitionPrunablePredicate(Set<Long> selectedPartitionIds,
-            List<Slot> snapshotPartitionSlots,
+            List<Slot> partitionSlots,
             Set<Expression> prunableConjuncts) {
         this.selectedPartitionIds = ImmutableSet.copyOf(selectedPartitionIds);
-        this.snapshotPartitionSlots = ImmutableList.copyOf(snapshotPartitionSlots);
+        this.partitionSlots = ImmutableList.copyOf(partitionSlots);
         this.prunableConjuncts = ImmutableSet.copyOf(prunableConjuncts);
     }
 
@@ -72,24 +75,51 @@ public class PartitionPrunablePredicate {
         }
         PartitionPrunablePredicate that = (PartitionPrunablePredicate) o;
         return selectedPartitionIds.equals(that.selectedPartitionIds)
-                && snapshotPartitionSlots.equals(that.snapshotPartitionSlots)
+                && partitionSlots.equals(that.partitionSlots)
                 && prunableConjuncts.equals(that.prunableConjuncts);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(selectedPartitionIds, snapshotPartitionSlots, prunableConjuncts);
+        return Objects.hash(selectedPartitionIds, partitionSlots, prunableConjuncts);
     }
 
-    public Set<Long> getSelectedPartitionIds() {
-        return selectedPartitionIds;
+    public List<Slot> getPartitionSlots() {
+        return partitionSlots;
     }
 
-    public List<Slot> getSnapshotPartitionSlots() {
-        return snapshotPartitionSlots;
+    public boolean covers(List<Long> currentSelectedPartitionIds) {
+        return selectedPartitionIds.containsAll(currentSelectedPartitionIds);
     }
 
     public Set<Expression> getPrunableConjuncts() {
         return prunableConjuncts;
+    }
+
+    /**
+     * Rebind this proof to slots from another scan state of the same table. The caller owns the scan-specific
+     * lineage rules and must provide a mapping for every recorded partition slot.
+     */
+    public PartitionPrunablePredicate rebindSlots(Map<Slot, Slot> slotMapping) {
+        Map<Expression, Expression> replacements = new HashMap<>(partitionSlots.size());
+        ImmutableList.Builder<Slot> reboundSlots =
+                ImmutableList.builderWithExpectedSize(partitionSlots.size());
+        for (Slot partitionSlot : partitionSlots) {
+            Slot reboundSlot = Objects.requireNonNull(slotMapping.get(partitionSlot),
+                    "missing rebound slot for partition slot: " + partitionSlot);
+            reboundSlots.add(reboundSlot);
+            if (!partitionSlot.equals(reboundSlot)) {
+                replacements.put(partitionSlot, reboundSlot);
+            }
+        }
+        if (replacements.isEmpty()) {
+            return this;
+        }
+        ImmutableSet.Builder<Expression> reboundConjuncts =
+                ImmutableSet.builderWithExpectedSize(prunableConjuncts.size());
+        for (Expression conjunct : prunableConjuncts) {
+            reboundConjuncts.add(ExpressionUtils.replace(conjunct, replacements));
+        }
+        return new PartitionPrunablePredicate(selectedPartitionIds, reboundSlots.build(), reboundConjuncts.build());
     }
 }
