@@ -50,13 +50,11 @@ public final class ConnectorScanRequest {
     private final List<String> requiredPartitions;
     private final boolean partitionsPrunedToEmpty;
     private final boolean countPushdown;
-    private final boolean partitionValuePushdown;
     private final boolean explainOnly;
 
     private ConnectorScanRequest(ConnectorTableHandle tableHandle, List<ConnectorColumnHandle> columns,
             Optional<ConnectorExpression> filter, long limit, List<String> requiredPartitions,
-            boolean partitionsPrunedToEmpty, boolean countPushdown, boolean partitionValuePushdown,
-            boolean explainOnly) {
+            boolean partitionsPrunedToEmpty, boolean countPushdown, boolean explainOnly) {
         this.tableHandle = tableHandle;
         this.columns = columns;
         this.filter = filter;
@@ -64,7 +62,6 @@ public final class ConnectorScanRequest {
         this.requiredPartitions = requiredPartitions;
         this.partitionsPrunedToEmpty = partitionsPrunedToEmpty;
         this.countPushdown = countPushdown;
-        this.partitionValuePushdown = partitionValuePushdown;
         this.explainOnly = explainOnly;
     }
 
@@ -135,17 +132,6 @@ public final class ConnectorScanRequest {
     }
 
     /**
-     * Whether the engine pushed a PARTITION_VALUE aggregation into this scan. An eligible reader emits
-     * one row from {@code columns_from_path} only after proving the range contains a visible source row;
-     * otherwise it returns EOF or falls back to ordinary reading. A connector may stop splitting files to
-     * avoid repeated row-existence checks and duplicate partition values. Connectors that do not consume
-     * this hint plan normally.
-     */
-    public boolean isPartitionValuePushdown() {
-        return partitionValuePushdown;
-    }
-
-    /**
      * Whether this plan is being built only to be shown ({@code EXPLAIN}), never run.
      *
      * <p>{@code EXPLAIN} plans a scan for real — that is where its {@code inputSplitNum} comes from — so a
@@ -164,8 +150,7 @@ public final class ConnectorScanRequest {
     /** This request with the partition set replaced — the batched scan's per-batch request. */
     public ConnectorScanRequest withRequiredPartitions(List<String> partitions) {
         return new ConnectorScanRequest(tableHandle, columns, filter, limit,
-                normalizePartitions(partitions), partitionsPrunedToEmpty, countPushdown, partitionValuePushdown,
-                explainOnly);
+                normalizePartitions(partitions), partitionsPrunedToEmpty, countPushdown, explainOnly);
     }
 
     private static List<String> normalizePartitions(List<String> partitions) {
@@ -182,7 +167,6 @@ public final class ConnectorScanRequest {
         private List<String> requiredPartitions = Collections.emptyList();
         private boolean partitionsPrunedToEmpty;
         private boolean countPushdown;
-        private boolean partitionValuePushdown;
         private boolean explainOnly;
 
         private Builder(ConnectorTableHandle tableHandle, List<ConnectorColumnHandle> columns) {
@@ -217,12 +201,6 @@ public final class ConnectorScanRequest {
             return this;
         }
 
-        /** Defaults to false: the engine is not asking for partition-column-value-only output. */
-        public Builder partitionValuePushdown(boolean partitionValuePushdown) {
-            this.partitionValuePushdown = partitionValuePushdown;
-            return this;
-        }
-
         /** Defaults to false: a plan that will be run. */
         public Builder explainOnly(boolean explainOnly) {
             this.explainOnly = explainOnly;
@@ -231,7 +209,7 @@ public final class ConnectorScanRequest {
 
         public ConnectorScanRequest build() {
             return new ConnectorScanRequest(tableHandle, columns, filter, limit,
-                    requiredPartitions, partitionsPrunedToEmpty, countPushdown, partitionValuePushdown, explainOnly);
+                    requiredPartitions, partitionsPrunedToEmpty, countPushdown, explainOnly);
         }
     }
 }

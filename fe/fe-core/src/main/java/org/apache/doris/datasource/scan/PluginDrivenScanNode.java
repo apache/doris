@@ -88,7 +88,6 @@ import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
-import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import org.apache.logging.log4j.LogManager;
@@ -1717,8 +1716,6 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 .requiredPartitions(requiredPartitions)
                 .partitionsPrunedToEmpty(partitionsPrunedToEmpty)
                 .countPushdown(countPushdown)
-                .partitionValuePushdown(
-                        getPushDownAggNoGroupingOp() == TPushAggOp.PARTITION_VALUE && !applySample)
                 // EXPLAIN plans the scan for real -- that is where its inputSplitNum comes from -- so a
                 // connector whose planning has a side effect on the source (ADBC: asking the driver to
                 // partition a query EXECUTES it) needs to know the plan is only going to be shown.
@@ -2069,7 +2066,6 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // matching what the batched call passed before the request object existed.
         final ConnectorScanRequest batchRequest = ConnectorScanRequest.builder(handle, columns)
                 .filter(remainingFilter)
-                .partitionValuePushdown(getPushDownAggNoGroupingOp() == TPushAggOp.PARTITION_VALUE)
                 .build();
         final List<String> allPartitions =
                 new ArrayList<>(selectedPartitions.selectedPartitions.keySet());

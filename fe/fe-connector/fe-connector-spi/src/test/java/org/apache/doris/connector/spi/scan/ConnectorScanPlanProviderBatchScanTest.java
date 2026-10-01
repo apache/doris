@@ -100,7 +100,6 @@ public class ConnectorScanPlanProviderBatchScanTest {
                 .limit(7L)
                 .partitionsPrunedToEmpty(true)
                 .countPushdown(true)
-                .partitionValuePushdown(true)
                 .explainOnly(true)
                 .build();
 
@@ -115,7 +114,6 @@ public class ConnectorScanPlanProviderBatchScanTest {
         Assertions.assertEquals(7L, forwarded.getLimit());
         Assertions.assertTrue(forwarded.isPartitionsPrunedToEmpty());
         Assertions.assertTrue(forwarded.isCountPushdown());
-        Assertions.assertTrue(forwarded.isPartitionValuePushdown());
         Assertions.assertTrue(request.getRequiredPartitions().isEmpty());
         // Dropping this one would silently make a batched EXPLAIN plan the way a real scan does --
         // which for a connector whose planning has a side effect on the source means EXPLAIN runs the
@@ -136,9 +134,8 @@ public class ConnectorScanPlanProviderBatchScanTest {
         Assertions.assertTrue(request.getRequiredPartitions().isEmpty());
         Assertions.assertFalse(request.isPartitionsPrunedToEmpty());
         Assertions.assertFalse(request.isCountPushdown());
-        Assertions.assertFalse(request.isPartitionValuePushdown());
         Assertions.assertFalse(request.withRequiredPartitions(Collections.singletonList("pt=1"))
-                .isPartitionValuePushdown());
+                .isCountPushdown());
         // Default false = "this plan will be run": a connector that reads it takes its normal path
         // unless the engine says otherwise.
         Assertions.assertFalse(request.isExplainOnly());

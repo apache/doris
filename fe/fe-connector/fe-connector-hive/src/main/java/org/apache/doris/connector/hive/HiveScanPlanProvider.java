@@ -157,7 +157,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         String memoKey = SCAN_REUSE_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
         Map<HiveScanReuseKey, List<ConnectorScanRange>> scanReuse = session.getStatementScope().computeIfAbsent(
                 memoKey, () -> new ConcurrentHashMap<>());
-        HiveScanReuseKey reuseKey = new HiveScanReuseKey(hiveHandle, getTargetSplitSize(session, request));
+        HiveScanReuseKey reuseKey = new HiveScanReuseKey(hiveHandle);
         AtomicReference<List<ConnectorScanRange>> uncached = new AtomicReference<>();
         List<ConnectorScanRange> cached = scanReuse.computeIfAbsent(reuseKey, key -> {
             PlanCompleteness completeness = new PlanCompleteness();
@@ -193,7 +193,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         HiveFileFormat fileFormat = HiveFileFormat.detect(
                 hiveHandle.getInputFormat(), hiveHandle.getSerializationLib(),
                 readHiveJsonInOneColumn(session), hiveHandle.isFirstColumnString());
-        long targetSplitSize = getTargetSplitSize(session, request);
+        long targetSplitSize = getTargetSplitSize(session);
         boolean isLzo = isLzoInputFormat(hiveHandle.getInputFormat());
         // LZO text is NOT splittable: a .lzo stream cannot be decompressed from an arbitrary byte offset.
         // Legacy HiveUtil.isSplittable returned false for LZO; HiveFileFormat maps LZO text to TEXT (which
@@ -314,7 +314,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         HiveFileFormat fileFormat = HiveFileFormat.detect(
                 hiveHandle.getInputFormat(), hiveHandle.getSerializationLib(),
                 readHiveJsonInOneColumn(session), hiveHandle.isFirstColumnString());
-        long targetSplitSize = getTargetSplitSize(session, request);
+        long targetSplitSize = getTargetSplitSize(session);
         boolean isLzo = isLzoInputFormat(hiveHandle.getInputFormat());
         // LZO text is not splittable (see planScan); mask it out of the TEXT-derived splittable flag.
         boolean splittable = fileFormat.isSplittable() && !isLzo;
@@ -796,11 +796,13 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         return builder;
     }
 
-    /** The split size, or zero to avoid repeated footer checks for partition-value-only scans. */
-    private long getTargetSplitSize(ConnectorSession session, ConnectorScanRequest request) {
-        if (request.isPartitionValuePushdown()) {
-            return 0;
-        }
+    /**
+     * The BE-facing split size. Deliberately independent of any push-down hint: a reader may decline
+     * the reduced partition-value path for reasons the connector cannot see (a retained filter, a
+     * runtime filter that has not arrived), and an unsplit file would then be read serially by one
+     * scanner instead of the split count a normal scan uses.
+     */
+    private long getTargetSplitSize(ConnectorSession session) {
         String splitSizeStr = session.getProperty(
                 "file_split_size", String.class);
         if (splitSizeStr != null && !splitSizeStr.isEmpty()) {
@@ -939,9 +941,9 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
      * Statement-scoped cache key for one Hive scan.
      *
      * <p>Includes every input that changes the planned split list: table identity, the file formats
-     * (input format / serialization lib / JSON single-column gate), the effective split size, partition
-     * keys and pruned partition set (each partition's location and values). ACID tables are excluded
-     * upstream; other session variables are statement-constant.
+     * (input format / serialization lib / JSON single-column gate), the partition keys and the pruned
+     * partition set (each partition's location and values). ACID tables are excluded upstream, and
+     * session variables are statement-constant, so both stay out of the key.
      */
     private static final class HiveScanReuseKey {
         private final String dbName;
@@ -952,9 +954,8 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         private final boolean firstColumnIsString;
         private final List<String> partitionKeyNames;
         private final List<HmsPartitionInfo> prunedPartitions;
-        private final long targetSplitSize;
 
-        private HiveScanReuseKey(HiveTableHandle handle, long targetSplitSize) {
+        private HiveScanReuseKey(HiveTableHandle handle) {
             // Catalog and query isolation are provided by the statement-scope memo key. The table
             // location identifies the data source of unpartitioned tables, whose prunedPartitions
             // is null.
@@ -970,7 +971,6 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             this.prunedPartitions = handle.getPrunedPartitions() == null
                     ? null
                     : Collections.unmodifiableList(new ArrayList<>(handle.getPrunedPartitions()));
-            this.targetSplitSize = targetSplitSize;
         }
 
         @Override
@@ -983,7 +983,6 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             }
             HiveScanReuseKey that = (HiveScanReuseKey) object;
             return firstColumnIsString == that.firstColumnIsString
-                    && targetSplitSize == that.targetSplitSize
                     && Objects.equals(dbName, that.dbName)
                     && Objects.equals(tableName, that.tableName)
                     && Objects.equals(location, that.location)
@@ -997,7 +996,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         public int hashCode() {
             return Objects.hash(dbName, tableName, location,
                     inputFormat, serializationLib, firstColumnIsString,
-                    partitionKeyNames, prunedPartitions, targetSplitSize);
+                    partitionKeyNames, prunedPartitions);
         }
 
         @Override

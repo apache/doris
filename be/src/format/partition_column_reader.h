@@ -31,6 +31,12 @@ namespace doris {
 // but a valid empty file must contribute no partition value.
 class PartitionColumnReader final : public CountReader {
 public:
+    // V1 keeps the whole-file requirement on purpose. Splitting is planned without knowing whether
+    // this reader will accept the pushdown (a retained filter or a pending runtime filter can both
+    // refuse it), so a file may arrive split; the row count of a partial range is only dependable
+    // when the Parquet reader actually filters row groups by range, and ORC's count is 0 until its
+    // row reader exists. Requiring the whole range keeps the count authoritative; the cost is that
+    // V1 skips the shortcut on files the connector split (FileScannerV2 has no such requirement).
     static bool supports_range(const TFileRangeDesc& range, TFileFormatType::type format_type) {
         return range.__isset.table_format_params &&
                range.table_format_params.table_format_type == "hive" &&

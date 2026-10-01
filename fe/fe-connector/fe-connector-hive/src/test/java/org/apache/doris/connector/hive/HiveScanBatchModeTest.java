@@ -137,35 +137,27 @@ public class HiveScanBatchModeTest {
                 .partitionKeyNames(PART_KEYS)
                 .prunedPartitions(Arrays.asList(part(partitions.get(0)), part(partitions.get(1))))
                 .build();
-        ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList())
-                .partitionValuePushdown(true).build();
+        // Batch planning uses ordinary split sizing: unlike the single-shot path it never collapses a
+        // file, so an unreadable-by-metadata range still arrives as the split count a normal scan uses.
+        ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList()).build();
         FakeSession session = new FakeSession();
 
         for (String partition : partitions) {
             List<String> batch = Collections.singletonList(partition);
             List<ConnectorScanRange> ranges = provider.planScanForPartitionBatch(session, request, batch);
-            Assertions.assertEquals(1, ranges.size());
-            HiveScanRange range = (HiveScanRange) ranges.get(0);
-            Assertions.assertEquals(partition + "/000000_0", range.getPath().get());
-            Assertions.assertEquals(0L, range.getStart());
-            Assertions.assertEquals(fileSize, range.getLength());
-            Assertions.assertEquals(3, provider.planScanForPartitionBatch(session,
-                    ConnectorScanRequest.builder(handle, Collections.emptyList()).build(), batch).size());
+            Assertions.assertEquals(3, ranges.size());
+            for (int i = 0; i < ranges.size(); i++) {
+                HiveScanRange range = (HiveScanRange) ranges.get(i);
+                Assertions.assertEquals(partition + "/000000_0", range.getPath().get());
+                Assertions.assertEquals(i * fileSize / 3, range.getStart());
+                Assertions.assertEquals(fileSize / 3, range.getLength());
+            }
         }
         Assertions.assertEquals(2, lister.callsPerLocation.size());
     }
 
     @Test
-    public void partitionValueScanPlannedFirstDoesNotChangeOrdinarySplits() {
-        assertPartitionValueReuseIsolated(true);
-    }
-
-    @Test
-    public void ordinaryScanPlannedFirstDoesNotChangePartitionValueSplits() {
-        assertPartitionValueReuseIsolated(false);
-    }
-
-    private void assertPartitionValueReuseIsolated(boolean partitionValueFirst) {
+    public void identicalRequestsReuseTheSameSplitList() {
         long fileSize = 3 * 256 * 1024 * 1024L;
         CountingLister lister = new CountingLister(fileSize);
         HiveScanPlanProvider provider = provider(new FakeHmsClient(), lister);
@@ -176,25 +168,11 @@ public class HiveScanBatchModeTest {
                 .prunedPartitions(Collections.singletonList(part("year=2024/month=01")))
                 .build();
         ConnectorSession session = new ScopeSession(7L, "same-statement", new TestStatementScope());
-        ConnectorScanRequest firstRequest = ConnectorScanRequest.builder(handle, Collections.emptyList())
-                .partitionValuePushdown(partitionValueFirst).build();
-        ConnectorScanRequest secondRequest = ConnectorScanRequest.builder(handle, Collections.emptyList())
-                .partitionValuePushdown(!partitionValueFirst).build();
+        ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList()).build();
 
-        List<ConnectorScanRange> first = provider.planScan(session, firstRequest);
-        List<ConnectorScanRange> second = provider.planScan(session, secondRequest);
-        List<ConnectorScanRange> wholeFile = partitionValueFirst ? first : second;
-        List<ConnectorScanRange> splitFile = partitionValueFirst ? second : first;
-        Assertions.assertEquals(1, wholeFile.size());
-        Assertions.assertEquals(fileSize, ((HiveScanRange) wholeFile.get(0)).getLength());
-        Assertions.assertEquals(3, splitFile.size());
-        for (int i = 0; i < splitFile.size(); i++) {
-            HiveScanRange range = (HiveScanRange) splitFile.get(i);
-            Assertions.assertEquals(i * fileSize / 3, range.getStart());
-            Assertions.assertEquals(fileSize / 3, range.getLength());
-        }
-        Assertions.assertSame(first, provider.planScan(session, firstRequest));
-        Assertions.assertSame(second, provider.planScan(session, secondRequest));
+        List<ConnectorScanRange> planned = provider.planScan(session, request);
+        Assertions.assertEquals(3, planned.size());
+        Assertions.assertSame(planned, provider.planScan(session, request));
     }
 
     @Test

@@ -148,7 +148,6 @@ org.apache.doris.connector.spi.scan.ConnectorScanRequest#getRequiredPartitions()
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#getTableHandle():org.apache.doris.connector.spi.handle.ConnectorTableHandle
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#isCountPushdown():boolean
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#isExplainOnly():boolean
-org.apache.doris.connector.spi.scan.ConnectorScanRequest#isPartitionValuePushdown():boolean
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#isPartitionsPrunedToEmpty():boolean
 org.apache.doris.connector.spi.scan.ConnectorScanRequest#withRequiredPartitions(java.util.List):org.apache.doris.connector.spi.scan.ConnectorScanRequest
 org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#build():org.apache.doris.connector.spi.scan.ConnectorScanRequest
@@ -156,7 +155,6 @@ org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#countPushdown(b
 org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#explainOnly(boolean):org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder
 org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#filter(java.util.Optional):org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder
 org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#limit(long):org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder
-org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#partitionValuePushdown(boolean):org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder
 org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#partitionsPrunedToEmpty(boolean):org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder
 org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder#requiredPartitions(java.util.List):org.apache.doris.connector.spi.scan.ConnectorScanRequest$Builder
 org.apache.doris.connector.spi.scan.ScanNodePropertyKeys#field:FILE_FORMAT_TYPE:java.lang.String=file_format_type
