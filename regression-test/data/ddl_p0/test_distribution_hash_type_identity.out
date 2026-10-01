@@ -40,6 +40,51 @@ beta	2
 -- !identity_ipv6 --
 1
 
+-- !identity_uuid_rows --
+\N	5
+00000000-0000-0000-0000-000000000000	0
+00000000-0000-0000-0000-000000000001	1
+80000000-0000-0000-0000-000000000001	2
+f1234567-89ab-cdef-8123-456789abcdef	3
+ffffffff-ffff-ffff-ffff-ffffffffffff	4
+
+-- !identity_uuid_bucket_0 --
+0	0
+0	3
+0	5
+
+-- !identity_uuid_bucket_1 --
+1	1
+
+-- !identity_uuid_bucket_2 --
+
+-- !identity_uuid_bucket_3 --
+3	2
+3	4
+
+-- !identity_uuid_bucket_4 --
+
+-- !identity_uuid_bucket_5 --
+
+-- !identity_uuid_bucket_6 --
+
+-- !identity_uuid_eq_low --
+00000000-0000-0000-0000-000000000001	1
+
+-- !identity_uuid_eq_high --
+80000000-0000-0000-0000-000000000001	2
+
+-- !identity_uuid_eq_full_width --
+f1234567-89ab-cdef-8123-456789abcdef	3
+
+-- !identity_uuid_in --
+00000000-0000-0000-0000-000000000001	1
+80000000-0000-0000-0000-000000000001	2
+ffffffff-ffff-ffff-ffff-ffffffffffff	4
+
+-- !identity_uuid_null --
+\N	5
+
 -- !identity_multi --
 -1	A	12
 

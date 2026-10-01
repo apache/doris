@@ -108,6 +108,7 @@ inline uint32_t RawValue::identity_hash(const void* v, size_t len, const Primiti
     case TYPE_LARGEINT:
     case TYPE_DECIMAL128I:
     case TYPE_IPV6:
+    case TYPE_UUID:
         append_little_endian(v, 16);
         break;
     case TYPE_DECIMAL256:

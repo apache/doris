@@ -153,6 +153,20 @@ suite("test_distribution_hash_type_identity") {
         );
     """
 
+    sql "DROP TABLE IF EXISTS test_dist_hash_uuid"
+    sql """
+        CREATE TABLE test_dist_hash_uuid (
+            u UUID NULL,
+            v INT NOT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(u)
+        DISTRIBUTED BY HASH(u) BUCKETS 7
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "distribution_hash_type" = "identity"
+        )
+    """
+
     sql "DROP TABLE IF EXISTS test_dist_hash_multi_col"
     sql """
         CREATE TABLE `test_dist_hash_multi_col` (
@@ -286,6 +300,49 @@ suite("test_distribution_hash_type_identity") {
 
     sql "INSERT INTO test_dist_hash_ipv6 VALUES (to_ipv6('::1'), 1), (to_ipv6('2001:db8::1'), 6)"
     qt_identity_ipv6 "SELECT v FROM test_dist_hash_ipv6 WHERE addr = to_ipv6('::1')"
+
+    // An odd bucket count exposes lost high bytes that a power-of-two modulus would hide.
+    sql """ INSERT INTO test_dist_hash_uuid VALUES
+        (CAST('00000000-0000-0000-0000-000000000000' AS UUID), 0),
+        (CAST('00000000-0000-0000-0000-000000000001' AS UUID), 1),
+        (CAST('80000000-0000-0000-0000-000000000001' AS UUID), 2),
+        (CAST('f1234567-89ab-cdef-8123-456789abcdef' AS UUID), 3),
+        (CAST('ffffffff-ffff-ffff-ffff-ffffffffffff' AS UUID), 4),
+        (NULL, 5) """
+    order_qt_identity_uuid_rows "SELECT u, v FROM test_dist_hash_uuid"
+
+    // Read each physical bucket without a UUID predicate, independently of FE pruning.
+    def uuidTablets = sql_return_maparray "SHOW TABLETS FROM test_dist_hash_uuid"
+    uuidTablets.sort { a, b -> (a.TabletId as long) <=> (b.TabletId as long) }
+    uuidTablets.eachWithIndex { tablet, bucket ->
+        quickTest("identity_uuid_bucket_${bucket}", """
+            SELECT ${bucket} AS bucket, v FROM test_dist_hash_uuid TABLET(${tablet.TabletId})
+        """, true)
+    }
+    order_qt_identity_uuid_eq_low """
+        SELECT u, v FROM test_dist_hash_uuid
+        WHERE u = CAST('00000000-0000-0000-0000-000000000001' AS UUID)
+    """
+    order_qt_identity_uuid_eq_high """
+        SELECT u, v FROM test_dist_hash_uuid
+        WHERE u = CAST('80000000-0000-0000-0000-000000000001' AS UUID)
+    """
+    order_qt_identity_uuid_eq_full_width """
+        SELECT u, v FROM test_dist_hash_uuid
+        WHERE u = CAST('f1234567-89ab-cdef-8123-456789abcdef' AS UUID)
+    """
+    order_qt_identity_uuid_in """
+        SELECT u, v FROM test_dist_hash_uuid
+        WHERE u IN (CAST('00000000-0000-0000-0000-000000000001' AS UUID),
+                    CAST('80000000-0000-0000-0000-000000000001' AS UUID),
+                    CAST('ffffffff-ffff-ffff-ffff-ffffffffffff' AS UUID))
+    """
+    order_qt_identity_uuid_null "SELECT u, v FROM test_dist_hash_uuid WHERE u IS NULL"
+    explain {
+        sql """ SELECT v FROM test_dist_hash_uuid
+                WHERE u = CAST('80000000-0000-0000-0000-000000000001' AS UUID) """
+        contains "tablets=1/7"
+    }
 
     sql """ INSERT INTO test_dist_hash_multi_col VALUES
                 (1, 'A', 10), (1, 'B', 11), (-1, 'A', 12), (2, 'BC', 13) """
