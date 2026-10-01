@@ -85,12 +85,24 @@ public class SPMPlanner {
     private long usedBaselineId = -1;
 
     /**
+     * The matched baseline OBJECT (see {@link #verifyReplayMetadata}): the post-plan
+     * validation must keep the fingerprint of the SAME incarnation the match used, so a
+     * concurrent DROP / refresh cannot make it silently skip the check.
+     */
+    private BaselinePlan usedBaseline;
+
+    /**
      * Returns the id of the baseline used by the last successful rewrite.
      *
      * @return the baseline id, or -1 when the last rewrite did not hit a baseline
      */
     public long getUsedBaselineId() {
         return usedBaselineId;
+    }
+
+    /** The matched baseline object (see {@link #verifyReplayMetadata}). */
+    public BaselinePlan getUsedBaseline() {
+        return usedBaseline;
     }
 
     // ==================== query rewrite (called from StmtExecutor / EXPLAIN) ====================
@@ -242,7 +254,12 @@ public class SPMPlanner {
                 // placeholders; adopt the user's values so a structurally identical query
                 // with a different limit is rewritten with the USER limit
                 usedBaselineId = candidate.getId();
-                return SPMPlanTreeSupport.mergeLimits(rewritten, matchPlan);
+                usedBaseline = candidate;
+                // the frozen sink pinned the CAPTURED output labels: expose the caller's
+                // own ones (a value variant must not report the captured header)
+                return SPMPlanTreeSupport.mergeLimits(
+                        SPMPlanTreeSupport.alignRootOutputLabels(rewritten, matchPlan),
+                        matchPlan);
             }
             LOG.info("SPM tryRewritePlan: baseline {} frozen planSql replay unavailable, "
                     + "falling back to parameterized plan tree", candidate.getId());
@@ -263,7 +280,11 @@ public class SPMPlanner {
                 continue;
             }
             usedBaselineId = candidate.getId();
-            return SPMPlanTreeSupport.mergeLimits(rewritten, matchPlan);
+            usedBaseline = candidate;
+            // same label contract as the frozen path: the caller's own headers win
+            return SPMPlanTreeSupport.mergeLimits(
+                    SPMPlanTreeSupport.alignRootOutputLabels(rewritten, matchPlan),
+                    matchPlan);
         }
         return null;
     }
@@ -412,13 +433,31 @@ public class SPMPlanner {
         if (ctx == null || plannedPlan == null || baselineId < 0) {
             return;
         }
-        BaselinePlan baseline = ctx.getSessionBaselineStore() == null
-                ? null : ctx.getSessionBaselineStore().getBaseline(baselineId);
+        // Prefer the baseline OBJECT retained on the statement context: re-fetching by id
+        // can silently miss it after a concurrent DROP / refresh, and returning then
+        // would skip the post-plan schema check exactly when a table DDL may have
+        // committed between the pre-match validation and the replay planning.
+        BaselinePlan baseline = null;
+        if (ctx.getStatementContext() != null
+                && ctx.getStatementContext().getSpmUsedBaseline() != null
+                && ctx.getStatementContext().getSpmUsedBaseline().getId() == baselineId) {
+            baseline = ctx.getStatementContext().getSpmUsedBaseline();
+        }
+        if (baseline == null) {
+            baseline = ctx.getSessionBaselineStore() == null
+                    ? null : ctx.getSessionBaselineStore().getBaseline(baselineId);
+        }
         if (baseline == null) {
             baseline = BaselineManager.getInstance().getBaseline(baselineId);
         }
         if (baseline == null) {
-            return;
+            // A recorded id whose baseline is gone (concurrent DROP / refresh): the stored
+            // fingerprint can no longer be revalidated and the frozen SQL may be a stale
+            // SELECT * output list - fail so the caller applies its fallback policy
+            // instead of silently keeping the replay.
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "SPM baseline " + baselineId + " disappeared before the replay"
+                            + " validation; keeping the original query");
         }
         String stored = baseline.getSchemaFingerprint();
         if (stored == null || stored.isEmpty()) {
@@ -426,7 +465,11 @@ public class SPMPlanner {
         }
         String current = SPMPlanTreeSupport.schemaFingerprintForReplay(
                 ctx, baseline.getParameterizedBindPlan(), plannedPlan, baseline.getPlanSql());
-        if (!stored.equals(current)) {
+        // tolerance: a row persisted before the nullability section existed carries
+        // section-less entries (see SPMPlanTreeSupport#legacyEntryOf); a row written
+        // since must match exactly, so a nullability change between the pre-match
+        // validation and this post-plan check still fails closed
+        if (!SPMPlanTreeSupport.schemaFingerprintEquivalent(stored, current)) {
             LOG.warn("SPM replay metadata mismatch for baseline {}: stored=[{}] current=[{}]",
                     baselineId, stored, current);
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
@@ -820,6 +863,25 @@ public class SPMPlanner {
             return Pair.of(parameterizedBind, parameterizedBind);
         }
         LogicalPlan parameterizedPlan = parameterizeWholeTree(builder, planPlan);
+        // Every plan-side placeholder must be SUPPLIED by the bind side: matching
+        // extracts values only for the bind tree's ids, and both replay paths reject an
+        // id they have no value for - such a baseline could never match (a manual plan
+        // whose only difference is a renamed table alias parameterizes its literals
+        // under a different parent signature: "FROM t a WHERE a.k = 1" vs "FROM t b
+        // WHERE b.k = 1"). Reject the CREATE with a clear error instead of storing a
+        // permanently unusable row.
+        java.util.Set<Long> bindIds = SPMPlanTreeSupport.collectPlaceholderIds(parameterizedBind);
+        java.util.Set<Long> planOnly = SPMPlanTreeSupport.collectPlaceholderIds(parameterizedPlan);
+        planOnly.removeAll(bindIds);
+        if (!planOnly.isEmpty()) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "SPM cannot align the plan SQL with the bind SQL:"
+                    + " the plan side introduces placeholder literals (ids " + planOnly
+                    + ") the bind side never supplies. Most often the two statements"
+                    + " differ in a table alias (t a vs t b) or in an expression the"
+                    + " optimizer rewrote; write both statements with the same aliases"
+                    + " and literals.");
+        }
         return Pair.of(parameterizedBind, parameterizedPlan);
     }
 

@@ -1043,6 +1043,7 @@ public class StmtExecutor {
                         spmRewriteApplied = true;
                         statementContext.setSpmBaselineApplied(true);
                         statementContext.setSpmUsedBaselineId(spmPlanner.getUsedBaselineId());
+                        statementContext.setSpmUsedBaseline(spmPlanner.getUsedBaseline());
                         if (LOG.isDebugEnabled()) {
                             LOG.debug("SPM rewrite applied for query: {}",
                                     originStmt.originStmt);

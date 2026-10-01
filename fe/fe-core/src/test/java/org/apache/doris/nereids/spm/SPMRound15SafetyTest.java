@@ -158,6 +158,60 @@ public class SPMRound15SafetyTest {
                 failure.getMessage());
     }
 
+    /**
+     * round-23 #11: NULLABILITY is part of the schema fingerprint - SPM leaves
+     * ELIMINATE_NOT_NULL enabled, so a NOT NULL column's "v IS NOT NULL" filter freezes
+     * away, and ALTER TABLE ... MODIFY COLUMN v INT NULL (no name / type change) must
+     * invalidate the baseline.
+     */
+    @Test
+    public void testFingerprintIncludesColumnNullability() {
+        Assertions.assertNotEquals(
+                fingerprintOfTableDeclared(true), fingerprintOfTableDeclared(false),
+                "a nullability change must invalidate a frozen NOT NULL elimination");
+    }
+
+    /**
+     * round-23 #11, upgrade compatibility: the nullability flag lives in its OWN entry
+     * section, so an entry persisted before that section existed still matches the
+     * current one - introducing the check must not invalidate every already persisted
+     * baseline (a flag hashed INTO the column list would have changed every hash).
+     * Two entries that BOTH carry the section must agree, so the check stays effective
+     * for everything written since.
+     */
+    @Test
+    public void testLegacyFingerprintWithoutNullabilitySectionIsTolerated() {
+        String current = fingerprintOfTableDeclared(false);
+        String legacy = current.substring(0, current.lastIndexOf("|nullable:"));
+        Assertions.assertTrue(SPMPlanTreeSupport.schemaFingerprintBindSideContained(
+                        legacy, current),
+                "a pre-upgrade entry must still be contained: " + legacy);
+        Assertions.assertTrue(SPMPlanTreeSupport.schemaFingerprintEquivalent(legacy, current),
+                "the post-plan comparison must tolerate a pre-upgrade row as well");
+
+        // both sides carry the section -> a mismatch fails closed on BOTH paths
+        String changed = fingerprintOfTableDeclared(true);
+        Assertions.assertFalse(SPMPlanTreeSupport.schemaFingerprintBindSideContained(
+                        changed, current),
+                "a dropped nullability flag must no longer be contained");
+        Assertions.assertFalse(SPMPlanTreeSupport.schemaFingerprintEquivalent(changed, current),
+                "a dropped nullability flag must fail the post-plan comparison too");
+        Assertions.assertTrue(SPMPlanTreeSupport.schemaFingerprintEquivalent(current, current));
+    }
+
+    /** The fingerprint of a one-table mock whose single INT column has the given flag. */
+    private static String fingerprintOfTableDeclared(boolean allowNull) {
+        TableIf table = Mockito.mock(TableIf.class);
+        Mockito.when(table.getName()).thenReturn("t_nn");
+        Mockito.when(table.getId()).thenReturn(7L);
+        Column column = new Column("k", Type.INT);
+        column.setIsAllowNull(allowNull);
+        Mockito.when(table.getBaseSchema()).thenReturn(List.of(column));
+        return SPMPlanTreeSupport.schemaFingerprintForCreate(
+                contextResolvingTo(table), parse("SELECT * FROM internal.spm_db.t_nn"),
+                null, null);
+    }
+
     // ==================== #6: plan-side functions are fingerprinted ====================
 
     /**

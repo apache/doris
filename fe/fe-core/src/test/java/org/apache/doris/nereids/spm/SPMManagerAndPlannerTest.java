@@ -156,9 +156,13 @@ public class SPMManagerAndPlannerTest {
         captured.setSource(BaselineSource.CAPTURE);
         captured.setQueryTimeMs(2000);
 
-        // Manually created baseline (no queryMs, default -1)
+        // Manually created baseline (no queryMs, default -1). The plan side must stay
+        // ALIGNED with the bind side: a differing literal VALUE parameterizes under its
+        // own id and could never be replayed (round-23 rejects such a CREATE); the
+        // distinct planSql only gives the row its own durable identity here.
         BaselinePlan manual = planner.buildBaseline(
-                "SELECT * FROM t1 WHERE a = 100", "SELECT * FROM t1 WHERE a = 200");
+                "SELECT * FROM t1 WHERE a = 100", "SELECT * FROM t1 WHERE a = 100");
+        manual.setPlanSql("SELECT * FROM t1 WHERE a = 200");
         manual.setSource(BaselineSource.USER);
 
         manager.createBaseline(captured);
@@ -714,22 +718,28 @@ public class SPMManagerAndPlannerTest {
         String bindSql = "SELECT * FROM t1 WHERE a = 1 AND b = 2";
         // the plan text reorders the literals: a per-text rebuild would collide ids 1 / 2
         String planSql = "SELECT * FROM t1 WHERE b = 1 AND a = 2";
-        Assertions.assertTrue(manager.createBaseline(planner.buildBaseline(bindSql, planSql)) > 0);
+        // round-23: the CREATE now REJECTS such a manual pair outright - the plan
+        // literals (different parent slots) never reuse the bind-side ids, so nothing
+        // could ever supply their values and the stored baseline stayed permanently
+        // unmatchable
+        Assertions.assertThrows(RuntimeException.class,
+                () -> planner.buildBaseline(bindSql, planSql));
 
-        // the same must already hold for the freshly created baseline (CREATE path): the
-        // plan literals (different parent slots) never reuse the bind-side ids, so the
-        // substitution is rejected instead of silently swapping values between slots
-        Assertions.assertNull(planner.tryRewritePlan(
-                parse("SELECT * FROM t1 WHERE a = 5 AND b = 6"),
-                System.currentTimeMillis() + 5000),
-                "the CREATE path must not mis-substitute values between reordered slots");
-
-        // simulate a restart: rebuild both trees exactly like the load does
+        // a row persisted by an OLD version (accepted before the create-time validation)
+        // must still fail closed on reload: the rebuilt reordered plan keeps ids the
+        // bind side never supplies, and the rewrite is rejected instead of silently
+        // swapping values between slots
+        Assertions.assertNotNull(manager.createBaseline(planner.buildBaseline(bindSql, bindSql)));
         BaselinePlan persisted = manager.getAllBaselines().iterator().next();
+        persisted.setPlanSql(planSql);
         Pair<LogicalPlan, LogicalPlan> trees =
                 SPMPlanner.rebuildParameterizedTrees(persisted.getBindSql(), persisted.getPlanSql());
         Assertions.assertNotNull(trees.first);
         Assertions.assertNotNull(trees.second);
+        java.util.Set<Long> planOnly = SPMPlanTreeSupport.collectPlaceholderIds(trees.second);
+        planOnly.removeAll(SPMPlanTreeSupport.collectPlaceholderIds(trees.first));
+        Assertions.assertFalse(planOnly.isEmpty(),
+                "the reordered plan text keeps ids the bind side never supplies");
         persisted.setParameterizedBindPlan(trees.first);
         persisted.setParameterizedPlanPlan(trees.second);
 

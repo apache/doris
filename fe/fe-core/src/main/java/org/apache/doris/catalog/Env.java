@@ -1912,6 +1912,19 @@ public class Env {
 
             seedSelfLocalResourceGroup();
             toMasterProgress = "finished";
+            // SPM baselines: invalidate (and reload) the cache BEFORE the FE starts
+            // accepting writes (canRead / isReady below). The old follower snapshot can
+            // miss rows the previous master wrote and can carry rows it dropped; with
+            // isReady already true, a GLOBAL DDL could run against that stale cache (an
+            // opposite-status ALTER would recreate a dropped baseline, a CREATE could
+            // return a reused id). A failed read keeps the lazy retry; the durable-key
+            // checks stay correct either way.
+            try {
+                BaselineManager.getInstance().forceReloadFromInternalTable();
+            } catch (Throwable t) {
+                LOG.warn("SPM baseline invalidation on master transfer failed (will retry"
+                        + " lazily)", t);
+            }
             canRead.set(true);
             isReady.set(true);
             checkLowerCaseTableNames();
@@ -1923,17 +1936,6 @@ public class Env {
             ThreadPoolManager.registerAllThreadPoolMetric();
             if (analysisManager != null) {
                 analysisManager.getStatisticsCache().preHeat();
-            }
-
-            // SPM baselines: the local cache may have been loaded BEFORE this FE became
-            // master and can miss rows the previous master wrote afterwards. Reload the
-            // shared spm_baselines table so the create-time dedup is authoritative (a
-            // failed read keeps the lazy retry; the durable-key check stays correct
-            // either way).
-            try {
-                BaselineManager.getInstance().forceReloadFromInternalTable();
-            } catch (Throwable t) {
-                LOG.warn("SPM baseline reload on master transfer failed (will retry lazily)", t);
             }
         } catch (Throwable e) {
             // When failed to transfer to master, we need to exit the process.

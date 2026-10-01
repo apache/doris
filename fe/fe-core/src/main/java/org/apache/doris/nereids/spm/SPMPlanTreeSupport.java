@@ -34,6 +34,7 @@ import org.apache.doris.nereids.properties.SelectHintLeading;
 import org.apache.doris.nereids.properties.SelectHintSetVar;
 import org.apache.doris.nereids.properties.SelectHintUseMv;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
+import org.apache.doris.nereids.spm.matcher.MatchAttempt;
 import org.apache.doris.nereids.spm.matcher.SPMAstCheckVisitor;
 import org.apache.doris.nereids.spm.matcher.SPMFrozenTreeReplacer;
 import org.apache.doris.nereids.spm.placeholder.SpmConstList;
@@ -68,6 +69,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalQualify;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
@@ -85,6 +87,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -117,6 +120,14 @@ import java.util.TreeSet;
  * by the normal children / CTE-alias traversal below.
  */
 public final class SPMPlanTreeSupport {
+
+    /**
+     * Marker of the per-table NULLABILITY section inside one fingerprint entry (see
+     * {@link #describeTableForFingerprint}). An entry persisted before the section
+     * existed simply lacks it and is still accepted ({@link #legacyEntryOf}), so the
+     * section can be introduced without invalidating already persisted baselines.
+     */
+    private static final String NULLABILITY_SECTION = "nullable:";
 
     /** Expression transform used by transform. */
     public interface ExprTransform {
@@ -1109,7 +1120,31 @@ public final class SPMPlanTreeSupport {
      */
     public static boolean check(LogicalPlan bindPlan, LogicalPlan userPlan,
             Map<Long, Expression> placeholderValues) {
-        return checkPlan(bindPlan, userPlan, placeholderValues, false);
+        MatchAttempt attempt = MatchAttempt.begin();
+        if (attempt == null) {
+            // a NESTED match (a subquery plan reached from the visitor) rides the
+            // enclosing attempt: its choices and the outer tree's share one placeholder
+            // map, so only the OUTERMOST driver may retry
+            return checkPlan(bindPlan, userPlan, placeholderValues, false);
+        }
+        try {
+            Map<Long, Expression> entryState = new HashMap<>(placeholderValues);
+            for (int i = 0; i < MatchAttempt.MAX_ATTEMPTS; i++) {
+                attempt.resetPass();
+                if (checkPlan(bindPlan, userPlan, placeholderValues, false)) {
+                    return true;
+                }
+                placeholderValues.clear();
+                placeholderValues.putAll(entryState);
+                if (!attempt.advance()) {
+                    return false;
+                }
+            }
+            placeholderValues.clear();
+            return false;
+        } finally {
+            attempt.end();
+        }
     }
 
     /**
@@ -1339,10 +1374,15 @@ public final class SPMPlanTreeSupport {
             List<Expression> remaining = new ArrayList<>(userConjuncts);
             for (Expression bindConjunct : bindConjuncts) {
                 int matched = -1;
+                // the pairing is an UNORDERED search: when a greedy pairing breaks a LATER
+                // use of the same placeholder id, the retry driver re-runs the check with
+                // a different starting point (see MatchAttempt)
+                int offset = MatchAttempt.offset(remaining.size());
                 for (int i = 0; i < remaining.size(); i++) {
+                    int candidate = (offset + i) % remaining.size();
                     Map<Long, Expression> snapshot = new HashMap<>(placeholderValues);
-                    if (checkExpression(bindConjunct, remaining.get(i), placeholderValues)) {
-                        matched = i;
+                    if (checkExpression(bindConjunct, remaining.get(candidate), placeholderValues)) {
+                        matched = candidate;
                         break;
                     }
                     placeholderValues.clear();
@@ -1514,7 +1554,141 @@ public final class SPMPlanTreeSupport {
         if (isDerivedAlias(bindExpr) != isDerivedAlias(userExpr)) {
             return false;
         }
+        // A DERIVED label is deliberately NOT compared here: the frozen planSql pins the
+        // CAPTURED label (the decompiler's sink emits it as an explicit alias), but the
+        // caller running a value variant (SELECT k + 2 against a captured SELECT k + 1)
+        // must keep the baseline - and must still see its OWN header. The replay hands
+        // the caller's labels back instead (alignRootOutputLabels), so comparing the
+        // derived text here would only reject valid matches. The derived alias may live
+        // ANYWHERE (a nested subquery's projection carries one too, e.g. the scalar
+        // subquery of TPCH q17), which is why the label contract is enforced on the
+        // root's output items at replay instead of on every compared expression.
         return new SPMAstCheckVisitor().checkExpression(bindExpr, userExpr, placeholderValues);
+    }
+
+    /**
+     * round-23 #7 (replay half): the frozen planSql pins the CAPTURED output labels - a
+     * derived label (the parser's nameFromChild: the expression text with the captured
+     * literal, e.g. {@code k + 1}) is emitted by the decompiler's sink as an EXPLICIT
+     * alias - while the matcher deliberately accepts a value variant such as
+     * {@code SELECT k + 2} for a captured {@code SELECT k + 1}. NereidsPlanner reports
+     * the REPLAYED root's column names as the protocol header, so the replay must hand
+     * the CALLER's own labels back instead of exposing the captured text.
+     *
+     * Renames the rewritten tree's caller-visible output items position by position. Both
+     * trees are walked down their common wrapper chain first: a raw parse wraps every
+     * query in an {@link UnboundResultSink} (which carries NO output items of its own and
+     * rejects withOutputExprs) and a top-level LIMIT / TOP N sits above the projection as
+     * well, so the list that reaches the caller lives on the outermost
+     * {@link LogicalProject} (or on a resolved sink). The shapes are already proven equal
+     * by the structural check, and an arity mismatch (SELECT *, SELECT * EXCEPT(...) - the
+     * user's tree keeps the star as ONE item) leaves the tree untouched, because those
+     * labels are real column names, not captured expression text.
+     *
+     * @param rewritten the replayed tree (frozen text or parameterized fallback)
+     * @param userPlan  the caller's own (namespace-qualified) tree
+     * @return the rewritten tree exposing the caller's output labels
+     */
+    public static LogicalPlan alignRootOutputLabels(LogicalPlan rewritten, LogicalPlan userPlan) {
+        // walk down while BOTH trees carry the same wrapper class, remembering the
+        // rewritten ancestors, so the renamed node can replace its old self below them
+        java.util.ArrayDeque<Plan> rewrittenAncestors = new java.util.ArrayDeque<>();
+        Plan rewrittenNode = rewritten;
+        Plan userNode = userPlan;
+        while (rewrittenNode.getClass() == userNode.getClass()
+                && !carriesOutputList(rewrittenNode)
+                && rewrittenNode.children().size() == 1
+                && userNode.children().size() == 1) {
+            rewrittenAncestors.push(rewrittenNode);
+            rewrittenNode = rewrittenNode.child(0);
+            userNode = userNode.child(0);
+        }
+        if (rewrittenNode.getClass() != userNode.getClass()
+                || !carriesOutputList(rewrittenNode)) {
+            return rewritten;
+        }
+        List<NamedExpression> rewrittenItems = outputItemsOf(rewrittenNode);
+        List<NamedExpression> userItems = outputItemsOf(userNode);
+        if (rewrittenItems.size() != userItems.size()) {
+            return rewritten;
+        }
+        List<NamedExpression> aligned = new ArrayList<>(rewrittenItems.size());
+        boolean changed = false;
+        for (int i = 0; i < rewrittenItems.size(); i++) {
+            NamedExpression rewrittenItem = rewrittenItems.get(i);
+            NamedExpression userItem = userItems.get(i);
+            String userLabel = outputLabelOf(userItem);
+            if (userLabel == null || !(rewrittenItem instanceof Alias
+                    || rewrittenItem instanceof UnboundAlias)
+                    || userLabel.equals(outputLabelOf(rewrittenItem))) {
+                aligned.add(rewrittenItem);
+                continue;
+            }
+            // the caller's own header text (derived or explicit) replaces the label the
+            // frozen sink pinned; the SUBSTITUTED expression itself stays untouched
+            aligned.add(renameOutputItem(rewrittenItem, userLabel, isDerivedAlias(userItem)));
+            changed = true;
+        }
+        if (!changed) {
+            return rewritten;
+        }
+        Plan rebuilt = rewrittenNode instanceof LogicalProject
+                ? ((LogicalProject<?>) rewrittenNode).withProjects(aligned)
+                : ((LogicalSink<?>) rewrittenNode).withOutputExprs(aligned);
+        // rebuild the skipped wrapper chain (innermost ancestor first)
+        for (Plan ancestor : rewrittenAncestors) {
+            rebuilt = ancestor.withChildren(java.util.List.of(rebuilt));
+        }
+        return (LogicalPlan) rebuilt;
+    }
+
+    /**
+     * Whether this node directly carries the caller-visible output list: a projection
+     * (always), or a SINK that resolves its own output items - the unbound result sink of
+     * a raw parse holds an EMPTY list and only wraps its child.
+     */
+    private static boolean carriesOutputList(Plan node) {
+        if (node instanceof LogicalProject) {
+            return true;
+        }
+        return node instanceof LogicalSink && !((LogicalSink<?>) node).getOutputExprs().isEmpty();
+    }
+
+    /** The caller-visible output list of a node that {@link #carriesOutputList}. */
+    private static List<NamedExpression> outputItemsOf(Plan node) {
+        return node instanceof LogicalProject
+                ? ((LogicalProject<?>) node).getProjects()
+                : ((LogicalSink<?>) node).getOutputExprs();
+    }
+
+    /** One output item renamed to {@code label}, keeping the parse-time class. */
+    private static NamedExpression renameOutputItem(NamedExpression item, String label,
+            boolean nameFromChild) {
+        if (item instanceof UnboundAlias) {
+            return new UnboundAlias(((UnboundAlias) item).child(), label, nameFromChild);
+        }
+        return new Alias(((Alias) item).child(), label, nameFromChild);
+    }
+
+    /**
+     * The label one top-level output item exposes: its explicit alias when it has one,
+     * otherwise the derived (nameFromChild) expression text, otherwise nothing (a bare
+     * slot keeps its column name through every replay).
+     */
+    private static String outputLabelOf(Expression item) {
+        String explicit = explicitAliasName(item);
+        return explicit != null ? explicit : derivedAliasName(item);
+    }
+
+    /** The derived (nameFromChild) alias text of one expression, or null. */
+    private static String derivedAliasName(Expression expr) {
+        if (expr instanceof Alias && ((Alias) expr).isNameFromChild()) {
+            return ((Alias) expr).getName();
+        }
+        if (expr instanceof UnboundAlias && ((UnboundAlias) expr).isNameFromChild()) {
+            return ((UnboundAlias) expr).getAlias().orElse(null);
+        }
+        return null;
     }
 
     /** Whether the expression is a nameFromChild (derived) alias. */
@@ -1566,6 +1740,89 @@ public final class SPMPlanTreeSupport {
                 && sameOptionalValue(bind.getTableSample(), user.getTableSample())
                 && sameOptionalValue(bind.getTableSnapshot(), user.getTableSnapshot())
                 && sameScanParams(bind.getScanParams(), user.getScanParams());
+    }
+
+    /**
+     * The stable textual identity of every CONCRETE (non-parameterizable) scan selector
+     * of one base-table relation - partition / tablet selection, hints, index, sample,
+     * snapshot and scan parameters (each with the SAME semantics
+     * {@link #sameScanIdentity} compares: selections are multisets, sample / snapshot
+     * compare by value or text, scan parameters by type + payloads). The audit dedup
+     * uses this description to keep two same-digest statements apart when their concrete
+     * selectors differ: the digest renders PARTITION(p1) and PARTITION(p2) both as
+     * PARTITION(?).
+     */
+    public static String describeScanSelector(UnboundRelation relation) {
+        List<String> partitions = new ArrayList<>();
+        if (relation.getPartNames() != null) {
+            partitions.addAll(relation.getPartNames());
+        }
+        Collections.sort(partitions);
+        List<String> tablets = new ArrayList<>();
+        if (relation.getTabletIds() != null) {
+            for (Long tablet : relation.getTabletIds()) {
+                tablets.add(String.valueOf(tablet));
+            }
+        }
+        Collections.sort(tablets);
+        TableScanParams scanParams = relation.getScanParams();
+        String scanParamsText = scanParams == null ? ""
+                : String.valueOf(scanParams.getParamType()) + '|'
+                        + String.valueOf(scanParams.getMapParams()) + '|'
+                        + String.valueOf(scanParams.getListParams());
+        return (relation.isTempPart() ? "temp" : "formal")
+                + '|' + partitions
+                + '|' + tablets
+                + '|' + String.valueOf(relation.getHints())
+                + '|' + String.valueOf(relation.getIndexName())
+                + '|' + relation.getTableSample().map(Object::toString).orElse("")
+                + '|' + relation.getTableSnapshot().map(Object::toString).orElse("")
+                + '|' + scanParamsText;
+    }
+
+    /** The scan-selector descriptions of every base-table relation in the plan. */
+    public static String scanSelectorFingerprint(Plan plan) {
+        StringBuilder sb = new StringBuilder();
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
+            if (node instanceof UnboundRelation) {
+                sb.append(describeScanSelector((UnboundRelation) node)).append('\u0002');
+            }
+        });
+        return sb.toString();
+    }
+
+    /** The ids of every SPM placeholder reachable from the plan (subquery plans included). */
+    public static Set<Long> collectPlaceholderIds(Plan plan) {
+        Set<Long> ids = new HashSet<>();
+        collectPlaceholderIds(plan, ids);
+        return ids;
+    }
+
+    /** Recurses one plan collecting placeholder ids from its nodes' expressions. */
+    private static void collectPlaceholderIds(Plan plan, Set<Long> ids) {
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
+            for (Expression expr : node.getExpressions()) {
+                collectPlaceholderIds(expr, ids);
+            }
+            for (Expression expr : outOfBandExpressions(node)) {
+                collectPlaceholderIds(expr, ids);
+            }
+        });
+    }
+
+    /** Recurses one expression tree collecting placeholder ids. */
+    private static void collectPlaceholderIds(Expression expr, Set<Long> ids) {
+        if (expr instanceof SpmConstVar) {
+            ids.add(((SpmConstVar) expr).getId());
+        } else if (expr instanceof SpmConstList) {
+            ids.add(((SpmConstList) expr).getId());
+        }
+        if (expr instanceof SubqueryExpr) {
+            collectPlaceholderIds(((SubqueryExpr) expr).getQueryPlan(), ids);
+        }
+        for (Expression child : expr.children()) {
+            collectPlaceholderIds(child, ids);
+        }
     }
 
     /**
@@ -2213,6 +2470,12 @@ public final class SPMPlanTreeSupport {
      * (new schema hash) replaces an entry instead of extending the fingerprint, so the
      * new entry is no longer contained.
      *
+     * <p>A STORED entry may lack the nullability section (a row persisted before that
+     * section existed, {@link #legacyEntryOf}): such an entry accepts the CURRENT one
+     * with any nullability, because the pre-upgrade fingerprint simply did not record
+     * it. A stored entry that HAS the section is compared verbatim - this is exactly how
+     * "the declared nullability changed after the plan was frozen" fails closed.
+     *
      * @param stored  the fingerprint persisted with the baseline (may be null/empty)
      * @param current the bind-side fingerprint of the current query (may be null/empty)
      * @return whether the current bind side is contained (an empty current side always is)
@@ -2227,11 +2490,53 @@ public final class SPMPlanTreeSupport {
         java.util.Set<String> storedEntries =
                 new TreeSet<>(Arrays.asList(stored.split(";")));
         for (String entry : current.split(";")) {
-            if (!entry.isEmpty() && !storedEntries.contains(entry)) {
+            if (entry.isEmpty()) {
+                continue;
+            }
+            if (!storedEntries.contains(entry)
+                    && !storedEntries.contains(legacyEntryOf(entry))) {
                 return false;
             }
         }
         return true;
+    }
+
+    /**
+     * Whether a freshly computed fingerprint still describes the STORED one: either the
+     * two are equal, or the stored one simply predates the nullability section (see
+     * {@link #legacyEntryOf}). Used by the post-planning replay validation, which
+     * compares the FULL (bind + plan side) fingerprints as two unordered sets.
+     *
+     * @param stored  the fingerprint persisted with the baseline
+     * @param current the fingerprint recomputed from the replayed plan
+     * @return whether the stored fingerprint still describes the current metadata
+     */
+    public static boolean schemaFingerprintEquivalent(String stored, String current) {
+        if (stored == null || current == null) {
+            return stored == null && current == null;
+        }
+        java.util.Set<String> storedEntries =
+                new TreeSet<>(Arrays.asList(stored.split(";")));
+        java.util.Set<String> currentEntries =
+                new TreeSet<>(Arrays.asList(current.split(";")));
+        if (storedEntries.equals(currentEntries)) {
+            return true;
+        }
+        java.util.Set<String> legacyCurrent = new TreeSet<>();
+        for (String entry : currentEntries) {
+            legacyCurrent.add(legacyEntryOf(entry));
+        }
+        return storedEntries.equals(legacyCurrent);
+    }
+
+    /**
+     * The PRE-nullability format of one fingerprint entry: the trailing
+     * {@code |nullable:<flags>} section removed. A fingerprint persisted before that
+     * section existed carries such entries; a fingerprint written since never does.
+     */
+    private static String legacyEntryOf(String entry) {
+        int index = entry.lastIndexOf('|' + NULLABILITY_SECTION);
+        return index < 0 ? entry : entry.substring(0, index);
     }
 
     /** Join of fingerprint entries (';'-separated, order-independent). */
@@ -2252,11 +2557,27 @@ public final class SPMPlanTreeSupport {
     /** One fingerprint entry of one resolved table: name + id + base-schema hash. */
     private static String describeTableForFingerprint(TableIf table) {
         StringBuilder schema = new StringBuilder();
+        StringBuilder nullability = new StringBuilder();
         for (Column column : table.getBaseSchema()) {
+            // NULLABILITY is part of the replay contract: SPM leaves ELIMINATE_NOT_NULL
+            // enabled, so "v IS NOT NULL" freezes away when v is declared NOT NULL - and
+            // ALTER TABLE t MODIFY COLUMN v INT NULL changes no name / type hashed here.
+            // Without the flag the frozen (now filterless) plan kept matching after the
+            // column became nullable, replaying rows the original query filtered out.
+            //
+            // The flag travels as a SEPARATE entry section instead of being hashed into
+            // the column list: folding it into the hash would rewrite the hash of EVERY
+            // table that has a NOT NULL column, silently invalidating every baseline
+            // persisted before the upgrade. A section-less (pre-upgrade) entry is still
+            // accepted by the comparisons below, while two entries that BOTH carry the
+            // section must agree on it.
             schema.append(column.getName()).append(':')
-                    .append(column.getType().toString()).append(',');
+                    .append(column.getType().toString())
+                    .append(',');
+            nullability.append(column.isAllowNull() ? '1' : '0');
         }
-        return table.getName() + "|" + table.getId() + "|" + SPMUtils.hashOf(schema.toString());
+        return table.getName() + "|" + table.getId() + "|" + SPMUtils.hashOf(schema.toString())
+                + "|" + NULLABILITY_SECTION + nullability;
     }
 
     /** Records one function call's dependency entry (see the schemaFingerprint caller). */

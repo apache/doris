@@ -50,6 +50,7 @@ import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
+import org.apache.doris.nereids.spm.BaselinePlan;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -411,6 +412,12 @@ public class StatementContext implements Closeable {
     private boolean spmBaselineApplied = false;
     /** The baseline id used by the SPM rewrite (-1 when none). */
     private long spmUsedBaselineId = -1;
+    /**
+     * The baseline OBJECT the match used: the post-plan replay validation must keep the
+     * fingerprint of the SAME incarnation, which a concurrent DROP / refresh could
+     * otherwise hide (see SPMPlanner#verifyReplayMetadata).
+     */
+    private BaselinePlan spmUsedBaseline;
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -510,6 +517,14 @@ public class StatementContext implements Closeable {
 
     public long getSpmUsedBaselineId() {
         return spmUsedBaselineId;
+    }
+
+    public BaselinePlan getSpmUsedBaseline() {
+        return spmUsedBaseline;
+    }
+
+    public void setSpmUsedBaseline(BaselinePlan spmUsedBaseline) {
+        this.spmUsedBaseline = spmUsedBaseline;
     }
 
     public void setNeedLockTables(boolean needLockTables) {

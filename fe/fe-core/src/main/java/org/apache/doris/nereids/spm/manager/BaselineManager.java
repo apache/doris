@@ -469,10 +469,22 @@ public class BaselineManager {
                 // finishes) this cache can hold a row the previous master already
                 // dropped. Returning its id would report success for a baseline that is
                 // not there.
-                if (!persistenceEnabled() && statusProtocolStoreForTest == null) {
+                if (!persistenceEnabled() && statusProtocolStoreForTest == null
+                        && idAllocatorStoreForTest == null) {
                     return duplicate.getId();
                 }
-                if (durableRowCount(duplicate.getId(), duplicate.getStatus()) > 0) {
+                if (idAllocatorStoreForTest == null && statusProtocolStoreForTest != null) {
+                    // count-only seam: it cannot compare the durable identity
+                    if (durableRowCount(duplicate.getId(), duplicate.getStatus()) > 0) {
+                        return duplicate.getId(); // exact duplicate -> skip
+                    }
+                } else if (probeDurableRow(duplicate.getId(), duplicate.getBindSqlDigest(),
+                        duplicate.getPlanSql(), duplicate.getStatus(),
+                        duplicate.getSchemaFingerprint()) == DurablePresence.PRESENT) {
+                    // the durable row must be the SAME incarnation (id + key + status +
+                    // fingerprint): a REUSED id carrying another baseline satisfied the
+                    // old id+status probe, and returning it handed the user an id whose
+                    // row is a different baseline
                     return duplicate.getId(); // exact duplicate -> skip
                 }
                 LOG.warn("SPM baseline create: the cached duplicate {} is gone durably"
@@ -700,7 +712,10 @@ public class BaselineManager {
      * covers the unavoidable tail where the demotion lands mid-write.
      */
     private static void assertLeaderForWrite() {
-        if (!persistenceEnabled() || FeConstants.runningUnitTest) {
+        if (!persistenceEnabled() || FeConstants.runningUnitTest
+                || idAllocatorStoreForTest != null || statusProtocolStoreForTest != null) {
+            // simulator stores stand in for the shared table in unit tests; the leader
+            // fence guards LIVE writes only
             return;
         }
         if (Env.getCurrentEnv() != null && !Env.getCurrentEnv().isMaster()) {
@@ -764,6 +779,12 @@ public class BaselineManager {
             // unrelated row that reused the id
             assertLeaderForWrite();
             persistDeleteByIdentity(removed);
+            // The cached object can predate a promotion reload AND the durable row under
+            // this id may be a DIFFERENT incarnation (an id reused after the old row was
+            // dropped): DROP is keyed by the user-facing id, so no row of this id may
+            // survive - identity-deleting only the stale object would report success
+            // while the real row stays and keeps matching later reads.
+            wipeDurableRowsById(id, removed);
             stateLock.writeLock().lock();
             try {
                 BaselinePlan gone = baselines.remove(id);
@@ -796,6 +817,28 @@ public class BaselineManager {
         LOG.info("SPM dropped baseline {} from the durable table while the local cache did"
                 + " not have it (promotion reload / stale snapshot window)", id);
         return true;
+    }
+
+    /**
+     * Removes any durable row of the given id that is NOT the identity just deleted (see
+     * {@link #dropBaseline}): a promotion-window snapshot can carry an old object whose
+     * id now names a DIFFERENT baseline (the id was dropped and reused), and the DROP is
+     * keyed by the user-facing id - identity-deleting only the stale object would report
+     * success while the real row stays.
+     */
+    private static void wipeDurableRowsById(long id, BaselinePlan alreadyDeleted) {
+        if (idAllocatorStoreForTest == null && !persistenceEnabled()) {
+            return;
+        }
+        List<BaselinePlan> rows = readPersistedById(id);
+        for (BaselinePlan row : rows) {
+            if (sameIdentity(row, alreadyDeleted)) {
+                continue; // the row this DROP already deleted
+            }
+            LOG.warn("SPM drop of baseline {} removed a lingering row of a different"
+                    + " incarnation (digest {})", id, row.getBindSqlDigest());
+            persistDeleteByIdentity(row);
+        }
     }
 
     /**
@@ -959,23 +1002,16 @@ public class BaselineManager {
                 }
             }
             BaselineStatus previousStatus = plan.getStatus();
-            if (previousStatus == status) {
-                // ALTER to the already-set status: nothing to persist. (Inserting + "deleting
-                // the old row by its status" would delete the freshly inserted row as well,
-                // because both rows carry the same status.)
-                // The cache can be STALE here: Env.transferToMaster sets isReady BEFORE
-                // forceReloadFromInternalTable finishes, so a freshly promoted follower
-                // still serves its pre-promotion snapshot while the previous master may
-                // already have durably flipped - or dropped - the row. Confirm against the
-                // durable table before reporting a no-op success.
-                if (!persistenceEnabled() && statusProtocolStoreForTest == null
-                        && idAllocatorStoreForTest == null) {
-                    return true;
-                }
+            boolean durableReconcile = persistenceEnabled()
+                    || statusProtocolStoreForTest != null || idAllocatorStoreForTest != null;
+            if (durableReconcile) {
+                // Reconcile against the durable incarnation BEFORE touching anything: a
+                // promoted FE can serve a snapshot that predates the previous master's
+                // DROP, and an opposite-status ALTER over that stale cache would INSERT
+                // the requested status back - resurrecting a baseline the previous
+                // master dropped. The probe also decides the REAL previous status (the
+                // cache may have missed an earlier flip).
                 DurableStatusProbe probe = probeDurableStatus(id, status);
-                if (probe == DurableStatusProbe.MATCHES) {
-                    return true;
-                }
                 if (probe == DurableStatusProbe.UNKNOWN) {
                     // The durable state cannot be CONFIRMED: reporting a no-op success
                     // could leave a durably DISABLED / DROPPED row while this FE serves
@@ -992,12 +1028,28 @@ public class BaselineManager {
                     retireStaleInMemory(List.of(plan));
                     return false;
                 }
+                if (probe == DurableStatusProbe.MATCHES) {
+                    // the durable row already carries the requested status (the cache
+                    // missed an earlier flip): repair the live object and report success
+                    // without rewriting the row
+                    if (previousStatus != status) {
+                        publishStatus(plan, status, System.currentTimeMillis());
+                    }
+                    return true;
+                }
                 // DIFFERS: the durable row carries the OTHER status. Treat that as the
                 // real previous status so the INSERT(new) / DELETE(old) pair lands on the
                 // durable state and the live object flips to the requested status.
-                LOG.warn("SPM status update of baseline {}: the cache says {} but the durable"
-                        + " row is {}; repairing", id, previousStatus, otherStatus(status));
+                if (previousStatus == status) {
+                    LOG.warn("SPM status update of baseline {}: the cache says {} but the"
+                            + " durable row is {}; repairing", id, previousStatus,
+                            otherStatus(status));
+                }
                 previousStatus = otherStatus(status);
+            } else if (previousStatus == status) {
+                // nothing durable to reconcile (unit tests / disabled persistence) and
+                // the status is already the requested one
+                return true;
             }
             // The internal table is a DUPLICATE-key table on which UPDATE is not supported, so a
             // status change is persisted as INSERT (new status) + DELETE (old status). The INSERT
@@ -2184,7 +2236,11 @@ public class BaselineManager {
      * Whether a persisted row differs from the in-memory baseline. Timestamps are
      * intentionally ignored: the internal table stores DATETIME (second precision) while
      * memory keeps epoch millis, so comparing them would always differ and needlessly
-     * replace locally created objects every cycle.
+     * replace locally created objects every cycle. Every REPLAY-RELEVANT persisted field
+     * takes part though: a dropped highest-id baseline can be recreated under that id
+     * after a referenced table's unused column changed, and a follower that keeps its old
+     * object (same SQL / measured fields) would then reject the newly valid baseline with
+     * the stale fingerprint on every later refresh.
      */
     private static boolean persistedContentChanged(BaselinePlan memory, BaselinePlan row) {
         return !Objects.equals(memory.getBindSql(), row.getBindSql())
@@ -2196,6 +2252,9 @@ public class BaselineManager {
                 || memory.getQueryTimeMs() != row.getQueryTimeMs()
                 || memory.getSource() != row.getSource()
                 || memory.getCreatorSqlMode() != row.getCreatorSqlMode()
+                || !Objects.equals(memory.getPlanSqlMode(), row.getPlanSqlMode())
+                || !Objects.equals(memory.getPlanFrozen(), row.getPlanFrozen())
+                || !Objects.equals(memory.getSchemaFingerprint(), row.getSchemaFingerprint())
                 || memory.getStatus() != row.getStatus();
     }
 
@@ -2472,13 +2531,26 @@ public class BaselineManager {
      */
     private static DurablePresence probeDurableRow(long id, String bindSqlDigest, String planSql,
             BaselineStatus status) {
+        return probeDurableRow(id, bindSqlDigest, planSql, status, null);
+    }
+
+    /**
+     * As above, with an optional SCHEMA FINGERPRINT constraint: the duplicate fast path
+     * of a CREATE must not accept a REUSED id whose row carries the same key but a
+     * different incarnation (it may have been recreated after the referenced schema
+     * changed, which is exactly what the baseline would then reject at replay).
+     */
+    private static DurablePresence probeDurableRow(long id, String bindSqlDigest, String planSql,
+            BaselineStatus status, String schemaFingerprint) {
         if (idAllocatorStoreForTest != null) {
             try {
                 for (BaselinePlan row : idAllocatorStoreForTest.readById(id)) {
                     if (row.getId() == id
                             && Objects.equals(row.getBindSqlDigest(), bindSqlDigest)
                             && Objects.equals(row.getPlanSql(), planSql)
-                            && (status == null || row.getStatus() == status)) {
+                            && (status == null || row.getStatus() == status)
+                            && (schemaFingerprint == null || Objects.equals(
+                                    row.getSchemaFingerprint(), schemaFingerprint))) {
                         return DurablePresence.PRESENT;
                     }
                 }
@@ -2491,7 +2563,9 @@ public class BaselineManager {
         }
         try {
             for (BaselinePlan row : readPersistedByKey(bindSqlDigest, planSql)) {
-                if (row.getId() == id && (status == null || row.getStatus() == status)) {
+                if (row.getId() == id && (status == null || row.getStatus() == status)
+                        && (schemaFingerprint == null || Objects.equals(
+                                row.getSchemaFingerprint(), schemaFingerprint))) {
                     return DurablePresence.PRESENT;
                 }
             }
@@ -2504,6 +2578,11 @@ public class BaselineManager {
     }
 
     private static void persistDeleteByIdentity(BaselinePlan p) {
+        // The repair deletes can be dispatched by a demoted master (an in-flight command
+        // or a stale-cache reconciliation runs its own read first): deleting AFTER the
+        // handoff could erase a row the NEW master just created once the id was reused.
+        // Fence like the create path.
+        assertLeaderForWrite();
         try {
             if (idAllocatorStoreForTest != null) {
                 idAllocatorStoreForTest.deleteByIdentity(p);

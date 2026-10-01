@@ -54,6 +54,19 @@ public class SPMOptimizerTest {
         }
     }
 
+    /**
+     * round-23 #3: a declared UNIQUE key feeds DataTrait FDs, so ORDER BY key
+     * elimination can collapse "ORDER BY a, b LIMIT 1" to "ORDER BY a LIMIT 1" and the
+     * frozen SQL keeps the reduced order. Dropping the declaration changes no value the
+     * fingerprint hashes - the rule must stay excluded.
+     */
+    @Test
+    public void testOrderByKeyEliminationIsExcluded() {
+        Assertions.assertTrue(
+                SPMOptimizer.SPM_EXCLUDED_RULE_NAMES.contains("ELIMINATE_ORDER_BY_KEY"),
+                "the UK-driven ORDER BY reduction is not fingerprinted and must be excluded");
+    }
+
     @Test
     public void testMaterializedViewRulesEnumerated() {
         List<String> mvRules = SPMOptimizer.getMaterializedViewRuleNames();

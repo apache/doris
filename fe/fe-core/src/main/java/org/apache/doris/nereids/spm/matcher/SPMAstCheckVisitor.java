@@ -178,10 +178,17 @@ public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVi
             List<Expression> remaining = new ArrayList<>(userChildren);
             for (Expression bindChild : bindChildren) {
                 int matched = -1;
+                // the operand pairing is an UNORDERED search: a greedy pairing can
+                // succeed here and still break a LATER use of the same placeholder id
+                // (a filter constraining the same id differently) - the retry driver
+                // re-runs the check with a different starting point (see MatchAttempt)
+                int offset = MatchAttempt.offset(remaining.size());
                 for (int i = 0; i < remaining.size(); i++) {
+                    int candidate = (offset + i) % remaining.size();
                     Map<Long, Expression> snapshot = new HashMap<>(context.placeholderValues);
-                    if (checkExpression(bindChild, remaining.get(i), context.placeholderValues)) {
-                        matched = i;
+                    if (checkExpression(bindChild, remaining.get(candidate),
+                            context.placeholderValues)) {
+                        matched = candidate;
                         break;
                     }
                     context.placeholderValues.clear();
