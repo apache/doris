@@ -23,7 +23,6 @@ import org.apache.doris.jni.toolkit.vec.JniSchemaParams;
 import org.apache.doris.jni.toolkit.vec.NestedProjection;
 
 import org.apache.fluss.client.Connection;
-import org.apache.fluss.client.ConnectionFactory;
 import org.apache.fluss.client.FlussConnection;
 import org.apache.fluss.client.table.Table;
 import org.apache.fluss.client.table.scanner.batch.BatchScanner;
@@ -116,6 +115,10 @@ public class FlussJniScanner extends JniScanner {
     /** {@code null} on an unpartitioned table, which fluss subscribes to by bucket alone. */
     private final Long partitionId;
 
+    /** Borrowed from {@link FlussConnectionPool} for this range, and given back when it is closed. */
+    private FlussConnectionPool.Lease lease;
+    /** Whether no connection was idle, so this range opened the one it borrowed. */
+    private boolean openedConnection;
     private Connection connection;
     private Table table;
     private BatchScanner scanner;
@@ -194,9 +197,12 @@ public class FlussJniScanner extends JniScanner {
         // The fluss client spawns its own threads (netty IO, metadata updater) while connecting, and a
         // thread inherits the context classloader of whoever created it. Started under BE's loader they
         // would not see fluss at all - which is why JniScanner.open() installs this plugin's loader as
-        // the context classloader around this call and restores the caller's on the way out.
+        // the context classloader around this call and restores the caller's on the way out. A borrowed
+        // connection was opened under it too, by whichever range opened it first.
         try {
-            connection = ConnectionFactory.createConnection(clientConfig());
+            lease = FlussConnectionPool.INSTANCE.borrow(clientConfig());
+            openedConnection = lease.opened();
+            connection = lease.connection();
             table = connection.getTable(TablePath.of(required(DB_NAME), required(TABLE_NAME)));
 
             RowType rowType = table.getTableInfo().getRowType();
@@ -354,10 +360,16 @@ public class FlussJniScanner extends JniScanner {
         scanner = null;
         failure = closeQuietly(table, "table", failure);
         table = null;
-        if (connection != null) {
-            // Closing a connection waits out netty's two-second graceful shutdown; see
-            // FlussConnectionCloser for why this range does not wait for it.
-            FlussConnectionCloser.close(connection);
+        if (lease != null) {
+            if (finished && failure == null) {
+                // The connection outlives this range and serves the next one; see FlussConnectionPool.
+                FlussConnectionPool.INSTANCE.giveBack(lease);
+            } else {
+                // Failed or closed before its end (a LIMIT, a cancel): FlussConnectionPool#discard says why
+                // such a connection is not lent again.
+                FlussConnectionPool.INSTANCE.discard(lease);
+            }
+            lease = null;
             connection = null;
         }
         currentBatch = null;
@@ -389,6 +401,8 @@ public class FlussJniScanner extends JniScanner {
         Map<String, String> statistics = new HashMap<>();
         statistics.put("counter:FlussJniRowsRead", String.valueOf(rowsRead));
         statistics.put("gauge:FlussJniRequiredFieldCount", String.valueOf(fields.length));
+        // Summed over a query's ranges: the connections it had to open because none was idle.
+        statistics.put("counter:FlussJniConnectionsOpened", openedConnection ? "1" : "0");
         if (tailScanner != null) {
             // What the tail cost and what it hid: the records replayed, and the keys it ended deleted —
             // those are lake rows that disappear with nothing returned in their place.

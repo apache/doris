@@ -29,20 +29,18 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Closes the fluss connections scanners are done with, off the thread that was scanning.
+ * Closes fluss connections without making the caller wait for them.
  *
  * <p>Closing a {@link Connection} shuts its netty client down with netty's default graceful period,
- * which returns only after two quiet seconds, and fluss offers no shorter one. Every range opens a
- * connection of its own, so closing it inline put those two seconds on every range: most of what a
- * union read with a small log tail cost, and the whole of what a count over a tiny table did. Nothing
- * a scan returns depends on the connection being gone, so a scanner hands it here and returns.
+ * which returns only after two quiet seconds, and fluss offers no shorter one. Scan ranges no longer
+ * close connections - they give them back to {@link FlussConnectionPool} - but the pool closes the
+ * ones nobody has borrowed for a while, and one sweep can expire every connection a burst of ranges
+ * opened. Closed one after another they would hold that sweep up for two seconds each, so the pool
+ * hands them here and moves on.
  *
- * <p><b>Bounded, because the wait was also a brake.</b> A connection that is closing still holds its
- * client threads (three netty threads each) until the quiet period passes. While scanners closed
- * inline, no more connections could be closing than there were scanners. Off the scanning thread
- * nothing holds a scan of thousands of small ranges back from finishing ranges far faster than their
- * connections close, so at most {@link #MAX_CLOSING} close here at a time; past that a scanner closes
- * its own connection the way every scanner used to, and the brake is back.
+ * <p><b>Bounded.</b> A connection that is closing still holds its client threads (three netty threads
+ * each) until the quiet period passes, so at most {@link #MAX_CLOSING} close here at a time; past that
+ * the caller closes its own, which only slows the sweep that brought it.
  */
 final class FlussConnectionCloser {
 
@@ -82,26 +80,25 @@ final class FlussConnectionCloser {
     }
 
     /**
-     * Every closer thread is busy, so the thread that brought the connection closes it. That costs
-     * its scan two seconds a range again, which would otherwise show up nowhere: BE publishes a
-     * scanner's counters before it closes it.
+     * Every closer thread is busy, so the thread that brought the connection closes it, two seconds
+     * a connection, and says so in the log: nothing else would show it.
      */
     private static void closeOnCallingThread(Runnable close) {
         long now = System.nanoTime();
         long last = LAST_SATURATION_LOG_NANOS.get();
         if (now - last >= SATURATION_LOG_INTERVAL_NANOS && LAST_SATURATION_LOG_NANOS.compareAndSet(last, now)) {
-            LOG.info("{} fluss connections are closing in the background; scanners close their own "
-                    + "connections, waiting about two seconds for each, until some of those are done",
-                    MAX_CLOSING);
+            LOG.info("{} fluss connections are closing in the background; further connections are closed "
+                    + "by the thread that brings them, waiting about two seconds for each, until some of "
+                    + "those are done", MAX_CLOSING);
         }
         close.run();
     }
 
     /**
      * Closes {@code connection} without making the caller wait for it, unless {@link #MAX_CLOSING}
-     * are closing already. A failure to close is logged and nothing else: the scan the connection
-     * served has already returned its rows, and a query must not fail over the cleanup of one of
-     * its connections.
+     * are closing already. A failure to close is logged and nothing else: the scans the connection
+     * served have already returned their rows, and nothing may fail over the cleanup of one of their
+     * connections.
      */
     static void close(Connection connection) {
         CLOSER.execute(() -> {

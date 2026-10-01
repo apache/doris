@@ -17,12 +17,6 @@
 
 package org.apache.doris.fluss;
 
-import org.apache.fluss.client.Connection;
-import org.apache.fluss.client.admin.Admin;
-import org.apache.fluss.client.table.MultiTable;
-import org.apache.fluss.client.table.Table;
-import org.apache.fluss.config.Configuration;
-import org.apache.fluss.metadata.TablePath;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -31,9 +25,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * What the closer promises a scanner: it does not wait for its connection to close, and connections do
- * not pile up behind it. Every step here waits on a latch rather than on the clock; the clock only
- * bounds how long a closer that never does its part is waited for.
+ * What the closer promises whoever hands it a connection: it does not wait for the connection to close,
+ * and connections do not pile up behind it. Every step here waits on a latch rather than on the clock;
+ * the clock only bounds how long a closer that never does its part is waited for.
  */
 public class FlussConnectionCloserTest {
 
@@ -100,51 +94,13 @@ public class FlussConnectionCloserTest {
             Assertions.assertTrue(closedByCaller,
                     "more than " + FlussConnectionCloser.MAX_CLOSING + " connections were closing at once");
 
-            // A connection that fails to close must not fail the scan that is done with it, whichever
-            // thread ends up closing it.
+            // A connection that fails to close must not fail whoever handed it over, whichever thread
+            // ends up closing it.
             Assertions.assertDoesNotThrow(() -> FlussConnectionCloser.close(new StubConnection(() -> {
                 throw new IllegalStateException("this connection refuses to close");
             })));
         } finally {
             mayFinish.countDown();
-        }
-    }
-
-    private interface CloseAction {
-        void run() throws Exception;
-    }
-
-    /** A connection nobody uses for anything but closing it. */
-    private static final class StubConnection implements Connection {
-        private final CloseAction onClose;
-
-        StubConnection(CloseAction onClose) {
-            this.onClose = onClose;
-        }
-
-        @Override
-        public Configuration getConfiguration() {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public Admin getAdmin() {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public Table getTable(TablePath tablePath) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public MultiTable getMultiTable() {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void close() throws Exception {
-            onClose.run();
         }
     }
 }
