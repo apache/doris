@@ -126,6 +126,61 @@ public class SafeKvSnapshotAndLogBatchScannerTest {
                 "the SDK scanner must be closed exactly once, after publication");
     }
 
+    /**
+     * Until the SDK scanner is closed it is still copying its snapshot on the download threads of the
+     * connection it was created on, and closing the connection under that copy strands it. So the
+     * connection is released only once the scanner is closed, however late that is.
+     */
+    @Test
+    public void earlyClosedSnapshotReaderReleasesItsConnectionOnlyOnceClosed() throws Exception {
+        LatePublishingSnapshotScanner snapshot = new LatePublishingSnapshotScanner();
+        SafeKvSnapshotAndLogBatchScanner.ScannerResources resources = acquireSnapshotOnly(snapshot);
+        resources.snapshotScanner.close();
+
+        Assertions.assertTrue(snapshot.pollEntered.await(5, TimeUnit.SECONDS),
+                "early close did not start a publication waiter");
+        Assertions.assertFalse(resources.snapshotScanner.released().isDone(),
+                "the connection was released while the snapshot was still being copied on it");
+
+        snapshot.publishNativeReader();
+        resources.snapshotScanner.released().get(5, TimeUnit.SECONDS);
+        Assertions.assertEquals(1, snapshot.closeCalls.get(), "released before the SDK scanner was closed");
+    }
+
+    /** A snapshot that had arrived is closed at once, and with it the connection is released at once. */
+    @Test
+    public void snapshotReaderClosedAfterItsSnapshotArrivedReleasesItsConnectionAtOnce() throws Exception {
+        LatePublishingSnapshotScanner snapshot = new LatePublishingSnapshotScanner();
+        SafeKvSnapshotAndLogBatchScanner.ScannerResources resources = acquireSnapshotOnly(snapshot);
+        snapshot.publishNativeReader();
+        // Ready and empty: the SDK's null.
+        Assertions.assertNull(resources.snapshotScanner.pollBatch(Duration.ofSeconds(5)));
+
+        resources.snapshotScanner.close();
+        Assertions.assertTrue(resources.snapshotScanner.released().isDone(),
+                "a scanner closed after publication must release its connection on the spot");
+        Assertions.assertEquals(1, snapshot.closeCalls.get());
+    }
+
+    /** Opens a range that reads only {@code snapshot}: its log range is empty. */
+    private static SafeKvSnapshotAndLogBatchScanner.ScannerResources acquireSnapshotOnly(BatchScanner snapshot) {
+        SafeKvSnapshotAndLogBatchScanner.ScannerFactory factory =
+                new SafeKvSnapshotAndLogBatchScanner.ScannerFactory() {
+                    @Override
+                    public BatchScanner createSnapshotScanner(
+                            TableBucket tableBucket, long snapshotId, int[] projectedFields) {
+                        return snapshot;
+                    }
+
+                    @Override
+                    public LogScanner createLogScanner(int[] projectedFields) {
+                        throw new AssertionError("the staged log range is empty");
+                    }
+                };
+        return SafeKvSnapshotAndLogBatchScanner.acquireScanners(
+                factory, new TableBucket(1L, 0), 7L, 20L, 20L, new int[] {0});
+    }
+
     private static class RecordingLogScanner implements LogScanner {
         final AtomicBoolean closed = new AtomicBoolean();
         final AtomicBoolean subscribed = new AtomicBoolean();

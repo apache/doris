@@ -142,11 +142,12 @@ final class FlussConnectionPool {
 
     /**
      * Closes, without waiting for it, the connection of a range that failed or was closed before its end,
-     * instead of lending it again. Such a connection may still be working for that range - a primary-key
-     * range closed early leaves its kv snapshot copy running on the connection's download threads - or be
-     * broken by what failed it: an {@code OutOfMemoryError} on one of its netty threads ends that thread's
-     * event loop for good. The most recently returned connection is lent first, so one like that, given
-     * back, would be lent to every range that came next.
+     * instead of lending it again. Such a connection may be broken by what failed it: an
+     * {@code OutOfMemoryError} on one of its netty threads ends that thread's event loop for good. The
+     * most recently returned connection is lent first, so one like that, given back, would be lent to
+     * every range that came next. A primary-key range closed before its kv snapshot arrived hands its
+     * connection here only once the snapshot copy running on the connection's download threads is over
+     * ({@code FlussJniScanner#closeInternal}); closed under the copy, the connection would strand it.
      */
     void discard(Lease lease) {
         FlussConnectionCloser.close(lease.connection);

@@ -45,6 +45,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Reads one fluss scan range — one bucket of one partition, bounded by log offsets.
@@ -124,6 +125,11 @@ public class FlussJniScanner extends JniScanner {
     private BatchScanner scanner;
     /** The same object as {@link #scanner} on a {@code PK_TAIL} range, for what it counted. */
     private PkTailBatchScanner tailScanner;
+    /**
+     * The same object as {@link #scanner} on a {@code PK_FULL} range, for when it stops using the
+     * connection; see {@link #closeInternal()}.
+     */
+    private SafeKvSnapshotAndLogBatchScanner fullScanner;
 
     /** Fluss types of the projected columns, positionally aligned with {@link #fields}. */
     private List<DataType> projectedTypes;
@@ -269,8 +275,9 @@ public class FlussJniScanner extends JniScanner {
      * snapshot is far behind costs the most.
      */
     private BatchScanner primaryKeyScanner(TableBucket tableBucket, int[] projection) {
-        return new SafeKvSnapshotAndLogBatchScanner(
+        fullScanner = new SafeKvSnapshotAndLogBatchScanner(
                 table, tableBucket, kvSnapshotId, logStartOffset, logStopOffset, projection);
+        return fullScanner;
     }
 
     /**
@@ -354,20 +361,32 @@ public class FlussJniScanner extends JniScanner {
     @Override
     protected void closeInternal() throws IOException {
         IOException failure = null;
+        CompletableFuture<Void> released = fullScanner == null
+                ? CompletableFuture.completedFuture(null) : fullScanner.released();
         // Close everything even if an earlier close throws: a leaked fluss connection keeps its netty
         // and metadata-updater threads alive for the life of the BE process.
         failure = closeQuietly(scanner, "scanner", failure);
         scanner = null;
+        fullScanner = null;
         failure = closeQuietly(table, "table", failure);
         table = null;
         if (lease != null) {
-            if (finished && failure == null) {
-                // The connection outlives this range and serves the next one; see FlussConnectionPool.
-                FlussConnectionPool.INSTANCE.giveBack(lease);
+            FlussConnectionPool.Lease returned = lease;
+            // A range read to its end gives the connection back to serve the next one (see
+            // FlussConnectionPool); one that failed or was closed before its end (a LIMIT, a cancel) has it
+            // closed instead, for the reasons FlussConnectionPool#discard gives.
+            Runnable handBack = finished && failure == null
+                    ? () -> FlussConnectionPool.INSTANCE.giveBack(returned)
+                    : () -> FlussConnectionPool.INSTANCE.discard(returned);
+            if (released.isDone()) {
+                handBack.run();
             } else {
-                // Failed or closed before its end (a LIMIT, a cancel): FlussConnectionPool#discard says why
-                // such a connection is not lent again.
-                FlussConnectionPool.INSTANCE.discard(lease);
+                // A primary-key range closed before its kv snapshot arrived: fluss goes on copying the
+                // snapshot on the connection's download threads until the reader can be closed. Closed
+                // under that copy, the connection would drop the files still queued, and the reader would
+                // wait for them forever - with the pool thread it runs on, the thread waiting to close it,
+                // and the half-copied snapshot directory. So the connection waits for the reader instead.
+                released.thenRun(handBack);
             }
             lease = null;
             connection = null;
