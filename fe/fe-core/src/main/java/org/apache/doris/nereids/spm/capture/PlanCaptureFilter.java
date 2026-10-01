@@ -38,6 +38,7 @@ import org.apache.doris.qe.VariableMgr;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -352,7 +353,7 @@ public class PlanCaptureFilter {
                         PlanUtils.getLogicalScanFromRootPlan((LogicalPlan) parsed);
                 Set<String> unboundNames = new LinkedHashSet<>();
                 collectUnboundNames(parsed, Collections.emptySet(), unboundNames);
-                return Stream.concat(
+                List<String> names = Stream.concat(
                                 relations.stream()
                                         .map(LogicalCatalogRelation::getTable)
                                         .map(TableIf::getNameWithFullQualifiers),
@@ -360,11 +361,32 @@ public class PlanCaptureFilter {
                         .distinct()
                         .sorted()
                         .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+                return dedupeUnderNameCaseRule(names);
             }
         } catch (RuntimeException e) {
             // parse failure: cannot extract tables, treat as not capturable
         }
         return List.of();
+    }
+
+    /**
+     * Deduplicates table names under the configured name-case rule
+     * (lower_case_table_names): the analyzer resolves `t` and `T` to the SAME physical
+     * table, so a case-sensitive set counted a self-join of one table as a two-table
+     * workload and the capture gate created an unnecessary GLOBAL baseline for a query
+     * the documented Level 3 filter excludes. Uses the same normalization as the
+     * CTE-alias comparisons; the FIRST spelling (in sorted order) is kept so the Level
+     * 4 / 5 checks still see a real name.
+     */
+    private static List<String> dedupeUnderNameCaseRule(List<String> names) {
+        if (GlobalVariable.lowerCaseTableNames == 0 || names.size() < 2) {
+            return names;
+        }
+        LinkedHashMap<String, String> byCase = new LinkedHashMap<>();
+        for (String name : names) {
+            byCase.putIfAbsent(normalizeCteName(name), name);
+        }
+        return new ArrayList<>(byCase.values());
     }
 
     /**

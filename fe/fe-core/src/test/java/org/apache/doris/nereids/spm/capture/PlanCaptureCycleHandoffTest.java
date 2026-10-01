@@ -403,4 +403,49 @@ public class PlanCaptureCycleHandoffTest {
             manager.resetForTest();
         }
     }
+
+    /**
+     * round-22 #5: a NON-EMPTY read is not proof the reservation became visible - the
+     * visible row may be the OLD master's reservation (published after its demotion).
+     * Confirming "some row exists" would consume this window, and the final UPSERT would
+     * replace the old master's still-unconsumed pending window. Only a row carrying OUR
+     * pending bounds may confirm the reservation.
+     */
+    @Test
+    public void testReservationMustMatchOurOwnWindow() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            // the successful-but-empty read of the first cycle, then the store keeps
+            // showing the OLD master's reservation (a different window)
+            AtomicInteger reads = new AtomicInteger();
+            manager.setCheckpointReaderForTest(() -> reads.getAndIncrement() == 0
+                    ? List.of()
+                    : List.of(new ResultRow(List.of(
+                            "123456", "500", "600", "7", "2026-01-01 00:00:00", "qid-old",
+                            "{}", "{}", ""))));
+            RecordingScanner scanner = new RecordingScanner(List.of(), true,
+                    AuditLogScanner.CURSOR_ABSENT, "", "", "");
+            manager.setScannerForTest(scanner);
+            AtomicReference<Map<String, String>> visible = new AtomicReference<>();
+            manager.setCheckpointWriterForTest((sql, params) -> visible.set(new HashMap<>(params)));
+
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(0, scanner.calls.get(),
+                    "a foreign (old master's) row must not confirm OUR reservation");
+            Assertions.assertFalse(manager.isDurableCheckpointObservedForTest(),
+                    "the reservation must stay retryable");
+
+            // the store publishes OUR reservation: the next cycle confirms and consumes
+            manager.setCheckpointReaderForTest(() -> visible.get() == null
+                    ? List.of() : List.of(checkpointRow(visible.get())));
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(1, scanner.calls.get(),
+                    "the same-window row confirms the reservation");
+        } finally {
+            manager.resetForTest();
+        }
+    }
 }

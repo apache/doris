@@ -74,6 +74,7 @@ public final class SPMForwardedSession {
                 continue;
             }
             Map<String, String> row = new HashMap<>();
+            row.put("id", String.valueOf(plan.getId()));
             row.put("bindSql", plan.getBindSql() == null ? "" : plan.getBindSql());
             row.put("planSql", plan.getPlanSql() == null ? "" : plan.getPlanSql());
             row.put("bindSqlDigest",
@@ -127,7 +128,9 @@ public final class SPMForwardedSession {
             for (Map<String, String> row : rows) {
                 BaselinePlan plan = fromPayload(row);
                 if (plan != null) {
-                    store.createBaseline(plan);
+                    // import under the ORIGINAL id: the forwarded EXPLAIN must report the
+                    // id the connection itself uses for SHOW / ALTER / DROP
+                    store.importBaseline(plan);
                 }
             }
         } catch (RuntimeException e) {
@@ -143,6 +146,7 @@ public final class SPMForwardedSession {
             return null;
         }
         BaselinePlan plan = new BaselinePlan();
+        plan.setId(parseLong(row.get("id")));
         plan.setBindSql(bindSql);
         plan.setPlanSql(planSql);
         plan.setBindSqlDigest(row.getOrDefault("bindSqlDigest", ""));

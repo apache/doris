@@ -1005,13 +1005,18 @@ public class PlanCaptureManager extends MasterDaemon {
         if (!checkpointPersistenceEnabled()) {
             return true;
         }
+        // the reservation's identity: the window bounds written by persistCheckpoint for
+        // THIS cycle (they are not touched by the write itself)
+        final long reservationStart = pendingWindowStart;
+        final long reservationEnd = pendingWindowEnd;
         if (!persistCheckpoint()) {
             return false;
         }
         for (int attempt = 0; attempt < CHECKPOINT_VISIBILITY_ATTEMPTS; attempt++) {
             try {
                 List<ResultRow> rows = checkpointReader.get();
-                if (rows != null && !rows.isEmpty()) {
+                if (rows != null && !rows.isEmpty()
+                        && isOurReservationRow(rows.get(0), reservationStart, reservationEnd)) {
                     return true;
                 }
             } catch (Exception e) {
@@ -1025,9 +1030,24 @@ public class PlanCaptureManager extends MasterDaemon {
             }
         }
         durableCheckpointObserved = false;
-        LOG.warn("SPM capture: the checkpoint reservation is not readable yet; the cycle"
-                + " will retry");
+        LOG.warn("SPM capture: OUR checkpoint reservation is not readable yet (any OTHER"
+                + " row is not proof the write became visible); the cycle will retry");
         return false;
+    }
+
+    /**
+     * Whether the read-back row IS the reservation just written. A non-empty read is NOT
+     * proof: an old master demoted mid-cycle can publish its OWN reservation after this
+     * cycle's successful-but-not-yet-visible write, and treating that foreign row as
+     * confirmation would consume this window WHILE the final UPSERT replaces the old
+     * master's still-unconsumed pending window. In the single-row store the pending
+     * bounds identify the reservation: any other window is not this write, the SAME
+     * window describes the very page this cycle is about to consume.
+     */
+    private static boolean isOurReservationRow(ResultRow row, long reservationStart,
+            long reservationEnd) {
+        return parseLongValue(row.get(1)) == reservationStart
+                && parseLongValue(row.get(2)) == reservationEnd;
     }
 
     private static long parseLongValue(String text) {

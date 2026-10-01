@@ -1368,6 +1368,44 @@ public class SPMPlan2SQLBuilderTest {
                 "the decompiled fragment must re-parse: " + relation.toSQL());
     }
 
+    /**
+     * round-22 #4: a legal column named `a as b` (it CONTAINS the alias token). The inner
+     * window exports it as a quoted pass-through item, an UPPER window consumes the
+     * child's SELECT list - and the naive lastIndexOf(" as ") matched INSIDE the
+     * backticks, registering "b`" as the reference so the next frozen layer no longer
+     * parsed.
+     */
+    @Test
+    public void testWindowPassesThroughQuotedNameContainingAsToken() {
+        SlotReference tricky = new SlotReference("a as b", IntegerType.INSTANCE);
+        SlotReference k = new SlotReference("k", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(tricky, k));
+        PhysicalFilter<?> filter = mockFilter(new GreaterThan(k, new IntegerLiteral(100)), scan);
+
+        org.apache.doris.nereids.trees.expressions.WindowExpression win1 =
+                new org.apache.doris.nereids.trees.expressions.WindowExpression(
+                        new org.apache.doris.nereids.trees.expressions.functions.window.RowNumber(),
+                        List.of(), List.of());
+        org.apache.doris.nereids.trees.plans.physical.PhysicalWindow<?> window1 =
+                mockWindow(filter, List.of((NamedExpression) new Alias(win1, "rn")));
+        org.apache.doris.nereids.trees.expressions.WindowExpression win2 =
+                new org.apache.doris.nereids.trees.expressions.WindowExpression(
+                        new org.apache.doris.nereids.trees.expressions.functions.window.RowNumber(),
+                        List.of(), List.of());
+        org.apache.doris.nereids.trees.plans.physical.PhysicalWindow<?> window2 =
+                mockWindow(window1, List.of((NamedExpression) new Alias(win2, "rn2")));
+
+        SQLRelation relation = new SPMPlan2SQLBuilder().visitPhysicalWindow(window2, null);
+        Assertions.assertTrue(relation.getSelects().stream()
+                        .anyMatch(p -> p.value().contains("`a as b`")),
+                "the quoted name must survive the pass-through: " + relation.toSQL());
+        Assertions.assertFalse(relation.getSelects().stream()
+                        .anyMatch(p -> p.value().trim().startsWith("b`")),
+                "the reference must not be cut out of the quoted name: " + relation.toSQL());
+        Assertions.assertNotNull(new NereidsParser().parseSingle(relation.toSQL()),
+                "the decompiled fragment must re-parse: " + relation.toSQL());
+    }
+
     // ==================== set-operation quantifier ====================
 
     /**

@@ -86,6 +86,47 @@ public class SessionBaselineStore {
      * @return the id of the created baseline (or the existing id when duplicated)
      */
     public synchronized long createBaseline(BaselinePlan plan) {
+        long duplicate = retireStaleAndFindDuplicate(plan);
+        if (duplicate > 0) {
+            return duplicate;
+        }
+        return registerLocked(plan, SESSION_ID_GENERATOR.getAndIncrement());
+    }
+
+    /**
+     * Imports a baseline carried over from the connection's own FE
+     * ({@link org.apache.doris.nereids.spm.SPMForwardedSession}) under its ORIGINAL id.
+     * The id is what the originating session uses for SHOW / ALTER / DROP and what a
+     * forwarded EXPLAIN reports as its SPM hit; allocating a fresh id here (as a plain
+     * create does) made the reported hit unmanageable from the user's session and
+     * produced yet another id on every forwarded request.
+     *
+     * @param plan the carried baseline (id from the source store)
+     * @return the id of the imported baseline (or the existing id when duplicated)
+     */
+    public synchronized long importBaseline(BaselinePlan plan) {
+        long duplicate = retireStaleAndFindDuplicate(plan);
+        if (duplicate > 0) {
+            return duplicate;
+        }
+        long id = plan.getId();
+        if (id < BaselineScope.SESSION_ID_BASE) {
+            // a payload without an id (older FE / hand-written): fall back to a fresh
+            // session id instead of registering one the scope invariant rejects
+            id = SESSION_ID_GENERATOR.getAndIncrement();
+        }
+        return registerLocked(plan, id);
+    }
+
+    /**
+     * Duplicate validation shared by {@link #createBaseline} / {@link #importBaseline}: an
+     * identical (bindSqlHash, digest, planSql, fingerprint) row returns its id
+     * ("IF NOT EXISTS" semantics), a same-key row under an OLD fingerprint is retired.
+     *
+     * @param plan the baseline to check
+     * @return the existing id, or 0 when the plan is new
+     */
+    private long retireStaleAndFindDuplicate(BaselinePlan plan) {
         if (plan.getBindSqlHash() != 0) {
             List<BaselinePlan> stale = new ArrayList<>();
             for (BaselinePlan existing : findByHash(plan.getBindSqlHash())) {
@@ -104,8 +145,12 @@ public class SessionBaselineStore {
                 dropBaseline(row.getId());
             }
         }
+        return 0;
+    }
+
+    /** Registers one row under the given id (scope / timestamps / both indexes). */
+    private long registerLocked(BaselinePlan plan, long id) {
         plan.setScope(BaselineScope.SESSION);
-        long id = SESSION_ID_GENERATOR.getAndIncrement();
         // invariant: session ids live in [2^62, 2^63), so the scope derived from an id
         // (BaselineScope.ofId) is always exact
         Preconditions.checkState(id >= BaselineScope.SESSION_ID_BASE,
@@ -114,7 +159,18 @@ public class SessionBaselineStore {
         long now = System.currentTimeMillis();
         plan.setCreateTime(now);
         plan.setUpdateTime(now);
-        baselines.put(id, plan);
+        BaselinePlan replaced = baselines.put(id, plan);
+        if (replaced != null) {
+            // an import reusing an existing id: drop the previous row's index entry (no
+            // id may be indexed twice)
+            List<Long> replacedIds = hashIndex.get(replaced.getBindSqlHash());
+            if (replacedIds != null) {
+                replacedIds.remove(id);
+                if (replacedIds.isEmpty()) {
+                    hashIndex.remove(replaced.getBindSqlHash());
+                }
+            }
+        }
         hashIndex.computeIfAbsent(plan.getBindSqlHash(), k -> new ArrayList<>()).add(id);
         return id;
     }

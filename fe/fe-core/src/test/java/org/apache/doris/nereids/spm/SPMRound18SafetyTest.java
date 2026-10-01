@@ -183,6 +183,14 @@ public class SPMRound18SafetyTest {
         Assertions.assertEquals(plan.getBindSqlDigest(), restored.getBindSqlDigest());
         Assertions.assertTrue(Boolean.TRUE.equals(restored.getPlanFrozen()),
                 "the frozen provenance must survive the carrier");
+        Assertions.assertEquals(plan.getId(), restored.getId(),
+                "the ORIGINAL session id must travel with the payload: a forwarded EXPLAIN"
+                        + " must report the id SHOW / ALTER / DROP use on the connection");
+        // repeated imports are deterministic: no fresh id per forwarded request
+        SPMForwardedSession.importInto(masterCtx, payload);
+        Assertions.assertEquals(plan.getId(),
+                masterCtx.getSessionBaselineStore().getAllBaselines().get(0).getId(),
+                "every forwarded request must import under the same id");
         Assertions.assertNotNull(restored.getParameterizedBindPlan(),
                 "the transient trees are rebuilt on the master");
         Assertions.assertEquals(BaselineStatus.ENABLED, restored.getStatus());
