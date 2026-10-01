@@ -938,6 +938,32 @@ TEST(ArrowFlightVariantTest, LegacyCompositeRootsAndNestedLeaves) {
     }
 }
 
+TEST(ArrowFlightVariantTest, SchemaRpcPreservesNestedVariantExtensions) {
+    ASSERT_TRUE(register_arrow_variant_extension().ok());
+    for (const auto& type : std::vector<std::shared_ptr<arrow::DataType>> {
+                 arrow::utf8(), native_variant(), arrow::list(native_variant()),
+                 arrow::map(arrow::utf8(), native_variant()),
+                 arrow::struct_({arrow::field("v", native_variant())}),
+                 arrow::list(arrow::struct_({arrow::field("v", native_variant())}))}) {
+        SCOPED_TRACE(type->ToString());
+        auto schema = arrow::schema({arrow::field("result", type)});
+        std::string serialized;
+        // Result schema discovery happens before batch conversion and must also support nested extensions.
+        auto status = serialize_arrow_schema(&schema, &serialized);
+        ASSERT_TRUE(status.ok()) << status;
+        auto input = arrow::io::BufferReader::FromString(serialized);
+        auto opened = arrow::ipc::RecordBatchStreamReader::Open(input.get());
+        ASSERT_TRUE(opened.ok()) << opened.status();
+        auto reader = opened.ValueOrDie();
+        EXPECT_TRUE(reader->schema()->Equals(*schema, true));
+        auto next = reader->Next();
+        ASSERT_TRUE(next.ok()) << next.status();
+        if (next.ValueOrDie() != nullptr) {
+            EXPECT_EQ(next.ValueOrDie()->num_rows(), 0);
+        }
+    }
+}
+
 TEST(ArrowFlightVariantTest, EmptyResultHasNativeSchema) {
     for (DataTypePtr type : {DataTypePtr(std::make_shared<DataTypeVariant>()),
                              DataTypePtr(std::make_shared<DataTypeVariantV2>())}) {

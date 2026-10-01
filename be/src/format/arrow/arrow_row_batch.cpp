@@ -45,6 +45,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format/arrow/arrow_block_convertor.h"
+#include "format/arrow/arrow_utils.h"
 #include "runtime/descriptors.h"
 
 namespace doris {
@@ -321,13 +322,17 @@ Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::strin
 }
 
 Status serialize_arrow_schema(std::shared_ptr<arrow::Schema>* schema, std::string* result) {
-    auto make_empty_result = arrow::RecordBatch::MakeEmpty(*schema);
-    if (!make_empty_result.ok()) {
-        return Status::InternalError("serialize_arrow_schema failed, reason: {}",
-                                     make_empty_result.status().ToString());
-    }
-    auto batch = make_empty_result.ValueOrDie();
-    return serialize_record_batch(*batch, result);
+    // Schema RPC readers only consume the IPC schema. Building an empty batch would require
+    // nested extension builders, which Arrow does not provide for ARRAY/MAP/STRUCT<VARIANT>.
+    std::shared_ptr<arrow::io::BufferOutputStream> sink;
+    RETURN_DORIS_STATUS_IF_RESULT_ERROR(sink, arrow::io::BufferOutputStream::Create());
+    std::shared_ptr<arrow::ipc::RecordBatchWriter> writer;
+    RETURN_DORIS_STATUS_IF_RESULT_ERROR(writer, arrow::ipc::MakeStreamWriter(sink.get(), *schema));
+    RETURN_DORIS_STATUS_IF_ERROR(writer->Close());
+    std::shared_ptr<arrow::Buffer> buffer;
+    RETURN_DORIS_STATUS_IF_RESULT_ERROR(buffer, sink->Finish());
+    *result = buffer->ToString();
+    return Status::OK();
 }
 
 } // namespace doris
