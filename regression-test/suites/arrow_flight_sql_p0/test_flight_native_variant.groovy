@@ -41,9 +41,9 @@ suite("test_flight_native_variant", "arrow_flight_sql") {
             Location.forGrpcInsecure(frontend.Host.toString(), frontend.ArrowFlightSqlPort.toString().toInteger())).build()
     def client = new FlightSqlClient(feClient)
     def auth
-    def read = { String query, Closure inspect, boolean parallel = false, int resultBackendCount = 1 ->
+    def read = { String query, Closure inspect, boolean parallel = false, int resultBackendCount = 1, def prepared = null ->
         int count = 0
-        def info = client.execute(query, auth)
+        def info = prepared == null ? client.execute(query, auth) : prepared.execute(auth)
         assertFalse(info.endpoints.isEmpty())
         // Multiple buckets alone do not prove coverage of native output from different result BEs.
         if (parallel) {
@@ -123,6 +123,30 @@ suite("test_flight_native_variant", "arrow_flight_sql") {
                     }
                 }, parallel, resultBackendCount))
                 assertEquals((1..60).toList(), seen.sort())
+                // Prepare and GetSchema must advertise the same Variant leaves as execution.
+                ["SELECT CAST(42 AS VARIANT) AS v",
+                 "SELECT v, ARRAY(v) AS a FROM ${table} WHERE id = 1",
+                 "SELECT v FROM ${table} WHERE id < 0"].eachWithIndex { query, index ->
+                    def prepared = client.prepare(query.toString(), auth)
+                    try {
+                        def schema = prepared.resultSetSchema
+                        assertEquals(schema, client.getExecuteSchema(query.toString(), auth).schema)
+                        assertEquals(schema, prepared.fetchSchema(auth).schema)
+                        def leaves = [schema.fields[0]]
+                        if (index == 1) {
+                            leaves.add(schema.fields[1].children[0])
+                        }
+                        leaves.each { field ->
+                            assertEquals(nativeVariant ? "Struct" : "Utf8", field.type.toString())
+                            if (nativeVariant) {
+                                assertEquals("arrow.parquet.variant", field.metadata.get("ARROW:extension:name"))
+                            }
+                        }
+                        assertEquals(index == 2 ? 0 : 1, read(query.toString(), { root -> }, false, 1, prepared))
+                    } finally {
+                        prepared.close(auth)
+                    }
+                }
             }
         }
         executeSetting("SET enable_arrow_flight_sql_native_variant=true")

@@ -53,6 +53,18 @@ class NativeVariantTest(unittest.TestCase):
                         execute(f"SET enable_arrow_flight_sql_native_variant={str(native).lower()}")
                         table = execute(query)
                         self.check_result(table, native)
+                        # ExecuteSchema and Prepare must agree with the subsequently fetched batches.
+                        with adbc_driver_manager.AdbcStatement(connection) as statement:
+                            statement.set_sql_query(query)
+                            schema_handle = statement.execute_schema()
+                            schema = pa.Schema._import_from_c(schema_handle.address)
+                            self.assertEqual(schema, table.schema)
+                            statement.prepare()
+                            stream, _ = statement.execute_query()
+                            prepared = pa.RecordBatchReader._import_from_c(stream.address).read_all()
+                            self.assertEqual(prepared.schema, schema)
+                            self.check_result(prepared, native)
+
                         with adbc_driver_manager.AdbcStatement(connection) as statement:
                             statement.set_sql_query(query)
                             partitions, _, _ = statement.execute_partitions()

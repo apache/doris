@@ -109,7 +109,18 @@ Status append_legacy_arrow_value(const IColumn& column, const DataTypePtr& type,
         // Binary leaves must retain arbitrary bytes, including NUL and non-UTF8 data.
         output.add_binary(column.get_data_at(index));
     } else if (primitive == TYPE_JSONB) {
-        jsonb_to_variant(column.get_data_at(index), output);
+        // JSONB leaves retain their own depth limit, but also consume the enclosing Variant depth.
+        try {
+            jsonb_to_variant(column.get_data_at(index), output, cast_set<uint32_t>(depth));
+        } catch (const Exception& e) {
+            if (e.code() != ErrorCode::INVALID_ARGUMENT) {
+                return e.to_status();
+            }
+            return Status::NotSupported(
+                    "Native Arrow Variant cannot encode JSONB leaf: {}; "
+                    "use enable_arrow_flight_sql_native_variant=false for UTF8 output",
+                    e.what());
+        }
     } else if (primitive == TYPE_ARRAY) {
         const auto& array = assert_cast<const ColumnArray&>(column);
         const auto& array_type = assert_cast<const DataTypeArray&>(*type);
@@ -396,10 +407,7 @@ Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const 
         // A legacy null root renders as {}, not Variant null, even in a scalar-only batch.
         if (var->is_scalar_variant() && !var->get_root()->has_null(start, end)) {
             auto scalar_type = remove_nullable(var->get_root_type());
-            if (scalar_type->get_primitive_type() == TYPE_DECIMAL256) {
-                return Status::NotSupported(
-                        "Native Arrow Variant does not support Decimal256 roots");
-            }
+            // Unsupported roots use the row path below, after applying the outer SQL null mask.
             if (is_supported_variant_typed_identity(scalar_type->get_primitive_type())) {
                 // Avoid a JSON round trip that would turn exact decimal roots into doubles.
                 auto typed =

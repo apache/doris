@@ -348,20 +348,24 @@ public class FlightSqlSchemaHelper {
 
     private static Field buildField(String dbName, String tableName, TColumnDesc desc, boolean nativeVariant) {
         if (nativeVariant && desc.getColumnType() == TPrimitiveType.VARIANT) {
-            Map<String, String> metadata = new HashMap<>(createFlightSqlColumnMetadata(dbName, tableName, desc));
-            // Unknown Arrow extensions retain their storage fields and extension metadata in IPC.
-            metadata.put("ARROW:extension:name", "arrow.parquet.variant");
-            metadata.put("ARROW:extension:metadata", "");
-            return new Field(desc.getColumnName(),
-                    new FieldType(desc.isIsAllowNull(), new ArrowType.Struct(), null, metadata),
-                    Arrays.asList(Field.notNullable("metadata", new ArrowType.Binary()),
-                            Field.notNullable("value", new ArrowType.Binary())));
+            return nativeVariantField(desc.getColumnName(), desc.isIsAllowNull(),
+                    createFlightSqlColumnMetadata(dbName, tableName, desc));
         }
         ArrowType arrowType = columnDescToArrowType(desc);
         return new Field(desc.getColumnName(),
                 new FieldType(desc.isIsAllowNull(), arrowType, null,
                         createFlightSqlColumnMetadata(dbName, tableName, desc)),
                 arrowChildren(dbName, tableName, desc, arrowType, nativeVariant));
+    }
+
+    static Field nativeVariantField(String name, boolean nullable, Map<String, String> columnMetadata) {
+        Map<String, String> metadata = new HashMap<>(columnMetadata);
+        // Discovery and execution must share the extension metadata as well as its storage type.
+        metadata.put("ARROW:extension:name", "arrow.parquet.variant");
+        metadata.put("ARROW:extension:metadata", "");
+        return new Field(name, new FieldType(nullable, new ArrowType.Struct(), null, metadata),
+                Arrays.asList(Field.notNullable("metadata", new ArrowType.Binary()),
+                        Field.notNullable("value", new ArrowType.Binary())));
     }
 
     /**
