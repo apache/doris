@@ -768,6 +768,30 @@ public final class SPMPlanTreeSupport {
             }
             return expr;
         }
+        if (expr instanceof UnboundStar) {
+            // SELECT * REPLACE((SELECT max(v) FROM u) AS k): the replacement payloads sit
+            // OUTSIDE children(), so the generic recursion below never reached the
+            // subquery plan they own. Creating a baseline in db1 and running the same
+            // text under db2 kept the raw "u": digest and the Level-3 check matched (the
+            // outer table was fixed) while the frozen SQL still read db1.u, so replay
+            // returned db1's value. Rebuild the payloads under the CURRENT namespace and
+            // CTE scope.
+            UnboundStar star = (UnboundStar) expr;
+            List<NamedExpression> replaced = star.getReplacedAlias();
+            if (replaced.isEmpty()) {
+                return expr;
+            }
+            boolean changed = false;
+            List<NamedExpression> newReplaced = new ArrayList<>(replaced.size());
+            for (NamedExpression replacement : replaced) {
+                Expression newReplacement = qualifyExpression(replacement, transform);
+                newReplaced.add(newReplacement instanceof NamedExpression
+                        ? (NamedExpression) newReplacement : replacement);
+                changed |= newReplacement != replacement;
+            }
+            return changed ? new UnboundStar(star.getQualifier(), star.getExceptedSlots(),
+                    newReplaced, star.getIndexInSqlString()) : expr;
+        }
         if (expr.children().isEmpty()) {
             return expr;
         }
@@ -831,11 +855,37 @@ public final class SPMPlanTreeSupport {
      * query and return the creator's identity.
      *
      * @param plan the parsed (unbound) tree
-     * @return true when such an expression is found anywhere (including subqueries and an
-     *         ASOF join's out-of-band MATCH_CONDITION)
+     * @return true when such an expression is found anywhere - every subquery plan
+     *         (IN / EXISTS / scalar, coercions included), CTE bodies and an ASOF join's
+     *         out-of-band MATCH_CONDITION are scanned
      */
     public static boolean containsReplayContextExpression(LogicalPlan plan) {
-        return plan.accept(new ReplayContextScanVisitor(), null);
+        if (plan == null) {
+            return false;
+        }
+        final boolean[] found = {false};
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
+            if (found[0]) {
+                return;
+            }
+            if (node instanceof LogicalUsingJoin) {
+                // matchCondition lives outside children() and getExpressions()
+                Optional<Expression> matchCondition =
+                        ((LogicalUsingJoin<?, ?>) node).getMatchCondition();
+                if (matchCondition.isPresent()
+                        && containsReplayContextExpression(matchCondition.get())) {
+                    found[0] = true;
+                    return;
+                }
+            }
+            for (Expression expr : node.getExpressions()) {
+                if (containsReplayContextExpression(expr)) {
+                    found[0] = true;
+                    return;
+                }
+            }
+        });
+        return found[0];
     }
 
     /** Whether an expression tree contains a replay-time context expression. */
@@ -893,46 +943,6 @@ public final class SPMPlanTreeSupport {
             }
         }
         return false;
-    }
-
-    /** Plan visitor that scans every node's expressions (and subquery plans). */
-    private static class ReplayContextScanVisitor extends PlanVisitor<Boolean, Void> {
-        @Override
-        public Boolean visit(Plan plan, Void context) {
-            if (plan instanceof LogicalUsingJoin) {
-                // matchCondition lives outside children() and getExpressions()
-                Optional<Expression> matchCondition =
-                        ((LogicalUsingJoin<?, ?>) plan).getMatchCondition();
-                if (matchCondition.isPresent()
-                        && containsReplayContextExpression(matchCondition.get())) {
-                    return true;
-                }
-            }
-            for (Expression expr : plan.getExpressions()) {
-                if (containsReplayContextExpression(expr)) {
-                    return true;
-                }
-            }
-            for (Plan child : plan.children()) {
-                if (child.accept(this, context)) {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        @Override
-        public Boolean visitLogicalCTE(LogicalCTE<? extends Plan> cte, Void context) {
-            if (cte.child(0) != null && cte.child(0).accept(this, context)) {
-                return true;
-            }
-            for (LogicalSubQueryAlias<Plan> aliasQuery : cte.getAliasQueries()) {
-                if (aliasQuery.accept(this, context)) {
-                    return true;
-                }
-            }
-            return false;
-        }
     }
 
     // ==================== whole-tree placeholder detection ====================
@@ -1451,6 +1461,22 @@ public final class SPMPlanTreeSupport {
         return null;
     }
 
+    /**
+     * Structural expression comparison entry used by the AST matcher for the out-of-band
+     * star payload items (EXCEPT / REPLACE): they are not reachable through children(),
+     * so the matcher compares each item through here - including the explicit-alias name
+     * and derived-alias parity checks of {@link #checkExpression}.
+     *
+     * @param bindExpr          the bind-side payload item
+     * @param userExpr          the user-side payload item
+     * @param placeholderValues the placeholder value extraction result
+     * @return whether the two items match
+     */
+    public static boolean checkPayloadExpression(Expression bindExpr, Expression userExpr,
+            Map<Long, Expression> placeholderValues) {
+        return checkExpression(bindExpr, userExpr, placeholderValues);
+    }
+
     /** Single expression pair check (bind side parameterized, user side raw). */
     private static boolean checkExpression(Expression bindExpr, Expression userExpr,
             Map<Long, Expression> placeholderValues) {
@@ -1605,14 +1631,22 @@ public final class SPMPlanTreeSupport {
             return false;
         }
         final boolean[] viewReferenced = {false};
-        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
+        walkPlansScoped(plan, Collections.emptySet(), (Plan node, Set<String> visibleCtes) -> {
             if (viewReferenced[0]) {
                 return;
             }
             if (node instanceof LogicalView) {
                 viewReferenced[0] = true;
-            } else if (node instanceof UnboundRelation && isViewRelation(ctx, (UnboundRelation) node)) {
-                viewReferenced[0] = true;
+            } else if (node instanceof UnboundRelation) {
+                UnboundRelation relation = (UnboundRelation) node;
+                // A single-part name that the WITH clause visible AT THIS POINT binds is a
+                // CTE reference, not a catalog relation: resolving it against the catalog
+                // ("WITH c AS (SELECT k FROM t) SELECT k FROM c" while a catalog view c
+                // exists) reported a view and made every matching query exit at
+                // viewReferenced - the baseline never applied.
+                if (!isCteReference(relation, visibleCtes) && isViewRelation(ctx, relation)) {
+                    viewReferenced[0] = true;
+                }
             }
         });
         return viewReferenced[0];
@@ -1653,6 +1687,16 @@ public final class SPMPlanTreeSupport {
         if (expression instanceof SubqueryExpr) {
             walkPlans(((SubqueryExpr) expression).getQueryPlan(), visitor);
         }
+        if (expression instanceof UnboundStar) {
+            // SELECT * REPLACE((SELECT ... FROM v) AS k): the replacement payloads live in
+            // getReplacedAlias(), OUTSIDE children(), so a subquery plan behind one stayed
+            // invisible to every walkPlans-based inspection (the view guard froze the
+            // expanded base-table plan, replay then checked base-table privileges instead
+            // of the original view).
+            for (NamedExpression replaced : ((UnboundStar) expression).getReplacedAlias()) {
+                walkSubqueryPlans(replaced, visitor);
+            }
+        }
         for (Expression child : expression.children()) {
             walkSubqueryPlans(child, visitor);
         }
@@ -1661,6 +1705,91 @@ public final class SPMPlanTreeSupport {
     /** Plan visitor for {@link #walkPlans}; the exception type is chosen by the caller. */
     public interface PlanWalker<E extends Exception> {
         void visit(Plan plan) throws E;
+    }
+
+    /** Plan visitor for {@link #walkPlansScoped}: receives the CTE aliases visible at the node. */
+    private interface ScopedPlanWalker<E extends Exception> {
+        void visit(Plan plan, Set<String> visibleCtes) throws E;
+    }
+
+    /**
+     * Like {@link #walkPlans}, but tracks the CTE aliases visible at every visited node
+     * (mirroring AnalyzeCTE's scoping rules): a CTE's main query sees every alias of that
+     * WITH, alias body i only the aliases defined before it (plus itself under a real
+     * recursive CTE), nested WITH nodes extend the enclosing scope and expression
+     * subqueries inherit the scope of the point they appear in. Callers use the scope to
+     * tell a WITH reference apart from a same-named CATALOG relation (the view guard and
+     * the bind-side table fingerprint).
+     *
+     * @param root        the plan to start from (may be null)
+     * @param visibleCtes the CTE aliases visible at {@code root} (normalized)
+     * @param visitor     called once per reachable node; may throw
+     * @param <E>         the visitor's exception type, propagated to the caller
+     */
+    private static <E extends Exception> void walkPlansScoped(Plan root, Set<String> visibleCtes,
+            ScopedPlanWalker<E> visitor) throws E {
+        if (root == null) {
+            return;
+        }
+        visitor.visit(root, visibleCtes);
+        if (root instanceof LogicalCTE) {
+            LogicalCTE<? extends Plan> cte = (LogicalCTE<? extends Plan>) root;
+            Set<String> extended = new LinkedHashSet<>(visibleCtes);
+            for (LogicalSubQueryAlias<Plan> alias : cte.getAliasQueries()) {
+                extended.add(normalizeCteName(alias.getAlias()));
+            }
+            Set<String> mainScope = Collections.unmodifiableSet(extended);
+            walkPlansScoped(cte.child(0), mainScope, visitor);
+            List<LogicalSubQueryAlias<Plan>> aliases = cte.getAliasQueries();
+            for (int i = 0; i < aliases.size(); i++) {
+                Set<String> bodyScope = new LinkedHashSet<>(visibleCtes);
+                for (int j = 0; j < i; j++) {
+                    bodyScope.add(normalizeCteName(aliases.get(j).getAlias()));
+                }
+                // a self reference binds to the WITH clause only in a real recursive CTE;
+                // under a plain WITH it is an ordinary base-table reference
+                if (cte.isRecursive() && aliases.get(i).isRecursiveCte()) {
+                    bodyScope.add(normalizeCteName(aliases.get(i).getAlias()));
+                }
+                walkPlansScoped(aliases.get(i), Collections.unmodifiableSet(bodyScope), visitor);
+            }
+            return;
+        }
+        for (Plan child : root.children()) {
+            walkPlansScoped(child, visibleCtes, visitor);
+        }
+        for (Plan extra : root.extraPlans()) {
+            walkPlansScoped(extra, visibleCtes, visitor);
+        }
+        for (Expression expression : root.getExpressions()) {
+            walkSubqueryPlansScoped(expression, visibleCtes, visitor);
+        }
+    }
+
+    /** Scoped counterpart of {@link #walkSubqueryPlans} (see walkPlansScoped). */
+    private static <E extends Exception> void walkSubqueryPlansScoped(Expression expression,
+            Set<String> visibleCtes, ScopedPlanWalker<E> visitor) throws E {
+        if (expression instanceof SubqueryExpr) {
+            walkPlansScoped(((SubqueryExpr) expression).getQueryPlan(), visibleCtes, visitor);
+        }
+        if (expression instanceof UnboundStar) {
+            for (NamedExpression replaced : ((UnboundStar) expression).getReplacedAlias()) {
+                walkSubqueryPlansScoped(replaced, visibleCtes, visitor);
+            }
+        }
+        for (Expression child : expression.children()) {
+            walkSubqueryPlansScoped(child, visibleCtes, visitor);
+        }
+    }
+
+    /** Whether a one-part relation name is bound by a CTE alias visible at this point. */
+    private static boolean isCteReference(UnboundRelation relation, Set<String> visibleCtes) {
+        if (visibleCtes.isEmpty()) {
+            return false;
+        }
+        List<String> parts = relation.getNameParts();
+        return parts != null && parts.size() == 1
+                && visibleCtes.contains(normalizeCteName(parts.get(0)));
     }
 
     /**
@@ -1684,9 +1813,15 @@ public final class SPMPlanTreeSupport {
 
     private static boolean isViewRelation(ConnectContext ctx, UnboundRelation relation) {
         try {
-            TableIf table = ctx.getStatementContext().getAndCacheTable(
+            // Resolve WITHOUT the planner's per-statement resolved-table cache: this guard
+            // runs BEFORE collectAndLockTable, and caching the TableIf here would hand the
+            // later bind / lock pass a detached PRE-LOCK object - a concurrent DROP /
+            // CREATE t committing in between would be invisible (CollectRelation and
+            // BindExpression reuse the cached instance, and the replay's post-plan
+            // fingerprint compares that same old object with the stored identity).
+            TableIf table = ctx.getStatementContext().resolveTableWithoutCache(
                     RelationUtil.getQualifierName(ctx, relation.getNameParts()),
-                    StatementContext.TableFrom.QUERY, Optional.of(relation));
+                    Optional.of(relation));
             return table instanceof View;
         } catch (RuntimeException e) {
             // unresolvable / plugin table without metadata here: not treated as a view,
@@ -1835,9 +1970,15 @@ public final class SPMPlanTreeSupport {
     /** Bind-side table + function entries (see the callers' contracts). */
     private static void collectBindSideFingerprintEntries(ConnectContext ctx, Plan plan,
             Map<String, TableIf> lockedTables, TreeSet<String> entries) {
-        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
+        walkPlansScoped(plan, Collections.emptySet(), (Plan node, Set<String> visibleCtes) -> {
             if (node instanceof UnboundRelation) {
                 UnboundRelation relation = (UnboundRelation) node;
+                if (isCteReference(relation, visibleCtes)) {
+                    // A reference to a WITH alias is not a catalog relation: resolving "c"
+                    // would pin a same-named catalog VIEW / table the query never reads (a
+                    // phantom entry that also fails the pre-match containment check).
+                    return;
+                }
                 try {
                     List<String> qualifier =
                             RelationUtil.getQualifierName(ctx, relation.getNameParts());
@@ -1935,7 +2076,8 @@ public final class SPMPlanTreeSupport {
         if (lockedTables.isEmpty()) {
             return null;
         }
-        if (qualifier != null && !qualifier.isEmpty()) {
+        boolean explicitNamespace = qualifier != null && !qualifier.isEmpty();
+        if (explicitNamespace) {
             String lower = String.join(".", qualifier).toLowerCase(Locale.ROOT);
             TableIf exact = lockedTables.get(lower);
             if (exact != null) {
@@ -1964,7 +2106,29 @@ public final class SPMPlanTreeSupport {
                 return null;
             }
         }
+        if (explicitNamespace && !databaseMatchesQualifier(byBare, qualifier)) {
+            // The bind relation names a DIFFERENT explicit database than the candidate's
+            // own: SELECT k FROM db1.t must never be fingerprinted as the planned db2.t
+            // just because both tables are named t - the stored fingerprint then omitted
+            // db1.t and the next query's CORRECT bind fingerprint failed the pre-match
+            // containment check (the new baseline never applied).
+            return null;
+        }
         return byBare;
+    }
+
+    /**
+     * Whether a candidate table's OWN database matches the EXPLICIT qualifier of a bind
+     * relation. An unknown database (partially mocked / db-less table) is accepted: only
+     * a PROVABLE mismatch rejects the pinned table.
+     */
+    private static boolean databaseMatchesQualifier(TableIf table, List<String> qualifier) {
+        if (table.getDatabase() == null || table.getDatabase().getFullName() == null) {
+            return true;
+        }
+        String dbFullName = table.getDatabase().getFullName().toLowerCase(Locale.ROOT);
+        String qualifierDb = qualifier.get(qualifier.size() - 1).toLowerCase(Locale.ROOT);
+        return dbFullName.equals(qualifierDb) || dbFullName.endsWith("." + qualifierDb);
     }
 
     /** Tables of a planned physical tree, taken from each relation's OWN TableIf. */

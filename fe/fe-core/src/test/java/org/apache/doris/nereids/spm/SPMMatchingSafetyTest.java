@@ -868,7 +868,7 @@ public class SPMMatchingSafetyTest {
         ConnectContext ctx = Mockito.mock(ConnectContext.class);
         StatementContext statementContext = Mockito.mock(StatementContext.class);
         Mockito.when(ctx.getStatementContext()).thenReturn(statementContext);
-        Mockito.when(statementContext.getAndCacheTable(Mockito.anyList(), Mockito.any(),
+        Mockito.when(statementContext.resolveTableWithoutCache(Mockito.anyList(),
                 Mockito.any())).thenReturn(Mockito.mock(View.class));
         LogicalPlan viewPlan = parse("SELECT v.a FROM cat.db.v AS v WHERE v.a > 1");
         Assertions.assertTrue(SPMPlanTreeSupport.referencesView(ctx, viewPlan),
@@ -880,13 +880,13 @@ public class SPMMatchingSafetyTest {
         ConnectContext ctx = Mockito.mock(ConnectContext.class);
         StatementContext statementContext = Mockito.mock(StatementContext.class);
         Mockito.when(ctx.getStatementContext()).thenReturn(statementContext);
-        Mockito.when(statementContext.getAndCacheTable(Mockito.anyList(), Mockito.any(),
+        Mockito.when(statementContext.resolveTableWithoutCache(Mockito.anyList(),
                 Mockito.any())).thenReturn(Mockito.mock(TableIf.class));
         LogicalPlan tablePlan = parse("SELECT t.a FROM cat.db.t AS t WHERE t.a > 1");
         Assertions.assertFalse(SPMPlanTreeSupport.referencesView(ctx, tablePlan),
                 "a plain table must not be reported as a view");
         // a view hidden in a subquery is still a view reference
-        Mockito.when(statementContext.getAndCacheTable(Mockito.anyList(), Mockito.any(),
+        Mockito.when(statementContext.resolveTableWithoutCache(Mockito.anyList(),
                 Mockito.any())).thenReturn(Mockito.mock(TableIf.class),
                 Mockito.mock(View.class));
         LogicalPlan subqueryPlan = parse(
@@ -906,7 +906,7 @@ public class SPMMatchingSafetyTest {
         ConnectContext ctx = Mockito.mock(ConnectContext.class);
         StatementContext statementContext = Mockito.mock(StatementContext.class);
         Mockito.when(ctx.getStatementContext()).thenReturn(statementContext);
-        Mockito.when(statementContext.getAndCacheTable(Mockito.anyList(), Mockito.any(),
+        Mockito.when(statementContext.resolveTableWithoutCache(Mockito.anyList(),
                 Mockito.any())).thenThrow(new RuntimeException("catalog not ready"));
         Assertions.assertFalse(SPMPlanTreeSupport.referencesView(ctx, plan));
     }
@@ -976,7 +976,7 @@ public class SPMMatchingSafetyTest {
         ConnectContext ctx = Mockito.mock(ConnectContext.class);
         StatementContext statementContext = Mockito.mock(StatementContext.class);
         Mockito.when(ctx.getStatementContext()).thenReturn(statementContext);
-        Mockito.when(statementContext.getAndCacheTable(Mockito.anyList(), Mockito.any(),
+        Mockito.when(statementContext.resolveTableWithoutCache(Mockito.anyList(),
                 Mockito.any())).thenAnswer(invocation -> {
                     List<String> qualifier = invocation.getArgument(0);
                     String name = qualifier.get(qualifier.size() - 1);

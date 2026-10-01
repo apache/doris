@@ -991,4 +991,140 @@ public class BaselineManagerConcurrencyTest {
             manager.clearForTest();
         }
     }
+
+    // ==================== round-20: ALTER cache-miss / winner reconciliation ====================
+
+    /**
+     * A promoted follower can serve a snapshot that PREDATES a CREATE the previous
+     * master already committed (isReady is set before forceReloadFromInternalTable
+     * finishes). ALTER must reconcile the cache miss against the durable table - adopt
+     * the row and flip its status - instead of reporting "does not exist".
+     */
+    @Test
+    public void testAlterCacheMissAdoptsTheDurableRow() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            BaselinePlan durable = baseline("d-adopt", "p-adopt");
+            durable.setId(4242L);
+            durable.setStatus(BaselineStatus.ENABLED);
+            durable.setUpdateTime(1000L);
+            store.insert(durable);
+            Assertions.assertNull(manager.getBaseline(4242L), "precondition: cache miss");
+
+            Assertions.assertTrue(manager.updateStatus(4242L, BaselineStatus.DISABLED),
+                    "the ALTER must not report a present durable row as missing");
+            BaselinePlan cached = manager.getBaseline(4242L);
+            Assertions.assertNotNull(cached, "the durable row must be adopted into the cache");
+            Assertions.assertEquals(BaselineStatus.DISABLED, cached.getStatus());
+            Assertions.assertTrue(store.rowsOf(4242L).stream()
+                            .anyMatch(row -> row.getStatus() == BaselineStatus.DISABLED),
+                    "the requested status must reach the durable table: " + store.rowsOf(4242L));
+
+            // control: a PROVEN absence still reports missing
+            Assertions.assertFalse(manager.updateStatus(9999L, BaselineStatus.ENABLED),
+                    "an id with no durable row must still be reported as missing");
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * The no-op confirmation must check the durable table: an unconfirmable state (the
+     * read fails) must fail RETRYABLY - reporting success left a durably DISABLED /
+     * DROPPED row while the cache served the opposite state until the next refresh.
+     */
+    @Test
+    public void testNoOpAlterWithUnreadableDurableStateFails() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        try {
+            long id = manager.createBaseline(baseline("d-unknown", "p-unknown"));
+            BaselineManager.statusProtocolStoreForTest =
+                    new BaselineManager.StatusProtocolStoreForTest() {
+                        @Override
+                        public void insert(BaselinePlan plan) {
+                        }
+
+                        @Override
+                        public void deleteByIdAndStatus(long id, BaselineStatus status) {
+                        }
+
+                        @Override
+                        public int countByIdAndStatus(long id, BaselineStatus status) {
+                            throw new RuntimeException("tablet unavailable");
+                        }
+                    };
+            Assertions.assertThrows(IllegalStateException.class,
+                    () -> manager.updateStatus(id, BaselineStatus.ENABLED),
+                    "an unreadable durable state must fail the ALTER retryably");
+        } finally {
+            BaselineManager.statusProtocolStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * A failed status flip can leave BOTH rows behind; the reload resolves them with
+     * pickDurableWinner (later updateTime wins). The no-op confirmation must apply the
+     * SAME rule: a bare count returned MATCHES while the NEWER row carried the opposite
+     * status, so the next ALTER back reported success without changing the effective
+     * state. With row content available the probe now repairs towards the winner.
+     */
+    @Test
+    public void testNoOpAlterReconcilesTheDurableWinner() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            long id = manager.createBaseline(baseline("d-winner", "p-winner"));
+            BaselinePlan live = manager.getBaseline(id);
+            Assertions.assertNotNull(live);
+            live.setUpdateTime(500L); // the cached ENABLED row is the OLD version now
+            BaselinePlan newerDisabled = baseline("d-winner", "p-winner");
+            newerDisabled.setId(id);
+            newerDisabled.setStatus(BaselineStatus.DISABLED);
+            newerDisabled.setUpdateTime(2000L);
+            store.insert(newerDisabled);
+
+            Assertions.assertTrue(manager.updateStatus(id, BaselineStatus.ENABLED),
+                    "the ALTER must reconcile towards the effective durable winner");
+            Assertions.assertEquals(BaselineStatus.ENABLED, manager.getBaseline(id).getStatus());
+            List<BaselinePlan> rows = store.rowsOf(id);
+            BaselinePlan winner = rows.get(0);
+            for (int i = 1; i < rows.size(); i++) {
+                winner = BaselineManager.pickDurableWinner(winner, rows.get(i));
+            }
+            Assertions.assertEquals(BaselineStatus.ENABLED, winner.getStatus(),
+                    "the effective durable winner must be the requested status: " + rows);
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * The count-only seam cannot order two durable rows (no update times): the probe
+     * must fail closed instead of picking the cached status' row - the old count
+     * returned MATCHES as soon as the OLDER row carried the expected status.
+     */
+    @Test
+    public void testNoOpAlterRefusesAnUndecidableDurableWinner() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        try {
+            long id = manager.createBaseline(baseline("d-tie", "p-tie"));
+            BaselineManager.statusProtocolStoreForTest = new RecordingProtocolStore(1, 1);
+            Assertions.assertThrows(IllegalStateException.class,
+                    () -> manager.updateStatus(id, BaselineStatus.ENABLED),
+                    "two durable versions without update times must fail closed");
+        } finally {
+            BaselineManager.statusProtocolStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
 }

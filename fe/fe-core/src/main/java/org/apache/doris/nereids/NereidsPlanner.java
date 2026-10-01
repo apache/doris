@@ -371,6 +371,12 @@ public class NereidsPlanner extends Planner {
                 && ConnectContext.get().getSessionVariable().getRuntimeFilterWaitTimeMs()
                 == VariableMgr.getDefaultSessionVariable().getRuntimeFilterWaitTimeMs()) {
             SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
+            // remember the pre-assignment value: the SPM fallback replan restores it
+            // before its own pass, otherwise this pass's automatic wait (derived from
+            // the frozen plan's scans) would leak into the ORIGINAL statement's plan
+            // (see StatementContext#resetPlannerStateForReplan)
+            statementContext.recordRuntimeFilterWaitTimeBeforePlannerSet(
+                    sessionVariable.getRuntimeFilterWaitTimeMs());
             if (Config.isCloudMode()) {
                 sessionVariable.setVarOnce(SessionVariable.RUNTIME_FILTER_WAIT_TIME_MS,
                         String.valueOf(Math.max(VariableMgr.getDefaultSessionVariable().getRuntimeFilterWaitTimeMs(),

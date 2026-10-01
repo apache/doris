@@ -773,6 +773,46 @@ public class BaselineManager {
     }
 
     /**
+     * ALTER counterpart of {@link #dropDurableRowByIdIfAbsentFromCache}: reconciles a
+     * GLOBAL cache miss against the durable table. Env.transferToMaster sets isReady
+     * BEFORE forceReloadFromInternalTable finishes, so a freshly promoted follower can
+     * miss a row the previous master created durably - returning false ("does not
+     * exist") for a present row. The rows found are parsed exactly like a load
+     * (transient trees rebuilt), the deterministic winner is ADOPTED into the cache so
+     * the ALTER runs its normal two-phase flip, and only a PROVEN absence returns null.
+     * A read / parse failure propagates as a retryable error.
+     */
+    private BaselinePlan adoptDurableRowIfAbsentFromCache(long id) {
+        if (!persistenceEnabled() && idAllocatorStoreForTest == null
+                && statusProtocolStoreForTest == null) {
+            return null;
+        }
+        List<BaselinePlan> durable = readPersistedParsedById(id);
+        if (durable.isEmpty()) {
+            return null;
+        }
+        BaselinePlan winner = durable.get(0);
+        for (int i = 1; i < durable.size(); i++) {
+            winner = pickDurableWinner(winner, durable.get(i));
+        }
+        stateLock.writeLock().lock();
+        try {
+            BaselinePlan raced = baselines.get(id);
+            if (raced != null) {
+                return raced;
+            }
+            baselines.put(winner.getId(), winner);
+            addToHashIndex(winner);
+            stateVersion++;
+            LOG.info("SPM adopted durable baseline {} into the cache after a promotion"
+                    + " cache miss", id);
+            return winner;
+        } finally {
+            stateLock.writeLock().unlock();
+        }
+    }
+
+    /**
      * Reads every durable row carrying the given id (DROP reconcile / identity delete).
      * A read FAILURE propagates: “no row” may only be reported from a successful read.
      *
@@ -781,6 +821,34 @@ public class BaselineManager {
      * @throws RuntimeException when the durable state cannot be read
      */
     private static List<BaselinePlan> readPersistedById(long id) {
+        return readPersistedRowsById(id, false);
+    }
+
+    /**
+     * Reads the durable rows of one id with their transient trees REBUILT (like a load):
+     * the ALTER adoption path needs fully usable rows. Unparsable rows are skipped with a
+     * warning; when every row of a NON-EMPTY result is unparsable the read fails
+     * retryably - the FE would never load such a row, so silently reporting “not found”
+     * would be wrong.
+     *
+     * @param id the baseline id
+     * @return the parsed durable rows (empty when none)
+     * @throws RuntimeException when the durable state cannot be read / parsed
+     */
+    private static List<BaselinePlan> readPersistedParsedById(long id) {
+        return readPersistedRowsById(id, true);
+    }
+
+    /**
+     * Shared reader of {@link #readPersistedById} / {@link #readPersistedParsedById}:
+     * seam-aware and fail-closed on read errors.
+     *
+     * @param id          the baseline id
+     * @param rebuildTrees whether each row is parsed like a load ({@link #parsePersistedRow})
+     *                     instead of decoded as plain scalars ({@link #fromRow})
+     * @return the rows (possibly empty)
+     */
+    private static List<BaselinePlan> readPersistedRowsById(long id, boolean rebuildTrees) {
         if (idAllocatorStoreForTest != null) {
             try {
                 return new ArrayList<>(idAllocatorStoreForTest.readById(id));
@@ -803,19 +871,34 @@ public class BaselineManager {
         }
         Map<String, String> params = new HashMap<>();
         params.put("id", String.valueOf(id));
+        boolean anyRow = false;
         try {
             List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
                     SELECT_BY_ID_SQL, params, INTERNAL_QUERY_TIMEOUT_SECONDS));
             List<BaselinePlan> result = new ArrayList<>();
             if (rows != null) {
                 for (ResultRow row : rows) {
-                    result.add(fromRow(row));
+                    anyRow = true;
+                    if (!rebuildTrees) {
+                        result.add(fromRow(row));
+                        continue;
+                    }
+                    try {
+                        result.add(parsePersistedRow(row));
+                    } catch (Throwable t) {
+                        LOG.warn("SPM skip the unparsable durable baseline {} (adoption): {}",
+                                id, t.getMessage());
+                    }
                 }
             }
-            return result;
+            if (!result.isEmpty() || !anyRow) {
+                return result;
+            }
         } catch (Exception e) {
             throw new RuntimeException("SPM durable read by id failed: " + e.getMessage(), e);
         }
+        throw new RuntimeException("SPM durable baseline " + id
+                + " exists but cannot be parsed; retry the ALTER");
     }
 
     /**
@@ -840,7 +923,14 @@ public class BaselineManager {
                 stateLock.readLock().unlock();
             }
             if (plan == null) {
-                return false;
+                // ALTER-specific cache-miss reconciliation (the DROP path does the same
+                // for its identity delete): a promoted follower whose snapshot predates
+                // the previous master's CREATE misses the row here and must not report
+                // "does not exist" for a durable baseline.
+                plan = adoptDurableRowIfAbsentFromCache(id);
+                if (plan == null) {
+                    return false;
+                }
             }
             BaselineStatus previousStatus = plan.getStatus();
             if (previousStatus == status) {
@@ -852,12 +942,21 @@ public class BaselineManager {
                 // still serves its pre-promotion snapshot while the previous master may
                 // already have durably flipped - or dropped - the row. Confirm against the
                 // durable table before reporting a no-op success.
-                if (!persistenceEnabled() && statusProtocolStoreForTest == null) {
+                if (!persistenceEnabled() && statusProtocolStoreForTest == null
+                        && idAllocatorStoreForTest == null) {
                     return true;
                 }
                 DurableStatusProbe probe = probeDurableStatus(id, status);
-                if (probe == DurableStatusProbe.MATCHES || probe == DurableStatusProbe.UNKNOWN) {
+                if (probe == DurableStatusProbe.MATCHES) {
                     return true;
+                }
+                if (probe == DurableStatusProbe.UNKNOWN) {
+                    // The durable state cannot be CONFIRMED: reporting a no-op success
+                    // could leave a durably DISABLED / DROPPED row while this FE serves
+                    // its stale snapshot, and the next refresh restores the opposite
+                    // state. Fail retryably until the requested status is provable.
+                    throw new IllegalStateException("SPM cannot confirm the durable status of"
+                            + " baseline " + id + "; retry the ALTER");
                 }
                 if (probe == DurableStatusProbe.ABSENT) {
                     // the row is gone durably (the previous master dropped it): never
@@ -944,20 +1043,51 @@ public class BaselineManager {
     private enum DurableStatusProbe { MATCHES, DIFFERS, ABSENT, UNKNOWN }
 
     /**
-     * Compares the durable status of one baseline with the expected one. The binary
-     * ENABLED / DISABLED model makes the comparison a two-count read; a read failure is
-     * UNKNOWN (the caller keeps its previous behaviour - the cache may be stale, but
-     * acting on an unreadable durable state could drop a healthy baseline).
+     * Compares the EFFECTIVE durable status of one baseline with the expected one. A
+     * failed status flip can leave BOTH rows behind (the old-row delete AND the
+     * compensating delete failed): the load path resolves such duplicates with
+     * {@link #pickDurableWinner} (later updateTime wins, DISABLED on a tie), and the
+     * probe must apply the SAME rule - a bare “does a row with the cached status exist”
+     * count reported MATCHES while the newer row carried the opposite status, so the
+     * next ALTER back to the old status reported success without changing the effective
+     * state.
+     *
+     * The count-only status seam cannot decide between two rows (it has no update
+     * times): both-present is UNKNOWN (fail closed). A read failure is UNKNOWN as well.
      */
     private static DurableStatusProbe probeDurableStatus(long id, BaselineStatus expected) {
         try {
-            if (durableRowCount(id, expected) > 0) {
-                return DurableStatusProbe.MATCHES;
+            if (idAllocatorStoreForTest == null && !persistenceEnabled()
+                    && statusProtocolStoreForTest == null) {
+                return DurableStatusProbe.ABSENT;
             }
-            if (durableRowCount(id, otherStatus(expected)) > 0) {
-                return DurableStatusProbe.DIFFERS;
+            if (statusProtocolStoreForTest != null && idAllocatorStoreForTest == null) {
+                boolean expectedRows =
+                        statusProtocolStoreForTest.countByIdAndStatus(id, expected) > 0;
+                boolean otherRows = statusProtocolStoreForTest
+                        .countByIdAndStatus(id, otherStatus(expected)) > 0;
+                if (!expectedRows && !otherRows) {
+                    return DurableStatusProbe.ABSENT;
+                }
+                if (expectedRows && !otherRows) {
+                    return DurableStatusProbe.MATCHES;
+                }
+                if (otherRows && !expectedRows) {
+                    return DurableStatusProbe.DIFFERS;
+                }
+                throw new IllegalStateException(
+                        "two durable rows of baseline " + id + " and no update times");
             }
-            return DurableStatusProbe.ABSENT;
+            List<BaselinePlan> rows = readPersistedById(id);
+            if (rows.isEmpty()) {
+                return DurableStatusProbe.ABSENT;
+            }
+            BaselinePlan winner = rows.get(0);
+            for (int i = 1; i < rows.size(); i++) {
+                winner = pickDurableWinner(winner, rows.get(i));
+            }
+            return winner.getStatus() == expected
+                    ? DurableStatusProbe.MATCHES : DurableStatusProbe.DIFFERS;
         } catch (Throwable t) {
             LOG.warn("SPM cannot probe the durable status of baseline {}: {}", id, t.getMessage());
             return DurableStatusProbe.UNKNOWN;

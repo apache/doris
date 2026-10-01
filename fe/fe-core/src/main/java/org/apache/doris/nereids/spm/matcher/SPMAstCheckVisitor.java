@@ -116,7 +116,27 @@ public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVi
         //   WindowFrame is not an expression child, so neither the placeholder
         //   construction nor the generic child comparison sees its bound offsets)
         if (bindExpr instanceof UnboundStar) {
-            return Objects.equals(bindExpr.toSql(), userExpr.toSql());
+            // The REPLACE / EXCEPT payloads are kept OUTSIDE children(). Compare them
+            // STRUCTURALLY rather than by toSql() text: the payload may own a SUBQUERY
+            // whose relations are namespace-qualified on the user side while the stored
+            // bind tree stays the raw parse (relation NAMES are deliberately not part of
+            // Level 3 - the digest pre-filter owns the namespace), so text equality
+            // rejected a valid baseline whose own text contains
+            // "* REPLACE((SELECT max(v) FROM u) AS k)" (the namespace rebuild qualified
+            // the user's payload to internal.db.u). Everything else stays EXACT: the
+            // qualifier, and the payload literals (they are NOT parameterized inside a
+            // star, so accepting a value variant would replay the captured one).
+            UnboundStar bindStar = (UnboundStar) bindExpr;
+            UnboundStar userStar = (UnboundStar) userExpr;
+            if (!Objects.equals(bindStar.getQualifier(), userStar.getQualifier())) {
+                return false;
+            }
+            if (!samePayloadExpressions(bindStar.getExceptedSlots(), userStar.getExceptedSlots(),
+                    context)) {
+                return false;
+            }
+            return samePayloadExpressions(bindStar.getReplacedAlias(),
+                    userStar.getReplacedAlias(), context);
         }
         if (bindExpr instanceof UnboundFunction
                 && !Objects.equals(((UnboundFunction) bindExpr).getDbName(),
@@ -281,8 +301,29 @@ public class SPMAstCheckVisitor extends ExpressionVisitor<Boolean, SPMAstCheckVi
      * user side structurally (its filter/having predicates compared pairwise, which
      * also extracts the values of any placeholders inside the subquery), and the
      * compare expression / NOT flag of InSubquery / Exists are checked as well.
-     *
-     * The overall query structure (including the subquery) is already guaranteed by
+     *     * Compares one star-payload list (EXCEPT / REPLACE items) pairwise, structurally.
+     * Relation names inside a payload subquery plan are left to the digest pre-filter
+     * (see the UnboundStar branch); literals are compared exactly.
+     */
+    private boolean samePayloadExpressions(List<? extends Expression> bind,
+            List<? extends Expression> user, CheckContext context) {
+        if (bind.size() != user.size()) {
+            return false;
+        }
+        for (int i = 0; i < bind.size(); i++) {
+            // route through the SPM entry point: it enforces the explicit-alias name and
+            // derived-alias parity BEFORE delegating to this visitor, so
+            // "* REPLACE(k + 1 AS k)" never matches "* REPLACE(k + 1 AS j)"
+            Expression userItem = user.get(i);
+            if (!SPMPlanTreeSupport.checkPayloadExpression(bind.get(i), userItem,
+                    context.placeholderValues)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**     * The overall query structure (including the subquery) is already guaranteed by
      * the Level 2 full-query digest match, so the per-predicate comparison is the
      * value extraction pass for the constants inside the subquery.
      */
