@@ -167,6 +167,7 @@ private:
 
     Status _second_phase_fetch_data(RuntimeState* state, Block* final_block);
     const TResultSinkType::type _sink_type;
+    const bool _native_variant;
     const int _result_sink_buffer_size_rows;
     // set file options when sink type is FILE
     std::unique_ptr<ResultFileOptions> _file_opts = nullptr;

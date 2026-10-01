@@ -231,6 +231,8 @@ struct TResultSink {
     1: optional TResultSinkType type;
     2: optional TResultFileSinkOptions file_options; // deprecated
     3: optional TFetchOption fetch_option;
+    // Freeze the Flight result representation with the query's sink and schema.
+    4: optional bool native_variant = false;
 }
 
 struct TResultFileSink {

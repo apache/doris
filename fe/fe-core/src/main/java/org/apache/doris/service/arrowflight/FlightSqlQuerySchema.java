@@ -194,9 +194,11 @@ final class FlightSqlQuerySchema {
                     Plan analyzed = cascades.getRewritePlan();
                     // PrepareCommandPlanner stops before the rewrite phase that normally checks privileges.
                     new CheckPrivileges().rewriteRoot(analyzed, cascades.getCurrentJobContext());
+                    // Prepare/GetSchema must use the sink capability gate, including scoped SET_VAR hints.
+                    boolean nativeVariant = FlightSqlNativeVariant.isEnabled(context);
                     for (Slot slot : analyzed.getOutput()) {
                         fields.add(field(slot.getName(), slot.getDataType().toCatalogDataType(), slot.nullable(),
-                                true, context.getSessionVariable().getTimeZone()));
+                                true, context.getSessionVariable().getTimeZone(), nativeVariant));
                     }
                 }
                 return new Schema(fields);
@@ -371,13 +373,17 @@ final class FlightSqlQuerySchema {
         }
     }
 
-    private static Field field(String name, Type type, boolean nullable, boolean topLevel, String timezone) {
+    private static Field field(String name, Type type, boolean nullable, boolean topLevel, String timezone,
+            boolean nativeVariant) {
         // group_concat uses IAggregateFunction's string serialization, unlike fixed-size states
         // such as sum/count. Match that BE wire type instead of treating every AGG_STATE as Null.
         if (type instanceof AggStateType && "group_concat".equals(((AggStateType) type).getFunctionName())) {
             type = Type.STRING;
         }
         PrimitiveType primitive = type.getPrimitiveType();
+        if (nativeVariant && primitive == PrimitiveType.VARIANT) {
+            return FlightSqlSchemaHelper.nativeVariantField(name, nullable, Collections.emptyMap());
+        }
         int precision = type instanceof ScalarType ? ((ScalarType) type).getScalarPrecision() : 0;
         int scale = type instanceof ScalarType ? ((ScalarType) type).getScalarScale() : 0;
         ArrowType arrowType = FlightSqlSchemaHelper.getArrowType(primitive, precision, scale);
@@ -392,15 +398,16 @@ final class FlightSqlQuerySchema {
         List<Field> children = new ArrayList<>();
         if (type instanceof ArrayType) {
             // BE constructs ListType and MapType from data types, so item/value fields are nullable.
-            children.add(field("item", ((ArrayType) type).getItemType(), true, false, timezone));
+            children.add(field("item", ((ArrayType) type).getItemType(), true, false, timezone, nativeVariant));
         } else if (type instanceof MapType) {
             MapType map = (MapType) type;
             children.add(new Field("entries", FieldType.notNullable(new ArrowType.Struct()), Arrays.asList(
-                    field("key", map.getKeyType(), false, false, timezone),
-                    field("value", map.getValueType(), true, false, timezone))));
+                    field("key", map.getKeyType(), false, false, timezone, nativeVariant),
+                    field("value", map.getValueType(), true, false, timezone, nativeVariant))));
         } else if (type instanceof StructType) {
             for (StructField child : ((StructType) type).getFields()) {
-                children.add(field(child.getName(), child.getType(), child.getContainsNull(), false, timezone));
+                children.add(field(child.getName(), child.getType(), child.getContainsNull(),
+                        false, timezone, nativeVariant));
             }
         }
         Map<String, String> metadata = null;

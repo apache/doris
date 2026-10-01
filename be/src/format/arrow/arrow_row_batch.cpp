@@ -18,6 +18,7 @@
 #include "format/arrow/arrow_row_batch.h"
 
 #include <arrow/buffer.h>
+#include <arrow/extension/parquet_variant.h>
 #include <arrow/io/memory.h>
 #include <arrow/ipc/writer.h>
 #include <arrow/record_batch.h>
@@ -44,13 +45,34 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format/arrow/arrow_block_convertor.h"
+#include "format/arrow/arrow_utils.h"
 #include "runtime/descriptors.h"
 
 namespace doris {
 
+Status register_arrow_variant_extension() {
+    // Remote Flight readers must restore the extension before decoding the result schema.
+    static const auto status = [] {
+        if (arrow::GetExtensionType("arrow.parquet.variant") != nullptr) {
+            return arrow::Status::OK();
+        }
+        return arrow::RegisterExtensionType(
+                std::static_pointer_cast<arrow::ExtensionType>(arrow::extension::variant(
+                        arrow::struct_({arrow::field("metadata", arrow::binary(), false),
+                                        arrow::field("value", arrow::binary(), false)}))));
+    }();
+    return status.ok() ? Status::OK() : Status::InternalError(status.ToString());
+}
+
 Status convert_to_arrow_type(const DataTypePtr& origin_type,
                              std::shared_ptr<arrow::DataType>* result, const std::string& timezone,
                              bool datetime_naive) {
+    return convert_to_arrow_type(origin_type, result, timezone, datetime_naive, false);
+}
+
+Status convert_to_arrow_type(const DataTypePtr& origin_type,
+                             std::shared_ptr<arrow::DataType>* result, const std::string& timezone,
+                             bool datetime_naive, bool native_variant) {
     auto type = get_serialized_type(origin_type);
     switch (type->get_primitive_type()) {
     case TYPE_NULL:
@@ -137,7 +159,7 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         const auto* type_arr = assert_cast<const DataTypeArray*>(remove_nullable(type).get());
         std::shared_ptr<arrow::DataType> item_type;
         RETURN_IF_ERROR(convert_to_arrow_type(type_arr->get_nested_type(), &item_type, timezone,
-                                              datetime_naive));
+                                              datetime_naive, native_variant));
         *result = std::make_shared<arrow::ListType>(item_type);
         break;
     }
@@ -146,9 +168,9 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         std::shared_ptr<arrow::DataType> key_type;
         std::shared_ptr<arrow::DataType> val_type;
         RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_key_type(), &key_type, timezone,
-                                              datetime_naive));
+                                              datetime_naive, native_variant));
         RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_value_type(), &val_type, timezone,
-                                              datetime_naive));
+                                              datetime_naive, native_variant));
         *result = std::make_shared<arrow::MapType>(key_type, val_type);
         break;
     }
@@ -158,7 +180,7 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         for (size_t i = 0; i < type_struct->get_elements().size(); i++) {
             std::shared_ptr<arrow::DataType> field_type;
             RETURN_IF_ERROR(convert_to_arrow_type(type_struct->get_element(i), &field_type,
-                                                  timezone, datetime_naive));
+                                                  timezone, datetime_naive, native_variant));
             fields.push_back(
                     std::make_shared<arrow::Field>(type_struct->get_element_name(i), field_type,
                                                    type_struct->get_element(i)->is_nullable()));
@@ -167,7 +189,13 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         break;
     }
     case TYPE_VARIANT: {
-        *result = arrow::utf8();
+        if (native_variant) {
+            RETURN_IF_ERROR(register_arrow_variant_extension());
+        }
+        *result = native_variant ? arrow::extension::variant(arrow::struct_(
+                                           {arrow::field("metadata", arrow::binary(), false),
+                                            arrow::field("value", arrow::binary(), false)}))
+                                 : arrow::utf8();
         break;
     }
     case TYPE_QUANTILE_STATE:
@@ -224,12 +252,20 @@ Status get_arrow_schema_from_block(const Block& block, std::shared_ptr<arrow::Sc
 Status get_arrow_schema_from_expr_ctxs(const VExprContextSPtrs& output_vexpr_ctxs,
                                        std::shared_ptr<arrow::Schema>* result,
                                        const std::string& timezone, bool datetime_naive) {
+    return get_arrow_schema_from_expr_ctxs(output_vexpr_ctxs, result, timezone, datetime_naive,
+                                           false);
+}
+
+Status get_arrow_schema_from_expr_ctxs(const VExprContextSPtrs& output_vexpr_ctxs,
+                                       std::shared_ptr<arrow::Schema>* result,
+                                       const std::string& timezone, bool datetime_naive,
+                                       bool native_variant) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
     for (int i = 0; i < output_vexpr_ctxs.size(); i++) {
         std::shared_ptr<arrow::DataType> arrow_type;
         auto root_expr = output_vexpr_ctxs.at(i)->root();
         RETURN_IF_ERROR(convert_to_arrow_type(root_expr->data_type(), &arrow_type, timezone,
-                                              datetime_naive));
+                                              datetime_naive, native_variant));
         auto field_name = root_expr->is_slot_ref() && !root_expr->expr_label().empty()
                                   ? root_expr->expr_label()
                                   : fmt::format("{}_{}", root_expr->data_type()->get_name(), i);
@@ -286,13 +322,17 @@ Status serialize_record_batch(const arrow::RecordBatch& record_batch, std::strin
 }
 
 Status serialize_arrow_schema(std::shared_ptr<arrow::Schema>* schema, std::string* result) {
-    auto make_empty_result = arrow::RecordBatch::MakeEmpty(*schema);
-    if (!make_empty_result.ok()) {
-        return Status::InternalError("serialize_arrow_schema failed, reason: {}",
-                                     make_empty_result.status().ToString());
-    }
-    auto batch = make_empty_result.ValueOrDie();
-    return serialize_record_batch(*batch, result);
+    // Schema RPC readers only consume the IPC schema. Building an empty batch would require
+    // nested extension builders, which Arrow does not provide for ARRAY/MAP/STRUCT<VARIANT>.
+    std::shared_ptr<arrow::io::BufferOutputStream> sink;
+    RETURN_DORIS_STATUS_IF_RESULT_ERROR(sink, arrow::io::BufferOutputStream::Create());
+    std::shared_ptr<arrow::ipc::RecordBatchWriter> writer;
+    RETURN_DORIS_STATUS_IF_RESULT_ERROR(writer, arrow::ipc::MakeStreamWriter(sink.get(), *schema));
+    RETURN_DORIS_STATUS_IF_ERROR(writer->Close());
+    std::shared_ptr<arrow::Buffer> buffer;
+    RETURN_DORIS_STATUS_IF_RESULT_ERROR(buffer, sink->Finish());
+    *result = buffer->ToString();
+    return Status::OK();
 }
 
 } // namespace doris

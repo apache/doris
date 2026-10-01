@@ -17,6 +17,8 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.service.arrowflight.FlightSqlNativeVariant;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -34,15 +36,20 @@ public class ResultSink extends DataSink {
     // Two phase fetch option
     private TFetchOption fetchOption;
 
+    private final boolean nativeVariant;
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCOL;
 
     public ResultSink(PlanNodeId exchNodeId) {
-        this.exchNodeId = exchNodeId;
+        this(exchNodeId, TResultSinkType.MYSQL_PROTOCOL);
     }
 
     public ResultSink(PlanNodeId exchNodeId, TResultSinkType resultSinkType) {
         this.exchNodeId = exchNodeId;
         this.resultSinkType = resultSinkType;
+        ConnectContext context = ConnectContext.get();
+        // The session may change before deferred result fetching; pin the format during planning.
+        nativeVariant = resultSinkType == TResultSinkType.ARROW_FLIGHT_PROTOCOL
+                && FlightSqlNativeVariant.isEnabled(context);
     }
 
     @Override
@@ -73,6 +80,7 @@ public class ResultSink extends DataSink {
             tResultSink.setFetchOption(fetchOption);
         }
         tResultSink.setType(resultSinkType);
+        tResultSink.setNativeVariant(nativeVariant);
         result.setResultSink(tResultSink);
         return result;
     }

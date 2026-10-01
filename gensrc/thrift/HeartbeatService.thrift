@@ -64,6 +64,7 @@ struct TBackendInfo {
     9: optional Types.TPort arrow_flight_sql_port
     10: optional i64 be_mem // The physical memory available for use by BE.
     11: optional bool supports_paimon_rust_reader
+    12: optional bool arrow_flight_native_variant_supported = false
     // For cloud
     1000: optional i64 fragment_executing_count
     1001: optional i64 fragment_last_active_time

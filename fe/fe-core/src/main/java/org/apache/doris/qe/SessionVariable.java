@@ -275,6 +275,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String RUNTIME_FILTER_TREE_PUBLISH_MAX_SEND_BYTES =
             "runtime_filter_tree_publish_max_send_bytes";
 
+    public static final String ENABLE_ARROW_FLIGHT_SQL_NATIVE_VARIANT = "enable_arrow_flight_sql_native_variant";
     public static final String ENABLE_PARALLEL_RESULT_SINK = "enable_parallel_result_sink";
 
     public static final String HIVE_TEXT_COMPRESSION = "hive_text_compression";
@@ -1837,6 +1838,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = "runtime_filter_max_build_row_count", needForward = true, fuzzy = false)
     public long runtimeFilterMaxBuildRowCount = 64L * 1024L * 1024L;
+
+    @VariableMgr.VarAttr(name = ENABLE_ARROW_FLIGHT_SQL_NATIVE_VARIANT, needForward = true)
+    private boolean enableArrowFlightSqlNativeVariant = false;
 
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_RESULT_SINK, needForward = true, fuzzy = true)
     private boolean enableParallelResultSink = true;
@@ -6289,6 +6293,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnableAggregateFunctionNullV2() {
         return enableAggregateFunctionNullV2;
+    }
+
+    public boolean isEnableArrowFlightSqlNativeVariant() {
+        return enableArrowFlightSqlNativeVariant;
+    }
+
+    public void setEnableArrowFlightSqlNativeVariant(boolean enabled) {
+        enableArrowFlightSqlNativeVariant = enabled;
     }
 
     public boolean enableParallelResultSink() {
