@@ -21,7 +21,6 @@ import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
-import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
@@ -1991,10 +1990,16 @@ public final class SPMPlanTreeSupport {
                     // snapshot and is hashed instead.
                     TableIf locked = lookupLockedTable(lockedTables, qualifier,
                             relation.getNameParts());
+                    // Resolve WITHOUT the planner's resolved-table cache: this fingerprint
+                    // runs BEFORE collectAndLockTable, and caching the TableIf here would
+                    // hand the later bind / lock pass a detached PRE-LOCK object - a
+                    // concurrent DROP / CREATE t would be invisible (CollectRelation reuses
+                    // the cached instance, so the lock and the post-plan fingerprint both
+                    // operate on the old table). The replay path revalidates against the
+                    // relations the plan actually locked (verifyReplayMetadata).
                     TableIf table = locked != null ? locked
-                            : ctx.getStatementContext().getAndCacheTable(
-                                    qualifier, StatementContext.TableFrom.QUERY,
-                                    Optional.of(relation));
+                            : ctx.getStatementContext().resolveTableWithoutCache(
+                                    qualifier, Optional.of(relation));
                     entries.add(describeTableForFingerprint(table));
                 } catch (RuntimeException e) {
                     // unresolvable: not part of the fingerprint, the analysis pass reports

@@ -71,6 +71,8 @@ public class SPMRound15SafetyTest {
         Mockito.when(statementContext.getAndCacheTable(
                         Mockito.anyList(), Mockito.any(), Mockito.any()))
                 .thenReturn(bind);
+        Mockito.when(statementContext.resolveTableWithoutCache(Mockito.anyList(), Mockito.any()))
+                .thenReturn(bind);
         ctx.setStatementContext(statementContext);
         return ctx;
     }

@@ -4963,10 +4963,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 last = new LogicalUsingJoin<>(joinType, last, plan(join.relationPrimary()), ids,
                         matchCondition != null ? Optional.of(matchCondition) : Optional.empty(), distributeHint);
             }
+            // Parsing WITHOUT a session (an FE-internal re-parse such as the SPM baseline
+            // rebuild) must be side-effect free AND session-free: the hint stays on the
+            // node, but there may be no ConnectContext at all - the old dereference threw
+            // an NPE and made the caller drop the whole statement, so a stored baseline
+            // whose bindSQL carries JOIN [shuffle] / [broadcast] was skipped on every
+            // refresh (and a forwarded SESSION row was omitted on the master).
+            ConnectContext hintContext = ConnectContext.get();
             if (distributeHint.distributeType != DistributeType.NONE
-                    && ConnectContext.get().getStatementContext() != null
-                    && !ConnectContext.get().getStatementContext().getHints().contains(distributeHint)) {
-                ConnectContext.get().getStatementContext().addHint(distributeHint);
+                    && hintContext != null && hintContext.getStatementContext() != null
+                    && !hintContext.getStatementContext().getHints().contains(distributeHint)) {
+                hintContext.getStatementContext().addHint(distributeHint);
             }
         }
         return last;

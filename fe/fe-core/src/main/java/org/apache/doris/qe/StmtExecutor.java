@@ -91,6 +91,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.EmptyCommand;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
@@ -515,9 +516,11 @@ public class StmtExecutor {
             return false;
         }
 
-        // this is a query stmt, but this non-master FE can not read, forward it to master
-        if (isQuery() && !Env.getCurrentEnv().isMaster()
-                && (!Env.getCurrentEnv().canRead() || debugForwardAllQueries() || Config.force_forward_all_queries
+        // this is a query stmt (or an EXPLAIN of one), but this non-master FE can not
+        // read, forward it to master
+        if (isForwardableQuery() && !Env.getCurrentEnv().isMaster()
+                && (!Env.getCurrentEnv().canRead() || debugForwardAllQueries()
+                        || Config.force_forward_all_queries
                         || context.getSessionVariable().isForceForwardAllQueries())) {
             return true;
         }
@@ -1448,6 +1451,25 @@ public class StmtExecutor {
     private boolean isQuery() {
         return parsedStmt instanceof LogicalPlanAdapter
                 && !(((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Command);
+    }
+
+    /**
+     * Whether this statement participates in the QUERY forwarding policy (see
+     * shouldForwardToMaster): a plain query, or an EXPLAIN of one. EXPLAIN is a Command
+     * (NoForward), so without this the forced-forward policy ran it locally on an
+     * observer whose baseline cache could predate a baseline just created on the master -
+     * the SPM diagnostic reported "no hit" although the immediately following SELECT is
+     * forwarded and uses that baseline.
+     */
+    private boolean isForwardableQuery() {
+        if (isQuery()) {
+            return true;
+        }
+        if (!(parsedStmt instanceof LogicalPlanAdapter)) {
+            return false;
+        }
+        LogicalPlan plan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+        return plan instanceof ExplainCommand && ((ExplainCommand) plan).isQueryExplain();
     }
 
     public boolean isProfileSafeStmt() {

@@ -550,8 +550,19 @@ public class AuditLogScanner {
      */
     public static String buildScanSql(String start, String end, int maxBatchSize,
             long minQueryTimeMs, long minScanRows, String cursorPredicate) {
+        // The window lower bound is COMPLETION-aware: audit_log.time is the query's START
+        // time, but its row is published only when the query FINISHES. A long-running
+        // query started at 11:50 is absent from the 12:00 scan; without the
+        // completion predicate the next (default three-hour) window starts at
+        // 12:00 - overlap, so its 11:50 row - now visible - would be excluded
+        // FOREVER. Rows are therefore also eligible while their completion
+        // (time + query_time) reaches into the window, and the time-only bound still
+        // excludes everything that both started and finished before it (no history
+        // re-scan; query-id dedup covers the overlap).
         return "SELECT " + SELECT_COLUMNS + " FROM __internal_schema.audit_log "
-                + "WHERE `time` >= '" + start + "' AND `time` < '" + end + "' "
+                + "WHERE (`time` >= '" + start + "'"
+                + " OR timestampadd(SECOND, CAST(`query_time` / 1000 AS BIGINT), `time`)"
+                + " >= '" + start + "') AND `time` < '" + end + "' "
                 + "AND `is_query` = true "
                 + "AND `is_nereids` = true "
                 + "AND (`query_time` >= " + minQueryTimeMs

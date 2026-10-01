@@ -2291,10 +2291,14 @@ public class BaselineManager {
         } catch (Exception e) {
             // An INSERT that reports an error (typically a statement timeout) may still
             // have COMMITTED: reconcile against the durable table before failing the
-            // CREATE - the row carrying this id + key is the proof it landed. Any other
-            // outcome (absent or unconfirmable) reports the original failure.
-            if (probeDurableRow(p.getId(), p.getBindSqlDigest(), p.getPlanSql())
-                    == DurablePresence.PRESENT) {
+            // write. The row carrying this id + key + STATUS is the proof it landed:
+            // matching only (id, key) treated the still-present OLD-status row of an
+            // ALTER as the freshly written new-status row - updateStatus then deleted
+            // the old row and NO durable version remained (refresh / restart lost the
+            // baseline). Any other outcome (absent or unconfirmable) reports the
+            // original failure.
+            if (probeDurableRow(p.getId(), p.getBindSqlDigest(), p.getPlanSql(),
+                    p.getStatus()) == DurablePresence.PRESENT) {
                 LOG.warn("SPM persist (insert) reported {} but the row is durable (id={});"
                         + " keeping it", e.getMessage(), p.getId());
                 return;
@@ -2310,18 +2314,37 @@ public class BaselineManager {
 
     /**
      * Reconciles an ambiguous write: whether the durable table holds the row with this
-     * (id, key). A read FAILURE answers UNKNOWN - never ABSENT: an absent row is the ONLY
-     * proof a DELETE landed, and treating an unconfirmable read as proof let dropBaseline
-     * remove the cached row and report success while the durable row stayed (the next
-     * refresh / restart resurrected the dropped baseline).
+     * (id, key). Identity deletes need no status constraint - DELETE_BY_IDENTITY removes
+     * every status row of the key, so the presence of any of them proves the delete did
+     * NOT land; INSERT reconciliation passes the status it wrote (see below).
      */
     private static DurablePresence probeDurableRow(long id, String bindSqlDigest, String planSql) {
+        return probeDurableRow(id, bindSqlDigest, planSql, null);
+    }
+
+    /**
+     * Reconciles an ambiguous write: whether the durable table holds a row with this
+     * (id, key) AND - when {@code status} is given - the EXPECTED status. A read FAILURE
+     * answers UNKNOWN - never ABSENT: an absent row is the ONLY proof a DELETE landed,
+     * and treating an unconfirmable read as proof let dropBaseline remove the cached row
+     * and report success while the durable row stayed (the next refresh / restart
+     * resurrected the dropped baseline).
+     *
+     * The status constraint is what makes an INSERT reconciliation sound: during an
+     * ALTER, persistInsert(durablePlan) can throw BEFORE committing while the old-status
+     * row is still present under the SAME (id, digest, planSql) key - an unconstrained
+     * probe declared the INSERT successful, updateStatus deleted the old row and the
+     * baseline was left with NO durable row at all.
+     */
+    private static DurablePresence probeDurableRow(long id, String bindSqlDigest, String planSql,
+            BaselineStatus status) {
         if (idAllocatorStoreForTest != null) {
             try {
                 for (BaselinePlan row : idAllocatorStoreForTest.readById(id)) {
                     if (row.getId() == id
                             && Objects.equals(row.getBindSqlDigest(), bindSqlDigest)
-                            && Objects.equals(row.getPlanSql(), planSql)) {
+                            && Objects.equals(row.getPlanSql(), planSql)
+                            && (status == null || row.getStatus() == status)) {
                         return DurablePresence.PRESENT;
                     }
                 }
@@ -2334,7 +2357,7 @@ public class BaselineManager {
         }
         try {
             for (BaselinePlan row : readPersistedByKey(bindSqlDigest, planSql)) {
-                if (row.getId() == id) {
+                if (row.getId() == id && (status == null || row.getStatus() == status)) {
                     return DurablePresence.PRESENT;
                 }
             }
