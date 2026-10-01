@@ -27,6 +27,7 @@
 #include "exec/operator/materialization_opertor.h"
 #include "exec/pipeline/dependency.h"
 #include "runtime/runtime_profile.h"
+#include "testutil/mock/mock_runtime_state.h"
 
 namespace doris {
 
@@ -43,6 +44,10 @@ void set_lance_fetch_profile(PMultiGetBlockV2* response_block, int64_t scale) {
     profile.add_info_string("LanceRowIdTakeReadTime", std::to_string(2 * scale) + "ns");
     profile.add_info_string("LanceArrowToDorisBlockTime", std::to_string(3 * scale) + "ns");
     profile.add_info_string("LanceRowIdFetchTotalTime", std::to_string(4 * scale) + "ns");
+    profile.add_info_string("LanceRowIdFetchRows", std::to_string(5 * scale));
+    profile.add_info_string("LanceRowIdFetchCalls", "1");
+    profile.add_info_string("LanceDataCacheBytesReadFromCache", "64.00 KB");
+    profile.add_info_string("LanceDataCacheBytesReadFromRemote", "32.00 KB");
     profile.add_info_string("ScannersRunningTime", "0ms");
     profile.add_info_string("InitReaderAvgTime", "0ms");
     profile.add_info_string("GetBlockAvgTime", "0ms");
@@ -53,6 +58,34 @@ void set_lance_fetch_profile(PMultiGetBlockV2* response_block, int64_t scale) {
 }
 
 } // namespace
+
+TEST(MaterializationOperatorTimingTest, PushDoesNotDuplicateFrameworkExecTimer) {
+    ObjectPool pool;
+    MockRuntimeState state;
+    TPlanNode node;
+    node.__set_node_id(0);
+    node.__set_node_type(TPlanNodeType::MATERIALIZATION_NODE);
+    MaterializationOperator op(&pool, node, 0, state.desc_tbl());
+    RuntimeProfile profile("materialization_timing");
+    auto local = MaterializationLocalState::create_unique(&state, &op);
+    LocalStateInfo info {.parent_profile = &profile,
+                         .scan_ranges = {},
+                         .shared_state = nullptr,
+                         .shared_state_map = {},
+                         .task_idx = 0};
+    ASSERT_TRUE(local->init(&state, info).ok());
+    local->_materialization_state.rpc_struct_inited = true;
+    auto* timer = local->exec_time_counter();
+    state.resize_op_id_to_local_state(-1);
+    state.emplace_local_state(0, std::move(local));
+    Block block;
+    const auto before = timer->value();
+    // The framework owns ExecTime. Direct push calls must not contribute a second sample.
+    for (int i = 0; i < 100; ++i) {
+        ASSERT_TRUE(op.push(&state, &block, false).ok());
+    }
+    EXPECT_EQ(before, timer->value());
+}
 
 class MaterializationSharedStateTest : public testing::Test {
 protected:
@@ -316,6 +349,10 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponse) {
     EXPECT_EQ("20ns, ", fmt::to_string(backend1_info.at("LanceRowIdTakeReadTime")));
     EXPECT_EQ("30ns, ", fmt::to_string(backend1_info.at("LanceArrowToDorisBlockTime")));
     EXPECT_EQ("40ns, ", fmt::to_string(backend1_info.at("LanceRowIdFetchTotalTime")));
+    EXPECT_EQ("50, ", fmt::to_string(backend1_info.at("LanceRowIdFetchRows")));
+    EXPECT_EQ("1, ", fmt::to_string(backend1_info.at("LanceRowIdFetchCalls")));
+    EXPECT_EQ("64.00 KB, ", fmt::to_string(backend1_info.at("LanceDataCacheBytesReadFromCache")));
+    EXPECT_EQ("32.00 KB, ", fmt::to_string(backend1_info.at("LanceDataCacheBytesReadFromRemote")));
     const auto& backend2_info = _shared_state->backend_profile_info_string.at(_backend_id2);
     EXPECT_EQ("1ns, ", fmt::to_string(backend2_info.at("LanceDatasetOpenTime")));
     EXPECT_EQ("2ns, ", fmt::to_string(backend2_info.at("LanceRowIdTakeReadTime")));

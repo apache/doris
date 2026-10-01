@@ -60,13 +60,14 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
     private static final String ARROW_EXTENSION_NAME = "ARROW:extension:name";
     private static final String QUERY_VECTOR = "query_vector";
     private static final String METRIC = "metric";
+    private static final String QUERY_PARALLELISM = "query_parallelism";
     private static final String NPROBES = "nprobes";
     private static final String REFINE_FACTOR = "refine_factor";
     private static final String EF = "ef";
     private static final String USE_INDEX = "use_index";
     private static final Set<String> PROPERTIES = ImmutableSet.of(
             TABLE, COLUMN, QUERY_VECTOR, TOP_K, OFFSET, METRIC, FILTER,
-            NPROBES, REFINE_FACTOR, EF, USE_INDEX);
+            NPROBES, REFINE_FACTOR, EF, USE_INDEX, QUERY_PARALLELISM);
 
     public VectorSearchTableValuedFunction(Map<String, String> properties)
             throws AnalysisException {
@@ -125,10 +126,16 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
                 common, vectorFieldId, searchRequest, DISTANCE_COLUMN, "vector search");
     }
 
-    private static TVectorSearchOptions buildVectorSearchOptions(
+    @VisibleForTesting
+    static TVectorSearchOptions buildVectorSearchOptions(
             Map<String, String> params, boolean useIndex) throws AnalysisException {
         TVectorSearchOptions options = new TVectorSearchOptions();
         boolean configured = false;
+        if (params.containsKey(QUERY_PARALLELISM)) {
+            options.setQueryParallelism((int) parseLong(
+                    params.get(QUERY_PARALLELISM), QUERY_PARALLELISM, -1, Integer.MAX_VALUE));
+            configured = true;
+        }
         if (params.containsKey(NPROBES)) {
             options.setNprobes(parsePositiveInt(params.get(NPROBES), NPROBES));
             configured = true;
