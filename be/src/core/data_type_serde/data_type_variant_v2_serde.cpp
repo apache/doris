@@ -43,6 +43,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type_serde/data_type_string_serde.h"
+#include "core/data_type_serde/variant_arrow_utils.h"
 #include "core/types.h"
 #include "core/value/jsonb_value.h"
 #include "core/value/variant/variant_batch_builder.h"
@@ -52,6 +53,49 @@
 #include "util/mysql_row_buffer.h"
 
 namespace doris {
+
+// ColumnVariantV2 already validates its encoded dictionaries and value structure. Only walk
+// the selected row here: validating every unused dictionary key per row is quadratic for
+// shared dictionaries, including when a nested ARRAY invokes this writer on one-row slices.
+Status append_flight_variant_value(VariantRef value, VariantBatchBuilder::Row& output,
+                                   size_t depth) {
+    const auto basic_type = value.basic_type();
+    if (depth > VARIANT_MAX_NESTING_DEPTH) {
+        return Status::NotSupported(
+                "Native Arrow Variant nesting exceeds {}; "
+                "use enable_arrow_flight_sql_native_variant=false for UTF8 output",
+                VARIANT_MAX_NESTING_DEPTH);
+    }
+    if (value.value_size() != value.value.size) {
+        throw Exception(ErrorCode::CORRUPTION,
+                        "Native Arrow Variant contains trailing value bytes");
+    }
+    if (basic_type == VariantBasicType::OBJECT) {
+        auto object = output.start_object();
+        auto fields = value.object_view();
+        for (uint32_t i = 0; i < fields.size(); ++i) {
+            uint32_t field_id;
+            auto child = fields.value_at(i, &field_id);
+            object.add_key(value.metadata.key_at(field_id));
+            RETURN_IF_ERROR(append_flight_variant_value(child, output, depth + 1));
+        }
+        object.finish();
+    } else if (basic_type == VariantBasicType::ARRAY) {
+        auto array = output.start_array();
+        for (uint32_t i = 0; i < value.num_elements(); ++i) {
+            RETURN_IF_ERROR(append_flight_variant_value(value.array_at(i), output, depth + 1));
+        }
+        array.finish();
+    } else {
+        // Primitives never reference dictionary keys. Reuse physical import to retain widths,
+        // decimal scales and non-JSON types; canonical equality encoding normalizes those away.
+        static constexpr char empty_metadata[] = {0x11, 0, 0};
+        value.metadata = {empty_metadata, sizeof(empty_metadata)};
+        output.add_value(value);
+    }
+    return Status::OK();
+}
+
 namespace {
 
 using MetaIdsColumn = ColumnVector<TYPE_UINT32>;
@@ -626,45 +670,6 @@ Status write_paimon_variant(const IColumn& column, const NullMap* null_map,
     return status;
 }
 
-// ColumnVariantV2 already validates its encoded dictionaries and value structure. Only walk
-// the selected row here: validating every unused dictionary key per row is quadratic for
-// shared dictionaries, including when a nested ARRAY invokes this writer on one-row slices.
-void append_flight_variant_value(VariantRef value, VariantBatchBuilder::Row& output,
-                                 size_t depth = 0) {
-    const auto basic_type = value.basic_type();
-    if (depth > VARIANT_MAX_NESTING_DEPTH) {
-        throw Exception(ErrorCode::INVALID_ARGUMENT, "Native Arrow Variant nesting exceeds {}",
-                        VARIANT_MAX_NESTING_DEPTH);
-    }
-    if (value.value_size() != value.value.size) {
-        throw Exception(ErrorCode::CORRUPTION,
-                        "Native Arrow Variant contains trailing value bytes");
-    }
-    if (basic_type == VariantBasicType::OBJECT) {
-        auto object = output.start_object();
-        auto fields = value.object_view();
-        for (uint32_t i = 0; i < fields.size(); ++i) {
-            uint32_t field_id;
-            auto child = fields.value_at(i, &field_id);
-            object.add_key(value.metadata.key_at(field_id));
-            append_flight_variant_value(child, output, depth + 1);
-        }
-        object.finish();
-    } else if (basic_type == VariantBasicType::ARRAY) {
-        auto array = output.start_array();
-        for (uint32_t i = 0; i < value.num_elements(); ++i) {
-            append_flight_variant_value(value.array_at(i), output, depth + 1);
-        }
-        array.finish();
-    } else {
-        // Primitives never reference dictionary keys. Reuse physical import to retain widths,
-        // decimal scales and non-JSON types; canonical equality encoding normalizes those away.
-        static constexpr char empty_metadata[] = {0x11, 0, 0};
-        value.metadata = {empty_metadata, sizeof(empty_metadata)};
-        output.add_value(value);
-    }
-}
-
 Status write_parquet_variant_arrow(const IColumn& column, const NullMap* null_map,
                                    arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                    bool compact_metadata) {
@@ -706,7 +711,10 @@ Status write_parquet_variant_arrow(const IColumn& column, const NullMap* null_ma
                                       value.num_elements() != keys)) {
                         VariantBatchBuilder encoder;
                         auto row = encoder.begin_row();
-                        append_flight_variant_value(value, row);
+                        status = append_flight_variant_value(value, row);
+                        if (!status.ok()) {
+                            return;
+                        }
                         row.finish();
                         compacted.emplace(encoder.finish_batch());
                         value = compacted->value_at(0);

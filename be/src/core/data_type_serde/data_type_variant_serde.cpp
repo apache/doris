@@ -44,6 +44,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_variant_v2_serde.h"
+#include "core/data_type_serde/variant_arrow_utils.h"
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "core/types.h"
@@ -173,9 +174,15 @@ Status append_legacy_arrow_value(const IColumn& column, const DataTypePtr& type,
             }
             RETURN_IF_ERROR(append_legacy_arrow_document(*legacy, index, output, options, depth));
         } else {
+            // Reuse the selected-value import: each leaf may share a large dictionary, and
+            // its enclosing legacy containers must count toward the native depth limit.
+            Status status = Status::OK();
             visit_variant_v2_values(
                     column, index, index + 1, {}, [&](size_t) { output.add_null(); },
-                    [&](size_t, VariantRef value) { output.add_value(value); });
+                    [&](size_t, VariantRef value) {
+                        status = append_flight_variant_value(value, output, depth);
+                    });
+            RETURN_IF_ERROR(status);
         }
     } else {
         return Status::NotSupported("Native Arrow Variant does not support {} roots",

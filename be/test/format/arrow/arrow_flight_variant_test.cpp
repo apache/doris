@@ -732,6 +732,88 @@ TEST(ArrowFlightVariantTest, NativeCompactionKeepsTerminalEmptyContainersAtDepth
     }
 }
 
+TEST(ArrowFlightVariantTest, LegacyV2LeafIncludesEnclosingDepth) {
+    for (const std::string terminal : {"1", "[]", "{}"}) {
+        for (size_t depth : {VARIANT_MAX_NESTING_DEPTH - 1, VARIANT_MAX_NESTING_DEPTH}) {
+            std::string json = terminal;
+            for (size_t i = 0; i < depth; ++i) {
+                json = "[" + json + "]";
+            }
+            JsonStringToVariantEncoder encoder;
+            encoder.add_json({json.data(), json.size()});
+            auto encoded = encoder.finish_batch();
+            auto values = ColumnVariantV2::create();
+            values->insert_encoded_batch(encoded);
+            auto offsets = ColumnArray::ColumnOffsets::create();
+            offsets->get_data().push_back(1);
+            auto legacy = ColumnVariant::create(0);
+            legacy->create_root(
+                    std::make_shared<DataTypeArray>(std::make_shared<DataTypeVariantV2>()),
+                    ColumnArray::create(make_nullable(std::move(values)), std::move(offsets)));
+            legacy->finalize();
+            Block block {{std::move(legacy), std::make_shared<DataTypeVariant>(), "v"}};
+            ArrowFlightArrowBlockConvertor utf8(block, "UTC", cctz::utc_time_zone());
+            ASSERT_TRUE(utf8.init().ok());
+            std::shared_ptr<arrow::RecordBatch> batch;
+            ASSERT_TRUE(utf8.convert_to_arrow(block, arrow::default_memory_pool(), &batch).ok());
+            EXPECT_EQ(static_cast<const arrow::StringArray&>(*batch->column(0)).GetString(0),
+                      "[" + json + "]");
+            ArrowFlightArrowBlockConvertor native(
+                    arrow::schema({arrow::field("v", native_variant(), false)}),
+                    cctz::utc_time_zone());
+            auto status = native.convert_to_arrow(block, arrow::default_memory_pool(), &batch);
+            // A valid V2 leaf may exceed the native limit once its legacy container is included.
+            if (depth == VARIANT_MAX_NESTING_DEPTH) {
+                EXPECT_EQ(status.code(), ErrorCode::NOT_IMPLEMENTED_ERROR) << status;
+                EXPECT_NE(status.to_string().find("enable_arrow_flight_sql_native_variant=false"),
+                          std::string::npos);
+            } else {
+                ASSERT_TRUE(status.ok()) << status;
+                auto actual = value_at(*batch->column(0), 0);
+                for (size_t i = 0; i <= depth; ++i) {
+                    actual = actual.array_at(0);
+                }
+                EXPECT_EQ(actual.basic_type(), terminal == "1"    ? VariantBasicType::PRIMITIVE
+                                               : terminal == "[]" ? VariantBasicType::ARRAY
+                                                                  : VariantBasicType::OBJECT);
+            }
+        }
+    }
+}
+
+TEST(ArrowFlightVariantTest, LegacyArrayV2LeavesShareLargeDictionary) {
+    constexpr int rows = 4096;
+    VariantBatchBuilder encoder;
+    for (int i = 0; i < rows; ++i) {
+        auto row = encoder.begin_row();
+        auto object = row.start_object();
+        auto key = "key_" + std::to_string(i);
+        object.add_key({key.data(), key.size()});
+        row.add_int(i);
+        object.finish();
+        row.finish();
+    }
+    auto encoded = encoder.finish_batch();
+    ASSERT_EQ(encoded.metadata_ref().dict_size(), rows);
+    auto values = ColumnVariantV2::create();
+    values->insert_encoded_batch(encoded);
+    std::shared_ptr<arrow::RecordBatch> batch;
+    ASSERT_TRUE(convert_legacy_root(std::move(values), std::make_shared<DataTypeVariantV2>(), true,
+                                    &batch)
+                        .ok());
+    auto actual = value_at(*batch->column(0), 0);
+    ASSERT_EQ(actual.num_elements(), rows);
+    EXPECT_EQ(actual.metadata.dict_size(), rows);
+    for (int i = 0; i < rows; ++i) {
+        auto object = actual.array_at(i).object_view();
+        ASSERT_EQ(object.size(), 1);
+        uint32_t field_id;
+        auto child = object.value_at(0, &field_id);
+        EXPECT_EQ(actual.metadata.key_at(field_id).to_string(), "key_" + std::to_string(i));
+        EXPECT_EQ(child.get_int(), i);
+    }
+}
+
 TEST(ArrowFlightVariantTest, LegacyDepthLimitExplainsNativeModeRestriction) {
     std::string json = "1";
     for (int i = 0; i < 129; ++i) {
