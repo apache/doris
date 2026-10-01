@@ -234,7 +234,7 @@ public class LanceScanNodeTest {
     }
 
     @Test
-    public void testScalarSegmentSelectionDoesNotDescendThroughOrOrNot() throws Exception {
+    public void testScalarSegmentSelectionSupportsSameColumnOrAndNot() throws Exception {
         Expr predicate = scalarPredicate();
         for (Expr filter : Arrays.asList(
                 new CompoundPredicate(CompoundPredicate.Operator.OR, predicate, predicate),
@@ -243,11 +243,29 @@ public class LanceScanNodeTest {
             setMetadata(node, scalarMetadata(Collections.singletonList(
                     scalarSegment(UUID.randomUUID(), IndexType.BTREE, Arrays.asList(1L, 2L, 3L, 4L)))));
             setPushedConjuncts(node, filter);
-            Assert.assertEquals(4, node.getSplits(20).size());
+            int expectedSplits = ((CompoundPredicate) filter).getOp() == CompoundPredicate.Operator.NOT ? 4 : 1;
+            List<Split> initialSplits = node.getSplits(20);
+            Assert.assertEquals(expectedSplits, initialSplits.size());
+            if (expectedSplits == 4) {
+                for (Split split : initialSplits) {
+                    TFileRangeDesc range = new TFileRangeDesc();
+                    node.setScanParams(range, split);
+                    TLanceFileDesc params = range.getTableFormatParams().getLanceParams();
+                    Assert.assertFalse(params.isSetIndexSegmentUuids());
+                    Assert.assertTrue(params.isSetUseScalarIndex());
+                    Assert.assertFalse(params.isUseScalarIndex());
+                }
+            }
             setPushedConjuncts(node, new CompoundPredicate(CompoundPredicate.Operator.AND, filter, predicate));
             List<Split> splits = node.getSplits(20);
             Assert.assertEquals(1, splits.size());
-            Assert.assertTrue(((LanceSplit) splits.get(0)).getIndexSegmentUuid().isPresent());
+            List<Long> assignedFragments = new ArrayList<>();
+            for (Split split : splits) {
+                assignedFragments.addAll(((LanceSplit) split).getFragmentIds());
+                Assert.assertTrue(((LanceSplit) split).getIndexSegmentUuid().isPresent());
+            }
+            Collections.sort(assignedFragments);
+            Assert.assertEquals(Arrays.asList(1L, 2L, 3L, 4L), assignedFragments);
         }
     }
 
@@ -284,6 +302,51 @@ public class LanceScanNodeTest {
         node.setScanParams(range, splits.get(0));
         Assert.assertTrue(range.getTableFormatParams().getLanceParams().isSetIndexSegmentUuids());
         Assert.assertFalse(range.getTableFormatParams().getLanceParams().isSetLimit());
+    }
+
+    @Test
+    public void testMissingSegmentMetadataPreservesNativeIndexSelection() throws Exception {
+        List<LanceIndexSegmentInfo> segments = Collections.singletonList(
+                scalarSegment(UUID.randomUUID(), IndexType.BTREE, Arrays.asList(1L, 2L, 3L, 4L)));
+        LanceTableMetadata complete = scalarMetadata(segments);
+        LanceTableAccess access = new LanceTableAccess("s3://bucket/scalar.lance", Collections.emptyMap());
+        for (LanceTableMetadata metadata : Arrays.asList(
+                LanceTableMetadata.createSnapshotWithUnavailableFieldIds(access, 42,
+                        complete.getSchema(), complete.getFragments(), segments),
+                LanceTableMetadata.createSnapshotWithIndexes(access, 42,
+                        complete.getSchema(), complete.getFragments(), Collections.singletonMap("key", 9),
+                        Collections.emptyList()))) {
+            assertNativeFragmentSelection(metadata);
+        }
+    }
+
+    @Test
+    public void testCompetingLogicalIndexesPreserveNativeSelection() throws Exception {
+        List<LanceIndexSegmentInfo> segments = Arrays.asList(
+                new LanceIndexSegmentInfo(UUID.randomUUID(), "a_key_idx", Collections.singletonList(9),
+                        Collections.singletonList(1L), IndexType.BTREE, null),
+                new LanceIndexSegmentInfo(UUID.randomUUID(), "z_key_idx", Collections.singletonList(9),
+                        Arrays.asList(1L, 2L, 3L, 4L), IndexType.BTREE, null));
+        assertNativeFragmentSelection(scalarMetadata(segments));
+        Collections.reverse(segments);
+        assertNativeFragmentSelection(scalarMetadata(segments));
+    }
+
+    private static void assertNativeFragmentSelection(LanceTableMetadata metadata) throws Exception {
+        LanceScanNode node = newNode();
+        setMetadata(node, metadata);
+        setPushedConjuncts(node, new CompoundPredicate(CompoundPredicate.Operator.OR,
+                new BinaryPredicate(BinaryPredicate.Operator.EQ, new SlotRef(null, "key"), new IntLiteral(1)),
+                new BinaryPredicate(BinaryPredicate.Operator.EQ, new SlotRef(null, "key"), new IntLiteral(2))));
+        List<Split> splits = node.getSplits(20);
+        Assert.assertEquals(4, splits.size());
+        for (Split split : splits) {
+            TFileRangeDesc range = new TFileRangeDesc();
+            node.setScanParams(range, split);
+            TLanceFileDesc params = range.getTableFormatParams().getLanceParams();
+            Assert.assertFalse(params.isSetIndexSegmentUuids());
+            Assert.assertFalse(params.isSetUseScalarIndex());
+        }
     }
 
     private static Expr scalarPredicate() {

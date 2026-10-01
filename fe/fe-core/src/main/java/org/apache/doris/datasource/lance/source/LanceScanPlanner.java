@@ -195,7 +195,11 @@ final class LanceScanPlanner {
         } else {
             plan = new LanceSplitBuilder(metadata.getDatasetUri(), metadata.getVersion(), 0);
         }
-        plan.addUncoveredFragments(visibleFragments.values(), 1, scalarIndexPlan != null);
+        // Uncovered fragments must not repeat the selected segment's search. When FE
+        // could not select a segment, retain native selection unless the filter itself
+        // is known to cause expensive repeated searches (a complement or oversized tree).
+        plan.addUncoveredFragments(visibleFragments.values(), 1, scalarIndexPlan != null
+                || LanceScalarIndexPlanner.shouldDisableFragmentIndex(lancePushedConjuncts));
         return plan.buildSplits();
     }
 
