@@ -226,6 +226,51 @@ under the License.
                 </configuration>
             </plugin>
             <!--
+              The plugin's own classes go into fluss-scanner.jar; the fluss class it patches
+              (org.apache.fluss.utils.FatalExitExceptionHandler, see its header: fluss's version
+              stops the whole BE when one of the client's threads dies) goes into a jar of its own,
+              written straight into target/lib so that build.sh deploys it with the dependencies.
+              That jar names the class in Doris-Shadows-Classes, which is what makes PluginRuntime
+              search it ahead of fluss-client's copy; the layout check (tools/be-java-plugins/
+              check_plugin_layout.py) requires a shadowing jar to hold nothing but the classes it
+              names, hence two jars from one module. Merged with the parent's
+              Doris-Jni-Plugin-Api-Version entry, not replacing it. The tests need none of this:
+              surefire puts target/classes ahead of every dependency.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-jar</id>
+                        <configuration>
+                            <excludes>
+                                <exclude>org/apache/fluss/**</exclude>
+                            </excludes>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>fluss-client-patch</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                        <configuration>
+                            <classifier>fluss-client-patch</classifier>
+                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
+                            <includes>
+                                <include>org/apache/fluss/**</include>
+                            </includes>
+                            <archive>
+                                <manifestEntries>
+                                    <Doris-Shadows-Classes>org.apache.fluss.utils.FatalExitExceptionHandler</Doris-Shadows-Classes>
+                                </manifestEntries>
+                            </archive>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!--
               A plugin is a directory of jars, not one jar with everything shaded into it. Its own
               jar is built by the parent's jar plugin; its runtime closure lands beside it here.
               `provided` dependencies are excluded by scope, which is what keeps the SPI out.
