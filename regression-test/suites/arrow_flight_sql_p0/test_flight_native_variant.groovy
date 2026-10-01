@@ -123,18 +123,23 @@ suite("test_flight_native_variant", "arrow_flight_sql") {
                     }
                 }, parallel, resultBackendCount))
                 assertEquals((1..60).toList(), seen.sort())
+                // Legacy Variant is not a legal ARRAY() argument; nested SQL coverage requires V2.
+                def scannedColumns = variantV2Function
+                        ? "v, ARRAY(v) AS a, MAP('key', v) AS m, STRUCT(v) AS s" : "v"
                 // Prepare and GetSchema must advertise the same Variant leaves as execution.
                 ["SELECT CAST(42 AS VARIANT) AS v",
-                 "SELECT v, ARRAY(v) AS a FROM ${table} WHERE id = 1",
-                 "SELECT v FROM ${table} WHERE id < 0"].eachWithIndex { query, index ->
+                 "SELECT ${scannedColumns} FROM ${table} WHERE id = 1",
+                 "SELECT ${scannedColumns} FROM ${table} WHERE id < 0"].eachWithIndex { query, index ->
                     def prepared = client.prepare(query.toString(), auth)
                     try {
                         def schema = prepared.resultSetSchema
                         assertEquals(schema, client.getExecuteSchema(query.toString(), auth).schema)
                         assertEquals(schema, prepared.fetchSchema(auth).schema)
                         def leaves = [schema.fields[0]]
-                        if (index == 1) {
+                        if (index > 0 && variantV2Function) {
                             leaves.add(schema.fields[1].children[0])
+                            leaves.add(schema.fields[2].children[0].children[1])
+                            leaves.add(schema.fields[3].children[0])
                         }
                         leaves.each { field ->
                             assertEquals(nativeVariant ? "Struct" : "Utf8", field.type.toString())
