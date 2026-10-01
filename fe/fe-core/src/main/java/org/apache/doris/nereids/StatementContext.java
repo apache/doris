@@ -313,6 +313,14 @@ public class StatementContext implements Closeable {
 
     private ShortCircuitQueryContext shortCircuitQueryContext;
 
+    /**
+     * The session's runtime_filter_wait_time_ms BEFORE NereidsPlanner assigned its
+     * automatic value (see NereidsPlanner#configRuntimeFilterWaitTime); null while no
+     * pass assigned one. Recorded so the SPM fallback replan can undo the abandoned
+     * pass's assignment (see resetPlannerStateForReplan).
+     */
+    private Long runtimeFilterWaitTimeBeforePlannerSet;
+
     private FormatOptions formatOptions = FormatOptions.getDefault();
 
     private Set<PlannerHook> plannerHooks = new HashSet<>();
@@ -525,6 +533,21 @@ public class StatementContext implements Closeable {
      * DROP / CREATE of t would let the fallback bind the old TableIf. The original
      * statement is analyzed / planned like a fresh execution: the hint flag returns to
      * its default and every resolved-table cache is dropped.
+     *
+     * Two further pass-owned states are reset:
+     *
+     * - isShortCircuitQuery: an independent frozen plan can be a point lookup even when
+     *   the original statement is a join / external scan
+     *   (LogicalResultSinkToShortCircuitPointQuery sets the flag for the REWRITTEN
+     *   tree). The second plan cannot unset it, so StmtExecutor would select the
+     *   PointQueryExecutor for a non-point plan (an external scan even fails the
+     *   OlapScanNode cast);
+     * - runtime_filter_wait_time_ms: the abandoned pass may have assigned an automatic
+     *   wait derived from ITS scans (e.g. 50s for an external-table frozen plan), and
+     *   the shared SessionVariable would otherwise leak it into the fallback - whose
+     *   own configRuntimeFilterWaitTime skips recomputation because the value no
+     *   longer equals the default. The pre-pass value (including an explicit user SET)
+     *   is restored.
      */
     public void resetPlannerStateForReplan() {
         hintForcePreAggOn = false;
@@ -532,6 +555,35 @@ public class StatementContext implements Closeable {
         oneLevelTables.clear();
         mtmvRelatedTables.clear();
         insertTargetTables.clear();
+        isShortCircuitQuery = false;
+        shortCircuitQueryContext = null;
+        restoreRuntimeFilterWaitTime();
+    }
+
+    /**
+     * Records the session's runtime_filter_wait_time_ms BEFORE NereidsPlanner computes
+     * the automatic wait of a pass. First-wins: every later pass of the same statement
+     * sees the value a previous pass left behind, so only the ORIGINAL pre-statement
+     * value is worth restoring (a user's explicit SET stays intact).
+     *
+     * @param value the value observed before the planner's assignment
+     */
+    public void recordRuntimeFilterWaitTimeBeforePlannerSet(int value) {
+        if (runtimeFilterWaitTimeBeforePlannerSet == null) {
+            runtimeFilterWaitTimeBeforePlannerSet = (long) value;
+        }
+    }
+
+    /** Undoes the planner's automatic runtime_filter_wait_time_ms assignment (see above). */
+    private void restoreRuntimeFilterWaitTime() {
+        Long saved = runtimeFilterWaitTimeBeforePlannerSet;
+        if (saved == null) {
+            return;
+        }
+        runtimeFilterWaitTimeBeforePlannerSet = null;
+        if (connectContext != null && connectContext.getSessionVariable() != null) {
+            connectContext.getSessionVariable().setRuntimeFilterWaitTimeMs(saved.intValue());
+        }
     }
 
     /**
@@ -636,6 +688,22 @@ public class StatementContext implements Closeable {
         }
         return tables.computeIfAbsent(
                 tableQualifier, k -> RelationUtil.getTable(k, connectContext.getEnv(), unboundRelation));
+    }
+
+    /**
+     * Resolves a table WITHOUT populating the per-statement resolved-table cache. The SPM
+     * view guard runs BEFORE the planner binds / locks its relations: caching the pre-lock
+     * TableIf would hand the later collectAndLockTable / BindRelation pass a detached
+     * object that survives a concurrent DROP / CREATE t. Resolution errors propagate
+     * exactly like getAndCacheTable.
+     *
+     * @param tableQualifier the table qualifier (catalog / db parts, as written)
+     * @param unboundRelation the relation being resolved, for hint / index context
+     * @return the resolved table
+     */
+    public TableIf resolveTableWithoutCache(List<String> tableQualifier,
+            Optional<UnboundRelation> unboundRelation) {
+        return RelationUtil.getTable(tableQualifier, connectContext.getEnv(), unboundRelation);
     }
 
     public void setConnectContext(ConnectContext connectContext) {
