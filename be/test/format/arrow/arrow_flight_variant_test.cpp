@@ -568,6 +568,169 @@ TEST(ArrowFlightVariantTest, NestedTimezoneAliasesMatchPublishedSchema) {
     }
 }
 
+TEST(ArrowFlightVariantTest, NativeMetadataContainsOnlySelectedRowKeys) {
+    for (bool legacy : {false, true}) {
+        for (int rows : {32, 64}) {
+            SCOPED_TRACE(::testing::Message() << "legacy=" << legacy << " rows=" << rows);
+            DataTypePtr type = legacy ? DataTypePtr(std::make_shared<DataTypeVariant>())
+                                      : DataTypePtr(std::make_shared<DataTypeVariantV2>());
+            auto column = type->create_column();
+            JsonStringToVariantEncoder encoder;
+            DataTypeSerDe::FormatOptions options;
+            for (int i = 0; i < rows; ++i) {
+                std::string key = std::string(200, 'k') + std::to_string(i);
+                std::string json = "{\"" + key + "\":" + std::to_string(i) + "}";
+                if (legacy) {
+                    Slice slice(json.data(), json.size());
+                    ASSERT_TRUE(type->get_serde()
+                                        ->deserialize_one_cell_from_json(*column, slice, options)
+                                        .ok());
+                } else {
+                    encoder.add_json({json.data(), json.size()});
+                }
+            }
+            if (legacy) {
+                assert_cast<ColumnVariant&>(*column).finalize();
+            } else {
+                auto encoded = encoder.finish_batch();
+                ASSERT_EQ(encoded.metadata_ref().dict_size(), rows);
+                assert_cast<ColumnVariantV2&>(*column).insert_encoded_batch(encoded);
+            }
+            auto nulls = ColumnUInt8::create();
+            nulls->get_data().resize_fill(rows, 0);
+            nulls->get_data()[rows / 2] = 1;
+            Block block {{ColumnNullable::create(std::move(column), std::move(nulls)),
+                          make_nullable(type), "v"}};
+            ArrowFlightArrowBlockConvertor converter(
+                    arrow::schema({arrow::field("v", native_variant())}), cctz::utc_time_zone());
+            for (int start : {0, 3}) {
+                std::shared_ptr<arrow::RecordBatch> batch;
+                auto status = converter.convert_to_arrow(block, arrow::default_memory_pool(),
+                                                         &batch, start, rows);
+                ASSERT_TRUE(status.ok()) << status;
+                size_t metadata_bytes = 0;
+                for (int i = start; i < rows; ++i) {
+                    if (i == rows / 2) {
+                        EXPECT_TRUE(batch->column(0)->IsNull(i - start));
+                        continue;
+                    }
+                    VariantRef value = value_at(*batch->column(0), i - start);
+                    // Internal dictionary sharing must not multiply every other row's keys on the wire.
+                    EXPECT_EQ(value.metadata.dict_size(), 1);
+                    metadata_bytes += value.metadata.size;
+                    VariantRef child;
+                    std::string key = std::string(200, 'k') + std::to_string(i);
+                    ASSERT_TRUE(value.object_find({key.data(), key.size()}, &child));
+                    EXPECT_EQ(child.get_int(), i);
+                }
+                EXPECT_LT(metadata_bytes, static_cast<size_t>(rows - start) * 220);
+            }
+        }
+    }
+}
+
+TEST(ArrowFlightVariantTest, NestedNativeCompactionPreservesPhysicalScalars) {
+    VariantBatchBuilder builder;
+    for (std::string key : {"first", "second"}) {
+        auto row = builder.begin_row();
+        auto object = row.start_object();
+        object.add_key({key.data(), key.size()});
+        row.add_int(1);
+        object.finish();
+        row.finish();
+    }
+    for (int kind = 0; kind < 5; ++kind) {
+        auto row = builder.begin_row();
+        switch (kind) {
+        case 0:
+            row.add_decimal(4200, 2, 4);
+            break;
+        case 1:
+            row.add_float(42.0F);
+            break;
+        case 2:
+            row.add_date(1);
+            break;
+        case 3:
+            row.add_binary({"\0\xff", 2});
+            break;
+        case 4:
+            row.add_string({"42", 2});
+            break;
+        }
+        row.finish();
+    }
+    {
+        auto row = builder.begin_row();
+        auto array = row.start_array();
+        row.add_decimal(4200, 2, 4);
+        row.add_float(42.0F);
+        row.add_string({"42", 2});
+        array.finish();
+        row.finish();
+    }
+    auto encoded = builder.finish_batch();
+    ASSERT_EQ(encoded.metadata_ref().dict_size(), 2);
+    auto values = ColumnVariantV2::create();
+    values->insert_encoded_batch(encoded);
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    for (size_t i = 0; i < encoded.num_rows(); ++i) {
+        offsets->get_data().push_back(i + 1);
+    }
+    auto type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeVariantV2>());
+    Block block {
+            {ColumnArray::create(make_nullable(std::move(values)), std::move(offsets)), type, "a"}};
+    ArrowFlightArrowBlockConvertor converter(
+            arrow::schema({arrow::field("a", arrow::list(native_variant()), false)}),
+            cctz::utc_time_zone());
+    std::shared_ptr<arrow::RecordBatch> batch;
+    auto status = converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch);
+    ASSERT_TRUE(status.ok()) << status;
+    const auto& elements = *static_cast<const arrow::ListArray&>(*batch->column(0)).values();
+    for (int i = 0; i < elements.length(); ++i) {
+        auto actual = value_at(elements, i);
+        EXPECT_EQ(actual.metadata.dict_size(), i < 2 ? 1 : 0);
+        if (i >= 2) {
+            // Integral decimals and floats must retain physical type/scale rather than normalize to integers.
+            auto expected = encoded.value_at(i);
+            EXPECT_EQ(actual.basic_type(), expected.basic_type());
+            if (actual.basic_type() == VariantBasicType::PRIMITIVE) {
+                EXPECT_EQ(actual.primitive_id(), expected.primitive_id());
+            }
+            EXPECT_EQ(actual.value, expected.value);
+        }
+    }
+}
+
+TEST(ArrowFlightVariantTest, NativeCompactionKeepsTerminalEmptyContainersAtDepthLimit) {
+    for (std::string terminal : {"[]", "{}"}) {
+        std::string json = terminal;
+        for (size_t i = 0; i < VARIANT_MAX_NESTING_DEPTH; ++i) {
+            json = "[" + json + "]";
+        }
+        JsonStringToVariantEncoder encoder;
+        encoder.add_json({json.data(), json.size()});
+        encoder.add_json({R"({"unused":0})", 12});
+        auto encoded = encoder.finish_batch();
+        auto values = ColumnVariantV2::create();
+        values->insert_encoded_batch(encoded);
+        Block block {{std::move(values), std::make_shared<DataTypeVariantV2>(), "v"}};
+        ArrowFlightArrowBlockConvertor converter(
+                arrow::schema({arrow::field("v", native_variant(), false)}), cctz::utc_time_zone());
+        std::shared_ptr<arrow::RecordBatch> batch;
+        auto status = converter.convert_to_arrow(block, arrow::default_memory_pool(), &batch);
+        ASSERT_TRUE(status.ok()) << status;
+        auto value = value_at(*batch->column(0), 0);
+        EXPECT_EQ(value.metadata.dict_size(), 0);
+        for (size_t i = 0; i < VARIANT_MAX_NESTING_DEPTH; ++i) {
+            value = value.array_at(0);
+        }
+        EXPECT_EQ(value.num_elements(), 0);
+        EXPECT_EQ(value.basic_type(),
+                  terminal == "[]" ? VariantBasicType::ARRAY : VariantBasicType::OBJECT);
+    }
+}
+
 TEST(ArrowFlightVariantTest, LegacyDepthLimitExplainsNativeModeRestriction) {
     std::string json = "1";
     for (int i = 0; i < 129; ++i) {

@@ -55,7 +55,9 @@ and every registered BE has advertised native Variant support in its heartbeat,
 VARIANT fields (including nested fields) use the `arrow.parquet.variant` extension
 with `struct<metadata: binary not null, value: binary not null>` storage. SQL NULL is
 a null struct. V2 Variant null is a non-null struct containing the encoded null value.
-V2 values retain their binary representation. Legacy roots use recursive typed encoding,
+V2 values retain their physical scalar types and decimal scales. Each Arrow row carries
+only the dictionary keys it uses, rather than copying keys from unrelated rows.
+Legacy roots use recursive typed encoding,
 including MAP, STRUCT, ARRAY, VARBINARY, TIMEV2 and nested VARIANT values. VARBINARY
 retains its original bytes. MAP keys become object field names; NULL keys are rejected
 because they cannot be distinguished from a literal `"null"` object key. TIMEV2 values
@@ -72,9 +74,13 @@ Native encoding currently accepts at most 128 nested levels. Deeper legacy docum
 remain readable with `enable_arrow_flight_sql_native_variant=false`.
 During a rolling upgrade, missing support on any registered BE keeps both query results
 and GetTables metadata in UTF8 mode, including when an older BE may proxy a result.
-A failed heartbeat clears the capability until a successful heartbeat advertises it
-again. This affects newly planned queries; outstanding Flight tickets are not migrated
-across BE replacement. Drain active queries before downgrading a BE.
+Capability follows the last successful heartbeat during tolerated heartbeat failures.
+When heartbeat failures mark a BE dead, its capability is cleared on every FE until a
+successful heartbeat advertises support again. A successful heartbeat from an older BE
+also clears the capability. These changes affect newly planned queries; outstanding
+Flight tickets are not migrated across BE replacement. Heartbeat discovery cannot make
+an in-place downgrade atomic with query planning. Drain active queries and stop new
+native-mode queries before downgrading a BE.
 
 ADBC can transport this schema and its binary values. A client without a registered
 Variant extension exposes the struct with `ARROW:extension:name` field metadata.

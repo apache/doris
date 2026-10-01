@@ -29,8 +29,15 @@ public final class FlightSqlNativeVariant {
     }
 
     public static boolean isEnabled(ConnectContext context) {
-        if (context == null || !context.getSessionVariable().isEnableArrowFlightSqlNativeVariant()) {
+        if (context == null) {
             return false;
+        }
+        // Schema analysis temporarily installs SET_VAR state under this monitor. Metadata
+        // requests must wait for that scope to end instead of observing another query's hints.
+        synchronized (context) {
+            if (!context.getSessionVariable().isEnableArrowFlightSqlNativeVariant()) {
+                return false;
+            }
         }
         try {
             Collection<Backend> backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values();

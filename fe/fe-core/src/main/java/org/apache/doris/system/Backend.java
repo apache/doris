@@ -970,12 +970,6 @@ public class Backend implements Writable {
                 this.nextForceEditlogHeartbeatTime = System.currentTimeMillis() + delaySecond * 1000L;
             }
         } else {
-            // A restarted BE may have been downgraded. Do not reuse its old capability
-            // while heartbeat failures are still within the liveness tolerance.
-            if (arrowFlightNativeVariantSupported) {
-                arrowFlightNativeVariantSupported = false;
-                isChanged = true;
-            }
             // for a bad BackendHbResponse, its hbTime is last succ hbTime, not this hbTime
             if (hbResponse.getHbTime() > 0) {
                 this.lastUpdateMs = hbResponse.getHbTime();
@@ -983,6 +977,12 @@ public class Backend implements Writable {
             // Only set backend to dead if the heartbeat failure counter exceed threshold.
             // And if it is a replay process, must set backend to dead.
             if (isReplay || ++this.heartbeatFailureCounter >= Config.max_backend_heartbeat_failure_tolerance_count) {
+                // Every journaled BAD means death on replay, including on older FEs. Retain the
+                // last successful capability during tolerated misses and clear it with the death event.
+                if (arrowFlightNativeVariantSupported) {
+                    arrowFlightNativeVariantSupported = false;
+                    isChanged = true;
+                }
                 if (isAlive.compareAndSet(true, false)) {
                     isChanged = true;
                     LOG.warn("{} is dead,", this.toString());
