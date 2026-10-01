@@ -251,6 +251,7 @@ public class LanceMetadataOpsTest {
         Mockito.verify(namespace).createTable(request.capture(), Mockito.any(byte[].class));
         Assertions.assertEquals(Arrays.asList("tenant", "analytics", "events"),
                 request.getValue().getId());
+        Mockito.verify(database).unregisterTable("events");
         Mockito.verify(database, Mockito.atLeastOnce()).resetMetaCacheNames();
         Mockito.verify(catalog).invalidateTableAccessCache();
     }
@@ -258,8 +259,13 @@ public class LanceMetadataOpsTest {
     @Test
     public void testCreateTableRejectsLocalNameConflictAfterRefresh() throws UserException {
         LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
-        Mockito.doThrow(new TableNotFoundException("missing"))
-                .when(namespace).tableExists(Mockito.any());
+        Mockito.doAnswer(invocation -> {
+            if (((org.lance.namespace.model.TableExistsRequest) invocation.getArgument(0))
+                    .getId().get(2).equals("events")) {
+                throw new TableNotFoundException("missing");
+            }
+            return null;
+        }).when(namespace).tableExists(Mockito.any());
         LanceCatalogClient client = newClient(namespace, new RootAllocator(1024 * 1024));
         LanceExternalCatalog catalog = catalogWithClient(client);
         ExternalDatabase<?> database = Mockito.mock(ExternalDatabase.class);
@@ -297,6 +303,7 @@ public class LanceMetadataOpsTest {
         Mockito.when(catalog.getDbForReplay("local_db")).thenReturn(Optional.of(database));
         Mockito.when(database.getRemoteName()).thenReturn("analytics");
         ExternalTable table = table("local_db", "local_table", "analytics", "events");
+        Mockito.when(database.unregisterTableForReplay("local_table")).thenReturn(true);
         LanceMetadataOps ops = new LanceMetadataOps(catalog);
 
         try {
@@ -312,7 +319,7 @@ public class LanceMetadataOpsTest {
 
         Mockito.verify(catalog, Mockito.never()).unregisterDatabase(Mockito.anyString());
         Mockito.verify(catalog).retireAllDatabaseObjectsWithoutEngineInvalidation();
-        Mockito.verify(database).unregisterTable("local_table");
+        Mockito.verify(database).unregisterTableForReplay("local_table");
     }
 
     @Test
@@ -357,6 +364,7 @@ public class LanceMetadataOpsTest {
         ArgumentCaptor<DropNamespaceRequest> request = ArgumentCaptor.forClass(DropNamespaceRequest.class);
         Mockito.verify(namespace).dropNamespace(request.capture());
         Assertions.assertEquals(Arrays.asList("tenant", "Sales"), request.getValue().getId());
+        Assertions.assertEquals("Cascade", request.getValue().getBehavior());
         Mockito.verify(catalog).unregisterDatabase("sales_db");
     }
 

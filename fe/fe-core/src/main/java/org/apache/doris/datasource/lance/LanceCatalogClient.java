@@ -241,6 +241,10 @@ final class LanceCatalogClient implements AutoCloseable {
         return namespaceClient.isRootDatabase(dbName);
     }
 
+    boolean isRootNamespace(String dbName) throws DdlException {
+        return namespaceClient.isRootNamespace(dbName);
+    }
+
     boolean databaseExists(String dbName) {
         return namespaceClient.databaseExists(dbName);
     }

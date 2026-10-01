@@ -33,10 +33,6 @@ import org.lance.namespace.model.DescribeTableRequest;
 import org.lance.namespace.model.DescribeTableResponse;
 import org.lance.namespace.model.DropNamespaceRequest;
 import org.lance.namespace.model.DropTableRequest;
-import org.lance.namespace.model.ListNamespacesRequest;
-import org.lance.namespace.model.ListNamespacesResponse;
-import org.lance.namespace.model.ListTablesRequest;
-import org.lance.namespace.model.ListTablesResponse;
 import org.lance.namespace.model.RegisterTableRequest;
 import org.lance.namespace.model.TableExistsRequest;
 import org.mockito.ArgumentCaptor;
@@ -71,39 +67,17 @@ public class LanceNamespaceClientMutationTest {
     }
 
     @Test
-    public void testForceDropDatabaseDeletesNestedContentsBeforeNamespaces() {
+    public void testForceDropDatabaseUsesNativeCascade() {
         LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
-        Mockito.when(namespace.listNamespaces(Mockito.any())).thenAnswer(invocation -> {
-            ListNamespacesRequest request = invocation.getArgument(0);
-            if (request.getId().equals(Arrays.asList("tenant", "analytics"))) {
-                return new ListNamespacesResponse().namespaces(Collections.singleton("archive"));
-            }
-            return new ListNamespacesResponse().namespaces(Collections.emptySet());
-        });
-        Mockito.when(namespace.listTables(Mockito.any())).thenAnswer(invocation -> {
-            ListTablesRequest request = invocation.getArgument(0);
-            if (request.getId().equals(Arrays.asList("tenant", "analytics", "archive"))) {
-                return new ListTablesResponse().tables(Collections.singleton("old_events"));
-            }
-            return new ListTablesResponse().tables(Collections.singleton("events"));
-        });
         LanceNamespaceClient client = client(namespace);
 
         client.dropDatabase("analytics", true, true);
 
-        InOrder order = Mockito.inOrder(namespace);
-        order.verify(namespace).dropTable(Mockito.argThat(request ->
-                request.getId().equals(Arrays.asList("tenant", "analytics", "archive", "old_events"))));
-        order.verify(namespace).dropNamespace(Mockito.argThat(request ->
-                request.getId().equals(Arrays.asList("tenant", "analytics", "archive"))
-                        && "Fail".equals(request.getMode())
-                        && "Restrict".equals(request.getBehavior())));
-        order.verify(namespace).dropTable(Mockito.argThat(request ->
-                request.getId().equals(Arrays.asList("tenant", "analytics", "events"))));
-        order.verify(namespace).dropNamespace(Mockito.argThat(request ->
+        Mockito.verify(namespace).dropNamespace(Mockito.argThat(request ->
                 request.getId().equals(Arrays.asList("tenant", "analytics"))
                         && "Skip".equals(request.getMode())
-                        && "Restrict".equals(request.getBehavior())));
+                        && "Cascade".equals(request.getBehavior())));
+        Mockito.verify(namespace, Mockito.never()).dropTable(Mockito.any());
     }
 
     @Test
@@ -251,12 +225,32 @@ public class LanceNamespaceClientMutationTest {
                 .when(namespace).alterTableAddColumns(Mockito.any());
         Mockito.doThrow(new TableAlreadyExistsException("registered concurrently"))
                 .when(namespace).registerTable(Mockito.any());
+        Mockito.when(namespace.describeTable(Mockito.any()))
+                .thenReturn(new DescribeTableResponse().location("events.lance"));
         LanceNamespaceClient client = rootFilesystemClient(namespace);
 
         client.addColumns("default", "events", Collections.singletonList(
                 new AddColumnsEntry().name("score").expression("CAST(NULL AS BIGINT)")));
 
         Mockito.verify(namespace, Mockito.times(2)).alterTableAddColumns(Mockito.any());
+    }
+
+    @Test
+    public void testConcurrentExternalTableRegistrationAtAnotherLocationFails() {
+        LanceNamespace namespace = Mockito.mock(LanceNamespace.class);
+        Mockito.doThrow(new TableNotFoundException("not registered"))
+                .when(namespace).alterTableAddColumns(Mockito.any());
+        Mockito.doThrow(new TableAlreadyExistsException("registered concurrently"))
+                .when(namespace).registerTable(Mockito.any());
+        Mockito.when(namespace.describeTable(Mockito.any()))
+                .thenReturn(new DescribeTableResponse().location("other.lance"));
+        LanceNamespaceClient client = rootFilesystemClient(namespace);
+
+        Assertions.assertThrows(RuntimeException.class, () -> client.addColumns(
+                "default", "events", Collections.singletonList(
+                        new AddColumnsEntry().name("score").expression("CAST(NULL AS BIGINT)"))));
+
+        Mockito.verify(namespace).alterTableAddColumns(Mockito.any());
     }
 
     @Test

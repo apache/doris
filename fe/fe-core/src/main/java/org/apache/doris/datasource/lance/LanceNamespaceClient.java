@@ -174,6 +174,10 @@ final class LanceNamespaceClient {
         return rootDatabase.equals(dbName);
     }
 
+    boolean isRootNamespace(String dbName) throws DdlException {
+        return buildNamespaceId(dbName).isEmpty();
+    }
+
     boolean databaseExists(String dbName) {
         if (isRootDatabase(dbName)) {
             return true;
@@ -372,14 +376,20 @@ final class LanceNamespaceClient {
                 } catch (TableNotFoundException | NamespaceNotFoundException e) {
                     throw originalException;
                 }
+                String expectedLocation = tableName + ".lance";
                 try {
                     // DirectoryNamespace only accepts locations relative to its warehouse root.
                     namespace.registerTable(new RegisterTableRequest()
                             .id(tableId)
-                            .location(tableName + ".lance")
+                            .location(expectedLocation)
                             .mode("Create"));
                 } catch (TableAlreadyExistsException e) {
-                    // Another mutation registered the external dataset first.
+                    String registeredLocation = describeTable(tableId).getLocation();
+                    if (!expectedLocation.equals(registeredLocation)) {
+                        throw new DdlException("Refusing to mutate Lance table " + tableName
+                                + " because it was concurrently registered at "
+                                + registeredLocation + " instead of " + expectedLocation);
+                    }
                 }
                 mutation.run();
             }

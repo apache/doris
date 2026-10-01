@@ -83,11 +83,16 @@ public class LanceMetadataOps implements ExternalMetadataOps {
             if (client.isRootDatabase(dbName)) {
                 throw new DdlException("Cannot create the configured Lance root database: " + dbName);
             }
-            if (catalog.getDbNullable(dbName) != null) {
-                if (ifNotExists) {
-                    return true;
+            ExternalDatabase<?> cachedDb = catalog.getDbNullable(dbName);
+            if (cachedDb != null) {
+                if (client.databaseExists(cachedDb.getRemoteName())) {
+                    if (ifNotExists) {
+                        return true;
+                    }
+                    ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, dbName);
                 }
-                ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, dbName);
+                catalog.unregisterDatabase(cachedDb.getFullName());
+                catalog.resetMetaCacheNames();
             }
             if (client.databaseExists(dbName)) {
                 if (ifNotExists) {
@@ -169,7 +174,13 @@ public class LanceMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void afterDropDbNoOp(String dbName) {
+        catalog.invalidateTableAccessCache();
         catalog.retireAllDatabaseObjectsWithoutEngineInvalidation();
+    }
+
+    @Override
+    public boolean shouldJournalDropDbNoOp() {
+        return true;
     }
 
     @Override
@@ -177,6 +188,12 @@ public class LanceMetadataOps implements ExternalMetadataOps {
         String dbName = createTableInfo.getDbName();
         String tableName = createTableInfo.getTableName();
         ExternalDatabase<?> db = catalog.getDbNullable(dbName);
+        boolean filesystemCatalog =
+                LanceExternalCatalog.LANCE_FILESYSTEM.equals(catalog.getLanceCatalogType());
+        if (filesystemCatalog && tableName.contains("$")) {
+            throw new DdlException(
+                    "Lance filesystem table names must not contain the manifest delimiter '$'");
+        }
         if (db == null) {
             throw new DdlException("Failed to get database: '" + dbName
                     + "' in catalog: " + catalog.getName());
@@ -191,6 +208,11 @@ public class LanceMetadataOps implements ExternalMetadataOps {
         }
 
         return execute("Failed to create Lance table " + dbName + "." + tableName, client -> {
+            if (filesystemCatalog && !client.isRootNamespace(db.getRemoteName())) {
+                throw new DdlException(
+                        "CREATE TABLE is only supported in the warehouse root namespace "
+                                + "for Lance filesystem catalogs");
+            }
             if (client.tableExists(db.getRemoteName(), tableName)) {
                 if (createTableInfo.isIfNotExists()) {
                     resetTableNameCache(dbName);
@@ -198,14 +220,18 @@ public class LanceMetadataOps implements ExternalMetadataOps {
                 }
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
             }
-            if (db.getTableNullable(tableName) != null) {
-                resetTableNameCache(dbName);
-                if (db.getTableNullable(tableName) != null) {
+            ExternalTable cachedTable = db.getTableNullable(tableName);
+            if (cachedTable != null) {
+                if (client.tableExists(db.getRemoteName(), cachedTable.getRemoteName())) {
+                    db.resetMetaCacheNames();
                     if (createTableInfo.isIfNotExists()) {
                         return true;
                     }
                     ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
                 }
+                catalog.invalidateTableAccessCache();
+                db.unregisterTable(cachedTable.getName());
+                db.resetMetaCacheNames();
             }
             try {
                 client.createTable(db.getRemoteName(), tableName, schema, properties);
@@ -425,6 +451,10 @@ public class LanceMetadataOps implements ExternalMetadataOps {
 
     static void validateAddColumn(Column column, ColumnPosition position) throws UserException {
         validateColumnAttributes(column, "ADD COLUMN");
+        if (column.getType().getPrimitiveType() == PrimitiveType.DECIMAL256) {
+            throw new UserException("Lance ADD COLUMN does not support DECIMAL256: "
+                    + column.getType().toSql());
+        }
         if (column.hasDefaultValue() || column.hasOnUpdateDefaultValue()) {
             throw new UserException("Lance ADD COLUMN does not support default values");
         }
