@@ -156,12 +156,12 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             // Only aggregates with the shape the translator actually fuses qualify;
             // the others would keep their exchange and stay banned as before. That
             // includes a distribute on the parent's keys (agg_shuffle_use_parent_key),
-            // a strict subset of the GROUP BY keys, which the translator never fuses.
+            // a strict subset of the GROUP BY keys, and a distribute whose input is not
+            // a single olap scan pipeline (a nested aggregate, a join, a set operation,
+            // a projected CTE consumer), which the translator never fuses.
             // Gate with data-volume checks using group-level statistics to avoid
             // generating this pattern when bucketed agg is unsuitable.
-            DistributionSpec childDistribution
-                    = ((PhysicalDistribute<?>) children.get(0).getPlan()).getDistributionSpec();
-            if (AggregateUtils.isBucketedHashAggFusible(aggregate, childDistribution)) {
+            if (AggregateUtils.isBucketedHashAggFusible(parent, requiredProperties.get(0))) {
                 return !bucketedDataVolumeGatesPass(aggregate);
             }
             return true;

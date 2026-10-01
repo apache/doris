@@ -118,3 +118,49 @@ c	60	1	14
 c	70	2	14
 c	90	4	14
 
+-- !nested_agg_bucketed_result --
+a	15
+b	22
+c	14
+
+-- !projected_cte_bucketed_result --
+a	10
+a	110
+a	30
+a	50
+a_x	200
+b	100
+b	130
+b	20
+b	40
+b	80
+b_x	370
+c	120
+c	60
+c	70
+c	90
+c_x	340
+
+-- !nested_agg_regular_result --
+a	15
+b	22
+c	14
+
+-- !projected_cte_regular_result --
+a	10
+a	110
+a	30
+a	50
+a_x	200
+b	100
+b	130
+b	20
+b	40
+b	80
+b_x	370
+c	120
+c	60
+c	70
+c	90
+c_x	340
+

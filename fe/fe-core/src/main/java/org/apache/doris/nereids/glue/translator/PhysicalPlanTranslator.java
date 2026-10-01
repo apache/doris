@@ -3231,8 +3231,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (!(child instanceof PhysicalDistribute)) {
             return false;
         }
-        // Shared eligibility (also used by the regulator and the output property
-        // deriver; the cost model uses the part that only depends on the aggregate):
+        // Shared eligibility (also used by the regulator, the cost model and the
+        // output property deriver):
         // session var, single-BE, GROUP BY, spill / query cache off, smooth upgrade,
         // no UDAF, one-phase GLOBAL INPUT_TO_RESULT, no partial (buffer-producing)
         // function, two-phase capable functions, no pushed TopN, child hash-distributed
@@ -3258,7 +3258,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // UnassignedJobBuilder: "Not supported multiple scan multiple OlapTable but
         // not contains colocate join or bucket shuffle join"), and fusing over a
         // nested aggregate would break the bucket alignment between stages.
-        if (!isSingleOlapScanPipeline(aggregate.child(0).child(0))) {
+        if (!AggregateUtils.isSingleOlapScanPipeline(aggregate.child(0).child(0))) {
             return false;
         }
         // The parent is a fragment-merging node (join / set-op / recursive union) that
@@ -3279,32 +3279,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             if (containsCTEConsumer(child)) {
                 return true;
             }
-        }
-        return false;
-    }
-
-    /**
-     * Returns true if the plan subtree is a unary pipeline over exactly one olap
-     * scan, i.e. it translates into a single-scan fragment that bucketed fusion
-     * can safely build upon. Subtrees containing fragment-merging or
-     * distribution-changing nodes (join / set-op / CTE / nested aggregate /
-     * storage-layer aggregate) are rejected.
-     */
-    private boolean isSingleOlapScanPipeline(Plan plan) {
-        if (plan instanceof PhysicalOlapScan) {
-            return true;
-        }
-        if (plan instanceof PhysicalHashJoin
-                || plan instanceof PhysicalNestedLoopJoin
-                || plan instanceof PhysicalSetOperation
-                || plan instanceof PhysicalCTEConsumer
-                || plan instanceof PhysicalCTEAnchor
-                || plan instanceof PhysicalHashAggregate
-                || plan instanceof PhysicalStorageLayerAggregate) {
-            return false;
-        }
-        if (plan.children().size() == 1) {
-            return isSingleOlapScanPipeline(plan.child(0));
         }
         return false;
     }

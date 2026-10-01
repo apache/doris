@@ -62,7 +62,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -387,18 +386,17 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             int factor = aggregate.getGroupByExpressions().isEmpty() ? 1 : beNumber;
             double rowCost = inputStatistics.getRowCount() / factor;
             // Bucketed fusion discount: when the one-phase GLOBAL INPUT_TO_RESULT
-            // aggregate has the shape the translator fuses into BucketedAggregationNode
-            // (data-volume gates are enforced by ChildrenPropertiesRegulator), apply a
-            // discount to prefer this path over two-phase aggregation. Aggregates that
-            // the translator keeps on the regular AggregationNode path (e.g. the dedup
-            // aggregate of a mixed DISTINCT / non-DISTINCT query, whose non-distinct
-            // functions are partial) still pay for their exchange, so they get no discount.
-            // The cost model does not see the aggregate's child, so the translator's
-            // conditions on it (a distribute on exactly the GROUP BY keys over a single
-            // scan) are not checked here: the full-key and the parent-key alternatives
-            // of one aggregate get the same factor, which keeps their relative order, and
-            // ChildrenPropertiesRegulator bans the distribute the translator cannot fuse.
-            if (AggregateUtils.isBucketedHashAggFusible(aggregate)) {
+            // aggregate and the child chosen for it have the shape the translator fuses
+            // into BucketedAggregationNode (data-volume gates are enforced by
+            // ChildrenPropertiesRegulator), apply a discount to prefer this path over
+            // two-phase aggregation. Aggregates that the translator keeps on the regular
+            // AggregationNode path still pay for their exchange, so they get no discount:
+            // e.g. the dedup aggregate of a mixed DISTINCT / non-DISTINCT query, whose
+            // non-distinct functions are partial, or an aggregate whose distribute child
+            // does not hash exactly the GROUP BY keys or does not read a single olap scan
+            // pipeline (a nested aggregate, a CTE consumer). CostCalculator checks this
+            // on the memo, see AggregateUtils.isBucketedHashAggFusible.
+            if (context.isBucketedAggFusion()) {
                 rowCost *= BUCKETED_AGG_COST_DISCOUNT;
             }
             return Cost.of(context.getSessionVariable(),

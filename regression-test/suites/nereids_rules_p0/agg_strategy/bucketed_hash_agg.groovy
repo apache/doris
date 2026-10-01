@@ -408,6 +408,36 @@ suite("bucketed_hash_agg") {
     order_qt_window_subset_key_regular_result "${windowSubsetKeyQuery}"
     sql "set enable_bucketed_hash_agg=true"
 
+    // ============================================================
+    // Test 12: The distribute of a one-phase aggregate must read a single olap
+    //          scan pipeline to be fused. Over a nested aggregate or over a
+    //          projected CTE consumer the translator keeps a regular aggregate,
+    //          so the optimizer must not treat those shapes as bucketed
+    //          candidates. The plan choice is asserted in
+    //          BucketedAggregateTranslatorTest; here the results must match the
+    //          ones without bucketed aggregation.
+    // ============================================================
+    String nestedAggQuery = """
+        SELECT grp, SUM(m) FROM
+        (SELECT grp, val, MAX(id) AS m FROM bucketed_agg_reg_test GROUP BY grp, val) a
+        GROUP BY grp
+    """
+    String projectedCteQuery = """
+        WITH c AS (SELECT grp, id, val FROM bucketed_agg_reg_test)
+        SELECT g2, SUM(v) FROM (SELECT concat(grp, '_x') AS g2, val AS v FROM c) p GROUP BY g2
+        UNION ALL SELECT grp, val FROM c
+    """
+    explain {
+        sql(projectedCteQuery)
+        notContains("BUCKETED AGGREGATE")
+    }
+    order_qt_nested_agg_bucketed_result "${nestedAggQuery}"
+    order_qt_projected_cte_bucketed_result "${projectedCteQuery}"
+    sql "set enable_bucketed_hash_agg=false"
+    order_qt_nested_agg_regular_result "${nestedAggQuery}"
+    order_qt_projected_cte_regular_result "${projectedCteQuery}"
+    sql "set enable_bucketed_hash_agg=true"
+
     // Restore defaults: this worker thread's connection is reused by later suites,
     // so lowered gates here would otherwise leak into unrelated tests.
     sql "set bucketed_agg_min_input_rows=100000"

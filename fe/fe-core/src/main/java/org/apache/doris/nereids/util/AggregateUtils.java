@@ -17,9 +17,12 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.OrderKey;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -42,7 +45,15 @@ import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
@@ -199,8 +210,9 @@ public class AggregateUtils {
     /**
      * Check the basic environmental conditions for bucketed hash aggregation.
      * This is the environment part of the shared eligibility gate; the physical
-     * plan shape part is {@link #isBucketedHashAggFusible(PhysicalHashAggregate)} and
-     * {@link #isBucketedHashAggFusible(PhysicalHashAggregate, DistributionSpec)},
+     * plan shape part is {@link #isBucketedHashAggFusible(PhysicalHashAggregate)},
+     * {@link #isBucketedHashAggFusible(PhysicalHashAggregate, DistributionSpec)} and
+     * {@link #isBucketedHashAggFusible(GroupExpression, PhysicalProperties)},
      * which ChildrenPropertiesRegulator (to allow the one-phase-GLOBAL+distribute
      * pattern), ChildOutputPropertyDeriver, CostModel (for the cost discount) and
      * PhysicalPlanTranslator (for fusion into BucketedAggregationNode) all use.
@@ -297,7 +309,9 @@ public class AggregateUtils {
      * AggregationNode that keeps the exchange, so it must not receive the bucketed
      * cost discount or the one-phase-with-distribute exemption. Callers that know the
      * distribution of the aggregate's child use
-     * {@link #isBucketedHashAggFusible(PhysicalHashAggregate, DistributionSpec)}.
+     * {@link #isBucketedHashAggFusible(PhysicalHashAggregate, DistributionSpec)}, and
+     * callers that work on the memo, where the child's subtree is visible as well, use
+     * {@link #isBucketedHashAggFusible(GroupExpression, PhysicalProperties)}.
      */
     public static boolean isBucketedHashAggFusible(PhysicalHashAggregate<? extends Plan> aggregate) {
         // Must be one-phase: GLOBAL + INPUT_TO_RESULT. Checked before the environment
@@ -358,6 +372,102 @@ public class AggregateUtils {
                 .map(SlotReference::getExprId)
                 .collect(Collectors.toList());
         return distributeKeys.equals(groupByKeys) && isBucketedHashAggFusible(aggregate);
+    }
+
+    /**
+     * The translator's complete condition on the aggregate's child, evaluated on the memo
+     * while the plan is still being optimized: the child chosen for {@code childProperties}
+     * is a distribute on exactly the GROUP BY keys
+     * ({@link #isBucketedHashAggFusible(PhysicalHashAggregate, DistributionSpec)}) whose
+     * chosen input is a single olap scan pipeline (see {@link #isSingleOlapScanPipeline(Plan)}).
+     * <p>
+     * ChildrenPropertiesRegulator and CostModel use it, so that the one-phase-with-distribute
+     * exemption and the cost discount are only given to an aggregate that
+     * PhysicalPlanTranslator fuses. A distribute over a nested aggregate, a join, a set
+     * operation or a (projected) CTE consumer stays an exchange of all the input rows below
+     * a regular aggregate, which must compete with the two-phase plan at its real cost. The
+     * translator additionally keeps the aggregate consumed by a fragment-merging parent
+     * unfused, which is not visible from the aggregate.
+     *
+     * @param aggregate the group expression of the aggregate
+     * @param childProperties the properties under which the aggregate's child was optimized
+     */
+    public static boolean isBucketedHashAggFusible(GroupExpression aggregate, PhysicalProperties childProperties) {
+        if (!(aggregate.getPlan() instanceof PhysicalHashAggregate) || aggregate.arity() != 1) {
+            return false;
+        }
+        GroupExpression child = aggregate.child(0).getBestPlan(childProperties);
+        if (child == null || !(child.getPlan() instanceof PhysicalDistribute)) {
+            return false;
+        }
+        if (!isBucketedHashAggFusible((PhysicalHashAggregate<? extends Plan>) aggregate.getPlan(),
+                ((PhysicalDistribute<?>) child.getPlan()).getDistributionSpec())) {
+            return false;
+        }
+        List<PhysicalProperties> distributeInputProperties = child.getInputPropertiesListOrEmpty(childProperties);
+        return distributeInputProperties.size() == 1
+                && isSingleOlapScanPipeline(child.child(0), distributeInputProperties.get(0));
+    }
+
+    /**
+     * Returns true if the plan subtree is a unary pipeline over exactly one olap
+     * scan, i.e. it translates into a single-scan fragment that bucketed fusion
+     * can safely build upon. Subtrees containing fragment-merging or
+     * distribution-changing nodes (join / set-op / CTE / nested aggregate /
+     * storage-layer aggregate) are rejected.
+     */
+    public static boolean isSingleOlapScanPipeline(Plan plan) {
+        if (plan instanceof PhysicalOlapScan) {
+            return true;
+        }
+        if (breaksSingleOlapScanPipeline(plan)) {
+            return false;
+        }
+        return isSingleOlapScanPipeline(plan.child(0));
+    }
+
+    /**
+     * {@link #isSingleOlapScanPipeline(Plan)} for a plan that is still in the memo: follows
+     * the lowest cost plan of each group, the same way the best plan is extracted from the
+     * memo after optimization. A group that was not optimized for the properties is rejected.
+     */
+    private static boolean isSingleOlapScanPipeline(Group group, PhysicalProperties properties) {
+        GroupExpression best = group.getBestPlan(properties);
+        if (best == null) {
+            return false;
+        }
+        if (best.getPlan() instanceof PhysicalOlapScan) {
+            return true;
+        }
+        if (breaksSingleOlapScanPipeline(best.getPlan())) {
+            return false;
+        }
+        List<PhysicalProperties> inputProperties = best.getInputPropertiesListOrEmpty(properties);
+        if (inputProperties.size() != 1) {
+            return false;
+        }
+        // An enforcer is a member of the group it reads from; it is never chosen for the
+        // properties of its own input.
+        if (best.child(0) == group && inputProperties.get(0).equals(properties)) {
+            return false;
+        }
+        return isSingleOlapScanPipeline(best.child(0), inputProperties.get(0));
+    }
+
+    /**
+     * Returns true if the node cannot be part of the pipeline between the distribute of a
+     * fused aggregate and its olap scan: it is not unary, or it merges fragments or changes
+     * the distribution of its input.
+     */
+    private static boolean breaksSingleOlapScanPipeline(Plan plan) {
+        return plan instanceof PhysicalHashJoin
+                || plan instanceof PhysicalNestedLoopJoin
+                || plan instanceof PhysicalSetOperation
+                || plan instanceof PhysicalCTEConsumer
+                || plan instanceof PhysicalCTEAnchor
+                || plan instanceof PhysicalHashAggregate
+                || plan instanceof PhysicalStorageLayerAggregate
+                || plan.arity() != 1;
     }
 
     /**

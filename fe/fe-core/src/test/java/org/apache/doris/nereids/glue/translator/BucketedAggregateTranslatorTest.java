@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.glue.translator;
 
 import org.apache.doris.analysis.ExplainOptions;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.AnalyticEvalNode;
 import org.apache.doris.planner.BucketedAggregationNode;
@@ -479,6 +481,183 @@ public class BucketedAggregateTranslatorTest extends TestWithFeService {
             sessionVariable.enableBucketedHashAgg = oldEnableBucketedHashAgg;
             sessionVariable.aggShuffleUseParentKey = oldAggShuffleUseParentKey;
             sessionVariable.setCboNetWeight(oldCboNetWeight);
+        }
+    }
+
+    @Test
+    public void testAggregateOverNestedAggregateIsNotExemptedAsBucketed() throws Exception {
+        // sum(max()) cannot be merged into one aggregate, and the inner aggregate is not
+        // distributed by the outer GROUP BY key, so the one-phase outer aggregate needs a
+        // distribute on exactly its GROUP BY key. The translator only fuses an aggregate whose
+        // distribute reads a single olap scan pipeline, so over the inner aggregate it stays a
+        // regular aggregate behind an exchange of every inner row. The regulator must keep
+        // banning that shape and the cost model must not discount it; the outer aggregate
+        // then either pre-aggregates before its exchange or needs no exchange at all.
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        int oldAggPhase = sessionVariable.aggPhase;
+        int oldBeNumberForTest = sessionVariable.getBeNumberForTest();
+        long oldBucketedAggMinInputRows = sessionVariable.bucketedAggMinInputRows;
+        long oldBucketedAggMaxGroupKeys = sessionVariable.bucketedAggMaxGroupKeys;
+        double oldBucketedAggHighCardThreshold = sessionVariable.bucketedAggHighCardThreshold;
+        boolean oldEnableBucketedHashAgg = sessionVariable.enableBucketedHashAgg;
+        boolean oldAggShuffleUseParentKey = sessionVariable.aggShuffleUseParentKey;
+        try {
+            // Let the optimizer choose between the one-phase and the two-phase plans.
+            sessionVariable.aggPhase = 0;
+            sessionVariable.setBeNumberForTest(1);
+            sessionVariable.bucketedAggMinInputRows = 0;
+            sessionVariable.bucketedAggMaxGroupKeys = 0;
+            sessionVariable.bucketedAggHighCardThreshold = 1.0;
+            sessionVariable.enableBucketedHashAgg = true;
+
+            String sql = "SELECT kbint, sum(m) FROM (SELECT kbint, kstr, max(kint) AS m"
+                    + " FROM bucketed_aggregate_translator_test.agg_group_concat_table"
+                    + " GROUP BY kbint, kstr) a GROUP BY kbint";
+            for (boolean aggShuffleUseParentKey : new boolean[] {true, false}) {
+                sessionVariable.aggShuffleUseParentKey = aggShuffleUseParentKey;
+                Planner planner = getSQLPlanner(sql);
+                assertNoOnePhaseAggregateOverExchange(planner);
+                assertNoRawScanExchange(planner);
+            }
+            // Without the parent-key request the inner aggregate can only shuffle by its own
+            // keys, which is the single olap scan pipeline the translator fuses.
+            Planner planner = getSQLPlanner(sql);
+            String explain = explain(planner);
+            List<BucketedAggregationNode> bucketedNodes = collectNodes(planner, BucketedAggregationNode.class);
+            Assertions.assertEquals(1, bucketedNodes.size(), explain);
+            Assertions.assertTrue(bucketedNodes.get(0).getChild(0) instanceof OlapScanNode, explain);
+        } finally {
+            sessionVariable.aggPhase = oldAggPhase;
+            sessionVariable.setBeNumberForTest(oldBeNumberForTest);
+            sessionVariable.bucketedAggMinInputRows = oldBucketedAggMinInputRows;
+            sessionVariable.bucketedAggMaxGroupKeys = oldBucketedAggMaxGroupKeys;
+            sessionVariable.bucketedAggHighCardThreshold = oldBucketedAggHighCardThreshold;
+            sessionVariable.enableBucketedHashAgg = oldEnableBucketedHashAgg;
+            sessionVariable.aggShuffleUseParentKey = oldAggShuffleUseParentKey;
+        }
+    }
+
+    @Test
+    public void testAggregateOverProjectedCteConsumerIsNotExemptedAsBucketed() throws Exception {
+        // The CTE is consumed twice, so it is materialized, and the aggregate reads its
+        // consumer through a project. The regulator only lets a one-phase aggregate shuffle
+        // the rows of a CTE consumer that is the direct input of the distribute; with the
+        // project in between the shape used to fall into the bucketed exemption, although the
+        // translator never fuses an aggregate over a CTE consumer. It must stay banned, so the
+        // aggregate pre-aggregates before its exchange.
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        int oldAggPhase = sessionVariable.aggPhase;
+        int oldBeNumberForTest = sessionVariable.getBeNumberForTest();
+        long oldBucketedAggMinInputRows = sessionVariable.bucketedAggMinInputRows;
+        long oldBucketedAggMaxGroupKeys = sessionVariable.bucketedAggMaxGroupKeys;
+        double oldBucketedAggHighCardThreshold = sessionVariable.bucketedAggHighCardThreshold;
+        boolean oldEnableBucketedHashAgg = sessionVariable.enableBucketedHashAgg;
+        try {
+            // Let the optimizer choose between the one-phase and the two-phase plans.
+            sessionVariable.aggPhase = 0;
+            sessionVariable.setBeNumberForTest(1);
+            sessionVariable.bucketedAggMinInputRows = 0;
+            sessionVariable.bucketedAggMaxGroupKeys = 0;
+            sessionVariable.bucketedAggHighCardThreshold = 1.0;
+            sessionVariable.enableBucketedHashAgg = true;
+
+            Planner planner = getSQLPlanner("WITH c AS (SELECT kbint, kint"
+                    + " FROM bucketed_aggregate_translator_test.agg_group_concat_table)"
+                    + " SELECT k2, sum(x) FROM (SELECT kbint + 1 AS k2, kint AS x FROM c) p GROUP BY k2"
+                    + " UNION ALL SELECT kbint, kint FROM c");
+            assertTwoPhaseRegularAggregation(planner);
+        } finally {
+            sessionVariable.aggPhase = oldAggPhase;
+            sessionVariable.setBeNumberForTest(oldBeNumberForTest);
+            sessionVariable.bucketedAggMinInputRows = oldBucketedAggMinInputRows;
+            sessionVariable.bucketedAggMaxGroupKeys = oldBucketedAggMaxGroupKeys;
+            sessionVariable.bucketedAggHighCardThreshold = oldBucketedAggHighCardThreshold;
+            sessionVariable.enableBucketedHashAgg = oldEnableBucketedHashAgg;
+        }
+    }
+
+    @Test
+    public void testOnlyFusedAggregateGetsBucketedCostDiscount() throws Exception {
+        // The cost model discounts the aggregate that the translator fuses. An aggregate that
+        // stays a regular one must cost the same whether bucketed aggregation is enabled or
+        // not, otherwise the discount would favor it over the plans it competes with.
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        int oldAggPhase = sessionVariable.aggPhase;
+        int oldBeNumberForTest = sessionVariable.getBeNumberForTest();
+        long oldBucketedAggMinInputRows = sessionVariable.bucketedAggMinInputRows;
+        long oldBucketedAggMaxGroupKeys = sessionVariable.bucketedAggMaxGroupKeys;
+        double oldBucketedAggHighCardThreshold = sessionVariable.bucketedAggHighCardThreshold;
+        boolean oldEnableBucketedHashAgg = sessionVariable.enableBucketedHashAgg;
+        try {
+            sessionVariable.aggPhase = 0;
+            sessionVariable.setBeNumberForTest(1);
+            sessionVariable.bucketedAggMinInputRows = 0;
+            sessionVariable.bucketedAggMaxGroupKeys = 0;
+            sessionVariable.bucketedAggHighCardThreshold = 1.0;
+
+            String table = "bucketed_aggregate_translator_test.agg_group_concat_table";
+            // Fused: the distribute on the GROUP BY key reads the olap scan.
+            String fusedSql = "SELECT kbint, sum(kint) FROM " + table + " GROUP BY kbint";
+            // Not fused: the one-phase aggregate shuffles the rows of a CTE consumer, which the
+            // regulator has always allowed for a consumer that is the distribute's direct input.
+            String cteConsumerSql = "WITH c AS (SELECT kbint, kint FROM " + table + ")"
+                    + " SELECT kbint, sum(kint) FROM c GROUP BY kbint UNION ALL SELECT kbint, kint FROM c";
+            // Not fused: the table is bucketed by the GROUP BY key, so there is no distribute.
+            String bucketKeySql = "SELECT kint, sum(kbint) FROM " + table + " GROUP BY kint";
+
+            sessionVariable.enableBucketedHashAgg = false;
+            double fusedSqlRegularCost = bestPlanCost(fusedSql);
+            double cteConsumerRegularCost = bestPlanCost(cteConsumerSql);
+            double bucketKeyRegularCost = bestPlanCost(bucketKeySql);
+
+            sessionVariable.enableBucketedHashAgg = true;
+            Assertions.assertEquals(1, collectNodes(getSQLPlanner(fusedSql), BucketedAggregationNode.class).size());
+            Assertions.assertTrue(bestPlanCost(fusedSql) < fusedSqlRegularCost);
+            Assertions.assertTrue(collectNodes(getSQLPlanner(cteConsumerSql), BucketedAggregationNode.class).isEmpty());
+            Assertions.assertEquals(cteConsumerRegularCost, bestPlanCost(cteConsumerSql), 1e-6);
+            Assertions.assertTrue(collectNodes(getSQLPlanner(bucketKeySql), BucketedAggregationNode.class).isEmpty());
+            Assertions.assertEquals(bucketKeyRegularCost, bestPlanCost(bucketKeySql), 1e-6);
+        } finally {
+            sessionVariable.aggPhase = oldAggPhase;
+            sessionVariable.setBeNumberForTest(oldBeNumberForTest);
+            sessionVariable.bucketedAggMinInputRows = oldBucketedAggMinInputRows;
+            sessionVariable.bucketedAggMaxGroupKeys = oldBucketedAggMaxGroupKeys;
+            sessionVariable.bucketedAggHighCardThreshold = oldBucketedAggHighCardThreshold;
+            sessionVariable.enableBucketedHashAgg = oldEnableBucketedHashAgg;
+        }
+    }
+
+    /** Returns the cost of the plan the optimizer chooses for the query. */
+    private double bestPlanCost(String sql) {
+        PlanChecker checker = PlanChecker.from(connectContext).analyze(sql).rewrite().optimize();
+        return checker.getCascadesContext().getMemo().getRoot()
+                .getLowestCostPlan(PhysicalProperties.GATHER).get().first.getValue();
+    }
+
+    /** Asserts that the only aggregate of the plan is a regular two-phase aggregate. */
+    private void assertTwoPhaseRegularAggregation(Planner planner) {
+        String explain = explain(planner);
+        Assertions.assertTrue(collectNodes(planner, BucketedAggregationNode.class).isEmpty(), explain);
+        List<AggregationNode> aggregationNodes = collectNodes(planner, AggregationNode.class);
+        Assertions.assertEquals(2, aggregationNodes.size(), explain);
+        // The global phase reads the local phase through the exchange.
+        Assertions.assertEquals(1, aggregationNodes.stream()
+                .filter(node -> node.getChild(0) instanceof ExchangeNode
+                        && node.getChild(0).getChild(0) instanceof AggregationNode).count(), explain);
+    }
+
+    /**
+     * Asserts that every aggregate reading an exchange is fed by its own local phase, i.e. no
+     * one-phase aggregate has all its input rows shuffled to it. A one-phase GLOBAL aggregate
+     * over an exchange is translated with the merge phase too, so the phase cannot tell them
+     * apart.
+     */
+    private void assertNoOnePhaseAggregateOverExchange(Planner planner) {
+        for (AggregationNode aggregationNode : collectNodes(planner, AggregationNode.class)) {
+            if (aggregationNode.getChild(0) instanceof ExchangeNode) {
+                Assertions.assertTrue(aggregationNode.getChild(0).getChild(0) instanceof AggregationNode,
+                        "one-phase aggregate over an exchange: " + explain(planner));
+            }
         }
     }
 
