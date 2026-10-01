@@ -51,6 +51,7 @@ public:
     }
 
     void set_evaluate_status(Status st) { _eval_status = std::move(st); }
+    int evaluate_count() const { return _evaluate_count; }
 
     const std::string& expr_name() const override {
         static const std::string kName = "MockEvalExpr";
@@ -65,11 +66,13 @@ public:
     }
 
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override {
+        ++_evaluate_count;
         return _eval_status;
     }
 
 private:
     Status _eval_status = Status::OK();
+    int _evaluate_count = 0;
 };
 
 TabletSchemaSPtr make_tablet_schema() {
@@ -149,8 +152,11 @@ TEST_F(SegmentIteratorApplyIndexExprTest, virtual_column_evaluate_ok) {
 
 // When the index context is null, the expr should be skipped (continue).
 TEST_F(SegmentIteratorApplyIndexExprTest, virtual_column_null_index_context_skipped) {
-    _iter->_virtual_column_exprs[0] = make_mock_ctx(Status::OK(), /*with_index_context=*/false);
+    auto ctx = make_mock_ctx(Status::Error<ErrorCode::INTERNAL_ERROR>("unexpected evaluation"),
+                             /*with_index_context=*/false);
+    _iter->_virtual_column_exprs[0] = ctx;
     EXPECT_TRUE(_iter->_apply_index_expr().ok());
+    EXPECT_EQ(std::static_pointer_cast<MockEvalExpr>(ctx->root())->evaluate_count(), 0);
 }
 
 // When evaluate_inverted_index returns INVERTED_INDEX_BYPASS (a downgrade error),
@@ -171,6 +177,19 @@ TEST_F(SegmentIteratorApplyIndexExprTest, virtual_column_downgrade_file_not_foun
     Status st = _iter->_apply_index_expr();
     EXPECT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(_stats.inverted_index_downgrade_count, 1);
+}
+
+TEST_F(SegmentIteratorApplyIndexExprTest, virtual_column_file_not_found_without_fallback_fails) {
+    TQueryOptions query_options = _runtime_state.query_options();
+    query_options.__set_enable_fallback_on_missing_inverted_index(false);
+    _runtime_state.set_query_options(query_options);
+    _iter->_virtual_column_exprs[0] =
+            make_mock_ctx(Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>("not found"));
+
+    Status st = _iter->_apply_index_expr();
+    EXPECT_FALSE(st.ok());
+    EXPECT_EQ(st.code(), ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND);
+    EXPECT_EQ(_stats.inverted_index_downgrade_count, 0);
 }
 
 // When evaluate_inverted_index returns INVERTED_INDEX_EVALUATE_SKIPPED,
@@ -219,10 +238,12 @@ TEST_F(SegmentIteratorApplyIndexExprTest, multiple_virtual_columns_mixed_results
     _iter->_virtual_column_exprs[0] = make_mock_ctx(Status::OK());
     _iter->_virtual_column_exprs[1] =
             make_mock_ctx(Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>("bypass"));
-    _iter->_virtual_column_exprs[2] = make_mock_ctx(Status::OK());
+    auto final_ctx = make_mock_ctx(Status::OK());
+    _iter->_virtual_column_exprs[2] = final_ctx;
     Status st = _iter->_apply_index_expr();
     EXPECT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(_stats.inverted_index_downgrade_count, 1);
+    EXPECT_EQ(std::static_pointer_cast<MockEvalExpr>(final_ctx->root())->evaluate_count(), 1);
 }
 
 // Multiple virtual column exprs: second one returns unhandled error, should stop and propagate.
