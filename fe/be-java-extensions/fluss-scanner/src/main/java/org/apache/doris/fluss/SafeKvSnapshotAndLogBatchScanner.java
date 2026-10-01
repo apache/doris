@@ -47,6 +47,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.TreeMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -69,7 +70,7 @@ final class SafeKvSnapshotAndLogBatchScanner implements BatchScanner {
     private final Comparator<InternalRow> primaryKeyComparator;
     private final Map<InternalRow, KeyValueRow> logRows;
 
-    @Nullable private final BatchScanner snapshotScanner;
+    @Nullable private final PublicationGuardedBatchScanner snapshotScanner;
     @Nullable private final LogScanner logScanner;
 
     private boolean logScanFinished;
@@ -190,6 +191,17 @@ final class SafeKvSnapshotAndLogBatchScanner implements BatchScanner {
         IOUtils.closeQuietly(logScanner);
     }
 
+    /**
+     * Completes once this reader has stopped using the connection it was created on. For the log reader
+     * that is {@link #close()}; the snapshot reader, closed before its snapshot arrived, goes on copying
+     * the snapshot on the connection's download threads until {@link PublicationGuardedBatchScanner} can
+     * close it. The connection must stay open until then: shut down, fluss's download pool drops the
+     * files still queued, and the snapshot reader waits for them forever.
+     */
+    CompletableFuture<Void> released() {
+        return snapshotScanner == null ? CompletableFuture.completedFuture(null) : snapshotScanner.released();
+    }
+
     private static ProjectionPlan createProjectionPlan(
             TableInfo tableInfo, @Nullable int[] projectedFields) {
         return ProjectionPlan.create(
@@ -286,6 +298,10 @@ final class SafeKvSnapshotAndLogBatchScanner implements BatchScanner {
      * null} means ready-but-empty; a non-empty iterator means ready-with-data). An early close starts
      * one daemon waiter only for that cancelled scanner, observes the same publication boundary, and
      * then performs the delegate's first and only close.</p>
+     *
+     * <p>Until then the initializer is still copying the snapshot on the download threads of the
+     * connection the delegate was created on, so that connection has to stay open; {@link #released()}
+     * says when it may close.</p>
      */
     static final class PublicationGuardedBatchScanner implements BatchScanner {
         private static final Duration PUBLICATION_POLL = Duration.ofMillis(100);
@@ -294,6 +310,8 @@ final class SafeKvSnapshotAndLogBatchScanner implements BatchScanner {
         private final AtomicBoolean closed = new AtomicBoolean();
         private final AtomicBoolean publicationObserved = new AtomicBoolean();
         private final AtomicBoolean delegateClosed = new AtomicBoolean();
+        /** Completed once the delegate has been closed, by whichever path closed it. */
+        private final CompletableFuture<Void> released = new CompletableFuture<>();
 
         PublicationGuardedBatchScanner(BatchScanner delegate) {
             this.delegate = delegate;
@@ -365,15 +383,25 @@ final class SafeKvSnapshotAndLogBatchScanner implements BatchScanner {
             return observed;
         }
 
+        /** Completes once the delegate has been closed: from then on it no longer uses its connection. */
+        CompletableFuture<Void> released() {
+            return released;
+        }
+
         private void closeDelegate() throws IOException {
             if (delegateClosed.compareAndSet(false, true)) {
-                delegate.close();
+                try {
+                    delegate.close();
+                } finally {
+                    released.complete(null);
+                }
             }
         }
 
         private void closeDelegateQuietly() {
             if (delegateClosed.compareAndSet(false, true)) {
                 IOUtils.closeQuietly(delegate);
+                released.complete(null);
             }
         }
     }
@@ -386,7 +414,7 @@ final class SafeKvSnapshotAndLogBatchScanner implements BatchScanner {
     }
 
     static final class ScannerResources {
-        @Nullable BatchScanner snapshotScanner;
+        @Nullable PublicationGuardedBatchScanner snapshotScanner;
         @Nullable LogScanner logScanner;
 
         private ScannerResources() {
