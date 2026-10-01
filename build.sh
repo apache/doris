@@ -458,9 +458,19 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ||
       ! -s "${DORIS_THIRDPARTY}/installed/include/paimon_rust/paimon.h" ||
       -e "${DORIS_THIRDPARTY}/installed/lib64/.paimon-installing" ]] ||
         ! lance_c_install_is_current "${DORIS_HOME}/thirdparty" "${DORIS_THIRDPARTY}/installed"; then
-    # Compilation images may contain only installed artifacts; never erase them without a rebuild source.
-    if [[ ! -f "${DORIS_THIRDPARTY}/build-thirdparty.sh" ]]; then
-        echo "Third-party dependencies require a rebuild, but build-thirdparty.sh is missing." >&2
+    # External trees can be partially updated or pinned to another revision. Preserve
+    # the existing prefix unless their build inputs can produce the requested Lance version.
+    for input in build-thirdparty.sh download-thirdparty.sh vars.sh lance-install.sh patches/lance-c-foyer.patch; do
+        if [[ ! -f "${DORIS_THIRDPARTY}/${input}" || ! -r "${DORIS_THIRDPARTY}/${input}" ]]; then
+            echo "Third-party dependencies require a rebuild, but ${input} is missing or unreadable." >&2
+            echo "Refresh the compilation image or set DORIS_THIRDPARTY to a complete third-party source tree." >&2
+            exit 1
+        fi
+    done
+    if ! expected_lance_fingerprint="$(lance_c_install_fingerprint "${DORIS_HOME}/thirdparty")" ||
+       ! rebuild_lance_fingerprint="$(lance_c_install_fingerprint "${DORIS_THIRDPARTY}")" ||
+       [[ "${rebuild_lance_fingerprint}" != "${expected_lance_fingerprint}" ]]; then
+        echo "Lance rebuild sources do not match this checkout; installed dependencies have been preserved." >&2
         echo "Refresh the compilation image or set DORIS_THIRDPARTY to a complete third-party source tree." >&2
         exit 1
     fi

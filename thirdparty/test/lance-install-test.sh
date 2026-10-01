@@ -24,17 +24,20 @@ mkdir -p "${work}/repo/thirdparty/patches" "${work}/external"
 cp "${ROOT}/thirdparty/vars.sh" "${work}/repo/thirdparty/"
 cp "${ROOT}/thirdparty/patches/lance-c-foyer.patch" "${work}/repo/thirdparty/patches/"
 # Extract the real build gate; all destructive operations stay inside this temporary install.
+echo 'set -eo pipefail' > "${work}/gate.sh"
 sed -n '/^# build thirdparty libraries if necessary/,/^update_submodule()/p' "${ROOT}/build.sh" \
-    | sed '$d' > "${work}/gate.sh"
+    | sed '$d' >> "${work}/gate.sh"
 export DORIS_HOME="${work}/repo" DORIS_THIRDPARTY="${work}/external"
 export TARGET_SYSTEM=Linux CLEAN=0 PARALLEL=1
 export TEST_HELPER="${ROOT}/thirdparty/lance-install.sh"
-if [[ -f "${TEST_HELPER}" ]]; then
-    cp "${TEST_HELPER}" "${work}/repo/thirdparty/"
-fi
+cp "${TEST_HELPER}" "${work}/repo/thirdparty/"
+cp -r "${DORIS_HOME}/thirdparty/." "${DORIS_THIRDPARTY}/"
+printf '#!/usr/bin/env bash\nexit 0\n' > "${DORIS_THIRDPARTY}/download-thirdparty.sh"
 cat > "${DORIS_THIRDPARTY}/build-thirdparty.sh" <<'BUILDER'
 set -euo pipefail
-source "${TEST_HELPER}"
+TP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${TP_DIR}/lance-install.sh"
+fingerprint="$(lance_c_install_fingerprint "${TP_DIR}")"
 echo rebuilt >> "${DORIS_THIRDPARTY}/builds"
 installed="${DORIS_THIRDPARTY}/installed"
 mkdir -p "${installed}/lib/hadoop_hdfs/native" "${installed}/lib/hadoop_hdfs_3_4/native" "${installed}/lib64" \
@@ -44,7 +47,7 @@ for file in lib/hadoop_hdfs/native/libhdfs.a lib/hadoop_hdfs_3_4/native/libhdfs.
     include/lance/lance.h include/lance/lance.hpp include/paimon_rust/paimon.h; do
     echo artifact > "${installed}/${file}"
 done
-lance_c_install_fingerprint "${DORIS_HOME}/thirdparty" > "${installed}/lib64/.lance-c-fingerprint"
+printf '%s\n' "${fingerprint}" > "${installed}/lib64/.lance-c-fingerprint"
 BUILDER
 # A complete legacy image has all old sentinels but no Lance revision marker.
 installed="${DORIS_THIRDPARTY}/installed"
@@ -66,6 +69,26 @@ check_builds 1
 bash "${work}/gate.sh"
 check_builds 1
 echo 'PASS: legacy image rebuilt; matching install reused'
+# Failed preflight must preserve every dependency, not just the Lance archive.
+expect_preserved_install() {
+    cp -a "${installed}" "${work}/saved-install"
+    cp "${DORIS_THIRDPARTY}/builds" "${work}/saved-builds"
+    if bash "${work}/gate.sh" > "${work}/preflight.log" 2>&1; then
+        echo 'FAIL: accepted incomplete or mismatched rebuild sources'; exit 1
+    fi
+    if ! diff -r "${work}/saved-install" "${installed}"; then
+        echo 'FAIL: rejected rebuild sources after changing installed dependencies'; exit 1
+    fi
+    cmp "${work}/saved-builds" "${DORIS_THIRDPARTY}/builds"
+    rm -rf "${work}/saved-install"
+}
+echo stale > "${installed}/lib64/.lance-c-fingerprint"
+for file in lance-install.sh vars.sh patches/lance-c-foyer.patch download-thirdparty.sh build-thirdparty.sh; do
+    mv "${DORIS_THIRDPARTY}/${file}" "${work}/missing-input"
+    expect_preserved_install
+    mv "${work}/missing-input" "${DORIS_THIRDPARTY}/${file}"
+done
+echo 'PASS: incomplete external sources rejected before changing installed dependencies'
 echo stale > "${installed}/lib64/.lance-c-fingerprint"
 bash "${work}/gate.sh"
 check_builds 2
@@ -73,12 +96,16 @@ check_builds 2
 sed 's/^LANCE_C_SOURCE=.*/LANCE_C_SOURCE="lance-c-test-revision"/' "${DORIS_HOME}/thirdparty/vars.sh" \
     > "${work}/new-vars.sh"
 mv "${work}/new-vars.sh" "${DORIS_HOME}/thirdparty/vars.sh"
+expect_preserved_install
+cp "${DORIS_HOME}/thirdparty/vars.sh" "${DORIS_THIRDPARTY}/vars.sh"
 bash "${work}/gate.sh"
 check_builds 3
 echo '# test patch update' >> "${DORIS_HOME}/thirdparty/patches/lance-c-foyer.patch"
+expect_preserved_install
+cp "${DORIS_HOME}/thirdparty/patches/lance-c-foyer.patch" "${DORIS_THIRDPARTY}/patches/"
 bash "${work}/gate.sh"
 check_builds 4
-echo 'PASS: stale marker, changed pin and changed patch rebuild'
+echo 'PASS: mismatched sources rejected; synchronized pin and patch updates rebuild'
 rm "${installed}/include/lance/lance.h"
 bash "${work}/gate.sh"
 check_builds 5
@@ -94,7 +121,8 @@ if bash "${work}/gate.sh" > "${work}/old-builder.log" 2>&1; then
     echo 'FAIL: accepted output from a stale external builder'; exit 1
 fi
 grep -q 'Lance dependency revision does not match' "${work}/old-builder.log"
-bash "${work}/good-builder.sh"
+cp "${work}/good-builder.sh" "${DORIS_THIRDPARTY}/build-thirdparty.sh"
+bash "${DORIS_THIRDPARTY}/build-thirdparty.sh"
 echo 'PASS: stale external builder cannot silently satisfy the revision gate'
 # Images without rebuild sources must fail before deleting installed dependencies.
 rm "${DORIS_THIRDPARTY}/build-thirdparty.sh" "${installed}/lib64/.lance-c-fingerprint"
