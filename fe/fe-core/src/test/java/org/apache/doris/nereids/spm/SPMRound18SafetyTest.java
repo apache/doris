@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.spm;
 
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.spm.manager.SessionBaselineStore;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -151,6 +152,28 @@ public class SPMRound18SafetyTest {
     }
 
     // ==================== #7: session baselines travel with the forward ====================
+
+    /**
+     * round-23 #6: the post-plan replay validation must keep the matched baseline (or
+     * fail): re-fetching by id can silently miss it after a concurrent DROP / refresh,
+     * and returning then would skip the schema check exactly when a table DDL may have
+     * committed between the pre-match validation and the replay planning.
+     */
+    @Test
+    public void testReplayValidationFailsWhenTheBaselineIsGone() {
+        ConnectContext ctx = new ConnectContext();
+        ctx.setStatementContext(new StatementContext(ctx, null));
+        LogicalPlan plan = parse("SELECT 1");
+        Assertions.assertThrows(RuntimeException.class,
+                () -> SPMPlanner.verifyReplayMetadata(ctx, 777L, plan),
+                "a disappeared baseline must not silently skip the replay validation");
+
+        // the retained incarnation (set at match time) keeps the validation alive
+        BaselinePlan retained = new BaselinePlan();
+        retained.setId(777L);
+        ctx.getStatementContext().setSpmUsedBaseline(retained);
+        SPMPlanner.verifyReplayMetadata(ctx, 777L, plan);
+    }
 
     /**
      * The observer attaches the ENABLED rows of its session store to the forwarded

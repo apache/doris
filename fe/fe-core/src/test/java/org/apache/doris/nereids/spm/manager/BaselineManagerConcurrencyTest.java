@@ -149,6 +149,14 @@ public class BaselineManagerConcurrencyTest {
         private List<BaselinePlan> rowsOf(long id) {
             return new ArrayList<>(rows.getOrDefault(id, List.of()));
         }
+
+        private void replaceRows(long id, List<BaselinePlan> replacement) {
+            if (replacement.isEmpty()) {
+                rows.remove(id);
+            } else {
+                rows.put(id, new ArrayList<>(replacement));
+            }
+        }
     }
 
     // ==================== #1: deterministic id-collision resolution ====================
@@ -1086,6 +1094,131 @@ public class BaselineManagerConcurrencyTest {
         } finally {
             BaselineManager.durableVisibilityProbeForTest = null;
             BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    // ==================== round-23: durable identity reconciliation ====================
+
+    /**
+     * A REUSED id must not let the CREATE duplicate fast path hand back an id whose
+     * durable row is a different baseline: the confirmation compares the full identity
+     * (key + status + fingerprint), not just id + status.
+     */
+    @Test
+    public void testCreateDoesNotAdoptAReusedId() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            long originalId = manager.createBaseline(baseline("d-reuse", "p-reuse"));
+
+            // the id is REUSED by another baseline (the original row was dropped)
+            BaselinePlan reused = baseline("d-other", "p-other");
+            reused.setId(originalId);
+            reused.setStatus(BaselineStatus.ENABLED);
+            store.replaceRows(originalId, List.of(reused));
+
+            // the cached duplicate still holds the ORIGINAL identity
+            long id = manager.createBaseline(baseline("d-reuse", "p-reuse"));
+            Assertions.assertNotEquals(originalId, id,
+                    "the reused id must not be returned for a different durable incarnation");
+            Assertions.assertTrue(store.rowsOf(originalId).stream()
+                            .anyMatch(row -> "d-other".equals(row.getBindSqlDigest())),
+                    "the other incarnation stays untouched: " + store.rowsOf(originalId));
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * An opposite-status ALTER over a STALE cache must not recreate a baseline the
+     * previous master already dropped: the durable probe runs BEFORE the flip.
+     */
+    @Test
+    public void testStaleCacheAlterDoesNotResurrectADroppedBaseline() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            long id = manager.createBaseline(baseline("d-resurrect", "p-resurrect"));
+            store.replaceRows(id, List.of()); // the previous master dropped it durably
+
+            Assertions.assertFalse(manager.updateStatus(id, BaselineStatus.DISABLED),
+                    "an ALTER for a durably dropped baseline must not report success");
+            Assertions.assertNull(manager.getBaseline(id),
+                    "the stale cache entry must be retired");
+            Assertions.assertTrue(store.rowsOf(id).isEmpty(),
+                    "no row may be INSERTed back: " + store.rowsOf(id));
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * A DROP over a promotion-window snapshot whose id now names a DIFFERENT baseline
+     * must clear the id durably (the DROP is keyed by the user-facing id).
+     */
+    @Test
+    public void testDropWipesALingeringRowOfAReusedId() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            long id = manager.createBaseline(baseline("d-wipe", "p-wipe"));
+
+            BaselinePlan reused = baseline("d-new", "p-new");
+            reused.setId(id);
+            reused.setStatus(BaselineStatus.ENABLED);
+            store.replaceRows(id, List.of(reused));
+
+            Assertions.assertTrue(manager.dropBaseline(id));
+            Assertions.assertTrue(store.rowsOf(id).isEmpty(),
+                    "the lingering row of the reused id must be removed: " + store.rowsOf(id));
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * A same-id refresh must REPLACE a cached object whose persisted incarnation changed
+     * in a replay-relevant field (schema fingerprint): keeping the stale object made
+     * every later refresh repeat the choice and replay reject the newly valid baseline.
+     */
+    @Test
+    public void testRefreshReplacesAChangedIncarnation() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        try {
+            long id = manager.createBaseline(baseline("d-inc", "p-inc"));
+            Assertions.assertNull(manager.getBaseline(id).getSchemaFingerprint(),
+                    "precondition: the created row carries no fingerprint");
+
+            // unchanged fields must KEEP the object (object identity for hot readers)
+            BaselinePlan before = manager.getBaseline(id);
+            BaselinePlan same = baseline("d-inc", "p-inc");
+            same.setId(id);
+            same.setStatus(BaselineStatus.ENABLED);
+            manager.applyRefreshedBaselines(Map.of(id, same));
+            Assertions.assertSame(before, manager.getBaseline(id),
+                    "an unchanged row keeps the live object");
+
+            // a NEW fingerprint is a different incarnation
+            BaselinePlan changed = baseline("d-inc", "p-inc");
+            changed.setId(id);
+            changed.setStatus(BaselineStatus.ENABLED);
+            changed.setSchemaFingerprint("new-fingerprint");
+            manager.applyRefreshedBaselines(Map.of(id, changed));
+            Assertions.assertEquals("new-fingerprint",
+                    manager.getBaseline(id).getSchemaFingerprint(),
+                    "the refresh must replace the object when the fingerprint changed");
+        } finally {
             manager.clearForTest();
         }
     }

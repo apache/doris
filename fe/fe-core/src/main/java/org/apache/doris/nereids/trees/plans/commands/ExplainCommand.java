@@ -132,7 +132,10 @@ public class ExplainCommand extends Command implements NoForward {
                     if (rewrittenPlan != null) {
                         explainPlan = rewrittenPlan;
                         explainCtx.getStatementContext().setSpmBaselineApplied(true);
-                        explainCtx.getStatementContext().setSpmUsedBaselineId(spmPlanner.getUsedBaselineId());
+                        explainCtx.getStatementContext().setSpmUsedBaselineId(
+                                spmPlanner.getUsedBaselineId());
+                        explainCtx.getStatementContext().setSpmUsedBaseline(
+                                spmPlanner.getUsedBaseline());
                     }
                 } catch (Throwable e) {
                     LOG.warn("SPM rewrite failed for EXPLAIN, fallback to normal planning", e);
@@ -196,6 +199,7 @@ public class ExplainCommand extends Command implements NoForward {
                             + " retrying with the original plan", t);
                     explainCtx.getStatementContext().setSpmBaselineApplied(false);
                     explainCtx.getStatementContext().setSpmUsedBaselineId(-1);
+                    explainCtx.getStatementContext().setSpmUsedBaseline(null);
                     // Authorization must never be inherited from the abandoned rewrite: planning the
                     // REWRITTEN tree already ran (and passed) CheckPrivileges and set privChecked, which
                     // would make the retry below skip the privilege check on the ORIGINAL plan - and the

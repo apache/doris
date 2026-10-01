@@ -82,6 +82,15 @@ public class AuditLogScanner {
     private static final DateTimeFormatter DATETIME_FORMAT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
+    /**
+     * Lookback floor of the completion-aware scan lower bound (see buildScanSql): a query
+     * that started earlier than this before the window cannot be admitted even when its
+     * completion reaches into the window - the trade-off that keeps the range-partitioned
+     * audit table prunable instead of rescanning every retained partition per page.
+     */
+    private static final long LATE_COMPLETION_LOOKBACK_MILLIS = java.util.concurrent.TimeUnit.DAYS
+            .toMillis(1);
+
     /** audit_log SELECT columns (order must match rowToCapturedQuery / toBatch). */
     private static final String SELECT_COLUMNS =
             "`stmt`, `query_time`, `scan_rows`, `return_rows`, `sql_digest`, `sql_hash`, `db`, `catalog`,"
@@ -473,10 +482,45 @@ public class AuditLogScanner {
         if (digest == null || digest.isEmpty()) {
             return stmt;
         }
-        if (!mentionsGenerator(stmt)) {
+        // The digest renders every literal as "?" and every scan selector as
+        // PARTITION(?) / TABLET(?): two statements that differ ONLY in a concrete selector
+        // (PARTITION(p1) vs PARTITION(p2)) are different baselines - matching compares the
+        // selectors in sameScanIdentity - so the selector fingerprint joins the identity
+        // for statements that mention one. Generator arguments join for the same reason
+        // (SPM keeps LATERAL VIEW / UNNEST arguments concrete).
+        String generators = mentionsGenerator(stmt) ? generatorFingerprint(stmt, sqlMode) : "";
+        String selectors = mentionsScanSelector(stmt)
+                ? scanSelectorFingerprint(stmt, sqlMode) : "";
+        if (generators.isEmpty() && selectors.isEmpty()) {
             return digest;
         }
-        return digest + '\u0001' + generatorFingerprint(stmt, sqlMode);
+        return digest + '\u0001' + generators + '\u0001' + selectors;
+    }
+
+    /** Whether the statement can carry a concrete scan selector (partition / tablet / ...). */
+    private static boolean mentionsScanSelector(String stmt) {
+        if (stmt == null) {
+            return false;
+        }
+        String upper = stmt.toUpperCase(java.util.Locale.ROOT);
+        return upper.contains("PARTITION") || upper.contains("TABLET")
+                || upper.contains("TABLESAMPLE") || upper.contains("INDEX")
+                || upper.contains("FOR TIMESTAMP");
+    }
+
+    /** The concrete scan selectors of the statement (the full text when unparsable). */
+    private static String scanSelectorFingerprint(String stmt, long sqlMode) {
+        try {
+            return org.apache.doris.qe.SqlModeHelper.withSqlMode(sqlMode, () -> {
+                org.apache.doris.nereids.trees.plans.Plan parsed =
+                        new org.apache.doris.nereids.parser.NereidsParser().parseSingle(stmt);
+                return org.apache.doris.nereids.spm.SPMPlanTreeSupport
+                        .scanSelectorFingerprint(parsed);
+            });
+        } catch (Throwable t) {
+            // unparsable: keep the full-text identity, never a coarser one
+            return stmt;
+        }
     }
 
     private static boolean mentionsGenerator(String stmt) {
@@ -556,11 +600,18 @@ public class AuditLogScanner {
         // completion predicate the next (default three-hour) window starts at
         // 12:00 - overlap, so its 11:50 row - now visible - would be excluded
         // FOREVER. Rows are therefore also eligible while their completion
-        // (time + query_time) reaches into the window, and the time-only bound still
-        // excludes everything that both started and finished before it (no history
-        // re-scan; query-id dedup covers the overlap).
+        // (time + query_time) reaches into the window.
+        // The completion branch is BOUNDED by a floor: an unbounded
+        // "time >= start OR completion >= start" cannot prune ANY old partition of the
+        // range-partitioned audit table (query_time is only known per row), so every
+        // keyset page would rescan retained history under the short timeout. The floor
+        // (start - LATE_COMPLETION_LOOKBACK_MILLIS) keeps the pruning intact for a
+        // three-hour window while still admitting every query whose completion reaches
+        // into it; a query LONGER than the lookback is the documented miss.
+        String floor = completeWindowFloor(start);
         return "SELECT " + SELECT_COLUMNS + " FROM __internal_schema.audit_log "
-                + "WHERE (`time` >= '" + start + "'"
+                + "WHERE `time` >= '" + floor + "' "
+                + "AND (`time` >= '" + start + "'"
                 + " OR timestampadd(SECOND, CAST(`query_time` / 1000 AS BIGINT), `time`)"
                 + " >= '" + start + "') AND `time` < '" + end + "' "
                 + "AND `is_query` = true "
@@ -571,6 +622,21 @@ public class AuditLogScanner {
                 + (cursorPredicate == null ? "" : cursorPredicate)
                 + ORDER_BY
                 + "LIMIT " + maxBatchSize;
+    }
+
+    /**
+     * The partitionable floor of the completion-aware lower bound: the window start minus
+     * {@link #LATE_COMPLETION_LOOKBACK_MILLIS}, rendered like the window bounds. An
+     * unparsable timestamp keeps the start itself (never a LESS bounded range).
+     */
+    private static String completeWindowFloor(String start) {
+        try {
+            return java.time.LocalDateTime.parse(start, DATETIME_FORMAT)
+                    .minus(java.time.Duration.ofMillis(LATE_COMPLETION_LOOKBACK_MILLIS))
+                    .format(DATETIME_FORMAT);
+        } catch (RuntimeException e) {
+            return start;
+        }
     }
 
     /**

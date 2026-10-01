@@ -103,6 +103,12 @@ public class SPMOptimizer {
             "ELIMINATE_JOIN_BY_FK",              // FK constraint JOIN elimination
             "ELIMINATE_GROUP_BY_KEY",            // UKFK GROUP BY key elimination
             "ELIMINATE_GROUP_BY_KEY_BY_UNIFORM", // uniform-distribution GROUP BY key elimination
+            // ORDER BY key elimination by a declared UNIQUE key: ORDER BY a, b LIMIT 1 can
+            // collapse to ORDER BY a LIMIT 1, and the frozen SQL keeps the reduced order.
+            // Dropping the UNIQUE declaration (or its backing constraint state) changes no
+            // value the fingerprint hashes, so the replay may pick another row with the
+            // same smallest a - exclude the rule like the other UKFK ones.
+            "ELIMINATE_ORDER_BY_KEY",
             // PK/FK-derived aggregate push down below the (FK) join: the rewritten
             // topology stops being correct once the constraint state changes. The rule
             // derives its rewrite from canEliminateByFk, so dropping the constraints and

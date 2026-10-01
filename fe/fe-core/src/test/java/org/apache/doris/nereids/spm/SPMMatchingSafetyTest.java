@@ -97,6 +97,70 @@ public class SPMMatchingSafetyTest {
         return SPMPlanTreeSupport.check(bind, user, new HashMap<Long, Expression>());
     }
 
+    /** As {@link #matches}, but the bind side goes through the PRODUCTION
+     * parameterization (a raw parse carries no placeholders at all). */
+    private static boolean matchesParameterized(String bindSql, String userSql) throws Exception {
+        BaselinePlan baseline = new SPMPlanner().buildBaseline(bindSql, bindSql);
+        return SPMPlanTreeSupport.check(baseline.getParameterizedBindPlan(), parse(userSql),
+                new HashMap<Long, Expression>());
+    }
+
+    // ==================== round-23 observations ====================
+
+    @Test
+    public void testUnorderedOrPairingBacktracksForALaterPlaceholderUse() throws Exception {
+        String bind = "SELECT (a = 1 OR a = 2) AS c FROM t WHERE a = 1";
+        Assertions.assertTrue(matchesParameterized(bind,
+                "SELECT (a = 3 OR a = 4) AS c FROM t WHERE a = 4"),
+                "a pairing that satisfies BOTH placeholder uses must be found");
+        Assertions.assertFalse(matchesParameterized(bind,
+                "SELECT (a = 3 OR a = 4) AS c FROM t WHERE a = 5"),
+                "no consistent global assignment exists here");
+    }
+
+    @Test
+    public void testDerivedOutputLabelStaysMatchableAndIsRealignedAtReplay() throws Exception {
+        String bind = "SELECT k + 1 FROM t";
+        Assertions.assertTrue(matchesParameterized(bind, "SELECT k + 1 FROM t"),
+                "identical derived labels match");
+        Assertions.assertTrue(matchesParameterized(bind, "SELECT k + 2 FROM t"),
+                "a value variant under a DERIVED label must stay matchable: the replay"
+                        + " hands the caller's own label back (alignRootOutputLabels)");
+        Assertions.assertTrue(matchesParameterized("SELECT k + 1 AS v FROM t",
+                "SELECT k + 2 AS v FROM t"),
+                "an EXPLICIT alias pins the header, so value variants stay matchable");
+        // the replay side of the contract: the rewritten tree exposes the CALLER's
+        // labels (the frozen text pinned the captured "k + 1"), position by position
+        LogicalPlan rewritten = parse("SELECT (k + 2) AS `k + 1` FROM t");
+        LogicalPlan user = parse("SELECT k + 2 FROM t");
+        LogicalPlan aligned = SPMPlanTreeSupport.alignRootOutputLabels(rewritten, user);
+        UnboundAlias alignedItem = findUnboundAlias(aligned);
+        Assertions.assertEquals("k + 2", alignedItem.getAlias().orElse(null),
+                "the caller's derived text must replace the captured label: " + aligned);
+        Assertions.assertTrue(alignedItem.isNameFromChild(),
+                "the caller's own label is derived, so the replacement stays derived");
+        // an EXPLICIT caller alias wins as well (an alias already equal stays untouched)
+        LogicalPlan explicitAligned = SPMPlanTreeSupport.alignRootOutputLabels(
+                rewritten, parse("SELECT k + 2 AS total FROM t"));
+        UnboundAlias explicitItem = findUnboundAlias(explicitAligned);
+        Assertions.assertEquals("total", explicitItem.getAlias().orElse(null));
+        Assertions.assertFalse(explicitItem.isNameFromChild());
+        // arity mismatch (SELECT * keeps the star as ONE item) leaves the tree alone
+        Assertions.assertSame(rewritten,
+                SPMPlanTreeSupport.alignRootOutputLabels(rewritten, parse("SELECT * FROM t")));
+    }
+
+    @Test
+    public void testManualPlanWithRenamedAliasIsRejected() {
+        RuntimeException failure = Assertions.assertThrows(RuntimeException.class,
+                () -> new SPMPlanner().buildBaseline(
+                        "SELECT * FROM t a WHERE a.k = 1",
+                        "SELECT * FROM t b WHERE b.k = 1"));
+        Assertions.assertTrue(failure.getMessage() != null
+                        && failure.getMessage().contains("placeholder"),
+                failure.getMessage());
+    }
+
     // ==================== subquery LIMIT is part of the match ====================
 
     @Test
@@ -1088,7 +1152,9 @@ public class SPMMatchingSafetyTest {
     /**
      * A derived (nameFromChild) alias must STAY derived when a child is rewritten, and the
      * match must require alias-kind parity: otherwise a derived side could pair with an
-     * explicitly named side and replay the captured result header.
+     * explicitly named side and replay the captured result header. The derived LABEL
+     * itself is not part of the match any more - the replay hands the caller's label back
+     * (alignRootOutputLabels), so a value variant keeps matching.
      */
     @Test
     public void testDerivedAliasProvenanceSurvivesAndIsEnforced() {
@@ -1100,7 +1166,11 @@ public class SPMMatchingSafetyTest {
 
         LogicalPlan user = parse("SELECT k + 2 FROM t1");
         Assertions.assertTrue(SPMPlanTreeSupport.check(bind, user, new HashMap<>()),
-                "two derived aliases over different literals must match");
+                "a derived label carrying the varying literal must keep matching: the replay"
+                        + " replaces the frozen alias with the caller's own text");
+        Assertions.assertTrue(SPMPlanTreeSupport.check(bind, parse("SELECT k + 1 FROM t1"),
+                        new HashMap<>()),
+                "the identical derived label still matches");
 
         LogicalPlan explicitBind = SPMPlanTreeSupport.transform(bind, expr ->
                 expr instanceof UnboundAlias

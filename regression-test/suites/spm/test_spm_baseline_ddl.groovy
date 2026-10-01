@@ -149,16 +149,31 @@ suite("test_spm_baseline_ddl", "spm") {
     assertEquals(2, ownBaselines().size(),
             "duplicate create must not add a baseline")
 
-    // same bind, different plan -> allowed to coexist
+    // same bind, different plan -> allowed to coexist. The plan side may only use the
+    // literals the bind side supplies (its own placeholder ids), so the extra predicate
+    // here is literal-free: an added `k2 = 99` would parameterize under an id no user
+    // query can ever resolve (see the rejection case below).
     List<List<Object>> createAltPlanRes = sql """CREATE GLOBAL BASELINE PLAN
         'select * from spm_t1 where k1 = 1'
-        WITH 'select * from spm_t1 where k1 = 1 and k2 = 99'"""
+        WITH 'select * from spm_t1 where k1 = 1 and k2 is not null'"""
     long altPlanId = Long.parseLong(createAltPlanRes[0][0].toString())
     assertTrue(altPlanId != simpleId,
             "a different planSql must create a new baseline id, got: ${altPlanId}")
 
     assertEquals(3, ownBaselines().size(),
             "different planSql for the same bind is allowed")
+
+    // a plan side that introduces placeholder literals the bind side never supplies
+    // would be stored without any way to resolve them at replay (values are extracted
+    // from the bind tree only): reject the CREATE instead of keeping a dead row
+    test {
+        sql """CREATE GLOBAL BASELINE PLAN
+            'select * from spm_t1 where k1 = 1'
+            WITH 'select * from spm_t1 where k1 = 1 and k2 = 99'"""
+        exception "align"
+    }
+    assertEquals(3, ownBaselines().size(),
+            "a rejected create must not add a baseline")
 
     // ==================== ALTER: disable / enable ====================
     def targetId = (ownBaselines()[0][0] as Long)
@@ -186,7 +201,7 @@ suite("test_spm_baseline_ddl", "spm") {
             "GLOBAL baseline must be persisted to the internal table")
 
     // the SESSION baseline takes precedence over the structurally identical GLOBAL
-    // baseline (altPlanId, k2 = 99) for this connection
+    // baseline (altPlanId, literal-free extra predicate) for this connection
     sql """set enable_spm_rewrite = true"""
     String sessionHit = sql("""EXPLAIN SELECT * FROM spm_t1 WHERE k1 = 1 AND k2 = 2""").toString()
     assertTrue(sessionHit.contains("SPM baseline hit: id=${multiId}, scope=SESSION"),

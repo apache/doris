@@ -126,6 +126,33 @@ public class AuditLogScannerCursorTest {
                 "the catalog takes part in the dedup key as well");
     }
 
+    /**
+     * round-23 #1: the digest renders every scan selector as PARTITION(?): two slow
+     * same-digest statements differing only in the concrete partition must NOT collapse
+     * into one candidate - the survivor's baseline could never serve the discarded one
+     * (sameScanIdentity requires the partition names to match).
+     */
+    @Test
+    public void testDedupKeepsPartitionVariantsApart() {
+        List<ResultRow> rows = List.of(
+                row("select * from t partition(p1) join u on t.k = u.k", 5000, "d9", "db1",
+                        "internal", "q1", "2026-01-01 00:00:00"),
+                row("select * from t partition(p2) join u on t.k = u.k", 5000, "d9", "db1",
+                        "internal", "q2", "2026-01-01 00:00:01"));
+        Assertions.assertEquals(2, AuditLogScanner.toBatch(rows, 10).getCandidates().size(),
+                "two PARTITION variants of one digest are two baselines: "
+                        + AuditLogScanner.toBatch(rows, 10).getCandidates());
+
+        // control: the SAME statement (same selector) still dedups to the longest run
+        List<ResultRow> same = List.of(
+                row("select * from t partition(p1) join u on t.k = u.k", 5000, "d9", "db1",
+                        "internal", "q1", "2026-01-01 00:00:00"),
+                row("select * from t partition(p1) join u on t.k = u.k", 7000, "d9", "db1",
+                        "internal", "q2", "2026-01-01 00:00:01"));
+        Assertions.assertEquals(1, AuditLogScanner.toBatch(same, 10).getCandidates().size(),
+                "identical statements still collapse");
+    }
+
     @Test
     public void testCursorIsLastRawRowEvenWhenUnusable() {
         // the trailing row has an empty statement (dropped as a candidate) but has been
@@ -247,6 +274,10 @@ public class AuditLogScannerCursorTest {
                 "the start-time bound stays: " + sql);
         Assertions.assertTrue(sql.contains("`time` < '2026-01-01 15:00:00'"),
                 "the upper bound stays start-time based: " + sql);
+        // round-23 #2: the completion branch is FLOORED, otherwise the OR admits every
+        // old query-time partition and the range-partitioned audit table can never prune
+        Assertions.assertTrue(sql.contains("`time` >= '2025-12-31 11:55:00'"),
+                "the completion branch must be bounded so old partitions still prune: " + sql);
     }
 
     @Test
