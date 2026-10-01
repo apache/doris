@@ -126,6 +126,78 @@ public class HiveScanBatchModeTest {
     // ==================== planScanForPartitionBatch: scoped to the batch, no duplication ====================
 
     @Test
+    public void partitionValueModeKeepsWholeFilesInEachBatch() {
+        long fileSize = 3 * 256 * 1024 * 1024L;
+        CountingLister lister = new CountingLister(fileSize);
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), lister);
+        List<String> partitions = Arrays.asList("year=2024/month=01", "year=2024/month=02");
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .partitionKeyNames(PART_KEYS)
+                .prunedPartitions(Arrays.asList(part(partitions.get(0)), part(partitions.get(1))))
+                .build();
+        ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                .partitionValuePushdown(true).build();
+        FakeSession session = new FakeSession();
+
+        for (String partition : partitions) {
+            List<String> batch = Collections.singletonList(partition);
+            List<ConnectorScanRange> ranges = provider.planScanForPartitionBatch(session, request, batch);
+            Assertions.assertEquals(1, ranges.size());
+            HiveScanRange range = (HiveScanRange) ranges.get(0);
+            Assertions.assertEquals(partition + "/000000_0", range.getPath().get());
+            Assertions.assertEquals(0L, range.getStart());
+            Assertions.assertEquals(fileSize, range.getLength());
+            Assertions.assertEquals(3, provider.planScanForPartitionBatch(session,
+                    ConnectorScanRequest.builder(handle, Collections.emptyList()).build(), batch).size());
+        }
+        Assertions.assertEquals(2, lister.callsPerLocation.size());
+    }
+
+    @Test
+    public void partitionValueScanPlannedFirstDoesNotChangeOrdinarySplits() {
+        assertPartitionValueReuseIsolated(true);
+    }
+
+    @Test
+    public void ordinaryScanPlannedFirstDoesNotChangePartitionValueSplits() {
+        assertPartitionValueReuseIsolated(false);
+    }
+
+    private void assertPartitionValueReuseIsolated(boolean partitionValueFirst) {
+        long fileSize = 3 * 256 * 1024 * 1024L;
+        CountingLister lister = new CountingLister(fileSize);
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), lister);
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .partitionKeyNames(PART_KEYS)
+                .prunedPartitions(Collections.singletonList(part("year=2024/month=01")))
+                .build();
+        ConnectorSession session = new ScopeSession(7L, "same-statement", new TestStatementScope());
+        ConnectorScanRequest firstRequest = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                .partitionValuePushdown(partitionValueFirst).build();
+        ConnectorScanRequest secondRequest = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                .partitionValuePushdown(!partitionValueFirst).build();
+
+        List<ConnectorScanRange> first = provider.planScan(session, firstRequest);
+        List<ConnectorScanRange> second = provider.planScan(session, secondRequest);
+        List<ConnectorScanRange> wholeFile = partitionValueFirst ? first : second;
+        List<ConnectorScanRange> splitFile = partitionValueFirst ? second : first;
+        Assertions.assertEquals(1, wholeFile.size());
+        Assertions.assertEquals(fileSize, ((HiveScanRange) wholeFile.get(0)).getLength());
+        Assertions.assertEquals(3, splitFile.size());
+        for (int i = 0; i < splitFile.size(); i++) {
+            HiveScanRange range = (HiveScanRange) splitFile.get(i);
+            Assertions.assertEquals(i * fileSize / 3, range.getStart());
+            Assertions.assertEquals(fileSize / 3, range.getLength());
+        }
+        Assertions.assertSame(first, provider.planScan(session, firstRequest));
+        Assertions.assertSame(second, provider.planScan(session, secondRequest));
+    }
+
+    @Test
     public void planScanForPartitionBatchResolvesOnlyTheBatch() {
         CountingLister lister = new CountingLister();
         // getPartitions echoes each requested name back as a partition whose location IS the name, so the counting
@@ -665,13 +737,22 @@ public class HiveScanBatchModeTest {
      */
     private static final class CountingLister implements HiveFileListingCache.DirectoryLister {
         final Map<String, Integer> callsPerLocation = new HashMap<>();
+        private final long fileSize;
         int totalCalls;
+
+        private CountingLister() {
+            this(10L);
+        }
+
+        private CountingLister(long fileSize) {
+            this.fileSize = fileSize;
+        }
 
         @Override
         public List<HiveFileStatus> list(String location, FileSystem fs) {
             totalCalls++;
             callsPerLocation.merge(location, 1, Integer::sum);
-            return new ArrayList<>(Collections.singletonList(new HiveFileStatus(location + "/000000_0", 10L, 1L)));
+            return new ArrayList<>(Collections.singletonList(new HiveFileStatus(location + "/000000_0", fileSize, 1L)));
         }
     }
 

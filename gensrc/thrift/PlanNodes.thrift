@@ -1052,9 +1052,9 @@ enum TPushAggOp {
 	COUNT = 2,
 	MIX = 3,
 	COUNT_ON_INDEX = 4,
-	// The aggregation only depends on partition columns of an external table.
-	// The scanner just returns one row (partition column values) per scan range
-	// without opening/reading any data file.
+	// Duplicate-insensitive aggregation over partition columns.
+	// Readers may emit one partition row after metadata proves the range is nonempty;
+	// readers without that proof must preserve normal scan semantics.
 	PARTITION_VALUE = 5
 }
 

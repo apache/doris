@@ -18,116 +18,45 @@
 #pragma once
 
 #include <cstddef>
-#include <tuple>
-#include <unordered_map>
-#include <vector>
+#include <cstdint>
+#include <memory>
 
-#include "core/block/block.h"
-#include "format/column_descriptor.h"
-#include "format/generic_reader.h"
-#include "format/table/partition_column_filler.h"
+#include "format/count_reader.h"
+#include "format/table/table_format_reader.h"
 
 namespace doris {
-#include "common/compile_check_begin.h"
 
-// PartitionColumnReader is used for the "partition_column_value_only" optimization.
-//
-// When an aggregation (min/max) only depends on the partition columns of an external
-// (Hive/Hudi) table, the value can be derived purely from partition metadata. Each scan range
-// corresponds to one data file living under a partition directory, and its partition column
-// values are already carried by `columns_from_path` in the TFileRangeDesc -- FileScanner turns
-// them into `_partition_col_descs` in `_generate_partition_columns()`.
-//
-// This reader therefore does NOT open or read any data file. It emits exactly ONE row per scan
-// range, filling every requested column with its own partition value. This preserves the exact
-// "a partition without any data file produces no row" semantics, because a partition with no
-// file never generates a scan range in the first place, while a partition that owns an (even
-// empty) file still gets one scan range and thus contributes its partition value.
-//
-// NOTE: unlike the legacy FileScanner::_fill_columns_from_path(), partition/missing/synthesized
-// columns are filled by the READER in the current architecture (see
-// TableFormatReader::on_after_read_block). So this reader must fill the partition values itself;
-// it cannot just report a row count.
-class PartitionColumnReader : public GenericReader {
+// Decorates an initialized Hive reader after its footer proves the range cardinality.
+// Partition-only duplicate-insensitive aggregates need one row from a nonempty range,
+// but a valid empty file must contribute no partition value.
+class PartitionColumnReader final : public CountReader {
 public:
-    // All four arguments are owned by FileScanner and outlive this reader (it is created per scan
-    // range inside FileScanner::_get_next_reader()). `_partition_col_descs` and
-    // `_partition_value_is_null` are re-filled per range by _generate_partition_columns(), so they
-    // are held by pointer and read lazily in _do_get_next_block().
-    PartitionColumnReader(
-            const std::vector<ColumnDescriptor>* column_descs,
-            const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>*
-                    partition_col_descs,
-            const std::unordered_map<std::string, bool>* partition_value_is_null,
-            const std::unordered_map<std::string, uint32_t>* col_name_to_block_idx)
-            : _column_descs(column_descs),
-              _partition_col_descs(partition_col_descs),
-              _partition_value_is_null(partition_value_is_null),
-              _col_name_to_block_idx(col_name_to_block_idx) {}
+    static bool supports_range(const TFileRangeDesc& range, TFileFormatType::type format_type) {
+        return range.__isset.table_format_params &&
+               range.table_format_params.table_format_type == "hive" &&
+               (format_type == TFileFormatType::FORMAT_PARQUET ||
+                format_type == TFileFormatType::FORMAT_ORC) &&
+               range.start_offset == 0 && range.file_size >= 0 && range.size == range.file_size;
+    }
 
-    ~PartitionColumnReader() override = default;
+    PartitionColumnReader(int64_t total_rows, std::unique_ptr<TableFormatReader> inner_reader)
+            : CountReader(total_rows > 0 ? 1 : 0, 1, std::move(inner_reader)) {
+        DORIS_CHECK(total_rows >= 0);
+        DORIS_CHECK(this->inner_reader() != nullptr);
+        set_push_down_agg_type(TPushAggOp::type::PARTITION_VALUE);
+    }
 
 protected:
-    // No file is opened: everything this reader needs is already in the scan range.
-    Status _open_file_reader(ReaderInitContext* /*ctx*/) override { return Status::OK(); }
-
-    Status _do_init_reader(ReaderInitContext* /*ctx*/) override {
-        _emitted = false;
+    Status on_after_read_block(Block* block, size_t* read_rows) override {
+        if (*read_rows > 0) {
+            // CountReader supplies cardinality; the initialized reader owns typed partition values.
+            // Fill helpers append, so discard the default cells before materializing constants.
+            block->clear_column_data();
+            RETURN_IF_ERROR(static_cast<TableFormatReader*>(inner_reader())
+                                    ->fill_remaining_columns(block, *read_rows));
+        }
         return Status::OK();
     }
-
-    // Emit exactly one row (per scan range / data file) whose every column carries that range's
-    // partition column value. FileScanner only installs this reader when ALL requested columns are
-    // partition columns, so filling them is all that is needed to produce a complete row.
-    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override {
-        if (_emitted) {
-            *read_rows = 0;
-            *eof = true;
-            return Status::OK();
-        }
-        _emitted = true;
-
-        for (const ColumnDescriptor& col_desc : *_column_descs) {
-            auto value_it = _partition_col_descs->find(col_desc.name);
-            // FileScanner guards against this before installing the reader; stay defensive so an
-            // unexpected shape surfaces as a clear error instead of a silently short column.
-            if (value_it == _partition_col_descs->end()) {
-                return Status::InternalError("Partition column {} has no value from path",
-                                             col_desc.name);
-            }
-            auto idx_it = _col_name_to_block_idx->find(col_desc.name);
-            if (idx_it == _col_name_to_block_idx->end()) {
-                return Status::InternalError("Partition column {} not found in block",
-                                             col_desc.name);
-            }
-            bool explicit_null_marker = false;
-            auto null_it = _partition_value_is_null->find(col_desc.name);
-            if (null_it != _partition_value_is_null->end()) {
-                explicit_null_marker = null_it->second;
-            }
-            const auto& [value, slot_desc] = value_it->second;
-            auto column_guard = block->mutate_column_scoped(idx_it->second);
-            auto& col_ptr = column_guard.mutable_column();
-            RETURN_IF_ERROR(fill_partition_column_from_path_value(*col_ptr, *slot_desc, value, 1,
-                                                                  explicit_null_marker));
-        }
-
-        *read_rows = 1;
-        *eof = true;
-        return Status::OK();
-    }
-
-    Status close() override { return Status::OK(); }
-
-private:
-    const std::vector<ColumnDescriptor>* _column_descs = nullptr;
-    const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>*
-            _partition_col_descs = nullptr;
-    const std::unordered_map<std::string, bool>* _partition_value_is_null = nullptr;
-    const std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
-
-    bool _emitted = false;
 };
 
-#include "common/compile_check_end.h"
 } // namespace doris

@@ -1053,38 +1053,6 @@ Status FileScanner::_get_next_reader() {
             }
         }
 
-        // partition_column_value_only optimization:
-        // when the pushed-down aggregation only depends on partition columns, we do not open any
-        // data file. Each scan range simply emits one row carrying its partition column values,
-        // which PartitionColumnReader fills from `_partition_col_descs` (itself derived from the
-        // range's `columns_from_path`). This is placed after _generate_partition_columns() and
-        // runtime filter partition pruning, so pruned ranges are already skipped above.
-        //
-        // Guard: only take this fast path when EVERY requested column is a partition column whose
-        // value this range actually carries. Otherwise fall back to the normal per-format reader, so
-        // an unexpected non-partition column (or a partition value missing from the path) can only
-        // cost performance, never produce a wrong result.
-        if (_get_push_down_agg_type() == TPushAggOp::type::PARTITION_VALUE &&
-            !_partition_col_descs.empty() && _file_slot_descs.empty() &&
-            std::all_of(_column_descs.begin(), _column_descs.end(),
-                        [this](const ColumnDescriptor& col_desc) {
-                            return col_desc.category == ColumnCategory::PARTITION_KEY &&
-                                   _partition_col_descs.contains(col_desc.name);
-                        })) {
-            auto partition_reader = std::make_unique<PartitionColumnReader>(
-                    &_column_descs, &_partition_col_descs, &_partition_value_is_null,
-                    &_src_block_name_to_idx);
-            ReaderInitContext partition_ctx;
-            partition_ctx.push_down_agg_type = TPushAggOp::type::PARTITION_VALUE;
-            partition_ctx.state = _state;
-            partition_ctx.params = _params;
-            partition_ctx.range = &_current_range;
-            RETURN_IF_ERROR(partition_reader->init_reader(&partition_ctx));
-            _cur_reader = std::move(partition_reader);
-            _cur_reader_eof = false;
-            return Status::OK();
-        }
-
         // create reader for specific format
         Status init_status = Status::OK();
         TFileFormatType::type format_type = _get_current_format_type();
@@ -1340,6 +1308,27 @@ Status FileScanner::_get_next_reader() {
             } else if (!status.ok()) {
                 return Status::InternalError("failed to set_fill_or_truncate_columns, err: {}",
                                              status.to_string());
+            }
+        }
+
+        // A partition value is an input row only when the real footer proves nonemptiness.
+        // Restrict V1 to whole ordinary Hive files: other table formats can hide physical rows
+        // through deletes, and the actual partition format can differ from the table default.
+        if (_get_push_down_agg_type() == TPushAggOp::type::PARTITION_VALUE &&
+            PartitionColumnReader::supports_range(range, format_type) &&
+            !_partition_col_descs.empty() && _file_slot_descs.empty() && _conjuncts.empty() &&
+            _applied_rf_num == _total_rf_num && !_cur_reader->has_delete_operations() &&
+            _cur_reader->supports_count_pushdown() &&
+            std::all_of(_column_descs.begin(), _column_descs.end(),
+                        [this](const ColumnDescriptor& col_desc) {
+                            return col_desc.category == ColumnCategory::PARTITION_KEY &&
+                                   _partition_col_descs.contains(col_desc.name);
+                        })) {
+            const auto total_rows = _cur_reader->get_total_rows();
+            if (total_rows >= 0) {
+                auto* table_reader = assert_cast<TableFormatReader*>(_cur_reader.release());
+                _cur_reader = std::make_unique<PartitionColumnReader>(
+                        total_rows, std::unique_ptr<TableFormatReader>(table_reader));
             }
         }
 

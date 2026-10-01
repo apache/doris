@@ -1360,6 +1360,7 @@ struct FakeFileReaderState {
     int open_count = 0;
     int close_count = 0;
     int refresh_count = 0;
+    int read_count = 0;
     int64_t total_rows = 2;
     int64_t aggregate_count = -1;
     int64_t condition_cache_base_granule = 0;
@@ -1421,6 +1422,7 @@ public:
     }
 
     Status get_block(Block* file_block, size_t* rows, bool* eof) override {
+        ++_state->read_count;
         DORIS_CHECK(file_block != nullptr);
         DORIS_CHECK(rows != nullptr);
         DORIS_CHECK(eof != nullptr);
@@ -2395,6 +2397,267 @@ TEST(TableReaderTest, AbortSplitClearsReaderAfterIgnorableNotFound) {
     ASSERT_TRUE(reader.close().ok());
 }
 
+TEST(TableReaderTest, PartitionValueReadsRealParquetFootersAndPropagatesErrors) {
+    const doris::test::ScopedTempDirectory test_dir("doris_partition_value_footer_test");
+    const auto empty_path = (test_dir.path() / "empty.parquet").string();
+    const auto nonempty_path = (test_dir.path() / "nonempty.parquet").string();
+    const auto corrupt_path = (test_dir.path() / "corrupt.parquet").string();
+    const auto missing_path = (test_dir.path() / "missing.parquet").string();
+    write_int_pair_parquet_file(empty_path, {}, {}, {}, 1);
+    write_int_pair_parquet_file(nonempty_path, {1, 2}, {10, 20}, {"one", "two"}, 1);
+    {
+        std::ofstream output(corrupt_path, std::ios::binary);
+        output << "not a valid parquet footer";
+    }
+    ASSERT_GT(std::filesystem::file_size(empty_path), 0);
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    std::vector<ColumnDefinition> columns {make_table_column(0, "part", int_type)};
+    columns[0].is_partition_key = true;
+    set_name_identifiers(&columns);
+    for (const auto& path : {empty_path, nonempty_path, corrupt_path, missing_path}) {
+        SCOPED_TRACE(path);
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        TableReader reader;
+        ASSERT_TRUE(reader.init({.projected_columns = columns,
+                                 .conjuncts = {},
+                                 .format = FileFormat::PARQUET,
+                                 .scan_params = nullptr,
+                                 .io_ctx = nullptr,
+                                 .runtime_state = &state,
+                                 .scanner_profile = nullptr,
+                                 .push_down_agg_type = TPushAggOp::type::PARTITION_VALUE})
+                            .ok());
+        SplitReadOptions split;
+        split.current_range.__set_path(path);
+        TTableFormatFileDesc table_format;
+        table_format.__set_table_format_type("hive");
+        split.current_range.__set_table_format_params(table_format);
+        split.partition_values.emplace("part", Field::create_field<TYPE_INT>(7));
+        ASSERT_TRUE(reader.prepare_split(split).ok());
+        Block block = build_table_block(columns);
+        bool eos = false;
+        const auto status = reader.get_block(&block, &eos);
+        if (path == missing_path) {
+            EXPECT_TRUE(status.is<ErrorCode::NOT_FOUND>()) << status;
+            EXPECT_EQ(block.rows(), 0);
+        } else if (path == corrupt_path) {
+            EXPECT_FALSE(status.ok());
+            EXPECT_EQ(block.rows(), 0);
+        } else {
+            ASSERT_TRUE(status.ok()) << status;
+            EXPECT_EQ(block.rows(), path == empty_path ? 0 : 1);
+            if (path == nonempty_path) {
+                EXPECT_EQ(block.get_by_position(0).column->get_int(0), 7);
+            }
+            ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+            EXPECT_TRUE(eos);
+            EXPECT_EQ(block.rows(), 0);
+        }
+        ASSERT_TRUE(reader.close().ok());
+    }
+}
+
+TEST(TableReaderTest, PartitionValueUsesOnlySelectedParquetRangeRows) {
+    const doris::test::ScopedTempDirectory test_dir("doris_partition_value_range_test");
+    const auto path = (test_dir.path() / "ranges.parquet").string();
+    write_int_pair_parquet_file(path, {1, 2, 3, 4}, {10, 20, 30, 40},
+                                {"one", "two", "three", "four"}, 2);
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    std::vector<ColumnDefinition> columns {make_table_column(0, "part", int_type)};
+    columns[0].is_partition_key = true;
+    set_name_identifiers(&columns);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    TableReader reader;
+    ASSERT_TRUE(reader.init({.projected_columns = columns,
+                             .conjuncts = {},
+                             .format = FileFormat::PARQUET,
+                             .scan_params = nullptr,
+                             .io_ctx = nullptr,
+                             .runtime_state = &state,
+                             .scanner_profile = nullptr,
+                             .push_down_agg_type = TPushAggOp::type::PARTITION_VALUE})
+                        .ok());
+    for (int row_group = -1; row_group < 2; ++row_group) {
+        SCOPED_TRACE(row_group);
+        auto split = row_group < 0 ? build_split_options(path)
+                                   : build_split_options_for_row_group_mid(path, row_group);
+        if (row_group < 0) {
+            split.current_range.__set_start_offset(0);
+            split.current_range.__set_size(1);
+        }
+        TTableFormatFileDesc table_format;
+        table_format.__set_table_format_type("hive");
+        split.current_range.__set_table_format_params(table_format);
+        split.partition_values.emplace("part", Field::create_field<TYPE_INT>(7));
+        ASSERT_TRUE(reader.prepare_split(split).ok());
+        Block block = build_table_block(columns);
+        bool eos = false;
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        EXPECT_EQ(block.rows(), row_group < 0 ? 0 : 1);
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        EXPECT_TRUE(eos);
+        EXPECT_EQ(block.rows(), 0);
+    }
+    ASSERT_TRUE(reader.close().ok());
+}
+
+TEST(TableReaderTest, PartitionValueUsesFooterAndPreservesNullPartition) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto nullable_int_type = make_nullable(int_type);
+    std::vector<ColumnDefinition> projected_columns {
+            make_table_column(0, "part", int_type),
+            make_table_column(1, "null_part", nullable_int_type)};
+    for (auto& column : projected_columns) {
+        column.is_partition_key = true;
+    }
+    set_name_identifiers(&projected_columns);
+
+    for (const auto format : {FileFormat::PARQUET, FileFormat::ORC}) {
+        for (const int64_t footer_rows : {0, 17}) {
+            RuntimeState state {TQueryOptions(), TQueryGlobals()};
+            auto fake_state = std::make_shared<FakeFileReaderState>();
+            fake_state->aggregate_count = footer_rows;
+            FakeTableReader reader({make_file_column(0, "id", int_type)}, fake_state);
+            ASSERT_TRUE(reader.init({.projected_columns = projected_columns,
+                                     .conjuncts = {},
+                                     .format = format,
+                                     .scan_params = nullptr,
+                                     .io_ctx = nullptr,
+                                     .runtime_state = &state,
+                                     .scanner_profile = nullptr,
+                                     .push_down_agg_type = TPushAggOp::type::PARTITION_VALUE})
+                                .ok());
+            SplitReadOptions split;
+            split.current_split_format = format;
+            split.current_range.__set_path("nonzero-size-file-with-footer");
+            split.current_range.__set_file_size(1024);
+            TTableFormatFileDesc table_format;
+            table_format.__set_table_format_type("hive");
+            table_format.__set_table_level_row_count(999);
+            split.current_range.__set_table_format_params(table_format);
+            split.partition_values.emplace("part", Field::create_field<TYPE_INT>(7));
+            split.partition_values.emplace("null_part", Field::create_field<TYPE_NULL>(Null()));
+            ASSERT_TRUE(reader.prepare_split(split).ok());
+
+            Block block = build_table_block(projected_columns);
+            bool eos = false;
+            ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+            EXPECT_EQ(block.rows(), footer_rows > 0 ? 1 : 0);
+            ASSERT_TRUE(block.check_type_and_column().ok());
+            if (footer_rows > 0) {
+                EXPECT_EQ(block.get_by_position(0).column->get_int(0), 7);
+                EXPECT_TRUE(block.get_by_position(1).column->is_null_at(0));
+            }
+            ASSERT_TRUE(fake_state->last_aggregate_request.has_value());
+            EXPECT_EQ(fake_state->last_aggregate_request->agg_type, TPushAggOp::type::COUNT);
+            EXPECT_TRUE(fake_state->last_aggregate_request->columns.empty());
+            EXPECT_EQ(fake_state->init_count, 1);
+            EXPECT_EQ(fake_state->open_count, 1);
+            EXPECT_EQ(fake_state->read_count, 0);
+            EXPECT_EQ(fake_state->close_count, 1);
+            ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+            EXPECT_TRUE(eos);
+            EXPECT_EQ(block.rows(), 0);
+        }
+    }
+}
+
+TEST(TableReaderTest, PartitionValueFallsBackWithoutSafeFooterProof) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    std::vector<ColumnDefinition> projected_columns {make_table_column(0, "part", int_type)};
+    projected_columns[0].is_partition_key = true;
+    set_name_identifiers(&projected_columns);
+    struct Scenario {
+        FileFormat format;
+        std::string table_format;
+        int64_t aggregate_count;
+        bool pending_filter = false;
+        bool delete_conjunct = false;
+        bool physical_projection = false;
+    };
+    const std::vector<Scenario> scenarios {{FileFormat::CSV, "hive", 17},
+                                           {FileFormat::TEXT, "hive", 17},
+                                           {FileFormat::JSON, "hive", 17},
+                                           {FileFormat::ORC, "transactional_hive", 17},
+                                           {FileFormat::PARQUET, "hudi", 17},
+                                           {FileFormat::PARQUET, "iceberg", 17},
+                                           {FileFormat::PARQUET, "hive", -1},
+                                           {FileFormat::PARQUET, "hive", 17, true},
+                                           {FileFormat::ORC, "hive", 17, false, true},
+                                           {FileFormat::PARQUET, "hive", 17, false, false, true}};
+    for (const auto& scenario : scenarios) {
+        SCOPED_TRACE(scenario.table_format);
+        RuntimeState state {TQueryOptions(), TQueryGlobals()};
+        auto fake_state = std::make_shared<FakeFileReaderState>();
+        fake_state->aggregate_count = scenario.aggregate_count;
+        fake_state->inject_delete_conjunct = scenario.delete_conjunct;
+        auto columns = projected_columns;
+        columns[0].is_partition_key = !scenario.physical_projection;
+        FakeTableReader reader({make_file_column(0, "part", int_type)}, fake_state);
+        ASSERT_TRUE(reader.init({.projected_columns = columns,
+                                 .conjuncts = {},
+                                 .format = FileFormat::PARQUET,
+                                 .scan_params = nullptr,
+                                 .io_ctx = nullptr,
+                                 .runtime_state = &state,
+                                 .scanner_profile = nullptr,
+                                 .push_down_agg_type = TPushAggOp::type::PARTITION_VALUE})
+                            .ok());
+        SplitReadOptions split;
+        split.current_split_format = scenario.format;
+        split.current_range.__set_path("fallback-input");
+        TTableFormatFileDesc table_format;
+        table_format.__set_table_format_type(scenario.table_format);
+        split.current_range.__set_table_format_params(table_format);
+        split.partition_values.emplace("part", Field::create_field<TYPE_INT>(7));
+        split.all_runtime_filters_applied = !scenario.pending_filter;
+        ASSERT_TRUE(reader.prepare_split(split).ok());
+        Block block = build_table_block(columns);
+        bool eos = false;
+        ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+        EXPECT_EQ(block.rows(), 2);
+        EXPECT_EQ(fake_state->read_count, 1);
+        EXPECT_FALSE(fake_state->last_aggregate_request.has_value());
+        ASSERT_TRUE(reader.close().ok());
+    }
+}
+
+TEST(TableReaderTest, PartitionValueDoesNotHideMissingFile) {
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    std::vector<ColumnDefinition> columns {make_table_column(0, "part", int_type)};
+    columns[0].is_partition_key = true;
+    set_name_identifiers(&columns);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->aggregate_count = 17;
+    fake_state->not_found_during_init = true;
+    FakeTableReader reader({make_file_column(0, "id", int_type)}, fake_state);
+    ASSERT_TRUE(reader.init({.projected_columns = columns,
+                             .conjuncts = {},
+                             .format = FileFormat::PARQUET,
+                             .scan_params = nullptr,
+                             .io_ctx = nullptr,
+                             .runtime_state = &state,
+                             .scanner_profile = nullptr,
+                             .push_down_agg_type = TPushAggOp::type::PARTITION_VALUE})
+                        .ok());
+    SplitReadOptions split;
+    split.current_range.__set_path("missing-input");
+    TTableFormatFileDesc table_format;
+    table_format.__set_table_format_type("hive");
+    split.current_range.__set_table_format_params(table_format);
+    split.partition_values.emplace("part", Field::create_field<TYPE_INT>(7));
+    ASSERT_TRUE(reader.prepare_split(split).ok());
+    Block block = build_table_block(columns);
+    bool eos = false;
+    const auto status = reader.get_block(&block, &eos);
+    EXPECT_TRUE(status.is<ErrorCode::NOT_FOUND>()) << status;
+    EXPECT_EQ(block.rows(), 0);
+    EXPECT_EQ(fake_state->init_count, 1);
+    EXPECT_FALSE(fake_state->last_aggregate_request.has_value());
+    ASSERT_TRUE(reader.close().ok());
+}
+
 TEST(TableReaderTest, PushDownCountRecordsReaderRowsBeforeClosingReader) {
     const auto nullable_int_type = make_nullable(std::make_shared<DataTypeInt32>());
     std::vector<ColumnDefinition> file_schema;
@@ -2839,10 +3102,11 @@ TEST(TableReaderTest, DebugStringCoversReaderStateAndEnumNames) {
                   std::string::npos);
     }
 
-    const std::vector<TPushAggOp::type> agg_ops {TPushAggOp::type::NONE, TPushAggOp::type::MINMAX,
-                                                 TPushAggOp::type::MIX,
-                                                 TPushAggOp::type::COUNT_ON_INDEX};
-    const std::vector<std::string> agg_names {"NONE", "MINMAX", "MIX", "COUNT_ON_INDEX"};
+    const std::vector<TPushAggOp::type> agg_ops {
+            TPushAggOp::type::NONE, TPushAggOp::type::MINMAX, TPushAggOp::type::MIX,
+            TPushAggOp::type::COUNT_ON_INDEX, TPushAggOp::type::PARTITION_VALUE};
+    const std::vector<std::string> agg_names {"NONE", "MINMAX", "MIX", "COUNT_ON_INDEX",
+                                              "PARTITION_VALUE"};
     for (size_t idx = 0; idx < agg_ops.size(); ++idx) {
         TableReader enum_reader;
         ASSERT_TRUE(enum_reader

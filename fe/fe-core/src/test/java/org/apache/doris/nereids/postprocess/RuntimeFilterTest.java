@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.postprocess;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.datasets.ssb.SSBTestBase;
@@ -29,6 +30,10 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
+import org.apache.doris.nereids.processor.post.RuntimeFilterPruner;
+import org.apache.doris.nereids.properties.DataTrait;
+import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -44,13 +49,24 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
+import org.apache.doris.nereids.trees.plans.PartitionTopnPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.WindowFuncType;
+import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.memo.GroupId;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
@@ -66,6 +82,8 @@ import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMultimap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -86,6 +104,92 @@ public class RuntimeFilterTest extends SSBTestBase {
         connectContext.getSessionVariable().setEnableRuntimeFilterPrune(false);
         connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = false;
         connectContext.getSessionVariable().setDisableJoinReorder(true);
+    }
+
+    /** A real leaf for pruner unit tests: a mock returns null logical properties and NPEs. */
+    private static GroupPlan newGroupPlan(SlotReference output) {
+        return new GroupPlan(new Group(GroupId.createGenerator().getNextId(),
+                new LogicalProperties(() -> ImmutableList.of(output), () -> DataTrait.EMPTY_TRAIT)));
+    }
+
+    @Test
+    public void testPartitionTopNRequiresRealRowBound() {
+        SlotReference key = new SlotReference("key", IntegerType.INSTANCE);
+        for (WindowFuncType function : WindowFuncType.values()) {
+            for (boolean partitioned : new boolean[] {false, true}) {
+                for (boolean globalLimit : new boolean[] {false, true}) {
+                    CascadesContext context = MemoTestUtils.createCascadesContext(connectContext, "select 1");
+                    GroupPlan scan = newGroupPlan(key);
+                    PhysicalPartitionTopN<GroupPlan> topN = new PhysicalPartitionTopN<>(function,
+                            partitioned ? ImmutableList.of(key) : ImmutableList.of(),
+                            ImmutableList.of(new OrderKey(key, true, false)), globalLimit, 1,
+                            PartitionTopnPhase.ONE_PHASE_GLOBAL_PTOPN, scan.getLogicalProperties(), scan);
+                    topN.accept(new RuntimeFilterPruner(), context);
+                    boolean bounded = globalLimit || (!partitioned && function == WindowFuncType.ROW_NUMBER);
+                    Assertions.assertEquals(bounded, context.getRuntimeFilterContext().isEffectiveSrcNode(topN),
+                            function + ", partitioned=" + partitioned + ", globalLimit=" + globalLimit);
+                    if (bounded) {
+                        Assertions.assertEquals(RuntimeFilterContext.EffectiveSrcType.NATIVE,
+                                context.getRuntimeFilterContext().getEffectiveSrcType(topN));
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testUnboundedPartitionTopNInheritsEffectiveChild() {
+        SlotReference key = new SlotReference("key", IntegerType.INSTANCE);
+        for (WindowFuncType function : WindowFuncType.values()) {
+            for (RuntimeFilterContext.EffectiveSrcType sourceType : RuntimeFilterContext.EffectiveSrcType.values()) {
+                CascadesContext context = MemoTestUtils.createCascadesContext(connectContext, "select 1");
+                GroupPlan scan = newGroupPlan(key);
+                context.getRuntimeFilterContext().addEffectiveSrcNode(scan, sourceType);
+                PhysicalPartitionTopN<GroupPlan> topN = new PhysicalPartitionTopN<>(function,
+                        ImmutableList.of(key), ImmutableList.of(new OrderKey(key, true, false)), false, 1,
+                        PartitionTopnPhase.ONE_PHASE_GLOBAL_PTOPN, scan.getLogicalProperties(), scan);
+                topN.accept(new RuntimeFilterPruner(), context);
+                Assertions.assertEquals(sourceType, context.getRuntimeFilterContext().getEffectiveSrcType(topN));
+            }
+        }
+    }
+
+    @Test
+    public void testCteConsumerPreservesNativeProducerEffectiveness() {
+        CascadesContext context = MemoTestUtils.createCascadesContext(connectContext, "select 1");
+        RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
+        CTEId cteId = new CTEId(1);
+        SlotReference producerSlot = new SlotReference("producer_key", IntegerType.INSTANCE);
+        SlotReference consumerSlot = new SlotReference("consumer_key", IntegerType.INSTANCE);
+        GroupPlan scan = newGroupPlan(producerSlot);
+        PhysicalLimit<GroupPlan> limit =
+                new PhysicalLimit<>(1, 0, LimitPhase.GLOBAL, scan.getLogicalProperties(), scan);
+        PhysicalCTEProducer<PhysicalLimit<GroupPlan>> producer = new PhysicalCTEProducer<>(cteId, null, limit);
+        PhysicalCTEConsumer consumer = new PhysicalCTEConsumer(new RelationId(1), cteId,
+                ImmutableMap.of(consumerSlot, producerSlot), ImmutableMultimap.of(producerSlot, consumerSlot), null);
+        rfContext.setTargetsOnScanNode(consumer, consumerSlot);
+        rfContext.getTargetExprIdToFilter().put(consumerSlot.getExprId(),
+                ImmutableList.of(Mockito.mock(RuntimeFilter.class)));
+        PhysicalCTEAnchor<PhysicalCTEProducer<PhysicalLimit<GroupPlan>>, PhysicalCTEConsumer> anchor =
+                new PhysicalCTEAnchor<>(cteId, null, producer, consumer);
+        RuntimeFilterPruner pruner = new RuntimeFilterPruner();
+        anchor.accept(pruner, context);
+        Assertions.assertEquals(RuntimeFilterContext.EffectiveSrcType.NATIVE, rfContext.getEffectiveSrcType(producer));
+        Assertions.assertEquals(RuntimeFilterContext.EffectiveSrcType.NATIVE, rfContext.getEffectiveSrcType(consumer));
+
+        PhysicalCTEConsumer secondConsumer = new PhysicalCTEConsumer(new RelationId(2), cteId,
+                ImmutableMap.of(consumerSlot, producerSlot), ImmutableMultimap.of(producerSlot, consumerSlot), null);
+        secondConsumer.accept(pruner, context);
+        Assertions.assertEquals(RuntimeFilterContext.EffectiveSrcType.NATIVE,
+                rfContext.getEffectiveSrcType(secondConsumer));
+        PhysicalCTEConsumer unrelatedConsumer = new PhysicalCTEConsumer(new RelationId(3), new CTEId(2),
+                ImmutableMap.of(consumerSlot, producerSlot), ImmutableMultimap.of(producerSlot, consumerSlot), null);
+        unrelatedConsumer.accept(pruner, context);
+        Assertions.assertFalse(rfContext.isEffectiveSrcNode(unrelatedConsumer));
+        rfContext.setTargetsOnScanNode(unrelatedConsumer, consumerSlot);
+        unrelatedConsumer.accept(pruner, context);
+        Assertions.assertEquals(RuntimeFilterContext.EffectiveSrcType.REF,
+                rfContext.getEffectiveSrcType(unrelatedConsumer));
     }
 
     @Test

@@ -152,13 +152,12 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             return doPlanScan(session, request);
         }
         // Statement-scoped reuse: within one statement the identical scan (same table, same
-        // partition set, same formats) plans once and every duplicated relation shares the result.
-        // The scope is NONE for offline planning and tests, in which case the loader runs on every
-        // call. Session variables are constant within a statement and deliberately absent.
+        // partition set, formats and effective split size) plans once and every duplicated relation shares it.
+        // The scope is NONE for offline planning and tests, in which case the loader runs on every call.
         String memoKey = SCAN_REUSE_NAMESPACE + ":" + session.getCatalogId() + ":" + session.getQueryId();
         Map<HiveScanReuseKey, List<ConnectorScanRange>> scanReuse = session.getStatementScope().computeIfAbsent(
                 memoKey, () -> new ConcurrentHashMap<>());
-        HiveScanReuseKey reuseKey = new HiveScanReuseKey(hiveHandle);
+        HiveScanReuseKey reuseKey = new HiveScanReuseKey(hiveHandle, getTargetSplitSize(session, request));
         AtomicReference<List<ConnectorScanRange>> uncached = new AtomicReference<>();
         List<ConnectorScanRange> cached = scanReuse.computeIfAbsent(reuseKey, key -> {
             PlanCompleteness completeness = new PlanCompleteness();
@@ -797,17 +796,9 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         return builder;
     }
 
-    /**
-     * The BE-facing split size for this scan, or {@code 0} to mean "do not split".
-     *
-     * <p>{@code 0} short-circuits {@link #splitFile} into emitting ONE range per file. That is what a
-     * PARTITION_VALUE scan wants: BE emits one row of partition values per scan range and never opens the
-     * file, so splitting one file into N ranges only yields N identical rows (harmless for min/max, but
-     * N times the scan ranges and scheduler work). This mirrors legacy {@code HiveScanNode}, which set
-     * {@code needSplit=false} for the same pushdown op.</p>
-     */
+    /** The split size, or zero to avoid repeated footer checks for partition-value-only scans. */
     private long getTargetSplitSize(ConnectorSession session, ConnectorScanRequest request) {
-        if (request != null && request.isPartitionValuePushdown()) {
+        if (request.isPartitionValuePushdown()) {
             return 0;
         }
         String splitSizeStr = session.getProperty(
@@ -948,9 +939,9 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
      * Statement-scoped cache key for one Hive scan.
      *
      * <p>Includes every input that changes the planned split list: table identity, the file formats
-     * (input format / serialization lib / JSON single-column gate), the partition keys and the
-     * pruned partition set (each partition's location and values). ACID tables are excluded
-     * upstream, and session variables are statement-constant, so both stay out of the key.
+     * (input format / serialization lib / JSON single-column gate), the effective split size, partition
+     * keys and pruned partition set (each partition's location and values). ACID tables are excluded
+     * upstream; other session variables are statement-constant.
      */
     private static final class HiveScanReuseKey {
         private final String dbName;
@@ -961,8 +952,9 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         private final boolean firstColumnIsString;
         private final List<String> partitionKeyNames;
         private final List<HmsPartitionInfo> prunedPartitions;
+        private final long targetSplitSize;
 
-        private HiveScanReuseKey(HiveTableHandle handle) {
+        private HiveScanReuseKey(HiveTableHandle handle, long targetSplitSize) {
             // Catalog and query isolation are provided by the statement-scope memo key. The table
             // location identifies the data source of unpartitioned tables, whose prunedPartitions
             // is null.
@@ -978,6 +970,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             this.prunedPartitions = handle.getPrunedPartitions() == null
                     ? null
                     : Collections.unmodifiableList(new ArrayList<>(handle.getPrunedPartitions()));
+            this.targetSplitSize = targetSplitSize;
         }
 
         @Override
@@ -990,6 +983,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
             }
             HiveScanReuseKey that = (HiveScanReuseKey) object;
             return firstColumnIsString == that.firstColumnIsString
+                    && targetSplitSize == that.targetSplitSize
                     && Objects.equals(dbName, that.dbName)
                     && Objects.equals(tableName, that.tableName)
                     && Objects.equals(location, that.location)
@@ -1003,7 +997,7 @@ public class HiveScanPlanProvider implements ConnectorScanPlanProvider {
         public int hashCode() {
             return Objects.hash(dbName, tableName, location,
                     inputFormat, serializationLib, firstColumnIsString,
-                    partitionKeyNames, prunedPartitions);
+                    partitionKeyNames, prunedPartitions, targetSplitSize);
         }
 
         @Override

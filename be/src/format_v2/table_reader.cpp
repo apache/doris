@@ -127,6 +127,8 @@ std::string push_down_agg_to_string(TPushAggOp::type op) {
         return "MIX";
     case TPushAggOp::COUNT_ON_INDEX:
         return "COUNT_ON_INDEX";
+    case TPushAggOp::PARTITION_VALUE:
+        return "PARTITION_VALUE";
     }
     return "UNKNOWN";
 }

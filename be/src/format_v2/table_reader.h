@@ -1081,6 +1081,11 @@ protected:
             if (_remaining_file_level_count > 0) {
                 RETURN_IF_ERROR(_materialize_next_count_batch(&_remaining_file_level_count, block));
             }
+        } else if (_push_down_agg_type == TPushAggOp::type::PARTITION_VALUE) {
+            DORIS_CHECK(file_result.count >= 0);
+            if (file_result.count > 0) {
+                RETURN_IF_ERROR(finalize_chunk(block, 1));
+            }
         } else {
             RETURN_IF_ERROR(
                     _materialize_aggregate_pushdown_rows(_push_down_agg_type, file_result, block));
@@ -1091,8 +1096,8 @@ protected:
     }
 
     virtual bool _supports_aggregate_pushdown(TPushAggOp::type agg_type) const {
-        // Only COUNT and MIN/MAX can be push down.
-        if (agg_type != TPushAggOp::type::COUNT && agg_type != TPushAggOp::type::MINMAX) {
+        if (agg_type != TPushAggOp::type::COUNT && agg_type != TPushAggOp::type::MINMAX &&
+            agg_type != TPushAggOp::type::PARTITION_VALUE) {
             return false;
         }
         // Aggregate pushdown returns reduced synthetic rows and may close the physical reader
@@ -1118,6 +1123,19 @@ protected:
         }
         if (!_table_filters.empty()) {
             return false;
+        }
+        if (agg_type == TPushAggOp::type::PARTITION_VALUE) {
+            DORIS_CHECK(_file_scan_request != nullptr);
+            if (!_current_file_range_desc.__isset.table_format_params ||
+                _current_file_range_desc.table_format_params.table_format_type != "hive" ||
+                (_format != FileFormat::PARQUET && _format != FileFormat::ORC) ||
+                _projected_columns.empty() || !_file_scan_request->delete_conjuncts.empty()) {
+                return false;
+            }
+            return std::ranges::all_of(_projected_columns, [this](const auto& column) {
+                return column.is_partition_key &&
+                       find_partition_value(column, _partition_values) != nullptr;
+            });
         }
         if (agg_type == TPushAggOp::type::COUNT) {
             // Old FEs do not serialize push_down_count_slot_ids. During the supported BE-first
@@ -2090,6 +2108,10 @@ protected:
         DORIS_CHECK(_supports_aggregate_pushdown(agg_type));
         request->agg_type = agg_type;
         request->columns.clear();
+        if (agg_type == TPushAggOp::type::PARTITION_VALUE) {
+            request->agg_type = TPushAggOp::type::COUNT;
+            return Status::OK();
+        }
         if (agg_type == TPushAggOp::type::COUNT) {
             DORIS_CHECK(_push_down_count_columns.has_value());
             // An empty explicit list is the semantic signal for COUNT(*). Do not inspect the

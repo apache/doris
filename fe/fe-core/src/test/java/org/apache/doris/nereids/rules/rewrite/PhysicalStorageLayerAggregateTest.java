@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Index;
@@ -24,20 +25,32 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
+import org.apache.doris.nereids.trees.TableSample;
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -60,11 +73,15 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.Collections;
+import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSupported {
@@ -177,6 +194,225 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
         PlanChecker.from(MemoTestUtils.createCascadesContext(mixedCount))
                 .applyImplementation(storageLayerAggregateWithoutProjectForFileScan())
                 .nonMatch(physicalStorageLayerAggregate());
+    }
+
+    @Test
+    public void testPartitionValueMinMaxAndGrouping() {
+        for (boolean projected : new boolean[] {false, true}) {
+            for (boolean filtered : new boolean[] {false, true}) {
+                LogicalFileScan scan = newPartitionFileScan(Optional.empty());
+                Slot partition = scan.getOutput().get(1);
+                Slot secondPartition = scan.getOutput().get(2);
+                Plan child = partitionScanChild(scan, projected, filtered);
+                checkPartitionValue(new LogicalAggregate<>(ImmutableList.of(),
+                        ImmutableList.of(new Alias(new Min(partition)), new Alias(new Max(partition))),
+                        true, Optional.empty(), child), true, true);
+                checkPartitionValue(new LogicalAggregate<>(ImmutableList.of(partition),
+                        ImmutableList.of(partition), true, Optional.empty(), child), true, true);
+                checkPartitionValue(new LogicalAggregate<>(ImmutableList.of(partition),
+                        ImmutableList.of(partition, new Alias(new Max(secondPartition))),
+                        true, Optional.empty(), child), true, true);
+                checkPartitionValue(new LogicalAggregate<>(ImmutableList.of(),
+                        ImmutableList.of(new Alias(new Max(new IntegerLiteral(1)))),
+                        true, Optional.empty(), child), true, true);
+            }
+        }
+    }
+
+    @Test
+    public void testPartitionValueRejectsCardinalitySensitiveAggregates() {
+        for (boolean projected : new boolean[] {false, true}) {
+            for (boolean filtered : new boolean[] {false, true}) {
+                LogicalFileScan scan = newPartitionFileScan(Optional.empty());
+                Slot partition = scan.getOutput().get(1);
+                Plan child = partitionScanChild(scan, projected, filtered);
+                for (Expression function : ImmutableList.of(new Count(), new Count(partition),
+                        new Count(true, partition), new Sum(partition))) {
+                    checkPartitionValue(new LogicalAggregate<>(ImmutableList.of(),
+                            ImmutableList.of(new Alias(function)), true, Optional.empty(), child), false, true);
+                }
+                checkPartitionValue(new LogicalAggregate<>(ImmutableList.of(),
+                        ImmutableList.of(new Alias(new Max(partition)), new Alias(new Count())),
+                        true, Optional.empty(), child), false, true);
+            }
+        }
+    }
+
+    @Test
+    public void testPartitionValueRejectsDataSlotsSampleAndDisabledCapability() {
+        for (boolean projected : new boolean[] {false, true}) {
+            for (boolean filtered : new boolean[] {false, true}) {
+                LogicalFileScan scan = newPartitionFileScan(Optional.empty());
+                Slot partition = scan.getOutput().get(1);
+                LogicalFileScan fullScan = scan.withOperativeSlots(scan.getOutput());
+                checkPartitionValue(new LogicalAggregate<>(ImmutableList.of(partition),
+                        ImmutableList.of(partition), true, Optional.empty(),
+                        partitionScanChild(fullScan, projected, filtered)), false, true);
+                LogicalFileScan sampled = newPartitionFileScan(Optional.of(new TableSample(50L, true, 7L)));
+                checkPartitionValue(partitionMax(sampled, projected, filtered), false, true);
+                checkPartitionValue(partitionMax(scan, projected, filtered), false, false);
+                PluginDrivenExternalTable table = (PluginDrivenExternalTable) scan.getTable();
+                Mockito.when(table.supportsPartitionValueOnly()).thenReturn(false);
+                checkPartitionValue(partitionMax(scan, projected, filtered), false, true);
+                Mockito.when(table.supportsPartitionValueOnly()).thenReturn(true);
+                Mockito.when(table.getPartitionColumns(Mockito.any())).thenReturn(ImmutableList.of());
+                checkPartitionValue(partitionMax(scan, projected, filtered), false, true);
+            }
+        }
+    }
+
+    @Test
+    public void testPartitionValueRejectsVolatileAndNoneMovableExpressions() {
+        for (boolean filtered : new boolean[] {false, true}) {
+            LogicalFileScan scan = newPartitionFileScan(Optional.empty());
+            Slot partition = scan.getOutput().get(1);
+            Plan child = partitionScanChild(scan, false, filtered);
+            List<Expression> unsafe = ImmutableList.of(new Add(partition, new Random()),
+                    new AssertTrue(new GreaterThan(partition, new IntegerLiteral(0)), new VarcharLiteral("invalid")));
+            for (Expression expression : unsafe) {
+                checkPartitionValue(new LogicalAggregate<>(ImmutableList.of(),
+                        ImmutableList.of(new Alias(new Max(expression))), true, Optional.empty(), child), false, true);
+                checkPartitionValue(new LogicalAggregate<>(ImmutableList.of(expression),
+                        ImmutableList.of(new Alias(expression)), true, Optional.empty(), child), false, true);
+                Alias alias = new Alias(expression, "projected");
+                LogicalProject<Plan> project = new LogicalProject<>(ImmutableList.of(alias), child);
+                checkPartitionValue(new LogicalAggregate<>(ImmutableList.of(),
+                        ImmutableList.of(new Alias(new Max(alias.toSlot()))),
+                        true, Optional.empty(), project), false, true);
+            }
+            Alias deterministic = new Alias(new Add(partition, new IntegerLiteral(1)), "projected");
+            checkPartitionValue(new LogicalAggregate<>(ImmutableList.of(),
+                    ImmutableList.of(new Alias(new Max(deterministic.toSlot()))), true, Optional.empty(),
+                    new LogicalProject<>(ImmutableList.of(deterministic), child)), true, true);
+        }
+        for (boolean projected : new boolean[] {false, true}) {
+            LogicalFileScan scan = newPartitionFileScan(Optional.empty());
+            Slot partition = scan.getOutput().get(1);
+            for (Expression predicate : ImmutableList.of(new GreaterThan(new Random(), new IntegerLiteral(0)),
+                    new AssertTrue(new GreaterThan(partition, new IntegerLiteral(0)), new VarcharLiteral("invalid")))) {
+                Plan child = new LogicalFilter<>(ImmutableSet.of(predicate), scan);
+                if (projected) {
+                    child = new LogicalProject<>(ImmutableList.copyOf(scan.getOperativeSlots()), child);
+                }
+                checkPartitionValue(new LogicalAggregate<>(ImmutableList.of(),
+                        ImmutableList.of(new Alias(new Max(partition))), true, Optional.empty(), child), false, true);
+            }
+        }
+    }
+
+    @Test
+    public void testPartitionValueRequiresPrunedFilter() {
+        LogicalFileScan scan = newPartitionFileScan(Optional.empty())
+                .withSelectedPartitions(SelectedPartitions.NOT_PRUNED);
+        checkPartitionValue(partitionMax(scan, false, true), false, true);
+        checkPartitionValue(partitionMax(scan, true, true), false, true);
+    }
+
+    @Test
+    public void testPartitionValuePropagatesMetadataErrors() {
+        LogicalFileScan scan = newPartitionFileScan(Optional.empty());
+        PluginDrivenExternalTable table = (PluginDrivenExternalTable) scan.getTable();
+        Mockito.when(table.getPartitionColumns(Mockito.any())).thenThrow(new LinkageError("metadata failure"));
+        Assertions.assertThrows(LinkageError.class,
+                () -> checkPartitionValue(partitionMax(scan, false, false), true, true));
+    }
+
+    @Test
+    public void testPartitionValueUsesScanReferenceSnapshot() {
+        LogicalFileScan baseScan = newPartitionFileScan(Optional.empty());
+        PluginDrivenExternalTable table = (PluginDrivenExternalTable) baseScan.getTable();
+        TableSnapshot selector = TableSnapshot.versionOf("17");
+        LogicalFileScan scan = new LogicalFileScan(new RelationId(2), table, baseScan.getQualifier(),
+                baseScan.getOperativeSlots(), Optional.empty(), Optional.of(selector), Optional.empty(),
+                Optional.of(baseScan.getOutput()));
+        LogicalAggregate<Plan> aggregate = partitionMax(scan, false, false);
+        CascadesContext context = MemoTestUtils.createCascadesContext(aggregate);
+        MvccSnapshot snapshot = Mockito.mock(MvccSnapshot.class);
+        StatementContext statement = Mockito.spy(context.getStatementContext());
+        Mockito.doReturn(Optional.of(snapshot)).when(statement)
+                .getSnapshot(table, Optional.of(selector), Optional.empty());
+        context.getConnectContext().setStatementContext(statement);
+        Mockito.when(table.getPartitionColumns(Optional.empty())).thenReturn(ImmutableList.of());
+        Mockito.when(table.getPartitionColumns(Optional.of(snapshot))).thenReturn(
+                ImmutableList.of(new Column("pi", Type.INT, false), new Column("p2", Type.INT, true)));
+        PlanChecker.from(context).applyImplementation(storageLayerAggregateWithoutProjectForFileScan())
+                .matches(physicalStorageLayerAggregate().when(agg -> agg.getAggOp() == PushDownAggOp.PARTITION_VALUE));
+        Mockito.verify(table).getPartitionColumns(Optional.of(snapshot));
+        Mockito.verify(table, Mockito.never()).getPartitionColumns(Optional.empty());
+    }
+
+    @Test
+    public void testPartitionValueColumnNamesAreLocaleIndependent() {
+        Locale original = Locale.getDefault();
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr-TR"));
+            checkPartitionValue(partitionMax(newPartitionFileScan(Optional.empty()), false, false), true, true);
+        } finally {
+            Locale.setDefault(original);
+        }
+    }
+
+    private LogicalFileScan newPartitionFileScan(Optional<TableSample> sample) {
+        PluginDrivenExternalTable table = (PluginDrivenExternalTable) newFileScan(Type.INT, false).getTable();
+        List<Column> schema = ImmutableList.of(new Column("value", Type.INT, false),
+                new Column("pI", Type.INT, false), new Column("p2", Type.INT, true));
+        Mockito.when(table.getFullSchema()).thenReturn(schema);
+        Mockito.when(table.getFullSchema(Mockito.any())).thenReturn(schema);
+        Mockito.when(table.getPartitionColumns(Mockito.any())).thenReturn(
+                ImmutableList.of(new Column("pi", Type.INT, false), schema.get(2)));
+        Mockito.when(table.supportsPartitionValueOnly()).thenReturn(true);
+        Mockito.when(table.initSelectedPartitions(Mockito.any()))
+                .thenReturn(new SelectedPartitions(1, ImmutableMap.of(), true));
+        LogicalFileScan scan = new LogicalFileScan(new RelationId(1), table,
+                ImmutableList.of("catalog", "db"), ImmutableList.of(), sample,
+                Optional.empty(), Optional.empty(), Optional.empty());
+        return scan.withOperativeSlots(scan.getOutput().subList(1, 3));
+    }
+
+    private Plan partitionScanChild(LogicalFileScan scan, boolean projected, boolean filtered) {
+        Plan child = scan;
+        if (filtered) {
+            child = new LogicalFilter<>(ImmutableSet.of(
+                    new EqualTo(scan.getOutput().get(1), new IntegerLiteral(1))), child);
+        }
+        if (projected) {
+            child = new LogicalProject<>(ImmutableList.copyOf(scan.getOperativeSlots()), child);
+        }
+        return child;
+    }
+
+    private LogicalAggregate<Plan> partitionMax(LogicalFileScan scan, boolean projected, boolean filtered) {
+        return new LogicalAggregate<>(ImmutableList.of(),
+                ImmutableList.of(new Alias(new Max(scan.getOutput().get(1)))), true, Optional.empty(),
+                partitionScanChild(scan, projected, filtered));
+    }
+
+    private void checkPartitionValue(LogicalAggregate<? extends Plan> aggregate, boolean expected, boolean enabled) {
+        Plan child = aggregate.child();
+        boolean projected = child instanceof LogicalProject;
+        if (projected) {
+            child = child.child(0);
+        }
+        boolean filtered = child instanceof LogicalFilter;
+        RuleType ruleType = filtered
+                ? (projected ? RuleType.STORAGE_LAYER_PARTITION_VALUE_WITH_PROJECT_FILTER_FOR_FILE_SCAN
+                        : RuleType.STORAGE_LAYER_PARTITION_VALUE_WITH_FILTER_FOR_FILE_SCAN)
+                : (projected ? RuleType.STORAGE_LAYER_AGGREGATE_WITH_PROJECT_FOR_FILE_SCAN
+                        : RuleType.STORAGE_LAYER_AGGREGATE_WITHOUT_PROJECT_FOR_FILE_SCAN);
+        CascadesContext context = MemoTestUtils.createCascadesContext(aggregate);
+        org.apache.doris.qe.SessionVariable session = Mockito.spy(context.getConnectContext().getSessionVariable());
+        Mockito.doReturn(enabled).when(session).isEnablePartitionColumnValueOnlyOptimization();
+        context.getConnectContext().setSessionVariable(session);
+        Rule rule = new AggregateStrategies().buildRules().stream()
+                .filter(candidate -> candidate.getRuleType() == ruleType).findFirst().get();
+        PlanChecker checker = PlanChecker.from(context).applyImplementation(rule);
+        if (expected) {
+            checker.matches(physicalStorageLayerAggregate()
+                    .when(agg -> agg.getAggOp() == PushDownAggOp.PARTITION_VALUE));
+        } else {
+            checker.nonMatch(physicalStorageLayerAggregate()
+                    .when(agg -> agg.getAggOp() == PushDownAggOp.PARTITION_VALUE));
+        }
     }
 
     private LogicalAggregate<LogicalFileScan> newNullableFileCountAggregate() {

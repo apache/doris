@@ -1717,13 +1717,6 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 .requiredPartitions(requiredPartitions)
                 .partitionsPrunedToEmpty(partitionsPrunedToEmpty)
                 .countPushdown(countPushdown)
-                // Forward the PARTITION_VALUE signal to the connector. The op is set on this node by the
-                // Nereids translator and shipped to BE via FileScanNode.toThrift, but split planning is the
-                // connector's job: with partition-column-value-only output every scan range emits one row
-                // from `columns_from_path`, so splitting one file into several ranges only produces
-                // duplicate partition-value rows and extra scheduler work. Min/max stay correct either way
-                // -- splitting is skipped purely to avoid the waste (mirrors legacy HiveScanNode, which set
-                // needSplit=false for the same op). Connectors that do not read the field are unaffected.
                 .partitionValuePushdown(
                         getPushDownAggNoGroupingOp() == TPushAggOp.PARTITION_VALUE && !applySample)
                 // EXPLAIN plans the scan for real -- that is where its inputSplitNum comes from -- so a
@@ -2076,6 +2069,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // matching what the batched call passed before the request object existed.
         final ConnectorScanRequest batchRequest = ConnectorScanRequest.builder(handle, columns)
                 .filter(remainingFilter)
+                .partitionValuePushdown(getPushDownAggNoGroupingOp() == TPushAggOp.PARTITION_VALUE)
                 .build();
         final List<String> allPartitions =
                 new ArrayList<>(selectedPartitions.selectedPartitions.keySet());

@@ -25,6 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.info.IndexType;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.annotation.DependsRules;
@@ -66,6 +67,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -602,52 +604,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             }
         }
         List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
-        // Partition-value DISTINCT / GROUP BY pushdown -- extends the MIN/MAX
-        // partition_column_value_only optimization to a pure distinct on partition columns, e.g.
-        //   SELECT DISTINCT dt FROM hive_tbl
-        //   SELECT dt FROM hive_tbl GROUP BY dt
-        //   -- including when wrapped by a window to pick the latest partitions (the online pattern):
-        //   SELECT dt FROM (SELECT dt, ROW_NUMBER() OVER (ORDER BY dt DESC) rn
-        //                   FROM hive_tbl GROUP BY dt) t WHERE rn <= 2
-        // The scanner emits one row of partition values per data file (no file IO, PARTITION_VALUE)
-        // and the GROUP BY above dedups them. Safe only when there is NO aggregate function (a COUNT
-        // would count files, a MAX/SUM over a data column would need the data) and every group-by key
-        // references partition columns only, so the scan output is partition-columns-only and the BE
-        // fast path (_file_slot_descs empty) fires. This is checked before the generic group-by bail
-        // below.
-        if (!groupByExpressions.isEmpty()
-                && aggregate.getAggregateFunctions().isEmpty()
-                && aggregate.getDistinctArguments().isEmpty()
-                && logicalScan instanceof LogicalFileScan
-                && enablePartitionColumnValueOnly()) {
-            List<? extends Expression> groupByAfterProject = project == null
-                    ? groupByExpressions
-                    : Project.findProject(groupByExpressions, project.getProjects());
-            Set<SlotReference> groupBySlots =
-                    ExpressionUtils.collect(groupByAfterProject, SlotReference.class::isInstance);
-            List<SlotReference> groupBySlotsInTable = (List<SlotReference>) Project.findProject(
-                    groupBySlots, logicalScan.getOutput());
-            if (!groupBySlotsInTable.isEmpty()
-                    && isAllPartitionColumns(groupBySlotsInTable, (LogicalFileScan) logicalScan)) {
-                PhysicalFileScan physicalScan = toPhysicalFileScan(
-                        (LogicalFileScan) logicalScan, cascadesContext);
-                PhysicalStorageLayerAggregate storageLayerAgg = new PhysicalStorageLayerAggregate(
-                        physicalScan, PushDownAggOp.PARTITION_VALUE);
-                if (project != null) {
-                    return aggregate.withChildren(ImmutableList.of(
-                            project.withChildren(ImmutableList.of(storageLayerAgg))));
-                } else {
-                    return aggregate.withChildren(ImmutableList.of(storageLayerAgg));
-                }
-            }
-        }
-        // Pure MIN/MAX over partition columns only, without any filter. Checked here -- BEFORE the
-        // per-column checks further below -- because those checks walk the arguments of the aggregate
-        // functions, which ConstantPropagation may already have folded into literals (see
-        // canUsePartitionValueOnly). Keying off the scan output columns instead keeps the
-        // optimization alive for `select max(dt) from tbl` as well as for the folded variants.
         if (logicalScan instanceof LogicalFileScan
-                && canUsePartitionValueOnly(aggregate, (LogicalFileScan) logicalScan)) {
+                && canUsePartitionValueOnly(aggregate, project, null, (LogicalFileScan) logicalScan)) {
             PhysicalFileScan physicalScan = toPhysicalFileScan(
                     (LogicalFileScan) logicalScan, cascadesContext);
             PhysicalStorageLayerAggregate storageLayerAgg = new PhysicalStorageLayerAggregate(
@@ -820,18 +778,6 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         List<SlotReference> usedSlotInTable = (List<SlotReference>) Project.findProject(aggUsedSlots,
                 logicalScan.getOutput());
 
-        // Partition-column-value-only optimization: when a pure min/max aggregation only depends on
-        // partition columns of the external table, the scanner can just return the partition column
-        // values per scan range without opening any data file.
-        //
-        // NOTE: only MIN_MAX qualifies, NOT MIX. MIX means the aggregation also contains count(),
-        // and PARTITION_VALUE emits exactly ONE row per data file instead of the file's real row
-        // count, so a count() in the same aggregation would silently return the number of files.
-        boolean partitionValueOnly = mergeOp == PushDownAggOp.MIN_MAX
-                && logicalScan instanceof LogicalFileScan
-                && enablePartitionColumnValueOnly()
-                && isAllPartitionColumns(usedSlotInTable, (LogicalFileScan) logicalScan);
-
         // COUNT(*) has no aggregate arguments, even though later column pruning retains one
         // arbitrary scan slot. Preserve the semantic arguments here so the BE never needs to infer
         // COUNT(col) from the post-pruning scan shape.
@@ -904,19 +850,15 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             PhysicalFileScan physicalScan =
                     toPhysicalFileScan((LogicalFileScan) logicalScan, cascadesContext);
 
-            // Partition-column-value-only optimization: decided above (see `partitionValueOnly`),
-            // where the per-column checks are relaxed accordingly. Only pure MIN_MAX qualifies.
-            PushDownAggOp fileScanAggOp = partitionValueOnly ? PushDownAggOp.PARTITION_VALUE : mergeOp;
-
             if (project != null) {
                 return aggregate.withChildren(ImmutableList.of(
                     project.withChildren(
                         ImmutableList.of(new PhysicalStorageLayerAggregate(
-                                physicalScan, fileScanAggOp, countArgumentExprIds)))
+                                physicalScan, mergeOp, countArgumentExprIds)))
                 ));
             } else {
                 return aggregate.withChildren(ImmutableList.of(
-                    new PhysicalStorageLayerAggregate(physicalScan, fileScanAggOp, countArgumentExprIds)
+                    new PhysicalStorageLayerAggregate(physicalScan, mergeOp, countArgumentExprIds)
                 ));
             }
 
@@ -931,29 +873,9 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     }
 
     /**
-     * Try the PARTITION_VALUE fast path across a LogicalFilter.
-     *
-     * <p>Safety conditions -- ALL of them must hold:
-     * <ol>
-     *   <li>the scan's partitions are already pruned on FE side
-     *       ({@link LogicalFileScan.SelectedPartitions#isPruned}), i.e. the predicate has been fully
-     *       resolved from partition metadata rather than left for the data files;</li>
-     *   <li>every conjunct of the filter references partition columns only;</li>
-     *   <li>the aggregate only uses MIN/MAX (group by is allowed) and every column the scan must
-     *       output is a partition column (checked by {@link #canUsePartitionValueOnly}).</li>
-     * </ol>
-     *
-     * <p>Under these conditions the BE emits exactly one row of partition column values per scan
-     * range, the filter re-evaluates its predicate on those partition values (still correct, just
-     * redundant), and the aggregate observes exactly the set of surviving partition values.
-     *
-     * <p>Condition 2 is implied by condition 3 (the filter can only reference slots that the scan
-     * outputs), but it is checked explicitly so the intent stays obvious and so the rule keeps
-     * behaving safely if the plan shape changes later.
-     *
-     * <p>Note this returns {@code aggregate} (the very object handed in by the rule) when it gives
-     * up, because {@code ApplyRuleJob} compares the returned plan with the original one by
-     * reference to detect "rule declined to rewrite".
+     * Retain the partition predicate above the reduced scan. Operative slots include the filter's
+     * inputs, and the shared eligibility check rejects volatile predicates. Return the original
+     * aggregate by reference on a miss, as required by ApplyRuleJob.
      */
     private Plan partitionValueThroughFilter(
             LogicalAggregate<? extends Plan> aggregate,
@@ -961,26 +883,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             LogicalFilter<? extends Plan> filter,
             LogicalFileScan logicalScan,
             CascadesContext cascadesContext) {
-        final Plan canNotPush = aggregate;
-
-        // (1) partitions must have been pruned from partition metadata on FE side
-        if (!logicalScan.getSelectedPartitions().isPruned) {
-            return canNotPush;
-        }
-
-        // (2) the filter must touch partition columns only.
-        // The filter sits directly on top of the scan, so its input slots ARE scan output slots.
-        // Do NOT route them through Project#findProject: that would be a no-op mapping here and it
-        // throws AnalysisException when an ExprId is missing.
-        Set<SlotReference> filterSlots = ExpressionUtils.collect(
-                filter.getConjuncts(), SlotReference.class::isInstance);
-        if (!isAllPartitionColumns(ImmutableList.copyOf(filterSlots), logicalScan)) {
-            return canNotPush;
-        }
-
-        // (3) aggregate shape + scan output columns
-        if (!canUsePartitionValueOnly(aggregate, logicalScan)) {
-            return canNotPush;
+        if (!canUsePartitionValueOnly(aggregate, project, filter, logicalScan)) {
+            return aggregate;
         }
 
         PhysicalFileScan physicalScan = toPhysicalFileScan(logicalScan, cascadesContext);
@@ -998,52 +902,30 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     }
 
     /**
-     * Aggregate-shape check for the PARTITION_VALUE fast path.
+     * Shared eligibility check for every PARTITION_VALUE rewrite. The reader emits one partition row
+     * only when metadata proves visible nonempty input; unsupported ranges are scanned normally.
+     * MIN/MAX and grouping tolerate duplicates, but volatile and non-movable expressions keep cardinality.
      *
-     * <p>The decision is keyed off <b>the columns the scan must output</b>, not off the arguments of
-     * the aggregate functions. This matters a lot, because {@code ConstantPropagation} rewrites
-     * <pre>
-     *   select max(dt) from tbl where dt = '2026-08-11'
-     *   --&gt;  max('2026-08-11')
-     * </pre>
-     * leaving no SlotReference at all inside the aggregate. Keying off the aggregate arguments (which
-     * is what the legacy `partitionValueOnly` check in storageLayerAggregate does) silently loses the
-     * optimization for exactly the most common query pattern, while the scan still has to output `dt`
-     * because the filter references it.
-     *
-     * <p><b>Why only MIN/MAX, and why GROUP BY is fine.</b> PARTITION_VALUE makes the scan emit one
-     * row per data file instead of the file's real rows, so the row multiset is wrong while the
-     * <i>distinct set</i> of partition column values is exactly right (every non-empty file
-     * contributes its partition value once). MIN/MAX are idempotent w.r.t. duplicates -- they only
-     * depend on the distinct set -- so they stay correct. GROUP BY likewise only depends on the
-     * distinct set of its keys, and its keys can only reference partition columns here (the scan
-     * outputs nothing else). Hence all of these are safe:
-     * <pre>
-     *   select max(dt) from t where dt &gt;= '2025-01-01' group by dt    -- correct
-     *   select min(dt), max(dt) from t group by hh                    -- correct
-     *   select max(hh) from t where dt &gt;= '2025-01-01' group by dt    -- correct (see below)
-     *   select max(hh) from t group by substr(dt, 1, 7)               -- correct
-     * </pre>
-     * COUNT/SUM/AVG are NOT: they depend on the row multiset, so a count() would silently return
-     * the number of FILES.
-     *
-     * <p><b>The group-by key and the aggregated column may be DIFFERENT partition columns.</b>
-     * For {@code select max(hh) ... group by dt} with partitions (d, h): since `hh` is a partition
-     * column, every row's `hh` equals the `h` of its own partition. So the true result per d is
-     * {@code max{h : partition(d,h) has rows}} while PARTITION_VALUE yields
-     * {@code max{h : partition(d,h) has at least one file}} -- differing only for partitions whose
-     * files are all empty, which is the pre-existing "empty file" caveat, not a new one.
-     * This is also why no check on the relationship between the group-by key and the aggregated
-     * column is needed: a group-by key can only reference columns the scan outputs, and
-     * isAllPartitionColumns(scanOutputSlots(...)) already guarantees those are all partition columns.
+     * <p>Check operative scan slots rather than aggregate arguments: constant propagation can turn
+     * {@code max(dt)} into {@code max('2026-08-11')} while a retained filter still reads {@code dt}.
      */
-    private boolean canUsePartitionValueOnly(
-            LogicalAggregate<? extends Plan> aggregate, LogicalFileScan logicalScan) {
-        if (!enablePartitionColumnValueOnly()) {
+    private boolean canUsePartitionValueOnly(LogicalAggregate<? extends Plan> aggregate,
+            @Nullable LogicalProject<? extends Plan> project,
+            @Nullable LogicalFilter<? extends Plan> filter, LogicalFileScan logicalScan) {
+        if (!enablePartitionColumnValueOnly() || logicalScan.getTableSample().isPresent()) {
             return false;
         }
-        // count(distinct x) / sum(distinct x): distinct semantics inside an aggregate function is
-        // computed over the real row multiset, and count(distinct) would need the real rows.
+        if (aggregate.getExpressions().stream().anyMatch(Expression::containsVolatileOrNoneMovableExpression)
+                || (project != null && project.getExpressions().stream()
+                        .anyMatch(Expression::containsVolatileOrNoneMovableExpression))
+                || (filter != null && filter.getExpressions().stream()
+                        .anyMatch(Expression::containsVolatileOrNoneMovableExpression))) {
+            return false;
+        }
+        if (filter != null && !logicalScan.getSelectedPartitions().isPruned) {
+            return false;
+        }
+        // This optimization supports MIN/MAX and pure grouping, not distinct aggregate functions.
         if (!aggregate.getDistinctArguments().isEmpty()) {
             return false;
         }
@@ -1102,52 +984,29 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 || connectContext.getSessionVariable().isEnablePartitionColumnValueOnlyOptimization();
     }
 
-    /**
-     * Check whether all the slots used by the aggregate functions are partition columns of the
-     * scanned external table. Only in this case can we rely purely on partition metadata (the
-     * scanner returns partition column values per scan range) without reading any data file.
-     */
+    /** Check operative slots against partition columns at this scan reference's statement snapshot. */
     private boolean isAllPartitionColumns(List<SlotReference> usedSlotInTable, LogicalFileScan fileScan) {
-        if (usedSlotInTable.isEmpty()) {
-            return false;
-        }
-        // Partition values must be reconstructible from the data file path. Hive and hudi-on-HMS both
-        // fill them from the path on BE side (columns_from_path), so both qualify.
-        //
-        // ATTN: this must be a per-table capability check, NOT a table-class check. Iceberg and Paimon
-        // tables reached through an HMS catalog (`type = hms`) are served by the very same
-        // PluginDrivenExternalTable class, and supportInternalPartitionPruned() is true for them too, so
-        // PruneFileScanPartition marks their SelectedPartitions as pruned and the `isPruned` guard does
-        // not filter them out either. They are excluded because their partition values do NOT come from
-        // the file path: Iceberg supports hidden partitioning and partition transforms (bucket,
-        // truncate, days, ...) that cannot be reconstructed from the path, and v2 position/equality
-        // deletes break the "one row per scan range" assumption; Paimon resolves partitions from its
-        // own metadata.
-        if (!(fileScan.getTable() instanceof PluginDrivenExternalTable)) {
+        if (usedSlotInTable.isEmpty() || !(fileScan.getTable() instanceof PluginDrivenExternalTable)) {
             return false;
         }
         PluginDrivenExternalTable table = (PluginDrivenExternalTable) fileScan.getTable();
+        // The connector limits this capability to nontransactional Hive Parquet/ORC tables, not
+        // delegated Hudi/Iceberg/Paimon tables sharing the same PluginDrivenExternalTable class.
         if (!table.supportsPartitionValueOnly()) {
             return false;
         }
+        List<Column> partitionColumns = table.getPartitionColumns(MvccUtil.getSnapshotFromContext(
+                table, fileScan.getTableSnapshot(), fileScan.getScanParams()));
         Set<String> partitionColumnNames = new HashSet<>();
-        try {
-            List<Column> partitionColumns = table.getPartitionColumns(Optional.empty());
-            if (partitionColumns == null || partitionColumns.isEmpty()) {
-                return false;
-            }
-            for (Column column : partitionColumns) {
-                partitionColumnNames.add(column.getName().toLowerCase());
-            }
-        } catch (Throwable t) {
-            return false;
+        for (Column column : partitionColumns) {
+            partitionColumnNames.add(column.getName().toLowerCase(Locale.ROOT));
         }
         for (SlotReference slot : usedSlotInTable) {
             Optional<Column> optionalColumn = slot.getOriginalColumn();
             if (!optionalColumn.isPresent()) {
                 return false;
             }
-            if (!partitionColumnNames.contains(optionalColumn.get().getName().toLowerCase())) {
+            if (!partitionColumnNames.contains(optionalColumn.get().getName().toLowerCase(Locale.ROOT))) {
                 return false;
             }
         }

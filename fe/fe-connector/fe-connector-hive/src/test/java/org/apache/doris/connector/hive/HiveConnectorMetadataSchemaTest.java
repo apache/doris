@@ -262,6 +262,52 @@ public class HiveConnectorMetadataSchemaTest {
     }
 
     @Test
+    public void testPartitionValueOnlyForNontransactionalNativeColumnarTables() {
+        for (String format : Arrays.asList(PARQUET_INPUT_FORMAT, ORC_INPUT_FORMAT)) {
+            Assertions.assertTrue(hasCapability(schemaOf(partitionedTable().inputFormat(format).build()),
+                    ConnectorCapability.SUPPORTS_PARTITION_VALUE_ONLY));
+            Assertions.assertTrue(hasCapability(schemaOf(partitionedTable().inputFormat(format)
+                    .parameters(Collections.singletonMap("transactional", "false")).build()),
+                    ConnectorCapability.SUPPORTS_PARTITION_VALUE_ONLY));
+        }
+    }
+
+    @Test
+    public void testPartitionValueOnlyExcludesTransactionalTables() {
+        for (String format : Arrays.asList(PARQUET_INPUT_FORMAT, ORC_INPUT_FORMAT)) {
+            for (String key : Arrays.asList("transactional", "TRANSACTIONAL")) {
+                for (String mode : Arrays.asList("default", "insert_only")) {
+                    Map<String, String> parameters = new HashMap<>();
+                    parameters.put(key, "TrUe");
+                    parameters.put("transactional_properties", mode);
+                    Assertions.assertFalse(hasCapability(schemaOf(partitionedTable().inputFormat(format)
+                            .parameters(parameters).build()), ConnectorCapability.SUPPORTS_PARTITION_VALUE_ONLY),
+                            format + ": " + key + "/" + mode);
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testPartitionValueOnlyExcludesViewsTextAndHudiFormats() {
+        Assertions.assertFalse(hasCapability(schemaOf(partitionedTable().tableType("VIRTUAL_VIEW").build()),
+                ConnectorCapability.SUPPORTS_PARTITION_VALUE_ONLY));
+        for (String format : Arrays.asList(TEXT_INPUT_FORMAT,
+                "org.apache.hudi.hadoop.HoodieParquetInputFormat",
+                "org.apache.hudi.hadoop.realtime.HoodieParquetRealtimeInputFormat",
+                "org.apache.hudi.hadoop.HoodieParquetInputFormatBase")) {
+            Assertions.assertFalse(hasCapability(schemaOf(partitionedTable().inputFormat(format).build()),
+                    ConnectorCapability.SUPPORTS_PARTITION_VALUE_ONLY), format);
+        }
+        Assertions.assertFalse(hasCapability(schemaOf(partitionedTable()
+                .parameters(Collections.singletonMap("flink.connector", "hudi")).build()),
+                ConnectorCapability.SUPPORTS_PARTITION_VALUE_ONLY));
+        Assertions.assertFalse(hasCapability(schemaOf(partitionedTable()
+                .parameters(Collections.singletonMap("table_type", "ICEBERG")).build()),
+                ConnectorCapability.SUPPORTS_PARTITION_VALUE_ONLY));
+    }
+
+    @Test
     public void testTopNLazyCapabilityMarkerEmittedForParquetAndOrc() {
         // WHY: Top-N lazy materialize is orc/parquet-only in legacy hive (HMSExternalTable.supportedHiveTopNLazyTable).
         // The connector-wide SUPPORTS_TOPN_LAZY_MATERIALIZE cannot express that for a heterogeneous hive catalog, so

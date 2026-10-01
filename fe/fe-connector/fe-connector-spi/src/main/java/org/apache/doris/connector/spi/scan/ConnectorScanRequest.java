@@ -135,12 +135,11 @@ public final class ConnectorScanRequest {
     }
 
     /**
-     * Whether the engine pushed a PARTITION_VALUE aggregation into this scan: the query only needs the
-     * partition column values, so BE emits ONE row per scan range from {@code columns_from_path} and
-     * never opens the data file. A connector that splits files into several ranges per file should then
-     * stop splitting — extra ranges of the same file contribute duplicate partition-value rows, which is
-     * harmless for min/max but wastes scan ranges and scheduler work. Connectors that cannot or need not
-     * change their splitting ignore this and plan normally.
+     * Whether the engine pushed a PARTITION_VALUE aggregation into this scan. An eligible reader emits
+     * one row from {@code columns_from_path} only after proving the range contains a visible source row;
+     * otherwise it returns EOF or falls back to ordinary reading. A connector may stop splitting files to
+     * avoid repeated row-existence checks and duplicate partition values. Connectors that do not consume
+     * this hint plan normally.
      */
     public boolean isPartitionValuePushdown() {
         return partitionValuePushdown;

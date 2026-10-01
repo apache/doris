@@ -99,7 +99,98 @@ suite("test_hive_runtime_filter_partition_pruning", "p0,external") {
             sql """use `${catalog_name}`.`partition_tables`"""
 
             test_runtime_filter_partition_pruning()
-        
+
+            setHivePrefix(hivePrefix)
+            hive_docker """drop table if exists default.hive_partition_value_parquet"""
+            hive_docker """create table default.hive_partition_value_parquet (v int)
+                partitioned by (p int, q string) stored as parquet"""
+            hive_docker """insert into default.hive_partition_value_parquet partition(p=1,q='a')
+                values (10),(11),(12)"""
+            hive_docker """insert into default.hive_partition_value_parquet partition(p=2,q='b')
+                values (20),(21)"""
+            hive_docker """insert into default.hive_partition_value_parquet partition(p=2,q='b') values (22)"""
+            hive_docker """insert into default.hive_partition_value_parquet partition(p=3,q='c') values (30)"""
+            hive_docker """set hive.exec.dynamic.partition.mode=nonstrict;
+                insert into default.hive_partition_value_parquet partition(p=4,q)
+                select 40, cast(null as string)"""
+            hive_docker """alter table default.hive_partition_value_parquet
+                add partition(p=9,q='empty')"""
+            hive_docker """drop table if exists default.hive_partition_value_orc"""
+            hive_docker """create table default.hive_partition_value_orc (v int)
+                partitioned by (p int, q string) stored as orc"""
+            hive_docker """set hive.exec.dynamic.partition.mode=nonstrict;
+                insert into default.hive_partition_value_orc partition(p,q)
+                select v,p,q from default.hive_partition_value_parquet"""
+            hive_docker """alter table default.hive_partition_value_orc add partition(p=9,q='empty')"""
+            sql """refresh catalog ${catalog_name}"""
+            sql """use `${catalog_name}`.`default`"""
+            def originalSettings = ["enable_file_scanner_v2", "enable_partition_column_value_only_optimization",
+                    "enable_push_down_no_group_agg", "inline_cte_referenced_threshold"].collectEntries { name ->
+                [(name): sql("show variables like '${name}'")[0][1]]
+            }
+            try {
+                def queries = [
+                    "select min(p),max(p),min(q),max(q) from hive_partition_value_parquet",
+                    "select distinct p,q from hive_partition_value_parquet order by p,q",
+                    "select p,max(q) from hive_partition_value_parquet group by p order by p",
+                    "select max(p) from hive_partition_value_parquet where p=2",
+                    "select max(p+1) from hive_partition_value_parquet where p>=2",
+                    "select p from hive_partition_value_parquet where p>=2 group by p order by p",
+                    "select min(p),max(p),min(q),max(q) from hive_partition_value_orc",
+                    "select distinct p,q from hive_partition_value_orc order by p,q",
+                    "select p,max(q) from hive_partition_value_orc group by p order by p",
+                    "select max(p) from hive_partition_value_orc where p=2",
+                    """with latest as (select max(p) as p from hive_partition_value_parquet)
+                        select t.p,t.q,t.v from hive_partition_value_parquet t
+                        join latest l on t.p=l.p order by t.p,t.q,t.v""",
+                    """select p from (
+                        select p,row_number() over(order by p desc) as rn
+                        from hive_partition_value_parquet group by p
+                        ) t where rn<=2 order by p"""
+                ]
+                sql "set inline_cte_referenced_threshold=0"
+                sql "set enable_partition_column_value_only_optimization=false"
+                sql "set enable_push_down_no_group_agg=false"
+                sql "set enable_file_scanner_v2=false"
+                def baseline = queries.collect { query -> sql(query) }
+                sql "set enable_push_down_no_group_agg=true"
+                for (boolean scannerV2 : [false, true]) {
+                    sql "set enable_file_scanner_v2=${scannerV2}"
+                    for (boolean partitionValue : [false, true]) {
+                        sql "set enable_partition_column_value_only_optimization=${partitionValue}"
+                        queries.eachWithIndex { query, index ->
+                            assertEquals(baseline[index], sql(query))
+                            explain {
+                                sql(query)
+                                if (partitionValue) {
+                                    contains "pushdown agg=PARTITION_VALUE"
+                                } else {
+                                    notContains "pushdown agg=PARTITION_VALUE"
+                                }
+                            }
+                        }
+                    }
+                    sql "set enable_partition_column_value_only_optimization=true"
+                    [
+                        "select count(*) from hive_partition_value_parquet",
+                        "select max(p),count(*) from hive_partition_value_parquet",
+                        "select max(v) from hive_partition_value_parquet",
+                        "select max(p+random()) from hive_partition_value_parquet",
+                        "select max(p) from hive_partition_value_parquet where random()>0.5",
+                        "select distinct p+random() from hive_partition_value_parquet",
+                        "select max(p) from hive_partition_value_parquet tablesample(50 percent) repeatable 7",
+                        "select max(p) from hive_partition_value_parquet " +
+                                "where assert_true(p>0,'positive partition required')"
+                    ].each { query ->
+                        explain {
+                            sql(query)
+                            notContains "pushdown agg=PARTITION_VALUE"
+                        }
+                    }
+                }
+            } finally {
+                originalSettings.each { name, value -> sql "set ${name}=${value}" }
+            }
         } finally {
         }
     }

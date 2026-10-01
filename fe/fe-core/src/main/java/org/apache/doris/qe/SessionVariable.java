@@ -2951,9 +2951,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = ENABLE_PARTITION_COLUMN_VALUE_ONLY_OPTIMIZATION,
             fuzzy = true,
-            description = "when an aggregation(min/max) only depends on partition columns of an external table, "
-                    + "the scanner returns one row of partition column values per scan range based on partition "
-                    + "metadata, without opening or reading any data file")
+            description = "Optimize MIN/MAX and grouping over partition columns of nontransactional Hive "
+                    + "Parquet/ORC tables. File metadata must prove a range is nonempty before the scanner "
+                    + "emits one partition row without reading data pages; unsupported readers scan normally")
     private boolean enablePartitionColumnValueOnlyOptimization = true;
 
     @VarAttrDef.VarAttr(name = MINIMUM_OPERATOR_MEMORY_REQUIRED_KB, needForward = true,

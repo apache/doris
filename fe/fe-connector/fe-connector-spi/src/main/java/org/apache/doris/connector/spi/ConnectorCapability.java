@@ -205,21 +205,14 @@ public enum ConnectorCapability {
      */
     SUPPORTS_STORAGE_PREDICATE_PRUNING,
     /**
-     * Indicates the connector derives a table's partition column values from the DATA FILE PATH
-     * ({@code columns_from_path}) rather than from data-file or manifest contents. The planner may then
-     * answer an aggregation that only depends on partition columns without opening any data file: each
-     * scan range emits exactly one row carrying its own partition column values.
+     * Allows duplicate-insensitive partition-only aggregation using {@code columns_from_path}. The
+     * reader must prove at least one visible source row exists before emitting a partition-value row;
+     * merely listing a file or range is not proof. Empty ranges produce no rows, and unsupported readers
+     * retain ordinary scan behavior, including missing/corrupt-file failures.
      *
-     * <p>This is the modern equivalent of the legacy {@code HMSExternalTable.DLAType} whitelist
-     * {@code HIVE || HUDI}. Both keep their partition values in the directory path, so a path-derived
-     * value is exact. Iceberg and Paimon MUST NOT declare it: Iceberg supports hidden partitioning and
-     * partition transforms (bucket, truncate, days, ...) that cannot be reconstructed from the path, and
-     * its v2 position/equality deletes break the "one row per scan range" assumption; Paimon resolves
-     * partitions from its own manifest metadata.</p>
-     *
-     * <p><b>Scope: catalog-wide OR per-table.</b> hive declares it per-table, because a single HMS catalog
-     * serves HIVE, HUDI, ICEBERG and PAIMON tables side by side through sibling connectors, so a
-     * catalog-wide flag would wrongly admit the delegated (iceberg/paimon-on-HMS) ones.</p>
+     * <p><b>Scope: catalog-wide OR per-table.</b> Currently Hive opts in per-table only for native,
+     * nontransactional Parquet/ORC tables whose readers can establish row existence from the footer.
+     * Transactional Hive and delegated Hudi, Iceberg and Paimon tables do not opt in.</p>
      */
     SUPPORTS_PARTITION_VALUE_ONLY,
     /**

@@ -582,10 +582,6 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             perTableCapabilities.add(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE);
             perTableCapabilities.add(ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING);
         }
-        // Partition values of a HIVE table and of a hudi-on-HMS table both live in the directory path, so
-        // BE can emit one row of partition values per scan range without opening the file. Delegated
-        // (iceberg/paimon-on-HMS) tables never reach this branch -- they are served by the sibling branch
-        // above -- which is exactly what keeps them out of the optimization.
         if (supportsPartitionValueOnly(tableInfo)) {
             perTableCapabilities.add(ConnectorCapability.SUPPORTS_PARTITION_VALUE_ONLY);
         }
@@ -2366,21 +2362,10 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         return !isView(tableInfo) && HiveTableFormatDetector.detect(tableInfo) == HiveTableType.HIVE;
     }
 
-    /**
-     * Whether this table's partition column values can be reconstructed from the data file path, i.e.
-     * whether a partition-column-only aggregation may be answered without opening any data file.
-     *
-     * <p>HIVE and hudi-on-HMS both qualify: HMS stores their partition values as the directory path
-     * (`dt=2026-08-11/`), and BE carries them per scan range as `columns_from_path`. ICEBERG is excluded
-     * (hidden partitioning / partition transforms / v2 delete files) and so is UNKNOWN. This is the
-     * modern replacement for the legacy {@code HMSExternalTable.DLAType} whitelist {@code HIVE || HUDI}.
-     */
+    /** Only nontransactional native columnar files can prove row existence from their footer. */
     private boolean supportsPartitionValueOnly(HmsTableInfo tableInfo) {
-        if (isView(tableInfo)) {
-            return false;
-        }
-        HiveTableType tableType = HiveTableFormatDetector.detect(tableInfo);
-        return tableType == HiveTableType.HIVE || tableType == HiveTableType.HUDI;
+        return supportsHiveOrcOrParquetScan(tableInfo)
+                && !HiveTableHandle.isTransactionalTable(tableInfo.getParameters());
     }
 
     /** Whether the HMS table is a view (tableType VIRTUAL_VIEW), mirroring legacy {@code HMSExternalTable.isView}. */
