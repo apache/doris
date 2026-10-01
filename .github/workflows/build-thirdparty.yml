@@ -49,6 +49,7 @@ jobs:
               - 'thirdparty/**'
               - 'env.sh'
             focused_test_changes:
+              - 'build.sh'
               - 'regression-test/pipeline/external/conf/fe.conf'
               - 'thirdparty/test/adbc-jni-config-test.sh'
               - '.github/workflows/build-thirdparty.yml'
@@ -81,6 +82,9 @@ jobs:
       - name: Test thirdparty configuration
         run: |
           thirdparty/test/adbc-jni-config-test.sh
+
+      - name: Test Lance installation
+        run: bash thirdparty/test/lance-install-test.sh
 
   build_linux:
     name: Build Third Party Libraries (Linux)
