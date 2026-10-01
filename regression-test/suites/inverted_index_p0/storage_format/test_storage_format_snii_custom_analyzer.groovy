@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_storage_format_snii_custom_analyzer", "p0,nonConcurrent") {
+    sql "SET enable_common_expr_pushdown=true"
+    sql "SET enable_common_expr_pushdown_for_inverted_index=true"
     def charFilter = "doris_27738_char_filter"
     def basicAnalyzer = "doris_27738_basic_analyzer"
     def keywordAnalyzer = "doris_27738_keyword_analyzer"

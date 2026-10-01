@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_storage_format_snii_utf8_wildcard", "p0, nonConcurrent") {
+    sql "SET enable_common_expr_pushdown=true"
+    sql "SET enable_common_expr_pushdown_for_inverted_index=true"
     sql "DROP TABLE IF EXISTS test_snii_utf8_wildcard"
     sql "DROP TABLE IF EXISTS test_v3_utf8_wildcard"
 

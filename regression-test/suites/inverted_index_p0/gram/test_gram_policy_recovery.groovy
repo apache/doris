@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_gram_policy_recovery", "p0") {
+    sql "SET enable_common_expr_pushdown=true"
+    sql "SET enable_common_expr_pushdown_for_inverted_index=true"
     sql "SET enable_sql_cache=false"
     // The condition cache must be off too: gram deliberately keeps its LIKE / REGEXP expression
     // in _common_expr_ctxs_push_down for the row-level recheck, so the segment iterator never

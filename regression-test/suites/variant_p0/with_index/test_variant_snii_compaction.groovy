@@ -16,6 +16,8 @@
 // under the License.
 
 suite("regression_test_variant_snii_compaction", "p0, nonConcurrent"){
+    sql "SET enable_common_expr_pushdown=true"
+    sql "SET enable_common_expr_pushdown_for_inverted_index=true"
     def table_name = "var_snii_compaction"
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = false """
