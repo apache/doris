@@ -65,3 +65,39 @@ queries, inspect partition load together with execution bytes, requests, and
 partition cache misses. Use repeated queries and the operator-level elapsed
 times to assess latency; cumulative parallel stage times alone are not a critical
 path trace.
+
+## Query parallelism
+
+`vector_search` accepts an optional `"query_parallelism"` integer:
+
+- `0` (also the default when omitted): let Lance choose the parallelism.
+- `-1`: use the available Lance CPU parallelism.
+- Positive values: request that many concurrent partition searches, capped by
+  Lance's compute pool and execution-plan limits.
+
+For example, add `"query_parallelism" = "4"` alongside `"nprobes" = "64"`.
+This controls concurrency inside a Lance search, independently of Doris scan
+instances. Increasing it can increase intermediate candidates and memory usage;
+measure both single-query latency and concurrent throughput. EXPLAIN displays an
+explicit setting as `lanceQueryParallelism`.
+
+## Second-phase row-ID fetch
+
+Each `RowIDFetcher: BackendId:...` profile also reports:
+
+| Counter | Scope |
+| --- | --- |
+| `LanceRowIdFetchCalls` | Non-empty dataset `take_rows` calls. |
+| `LanceRowIdFetchRows` | Rows converted from successful returned batches, including duplicate requested row IDs. |
+| `LanceDataCacheBytesReadFromCache` | Logical data-file bytes served by Foyer for the dataset handles used by this fetch. |
+| `LanceDataCacheBytesReadFromRemote` | Logical data-file bytes served through the Foyer origin path for those handles. |
+
+Byte counts are collected after closing the reader and summed across dataset
+handles in the fetch RPC. They exclude block-alignment amplification, metadata,
+and index reads. With Foyer disabled or for paths outside its data-file wrapper,
+zero values do not imply zero physical IO. The current take API does not expose
+physical request counts or a separate decode timer; scanner-plan IO counters
+must not be substituted for them.
+
+`MATERIALIZATION_OPERATOR.ExecTime` includes its synchronous fetch wait once.
+`MaxRpcTime` is nested within that execution time, not an additional duration.

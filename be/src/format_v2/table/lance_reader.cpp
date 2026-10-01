@@ -255,6 +255,10 @@ Status LanceTableReader::read_by_row_ids(const TFileRangeDesc& range,
         _row_id_fetch_total_time = ADD_CHILD_TIMER_WITH_LEVEL(
                 _scanner_profile, "LanceRowIdFetchTotalTime", LANCE_READER_PROFILE, 1);
     }
+    auto* fetch_calls = ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceRowIdFetchCalls",
+                                                     TUnit::UNIT, LANCE_READER_PROFILE, 1);
+    auto* fetch_rows = ADD_CHILD_COUNTER_WITH_LEVEL(_scanner_profile, "LanceRowIdFetchRows",
+                                                    TUnit::UNIT, LANCE_READER_PROFILE, 1);
     SCOPED_TIMER(_row_id_fetch_total_time);
 
     // Phase-two row fetch does not execute FTS, so a reader created only for take_rows must not
@@ -271,6 +275,7 @@ Status LanceTableReader::read_by_row_ids(const TFileRangeDesc& range,
     int32_t take_rows_status = 0;
     {
         SCOPED_TIMER(_row_id_take_read_time);
+        COUNTER_UPDATE(fetch_calls, 1);
         take_rows_status = lance_dataset_take_rows(_dataset, row_ids.data(), row_ids.size(),
                                                    columns.data(), &stream);
     }
@@ -313,6 +318,7 @@ Status LanceTableReader::read_by_row_ids(const TFileRangeDesc& range,
                     record_batch, block, _global_rowid_context, &rows));
         }
         fetched_rows += rows;
+        COUNTER_UPDATE(fetch_rows, rows);
     }
     if (fetched_rows != row_ids.size()) {
         return Status::InternalError("Lance row-id fetch returned {} rows for {} requested row ids",
@@ -541,6 +547,9 @@ Status LanceTableReader::_validate_external_search_request() const {
 
     if (_search_kind == SearchKind::VECTOR && request.__isset.vector_search_options) {
         const auto& options = request.vector_search_options;
+        if (options.__isset.query_parallelism && options.query_parallelism < -1) {
+            return Status::InvalidArgument("Lance query_parallelism must be -1, 0, or positive");
+        }
         if (options.__isset.nprobes && options.nprobes <= 0) {
             return Status::InvalidArgument("Lance nprobes must be positive");
         }
@@ -1076,6 +1085,10 @@ Status LanceTableReader::_configure_vector_search(LanceScanner* scanner,
     }
     if (request.__isset.vector_search_options) {
         const auto& options = request.vector_search_options;
+        if (options.__isset.query_parallelism &&
+            lance_scanner_set_query_parallelism(scanner, options.query_parallelism) != 0) {
+            return lance_error("set Lance vector query parallelism");
+        }
         if (options.__isset.nprobes &&
             lance_scanner_set_nprobes(scanner, static_cast<uint32_t>(options.nprobes)) != 0) {
             return lance_error("set Lance vector nprobes");
