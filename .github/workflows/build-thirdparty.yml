@@ -20,7 +20,6 @@ name: Build Third Party Libraries
 on:
   pull_request:
     paths:
-      - 'build.sh'
       - 'thirdparty/**'
       - 'env.sh'
       - '.github/workflows/build-thirdparty.yml'
@@ -61,7 +60,6 @@ jobs:
               - 'thirdparty/**'
               - 'env.sh'
             focused_test_changes:
-              - 'build.sh'
               - 'thirdparty/test/adbc-jni-config-test.sh'
               - '.github/workflows/build-thirdparty.yml'
 
