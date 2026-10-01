@@ -49,7 +49,6 @@ jobs:
               - 'thirdparty/**'
               - 'env.sh'
             focused_test_changes:
-              - 'build.sh'
               - 'regression-test/pipeline/external/conf/fe.conf'
               - 'thirdparty/test/adbc-jni-config-test.sh'
               - '.github/workflows/build-thirdparty.yml'
