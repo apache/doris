@@ -22,6 +22,7 @@ import org.apache.doris.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.QueryLogContext;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TokenMasker;
@@ -591,22 +592,28 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
     /** {@link #runCommand} for a command that returns a value. */
     public <T, E extends Exception> T callCommand(ConnectContext ctx, SessionCommand<T, E> command) throws E {
         acquireCommandLock(ctx);
-        ConnectContext previous = ConnectContext.get();
-        try {
-            if (closed) {
-                throw CallStatus.UNAUTHENTICATED.withDescription(String.format("this Arrow Flight SQL session "
-                        + "was closed, connection id: %d; reconnect to run further commands", ctx.getConnectionId()))
-                        .toRuntimeException();
+        try (QueryLogContext ignored = QueryLogContext.open(null)) {
+            ConnectContext previous = ConnectContext.get();
+            try {
+                if (closed) {
+                    throw CallStatus.UNAUTHENTICATED.withDescription(String.format(
+                            "this Arrow Flight SQL session was closed, connection id: %d; "
+                                    + "reconnect to run further commands", ctx.getConnectionId()))
+                            .toRuntimeException();
+                }
+                ctx.refreshStartTime();
+                ctx.setThreadLocalInfo();
+                // Installing the session also installs its retained ID, which this command does not own.
+                QueryLogContext.clear();
+                return command.call();
+            } finally {
+                if (previous == null) {
+                    ConnectContext.remove();
+                } else {
+                    previous.setThreadLocalInfo();
+                }
             }
-            ctx.refreshStartTime();
-            ctx.setThreadLocalInfo();
-            return command.call();
         } finally {
-            if (previous == null) {
-                ConnectContext.remove();
-            } else {
-                previous.setThreadLocalInfo();
-            }
             commandLock.unlock();
         }
     }
