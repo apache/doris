@@ -39,7 +39,7 @@ class RowTtlVisibilityPlanTest extends TestWithFeService {
         createDatabase(DB);
         connectContext.setDatabase(DEFAULT_CLUSTER_PREFIX + DB);
 
-        createTable("CREATE TABLE " + DB + ".ttl_source_dup (\n"
+        createTableWithRowBinlog("CREATE TABLE " + DB + ".ttl_source_dup (\n"
                 + "  k INT NOT NULL,\n"
                 + "  event_time DATETIMEV2(6),\n"
                 + "  v INT\n"
