@@ -101,6 +101,10 @@ expressionWithEof
     : expression EOF
     ;
 
+propertyItemListWithEof
+    : propertyItemList EOF
+    ;
+
 statement
     : statementBase # statementBaseAlias
     | CALL name=multipartIdentifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN #callProcedure
