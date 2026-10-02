@@ -102,8 +102,10 @@ handle serialization, projected columns, large keys, producer failures, and earl
 cursor closure. Run script orchestration tests with:
 
 ```bash
-python3 -m unittest discover -s tests -v
+python3 -m unittest discover -s ../benchmark/tests -v
 ```
+
+The shared runner also supports [TPCH and TPCDS](../benchmark/README.md).
 
 # Original file-based workflow
 

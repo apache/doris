@@ -18,4 +18,4 @@
 
 set -Eeuo pipefail
 SCRIPT_ROOT=$(cd "$(dirname "$0")" && pwd)
-exec bash "${SCRIPT_ROOT}/../../benchmark/run-benchmark.sh" ssb "$@"
+exec bash "${SCRIPT_ROOT}/../../benchmark/run-benchmark.sh" tpch "$@"
