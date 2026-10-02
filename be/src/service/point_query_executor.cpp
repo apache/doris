@@ -112,8 +112,6 @@ static void get_missing_and_include_cids(const TabletSchema& schema,
     }
 }
 
-constexpr static int s_preallocted_blocks_num = 32;
-
 static void extract_slot_ref(const VExprSPtr& expr, TupleDescriptor* tuple_desc,
                              std::vector<SlotDescriptor*>& slots) {
     const auto& children = expr->children();
@@ -212,8 +210,9 @@ void Reusable::return_block(std::unique_ptr<Block>& block) {
     }
     block->clear_column_data();
     _block_pool.push_back(std::move(block));
-    if (_block_pool.size() > s_preallocted_blocks_num) {
-        _block_pool.resize(s_preallocted_blocks_num);
+    const auto block_pool_size = config::get_lookup_connection_cache_block_pool_size();
+    if (_block_pool.size() > block_pool_size) {
+        _block_pool.resize(block_pool_size);
     }
 }
 
@@ -350,15 +349,10 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
                     reinterpret_cast<const uint8_t*>(request->query_options().data()), &len, false,
                     &t_query_options));
         }
+        RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, t_query_options,
+                                           *_tablet->tablet_schema(), 1));
         if (uuid != 0) {
-            // could be reused by requests after, pre allocte more blocks
-            RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, t_query_options,
-                                               *_tablet->tablet_schema(),
-                                               s_preallocted_blocks_num));
             LookupConnectionCache::instance()->add(uuid, reusable_ptr);
-        } else {
-            RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, t_query_options,
-                                               *_tablet->tablet_schema(), 1));
         }
     }
     _init_remote_scan_cache_write_limiter();

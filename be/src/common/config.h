@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -1615,6 +1616,9 @@ DECLARE_mInt64(auto_inc_low_water_level_mark_size_ratio);
 DECLARE_mInt64(auto_inc_fetch_thread_num);
 // Max connection cache num for point lookup queries
 DECLARE_mInt64(lookup_connection_cache_capacity);
+// Number of reusable result blocks retained by each point lookup cache entry, in [1, 32].
+DECLARE_mInt32(lookup_connection_cache_block_pool_size);
+size_t get_lookup_connection_cache_block_pool_size();
 
 // level of compression when using LZ4_HC, whose defalut value is LZ4HC_CLEVEL_DEFAULT
 DECLARE_mInt64(LZ4_HC_compression_level);
