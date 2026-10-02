@@ -598,6 +598,35 @@ public class MetricsTest {
     }
 
     @Test
+    public void testCopyIntoErrorMetricsAreDistinct() {
+        List<Metric> uploadErrMetrics = MetricRepo.getMetricsByName("http_copy_into_upload_err_total");
+        List<Metric> queryErrMetrics = MetricRepo.getMetricsByName("http_copy_into_query_err_total");
+        Assertions.assertEquals(1, uploadErrMetrics.size());
+        Assertions.assertEquals(1, queryErrMetrics.size());
+        Assertions.assertSame(MetricRepo.HTTP_COUNTER_COPY_INFO_UPLOAD_ERR, uploadErrMetrics.get(0));
+        Assertions.assertSame(MetricRepo.HTTP_COUNTER_COPY_INFO_QUERY_ERR, queryErrMetrics.get(0));
+
+        long uploadErrBase = MetricRepo.HTTP_COUNTER_COPY_INFO_UPLOAD_ERR.getValue();
+        long queryErrBase = MetricRepo.HTTP_COUNTER_COPY_INFO_QUERY_ERR.getValue();
+        MetricRepo.HTTP_COUNTER_COPY_INFO_UPLOAD_ERR.increase(1L);
+        MetricRepo.HTTP_COUNTER_COPY_INFO_QUERY_ERR.increase(2L);
+        Assertions.assertEquals(uploadErrBase + 1, MetricRepo.HTTP_COUNTER_COPY_INFO_UPLOAD_ERR.getValue());
+        Assertions.assertEquals(queryErrBase + 2, MetricRepo.HTTP_COUNTER_COPY_INFO_QUERY_ERR.getValue());
+
+        MetricVisitor visitor = new PrometheusMetricVisitor();
+        MetricRepo.DORIS_METRIC_REGISTER.accept(visitor);
+        String metricResult = visitor.finish();
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_http_copy_into_upload_err_total counter"));
+        Assertions.assertTrue(metricResult.contains("# TYPE doris_fe_http_copy_into_query_err_total counter"));
+
+        JsonMetricVisitor jsonVisitor = new JsonMetricVisitor();
+        MetricRepo.DORIS_METRIC_REGISTER.accept(jsonVisitor);
+        String jsonResult = jsonVisitor.finish();
+        Assertions.assertTrue(jsonResult.contains("\"metric\":\"doris_fe_http_copy_into_upload_err_total\""));
+        Assertions.assertTrue(jsonResult.contains("\"metric\":\"doris_fe_http_copy_into_query_err_total\""));
+    }
+
+    @Test
     public void testMTMVMetrics() {
         // Test metrics in Prometheus format
         MetricVisitor visitor = new PrometheusMetricVisitor();
