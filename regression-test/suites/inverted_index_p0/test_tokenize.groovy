@@ -18,6 +18,15 @@
 import java.sql.SQLException
 
 suite("test_tokenize"){
+    test {
+        sql """SELECT tokenize('alpha beta', '"parser" = "unicode" trailing_tokens')"""
+        exception "tokenize second argument must be properties format"
+    }
+    test {
+        sql """SELECT tokenize('alpha beta', '"parser" = "unicode";')"""
+        exception "tokenize second argument must be properties format"
+    }
+
     // prepare test table
 
 
