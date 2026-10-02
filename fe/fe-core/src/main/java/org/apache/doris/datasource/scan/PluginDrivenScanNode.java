@@ -155,6 +155,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
     // Set during filter pushdown; may be updated from the original table handle.
     private ConnectorTableHandle currentHandle;
+    // Captured before pushdown refines currentHandle so rewrites compare the original snapshot identity.
+    private ConnectorTableHandle snapshotHandle;
 
     // Nereids partition-pruning result, injected by the translator. Defaults to NOT_PRUNED
     // so that connectors / non-partitioned tables read all partitions unless pruning applies.
@@ -206,6 +208,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         this.connector = connector;
         this.connectorSession = connectorSession;
         this.currentHandle = tableHandle;
+        this.snapshotHandle = tableHandle;
     }
 
     @Override
@@ -214,6 +217,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // Pin before projection pruning so every later connector decision uses this scan's snapshot.
         // The Variant compatibility fence itself runs in finalize, after Nereids prunes scan slots.
         pinMvccSnapshot();
+        snapshotHandle = currentHandle;
+    }
+
+    /** Returns the resolved snapshot identity before filter/projection pushdown. */
+    public ConnectorTableHandle getTableHandle() {
+        return snapshotHandle;
     }
 
     void checkVariantBackendCompatibilityForCurrentScan(Iterable<Backend> backends)

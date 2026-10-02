@@ -1,0 +1,2 @@
+{"protocol":{"minReaderVersion":3,"minWriterVersion":7,"readerFeatures":["futureReaderFeature"],"writerFeatures":["futureReaderFeature"]}}
+{"metaData":{"id":"b4f3a0d6-0e9e-43a2-82a4-e44d8f11a8a1","format":{"provider":"parquet","options":{}},"schemaString":"{\"type\":\"struct\",\"fields\":[{\"name\":\"id\",\"type\":\"long\",\"nullable\":false,\"metadata\":{}}]}","partitionColumns":[],"configuration":{},"createdTime":1700000000000}}

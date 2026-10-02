@@ -25,8 +25,15 @@
 #include <aws/core/utils/logging/LogSystemInterface.h>
 #include <aws/core/utils/memory/stl/AWSStringStream.h>
 #include <aws/s3/S3Client.h>
+#include <aws/sts/STSClient.h>
+#include <bvar/reducer.h>
+#include <cpp/token_bucket_rate_limiter.h>
+
+#include <atomic>
+#include <charconv>
 
 #include "util/string_util.h"
+#include "util/time.h"
 
 #ifdef USE_AZURE
 #include <azure/core/diagnostics/logger.hpp>
@@ -85,6 +92,15 @@ doris::Status is_s3_conf_valid(const S3ClientConf& conf) {
             return Status::InvalidArgument<false>("Invalid s3 conf, empty ak");
         }
     }
+    if (!conf.token.empty() && conf.token_expiration_time_ms > 0 &&
+        conf.token_expiration_time_ms <= UnixMillis()) {
+        return Status::InvalidArgument<false>(
+                "Invalid object storage conf, vended token is expired");
+    }
+    if (conf.token.empty() && conf.token_expiration_time_ms > 0) {
+        return Status::InvalidArgument<false>(
+                "Invalid object storage conf, token expiry is set without a token");
+    }
     return Status::OK();
 }
 
@@ -117,6 +133,11 @@ public:
 
 // Return true is convert `str` to int successfully
 bool to_int(std::string_view str, int& res) {
+    auto [_, ec] = std::from_chars(str.data(), str.data() + str.size(), res);
+    return ec == std::errc {};
+}
+
+bool to_int64(std::string_view str, int64_t& res) {
     auto [_, ec] = std::from_chars(str.data(), str.data() + str.size(), res);
     return ec == std::errc {};
 }
@@ -157,6 +178,7 @@ constexpr char S3_SK[] = "AWS_SECRET_KEY";
 constexpr char S3_ENDPOINT[] = "AWS_ENDPOINT";
 constexpr char S3_REGION[] = "AWS_REGION";
 constexpr char S3_TOKEN[] = "AWS_TOKEN";
+constexpr char S3_TOKEN_EXPIRATION_TIME_MS[] = "AWS_TOKEN_EXPIRATION_TIME_MS";
 constexpr char S3_MAX_CONN_SIZE[] = "AWS_MAX_CONNECTIONS";
 constexpr char S3_REQUEST_TIMEOUT_MS[] = "AWS_REQUEST_TIMEOUT_MS";
 constexpr char S3_CONN_TIMEOUT_MS[] = "AWS_CONNECTION_TIMEOUT_MS";
@@ -165,6 +187,21 @@ constexpr char S3_NEED_OVERRIDE_ENDPOINT[] = "AWS_NEED_OVERRIDE_ENDPOINT";
 constexpr char S3_ROLE_ARN[] = "AWS_ROLE_ARN";
 constexpr char S3_EXTERNAL_ID[] = "AWS_EXTERNAL_ID";
 constexpr char S3_CREDENTIALS_PROVIDER_TYPE[] = "AWS_CREDENTIALS_PROVIDER_TYPE";
+
+Status set_token_expiration_time(const StringCaseMap<std::string>& properties,
+                                 S3ClientConf* client_conf) {
+    const auto it = properties.find(S3_TOKEN_EXPIRATION_TIME_MS);
+    if (it == properties.end()) {
+        client_conf->token_expiration_time_ms = 0;
+        return Status::OK();
+    }
+    if (!to_int64(it->second, client_conf->token_expiration_time_ms) ||
+        client_conf->token_expiration_time_ms <= 0) {
+        return Status::InvalidArgument("invalid {} value \"{}\"", S3_TOKEN_EXPIRATION_TIME_MS,
+                                       it->second);
+    }
+    return Status::OK();
+}
 } // namespace
 
 S3ClientFactory::S3ClientFactory() {
@@ -291,13 +328,14 @@ Result<std::shared_ptr<io::ObjStorageClient>> S3ClientFactory::_create_azure_cli
     VLOG_DEBUG << "uri:" << uri << ", normalized_uri:" << normalized_uri;
     std::string tls_debug_context = build_azure_tls_debug_context(ca_cert_file_path);
 
-    auto built = AzureAuthFactory::create(uri,
-                                          {
-                                                  .type = AzureCredentialType::SHARED_KEY,
-                                                  .account_name = s3_conf.ak,
-                                                  .account_key = s3_conf.sk,
-                                          },
-                                          std::move(options));
+    AzureCredentialOptions credential {
+            .type = s3_conf.token.empty() ? AzureCredentialType::SHARED_KEY
+                                          : AzureCredentialType::SAS,
+            .account_name = s3_conf.ak,
+            .account_key = s3_conf.sk,
+            .sas_token = s3_conf.token,
+    };
+    auto built = AzureAuthFactory::create(uri, credential, std::move(options));
     if (!built) {
         return ResultError(
                 Status::InvalidArgument("failed to create Azure client: {}", built.error));
@@ -416,6 +454,7 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
     if (auto it = properties.find(S3_TOKEN); it != properties.end()) {
         s3_conf->client_conf.token = it->second;
     }
+    RETURN_IF_ERROR(set_token_expiration_time(properties, &s3_conf->client_conf));
     if (auto it = properties.find(S3_ENDPOINT); it != properties.end()) {
         s3_conf->client_conf.endpoint = it->second;
     }

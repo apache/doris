@@ -41,7 +41,9 @@ import org.apache.doris.nereids.types.DataType;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Converts a nereids {@link CreateTableInfo} into a connector-SPI
@@ -70,12 +72,24 @@ public final class CreateTableInfoToConnectorRequestConverter {
                 .bucketSpec(convertBucket(info.getDistribution()))
                 .sortOrder(convertSortOrder(info.getSortOrderFields()))
                 .comment(info.getComment())
-                .properties(info.getProperties())
+                .properties(convertProperties(info))
                 .ifNotExists(info.isIfNotExists())
                 .build();
     }
 
     // -------- columns --------
+
+    private static Map<String, String> convertProperties(CreateTableInfo info) {
+        Map<String, String> properties = new LinkedHashMap<>();
+        if (info.getProperties() != null) {
+            properties.putAll(info.getProperties());
+        }
+        // External properties override ordinary properties, as in the previous create path.
+        if (info.getExtProperties() != null) {
+            properties.putAll(info.getExtProperties());
+        }
+        return properties;
+    }
 
     private static List<ConnectorColumn> convertColumns(
             List<ColumnDefinition> defs) {

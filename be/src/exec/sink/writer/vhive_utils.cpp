@@ -27,7 +27,8 @@ const std::regex VHiveUtils::PATH_CHAR_TO_ESCAPE("[\\x00-\\x1F\"#%'*/:=?\\\\\\x7
 
 std::string VHiveUtils::make_partition_name(const std::vector<THiveColumn>& columns,
                                             const std::vector<int>& partition_columns_input_index,
-                                            const std::vector<std::string>& values) {
+                                            const std::vector<std::string>& values,
+                                            bool use_hive_partition_encoding) {
     std::stringstream partition_name_stream;
 
     for (size_t i = 0; i < partition_columns_input_index.size(); i++) {
@@ -36,16 +37,20 @@ std::string VHiveUtils::make_partition_name(const std::vector<THiveColumn>& colu
         }
         std::string column = columns[partition_columns_input_index[i]].name;
         std::string value = values[i];
-        std::transform(column.begin(), column.end(), column.begin(),
-                       [&](char c) { return std::tolower(c); });
-        partition_name_stream << escape_path_name(column) << '=' << escape_path_name(value);
+        if (use_hive_partition_encoding) {
+            std::transform(column.begin(), column.end(), column.begin(),
+                           [&](char c) { return std::tolower(c); });
+        }
+        partition_name_stream << escape_path_name(column, use_hive_partition_encoding) << '='
+                              << escape_path_name(value, use_hive_partition_encoding);
     }
 
     return partition_name_stream.str();
 }
 
-std::string VHiveUtils::escape_path_name(const std::string& path) {
-    if (path.empty()) {
+std::string VHiveUtils::escape_path_name(const std::string& path,
+                                         bool use_hive_partition_encoding) {
+    if (path.empty() && use_hive_partition_encoding) {
         return "__HIVE_DEFAULT_PARTITION__";
     }
 

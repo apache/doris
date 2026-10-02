@@ -17,9 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.connector.spi.handle.ConnectorTableHandle;
+
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /**
  * Insert command context for plugin-driven connector catalogs.
@@ -37,8 +40,35 @@ import java.util.Optional;
  */
 public class PluginDrivenInsertCommandContext extends BaseExternalTableInsertCommandContext {
 
+    private Optional<ConnectorTableHandle> overwriteBaseHandle = Optional.empty();
+    private boolean reportRemovedRows;
+    private OptionalLong affectedRowCount = OptionalLong.empty();
     private Map<String, String> staticPartitionSpec = Collections.emptyMap();
     private Optional<String> branchName = Optional.empty();
+
+    public Optional<ConnectorTableHandle> getOverwriteBaseHandle() {
+        return overwriteBaseHandle;
+    }
+
+    public void setOverwriteBaseHandle(ConnectorTableHandle overwriteBaseHandle) {
+        this.overwriteBaseHandle = Optional.of(overwriteBaseHandle);
+    }
+
+    public boolean isReportRemovedRows() {
+        return reportRemovedRows;
+    }
+
+    public void setReportRemovedRows(boolean reportRemovedRows) {
+        this.reportRemovedRows = reportRemovedRows;
+    }
+
+    public OptionalLong getAffectedRowCount() {
+        return affectedRowCount;
+    }
+
+    public void setAffectedRowCount(long affectedRowCount) {
+        this.affectedRowCount = OptionalLong.of(affectedRowCount);
+    }
 
     public Map<String, String> getStaticPartitionSpec() {
         return staticPartitionSpec;

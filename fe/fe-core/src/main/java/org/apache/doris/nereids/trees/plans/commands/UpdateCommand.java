@@ -25,6 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
@@ -104,6 +105,12 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
             table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
         } catch (Exception e) {
             // Table not found, will be handled by regular error flow
+        }
+
+        if (table instanceof PluginDrivenExternalTable
+                && ((PluginDrivenExternalTable) table).connectorSupportsCopyOnWriteDml()) {
+            new ConnectorUpdateCommand(nameParts, tableAlias, assignments, logicalQuery, cte).run(ctx, executor);
+            return;
         }
 
         // Route row-level DML on external tables (e.g. iceberg) through the generic shell.
@@ -277,6 +284,11 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
     public Plan getExplainPlan(ConnectContext ctx) {
         List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
         TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
+        if (table instanceof PluginDrivenExternalTable
+                && ((PluginDrivenExternalTable) table).connectorSupportsCopyOnWriteDml()) {
+            return new ConnectorUpdateCommand(nameParts, tableAlias, assignments, logicalQuery, cte)
+                    .getExplainPlan(ctx);
+        }
         Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
         if (transform.isPresent()) {
             RowLevelDmlArgs args = RowLevelDmlArgs.forUpdate(

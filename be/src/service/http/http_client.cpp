@@ -281,7 +281,7 @@ HttpClient::~HttpClient() {
     }
 }
 
-Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
+Status HttpClient::init(const std::string& url, bool set_fail_on_error, bool escape_url) {
     if (_curl == nullptr) {
         _curl = curl_easy_init();
         if (_curl == nullptr) {
@@ -349,18 +349,24 @@ Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
         return Status::InternalError("fail to set CURLOPT_WRITEDATA");
     }
 
-    std::string escaped_url;
-    RETURN_IF_ERROR(_escape_url(url, &escaped_url));
-    // set url
-    code = curl_easy_setopt(_curl, CURLOPT_URL, escaped_url.c_str());
-    if (code != CURLE_OK) {
-        LOG(WARNING) << "failed to set CURLOPT_URL, errmsg=" << _to_errmsg(code);
-        return Status::InternalError("fail to set CURLOPT_URL");
-    }
+    RETURN_IF_ERROR(_set_url(url, escape_url));
 
 #ifndef BE_TEST
     set_auth_token(ExecEnv::GetInstance()->cluster_info()->curr_auth_token);
 #endif
+    return Status::OK();
+}
+
+Status HttpClient::_set_url(const std::string& url, bool escape_url) {
+    std::string effective_url = url;
+    if (escape_url) {
+        RETURN_IF_ERROR(_escape_url(url, &effective_url));
+    }
+    auto code = curl_easy_setopt(_curl, CURLOPT_URL, effective_url.c_str());
+    if (code != CURLE_OK) {
+        LOG(WARNING) << "failed to set CURLOPT_URL, errmsg=" << _to_errmsg(code);
+        return Status::InternalError("fail to set CURLOPT_URL");
+    }
     return Status::OK();
 }
 
@@ -479,6 +485,21 @@ Status HttpClient::get_content_md5(std::string* md5) const {
     }
 
     *md5 = header_ptr->value;
+    return Status::OK();
+}
+
+Status HttpClient::get_response_header(const std::string& name, std::string* value) const {
+    struct curl_header* header_ptr;
+    auto code = curl_easy_header(_curl, name.c_str(), 0, CURLH_HEADER, 0, &header_ptr);
+    if (code == CURLHE_MISSING || code == CURLHE_NOHEADERS) {
+        value->clear();
+        return Status::OK();
+    }
+    if (code != CURLHE_OK) {
+        return Status::HttpError("failed to get HTTP response header {}: {} ({})", name,
+                                 header_error_msg(code), code);
+    }
+    *value = header_ptr->value;
     return Status::OK();
 }
 

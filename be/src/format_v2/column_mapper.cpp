@@ -1541,6 +1541,12 @@ static bool type_contains_varbinary(const DataTypePtr& type) {
 static FilterConversionType direct_filter_conversion(const ColumnMapping& mapping) {
     DORIS_CHECK(mapping.table_type != nullptr);
     DORIS_CHECK(mapping.file_type != nullptr);
+    // Required table values must be validated before file-local predicates can discard NULLs.
+    // Rewriting a required scalar comparison against a nullable file slot also changes its
+    // argument types without changing the comparison's declared non-nullable result type.
+    if (!can_filter_before_table_nullability_alignment(mapping.file_type, mapping.table_type)) {
+        return FilterConversionType::FINALIZE_ONLY;
+    }
     // FileScanOperator deliberately keeps VARBINARY predicates above external readers. Their
     // physical binary representations are not uniformly supported by reader-side expression and
     // metadata filtering, so localizing a late runtime filter here can incorrectly reject rows.
@@ -2183,6 +2189,17 @@ static Status apply_scan_projection_to_mapping_file_type(const FileScanRequest& 
 static void rebuild_projection(ColumnMapping* mapping, LocalIndex block_position) {
     DORIS_CHECK(mapping->file_local_id.has_value());
     if (mapping->is_trivial || needs_complex_rematerialize(*mapping)) {
+        mapping->projection = VExprContext::create_shared(VSlotRef::create_shared(
+                cast_set<int>(block_position.value()), cast_set<int>(block_position.value()), -1,
+                mapping->file_type, mapping->file_column_name));
+        return;
+    }
+
+    // A root nullability difference does not require a cast. Nullable Parquet fields are common
+    // even when the table column is required; preserving the file value lets TableReader perform
+    // the final nullability validation/alignment without dispatching a primitive cast against a
+    // ColumnNullable input.
+    if (remove_nullable(mapping->file_type)->equals(*remove_nullable(mapping->table_type))) {
         mapping->projection = VExprContext::create_shared(VSlotRef::create_shared(
                 cast_set<int>(block_position.value()), cast_set<int>(block_position.value()), -1,
                 mapping->file_type, mapping->file_column_name));

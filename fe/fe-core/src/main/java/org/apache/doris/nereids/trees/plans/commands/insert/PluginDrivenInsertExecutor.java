@@ -42,6 +42,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /**
  * Insert executor for plugin-driven connector catalogs.
@@ -59,6 +60,10 @@ public class PluginDrivenInsertExecutor extends BaseExternalTableInsertExecutor 
 
     private transient ConnectorSession connectorSession;
     private transient ConnectorWriteOps writeOps;
+    private transient boolean requiresFileCommitReports;
+    private final boolean overwrite;
+    private final boolean reportRemovedRows;
+    private final OptionalLong explicitAffectedRowCount;
     // The connector transaction for this write: opened in beginTransaction(), bound onto the
     // sink's session in finalizeSink(), and committed / rolled back via the transaction manager
     // in onComplete() / onFail(). Null only on the empty-insert path, which skips beginTransaction.
@@ -72,6 +77,37 @@ public class PluginDrivenInsertExecutor extends BaseExternalTableInsertExecutor 
                                       Optional<InsertCommandContext> insertCtx,
                                       boolean emptyInsert, long jobId) {
         super(ctx, table, labelName, planner, insertCtx, emptyInsert, jobId);
+        this.overwrite = insertCtx
+                .filter(BaseExternalTableInsertCommandContext.class::isInstance)
+                .map(BaseExternalTableInsertCommandContext.class::cast)
+                .map(BaseExternalTableInsertCommandContext::isOverwrite)
+                .orElse(false);
+        this.reportRemovedRows = insertCtx
+                .filter(PluginDrivenInsertCommandContext.class::isInstance)
+                .map(PluginDrivenInsertCommandContext.class::cast)
+                .map(PluginDrivenInsertCommandContext::isReportRemovedRows)
+                .orElse(false);
+        this.explicitAffectedRowCount = insertCtx
+                .filter(PluginDrivenInsertCommandContext.class::isInstance)
+                .map(PluginDrivenInsertCommandContext.class::cast)
+                .map(PluginDrivenInsertCommandContext::getAffectedRowCount)
+                .orElse(OptionalLong.empty());
+    }
+
+    @Override
+    public boolean isEmptyInsert() {
+        // An empty overwrite still has to commit removal of the current files.
+        return canSkipEmptyInput(super.isEmptyInsert(), overwrite);
+    }
+
+    static boolean canSkipEmptyInput(boolean emptyInput, boolean overwrite) {
+        return emptyInput && !overwrite;
+    }
+
+    @Override
+    public boolean requiresTransaction() {
+        // Preserve stream-offset commits from the base class and deletion-only empty overwrites.
+        return overwrite || super.requiresTransaction();
     }
 
     @Override
@@ -87,7 +123,12 @@ public class PluginDrivenInsertExecutor extends BaseExternalTableInsertExecutor 
         // by the hive plugin) opens the SIBLING connector's transaction, whose concrete type its write plan
         // downcasts; a single-format connector ignores the handle (the SPI default delegates to the no-arg
         // beginTransaction). resolveWriteTargetHandle fails loud rather than handing the gateway a null handle.
-        ConnectorTableHandle writeHandle = ((PluginDrivenExternalTable) table).resolveWriteTargetHandle();
+        ConnectorTableHandle writeHandle = insertCtx
+                .filter(PluginDrivenInsertCommandContext.class::isInstance)
+                .map(PluginDrivenInsertCommandContext.class::cast)
+                .flatMap(PluginDrivenInsertCommandContext::getOverwriteBaseHandle)
+                .orElseGet(() -> ((PluginDrivenExternalTable) table).resolveWriteTargetHandle());
+        requiresFileCommitReports = ((PluginDrivenExternalTable) table).connectorSupportsCopyOnWriteDml();
         // Co-hold the transaction with the statement's one shared metadata (writeOps) + session on the statement
         // scope, so read and write share one instance and the scope deterministically rolls back a transaction
         // aborted mid-flight at statement end -- before it closes that shared metadata. begin() still mints from
@@ -154,10 +195,36 @@ public class PluginDrivenInsertExecutor extends BaseExternalTableInsertExecutor 
             // >= 0 is authoritative and backfills loadedRows, which AbstractInsertExecutor otherwise
             // leaves at 0 for the transaction model. Mirrors legacy MCInsertExecutor.doBeforeCommit.
             long cnt = connectorTx.getUpdateCnt();
+            // Check the independent BE counter before replacing it: a missing file report must not turn
+            // a non-empty write into an empty overwrite. Empty overwrites still commit their removals.
+            if (requiresFileCommitReports && loadedRows > 0 && cnt == 0) {
+                throw new UserException("File connector did not report any data files for non-empty INSERT into "
+                        + table.getName());
+            }
             if (cnt >= 0) {
                 loadedRows = cnt;
             }
+            OptionalLong removedRowCount = reportRemovedRows
+                    ? calculateRemovedRowCount(connectorTx.getOriginalRowCount(), loadedRows)
+                    : OptionalLong.empty();
+            if (removedRowCount.isPresent()) {
+                loadedRows = removedRowCount.getAsLong();
+            } else if (explicitAffectedRowCount.isPresent()) {
+                loadedRows = explicitAffectedRowCount.getAsLong();
+            }
         }
+    }
+
+    static OptionalLong calculateRemovedRowCount(
+            OptionalLong originalRowCount, long replacementRowCount) throws UserException {
+        if (!originalRowCount.isPresent()) {
+            return OptionalLong.empty();
+        }
+        if (replacementRowCount > originalRowCount.getAsLong()) {
+            throw new UserException(
+                    "Connector DELETE produced more survivor rows than its base snapshot");
+        }
+        return OptionalLong.of(originalRowCount.getAsLong() - replacementRowCount);
     }
 
     /**

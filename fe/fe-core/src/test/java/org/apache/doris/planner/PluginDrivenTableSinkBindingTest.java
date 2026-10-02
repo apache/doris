@@ -138,6 +138,27 @@ public class PluginDrivenTableSinkBindingTest {
         return new PluginDrivenTableSink(null, provider, session, tableHandle, Collections.emptyList());
     }
 
+    @Test
+    public void explicitCopyOnWriteBaseIsNotRepinnedAtSinkBinding() throws AnalysisException {
+        RecordingWritePlanProvider provider = new RecordingWritePlanProvider();
+        ConnectorSession session = ConnectorSessionBuilder.create().build();
+        ConnectorTableHandle latest = Mockito.mock(ConnectorTableHandle.class);
+        ConnectorTableHandle selectedBase = Mockito.mock(ConnectorTableHandle.class);
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        PluginDrivenTableSink sink = new PluginDrivenTableSink(table, provider, session, latest,
+                Collections.emptyList(), null, null, false, metadata);
+        PluginDrivenInsertCommandContext context = new PluginDrivenInsertCommandContext();
+        context.setOverwrite(true);
+        context.setOverwriteBaseHandle(selectedBase);
+
+        sink.bindDataSink(Optional.of(context));
+
+        Assertions.assertSame(selectedBase, provider.capturedHandle.getTableHandle());
+        Assertions.assertTrue(provider.capturedHandle.isOverwrite());
+        Mockito.verifyNoInteractions(metadata);
+    }
+
     /** Records the bound {@link ConnectorWriteHandle} that the sink hands to {@code planWrite}. */
     private static final class RecordingWritePlanProvider implements ConnectorWritePlanProvider {
         private ConnectorWriteHandle capturedHandle;

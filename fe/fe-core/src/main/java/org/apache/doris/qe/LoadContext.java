@@ -22,6 +22,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.task.LoadEtlTask;
+import org.apache.doris.thrift.TConnectorFileCommitData;
 import org.apache.doris.thrift.TErrorTabletInfo;
 import org.apache.doris.thrift.TTabletCommitInfo;
 
@@ -48,6 +49,8 @@ public class LoadContext {
     // key: backendsId
     // values: tabletId
     private final Map<Pair<Long, Long>, TTabletCommitInfo> commitInfoMap = Maps.newLinkedHashMap();
+    private final Map<String, TConnectorFileCommitData> connectorFileCommitDataMap =
+            Maps.newLinkedHashMap();
 
     public synchronized Map<String, String> getLoadCounters() {
         return ImmutableMap.copyOf(loadCounters);
@@ -108,6 +111,17 @@ public class LoadContext {
 
     public synchronized List<TTabletCommitInfo> getCommitInfos() {
         return Utils.fastToImmutableList(commitInfoMap.values());
+    }
+
+    public synchronized void updateConnectorFileCommitDatas(
+            List<TConnectorFileCommitData> connectorFileCommitDatas) {
+        for (TConnectorFileCommitData commitData : connectorFileCommitDatas) {
+            connectorFileCommitDataMap.put(commitData.getFilePath(), commitData);
+        }
+    }
+
+    public synchronized List<TConnectorFileCommitData> getConnectorFileCommitDatas() {
+        return Utils.fastToImmutableList(connectorFileCommitDataMap.values());
     }
 
     public void updateTrackingUrl(String trackingUrl) {
