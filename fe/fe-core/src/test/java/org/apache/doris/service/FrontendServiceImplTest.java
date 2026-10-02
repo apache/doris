@@ -46,6 +46,7 @@ import org.apache.doris.thrift.TCreatePartitionRequest;
 import org.apache.doris.thrift.TCreatePartitionResult;
 import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
+import org.apache.doris.thrift.TGetCurrentTsoResult;
 import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetTablesParams;
@@ -73,6 +74,7 @@ import org.apache.doris.thrift.TTabletLocation;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.WriteBlockAllocatingTransaction;
+import org.apache.doris.tso.TSOService;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Sets;
@@ -127,6 +129,34 @@ public class FrontendServiceImplTest extends TestWithFeService {
         Field field = target.getClass().getDeclaredField(fieldName);
         field.setAccessible(true);
         field.set(target, value);
+    }
+
+    @Test
+    public void testCurrentTsoRequiresMasterAndReportsAllocationFailures() {
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        Env currentEnv = Mockito.mock(Env.class);
+        TSOService tso = Mockito.mock(TSOService.class);
+        try (MockedStatic<Env> env = Mockito.mockStatic(Env.class)) {
+            env.when(Env::getCurrentEnv).thenReturn(currentEnv);
+            env.when(Env::getCurrentTSOService).thenReturn(tso);
+            TGetCurrentTsoResult follower = impl.getCurrentTso();
+            Assertions.assertEquals(TStatusCode.NOT_MASTER, follower.getStatus().getStatusCode());
+            Assertions.assertFalse(follower.isSetTso());
+            Mockito.verifyNoInteractions(tso);
+
+            Mockito.when(currentEnv.isMaster()).thenReturn(true);
+            Mockito.when(tso.getTSO()).thenReturn(123L)
+                    .thenThrow(new IllegalStateException("TSO timestamp is not calibrated"))
+                    .thenThrow(new IllegalStateException("TSO feature is disabled"));
+            TGetCurrentTsoResult success = impl.getCurrentTso();
+            Assertions.assertEquals(TStatusCode.OK, success.getStatus().getStatusCode());
+            Assertions.assertEquals(123L, success.getTso());
+            for (int i = 0; i < 2; i++) {
+                TGetCurrentTsoResult failure = impl.getCurrentTso();
+                Assertions.assertEquals(TStatusCode.INTERNAL_ERROR, failure.getStatus().getStatusCode());
+                Assertions.assertFalse(failure.isSetTso());
+            }
+        }
     }
 
     @Test
