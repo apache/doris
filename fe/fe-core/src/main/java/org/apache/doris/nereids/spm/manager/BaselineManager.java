@@ -112,6 +112,21 @@ public class BaselineManager {
         void deleteByIdAndStatus(long id, BaselineStatus status);
 
         int countByIdAndStatus(long id, BaselineStatus status);
+
+        /**
+         * The CONDITIONAL insert half of a status flip: mirrors the durable
+         * {@code INSERT ... SELECT ... WHERE id / status} statement - the new-status row
+         * must NOT be written once the previous-status row is gone (the caller then
+         * refuses the flip, which is how the DROP-while-ALTER-stalled conflict surfaces).
+         * The default keeps the unconditional simulators working: their scenarios always
+         * keep the previous row.
+         *
+         * @return whether the new-status row was written
+         */
+        default boolean insertIfPreviousPresent(BaselinePlan plan, BaselineStatus previousStatus) {
+            insert(plan);
+            return true;
+        }
     }
 
     /**
@@ -137,6 +152,15 @@ public class BaselineManager {
 
     @VisibleForTesting
     public static volatile IdAllocatorStoreForTest idAllocatorStoreForTest;
+
+    /**
+     * Test seam replacing the live leadership probe of {@link #assertLeaderForWrite}
+     * (null in production). The store simulators bypass the live fence by design, so
+     * without this seam a unit test cannot interleave a master handoff with an in-flight
+     * write (the insert / delete halves of a status flip).
+     */
+    @VisibleForTesting
+    public static volatile java.util.function.BooleanSupplier leaderProbeForTest;
 
     /**
      * Test seam for the read-back visibility confirmation of a reported-successful write
@@ -237,7 +261,23 @@ public class BaselineManager {
 
     /** Removes one baseline row by id + its previous status (status UPDATE support). */
     private static final String DELETE_BY_ID_AND_STATUS_SQL = "DELETE FROM " + SPM_BASELINES_TABLE
-            + " WHERE `id` = ${id} AND `status` = '${status}'";
+            + " WHERE `id` = ${id} AND `status` = '${status}'"
+            + " AND `bind_sql_digest` = '${bindSqlDigest}' AND `plan_sql` = '${planSql}'";
+
+    /**
+     * INSERT half of a STATUS FLIP, CONDITIONAL on the previous-status row: the SELECT
+     * yields one row only while a durable row still carries (id, previousStatus), so a
+     * baseline that a concurrent DROP removed while the ALTER was in flight (or stalled
+     * before its INSERT) is never resurrected - the ALTER then fails retryably instead
+     * of publishing an ACTIVE status the completed DROP had already reported removed.
+     */
+    private static final String INSERT_IF_PREVIOUS_STATUS_SQL = "INSERT INTO "
+            + SPM_BASELINES_TABLE + " SELECT ${id}, '${bindSql}', '${bindSqlDigest}',"
+            + " ${bindSqlHash}, '${planSql}', '${queryId}', ${cost}, ${queryTimeMs},"
+            + " '${source}', '${status}', '${createTime}', '${updateTime}', ${sqlMode},"
+            + " ${planSqlMode}, ${planFrozen}, '${schemaFingerprint}' FROM "
+            + SPM_BASELINES_TABLE + " WHERE `id` = ${id} AND `status` = '${previousStatus}'"
+            + " LIMIT 1";
 
     /** Reconciliation read of the ambiguous status-update path: how many durable rows
      *  currently carry (id, status). */
@@ -248,6 +288,10 @@ public class BaselineManager {
     private static final DateTimeFormatter TS_FORMAT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
+    /** Message of the leadership fence (see {@link #assertLeaderForWrite}). */
+    private static final String NO_LONGER_MASTER = "SPM baseline write refused: this FE is no"
+            + " longer the master (retry on the new leader)";
+
     /**
      * Statement timeout (seconds) of the SPM internal-table reads. The temporary context
      * StatisticsUtil builds otherwise inherits the analyze timeout (12h by default): an
@@ -255,7 +299,6 @@ public class BaselineManager {
      * far beyond the advertised SPM budget.
      */
     private static final int INTERNAL_QUERY_TIMEOUT_SECONDS = 10;
-
     /**
      * Statement timeout (seconds) of the SPM internal-table WRITES (INSERT / DELETE).
      * createBaseline runs synchronously inside the single capture cycle under writerLock,
@@ -712,6 +755,14 @@ public class BaselineManager {
      * covers the unavoidable tail where the demotion lands mid-write.
      */
     private static void assertLeaderForWrite() {
+        if (leaderProbeForTest != null) {
+            // test seam: the store simulators deliberately bypass the live probe, so this
+            // is the only way a unit test can interleave a handoff with an in-flight write
+            if (!leaderProbeForTest.getAsBoolean()) {
+                throw new IllegalStateException(NO_LONGER_MASTER);
+            }
+            return;
+        }
         if (!persistenceEnabled() || FeConstants.runningUnitTest
                 || idAllocatorStoreForTest != null || statusProtocolStoreForTest != null) {
             // simulator stores stand in for the shared table in unit tests; the leader
@@ -719,8 +770,7 @@ public class BaselineManager {
             return;
         }
         if (Env.getCurrentEnv() != null && !Env.getCurrentEnv().isMaster()) {
-            throw new IllegalStateException("SPM baseline write refused: this FE is no longer"
-                    + " the master (retry on the new leader)");
+            throw new IllegalStateException(NO_LONGER_MASTER);
         }
     }
 
@@ -1070,8 +1120,8 @@ public class BaselineManager {
             durablePlan.setUpdateTime(newUpdateTime);
             try {
                 assertLeaderForWrite();
-                persistInsert(durablePlan);
-                persistDeleteByIdAndStatus(id, previousStatus);
+                persistTransitionInsert(durablePlan, previousStatus);
+                persistDeleteByIdAndStatus(durablePlan, previousStatus);
             } catch (RuntimeException e) {
                 // The INSERT(new) / DELETE(old) pair spans two statements whose outcomes
                 // can be AMBIGUOUS: a delete may commit but report KV_TXN_MAYBE_COMMITTED.
@@ -1093,7 +1143,7 @@ public class BaselineManager {
                     return true;
                 }
                 try {
-                    persistDeleteByIdAndStatus(id, status);
+                    persistDeleteByIdAndStatus(durablePlan, status);
                 } catch (RuntimeException repairFailure) {
                     LOG.error("SPM failed to roll back baseline {} after a failed status update",
                             id, repairFailure);
@@ -1473,6 +1523,7 @@ public class BaselineManager {
             persistToTable = false; // and never write the table from a unit test
             statusProtocolStoreForTest = null; // and never route through a leaked test seam
             idAllocatorStoreForTest = null; // (the create-time collision seam, same reason)
+            leaderProbeForTest = null; // (the leadership seam, same reason)
             durableVisibilityProbeForTest = null; // (the write-visibility seam, same reason)
             snapshotReadStartedHookForTest = null; // (the load-generation seam, same reason)
             snapshotReaderForTest = null; // (the load snapshot seam, same reason)
@@ -2335,6 +2386,79 @@ public class BaselineManager {
         return null;
     }
 
+    /**
+     * The CONDITIONAL INSERT half of a status flip (see
+     * {@link #INSERT_IF_PREVIOUS_STATUS_SQL}): the new-status row is coupled to the
+     * PREVIOUS-status row still being durable.
+     *
+     * <p>An ALTER dispatched before a handoff - or merely stalled - could otherwise
+     * INSERT the requested status AFTER the new master completed a DROP of that very
+     * baseline: nothing was left to refuse it (the old row was gone, so the delete-old
+     * step removed zero rows and the visibility confirmation passed), the resurrected row
+     * survived the completed DROP and the next refresh restored an ACTIVE baseline. The
+     * conditional statement performs the presence check INSIDE the same durable write, so
+     * a vanished previous row writes nothing; the conflict is then reported as a
+     * retryable failure instead of a silent success.
+     */
+    private static void persistTransitionInsert(BaselinePlan p, BaselineStatus previousStatus) {
+        if (!persistenceEnabled() && idAllocatorStoreForTest == null
+                && statusProtocolStoreForTest == null) {
+            return; // in-memory only (no durable status rows exist)
+        }
+        if (idAllocatorStoreForTest != null) {
+            idAllocatorStoreForTest.insert(p);
+        } else if (statusProtocolStoreForTest != null) {
+            if (!statusProtocolStoreForTest.insertIfPreviousPresent(p, previousStatus)) {
+                throw statusConflict(p.getId(), previousStatus);
+            }
+        } else {
+            writeConditionalStatusInsert(p, previousStatus);
+            // A conditional insert whose WHERE matched no row writes NOTHING: the plain
+            // visibility confirmation would report it as a publication lag. Check while
+            // the absence is still unambiguous - the previous row is gone AND the new row
+            // is absent (a still-present previous row means the insert simply has not
+            // become readable yet).
+            if (probeDurableRow(p.getId(), p.getBindSqlDigest(), p.getPlanSql(), p.getStatus())
+                    == DurablePresence.ABSENT
+                    && durableRowCount(p.getId(), previousStatus) == 0) {
+                throw statusConflict(p.getId(), previousStatus);
+            }
+        }
+        confirmInsertVisible(p);
+    }
+
+    /** Runs the conditional status INSERT and hides an ambiguous commit behind a read. */
+    private static void writeConditionalStatusInsert(BaselinePlan p, BaselineStatus previousStatus) {
+        Map<String, String> params = insertParams(p);
+        params.put("previousStatus", previousStatus.name());
+        try {
+            inInternalIoMode(() -> {
+                StatisticsUtil.execUpdate(INSERT_IF_PREVIOUS_STATUS_SQL, params,
+                        BASELINE_WRITE_TIMEOUT_SECONDS);
+                return null;
+            });
+        } catch (Exception e) {
+            // An INSERT that reports an error (typically a statement timeout) may still
+            // have COMMITTED: the row carrying this id + key + the REQUESTED status is the
+            // proof it landed (the previous-status row would not prove it - it is exactly
+            // the row the conditional statement must not have matched).
+            if (probeDurableRow(p.getId(), p.getBindSqlDigest(), p.getPlanSql(), p.getStatus())
+                    == DurablePresence.PRESENT) {
+                LOG.warn("SPM persist (status insert) reported {} but the row is durable"
+                        + " (id={}); keeping it", e.getMessage(), p.getId());
+                return;
+            }
+            throw new RuntimeException("SPM persist (status insert) failed: " + e.getMessage(), e);
+        }
+    }
+
+    /** The retryable conflict of a status flip whose previous-status row disappeared. */
+    private static IllegalStateException statusConflict(long id, BaselineStatus previousStatus) {
+        return new IllegalStateException("SPM cannot change the status of baseline " + id
+                + ": its " + previousStatus + " row is gone (a concurrent DROP or status"
+                + " flip won); retry the statement");
+    }
+
     private static void persistInsert(BaselinePlan p) {
         if (idAllocatorStoreForTest != null) {
             idAllocatorStoreForTest.insert(p);
@@ -2349,28 +2473,7 @@ public class BaselineManager {
         if (!persistenceEnabled()) {
             return;
         }
-        Map<String, String> params = new HashMap<>();
-        params.put("id", String.valueOf(p.getId()));
-        params.put("bindSql", StatisticsUtil.escapeSQL(p.getBindSql()));
-        params.put("bindSqlDigest", StatisticsUtil.escapeSQL(p.getBindSqlDigest()));
-        params.put("bindSqlHash", String.valueOf(p.getBindSqlHash()));
-        params.put("planSql", StatisticsUtil.escapeSQL(p.getPlanSql()));
-        params.put("queryId", StatisticsUtil.escapeSQL(p.getQueryId() == null ? "" : p.getQueryId()));
-        params.put("cost", String.valueOf(p.getCost()));
-        params.put("queryTimeMs", String.valueOf(p.getQueryTimeMs()));
-        params.put("source", p.getSource().name());
-        params.put("status", p.getStatus().name());
-        params.put("createTime", toTs(p.getCreateTime()));
-        params.put("updateTime", toTs(p.getUpdateTime()));
-        params.put("sqlMode", String.valueOf(p.getCreatorSqlMode()));
-        // NULL (not "MODE_DEFAULT") for a row that predates the provenance columns: the
-        // load path must keep classifying such rows by parsing / by the creator mode.
-        params.put("planSqlMode",
-                p.getPlanSqlMode() == null ? "NULL" : String.valueOf(p.getPlanSqlMode()));
-        params.put("planFrozen", p.getPlanFrozen() == null ? "NULL" : p.getPlanFrozen().toString());
-        params.put("schemaFingerprint",
-                StatisticsUtil.escapeSQL(p.getSchemaFingerprint() == null
-                        ? "" : p.getSchemaFingerprint()));
+        Map<String, String> params = insertParams(p);
         try {
             inInternalIoMode(() -> {
                 StatisticsUtil.execUpdate(INSERT_SQL, params, BASELINE_WRITE_TIMEOUT_SECONDS);
@@ -2400,6 +2503,33 @@ public class BaselineManager {
         // MAX(id) - both rows then become visible and the winner rule silently discards
         // one version.
         confirmInsertVisible(p);
+    }
+
+    /** The ${...}-parameter map of one INSERT statement (shared by both insert shapes). */
+    private static Map<String, String> insertParams(BaselinePlan p) {
+        Map<String, String> params = new HashMap<>();
+        params.put("id", String.valueOf(p.getId()));
+        params.put("bindSql", StatisticsUtil.escapeSQL(p.getBindSql()));
+        params.put("bindSqlDigest", StatisticsUtil.escapeSQL(p.getBindSqlDigest()));
+        params.put("bindSqlHash", String.valueOf(p.getBindSqlHash()));
+        params.put("planSql", StatisticsUtil.escapeSQL(p.getPlanSql()));
+        params.put("queryId", StatisticsUtil.escapeSQL(p.getQueryId() == null ? "" : p.getQueryId()));
+        params.put("cost", String.valueOf(p.getCost()));
+        params.put("queryTimeMs", String.valueOf(p.getQueryTimeMs()));
+        params.put("source", p.getSource().name());
+        params.put("status", p.getStatus().name());
+        params.put("createTime", toTs(p.getCreateTime()));
+        params.put("updateTime", toTs(p.getUpdateTime()));
+        params.put("sqlMode", String.valueOf(p.getCreatorSqlMode()));
+        // NULL (not "MODE_DEFAULT") for a row that predates the provenance columns: the
+        // load path must keep classifying such rows by parsing / by the creator mode.
+        params.put("planSqlMode",
+                p.getPlanSqlMode() == null ? "NULL" : String.valueOf(p.getPlanSqlMode()));
+        params.put("planFrozen", p.getPlanFrozen() == null ? "NULL" : p.getPlanFrozen().toString());
+        params.put("schemaFingerprint",
+                StatisticsUtil.escapeSQL(p.getSchemaFingerprint() == null
+                        ? "" : p.getSchemaFingerprint()));
+        return params;
     }
 
     /**
@@ -2622,8 +2752,20 @@ public class BaselineManager {
         confirmIdentityGone(p);
     }
 
-    /** Removes the row(s) with the given id whose status matches the previous status. */
-    private static void persistDeleteByIdAndStatus(long id, BaselineStatus status) {
+    /**
+     * Removes the row(s) with the given id whose status matches the previous status AND
+     * whose content matches the plan's identity (bind_sql_digest + plan_sql).
+     *
+     * <p>The leadership fence matters here: an ALTER of the OLD master can reach THIS
+     * DELETE after a handoff while the new master already completed the opposite flip
+     * (both ALTERs pass their early checks). The delayed {@code DELETE ... WHERE id AND
+     * status=<old status>} then removed the ONLY durable row the new master had just
+     * written - both ALTERs reported success and the baseline was durably gone. The
+     * identity key keeps the same statement from touching a REUSED id's row as well.
+     */
+    private static void persistDeleteByIdAndStatus(BaselinePlan p, BaselineStatus status) {
+        assertLeaderForWrite();
+        long id = p.getId();
         if (statusProtocolStoreForTest != null) {
             statusProtocolStoreForTest.deleteByIdAndStatus(id, status);
             return;
@@ -2634,6 +2776,8 @@ public class BaselineManager {
         Map<String, String> params = new HashMap<>();
         params.put("id", String.valueOf(id));
         params.put("status", status.name());
+        params.put("bindSqlDigest", StatisticsUtil.escapeSQL(p.getBindSqlDigest()));
+        params.put("planSql", StatisticsUtil.escapeSQL(p.getPlanSql()));
         try {
             inInternalIoMode(() -> {
                 StatisticsUtil.execUpdate(DELETE_BY_ID_AND_STATUS_SQL, params,

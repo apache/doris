@@ -682,6 +682,173 @@ public class BaselineManagerConcurrencyTest {
         }
     }
 
+    // ==================== round-24: handoff fencing of the status flip ====================
+
+    /**
+     * Status store simulating both round-24 races: a handoff landing between the flip's
+     * two writes (the delayed DELETE) and a DROP completing while the ALTER was stalled
+     * (the conditional INSERT finds no previous row).
+     */
+    private static class HandoffStatusStore
+            implements BaselineManager.StatusProtocolStoreForTest {
+        final List<String> operations = new ArrayList<>();
+        final Map<BaselineStatus, Integer> rows = new java.util.EnumMap<>(BaselineStatus.class);
+        boolean demoteOnInsert;
+        boolean previousRowVanished;
+        private final AtomicBoolean leader;
+
+        HandoffStatusStore(AtomicBoolean leader) {
+            this.leader = leader;
+        }
+
+        @Override
+        public void insert(BaselinePlan plan) {
+            operations.add("insert:" + plan.getStatus());
+            rows.merge(plan.getStatus(), 1, Integer::sum);
+            if (demoteOnInsert) {
+                leader.set(false); // the handoff lands before the flip's DELETE
+            }
+        }
+
+        @Override
+        public boolean insertIfPreviousPresent(BaselinePlan plan, BaselineStatus previousStatus) {
+            if (previousRowVanished) {
+                return false; // the conditional INSERT matched no row
+            }
+            insert(plan);
+            return true;
+        }
+
+        @Override
+        public void deleteByIdAndStatus(long id, BaselineStatus status) {
+            operations.add("delete:" + status);
+            rows.computeIfPresent(status, (k, v) -> v - 1);
+        }
+
+        @Override
+        public int countByIdAndStatus(long id, BaselineStatus status) {
+            return rows.getOrDefault(status, 0);
+        }
+    }
+
+    /**
+     * round-24: the DELETE half of a status flip is fenced like the identity delete. An
+     * old master can run ALTER N ENABLED->DISABLED, insert the DISABLED row and be
+     * demoted before its DELETE(ENABLED) executes; the new master then completes ALTER N
+     * ENABLE (INSERT ENABLED + DELETE DISABLED) and the delayed DELETE would remove the
+     * new master's ONLY durable row - both ALTERs reported success and the baseline was
+     * durably gone. The demotion is injected right after the flip's INSERT, which is
+     * exactly where the handoff lands.
+     */
+    @Test
+    public void testStatusDeleteIsFencedAfterADemotion() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        AtomicBoolean leader = new AtomicBoolean(true);
+        HandoffStatusStore store = new HandoffStatusStore(leader);
+        try {
+            BaselineManager.statusProtocolStoreForTest = store;
+            BaselineManager.leaderProbeForTest = leader::get;
+            long id = manager.createBaseline(baseline("fp-fence", "select 5"));
+            store.operations.clear();
+            store.demoteOnInsert = true;
+
+            IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
+                    () -> manager.updateStatus(id, BaselineStatus.DISABLED));
+            Assertions.assertTrue(failure.getMessage().contains("no longer the master"),
+                    failure.getMessage());
+            Assertions.assertTrue(
+                    store.operations.stream().noneMatch(op -> op.startsWith("delete:")),
+                    "the delayed DELETE must never reach the table: " + store.operations);
+            Assertions.assertEquals(BaselineStatus.ENABLED, manager.getBaseline(id).getStatus(),
+                    "a fenced flip must not be published");
+        } finally {
+            BaselineManager.leaderProbeForTest = null;
+            BaselineManager.statusProtocolStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-24: the INSERT half of a status flip is CONDITIONAL on the previous-status
+     * row. A DROP that completed while the ALTER was stalled (the old master passed its
+     * leadership check, then lost the master before its INSERT landed) must not be
+     * resurrected: the conditional statement writes nothing and the ALTER fails retryably
+     * instead of publishing an ACTIVE baseline the DROP had already reported removed.
+     */
+    @Test
+    public void testStatusFlipIsRefusedWhenThePreviousRowWasDropped() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        AtomicBoolean leader = new AtomicBoolean(true);
+        HandoffStatusStore store = new HandoffStatusStore(leader);
+        try {
+            BaselineManager.statusProtocolStoreForTest = store;
+            BaselineManager.leaderProbeForTest = leader::get;
+            BaselinePlan disabled = baseline("fp-dropped-mid-alter", "select 6");
+            disabled.setStatus(BaselineStatus.DISABLED);
+            long id = manager.createBaseline(disabled);
+            store.operations.clear();
+            store.previousRowVanished = true; // the new master's DROP completed
+
+            IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
+                    () -> manager.updateStatus(id, BaselineStatus.ENABLED));
+            Assertions.assertTrue(failure.getMessage().contains("row is gone"),
+                    failure.getMessage());
+            Assertions.assertTrue(
+                    store.operations.stream().noneMatch(op -> op.startsWith("insert:")),
+                    "the flip must not resurrect a dropped baseline: " + store.operations);
+            Assertions.assertEquals(BaselineStatus.DISABLED, manager.getBaseline(id).getStatus(),
+                    "a refused flip must not be published");
+        } finally {
+            BaselineManager.leaderProbeForTest = null;
+            BaselineManager.statusProtocolStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * The benign twin of the conflict above: the previous row is gone because ANOTHER
+     * master already completed the SAME flip (DISABLED -> ENABLED). The reconcile sees
+     * the requested status durably and reports success without a second durable write - a
+     * conflict must not turn into a spurious failure (and the compensation must never
+     * delete the other master's row).
+     */
+    @Test
+    public void testStatusFlipConflictWithAFlippedRowIsReconciled() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        AtomicBoolean leader = new AtomicBoolean(true);
+        HandoffStatusStore store = new HandoffStatusStore(leader) {
+            @Override
+            public boolean insertIfPreviousPresent(BaselinePlan plan,
+                    BaselineStatus previousStatus) {
+                // the other master's flip completes between our probe and our INSERT
+                rows.computeIfPresent(previousStatus, (k, v) -> v - 1);
+                rows.merge(BaselineStatus.ENABLED, 1, Integer::sum);
+                return false;
+            }
+        };
+        try {
+            BaselineManager.statusProtocolStoreForTest = store;
+            BaselineManager.leaderProbeForTest = leader::get;
+            BaselinePlan disabled = baseline("fp-concurrent-flip", "select 7");
+            disabled.setStatus(BaselineStatus.DISABLED);
+            long id = manager.createBaseline(disabled);
+
+            Assertions.assertTrue(manager.updateStatus(id, BaselineStatus.ENABLED),
+                    "the requested status IS durable: the ALTER reports success");
+            Assertions.assertEquals(BaselineStatus.ENABLED, manager.getBaseline(id).getStatus());
+            Assertions.assertEquals(1,
+                    store.countByIdAndStatus(id, BaselineStatus.ENABLED),
+                    "the other master's row must not be compensated away");
+        } finally {
+            BaselineManager.leaderProbeForTest = null;
+            BaselineManager.statusProtocolStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
     // ==================== SHOW uses the confirmed read (round-15) ====================
 
     /**
