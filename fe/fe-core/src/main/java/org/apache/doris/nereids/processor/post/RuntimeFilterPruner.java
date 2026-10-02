@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.WindowFuncType;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -37,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
@@ -141,30 +143,43 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         // statistics are unknown (always the case for external tables).
         cteAnchor.child(0).accept(this, context);
         RuntimeFilterContext rfCtx = context.getRuntimeFilterContext();
-        // Only a producer whose output is genuinely BOUNDED may pass its effectiveness to consumers.
-        // NATIVE is also set when a join's build side is selective, and that is a property of one
-        // join key, not of the relation: for c = Project(A.k, B.v) -> LeftJoin(A, Limit(1) -> B) the
-        // left join still preserves every A.k, yet the join visitor marks the producer NATIVE. A
-        // consumer that only keeps B.v live would then inherit a flag it cannot justify and keep a
-        // runtime filter that rejects no row.
-        if (rfCtx.isEffectiveSrcNode(cteAnchor.child(0))
-                && rfCtx.getEffectiveSrcType(cteAnchor.child(0))
-                        == RuntimeFilterContext.EffectiveSrcType.NATIVE
-                && hasBoundedOutput(cteAnchor.child(0).child(0))) {
-            effectiveCteProducers.put(cteAnchor.getCteId(), RuntimeFilterContext.EffectiveSrcType.NATIVE);
+        // Only a producer whose effectiveness is a property of the whole relation, rather than of
+        // one join key, may pass it to consumers.
+        //  - NATIVE is also set when a join's build side is selective, and that is a property of one
+        //    join key, not of the relation: for c = Project(A.k, B.v) -> LeftJoin(A, Limit(1) -> B)
+        //    the left join still preserves every A.k, yet the join visitor marks the producer
+        //    NATIVE. A consumer that only keeps B.v live would then inherit a flag it cannot
+        //    justify and keep a runtime filter that rejects no row. So NATIVE needs the operator
+        //    test below.
+        //  - REF is criterion 4 in the class javadoc: "the build column is reduced by another RF".
+        //    That reduction applies to the relation as a whole, so it propagates unchanged.
+        if (rfCtx.isEffectiveSrcNode(cteAnchor.child(0))) {
+            RuntimeFilterContext.EffectiveSrcType producerType =
+                    rfCtx.getEffectiveSrcType(cteAnchor.child(0));
+            if (producerType == RuntimeFilterContext.EffectiveSrcType.REF
+                    || (producerType == RuntimeFilterContext.EffectiveSrcType.NATIVE
+                            && hasRelationGlobalEffectiveness(cteAnchor.child(0).child(0)))) {
+                effectiveCteProducers.put(cteAnchor.getCteId(), producerType);
+            }
         }
         cteAnchor.child(1).accept(this, context);
         return cteAnchor;
     }
 
     /**
-     * Whether the plan produces a bounded number of rows on its own, i.e. whether "few rows" is a
-     * property of the whole relation rather than of one join key. Only these operators may hand
-     * their effectiveness to another subtree through a CTE.
+     * Whether NATIVE effectiveness on this plan is a property of the whole relation rather than of
+     * one join key, and may therefore be handed to another subtree through a CTE.
+     *
+     * <p>Two ways qualify: the operator bounds the row count on its own (Limit, TopN,
+     * AssertNumRows, Intersect, a no-group-by aggregate, a bounded PartitionTopN), or it restricts
+     * the whole relation with a predicate on a visible column. A join does not qualify either way:
+     * the join visitor also marks a join NATIVE when its build side is selective, and that is a
+     * property of one join key — a LEFT JOIN preserves every probe row even when its build side is
+     * limited.
      */
-    private boolean hasBoundedOutput(Plan plan) {
+    private boolean hasRelationGlobalEffectiveness(Plan plan) {
         if (plan instanceof PhysicalLimit || plan instanceof PhysicalTopN
-                || plan instanceof PhysicalAssertNumRows) {
+                || plan instanceof PhysicalAssertNumRows || plan instanceof PhysicalIntersect) {
             return true;
         }
         if (plan instanceof PhysicalHashAggregate) {
@@ -175,6 +190,22 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
             return topN.hasGlobalLimit()
                     || (topN.getFunction() == WindowFuncType.ROW_NUMBER
                             && topN.getPartitionKeys().isEmpty());
+        }
+        // A predicate on a visible column is exactly what visitPhysicalFilter already treats as an
+        // effective source. Unlike a join's build-side selectivity, that predicate restricts the
+        // whole relation, so it is safe to hand on through a CTE.
+        if (plan instanceof PhysicalFilter) {
+            return hasVisibleColumnPredicate((PhysicalFilter<? extends Plan>) plan);
+        }
+        // Project and Distribute are transparent: they reshape or move rows but never change how
+        // many there are. A CTE producer almost always has one of them on top of the operator that
+        // actually bounds the output (Project(hashAgg[GLOBAL]) for "SELECT max(p) AS p" is the
+        // canonical case), so stopping at the wrapper would refuse that producer for no reason.
+        // Looking through them stays safe against a join: the walk ends on the join and returns
+        // false, because a join's row count is a property of its join keys, not of the relation.
+        if ((plan instanceof PhysicalProject || plan instanceof PhysicalDistribute)
+                && plan.children().size() == 1) {
+            return hasRelationGlobalEffectiveness(plan.child(0));
         }
         return false;
     }
@@ -295,24 +326,28 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     public PhysicalFilter visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, CascadesContext context) {
         filter.child().accept(this, context);
 
-        boolean visibleFilter = false;
-
-        for (Expression expr : filter.getExpressions()) {
-            for (Slot inputSlot : expr.getInputSlots()) {
-                if (isVisibleColumn(inputSlot)) {
-                    visibleFilter = true;
-                    break;
-                }
-            }
-            if (visibleFilter) {
-                break;
-            }
-        }
-        if (visibleFilter) {
+        if (hasVisibleColumnPredicate(filter)) {
             // skip filters like: __DORIS_DELETE_SIGN__ = 0
             context.getRuntimeFilterContext().addEffectiveSrcNode(filter, RuntimeFilterContext.EffectiveSrcType.NATIVE);
         }
         return filter;
+    }
+
+    /**
+     * Whether the filter references a user-visible column, i.e. it is a real query predicate rather
+     * than an injected one such as {@code __DORIS_DELETE_SIGN__ = 0}. Shared by
+     * {@link #visitPhysicalFilter} and {@link #hasRelationGlobalEffectiveness} so both agree on which filters
+     * count as an effective source.
+     */
+    private boolean hasVisibleColumnPredicate(PhysicalFilter<? extends Plan> filter) {
+        for (Expression expr : filter.getExpressions()) {
+            for (Slot inputSlot : expr.getInputSlots()) {
+                if (isVisibleColumn(inputSlot)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     @Override

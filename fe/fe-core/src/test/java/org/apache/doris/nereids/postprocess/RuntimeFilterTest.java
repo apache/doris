@@ -234,6 +234,31 @@ public class RuntimeFilterTest extends SSBTestBase {
     }
 
     @Test
+    public void cteConsumerInheritsRefProducer() {
+        // A scan that is the target of a runtime filter is REF: criterion 4 in the pruner javadoc,
+        // "the build column is reduced by another RF". That reduction holds for the relation as a
+        // whole rather than for one join key, so a CTE producer built on top of such a scan may
+        // hand REF on to its consumers.
+        CascadesContext context = MemoTestUtils.createCascadesContext(connectContext, "select 1");
+        RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
+        SlotReference key = new SlotReference("key", IntegerType.INSTANCE);
+        CTEId cteId = new CTEId(5);
+        GroupPlan scan = newGroupPlan(key);
+        rfContext.addEffectiveSrcNode(scan, RuntimeFilterContext.EffectiveSrcType.REF);
+        PhysicalCTEProducer<Plan> producer = new PhysicalCTEProducer<>(cteId, null, scan);
+        PhysicalCTEConsumer consumer = new PhysicalCTEConsumer(new RelationId(20), cteId,
+                ImmutableMap.of(key, key), ImmutableMultimap.of(key, key), null);
+        PhysicalCTEAnchor<PhysicalCTEProducer<Plan>, PhysicalCTEConsumer> anchor =
+                new PhysicalCTEAnchor<>(cteId, null, producer, consumer);
+        anchor.accept(new RuntimeFilterPruner(), context);
+
+        Assertions.assertEquals(RuntimeFilterContext.EffectiveSrcType.REF,
+                rfContext.getEffectiveSrcType(producer));
+        Assertions.assertEquals(RuntimeFilterContext.EffectiveSrcType.REF,
+                rfContext.getEffectiveSrcType(consumer), "a consumer must inherit REF");
+    }
+
+    @Test
     public void testGenerateRuntimeFilter() {
         String sql = "SELECT * FROM lineorder JOIN customer on c_custkey = lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();

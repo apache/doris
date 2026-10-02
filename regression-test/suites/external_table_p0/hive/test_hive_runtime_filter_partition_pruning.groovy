@@ -153,6 +153,33 @@ suite("test_hive_runtime_filter_partition_pruning", "p0,external") {
                     """with latest as (select max(p) as p from hive_partition_value_parquet)
                         select t.p,t.q,t.v from hive_partition_value_parquet t
                         join latest l on t.p=l.p order by t.p,t.q,t.v""",
+                    // CTE variants of the "latest partition" pattern. inline_cte_referenced_threshold
+                    // is 0 below, so the CTE is materialized and its consumers are separate subtrees:
+                    // a consumer only keeps the runtime filter that prunes the probe-side scan if it
+                    // inherits the producer's effectiveness. Cover the ORC twin, a multi-aggregate
+                    // producer, a producer consumed twice, and the scalar-subquery spelling.
+                    """with latest as (select max(p) as p from hive_partition_value_orc)
+                        select t.p,t.q,t.v from hive_partition_value_orc t
+                        join latest l on t.p=l.p order by t.p,t.q,t.v""",
+                    """with latest as (select max(p) as p, max(q) as q from hive_partition_value_parquet)
+                        select t.p,t.q,t.v from hive_partition_value_parquet t
+                        join latest l on t.p=l.p order by t.p,t.q,t.v""",
+                    """with latest as (select max(p) as p from hive_partition_value_parquet)
+                        select t.p,t.q,t.v from hive_partition_value_parquet t
+                        join latest l1 on t.p=l1.p join latest l2 on t.p=l2.p
+                        order by t.p,t.q,t.v""",
+                    """with latest as (select max(p) as p from hive_partition_value_parquet)
+                        select count(*) from hive_partition_value_parquet t
+                        where t.p = (select p from latest)""",
+                    """with latest as (select max(p) as p from hive_partition_value_orc)
+                        select count(*) from hive_partition_value_orc t
+                        where t.p = (select p from latest)""",
+                    // max(p)+0 forces a PhysicalProject on top of the producer's aggregate. The CTE
+                    // consumer must still inherit the bounded output through that wrapper,
+                    // otherwise the probe-side runtime filter is dropped.
+                    """with latest as (select max(p) + 0 as p from hive_partition_value_parquet)
+                        select t.p,t.q,t.v from hive_partition_value_parquet t
+                        join latest l on t.p=l.p order by t.p,t.q,t.v""",
                     """select p from (
                         select p,row_number() over(order by p desc) as rn
                         from hive_partition_value_parquet group by p
@@ -196,6 +223,58 @@ suite("test_hive_runtime_filter_partition_pruning", "p0,external") {
                             sql(query)
                             notContains "pushdown agg=PARTITION_VALUE"
                         }
+                    }
+                    // A materialized CTE must hand its producer's bounded output on to every
+                    // consumer. Otherwise the runtime filter that prunes the probe-side file scan is
+                    // dropped, and answering max(p) from partition metadata buys nothing: the scan
+                    // still has to read every partition. "-> " is the apply side of a runtime
+                    // filter, i.e. the filter actually reaching the scanned table (as opposed to
+                    // "<- ", which is only where the filter is built).
+                    // [query, expectsPartitionValue]: the second entry is false when the CTE reads a
+                    // non-partition column too, so the partition-value pushdown does not apply and
+                    // only the runtime filter is asserted.
+                    [
+                        ["""with latest as (select max(p) as p from hive_partition_value_parquet)
+                            select t.p,t.q,t.v from hive_partition_value_parquet t
+                            join latest l on t.p=l.p""", true],
+                        ["""with latest as (select max(p) as p from hive_partition_value_orc)
+                            select t.p,t.q,t.v from hive_partition_value_orc t
+                            join latest l on t.p=l.p""", true],
+                        ["""with latest as (select max(p) as p, max(q) as q from hive_partition_value_parquet)
+                            select t.p,t.q,t.v from hive_partition_value_parquet t
+                            join latest l on t.p=l.p""", true],
+                        ["""with latest as (select max(p) as p from hive_partition_value_parquet)
+                            select t.p,t.q,t.v from hive_partition_value_parquet t
+                            join latest l1 on t.p=l1.p join latest l2 on t.p=l2.p""", true],
+                        ["""with latest as (select max(p) as p from hive_partition_value_parquet)
+                            select count(*) from hive_partition_value_parquet t
+                            where t.p = (select p from latest)""", true],
+                        ["""with latest as (select max(p) as p from hive_partition_value_orc)
+                            select count(*) from hive_partition_value_orc t
+                            where t.p = (select p from latest)""", true],
+                        // max(p)+0 puts a Project on top of the producer's aggregate.
+                        ["""with latest as (select max(p) + 0 as p from hive_partition_value_parquet)
+                            select t.p,t.q,t.v from hive_partition_value_parquet t
+                            join latest l on t.p=l.p""", true],
+                        // A predicate on a visible column bounds the relation as a whole, so a
+                        // producer whose root is Project(Filter(...)) must inherit too. This is the
+                        // shape an external table read through a partition filter produces.
+                        ["""with hot as (select p, v from hive_partition_value_parquet where p = 2)
+                            select t.p,t.q,t.v from hive_partition_value_parquet t
+                            join hot h on t.p=h.p""", false],
+                        // The same predicate underneath the max(p) aggregate.
+                        ["""with latest as (select max(p) as p from hive_partition_value_parquet
+                                where p < 10)
+                            select t.p,t.q,t.v from hive_partition_value_parquet t
+                            join latest l on t.p=l.p""", true]
+                    ].each { query, expectsPartitionValue ->
+                        def plan = sql("explain ${query}").toString()
+                        if (expectsPartitionValue) {
+                            assertTrue(plan.contains("pushdown agg=PARTITION_VALUE"),
+                                    "a CTE must not stop the partition-value pushdown, plan: ${plan}")
+                        }
+                        assertTrue((plan =~ /runtime filters: RF\d+\[\w+\] ->/).find(),
+                                "a CTE must not drop the runtime filter on the probe scan, plan: ${plan}")
                     }
                 }
             } finally {
