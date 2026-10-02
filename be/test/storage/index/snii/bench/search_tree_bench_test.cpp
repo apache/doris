@@ -31,7 +31,9 @@
 // time of one whole SEARCH evaluation. SEARCH_TREE_BENCH_CASES keeps only the listed case
 // labels and SEARCH_TREE_BENCH_FORMATS only the listed formats (V2, SNII), comma-separated, so
 // one case of one format can be profiled on its own. The scored cases score their rows with
-// fixed statistics, and a top-k case keeps only the best rows.
+// fixed statistics, and a top-k case keeps only the best rows. SEARCH_TREE_BENCH_NULL_EVERY names
+// the corpus's NULL rows as PHRASE_CANDIDATE_BENCH_NULL_EVERY wrote them (default none); a clause
+// is UNKNOWN on those rows, so a negation leaves them out.
 
 #include <fmt/format.h>
 #include <gen_cpp/Exprs_types.h>
@@ -160,7 +162,18 @@ TSearchClause with_occur(TSearchClause clause, TSearchOccur::type occur) {
 // Answers single clauses through the reader, which is what each tree is checked against.
 class ClauseOracle {
 public:
-    explicit ClauseOracle(InvertedIndexReader* reader) : _reader(reader) {}
+    ClauseOracle(InvertedIndexReader* reader, uint32_t doc_count, uint32_t null_every)
+            : _reader(reader), _doc_count(doc_count), _null_every(null_every) {}
+
+    // The rows that are not NULL.
+    roaring::Roaring rows() const {
+        roaring::Roaring rows;
+        rows.addRange(0, _doc_count);
+        for (uint32_t row = 0; _null_every != 0 && row < _doc_count; row += _null_every) {
+            rows.remove(row);
+        }
+        return rows;
+    }
 
     roaring::Roaring term(std::string_view text) {
         return query(text, InvertedIndexQueryType::MATCH_ANY_QUERY);
@@ -189,6 +202,8 @@ private:
     }
 
     InvertedIndexReader* _reader;
+    uint32_t _doc_count;
+    uint32_t _null_every;
 };
 
 struct SearchCase {
@@ -273,6 +288,12 @@ std::vector<SearchCase> search_cases() {
              .root = compound("AND",
                               {leaf("TERM", "latency"), compound("NOT", {leaf("TERM", "order")})}),
              .expected = [](ClauseOracle& o) { return o.term("latency") - o.term("order"); }});
+    cases.push_back({.label = "or_not",
+                     .root = compound("OR", {leaf("TERM", "retry"),
+                                             compound("NOT", {leaf("TERM", "order")})}),
+                     .expected = [](ClauseOracle& o) {
+                         return o.term("retry") | (o.rows() - o.term("order"));
+                     }});
     cases.push_back(
             {.label = "phrase_and_term",
              .root = compound("AND", {leaf("PHRASE", "retry attempt"), leaf("TERM", "1234")}),
@@ -390,6 +411,7 @@ TEST_F(SearchTreeBench, DISABLED_BooleanTrees) {
     ASSERT_NE(nullptr, root) << "SEARCH_TREE_BENCH_INDEX_ROOT must name a prepared corpus";
     const uint32_t doc_count = env_or("SEARCH_TREE_BENCH_DOCS", 200000);
     const uint32_t iterations = env_or("SEARCH_TREE_BENCH_ITERATIONS", 10);
+    const uint32_t null_every = env_or("SEARCH_TREE_BENCH_NULL_EVERY", 0);
     std::vector<SearchCase> cases = search_cases();
     if (const char* only = std::getenv("SEARCH_TREE_BENCH_CASES"); only != nullptr) {
         const std::string listed = fmt::format(",{},", only);
@@ -418,7 +440,7 @@ TEST_F(SearchTreeBench, DISABLED_BooleanTrees) {
                         .ok());
         ASSERT_TRUE(exists) << "Missing benchmark index: " << prefix;
         const auto reader = open_reader(prefix, format, doc_count);
-        ClauseOracle oracle(reader.get());
+        ClauseOracle oracle(reader.get(), doc_count, null_every);
         InvertedIndexIterator iterator;
         iterator.add_reader(InvertedIndexReaderType::FULLTEXT, reader);
         const std::unordered_map<std::string, IndexFieldNameAndTypePair> fields {

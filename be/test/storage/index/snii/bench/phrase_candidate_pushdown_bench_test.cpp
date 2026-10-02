@@ -36,7 +36,8 @@
 // result check, unless "full" is listed; "scored" runs the phrases marked for it with their rows
 // scored too; a docid query's cached, scored and count samples run only when listed). Times are
 // medians of per-query thread CPU time, which moves far less than wall
-// time on a shared machine.
+// time on a shared machine. PHRASE_CANDIDATE_BENCH_NULL_EVERY=n writes rows 0, n, 2n, ... of the
+// corpus as NULL (default none), for a prepared corpus with NULL rows.
 
 #include <fmt/format.h>
 #include <gen_cpp/PaloInternalService_types.h>
@@ -442,7 +443,16 @@ protected:
                                               index_file_writer.get(), &meta)
                             .ok());
         std::vector<Slice> values(docs.begin(), docs.end());
-        EXPECT_TRUE(column_writer->add_values("c2", values.data(), values.size()).ok());
+        const uint32_t null_every = env_or("PHRASE_CANDIDATE_BENCH_NULL_EVERY", 0);
+        if (null_every == 0) {
+            EXPECT_TRUE(column_writer->add_values("c2", values.data(), values.size()).ok());
+        } else {
+            for (size_t row = 0; row < values.size(); row += null_every) {
+                EXPECT_TRUE(column_writer->add_nulls(1).ok());
+                const size_t run = std::min<size_t>(null_every - 1, values.size() - row - 1);
+                EXPECT_TRUE(column_writer->add_values("c2", values.data() + row + 1, run).ok());
+            }
+        }
         EXPECT_TRUE(column_writer->finish().ok());
         EXPECT_TRUE(index_file_writer->begin_close().ok());
         EXPECT_TRUE(index_file_writer->finish_close().ok());
