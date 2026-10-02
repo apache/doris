@@ -1968,6 +1968,78 @@ public final class SPMPlanTreeSupport {
         return sameScanIdentity(bind, user);
     }
 
+    /**
+     * Rejects a manual plan whose SCAN SELECTORS diverge from the bind text's for any
+     * table both statements read.
+     *
+     * <p>The bind text is the MATCHING KEY: a caller matching it carries the BIND's
+     * selection (sameScanIdentity), while the frozen plan scans the PLAN's. The pair
+     * {@code CREATE ... 'SELECT k FROM t' WITH 'SELECT k FROM t PARTITION(p1)'} is
+     * initially equivalent (only p1 exists), but after {@code ADD PARTITION p2} the
+     * unpinned caller still matches and the frozen plan silently reads only p1 - every
+     * row in p2 disappears from the result. The mirror case silently WIDENS the result,
+     * and the same holds for a plan-only TABLET() / TABLESAMPLE() / FOR TIMESTAMP AS OF
+     * / index selection. The schema fingerprint cannot catch any of this (it hashes the
+     * table identity and base columns, not the selectors), so such a pair is rejected
+     * here - write both statements with the same selection.
+     *
+     * @param bindPlan the parsed (unbound) bind tree
+     * @param planPlan the parsed (unbound) plan tree (may be the same object)
+     * @param bindSql  the bind text (for the error message)
+     */
+    public static void rejectScanSelectorMismatch(Plan bindPlan, Plan planPlan, String bindSql) {
+        if (bindPlan == planPlan) {
+            return; // one parse (bindSql == planSql): symmetric by construction
+        }
+        Map<String, List<String>> bindSelectors = scanSelectorsByTable(bindPlan);
+        Map<String, List<String>> planSelectors = scanSelectorsByTable(planPlan);
+        for (Map.Entry<String, List<String>> entry : bindSelectors.entrySet()) {
+            if (!planSelectors.containsKey(entry.getKey())) {
+                // The plan does not read this table at all (it is a manual plan over its
+                // OWN table set - the fingerprint covers the plan-side tables): there is
+                // no selection to compare. Only a table BOTH statements read can carry a
+                // divergent selection.
+                continue;
+            }
+            List<String> fromBind = new ArrayList<>(entry.getValue());
+            List<String> fromPlan = new ArrayList<>(planSelectors.get(entry.getKey()));
+            Collections.sort(fromBind);
+            Collections.sort(fromPlan);
+            if (!fromBind.equals(fromPlan)) {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                        "SPM cannot align the plan SQL with the bind SQL: their scan"
+                                + " selectors of table '" + entry.getKey() + "' differ (bind side "
+                                + fromBind + ", plan side " + fromPlan + "). The bind text is the"
+                                + " matching key, so every caller matching it carries the BIND's"
+                                + " selection while the frozen plan would read the plan's own one"
+                                + " - after a partition change rows silently appear or disappear."
+                                + " Write both statements with the same PARTITION / TABLET /"
+                                + " TABLESAMPLE / FOR TIMESTAMP / index selection: " + bindSql);
+            }
+        }
+    }
+
+    /**
+     * The scan-selector description of every base-table relation, grouped by the
+     * relation's LAST name part (the table name): the bind and plan texts may qualify
+     * their tables differently, and a self join contributes one entry per occurrence
+     * (the comparison is a multiset).
+     */
+    private static Map<String, List<String>> scanSelectorsByTable(Plan plan) {
+        Map<String, List<String>> byTable = new HashMap<>();
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
+            if (node instanceof UnboundRelation) {
+                UnboundRelation relation = (UnboundRelation) node;
+                List<String> nameParts = relation.getNameParts();
+                String table = nameParts == null || nameParts.isEmpty()
+                        ? "" : nameParts.get(nameParts.size() - 1);
+                byTable.computeIfAbsent(table, k -> new ArrayList<>())
+                        .add(describeScanSelector(relation));
+            }
+        });
+        return byTable;
+    }
+
     // ==================== view guard ====================
 
     /**

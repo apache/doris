@@ -578,6 +578,10 @@ public class SPMPlanner {
             String bindSql, String planSql, double cost) {
         try {
             rejectReplayContextExpressions(bindPlan, planPlan, bindSql);
+            // A manual plan may not choose its own scan selection (see the method): the
+            // bind text is the matching key, so a divergent selection silently changes
+            // which rows the replayed baseline reads.
+            SPMPlanTreeSupport.rejectScanSelectorMismatch(bindPlan, planPlan, bindSql);
         } catch (AnalysisException e) {
             // the checked-exception entry point is buildBaselineFromSql; this test-only
             // overload keeps its signature and surfaces the rejection as-is
@@ -717,6 +721,10 @@ public class SPMPlanner {
                     "SPM does not support SELECT ... INTO OUTFILE statements: " + bindSql);
         }
         rejectReplayContextExpressions(bindPlan, planPlan, bindSql);
+        // A manual plan may not choose its own scan selection (see the method): the bind
+        // text is the matching key, so a divergent selection silently changes which rows
+        // the replayed baseline reads (and the fingerprint cannot see the selectors).
+        SPMPlanTreeSupport.rejectScanSelectorMismatch(bindPlan, planPlan, bindSql);
         // key(...) folds a named secret into a constant during optimization, and the parsed
         // form of `KEY db.key` is an EncryptKeyRef (NOT an UnboundFunction): reject on BOTH
         // parsed inputs BEFORE optimizing / storing anything.

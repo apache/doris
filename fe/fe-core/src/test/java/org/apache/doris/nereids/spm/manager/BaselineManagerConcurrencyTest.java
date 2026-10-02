@@ -1693,4 +1693,127 @@ public class BaselineManagerConcurrencyTest {
             manager.clearForTest();
         }
     }
+
+    // ==================== round-26 #4: the load slot is claimed before spawning ====================
+
+    /**
+     * Concurrent SPM queries used to check {@code loaded} / {@code loadInProgress} and
+     * then each start an {@code spm-baseline-async-load} thread; only the CAS winner
+     * INSIDE the thread performed the read, every other thread exited immediately - a
+     * query burst (worst while the internal table is unreadable) created a throwaway
+     * thread per caller. The slot is now claimed atomically at SCHEDULING time: while
+     * one load is in flight every other scheduler returns without spawning.
+     */
+    @Test
+    public void testBackgroundLoadIsScheduledOncePerSlot() throws Exception {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        try {
+            manager.prepareLoadForTest();
+            AtomicInteger spawns = new AtomicInteger();
+            BaselineManager.asyncLoadSpawnCountForTest = spawns;
+            CountDownLatch readStarted = new CountDownLatch(1);
+            CountDownLatch releaseRead = new CountDownLatch(1);
+            BaselineManager.snapshotReaderForTest = () -> {
+                readStarted.countDown();
+                try {
+                    releaseRead.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return Map.of();
+            };
+
+            List<Thread> schedulers = new ArrayList<>();
+            for (int i = 0; i < 40; i++) {
+                Thread scheduler = new Thread(manager::scheduleAsyncLoadForTest,
+                        "spm-schedule-" + i);
+                schedulers.add(scheduler);
+                scheduler.start();
+            }
+            Assertions.assertTrue(readStarted.await(10, TimeUnit.SECONDS),
+                    "the winning scheduler must start the load");
+            for (Thread scheduler : schedulers) {
+                scheduler.join(10_000);
+            }
+            Assertions.assertEquals(1, spawns.get(),
+                    "one in-flight load must absorb the whole burst: " + spawns.get());
+            releaseRead.countDown();
+        } finally {
+            BaselineManager.snapshotReaderForTest = null;
+            BaselineManager.asyncLoadSpawnCountForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    // ==================== round-26 #5: the create-path dedup is INDEXED ====================
+
+    /**
+     * Every GLOBAL CREATE filtered (bind_sql_digest, plan_sql) in SQL, but the table is
+     * keyed / distributed only by id: the predicate scans every bucket and row while the
+     * table grows without a cap (auto capture), so the fixed read timeout eventually
+     * slowed down / failed CREATE. When the table's MAX(id) is not above the largest id
+     * this store has seen, the store already holds every durable row: the by-key answer
+     * comes from the in-memory index and NO durable read runs. The UT store cannot serve
+     * SQL, so a CREATE that still reached the scan would fail here instead of succeeding.
+     */
+    @Test
+    public void testCreateDedupIsServedFromTheStoreIndex() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        try {
+            // the stale-fingerprint row a previous incarnation left behind
+            BaselinePlan stale = baseline("fp-stale", "select 1");
+            stale.setId(41L);
+            stale.setSchemaFingerprint("fp-old");
+            BaselineManager.snapshotReaderForTest = () -> Map.of(41L, stale);
+            manager.prepareLoadForTest();
+            manager.loadFromInternalTable();
+            Assertions.assertTrue(manager.hasBaselines(), "the fixture row must load");
+
+            manager.setPersistToTableForTest(true);
+            SimulatedStore store = new SimulatedStore();
+            store.insert(stale); // MAX(id) == the largest id the store has seen
+            BaselineManager.idAllocatorStoreForTest = store;
+
+            // the SAME key under a NEW fingerprint: the in-memory duplicate check treats
+            // it as stale, and the durable-key lookup must be answered by the index
+            BaselinePlan fresh = baseline("fp-stale", "select 1");
+            fresh.setSchemaFingerprint("fp-new");
+            long id = manager.createBaseline(fresh);
+            Assertions.assertTrue(id > 0);
+            Assertions.assertNotEquals(41L, id, "a changed fingerprint gets a NEW row");
+            Assertions.assertEquals(1, store.rowsOf(id).size(),
+                    "the new row must be durable: " + store.rowsOf(id));
+            Assertions.assertTrue(store.rowsOf(41L).isEmpty(),
+                    "the stale row is retired through the by-id identity delete");
+        } finally {
+            BaselineManager.snapshotReaderForTest = null;
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /** The scanned read is required exactly when the table carries an id the store never saw. */
+    @Test
+    public void testDurableScanDecisionFollowsTheTableWatermark() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        try {
+            BaselinePlan row = baseline("fp-w", "select 2");
+            row.setId(7L);
+            BaselineManager.snapshotReaderForTest = () -> Map.of(7L, row);
+            manager.prepareLoadForTest();
+            manager.loadFromInternalTable();
+
+            Assertions.assertFalse(manager.mustScanDurableForKey(7L),
+                    "MAX(id) == the largest seen id: the store holds every durable row");
+            Assertions.assertFalse(manager.mustScanDurableForKey(6L));
+            Assertions.assertTrue(manager.mustScanDurableForKey(8L),
+                    "a higher MAX(id) proves the table has a row the store never saw");
+        } finally {
+            BaselineManager.snapshotReaderForTest = null;
+            manager.clearForTest();
+        }
+    }
 }

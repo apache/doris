@@ -657,19 +657,108 @@ public class AuditLogScannerCursorTest {
     }
 
     /**
-     * The window overlap must follow the audit loader's publication batch interval: a
-     * row becomes visible up to one (worst case two) loader intervals after its event
-     * time, and the fixed five-minute overlap does not cover a loader configured beyond
-     * it (audit_plugin_max_batch_interval_sec is settable).
+     * The window overlap must follow the WHOLE upstream publication delay, not just the
+     * loader's batch interval: WorkloadRuntimeStatusMgr holds a finished query's audit
+     * event until query_audit_log_timeout_ms (or, for external DML, up to
+     * be_report_query_statistics_timeout_ms) has passed and the loader polls its queue
+     * every QUEUE_POLL_INTERVAL_MILLIS, so a row can become visible that long after its
+     * event time. With only the batch interval covered, such a row falls outside every
+     * later overlap and is silently never captured (pagination walks the event time
+     * DESC, so the pending pages never reach a row above their cursor either).
      */
     @Test
-    public void testOverlapFollowsAuditLoaderInterval() {
+    public void testOverlapFollowsTheUpstreamPublicationDelay() {
         Assertions.assertEquals(300_000L, PlanCaptureManager.scanWindowOverlapMs(30),
-                "the base five-minute overlap dominates a fast loader");
-        Assertions.assertEquals(600_000L, PlanCaptureManager.scanWindowOverlapMs(300),
-                "two five-minute loader intervals are covered");
+                "the base five-minute overlap dominates the default configuration");
         Assertions.assertEquals(300_000L, PlanCaptureManager.scanWindowOverlapMs(0),
                 "a misconfigured (zero) interval falls back to the base overlap");
+
+        int originalAuditTimeout = org.apache.doris.common.Config.query_audit_log_timeout_ms;
+        int originalStatsTimeout = org.apache.doris.common.Config.be_report_query_statistics_timeout_ms;
+        try {
+            // a slow event pipeline alone must already widen the horizon
+            org.apache.doris.common.Config.query_audit_log_timeout_ms = 600_000;
+            Assertions.assertEquals(1_260_000L, PlanCaptureManager.scanWindowOverlapMs(30),
+                    "the hold before the loader (query_audit_log_timeout_ms) is covered");
+            org.apache.doris.common.Config.query_audit_log_timeout_ms = originalAuditTimeout;
+            org.apache.doris.common.Config.be_report_query_statistics_timeout_ms = 900_000;
+            Assertions.assertEquals(1_860_000L, PlanCaptureManager.scanWindowOverlapMs(30),
+                    "the external-DML statistics wait is covered as well");
+            // ... and it still scales with a slow loader batch interval
+            Assertions.assertEquals(2_400_000L, PlanCaptureManager.scanWindowOverlapMs(300),
+                    "batch interval and upstream hold add up");
+        } finally {
+            org.apache.doris.common.Config.query_audit_log_timeout_ms = originalAuditTimeout;
+            org.apache.doris.common.Config.be_report_query_statistics_timeout_ms = originalStatsTimeout;
+        }
+    }
+
+    /**
+     * Scan bounds are rendered in the zone the AUDIT WRITER used - the global session
+     * time_zone (TimeUtils falls back to it on the loader's context-less worker) - not
+     * the FE host zone. On a UTC host with time_zone '-08:00' every stored row is 8h
+     * off, so host-zone bounds would exclude every row from every window.
+     */
+    @Test
+    public void testScanBoundsUseTheAuditWriterZone() {
+        org.apache.doris.qe.SessionVariable global =
+                org.apache.doris.qe.VariableMgr.getDefaultSessionVariable();
+        String originalZone = global.getTimeZone();
+        try {
+            global.setTimeZone("+08:00");
+            Assertions.assertEquals(java.time.ZoneOffset.ofHours(8),
+                    AuditLogScanner.auditWriteZone().getRules()
+                            .getOffset(java.time.Instant.EPOCH),
+                    "the audit writer's zone must be the global session time_zone");
+            Assertions.assertEquals("1970-01-01 08:00:00",
+                    AuditLogScanner.formatTimestamp(0L, AuditLogScanner.auditWriteZone()));
+            global.setTimeZone("UTC");
+            Assertions.assertEquals("1970-01-01 00:00:00",
+                    AuditLogScanner.formatTimestamp(0L, AuditLogScanner.auditWriteZone()));
+        } finally {
+            global.setTimeZone(originalZone);
+        }
+    }
+
+    /**
+     * A PENDING window keeps the zone its timestamps were rendered in (recorded in the
+     * cursor tail): its epoch bounds are re-formatted every cycle while the resume cursor
+     * is the persisted string, so a global time_zone change mid-window would otherwise
+     * compare two renderings and skip the whole unconsumed range. Only a NEW window (no
+     * cursor) follows the changed zone. Legacy tails carry no zone and stay supported.
+     */
+    @Test
+    public void testCursorTailKeepsTheWindowZone() {
+        String withZone = AuditLogScanner.encodeCursorTail(new AuditLogScanner.CursorTail(
+                "10.0.0.1", "h", "1", "1", "m", "ctl", "db", "0", "+08:00"));
+        AuditLogScanner.CursorTail decoded = AuditLogScanner.decodeCursorTail(withZone);
+        Assertions.assertEquals("+08:00", decoded.getZoneId(),
+                "the zone round-trips through the tail: " + withZone);
+        Assertions.assertEquals(java.time.ZoneId.of("+08:00"), AuditLogScanner.scanZoneFor(withZone));
+
+        org.apache.doris.qe.SessionVariable global =
+                org.apache.doris.qe.VariableMgr.getDefaultSessionVariable();
+        String originalZone = global.getTimeZone();
+        try {
+            // the global zone changes while the window is pending: the window keeps its
+            // own rendering, a NEW window follows the new zone
+            global.setTimeZone("UTC");
+            Assertions.assertEquals(java.time.ZoneId.of("+08:00"),
+                    AuditLogScanner.scanZoneFor(withZone));
+            Assertions.assertEquals(java.time.ZoneId.of("UTC"), AuditLogScanner.scanZoneFor(""));
+            Assertions.assertEquals(java.time.ZoneId.of("UTC"),
+                    AuditLogScanner.scanZoneFor(null));
+        } finally {
+            global.setTimeZone(originalZone);
+        }
+
+        // a legacy tail (no zone element) and an eight-element tail decode without a zone
+        String legacy = new com.google.gson.Gson().toJson(
+                java.util.Arrays.asList("10.0.0.1", "h", "1", "1", "m"));
+        Assertions.assertNull(AuditLogScanner.decodeCursorTail(legacy).getZoneId());
+        Assertions.assertEquals(AuditLogScanner.auditWriteZone(),
+                AuditLogScanner.scanZoneFor(legacy),
+                "a zone-less cursor uses the current audit zone");
     }
 
     /**

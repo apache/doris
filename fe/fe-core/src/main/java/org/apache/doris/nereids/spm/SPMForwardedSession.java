@@ -119,6 +119,16 @@ public final class SPMForwardedSession {
         if (payload.isEmpty()) {
             return;
         }
+        if (!ctx.getSessionVariable().isEnableSpmRewrite()) {
+            // A statement with rewrite disabled can never consult a baseline, and this
+            // import runs BEFORE StmtExecutor even starts the (timeout-bounded) rewrite
+            // path: restoring every enabled SESSION row - re-parsing each bind AND plan
+            // SQL - would add unbounded work to EVERY forwarded statement of such a
+            // connection, including the many statements that never touch SPM. The store
+            // was cleared above, so the skipped import leaves exactly the empty state a
+            // non-rewriting context is entitled to.
+            return;
+        }
         try {
             List<Map<String, String>> rows = new Gson().fromJson(payload,
                     new TypeToken<List<Map<String, String>>>() { }.getType());
