@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <fmt/format.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -23,8 +24,10 @@
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
+#include <random>
 #include <roaring/roaring.hh>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -69,9 +72,12 @@ public:
         ++read_batch_calls_;
         batch_range_counts_.push_back(ranges.size());
         ranges_ += ranges.size();
+        uint64_t batch_bytes = 0;
         for (const auto& range : ranges) {
-            bytes_ += range.len;
+            batch_bytes += range.len;
         }
+        bytes_ += batch_bytes;
+        batch_bytes_.push_back(batch_bytes);
         if (read_batch_calls_ == fail_batch_) {
             return Status::IOError("Injected dictionary batch failure");
         }
@@ -85,6 +91,7 @@ public:
         read_at_calls_ = 0;
         read_batch_calls_ = 0;
         batch_range_counts_.clear();
+        batch_bytes_.clear();
         bytes_ = 0;
         ranges_ = 0;
     }
@@ -98,6 +105,7 @@ public:
     uint64_t read_at_calls() const { return read_at_calls_; }
     uint64_t read_batch_calls() const { return read_batch_calls_; }
     const std::vector<size_t>& batch_range_counts() const { return batch_range_counts_; }
+    const std::vector<uint64_t>& batch_bytes() const { return batch_bytes_; }
 
 private:
     io::FileReader* inner_;
@@ -107,6 +115,7 @@ private:
     uint64_t read_at_calls_ = 0;
     uint64_t read_batch_calls_ = 0;
     std::vector<size_t> batch_range_counts_;
+    std::vector<uint64_t> batch_bytes_;
 };
 
 Status write_index(MemoryFile* file, const std::vector<std::string>& terms,
@@ -339,6 +348,59 @@ TEST(SniiQueryTermResolutionBatch, ResolvesSeventeenDisjointBlocksInTwoBoundedWa
     EXPECT_EQ(counting.batch_range_counts(), (std::vector<size_t> {16, 1}));
     EXPECT_EQ(metered.metrics().serial_rounds, 2U);
     EXPECT_EQ(metered.metrics().range_gets, query_terms.size());
+}
+
+// Terms of about 4 KiB of random bytes after a number that keeps them in order; zstd cannot
+// shrink their dictionary blocks.
+std::vector<std::string> wide_terms(size_t count) {
+    std::mt19937 rng(20261002);
+    std::vector<std::string> terms;
+    terms.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+        std::string term = fmt::format("t{:05d}_", i);
+        for (size_t c = 0; c < 4000; ++c) {
+            term.push_back(static_cast<char>(1 + rng() % 255));
+        }
+        terms.push_back(std::move(term));
+    }
+    return terms;
+}
+
+// Consecutive dictionary blocks read as one run, so only the 4 MiB byte bound splits their
+// waves: every wave stays under it although together the blocks exceed it.
+TEST(SniiQueryTermResolutionBatch, ResolvesConsecutiveBlocksInWavesOfAtMostFourMiB) {
+    ScopedEnv dict_resident_max("SNII_DICT_RESIDENT_MAX", "0");
+    constexpr uint64_t kWaveBytes = 4ULL * 1024 * 1024;
+
+    MemoryFile file;
+    const std::vector<std::string> indexed_terms = wide_terms(1300);
+    assert_ok(write_index(&file, indexed_terms, /*target_dict_block_bytes=*/1024 * 1024));
+
+    CountingReader counting(&file);
+    reader::SniiSegmentReader segment_reader;
+    assert_ok(reader::SniiSegmentReader::open(&counting, &segment_reader));
+    reader::LogicalIndexReader index_reader;
+    assert_ok(segment_reader.open_index(kIndexId, kIndexSuffix, &index_reader));
+    ASSERT_GE(index_reader.n_dict_blocks(), 6U);
+
+    std::vector<std::string> query_terms;
+    for (size_t i = 0; i < 1280; i += 80) {
+        query_terms.push_back(indexed_terms[i]);
+    }
+    counting.reset_counts();
+    std::vector<reader::LogicalIndexReader::BatchLookupResult> resolved;
+    assert_ok(index_reader.lookup_batch(query_terms, &resolved));
+
+    ASSERT_EQ(found_flags(resolved), std::vector<uint8_t>(query_terms.size(), 1));
+    for (size_t i = 0; i < query_terms.size(); ++i) {
+        EXPECT_EQ(resolved[i].entry.term, query_terms[i]);
+    }
+    EXPECT_EQ(counting.read_at_calls(), 0U);
+    EXPECT_GE(counting.read_batch_calls(), 2U);
+    EXPECT_GT(counting.bytes(), kWaveBytes);
+    for (const uint64_t bytes : counting.batch_bytes()) {
+        EXPECT_LE(bytes, kWaveBytes);
+    }
 }
 
 TEST(SniiQueryTermResolutionBatch, StopsAfterFailedDictionaryWave) {

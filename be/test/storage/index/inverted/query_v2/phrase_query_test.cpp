@@ -1006,6 +1006,48 @@ TEST_F(PhraseQueryV2Test, AListedMultiPhraseMatchesTheStreamedOne) {
     }
 }
 
+// Postings on both sides of the multi-phrase loading threshold of 100 documents: "wide" and
+// "big" hold more, "rare" and "small" a few.
+static std::shared_ptr<index_query::testing::FakeIndexSource> threshold_source(bool batches) {
+    auto source = std::make_shared<index_query::testing::FakeIndexSource>();
+    source->batches = batches;
+    source->set_doc_count(300);
+    std::vector<index_query::testing::FakeIndexSource::Posting> wide;
+    std::vector<index_query::testing::FakeIndexSource::Posting> big;
+    for (uint32_t doc = 0; doc < 150; ++doc) {
+        wide.push_back(posting(doc, {0}));
+        if (doc < 120) {
+            big.push_back(posting(doc, {1}));
+        }
+    }
+    source->add("wide", std::move(wide));
+    source->add("big", std::move(big));
+    source->add("small", {posting(140, {1}), posting(201, {4})});
+    source->add("rare", {posting(200, {3}), posting(201, {3}), posting(205, {3})});
+    return source;
+}
+
+// A multi-phrase finds the same rows whichever side of the loading threshold a clause's term or
+// alternative falls on, streamed and listed alike.
+TEST_F(PhraseQueryV2Test, AMultiPhraseMatchesOnBothSidesOfTheLoadingThreshold) {
+    std::set<uint32_t> wide_rows {140};
+    for (uint32_t doc = 0; doc < 120; ++doc) {
+        wide_rows.insert(doc);
+    }
+    const std::vector<std::pair<std::string, std::set<uint32_t>>> leads {{"wide", wide_rows},
+                                                                         {"rare", {201}}};
+    for (const bool batches : {false, true}) {
+        for (const auto& [lead, expected] : leads) {
+            std::vector<TermInfo> term_infos = phrase_terms({lead, "big"});
+            term_infos[1].term = std::vector<std::string> {"big", "small"};
+            query_v2::MultiPhraseQuery query(std::make_shared<IndexQueryContext>(), L"content",
+                                             term_infos);
+            EXPECT_EQ(fake_docs(query, threshold_source(batches)), expected)
+                    << lead << " " << batches;
+        }
+    }
+}
+
 // The rows a scored weight lists on `source`, each with its score.
 static std::map<uint32_t, float> scored_docs(
         query_v2::Weight& weight,
