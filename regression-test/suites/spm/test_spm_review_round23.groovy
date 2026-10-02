@@ -87,19 +87,22 @@ suite("test_spm_review_round23", "spm") {
 
     // a value variant must STILL hit (the matcher compares the parameterized expression)
     // and must report the caller's own derived header: the frozen sink pinned the
-    // CAPTURED label (`k + 1`), which the protocol would have sent as the column label
+    // CAPTURED label (`k + 1`), which the protocol would have sent as the column label.
+    // The metadata call below must run the EXACT hit query - an added ORDER BY creates a
+    // sort node, changes the matched plan and could observe ordinary planning instead of
+    // the replay (the rows are normalized here instead of in SQL).
     String derivedVariant = "SELECT k + 2 FROM spm_r23_t"
     assertTrue(explainOf(derivedVariant).contains("SPM baseline hit: id=${derivedId}"),
             "a k + 2 variant must keep matching the captured k + 1 baseline: "
                     + explainOf(derivedVariant))
     def (derivedVariantRows, derivedVariantMeta) = JdbcUtils.executeToList(
-            context.getConnection(), "SELECT k + 2 FROM spm_r23_t ORDER BY 1")
+            context.getConnection(), derivedVariant)
     assertEquals("k + 2", derivedVariantMeta.getColumnLabel(1),
             "the replayed plan must expose the CALLER's derived header, not the captured one")
     List<List<Object>> derivedRows = sql(derivedVariant)
-    assertTrue(derivedRows == rowsWithRewriteOff(derivedVariant),
+    assertTrue(derivedRows.sort() == rowsWithRewriteOff(derivedVariant).sort(),
             "the variant must return its own rows: " + derivedRows)
-    assertTrue(derivedVariantRows == rowsWithRewriteOff(derivedVariant),
+    assertTrue(derivedVariantRows.sort() == rowsWithRewriteOff(derivedVariant).sort(),
             "the metadata query must return the same rows: " + derivedVariantRows)
 
     // an EXPLICIT alias pins the header, so the value variant stays matchable

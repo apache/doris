@@ -81,6 +81,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -88,6 +89,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -820,7 +822,7 @@ public final class SPMPlanTreeSupport {
     // ==================== hint stripping (in-memory fallback tree) ====================
 
     /**
-     * Removes EVERY LogicalSelectHint from a plan tree: the root block, nested query
+     * Strips the CAPTURED SET_VAR payloads from a plan tree: the root block, nested query
      * blocks, CTE bodies and expression subqueries. The frozen-text replay path re-parses
      * its planSql INCLUDING the hints deliberately; the in-memory fallback tree must not
      * re-apply the BASELINE's captured SET_VAR on top of a user query that came with
@@ -829,8 +831,16 @@ public final class SPMPlanTreeSupport {
      * then applied during ordinary replay analysis, although the matching user query is
      * hint-free and runs under -08:00 - from_unixtime returned different values.
      *
+     * <p>PLAN-SELECTION hints are the opposite case and are KEPT: the baseline exists to
+     * pin the authored plan, and the non-frozen fallback replays the parameterized TREE -
+     * dropping {@code /*+ ORDERED *}{@code /} or {@code LEADING(...)} here let the replay
+     * choose a different join order than the plan the baseline was created to enforce
+     * (the decompiler falls back to the authored SQL whenever the physical plan cannot
+     * be rendered, e.g. a PhysicalAssertNumRows produced by a scalar subquery). SET_VAR
+     * is the only hint class that carries the CREATOR's session state.
+     *
      * @param plan the parameterized fallback tree
-     * @return the tree without any hint wrapper (the original instance when there was none)
+     * @return the tree without any SET_VAR payload (the original instance when there was none)
      */
     public static LogicalPlan stripSelectHints(LogicalPlan plan) {
         if (plan == null) {
@@ -840,15 +850,34 @@ public final class SPMPlanTreeSupport {
         return result instanceof LogicalPlan ? (LogicalPlan) result : plan;
     }
 
-    /** TreeTransformer that DROPS the LogicalSelectHint wrapper instead of rebuilding it. */
+    /**
+     * TreeTransformer that removes the SET_VAR payloads from every LogicalSelectHint
+     * wrapper (whilst descending into nested blocks and keeping the other hints). A
+     * wrapper left without hints is dropped entirely, so a hint-free subtree keeps its
+     * original shape.
+     */
     private static class HintStripper extends TreeTransformer {
         @Override
         public Plan visit(Plan plan, ExprTransform transform) {
-            if (plan instanceof LogicalSelectHint) {
-                Plan child = plan.child(0);
-                return child == null ? plan : child.accept(this, transform);
+            if (!(plan instanceof LogicalSelectHint)) {
+                return super.visit(plan, transform);
             }
-            return super.visit(plan, transform);
+            LogicalSelectHint<?> selectHint = (LogicalSelectHint<?>) plan;
+            Plan child = selectHint.child(0);
+            if (child == null) {
+                return plan;
+            }
+            Plan strippedChild = child.accept(this, transform);
+            List<SelectHint> kept = new ArrayList<>(selectHint.getHints().size());
+            for (SelectHint hint : selectHint.getHints()) {
+                if (!(hint instanceof SelectHintSetVar)) {
+                    kept.add(hint);
+                }
+            }
+            if (kept.isEmpty()) {
+                return strippedChild;
+            }
+            return new LogicalSelectHint<>(ImmutableList.copyOf(kept), strippedChild);
         }
     }
 
@@ -1934,26 +1963,41 @@ public final class SPMPlanTreeSupport {
      * @param <E>     the visitor's exception type, propagated to the caller
      */
     public static <E extends Exception> void walkPlans(Plan root, PlanWalker<E> visitor) throws E {
-        if (root == null) {
+        walkPlans(root, visitor, Collections.newSetFromMap(new IdentityHashMap<>()));
+    }
+
+    /**
+     * {@link #walkPlans} with the identity set of already-visited nodes: a node reachable
+     * through TWO paths (a LogicalFilter exposes its predicate's subquery plans both
+     * through extraPlans() and through the predicate expression itself) is visited ONCE.
+     * Without the set the nested-subquery depth n was walked 2^n times (a 20-level
+     * {@code k = (SELECT ... WHERE k = (SELECT ...))} exceeds a million visits, and the
+     * bind-side fingerprint resolved every repeated table again after the match
+     * deadline). Identity - not equals() - is the right key: the walkers only INSPECT the
+     * tree, and a shared plan object always appears under the same CTE scope.
+     */
+    private static <E extends Exception> void walkPlans(Plan root, PlanWalker<E> visitor,
+            Set<Plan> visited) throws E {
+        if (root == null || !visited.add(root)) {
             return;
         }
         visitor.visit(root);
         for (Plan child : root.children()) {
-            walkPlans(child, visitor);
+            walkPlans(child, visitor, visited);
         }
         for (Plan extra : root.extraPlans()) {
-            walkPlans(extra, visitor);
+            walkPlans(extra, visitor, visited);
         }
         for (Expression expression : root.getExpressions()) {
-            walkSubqueryPlans(expression, visitor);
+            walkSubqueryPlans(expression, visitor, visited);
         }
     }
 
     /** Recurses one expression tree looking for subquery plans (coercions included). */
-    private static <E extends Exception> void walkSubqueryPlans(Expression expression, PlanWalker<E> visitor)
-            throws E {
+    private static <E extends Exception> void walkSubqueryPlans(Expression expression,
+            PlanWalker<E> visitor, Set<Plan> visited) throws E {
         if (expression instanceof SubqueryExpr) {
-            walkPlans(((SubqueryExpr) expression).getQueryPlan(), visitor);
+            walkPlans(((SubqueryExpr) expression).getQueryPlan(), visitor, visited);
         }
         if (expression instanceof UnboundStar) {
             // SELECT * REPLACE((SELECT ... FROM v) AS k): the replacement payloads live in
@@ -1962,11 +2006,11 @@ public final class SPMPlanTreeSupport {
             // expanded base-table plan, replay then checked base-table privileges instead
             // of the original view).
             for (NamedExpression replaced : ((UnboundStar) expression).getReplacedAlias()) {
-                walkSubqueryPlans(replaced, visitor);
+                walkSubqueryPlans(replaced, visitor, visited);
             }
         }
         for (Expression child : expression.children()) {
-            walkSubqueryPlans(child, visitor);
+            walkSubqueryPlans(child, visitor, visited);
         }
     }
 
@@ -1996,7 +2040,19 @@ public final class SPMPlanTreeSupport {
      */
     private static <E extends Exception> void walkPlansScoped(Plan root, Set<String> visibleCtes,
             ScopedPlanWalker<E> visitor) throws E {
-        if (root == null) {
+        walkPlansScoped(root, visibleCtes, visitor,
+                Collections.newSetFromMap(new IdentityHashMap<>()));
+    }
+
+    /**
+     * {@link #walkPlansScoped} with the identity set of already-visited nodes (see
+     * {@link #walkPlans(Plan, PlanWalker, Set)}): the same subquery plan is reachable
+     * through a filter's extraPlans() AND through its predicate expression, so without
+     * the set a nested-subquery chain was walked exponentially often.
+     */
+    private static <E extends Exception> void walkPlansScoped(Plan root, Set<String> visibleCtes,
+            ScopedPlanWalker<E> visitor, Set<Plan> visited) throws E {
+        if (root == null || !visited.add(root)) {
             return;
         }
         visitor.visit(root, visibleCtes);
@@ -2007,7 +2063,7 @@ public final class SPMPlanTreeSupport {
                 extended.add(normalizeCteName(alias.getAlias()));
             }
             Set<String> mainScope = Collections.unmodifiableSet(extended);
-            walkPlansScoped(cte.child(0), mainScope, visitor);
+            walkPlansScoped(cte.child(0), mainScope, visitor, visited);
             List<LogicalSubQueryAlias<Plan>> aliases = cte.getAliasQueries();
             for (int i = 0; i < aliases.size(); i++) {
                 Set<String> bodyScope = new LinkedHashSet<>(visibleCtes);
@@ -2019,34 +2075,36 @@ public final class SPMPlanTreeSupport {
                 if (cte.isRecursive() && aliases.get(i).isRecursiveCte()) {
                     bodyScope.add(normalizeCteName(aliases.get(i).getAlias()));
                 }
-                walkPlansScoped(aliases.get(i), Collections.unmodifiableSet(bodyScope), visitor);
+                walkPlansScoped(aliases.get(i), Collections.unmodifiableSet(bodyScope), visitor,
+                        visited);
             }
             return;
         }
         for (Plan child : root.children()) {
-            walkPlansScoped(child, visibleCtes, visitor);
+            walkPlansScoped(child, visibleCtes, visitor, visited);
         }
         for (Plan extra : root.extraPlans()) {
-            walkPlansScoped(extra, visibleCtes, visitor);
+            walkPlansScoped(extra, visibleCtes, visitor, visited);
         }
         for (Expression expression : root.getExpressions()) {
-            walkSubqueryPlansScoped(expression, visibleCtes, visitor);
+            walkSubqueryPlansScoped(expression, visibleCtes, visitor, visited);
         }
     }
 
     /** Scoped counterpart of {@link #walkSubqueryPlans} (see walkPlansScoped). */
     private static <E extends Exception> void walkSubqueryPlansScoped(Expression expression,
-            Set<String> visibleCtes, ScopedPlanWalker<E> visitor) throws E {
+            Set<String> visibleCtes, ScopedPlanWalker<E> visitor, Set<Plan> visited) throws E {
         if (expression instanceof SubqueryExpr) {
-            walkPlansScoped(((SubqueryExpr) expression).getQueryPlan(), visibleCtes, visitor);
+            walkPlansScoped(((SubqueryExpr) expression).getQueryPlan(), visibleCtes, visitor,
+                    visited);
         }
         if (expression instanceof UnboundStar) {
             for (NamedExpression replaced : ((UnboundStar) expression).getReplacedAlias()) {
-                walkSubqueryPlansScoped(replaced, visibleCtes, visitor);
+                walkSubqueryPlansScoped(replaced, visibleCtes, visitor, visited);
             }
         }
         for (Expression child : expression.children()) {
-            walkSubqueryPlansScoped(child, visibleCtes, visitor);
+            walkSubqueryPlansScoped(child, visibleCtes, visitor, visited);
         }
     }
 
@@ -2361,7 +2419,21 @@ public final class SPMPlanTreeSupport {
             if (dot >= 0 && dot + 1 < lower.length()) {
                 TableIf dbQualified = lockedTables.get(lower.substring(dot + 1));
                 if (dbQualified != null) {
-                    return dbQualified;
+                    // The suffix drops the CATALOG component: cat2.db.t must never be
+                    // fingerprinted as the bind table of cat1.db.t just because the
+                    // plan-side map carries only the db-qualified key (a table of another
+                    // catalog sharing database + table name). The stored entry would pin
+                    // cat2's table id, the CORRECT cat1 fingerprint failed the pre-match
+                    // containment check and the baseline could never match again. This
+                    // branch runs BEFORE the bare-name guard below, so the guard's
+                    // database check never saw it - verify the database AND the catalog
+                    // here (an unverifiable name is accepted: only a PROVABLE mismatch
+                    // rejects the pinned table, and a rejection falls through to the
+                    // cache-less resolution of the caller, which hashes the real table).
+                    if (databaseMatchesQualifier(dbQualified, qualifier)
+                            && catalogMatchesQualifier(dbQualified, qualifier)) {
+                        return dbQualified;
+                    }
                 }
             }
         }
@@ -2380,12 +2452,15 @@ public final class SPMPlanTreeSupport {
                 return null;
             }
         }
-        if (explicitNamespace && !databaseMatchesQualifier(byBare, qualifier)) {
-            // The bind relation names a DIFFERENT explicit database than the candidate's
-            // own: SELECT k FROM db1.t must never be fingerprinted as the planned db2.t
-            // just because both tables are named t - the stored fingerprint then omitted
-            // db1.t and the next query's CORRECT bind fingerprint failed the pre-match
-            // containment check (the new baseline never applied).
+        if (explicitNamespace && (!databaseMatchesQualifier(byBare, qualifier)
+                || !catalogMatchesQualifier(byBare, qualifier))) {
+            // The bind relation names a DIFFERENT explicit database (or CATALOG) than the
+            // candidate's own: SELECT k FROM db1.t must never be fingerprinted as the
+            // planned db2.t just because both tables are named t - the stored fingerprint
+            // then omitted db1.t and the next query's CORRECT bind fingerprint failed the
+            // pre-match containment check (the new baseline never applied). The catalog
+            // half matters even in ONE catalog name space: cat1.db.t and cat2.db.t resolve
+            // to different tables, and the bare name cannot tell them apart.
             return null;
         }
         return byBare;
@@ -2401,8 +2476,30 @@ public final class SPMPlanTreeSupport {
             return true;
         }
         String dbFullName = table.getDatabase().getFullName().toLowerCase(Locale.ROOT);
-        String qualifierDb = qualifier.get(qualifier.size() - 1).toLowerCase(Locale.ROOT);
+        // the qualifier is RelationUtil's [catalog, db, table] triple: the DATABASE is the
+        // second-to-last component (using the last one compared the db name against the
+        // TABLE name, so the bare-name fallback was rejected for every resolvable table)
+        String qualifierDb = qualifier.get(qualifier.size() >= 2
+                ? qualifier.size() - 2 : qualifier.size() - 1).toLowerCase(Locale.ROOT);
         return dbFullName.equals(qualifierDb) || dbFullName.endsWith("." + qualifierDb);
+    }
+
+    /**
+     * Whether a candidate table's catalog matches the EXPLICIT catalog of a bind
+     * relation. Mirrors {@link #databaseMatchesQualifier}: an unknown catalog (partially
+     * mocked table) or a qualifier without a catalog component is accepted, only a
+     * PROVABLE mismatch rejects the pinned table - two catalogs may hold a database and
+     * table of the same names.
+     */
+    private static boolean catalogMatchesQualifier(TableIf table, List<String> qualifier) {
+        if (table.getDatabase() == null || table.getDatabase().getCatalog() == null
+                || table.getDatabase().getCatalog().getName() == null
+                || qualifier.size() < 3) {
+            return true;
+        }
+        String catalogName = table.getDatabase().getCatalog().getName().toLowerCase(Locale.ROOT);
+        String qualifierCatalog = qualifier.get(qualifier.size() - 3).toLowerCase(Locale.ROOT);
+        return catalogName.equals(qualifierCatalog);
     }
 
     /** Tables of a planned physical tree, taken from each relation's OWN TableIf. */
