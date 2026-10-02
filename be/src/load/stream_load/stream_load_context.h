@@ -232,6 +232,9 @@ public:
     bool use_streaming = false;
     TFileFormatType::type format = TFileFormatType::FORMAT_CSV_PLAIN;
     TFileCompressType::type compress_type = TFileCompressType::UNKNOWN;
+    int8_t enclose = 0;
+    int8_t escape = 0;
+    bool empty_field_as_null = false;
     bool group_commit = false;
     std::string group_commit_mode = "";
 
