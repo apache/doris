@@ -268,8 +268,14 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
     if (ctx == nullptr || !ctx->status.ok()) {
         return;
     }
-    if (!req->header(HTTP_WAL_ID_KY).empty()) {
-        ctx->wal_id = std::stoll(req->header(HTTP_WAL_ID_KY));
+    const auto& wal_id_str = req->header(HTTP_WAL_ID_KY);
+    if (!wal_id_str.empty()) {
+        auto wal_id = safe_stoll(wal_id_str, HTTP_WAL_ID_KY);
+        if (!wal_id.has_value()) {
+            ctx->status = std::move(wal_id).error();
+            return;
+        }
+        ctx->wal_id = wal_id.value();
     }
     struct evhttp_request* ev_req = req->get_evhttp_request();
     auto evbuf = evhttp_request_get_input_buffer(ev_req);
@@ -447,9 +453,11 @@ Status HttpStreamAction::_handle_group_commit(HttpRequest* req,
     if (config::wait_internal_group_commit_finish) {
         group_commit_mode = "sync_mode";
     }
-    int64_t content_length = req->header(HttpHeaders::CONTENT_LENGTH).empty()
-                                     ? 0
-                                     : std::stoll(req->header(HttpHeaders::CONTENT_LENGTH));
+    int64_t content_length = 0;
+    const auto& content_length_str = req->header(HttpHeaders::CONTENT_LENGTH);
+    if (!content_length_str.empty()) {
+        content_length = DORIS_TRY(safe_stoll(content_length_str, HttpHeaders::CONTENT_LENGTH));
+    }
     if (content_length < 0) {
         std::stringstream ss;
         ss << "This http load content length <0 (" << content_length
