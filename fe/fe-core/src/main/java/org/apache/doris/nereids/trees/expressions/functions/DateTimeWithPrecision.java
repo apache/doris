@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunctio
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampNsType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import java.util.Locale;
 
@@ -41,6 +42,12 @@ public abstract class DateTimeWithPrecision extends ScalarFunction {
 
     public DateTimeWithPrecision(ScalarFunctionParams functionParams) {
         super(functionParams);
+    }
+
+    @Override
+    public Expression prepareBeforeTypeCoercion() {
+        // computeSignature derives the return type from the value of the precision
+        return withChildren(ExpressionUtils::foldConstantArgument);
     }
 
     @Override

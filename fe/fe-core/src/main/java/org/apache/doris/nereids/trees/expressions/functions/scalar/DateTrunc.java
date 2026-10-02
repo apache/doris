@@ -35,6 +35,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -63,12 +64,52 @@ public class DateTrunc extends ScalarFunction
     }
 
     @Override
+    public Expression prepareBeforeTypeCoercion() {
+        // When an argument is a date, the other one is the time unit, and the signature does not need its value.
+        if (getArgument(0).getDataType().isDateLikeType() || getArgument(1).getDataType().isDateLikeType()) {
+            return this;
+        }
+        // Otherwise customSignature tells the time unit from the date value by the literal time unit, so fold a
+        // constant string that evaluates to a time unit, unless the other argument already is one. A string date
+        // value is kept unfolded, because folding it would change the derived return type.
+        return withChildren((argument, index) -> {
+            if (!argument.getDataType().isStringLikeType() || isTimeUnit(getArgument(1 - index))) {
+                return argument;
+            }
+            Expression folded = ExpressionUtils.foldConstantArgument(argument);
+            return isTimeUnit(folded) ? folded : argument;
+        });
+    }
+
+    private static boolean isTimeUnit(Expression expression) {
+        return expression instanceof StringLikeLiteral
+                && LEGAL_TIME_UNIT.contains(((StringLikeLiteral) expression).getStringValue().toLowerCase());
+    }
+
+    private static boolean isConstantString(Expression expression) {
+        return expression.isConstant() && expression.getDataType().isStringLikeType();
+    }
+
+    @Override
     public void checkLegalityBeforeTypeCoercion() {
         boolean firstArgIsStringLiteral =
                 getArgument(0).isConstant() && getArgument(0) instanceof StringLikeLiteral;
         boolean secondArgIsStringLiteral =
                 getArgument(1).isConstant() && getArgument(1) instanceof StringLikeLiteral;
         if (!firstArgIsStringLiteral && !secondArgIsStringLiteral) {
+            for (int i = 0; i < 2; i++) {
+                if (getArgument(i).getDataType().isDateLikeType() && isConstantString(getArgument(1 - i))) {
+                    // The other argument is a constant time unit the rewrite will fold. Validate the value FE
+                    // can evaluate here, because constant folding may remove this function before any later
+                    // check. BE validates a time unit FE cannot fold.
+                    Expression timeUnit = ExpressionUtils.foldConstantArgument(getArgument(1 - i));
+                    if (timeUnit instanceof StringLikeLiteral && !isTimeUnit(timeUnit)) {
+                        throw new AnalysisException("date_trunc function time unit param only support argument is "
+                                + String.join("|", LEGAL_TIME_UNIT));
+                    }
+                    return;
+                }
+            }
             throw new AnalysisException("the time unit parameter of "
                     + getName() + " function must be a string constant: " + toSql());
         } else if (firstArgIsStringLiteral && secondArgIsStringLiteral) {

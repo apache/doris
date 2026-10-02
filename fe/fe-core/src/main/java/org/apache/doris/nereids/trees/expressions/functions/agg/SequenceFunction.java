@@ -21,6 +21,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionTrait;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 
 import java.util.regex.Matcher;
@@ -34,9 +35,9 @@ public interface SequenceFunction extends FunctionTrait {
     default void checkLegalityBeforeTypeCoercion() {
         String functionName = getName();
         Expression firstArg = getArgument(0);
-        if (!(firstArg instanceof StringLikeLiteral)) {
+        if (!firstArg.isConstant() || (firstArg instanceof Literal && !(firstArg instanceof StringLikeLiteral))) {
             throw new AnalysisException("The pattern param `" + firstArg.toSql() + "` of " + functionName
-                    + " function must be string literal, but it is "
+                    + " function must be string constant, but it is "
                     + firstArg.getClass().getSimpleName());
         }
         if (!getArgumentType(1).isDateLikeType()) {
@@ -44,7 +45,33 @@ public interface SequenceFunction extends FunctionTrait {
                     + " function must be DATE, DATETIME, TIMESTAMP_NS or TIMESTAMPTZ, but it is "
                     + getArgumentType(1));
         }
-        String pattern = ((StringLikeLiteral) firstArg).getStringValue();
+        checkLiteralPattern();
+
+        for (int i = 2; i < arity(); i++) {
+            if (!getArgumentType(i).isBooleanType()) {
+                throw new AnalysisException("The param `" + child(i).toSql() + "` of "
+                        + functionName + " function must be boolean, but it is "
+                        + getArgumentType(i).getClass().getSimpleName());
+            }
+        }
+    }
+
+    @Override
+    default void checkLegalityAfterRewrite() {
+        // An aggregate function is not removed by constant folding, so a constant pattern is validated once the
+        // rewrite has folded it to a literal.
+        checkLiteralPattern();
+    }
+
+    /**
+     * check the syntax of a literal pattern and that every event it refers to is given;
+     * a pattern FE cannot fold is parsed by BE when it is evaluated
+     */
+    default void checkLiteralPattern() {
+        if (!(getArgument(0) instanceof StringLikeLiteral)) {
+            return;
+        }
+        String pattern = ((StringLikeLiteral) getArgument(0)).getStringValue();
         if (!FunctionCallExpr.parsePattern(pattern)) {
             throw new AnalysisException("The format of pattern params is wrong: " + this.toSql());
         }
@@ -60,14 +87,6 @@ public interface SequenceFunction extends FunctionTrait {
             if (eventNumber == 0 || eventNumber > eventCount) {
                 throw new AnalysisException("Event number " + eventNumber
                         + " is out of range, valid range is [1, " + eventCount + "]");
-            }
-        }
-
-        for (int i = 2; i < arity(); i++) {
-            if (!getArgumentType(i).isBooleanType()) {
-                throw new AnalysisException("The param `" + child(i).toSql() + "` of "
-                        + functionName + " function must be boolean, but it is "
-                        + getArgumentType(i).getClass().getSimpleName());
             }
         }
     }

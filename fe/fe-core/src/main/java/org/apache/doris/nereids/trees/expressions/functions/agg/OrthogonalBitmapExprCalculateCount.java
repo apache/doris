@@ -18,10 +18,10 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapEmpty;
-import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
 import org.apache.doris.nereids.types.VarcharType;
@@ -47,7 +47,7 @@ public class OrthogonalBitmapExprCalculateCount extends NotNullableAggregateFunc
      * constructor with 3 arguments.
      */
     public OrthogonalBitmapExprCalculateCount(
-            Expression bitmap, Expression filterColumn, VarcharLiteral inputString) {
+            Expression bitmap, Expression filterColumn, Expression inputString) {
         super("orthogonal_bitmap_expr_calculate_count",
                 ExpressionUtils.mergeArguments(bitmap, filterColumn, inputString));
     }
@@ -56,7 +56,7 @@ public class OrthogonalBitmapExprCalculateCount extends NotNullableAggregateFunc
      * constructor with 3 arguments.
      */
     public OrthogonalBitmapExprCalculateCount(boolean distinct,
-            Expression bitmap, Expression filterColumn, VarcharLiteral inputString) {
+            Expression bitmap, Expression filterColumn, Expression inputString) {
         super("orthogonal_bitmap_expr_calculate_count", distinct,
                 ExpressionUtils.mergeArguments(bitmap, filterColumn, inputString));
     }
@@ -64,6 +64,14 @@ public class OrthogonalBitmapExprCalculateCount extends NotNullableAggregateFunc
     /** constructor for withChildren and reuse signature */
     private OrthogonalBitmapExprCalculateCount(AggregateFunctionParams functionParams) {
         super(functionParams);
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        if (!getArgument(2).isConstant()) {
+            throw new AnalysisException("The third argument of " + getName()
+                    + " must be a string constant: " + toSql());
+        }
     }
 
     @Override
@@ -79,8 +87,7 @@ public class OrthogonalBitmapExprCalculateCount extends NotNullableAggregateFunc
     @Override
     public OrthogonalBitmapExprCalculateCount withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 3
-                && children.get(2).getDataType() instanceof CharacterType
-                && children.get(2).getDataType() instanceof VarcharType);
+                && children.get(2).getDataType() instanceof CharacterType);
         return new OrthogonalBitmapExprCalculateCount(getFunctionParams(distinct, children));
     }
 
