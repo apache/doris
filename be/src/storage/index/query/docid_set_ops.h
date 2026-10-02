@@ -17,10 +17,7 @@
 
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
-#include <limits>
-#include <vector>
 
 #include "common/status.h"
 
@@ -29,16 +26,6 @@ class Roaring;
 } // namespace roaring
 
 namespace doris::index_query {
-
-std::vector<uint32_t> intersect_sorted(const std::vector<uint32_t>& a,
-                                       const std::vector<uint32_t>& b);
-
-void union_sorted_into(std::vector<uint32_t>* acc, const std::vector<uint32_t>& next);
-
-// Inputs contain sorted, unique document IDs. The reserve cap limits initial allocation
-// when the input lists overlap.
-std::vector<uint32_t> union_sorted_many(const std::vector<std::vector<uint32_t>>& lists,
-                                        size_t reserve_cap = std::numeric_limits<size_t>::max());
 
 // The first `count` ids off `nulls`, all below count + |nulls|: a count-only answer the scan's
 // null subtraction leaves whole. Fails when the ids would leave the docid domain or the window

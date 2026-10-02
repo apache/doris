@@ -15,16 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// SNII Batch 2 -- multi-term OR read-amplification + streaming docid-union (T09).
-//
-// Covers three reader-only, byte-identical changes:
-//   (1) emit_docid_union streams each posting into a dedup-capable sink (Roaring)
-//       over ONE shared fetch round -- dense-full windows stay runs via
-//       append_range -- instead of materializing a per-term vector + K-way merge.
-//   (2) union_sorted_many reserves by summed input size (single allocation),
-//       capped by reserve_cap so heavily-overlapping inputs do not over-reserve.
-//   (3) the OR resolve path threads one request-scoped DictBlockCache through its
-//       per-term lookups, so terms sharing a DICT block read+decode it once.
+// Multi-term OR on SNII through the shared engine: every term's postings read in one shared
+// fetch round, the result equal whether the terms go to a deduplicating sink or a vector, and
+// terms sharing a dictionary block reading it once.
 //
 // All assertions are deterministic (op-counts, capacities, set equality, I/O round
 // counts through MeteredFileReader / MemoryFile). No wall-clock gates.
@@ -41,7 +34,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "storage/index/query/docid_set_ops.h"
 #include "storage/index/query/docid_sink.h"
 #include "storage/index/snii/io/metered_file_reader.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
@@ -135,49 +127,6 @@ void OpenMeteredFixture(MeteredIndex* fx, size_t block_size) {
 } // namespace
 
 // ---------------------------------------------------------------------------
-// T09 F16 -- union_sorted_many reserves by total, capped by reserve_cap.
-// ---------------------------------------------------------------------------
-
-TEST(SniiB2OrRead, UnionReservesByTotalForDisjointLists) {
-    // Three disjoint sorted lists (sum == 12); union == sum.
-    const std::vector<std::vector<uint32_t>> lists = {{0, 3, 6, 9}, {1, 4, 7, 10}, {2, 5, 8, 11}};
-    const size_t total = 12;
-
-    const std::vector<uint32_t> got = ::doris::index_query::union_sorted_many(lists);
-
-    EXPECT_EQ(got.size(), total);
-    // reserve(total) + exactly `total` pushes -> a single allocation, so capacity is
-    // exactly total (was geometric growth off reserve(largest)).
-    EXPECT_EQ(got.capacity(), total);
-    EXPECT_TRUE(std::ranges::is_sorted(got));
-}
-
-TEST(SniiB2OrRead, UnionRespectsReserveCapOnHeavyOverlap) {
-    // >8 identical lists -> heap path; total == 40 but the union is only 4 elements.
-    const std::vector<std::vector<uint32_t>> lists(10, std::vector<uint32_t> {1, 2, 3, 4});
-    const size_t union_size = 4;
-
-    const std::vector<uint32_t> got =
-            ::doris::index_query::union_sorted_many(lists, /*reserve_cap=*/union_size);
-
-    EXPECT_EQ(got.size(), union_size);
-    // Capped at reserve_cap rather than over-reserving 10x (= 40) on overlap.
-    EXPECT_EQ(got.capacity(), union_size);
-    EXPECT_EQ(got, (std::vector<uint32_t> {1, 2, 3, 4}));
-}
-
-TEST(SniiB2OrRead, UnionContentUnchangedByReserveFix) {
-    const std::vector<std::vector<uint32_t>> lists = {{0, 2, 4, 6, 8}, {1, 3, 5}, {4, 5, 6, 7}};
-    std::set<uint32_t> expected_set;
-    for (const std::vector<uint32_t>& list : lists) {
-        expected_set.insert(list.begin(), list.end());
-    }
-    const std::vector<uint32_t> want(expected_set.begin(), expected_set.end());
-
-    EXPECT_EQ(::doris::index_query::union_sorted_many(lists), want);
-}
-
-// ---------------------------------------------------------------------------
 // T09 F15 -- dedups() capability gate + streaming OR.
 // ---------------------------------------------------------------------------
 
@@ -212,12 +161,12 @@ TEST(SniiB2OrRead, MultiTermOrStreamingMatchesMergePath) {
 
     const std::vector<std::string> terms = {"needle", "sparse_left", "driver"};
 
-    // Streaming path: dedup-capable sink -> emit_docid_postings_streamed.
+    // Into a deduplicating sink.
     CountingDedupSink sink;
     assert_ok(query::boolean_or(idx, terms, &sink));
     const std::vector<uint32_t> streamed(sink.ids.begin(), sink.ids.end());
 
-    // Merge path: vector out -> build_docid_union + union_sorted_many.
+    // Into a vector.
     std::vector<uint32_t> merged;
     assert_ok(query::boolean_or(idx, terms, &merged));
 
@@ -299,8 +248,8 @@ TEST(SniiB2OrRead, MultiTermOrIssuesSingleSerialRound) {
     assert_ok(query::boolean_or(fx.idx, terms, &got));
     const io::IoMetrics batched = fx.metered->metrics();
 
-    EXPECT_EQ(batched.serial_rounds, 1u) << "multi-term OR must read all postings in one round";
-    EXPECT_GE(per_term.serial_rounds, 2u);
+    EXPECT_EQ(batched.serial_rounds, 1U) << "multi-term OR must read all postings in one round";
+    EXPECT_GE(per_term.serial_rounds, 2U);
     EXPECT_GT(per_term.serial_rounds, batched.serial_rounds);
     // Coalescing never increases physical GETs or bytes vs the per-term path.
     EXPECT_LE(batched.range_gets, per_term.range_gets);
@@ -352,7 +301,7 @@ TEST(SniiB2OrRead, MultiTermOrDedupsSharedDictBlockReads) {
     const size_t or_dict_reads = dict_reads();
 
     EXPECT_EQ(per_term_dict_reads, terms.size());
-    EXPECT_GE(or_dict_reads, 1u);
+    EXPECT_GE(or_dict_reads, 1U);
     EXPECT_LT(or_dict_reads, per_term_dict_reads)
             << "OR must not re-read a DICT block already decoded for another term";
     EXPECT_FALSE(got.empty());

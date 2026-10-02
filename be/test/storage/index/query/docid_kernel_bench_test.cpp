@@ -22,11 +22,9 @@
 #include <cstdlib>
 #include <ctime>
 #include <numeric>
-#include <set>
 #include <string>
 #include <vector>
 
-#include "storage/index/query/docid_set_ops.h"
 #include "storage/index/query/docid_sink.h"
 #include "testutil/benchmark_control.h"
 
@@ -73,41 +71,13 @@ void benchmark_docids(const std::string& label, Operation operation,
     }
 }
 
-TEST(DocIdKernelBench, DISABLED_SetOperationsAndBulkSink) {
+TEST(DocIdKernelBench, DISABLED_BulkSink) {
     const uint32_t samples = docid_parameter("QUERY_ENGINE_BENCH_SAMPLES", 32);
     const uint32_t iterations = docid_parameter("DOCID_KERNEL_BENCH_ITERATIONS", 64);
     ASSERT_GT(samples, 0);
     ASSERT_GT(iterations, 0);
-    for (uint32_t fan_in : {2U, 8U, 9U, 32U}) {
-        for (bool disjoint : {false, true}) {
-            std::vector<std::vector<uint32_t>> lists(fan_in);
-            std::set<uint32_t> membership;
-            for (uint32_t list = 0; list < fan_in; ++list) {
-                for (uint32_t index = 0; index < 512; ++index) {
-                    const uint32_t doc = disjoint ? index * fan_in + list : index + list;
-                    lists[list].push_back(doc);
-                    membership.insert(doc);
-                }
-            }
-            const std::vector<uint32_t> expected(membership.begin(), membership.end());
-            benchmark_docids(
-                    "docids/union/" + std::to_string(fan_in) +
-                            (disjoint ? "/disjoint" : "/overlap"),
-                    [&] { return union_sorted_many(lists, expected.size()); }, expected, samples,
-                    iterations);
-        }
-    }
     std::vector<uint32_t> dense(65536);
     std::iota(dense.begin(), dense.end(), 0);
-    for (uint32_t step : {1U, 64U, 1024U}) {
-        std::vector<uint32_t> sparse;
-        for (uint32_t doc = 0; doc < dense.size(); doc += step) {
-            sparse.push_back(doc);
-        }
-        benchmark_docids(
-                "docids/intersection/step_" + std::to_string(step),
-                [&] { return intersect_sorted(dense, sparse); }, sparse, samples, iterations);
-    }
     for (uint32_t width : {64U, 1024U, 65536U}) {
         benchmark_docids(
                 "docids/vector_ranges/width_" + std::to_string(width),

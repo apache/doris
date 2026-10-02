@@ -20,10 +20,8 @@
 #include <algorithm>
 #include <cstdint>
 #include <limits>
-#include <random>
 #include <vector>
 
-#include "storage/index/query/docid_set_ops.h"
 #include "storage/index/query/docid_sink.h"
 #include "storage/index/query/roaring_docid_sink.h"
 
@@ -101,64 +99,6 @@ TEST(DocIdSinkContractTest, RoaringSinkRejectsOutOfRangeEndWithoutChangingTheRes
     constexpr uint64_t kTooLarge = static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 2;
     EXPECT_FALSE(sink.append_range(0, kTooLarge).ok());
     EXPECT_EQ(bitmap, expected);
-}
-
-TEST(DocIdSetContractTest, PreservesEmptyAndMaximumDocumentBoundaries) {
-    const std::vector<uint32_t> docs {0, 17, std::numeric_limits<uint32_t>::max()};
-    EXPECT_TRUE(intersect_sorted(docs, {}).empty());
-    EXPECT_EQ(intersect_sorted(docs, docs), docs);
-    EXPECT_TRUE(union_sorted_many({}).empty());
-    EXPECT_EQ(union_sorted_many({{}, docs, {}}), docs);
-    std::vector<uint32_t> accumulated;
-    union_sorted_into(&accumulated, docs);
-    union_sorted_into(&accumulated, {});
-    union_sorted_into(&accumulated, docs);
-    EXPECT_EQ(accumulated, docs);
-}
-
-std::vector<std::vector<uint32_t>> random_docid_lists(size_t fan_in, uint32_t divisor,
-                                                      std::mt19937& random,
-                                                      std::vector<uint32_t>& membership) {
-    std::vector<std::vector<uint32_t>> lists(fan_in);
-    for (auto& docs : lists) {
-        for (uint32_t doc = 0; doc < membership.size(); ++doc) {
-            if (random() % divisor == 0) {
-                docs.push_back(doc);
-                ++membership[doc];
-            }
-        }
-    }
-    return lists;
-}
-
-TEST(DocIdSetContractTest, MatchesIndependentMembershipAcrossMergeStrategies) {
-    constexpr uint32_t kDomain = 256;
-    std::mt19937 random(291);
-    for (size_t fan_in : {2U, 8U, 9U, 32U}) {
-        for (uint32_t trial = 0; trial < 16; ++trial) {
-            std::vector<uint32_t> membership(kDomain, 0);
-            const auto lists = random_docid_lists(fan_in, trial + 2, random, membership);
-            std::vector<uint32_t> expected_union;
-            std::vector<uint32_t> expected_intersection;
-            for (uint32_t doc = 0; doc < kDomain; ++doc) {
-                if (membership[doc] > 0) {
-                    expected_union.push_back(doc);
-                }
-                if (membership[doc] == fan_in) {
-                    expected_intersection.push_back(doc);
-                }
-            }
-            EXPECT_EQ(union_sorted_many(lists, kDomain), expected_union);
-            auto intersection = lists.front();
-            std::vector<uint32_t> accumulated;
-            for (const auto& docs : lists) {
-                intersection = intersect_sorted(intersection, docs);
-                union_sorted_into(&accumulated, docs);
-            }
-            EXPECT_EQ(intersection, expected_intersection);
-            EXPECT_EQ(accumulated, expected_union);
-        }
-    }
 }
 
 } // namespace

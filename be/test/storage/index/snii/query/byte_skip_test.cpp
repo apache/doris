@@ -55,9 +55,9 @@
 //   (b) a docid-only term_query on the high-df term requests STRICTLY FEWER .frq
 //       bytes than the pre-PhaseB full-window path (sum of per-window frq_len),
 //       because the freq region is skipped on the wire;
-//   (c) scoring_query STILL reads the FULL windows (freq region present -> its
-//       .frq request bytes match the full-window total, strictly above the
-//       docid-only path) and returns the correct top-K.
+//   (c) scoring STILL reads the FULL windows (freq region present -> its .frq
+//       request bytes match the full-window total, strictly above the docid-only
+//       path) and returns the correct top-K.
 using namespace doris::snii;
 using namespace doris::snii::format;
 using namespace doris::snii::reader;
