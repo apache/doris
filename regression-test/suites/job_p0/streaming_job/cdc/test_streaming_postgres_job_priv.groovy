@@ -98,8 +98,7 @@ suite("test_streaming_postgres_job_priv", "p0,external,pg,external_docker,extern
         }
 
 
-        // create job by new user
-        sql """CREATE JOB ${jobName}
+        def createJobSql = """CREATE JOB ${jobName}
                 ON STREAMING
                 FROM POSTGRES (
                     "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}",
@@ -116,6 +115,36 @@ suite("test_streaming_postgres_job_priv", "p0,external,pg,external_docker,extern
                   "table.create.properties.replication_num" = "1"
                 )
             """
+
+        // Verify Doris privileges independently of the PostgreSQL source privileges.
+        def user = "test_streaming_postgres_job_priv_user"
+        def pwd = "123456"
+        def tokens = context.config.jdbcUrl.split('/')
+        def url = tokens[0] + "//" + tokens[2] + "/" + currentDb + "?"
+        sql """DROP USER IF EXISTS '${user}'"""
+        sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
+        sql """GRANT select_priv ON ${currentDb}.* TO ${user}"""
+        if (isCloudMode()) {
+            def clusters = sql_return_maparray "SHOW CLUSTERS"
+            for (item in clusters) {
+                if (item.is_current.equalsIgnoreCase("TRUE")) {
+                    sql """GRANT USAGE_PRIV ON CLUSTER `${item.cluster}` TO ${user}"""
+                    break
+                }
+            }
+        }
+        connect(user, pwd, url) {
+            test {
+                sql createJobSql
+                exception "you need (at least one of) the (LOAD) privilege"
+            }
+        }
+
+        // Create the job without ALTER privilege to exercise schema change failures.
+        sql """GRANT load_priv,create_priv ON ${currentDb}.* TO ${user}"""
+        connect(user, pwd, url) {
+            sql createJobSql
+        }
 
         Awaitility.await().atMost(300, SECONDS)
                 .pollInterval(3, SECONDS).until(
@@ -153,6 +182,40 @@ suite("test_streaming_postgres_job_priv", "p0,external,pg,external_docker,extern
 
         // check incremental data
         qt_select """ SELECT * FROM ${tableName} order by name asc """
+
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            sql """ALTER TABLE ${pgDB}.${pgSchema}.${tableName} ADD COLUMN cdc_auth_col VARCHAR(50)"""
+            // A data change triggers PostgreSQL schema change detection.
+            sql """INSERT INTO ${pgDB}.${pgSchema}.${tableName} (name, age, cdc_auth_col)
+                    VALUES ('SchemaChangePriv', 30, 'created_by_job_user')"""
+        }
+
+        Awaitility.await().atMost(180, SECONDS).pollInterval(2, SECONDS).until({
+            def errors = sql """SELECT ErrorMsg FROM jobs("type"="insert") WHERE Name='${jobName}'"""
+            log.info("schema change privilege error: " + errors)
+            def errorMsg = errors.size() == 1 ? errors[0][0].toString() : ""
+            def columns = sql "DESC ${tableName}"
+            // PostgreSQL schema records have no source offset; DDL and cause must still be reported.
+            errorMsg.contains("Failed to execute Doris DDL")
+                    && errorMsg.contains("Failed to execute schema change. SQL: ALTER TABLE")
+                    && errorMsg.contains("ADD COLUMN")
+                    && errorMsg.contains("cdc_auth_col")
+                    && errorMsg.contains("ALTER TABLE command denied")
+                    && errorMsg.contains(user)
+                    && !errorMsg.contains("Source offset:")
+                    && !columns.any { it[0] == "cdc_auth_col" }
+        })
+
+        // Automatic retry must apply the DDL and sync data after ALTER is granted.
+        sql """GRANT alter_priv ON ${currentDb}.* TO ${user}"""
+        Awaitility.await().atMost(180, SECONDS).pollInterval(2, SECONDS).until({
+            def columns = sql "DESC ${tableName}"
+            if (!columns.any { it[0] == "cdc_auth_col" }) {
+                return false
+            }
+            def rows = sql "SELECT cdc_auth_col FROM ${tableName} WHERE name = 'SchemaChangePriv'"
+            rows.size() == 1 && rows[0][0] == "created_by_job_user"
+        })
 
         sql """
         DROP JOB IF EXISTS where jobname =  '${jobName}'

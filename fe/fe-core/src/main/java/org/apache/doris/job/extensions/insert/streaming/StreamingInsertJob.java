@@ -1093,22 +1093,33 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      */
     private void modifyPropertiesInternal(Map<String, String> inputProperties) throws AnalysisException, JobException {
         StreamingJobProperties inputStreamProps = new StreamingJobProperties(inputProperties);
+        boolean reloadSourceSchema = Boolean.parseBoolean(
+                inputProperties.get(StreamingJobProperties.RELOAD_SOURCE_SCHEMA_PROPERTY));
         if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty())) {
             Offset offset = validateOffset(inputStreamProps.getOffsetProperty());
             this.offsetProvider.updateOffset(offset);
             this.offsetProvider.resetLag();
+            if (reloadSourceSchema) {
+                this.offsetProvider.resetSourceSchema();
+                this.needRebuildReader = true;
+            }
             this.offsetProviderPersist = offsetProvider.getPersistInfo();
             log.info("modifyPropertiesInternal: offset updated to {}, job {}",
                     inputStreamProps.getOffsetProperty(), getJobId());
             if (Config.isCloudMode()) {
                 resetCloudProgress(offset);
             }
+        } else if (reloadSourceSchema) {
+            this.offsetProvider.resetSourceSchema();
+            this.needRebuildReader = true;
+            this.offsetProviderPersist = offsetProvider.getPersistInfo();
         }
         if (inputProperties.containsKey(StreamingJobProperties.COMPUTE_GROUP_PROPERTY)) {
             this.cloudCluster = inputProperties.get(StreamingJobProperties.COMPUTE_GROUP_PROPERTY);
             offsetProvider.setCloudCluster(this.cloudCluster);
         }
         this.properties.putAll(inputProperties);
+        this.properties.remove(StreamingJobProperties.RELOAD_SOURCE_SCHEMA_PROPERTY);
         this.jobProperties = new StreamingJobProperties(this.properties);
         recomputeDerivedFields();
     }

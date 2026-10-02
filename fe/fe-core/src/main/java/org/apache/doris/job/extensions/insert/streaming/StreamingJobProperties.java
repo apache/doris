@@ -44,6 +44,7 @@ public class StreamingJobProperties implements JobProperties {
     public static final String SESSION_VAR_PREFIX = "session.";
     public static final String INTERNAL_KEY_PREFIX = "__";
     public static final String OFFSET_PROPERTY = "offset";
+    public static final String RELOAD_SOURCE_SCHEMA_PROPERTY = "reload_source_schema";
     public static final String COMPUTE_GROUP_PROPERTY = "compute_group";
     public static final List<String> SUPPORT_STREAM_JOB_PROPS = Arrays.asList(MAX_INTERVAL_SECOND_PROPERTY,
             S3_MAX_BATCH_FILES_PROPERTY, S3_MAX_BATCH_BYTES_PROPERTY, OFFSET_PROPERTY, COMPUTE_GROUP_PROPERTY);

@@ -154,8 +154,14 @@ suite("test_streaming_mysql_job_priv", "p0,external,mysql,external_docker,extern
             def errors = sql """SELECT ErrorMsg FROM jobs("type"="insert") WHERE Name='${jobName}'"""
             log.info("schema change privilege error: " + errors)
             def columns = sql "DESC ${tableName}"
-            errors.size() == 1 && errors[0][0].toString().contains("ALTER TABLE command denied")
-                    && errors[0][0].toString().contains(user)
+            def errorMsg = errors.size() == 1 ? errors[0][0].toString() : ""
+            errors.size() == 1 && errorMsg.contains("Failed to execute Doris DDL")
+                    && errorMsg.contains("Source offset:")
+                    && errorMsg.contains("Failed to execute schema change. SQL: ALTER TABLE")
+                    && errorMsg.contains("ADD COLUMN")
+                    && errorMsg.contains("cdc_auth_col")
+                    && errorMsg.contains("ALTER TABLE command denied")
+                    && errorMsg.contains(user)
                     && !columns.any { it[0] == "cdc_auth_col" }
         })
 
