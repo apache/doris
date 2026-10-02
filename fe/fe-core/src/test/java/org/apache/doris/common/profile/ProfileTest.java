@@ -26,12 +26,14 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.mockito.Mockito;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -54,7 +56,7 @@ public class ProfileTest {
 
     @AfterEach
     public void tearDown() {
-        ProfileManager.getInstance().removeProfile(profile.getId());
+        ProfileManager.getInstance().removeProfile(profile);
     }
 
     @Test
@@ -85,6 +87,76 @@ public class ProfileTest {
         profile.updateSummary(summaryInfo, true, null);
         Assertions.assertTrue(profile.isQueryFinished);
         Assertions.assertTrue(Long.MAX_VALUE != profile.getQueryFinishTimestamp());
+    }
+
+    @Test
+    @ResourceLock("global")
+    public void testShortFailedQueryRemovesExecutionProfileWithoutSummary() {
+        ProfileManager manager = ProfileManager.getInstance();
+        TUniqueId queryId = executionProfile.getQueryId();
+        profile.autoProfileDurationMs = 10_000;
+        profile.getSummaryProfile().setQueryBeginTime(System.currentTimeMillis());
+        manager.addExecutionProfile(executionProfile);
+
+        try {
+            Assertions.assertSame(executionProfile, manager.getExecutionProfile(queryId));
+            Assertions.assertNull(manager.findProfileElementObject(profile.getId()));
+
+            profile.updateSummary(new HashMap<>(), true, null);
+
+            Assertions.assertNull(manager.getExecutionProfile(queryId));
+            Assertions.assertNull(manager.findProfileElementObject(profile.getId()));
+        } finally {
+            manager.cleanProfile();
+        }
+    }
+
+    @Test
+    @ResourceLock("global")
+    public void testShortCompletedQueryRemovesStoredProfileAndExecutionProfile() {
+        ProfileManager manager = ProfileManager.getInstance();
+        TUniqueId queryId = executionProfile.getQueryId();
+        profile.autoProfileDurationMs = 10_000;
+        profile.getSummaryProfile().setQueryBeginTime(System.currentTimeMillis());
+        manager.addExecutionProfile(executionProfile);
+
+        try {
+            profile.updateSummary(new HashMap<>(), false, null);
+            Assertions.assertNotNull(manager.findProfileElementObject(profile.getId()));
+
+            profile.updateSummary(new HashMap<>(), true, null);
+
+            Assertions.assertNull(manager.getExecutionProfile(queryId));
+            Assertions.assertNull(manager.findProfileElementObject(profile.getId()));
+        } finally {
+            manager.cleanProfile();
+        }
+    }
+
+    @Test
+    @ResourceLock("global")
+    public void testShortFailedJobRemovesMultipleExecutionProfiles() {
+        ProfileManager manager = ProfileManager.getInstance();
+        TUniqueId firstQueryId = executionProfile.getQueryId();
+        UUID secondUuid = UUID.randomUUID();
+        TUniqueId secondQueryId = new TUniqueId(secondUuid.getMostSignificantBits(),
+                secondUuid.getLeastSignificantBits());
+        ExecutionProfile secondExecutionProfile = new ExecutionProfile(secondQueryId, Collections.emptyList());
+        profile.addExecutionProfile(secondExecutionProfile);
+        profile.autoProfileDurationMs = 10_000;
+        profile.getSummaryProfile().setQueryBeginTime(System.currentTimeMillis());
+        manager.addExecutionProfile(executionProfile);
+        manager.addExecutionProfile(secondExecutionProfile);
+
+        try {
+            profile.updateSummary(new HashMap<>(), true, null);
+
+            Assertions.assertNull(manager.getExecutionProfile(firstQueryId));
+            Assertions.assertNull(manager.getExecutionProfile(secondQueryId));
+            Assertions.assertNull(manager.findProfileElementObject(profile.getId()));
+        } finally {
+            manager.cleanProfile();
+        }
     }
 
     @Test

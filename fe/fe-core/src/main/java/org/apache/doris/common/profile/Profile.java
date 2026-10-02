@@ -314,7 +314,7 @@ public class Profile {
                 long durationThreshold = executionProfiles.isEmpty()
                                     ? autoProfileDurationMs : executionProfiles.size() * autoProfileDurationMs;
                 if (this.queryFinishTimestamp != Long.MAX_VALUE && durationMs < durationThreshold) {
-                    ProfileManager.getInstance().removeProfile(this.getId());
+                    ProfileManager.getInstance().removeProfile(this);
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("Removed profile {} because it's costs {} is less than {}", this.getId(),
                                 durationMs, autoProfileDurationMs * this.executionProfiles.size());
