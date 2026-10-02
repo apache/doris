@@ -276,6 +276,12 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
                 .getCachedRowCount(catalog.getId(), dbId, id, true);
     }
 
+    /** Returns the row count for a pruned external partition set, or UNKNOWN when unsupported. */
+    public long getRowCountForSelectedPartitions(SelectedPartitions selectedPartitions,
+            Optional<MvccSnapshot> snapshot) {
+        return UNKNOWN_ROW_COUNT;
+    }
+
     @Override
     public long getCachedRowCount() {
         // Return -1 if uninitialized.

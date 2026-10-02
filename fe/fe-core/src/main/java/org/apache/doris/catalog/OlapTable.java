@@ -1949,6 +1949,36 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return index.getRowCount() == -1 ? 0 : index.getRowCount();
     }
 
+    /**
+     * Returns the row count of the selected partitions for the specified index. If some selected
+     * partitions have not reported row counts, distribute the table row count not accounted for by
+     * known selected partitions across the remaining partitions.
+     */
+    public double getRowCountForSelectedPartitions(Collection<Long> selectedPartitionIds,
+            long indexId, double tableRowCount) {
+        int unknownSelectedPartitionCount = 0;
+        double knownSelectedPartitionRowCount = 0;
+        for (long partitionId : selectedPartitionIds) {
+            long partitionRowCount = getRowCountForPartitionIndex(partitionId, indexId, true);
+            if (partitionRowCount == UNKNOWN_ROW_COUNT) {
+                unknownSelectedPartitionCount++;
+            } else {
+                knownSelectedPartitionRowCount += partitionRowCount;
+            }
+        }
+        if (unknownSelectedPartitionCount == 0) {
+            return knownSelectedPartitionRowCount;
+        }
+
+        int knownSelectedPartitionCount = selectedPartitionIds.size() - unknownSelectedPartitionCount;
+        int remainingPartitionCount = getPartitionNum() - knownSelectedPartitionCount;
+        Preconditions.checkArgument(remainingPartitionCount > 0,
+                "selected partitions with unknown row count should not cover all table partitions");
+        double remainingRowCount = Math.max(0, tableRowCount - knownSelectedPartitionRowCount);
+        return knownSelectedPartitionRowCount
+                + remainingRowCount * unknownSelectedPartitionCount / remainingPartitionCount;
+    }
+
     @Override
     public long getAvgRowLength() {
         return getTableStatusStats().getAvgRowLength();

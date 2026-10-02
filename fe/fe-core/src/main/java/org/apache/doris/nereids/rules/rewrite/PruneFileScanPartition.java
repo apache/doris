@@ -30,9 +30,12 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections4.CollectionUtils;
@@ -84,7 +87,7 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                 ctx.getStatementContext().getSnapshot(externalTable,
                         scan.getTableSnapshot(), scan.getScanParams())))) {
             // non partitioned table, return NOT_PRUNED.
-            // non partition table will be handled in HiveScanNode.
+            // non partition table will be handled in PluginDrivenScanNode.
             return SelectedPartitions.NOT_PRUNED;
         }
         Map<String, Slot> scanOutput = scan.getOutput()
@@ -139,7 +142,12 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                     "pruned partition %s is missing in the selected partitions snapshot", name);
             selectedPartitionItems.put(name, item);
         }
-        return new SelectedPartitions(nameToPartitionItem.size(), selectedPartitionItems, true,
-                result.hasPartitionPredicate);
+        return scan.getSelectedPartitions().withPruneResult(
+                selectedPartitionItems,
+                result.hasPartitionPredicate,
+                result.prunedPartitionPredicate.isPresent() ? partitionSlots : ImmutableList.of(),
+                result.prunedPartitionPredicate
+                        .map(ExpressionUtils::extractConjunctionToSet)
+                        .orElse(ImmutableSet.of()));
     }
 }

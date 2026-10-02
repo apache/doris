@@ -99,6 +99,23 @@ public interface ConnectorStatisticsOps {
     }
 
     /**
+     * Estimates the on-disk data size in bytes for exactly the named partitions. The names are connector
+     * partition identifiers returned to the engine; an empty list means that pruning selected no partitions.
+     * Returns -1 when the connector cannot estimate this exact partition set. Zero is a valid result and means
+     * the selected partitions contain no data files. The supplied handle already carries any snapshot pin for
+     * this scan; an implementation that cannot honor that exact scope must return -1.
+     *
+     * <p>The default must not delegate to the whole-table overload because that would silently substitute an
+     * incompatible row-count scope.</p>
+     */
+    default long estimateDataSizeByListingFiles(
+            ConnectorSession session,
+            ConnectorTableHandle handle,
+            List<String> selectedPartitionNames) {
+        return -1;
+    }
+
+    /**
      * Returns the RAW byte length of every data file across ALL partitions of the table (not sampled, not summed),
      * for {@code ANALYZE ... WITH SAMPLE}: fe-core seed-shuffles and cumulates these sizes to a sample scale
      * factor, then does the Doris-type slot-width math itself. Unlike {@link #estimateDataSizeByListingFiles} it

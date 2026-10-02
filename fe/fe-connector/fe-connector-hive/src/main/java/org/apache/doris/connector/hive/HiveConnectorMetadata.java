@@ -1000,6 +1000,40 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         }
     }
 
+    @Override
+    public long estimateDataSizeByListingFiles(ConnectorSession session, ConnectorTableHandle handle,
+            List<String> selectedPartitionNames) {
+        if (!(handle instanceof HiveTableHandle)) {
+            return siblingMetadata(session, handle)
+                    .estimateDataSizeByListingFiles(session, handle, selectedPartitionNames);
+        }
+        HiveTableHandle hiveHandle = (HiveTableHandle) handle;
+        if (hiveHandle.getTableType() != HiveTableType.HIVE) {
+            return -1;
+        }
+        if (selectedPartitionNames.isEmpty()) {
+            return 0;
+        }
+        if (hiveHandle.isTransactional()) {
+            return -1;
+        }
+
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
+            FileSystem fs = storage().getFileSystem(session);
+            return estimateSelectedPartitionsDataSize(hiveHandle, selectedPartitionNames,
+                    STATS_PARTITION_SAMPLE_SIZE,
+                    (location, values) -> sumCachedFileSizes(hiveHandle, location, values, fs));
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to estimate selected hive partition data size for {}.{} from file list",
+                    hiveHandle.getDbName(), hiveHandle.getTableName(), e);
+            return -1;
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
+    }
+
     /**
      * Returns the raw byte length of every data file across ALL partitions (not sampled, not summed), a port of
      * legacy {@code HMSExternalTable.getChunkSizes} for {@code ANALYZE ... WITH SAMPLE}. Only plain-hive tables
@@ -1074,6 +1108,49 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             return totalSize;
         } catch (RuntimeException e) {
             LOG.warn("Failed to estimate hive data size for {}.{} from file list",
+                    handle.getDbName(), handle.getTableName(), e);
+            return -1;
+        }
+    }
+
+    long estimateSelectedPartitionsDataSize(HiveTableHandle handle, List<String> selectedPartitionNames,
+            int sampleSize, ToLongBiFunction<String, List<String>> sizeOf) {
+        try {
+            if (selectedPartitionNames.isEmpty()) {
+                return 0;
+            }
+            int selectedPartitionCount = selectedPartitionNames.size();
+            boolean sampled = sampleSize > 0 && sampleSize < selectedPartitionCount;
+            List<String> chosenPartitionNames = selectedPartitionNames;
+            if (sampled) {
+                List<String> shuffled = new ArrayList<>(selectedPartitionNames);
+                Collections.shuffle(shuffled);
+                chosenPartitionNames = shuffled.subList(0, sampleSize);
+            }
+            List<HmsPartitionInfo> partitions = hmsClient.getExistingPartitions(
+                    handle.getDbName(), handle.getTableName(), chosenPartitionNames);
+            if (partitions.size() != chosenPartitionNames.size()) {
+                return -1;
+            }
+            List<PartitionRef> refs = new ArrayList<>(partitions.size());
+            for (HmsPartitionInfo partition : partitions) {
+                String location = partition.getLocation();
+                if (location == null || location.isEmpty()) {
+                    return -1;
+                }
+                refs.add(new PartitionRef(location, partition.getValues()));
+            }
+
+            long selectedSize = 0;
+            for (PartitionRef ref : refs) {
+                selectedSize += Math.max(0, sizeOf.applyAsLong(ref.location, ref.partitionValues));
+            }
+            if (sampled && selectedSize == 0) {
+                return -1;
+            }
+            return sampled ? scaleSampledSize(selectedSize, selectedPartitionCount, refs.size()) : selectedSize;
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to estimate selected hive partition data size for {}.{} from file list",
                     handle.getDbName(), handle.getTableName(), e);
             return -1;
         }

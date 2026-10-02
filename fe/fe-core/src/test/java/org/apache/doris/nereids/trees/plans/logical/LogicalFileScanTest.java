@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -26,13 +27,22 @@ import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.PluginDrivenMvccExternalTable;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
+import org.apache.doris.nereids.trees.copier.DeepCopierContext;
+import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -44,6 +54,71 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class LogicalFileScanTest {
+
+    @Test
+    public void withCachedOutputRebindsPartitionProofAndDiscardsStaleSortedRanges() {
+        SlotReference partitionSlot = new SlotReference(new ExprId(1), "dt", IntegerType.INSTANCE, true,
+                ImmutableList.of("db", "t"));
+        SlotReference outputSlot = new SlotReference(new ExprId(2), "dt", IntegerType.INSTANCE, true,
+                ImmutableList.of("db", "t"));
+        EqualTo partitionPredicate = new EqualTo(partitionSlot, new IntegerLiteral(1));
+        EqualTo outputPredicate = new EqualTo(outputSlot, new IntegerLiteral(1));
+        PartitionItem p1 = Mockito.mock(PartitionItem.class);
+        PartitionItem p2 = Mockito.mock(PartitionItem.class);
+        SelectedPartitions initial = new SelectedPartitions(2, ImmutableMap.of("p1", p1, "p2", p2), false,
+                false, Optional.of(Mockito.mock(SortedPartitionRanges.class)));
+        SelectedPartitions pruned = initial.withPruneResult(
+                ImmutableMap.of("p1", p1), true, ImmutableList.of(partitionSlot),
+                ImmutableSet.of(partitionPredicate));
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        LogicalFileScan scan = new LogicalFileScan(new RelationId(1), table, ImmutableList.of("db"), pruned,
+                ImmutableList.of(), ImmutableList.of(), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), "", Optional.of(ImmutableList.of(partitionSlot)));
+
+        LogicalFileScan reboundScan = scan.withCachedOutput(ImmutableList.of(outputSlot));
+
+        Assertions.assertFalse(reboundScan.getSelectedPartitions().sortedPartitionRanges.isPresent());
+        Assertions.assertEquals(ImmutableSet.of(outputPredicate),
+                reboundScan.getSelectedPartitions().getPrunableConjuncts());
+    }
+
+    @Test
+    public void deepCopyRebindsFileScanPartitionProof() {
+        PartitionItem p1 = Mockito.mock(PartitionItem.class);
+        PartitionItem p2 = Mockito.mock(PartitionItem.class);
+        SelectedPartitions initial = new SelectedPartitions(
+                2, ImmutableMap.of("p1", p1, "p2", p2), false);
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(table.getId()).thenReturn(1L);
+        Mockito.when(table.getName()).thenReturn("t");
+        Mockito.when(table.initSelectedPartitions(Mockito.any())).thenReturn(initial);
+        Mockito.when(table.getFullSchema(Mockito.any())).thenReturn(
+                ImmutableList.of(new Column("dt", Type.INT, true)));
+        LogicalFileScan scan = new LogicalFileScan(new RelationId(1), table, ImmutableList.of("db"),
+                ImmutableList.of(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+        Slot partitionSlot = scan.getOutput().get(0);
+        SelectedPartitions pruned = initial.withPruneResult(
+                ImmutableMap.of("p1", p1), true, ImmutableList.of(partitionSlot),
+                ImmutableSet.of(new EqualTo(partitionSlot, new IntegerLiteral(1))));
+        scan = scan.withSelectedPartitions(pruned);
+
+        LogicalFileScan copied = (LogicalFileScan) LogicalPlanDeepCopier.INSTANCE.deepCopy(
+                scan, new DeepCopierContext());
+        Slot copiedSlot = copied.getOutput().get(0);
+
+        Assertions.assertNotEquals(partitionSlot.getExprId(), copiedSlot.getExprId());
+        Assertions.assertEquals(ImmutableSet.of(new EqualTo(copiedSlot, new IntegerLiteral(1))),
+                copied.getSelectedPartitions().getPrunableConjuncts());
+    }
+
+    @Test
+    public void selectedPartitionsEqualityIncludesTotalPartitionCount() {
+        PartitionItem p1 = Mockito.mock(PartitionItem.class);
+        SelectedPartitions oneOfOne = new SelectedPartitions(1, ImmutableMap.of("p1", p1), true);
+        SelectedPartitions oneOfTwo = new SelectedPartitions(2, ImmutableMap.of("p1", p1), true);
+
+        Assertions.assertNotEquals(oneOfOne, oneOfTwo);
+    }
 
     @Test
     public void testComputeOutputIncludesInvisibleRowLineageColumnsForIcebergTable() {

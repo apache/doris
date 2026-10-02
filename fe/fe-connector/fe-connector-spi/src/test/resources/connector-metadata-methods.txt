@@ -26,6 +26,7 @@ dropTable(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.conne
 dropTag(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,org.apache.doris.connector.spi.ddl.DropRefChange)
 dropView(org.apache.doris.connector.spi.ConnectorSession,java.lang.String,java.lang.String)
 estimateDataSizeByListingFiles(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle)
+estimateDataSizeByListingFiles(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,java.util.List)
 fromRemoteColumnName(org.apache.doris.connector.spi.ConnectorSession,java.lang.String,java.lang.String,java.lang.String)
 fromRemoteDatabaseName(org.apache.doris.connector.spi.ConnectorSession,java.lang.String)
 fromRemoteTableName(org.apache.doris.connector.spi.ConnectorSession,java.lang.String,java.lang.String)
