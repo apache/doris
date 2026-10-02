@@ -62,6 +62,9 @@ TokenFilterPtr PinyinFilterFactory::create(const TokenStreamPtr& in) {
 
     auto filter = std::make_shared<PinyinFilter>(in, config_);
     filter->initialize();
+    if (!config_->ignorePinyinOffset) {
+        filter->set_source_byte_offsets_enabled(true);
+    }
     return filter;
 }
 

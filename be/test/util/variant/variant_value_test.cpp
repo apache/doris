@@ -388,6 +388,13 @@ TEST(VariantValueTest, ObjectLookupSortedAndUnsortedMetadata) {
     EXPECT_FALSE(found.get_bool());
     EXPECT_FALSE(sorted_ref.object_find(StringRef("missing", 7), &found));
 
+    std::string invalid_sorted_metadata = metadata({"a", "b", "c"}, true);
+    invalid_sorted_metadata[3] = 2;
+    invalid_sorted_metadata[4] = 1;
+    const std::string invalid_target = object_value({1}, {0}, {true_value});
+    EXPECT_THROW(value_ref(invalid_sorted_metadata, invalid_target).object_find_by_id(1, &found),
+                 Exception);
+
     const std::string unsorted_metadata = metadata({"z", "a", "m"}, false);
     const std::string unsorted_object =
             object_value({1, 2, 0}, {0, 1, 2},

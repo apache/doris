@@ -70,14 +70,13 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.qe.protocol.ProtocolAdapter;
+import org.apache.doris.qe.protocol.ResultSender;
 import org.apache.doris.resource.BackendSelection;
 import org.apache.doris.resource.BackendSelectionManager;
 import org.apache.doris.resource.BackendSelectionProfile;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.resource.computegroup.ComputeGroupMgr;
-import org.apache.doris.statistics.model.ColumnStatistic;
-import org.apache.doris.statistics.model.Histogram;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TResultSinkType;
@@ -86,13 +85,13 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.json.JSONObject;
 import org.xnio.StreamConnection;
 
 import java.math.BigInteger;
@@ -126,8 +125,20 @@ public class ConnectContext {
     private static final int INITIAL_PREPARED_STMT_ID = Integer.MIN_VALUE;
 
     public enum ConnectType {
-        MYSQL,
-        ARROW_FLIGHT_SQL
+        MYSQL("MySQL"),
+        ARROW_FLIGHT_SQL("ArrowFlightSQL");
+
+        // The name SHOW PROCESSLIST, information_schema.processlist and the audit log report the
+        // protocol under (their Protocol column / field).
+        private final String protocolName;
+
+        ConnectType(String protocolName) {
+            this.protocolName = protocolName;
+        }
+
+        public String protocolName() {
+            return protocolName;
+        }
     }
 
     private final ProtocolAdapter protocolAdapter;
@@ -228,8 +239,6 @@ public class ConnectContext {
 
     private String sqlHash;
 
-    private JSONObject minidump = null;
-
     // The FE ip current connected
     private String currentConnectedFEIp = "";
     private transient String connectingFeLocalResourceGroup = "";
@@ -290,26 +299,6 @@ public class ConnectContext {
     // new planner
     private Map<String, PreparedStatementContext> preparedStatementContextMap = Maps.newHashMap();
 
-    private Map<String, ColumnStatistic> totalColumnStatisticMap = new HashMap<>();
-
-    public Map<String, ColumnStatistic> getTotalColumnStatisticMap() {
-        return totalColumnStatisticMap;
-    }
-
-    public void setTotalColumnStatisticMap(Map<String, ColumnStatistic> totalColumnStatisticMap) {
-        this.totalColumnStatisticMap = totalColumnStatisticMap;
-    }
-
-    private Map<String, Histogram> totalHistogramMap = new HashMap<>();
-
-    public Map<String, Histogram> getTotalHistogramMap() {
-        return totalHistogramMap;
-    }
-
-    public void setTotalHistogramMap(Map<String, Histogram> totalHistogramMap) {
-        this.totalHistogramMap = totalHistogramMap;
-    }
-
     public SessionContext getSessionContext() {
         return sessionContext;
     }
@@ -320,6 +309,11 @@ public class ConnectContext {
 
     public ProtocolAdapter getProtocolAdapter() {
         return protocolAdapter;
+    }
+
+    /** How a statement's result reaches this connection's client. */
+    public ResultSender getResultSender() {
+        return protocolAdapter.resultSender(this);
     }
 
     public MysqlSslContext getMysqlSslContext() {
@@ -802,6 +796,17 @@ public class ConnectContext {
         backendSelectionProfile.reset();
     }
 
+    /**
+     * The client was active just now: wait_timeout counts from here. Unlike {@link #setStartTime},
+     * which starts a statement, this leaves what the last statement recorded (its rows, its backend
+     * selection) as it is, for a command that runs no statement of its own -- an Arrow Flight SQL
+     * session option or metadata request.
+     */
+    public void refreshStartTime() {
+        startTimeInstant = Instant.now();
+        startTime = startTimeInstant.toEpochMilli();
+    }
+
     public BackendSelection.SelectionHint getQueryBackendSelectionDecision() {
         if (queryBackendSelectionDecision == null) {
             queryBackendSelectionDecision = BackendSelectionManager.getQuerySelectionHint(this);
@@ -897,19 +902,12 @@ public class ConnectContext {
         return FlightProtocolAdapter.of(this).getEndpointsLocations();
     }
 
-    public void clearFlightSqlEndpointsLocations() {
-        FlightProtocolAdapter.of(this).clearEndpointsLocations();
-    }
-
-    public void setReturnResultFromLocal(boolean returnResultFromLocal) {
-        FlightProtocolAdapter.of(this).setReturnResultFromLocal(returnResultFromLocal);
-    }
-
-    // A MySQL connection always sends its result from this frontend; only an Arrow Flight SQL
-    // session may leave a query's result on the backend for the client to pull.
+    /**
+     * Whether the result of the statement being executed comes from this frontend, or is left
+     * on the backends for the client to pull; see {@link ProtocolAdapter#returnsResultFromLocal}.
+     */
     public boolean isReturnResultFromLocal() {
-        return !(protocolAdapter instanceof FlightProtocolAdapter)
-                || ((FlightProtocolAdapter) protocolAdapter).isReturnResultFromLocal();
+        return protocolAdapter.returnsResultFromLocal(this);
     }
 
     // The bearer token of an Arrow Flight SQL session, null for any other connection.
@@ -983,6 +981,15 @@ public class ConnectContext {
 
     public void changeDefaultCatalog(String catalogName) {
         defaultCatalog = catalogName;
+        clearDatabase();
+    }
+
+    /**
+     * No current database: the state a session starts in and switching catalogs puts it back into.
+     * No statement leads back to it (there is no USE of nothing), so a client that means to be in
+     * none again, e.g. through the Arrow Flight SQL {@code schema} session option, comes here.
+     */
+    public void clearDatabase() {
         currentDb = "";
         currentDbId = -1;
     }
@@ -1029,22 +1036,51 @@ public class ConnectContext {
         }
     }
 
-    // Returns -1 when the connection has nothing deferred or the bound is disabled.
-    public long getFlightSqlDeferredExecutorsIdleTimeoutS() {
-        return protocolAdapter instanceof FlightProtocolAdapter
-                ? ((FlightProtocolAdapter) protocolAdapter).getDeferredExecutorsIdleTimeoutS() : -1;
+    // A request that failed after deferring its query: the query is cancelled on the backends, then
+    // its executor finalized (see FlightProtocolAdapter.cancelDeferredExecutors).
+    public void cancelFlightSqlDeferredExecutors(Status cancelReason) {
+        if (protocolAdapter instanceof FlightProtocolAdapter) {
+            ((FlightProtocolAdapter) protocolAdapter).cancelDeferredExecutors(cancelReason);
+        }
     }
 
-    // Called by the timeout checker for a sleeping connection that is not past wait_timeout yet.
-    private void reapIdleFlightSqlDeferredExecutors(long idleMs) {
-        long timeoutS = getFlightSqlDeferredExecutorsIdleTimeoutS();
-        if (timeoutS < 0 || idleMs <= timeoutS * 1000L) {
+    /**
+     * Releases what the protocol still holds for this session, when the connection leaves the pool
+     * (see {@link ConnectPoolMgr#unregisterConnection}): for Arrow Flight SQL the channel-cached
+     * results and the deferred executors, after which the session keeps none and runs no command
+     * (see {@code FlightProtocolAdapter.tearDown}); nothing for a MySQL connection. Idempotent.
+     */
+    public void releaseProtocolSession() {
+        protocolAdapter.releaseSession(this);
+    }
+
+    // A snapshot; empty for a connection of any other protocol.
+    @VisibleForTesting
+    public List<StmtExecutor> getFlightSqlDeferredExecutors() {
+        return protocolAdapter instanceof FlightProtocolAdapter
+                ? ((FlightProtocolAdapter) protocolAdapter).getDeferredExecutors() : Collections.emptyList();
+    }
+
+    // Called by the timeout checker for a sleeping connection that is not past wait_timeout yet:
+    // finalizes each deferred query whose own bound has passed since it started (see
+    // FlightProtocolAdapter.takeExpiredDeferredExecutors), not the ones whose bound has not, and
+    // not the connection. The bound counts from the query's start, not from startTime: the
+    // session's later commands (a session option, a metadata request) move startTime on without
+    // finishing that query, and must not keep its coordinator alive either.
+    private void reapIdleFlightSqlDeferredExecutors(long now) {
+        if (!(protocolAdapter instanceof FlightProtocolAdapter)) {
             return;
         }
-        LOG.warn("release deferred arrow flight query of idle connection, connectionId: {}, remote: {}, "
-                        + "idle: {}ms, idle timeout: {}s",
-                connectionId, getRemoteHostPortString(), idleMs, timeoutS);
-        closeFlightSqlDeferredExecutors();
+        List<StmtExecutor> expired = ((FlightProtocolAdapter) protocolAdapter).takeExpiredDeferredExecutors(now);
+        for (StmtExecutor deferredExecutor : expired) {
+            LOG.warn("release deferred arrow flight query {} of idle connection, connectionId: {}, remote: {}, "
+                            + "deferred for: {}ms, bound: {}ms",
+                    DebugUtil.printId(deferredExecutor.getDeferredQueryId()),
+                    connectionId, getRemoteHostPortString(), now - deferredExecutor.getDeferredStartTimeMs(),
+                    FlightProtocolAdapter.deferredBoundMs(deferredExecutor,
+                            Config.arrow_flight_deferred_query_idle_timeout_second));
+        }
+        FlightProtocolAdapter.finalizeDeferredExecutors(expired);
     }
 
     /**
@@ -1159,7 +1195,7 @@ public class ConnectContext {
         }
         this.queryId = queryId;
         if (connectScheduler != null && !Strings.isNullOrEmpty(traceId)) {
-            protocolAdapter.connectPool(connectScheduler).putTraceId2QueryId(traceId, queryId);
+            connectScheduler.getConnectPoolMgr().putTraceId2QueryId(traceId, queryId);
         }
     }
 
@@ -1216,14 +1252,6 @@ public class ConnectContext {
 
     public void setSqlHash(String sqlHash) {
         this.sqlHash = sqlHash;
-    }
-
-    public JSONObject getMinidump() {
-        return minidump;
-    }
-
-    public void setMinidump(JSONObject minidump) {
-        this.minidump = minidump;
     }
 
     public StatementContext getStatementContext() {
@@ -1312,7 +1340,7 @@ public class ConnectContext {
                 killFlag = true;
                 killConnection = true;
             } else {
-                reapIdleFlightSqlDeferredExecutors(delta);
+                reapIdleFlightSqlDeferredExecutors(now);
             }
         } else {
             String timeoutTag = "query";
@@ -1489,11 +1517,19 @@ public class ConnectContext {
             }
 
             row.add(Env.getCurrentEnv().getSelfNode().getHost());
-            if (cloudCluster == null) {
+            String currentCloudCluster = sessionVariable.getCloudCluster();
+            if (Strings.isNullOrEmpty(currentCloudCluster)) {
+                currentCloudCluster = cloudCluster;
+            }
+            if (currentCloudCluster == null) {
                 row.add("NULL");
             } else {
-                row.add(cloudCluster);
+                row.add(currentCloudCluster);
             }
+            // Protocol is the last column, after CloudCluster; a row of another frontend that lacks or
+            // exceeds the local columns is fitted to them by whoever merges it (ShowProcessListCommand,
+            // the BE processlist scanner).
+            row.add(getConnectType().protocolName());
             return row;
         }
     }
@@ -1503,7 +1539,7 @@ public class ConnectContext {
     }
 
     public boolean supportHandleByFe() {
-        return !getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL) && getCommand() != MysqlCommand.COM_STMT_EXECUTE;
+        return protocolAdapter.supportsFeSideResult() && getCommand() != MysqlCommand.COM_STMT_EXECUTE;
     }
 
     public void setCloudCluster(String cluster) {

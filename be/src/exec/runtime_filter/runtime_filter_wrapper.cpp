@@ -310,8 +310,7 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
         });
         break;
     }
-    case TYPE_DATETIME:
-    case TYPE_DATE: {
+    case TYPE_DATETIME: {
         batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column) {
             const auto& string_val_ref = column.stringval();
             VecDateTimeValue datetime_val;
@@ -320,6 +319,17 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
                     {string_val_ref.c_str(), string_val_ref.length()}, datetime_val, nullptr,
                     params);
             set->insert(&datetime_val);
+        });
+        break;
+    }
+    case TYPE_DATE: {
+        batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column) {
+            const auto& string_val_ref = column.stringval();
+            VecDateTimeValue date_val;
+            CastParameters params;
+            CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE>(
+                    {string_val_ref.c_str(), string_val_ref.length()}, date_val, nullptr, params);
+            set->insert(&date_val);
         });
         break;
     }
@@ -408,6 +418,21 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
                                 string_val);
             }
             set->insert(&int128_val);
+        });
+        break;
+    }
+    case TYPE_UUID: {
+        batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column) {
+            const auto string_val = column.stringval();
+            StringParser::ParseResult result;
+            const auto value = StringParser::string_to_int<uint128_t>(string_val.c_str(),
+                                                                      string_val.length(), &result);
+            if (result != StringParser::PARSE_SUCCESS) {
+                throw Exception(ErrorCode::INTERNAL_ERROR,
+                                "Failed to parse UUID value '{}' in runtime filter assign",
+                                string_val);
+            }
+            set->insert(&value);
         });
         break;
     }
@@ -600,6 +625,22 @@ Status RuntimeFilterWrapper::_assign(const PMinMaxFilter& minmax_filter, bool co
         if (result != StringParser::PARSE_SUCCESS) {
             return Status::InternalError(
                     "Failed to parse IPV6 max value '{}' in minmax filter assign", max_string_val);
+        }
+        return _minmax_func->assign(&min_val, &max_val);
+    }
+    case TYPE_UUID: {
+        const auto min_string_val = minmax_filter.min_val().stringval();
+        const auto max_string_val = minmax_filter.max_val().stringval();
+        StringParser::ParseResult result;
+        auto min_val = StringParser::string_to_int<uint128_t>(min_string_val.c_str(),
+                                                              min_string_val.length(), &result);
+        if (result != StringParser::PARSE_SUCCESS) {
+            return Status::InternalError("Failed to parse UUID min value '{}'", min_string_val);
+        }
+        auto max_val = StringParser::string_to_int<uint128_t>(max_string_val.c_str(),
+                                                              max_string_val.length(), &result);
+        if (result != StringParser::PARSE_SUCCESS) {
+            return Status::InternalError("Failed to parse UUID max value '{}'", max_string_val);
         }
         return _minmax_func->assign(&min_val, &max_val);
     }

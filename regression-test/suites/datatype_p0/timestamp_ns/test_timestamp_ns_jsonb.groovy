@@ -16,38 +16,34 @@
 // under the License.
 
 suite("test_timestamp_ns_jsonb", "nonConcurrent") {
-    setFeConfigTemporary([enable_variant_v2: false]) {
-        assertFalse(getFeConfig("enable_variant_v2").toBoolean())
+    sql "drop table if exists timestamp_ns_jsonb"
+    sql """
+        create table timestamp_ns_jsonb (
+            id int,
+            value timestamp_ns
+        )
+        duplicate key(id)
+        distributed by hash(id) buckets 1
+        properties("replication_num" = "1")
+    """
+    sql """
+        insert into timestamp_ns_jsonb values
+        (1, '1677-09-21 00:12:43.145224192'),
+        (2, '1969-12-31 23:59:59.999999999'),
+        (3, '1970-01-01 00:00:00.000000000'),
+        (4, '2024-02-29 12:34:56.123456789'),
+        (5, '2262-04-11 23:47:16.854775807'),
+        (6, null)
+    """
 
-        sql "drop table if exists timestamp_ns_jsonb"
-        sql """
-            create table timestamp_ns_jsonb (
-                id int,
-                value timestamp_ns
-            )
-            duplicate key(id)
-            distributed by hash(id) buckets 1
-            properties("replication_num" = "1")
-        """
-        sql """
-            insert into timestamp_ns_jsonb values
-            (1, '1677-09-21 00:12:43.145224192'),
-            (2, '1969-12-31 23:59:59.999999999'),
-            (3, '1970-01-01 00:00:00.000000000'),
-            (4, '2024-02-29 12:34:56.123456789'),
-            (5, '2262-04-11 23:47:16.854775807'),
-            (6, null)
-        """
-
-        order_qt_write_timestamp_ns_to_jsonb """
-            select id, cast(value as variant)
-            from timestamp_ns_jsonb
-            order by id
-        """
-        order_qt_read_timestamp_ns_from_jsonb """
-            select id, cast(cast(value as variant) as timestamp_ns)
-            from timestamp_ns_jsonb
-            order by id
-        """
-    }
+    order_qt_write_timestamp_ns_to_jsonb """
+        select id, cast(value as variant)
+        from timestamp_ns_jsonb
+        order by id
+    """
+    order_qt_read_timestamp_ns_from_jsonb """
+        select id, cast(cast(value as variant) as timestamp_ns)
+        from timestamp_ns_jsonb
+        order by id
+    """
 }

@@ -40,7 +40,7 @@ public class MaxComputeWritePlanProviderTest {
 
     private static MaxComputeWritePlanProvider provider() {
         return new MaxComputeWritePlanProvider(
-                new MaxComputeDorisConnector(MCTestProperties.minimalMap(), null));
+                new MaxComputeDorisConnector(MCTestProperties.minimalMap(), MCTestProperties.context()));
     }
 
     @Test

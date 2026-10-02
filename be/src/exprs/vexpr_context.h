@@ -124,6 +124,22 @@ public:
         return &iter->second;
     }
 
+    // Dedicated entry point for approximate (superset) index results, kept strictly apart from
+    // the exact result map above.
+    void set_approx_index_result_for_expr(const VExpr* expr,
+                                          segment_v2::InvertedIndexResultBitmap bitmap) {
+        _approx_index_result_bitmap[expr] = std::move(bitmap);
+    }
+
+    const segment_v2::InvertedIndexResultBitmap* get_approx_index_result_for_expr(
+            const VExpr* expr) const {
+        auto iter = _approx_index_result_bitmap.find(expr);
+        if (iter == _approx_index_result_bitmap.end()) {
+            return nullptr;
+        }
+        return &iter->second;
+    }
+
     void set_index_result_column_for_expr(const VExpr* expr, ColumnPtr column) {
         _index_result_column[expr] = std::move(column);
     }
@@ -173,6 +189,20 @@ private:
 
     // A map of expressions to their corresponding result columns.
     std::unordered_map<const VExpr*, ColumnPtr> _index_result_column;
+
+    // Approximate (superset) index results: rows outside the bitmap certainly do not match, but
+    // rows inside it may not match either, so it may only be used to prune candidate rows and
+    // the expression must stay in the push-down list to re-verify them. Three invariants:
+    // (a) never write into _index_result_bitmap / _index_result_column -- VExpr::fast_execute
+    //     would then pass the candidate bitmap off as the function result, and
+    //     _output_index_result_column would materialize it as a result column;
+    // (b) never call set_true_for_index_status -- the column would then be judged
+    //     need_read_data=false and there would be no column left to read during re-verification;
+    // (c) intersecting with _row_bitmap is allowed only when the expression happens to be the
+    //     root of the VExprContext (a top-level AND context); wrapped in NOT/OR, VCompoundPred
+    //     never sees this map, so it simply does not apply.
+    std::unordered_map<const VExpr*, segment_v2::InvertedIndexResultBitmap>
+            _approx_index_result_bitmap;
 
     // Per-expression analyzer context for inverted index evaluation.
     std::unordered_map<const VExpr*, InvertedIndexAnalyzerCtxSPtr> _expr_analyzer_ctx;
@@ -245,6 +275,18 @@ public:
     //  but some situation although column b has indexes, but apply index is not useful, we should
     //  skip this expr, just do not apply index anymore.
     [[nodiscard]] Status evaluate_inverted_index(uint32_t segment_num_rows);
+
+    // The one expression whose approximate (superset) index result this caller will read back,
+    // or null when it reads none. SegmentIterator names the root of a pushed-down conjunct,
+    // because _apply_approx_index_result looks the result up by exactly that pointer; its
+    // virtual column loop names nothing, because it only materializes exact results. For any
+    // other expression -- an operand of a compound predicate, a nested child push-down -- the
+    // result would be stored under its own pointer and never read again, so a function that can
+    // only answer approximately skips the evaluation instead of paying for the index reads.
+    void set_approx_index_result_consumer(const VExpr* expr) {
+        _approx_index_result_consumer = expr;
+    }
+    const VExpr* approx_index_result_consumer() const { return _approx_index_result_consumer; }
 
     [[nodiscard]] static ZoneMapFilterResult evaluate_zonemap_filter(
             const VExprContextSPtrs& conjuncts, const ZoneMapEvalContext& ctx);
@@ -350,6 +392,10 @@ private:
     /// Variables keeping track of current state.
     bool _prepared = false;
     bool _opened = false;
+
+    /// See set_approx_index_result_consumer. Null by default, so a caller that does not read the
+    /// approximate map never pays for the index reads behind one.
+    const VExpr* _approx_index_result_consumer = nullptr;
 
     /// FunctionContexts for each registered expression. The FunctionContexts are created
     /// and owned by this VExprContext.

@@ -97,6 +97,50 @@ class SetOperationOutputMappingTest extends TestWithFeService implements MemoPat
     }
 
     @Test
+    void testMergeOneRowRelationPreservesExistingConstantRows() {
+        Alias newConstant = new Alias(new ExprId(1), new IntegerLiteral(2), "c");
+        LogicalOneRowRelation oneRowRelation = new LogicalOneRowRelation(
+                new RelationId(1), ImmutableList.of(newConstant));
+
+        SlotReference unionOutput = new SlotReference(new ExprId(10), "c",
+                IntegerType.INSTANCE, false, ImmutableList.of());
+        Alias firstExistingConstant = new Alias(new ExprId(20), new IntegerLiteral(1), "c");
+        Alias secondExistingConstant = new Alias(new ExprId(21), new IntegerLiteral(1), "c");
+        LogicalUnion union = new LogicalUnion(Qualifier.ALL,
+                ImmutableList.of(unionOutput),
+                ImmutableList.of(ImmutableList.of((SlotReference) newConstant.toSlot())),
+                ImmutableList.of(
+                        ImmutableList.of(firstExistingConstant),
+                        ImmutableList.of(secondExistingConstant)),
+                false,
+                ImmutableList.of(oneRowRelation));
+
+        Plan rewritten = PlanChecker.from(MemoTestUtils.createConnectContext(), union)
+                .applyTopDown(new MergeOneRowRelationIntoUnion())
+                .getPlan();
+
+        Assertions.assertInstanceOf(LogicalUnion.class, rewritten);
+        LogicalUnion rewrittenUnion = (LogicalUnion) rewritten;
+        Assertions.assertEquals(0, rewrittenUnion.children().size());
+        Assertions.assertEquals(3, rewrittenUnion.getConstantExprsList().size());
+        Assertions.assertSame(firstExistingConstant,
+                rewrittenUnion.getConstantExprsList().get(0).get(0));
+        Assertions.assertSame(secondExistingConstant,
+                rewrittenUnion.getConstantExprsList().get(1).get(0));
+        Assertions.assertSame(newConstant,
+                rewrittenUnion.getConstantExprsList().get(2).get(0));
+
+        Plan rewrittenAgain = PlanChecker.from(MemoTestUtils.createConnectContext(), rewrittenUnion)
+                .applyTopDown(new MergeOneRowRelationIntoUnion())
+                .getPlan();
+        Assertions.assertInstanceOf(LogicalUnion.class, rewrittenAgain);
+        LogicalUnion rewrittenAgainUnion = (LogicalUnion) rewrittenAgain;
+        Assertions.assertEquals(0, rewrittenAgainUnion.children().size());
+        Assertions.assertEquals(rewrittenUnion.getConstantExprsList(),
+                rewrittenAgainUnion.getConstantExprsList());
+    }
+
+    @Test
     void testPushDownTopNDistinctThroughUnionUsesRegularChildOutput() {
         String sql = "SELECT *\n"
                 + "FROM (\n"

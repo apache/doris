@@ -349,6 +349,21 @@ public class CoordinatorContext {
         return queryGlobals;
     }
 
+    /**
+     * The query globals of work a frontend daemon starts with no session behind it (the internal
+     * schema upgrade of the audit table, for one): the current time, in the frontend's default time
+     * zone. A backend refuses a TQueryGlobals without now_string when it decodes the request, so a
+     * job of a daemon must not carry an empty one.
+     */
+    public static TQueryGlobals createQueryGlobalsWithoutSession() {
+        TQueryGlobals queryGlobals = new TQueryGlobals();
+        setQueryGlobalsCurrentTime(queryGlobals);
+        String timeZone = VariableMgr.getDefaultSessionVariable().getTimeZone();
+        queryGlobals.setTimeZone(timeZone.equals("CST") ? TimeUtils.DEFAULT_TIME_ZONE : timeZone);
+        queryGlobals.setLoadZeroTolerance(false);
+        return queryGlobals;
+    }
+
     public static void setQueryGlobalsCurrentTime(TQueryGlobals queryGlobals) {
         setQueryGlobalsCurrentTime(queryGlobals, Instant.now());
     }

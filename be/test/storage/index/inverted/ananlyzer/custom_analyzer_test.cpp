@@ -21,7 +21,10 @@
 
 #include <cstdint>
 #include <fstream>
+#include <memory>
+#include <string>
 #include <string_view>
+#include <vector>
 
 #include "CLucene/store/Directory.h"
 #include "CLucene/store/FSDirectory.h"
@@ -32,6 +35,7 @@
 #include "storage/index/inverted/query/phrase_prefix_query.h"
 #include "storage/index/inverted/query/phrase_query.h"
 #include "storage/index/inverted/setting.h"
+#include "storage/index/inverted/tokenizer/ngram/gram_tokenizer.h"
 
 CL_NS_USE(util)
 CL_NS_USE(store)
@@ -194,6 +198,64 @@ TEST_F(CustomAnalyzerTest, CustomNgramAnalyzer) {
         std::vector<ExpectedToken> expected = {{"a", 1},  {"a ", 1}, {"a", 0}, {" ", 1},
                                                {" b", 1}, {"b", 0},  {"b", 1}};
         EXPECT_EQ(tokenize1(custom_analyzer, line), expected);
+    }
+}
+
+// The SNII writer's gram lane rests on two structural facts about this analyzer that no compiler
+// checks. R22 keeps char filters and token filters out of the gram family, so the components'
+// sink IS the tokenizer and the writer's dynamic_cast to GramTokenizer must succeed (it is a
+// DORIS_CHECK in production, i.e. an abort). And reusableTokenStream must keep handing back the
+// one cached stream, so the writer may cache that pointer for the whole segment. The third
+// property below is the behavioural half: reusableTokenStream does not reset, so with the
+// caller's explicit reset every row must come out exactly as a fresh owning stream would produce
+// it, whatever the previous row was.
+TEST_F(CustomAnalyzerTest, GramAnalyzerReusesOneTokenizerAcrossRows) {
+    Settings gram_params;
+    gram_params.set("mode", "sparse");
+    gram_params.set("min_gram", "3");
+    gram_params.set("max_gram", "16");
+    gram_params.set("density", "0.25");
+
+    CustomAnalyzerConfig::Builder builder;
+    builder.with_tokenizer_config("ngram", gram_params);
+    auto analyzer = CustomAnalyzer::build_custom_analyzer(builder.build());
+
+    const std::vector<std::string> rows {"rpc error: code = Unavailable desc = transport closing",
+                                         "手机微博", "SELECT COUNT(*) FROM tbl WHERE k = 42"};
+    const auto drain = [](lucene::analysis::TokenStream* stream) {
+        std::vector<std::string> tokens;
+        Token token;
+        while (stream->next(&token)) {
+            tokens.emplace_back(token.termBuffer<char>(), token.termLength<char>());
+        }
+        return tokens;
+    };
+
+    auto reader = std::make_shared<lucene::util::SStringReader<char>>();
+    lucene::analysis::TokenStream* cached = nullptr;
+    std::vector<std::vector<std::string>> reused;
+    for (const auto& row : rows) {
+        reader->init(row.data(), static_cast<int32_t>(row.size()), false);
+        auto* stream = analyzer->reusableTokenStream(L"", reader);
+        if (cached == nullptr) {
+            cached = stream;
+            EXPECT_NE(dynamic_cast<GramTokenizer*>(stream), nullptr)
+                    << "a gram analyzer must expose its tokenizer directly, with no filter on top";
+        } else {
+            EXPECT_EQ(stream, cached) << "reusableTokenStream must reuse one cached stream";
+        }
+        stream->reset(); // reusableTokenStream does not do this; the caller must
+        reused.push_back(drain(stream));
+    }
+
+    for (size_t i = 0; i < rows.size(); i++) {
+        reader->init(rows[i].data(), static_cast<int32_t>(rows[i].size()), false);
+        std::unique_ptr<lucene::analysis::TokenStream> fresh(analyzer->tokenStream(L"", reader));
+        const std::vector<std::string> tokens = drain(fresh.get());
+        fresh->close();
+        // Row 1 is non-ASCII and yields nothing now that the index declines that text;
+        // reuse still has to agree with a fresh stream on it, which is the point here.
+        EXPECT_EQ(reused[i], tokens) << "row " << i;
     }
 }
 

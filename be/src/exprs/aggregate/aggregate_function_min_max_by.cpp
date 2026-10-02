@@ -22,16 +22,12 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 
 namespace doris {
-std::unique_ptr<MaxMinValueBase> create_max_min_value(const DataTypePtr& type, int be_version) {
+std::unique_ptr<MaxMinValueBase> create_max_min_value(const DataTypePtr& type) {
     std::unique_ptr<MaxMinValueBase> result;
     auto call = [&](const auto& dispatch_type) -> bool {
         using DispatchType = std::decay_t<decltype(dispatch_type)>;
         constexpr auto PT = DispatchType::PType;
-        if constexpr (is_decimal(PT)) {
-            result = std::make_unique<MaxMinValue<SingleValueDataDecimal<PT>>>();
-        } else {
-            result = std::make_unique<MaxMinValue<SingleValueDataFixed<PT>>>();
-        }
+        result = std::make_unique<MaxMinValue<SingleValueDataFixed<PT>>>();
         return true;
     };
     if (type->get_primitive_type() == TYPE_TIMESTAMP_NS) {
@@ -51,8 +47,7 @@ std::unique_ptr<MaxMinValueBase> create_max_min_value(const DataTypePtr& type, i
     case PrimitiveType::TYPE_ARRAY:
     case PrimitiveType::TYPE_MAP:
     case PrimitiveType::TYPE_STRUCT:
-        return std::make_unique<MaxMinValue<SingleValueDataComplexType>>(DataTypes {type},
-                                                                         be_version);
+        return std::make_unique<MaxMinValue<SingleValueDataColumn>>();
     default:
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "Illegal type {} of argument of aggregate function min/max_by",

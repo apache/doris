@@ -19,6 +19,7 @@
 
 #include <arrow/array/builder_binary.h>
 #include <arrow/array/builder_primitive.h>
+#include <arrow/extension/uuid.h>
 #include <arrow/record_batch.h>
 #include <arrow/type.h>
 #include <gtest/gtest.h>
@@ -30,7 +31,43 @@
 #include <string>
 #include <vector>
 
+#include "runtime/exec_env.h"
+#include "util/defer_op.h"
+
 namespace doris {
+
+TEST(PythonUDAFClientTest, UuidControlBatchesPreserveNestedExtensions) {
+    auto* environment = ExecEnv::GetInstance();
+    auto* original_pool = environment->arrow_memory_pool();
+    environment->_arrow_memory_pool = arrow::default_memory_pool();
+    Defer restore_pool {[&]() { environment->_arrow_memory_pool = original_pool; }};
+    PythonUDAFClient client;
+    client._schema = arrow::schema(
+            {arrow::field("uuid", arrow::extension::uuid()),
+             arrow::field("array", arrow::list(arrow::extension::uuid())),
+             arrow::field("map", arrow::map(arrow::extension::uuid(), arrow::extension::uuid())),
+             arrow::field("struct",
+                          arrow::struct_({arrow::field("uuid", arrow::extension::uuid())})),
+             arrow::field("places", arrow::int64()), arrow::field("binary_data", arrow::binary())});
+    std::shared_ptr<arrow::RecordBatch> empty;
+    ASSERT_TRUE(client._get_empty_request_batch(&empty).ok());
+    ASSERT_TRUE(empty->ValidateFull().ok());
+    for (const auto& column : empty->columns()) {
+        EXPECT_EQ(column->null_count(), 1);
+    }
+    std::shared_ptr<arrow::RecordBatch> cached;
+    ASSERT_TRUE(client._get_empty_request_batch(&cached).ok());
+    EXPECT_EQ(cached, empty);
+    std::shared_ptr<arrow::RecordBatch> merge;
+    ASSERT_TRUE(
+            client._create_binary_request_batch(arrow::Buffer::FromString("state"), &merge).ok());
+    ASSERT_TRUE(merge->ValidateFull().ok());
+    EXPECT_TRUE(merge->schema()->Equals(*empty->schema(), true));
+    for (int index = 0; index < merge->num_columns() - 1; ++index) {
+        EXPECT_EQ(merge->column(index)->null_count(), 1);
+    }
+    EXPECT_EQ(static_cast<const arrow::BinaryArray&>(*merge->column(5)).GetString(0), "state");
+}
 
 std::shared_ptr<arrow::RecordBatch> make_udaf_response(const std::optional<std::string>& error) {
     arrow::BooleanBuilder success_builder;

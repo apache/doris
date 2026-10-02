@@ -90,6 +90,9 @@ suite("test_tablet_state_change_in_publish_phase", "docker") {
             // block FE's task report handler to avoid alter task re-sended to BE before we enable debug points for SC
             GetDebugPoint().enableDebugPointForAllFEs("ReportHandler.block")
             cluster.startBackends(beIndex)
+            // Heartbeat/HTTP readiness does not imply the peer BE's brpc connection has recovered.
+            // Wait longer than brpc's default 3s health-check interval before starting load 1.
+            Thread.sleep(5000)
             GetDebugPoint().enableDebugPointForAllBEs("CloudSchemaChangeJob::_convert_historical_rowsets.block")
             GetDebugPoint().enableDebugPointForAllBEs("CloudSchemaChangeJob.process_alter_tablet.sleep")
             GetDebugPoint().disableDebugPointForAllFEs("ReportHandler.block")

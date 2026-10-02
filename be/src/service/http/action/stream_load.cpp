@@ -252,11 +252,22 @@ int StreamLoadAction::on_header(HttpRequest* req) {
     ctx->load_type = TLoadType::MANUL_LOAD;
     ctx->load_src_type = TLoadSourceType::RAW;
 
-    url_decode(req->param(HTTP_DB_KEY), &ctx->db);
-    url_decode(req->param(HTTP_TABLE_KEY), &ctx->table);
+    Status st = Status::OK();
+    if (!url_decode(req->param(HTTP_DB_KEY), &ctx->db) ||
+        !url_decode(req->param(HTTP_TABLE_KEY), &ctx->table)) {
+        // url_decode clears its output and then appends until it fails, so whatever it
+        // managed to decode is still sitting in ctx. Drop it, or the log line below and
+        // the failed load record both attribute the request to a truncated name.
+        ctx->db.clear();
+        ctx->table.clear();
+        st = Status::InvalidArgument(
+                "Invalid percent-encoding in the database or table name of the request path");
+    }
     ctx->label = req->header(HTTP_LABEL_KEY);
     ctx->two_phase_commit = req->header(HTTP_TWO_PHASE_COMMIT) == "true";
-    Status st = _handle_group_commit(req, ctx);
+    if (st.ok()) {
+        st = _handle_group_commit(req, ctx);
+    }
     if (!ctx->group_commit && ctx->label.empty()) {
         ctx->label = generate_uuid_string();
     }

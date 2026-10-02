@@ -67,7 +67,7 @@ suite("test_streaming_insert_job_priv") {
     }
 
     // create job with select priv user
-    connect(user, "${pwd}", url) {
+    connectToDoris(user, "${pwd}", url) {
         expectExceptionLike({
             sql """
                CREATE JOB ${jobName}  
@@ -92,7 +92,7 @@ suite("test_streaming_insert_job_priv") {
 
     // create streaming job by load_priv
     sql """grant load_priv on ${dbName}.${tableName} to ${user}"""
-    connect(user, "${pwd}", url) {
+    connectToDoris(user, "${pwd}", url) {
         sql """
            CREATE JOB ${jobName}  
            PROPERTIES(
@@ -136,7 +136,7 @@ suite("test_streaming_insert_job_priv") {
     // revoke load_priv
     sql """REVOKE load_priv on ${dbName}.${tableName} FROM ${user}"""
 
-    connect(user, "${pwd}", url) {
+    connectToDoris(user, "${pwd}", url) {
         jobCount = sql """SELECT * from jobs("type"="insert") where Name='${jobName}'"""
         assert jobCount.size() == 0
 
@@ -155,7 +155,7 @@ suite("test_streaming_insert_job_priv") {
 
     // grant
     sql """grant load_priv on ${dbName}.${tableName} to ${user}"""
-    connect(user, "${pwd}", url) {
+    connectToDoris(user, "${pwd}", url) {
         jobCount = sql """SELECT * from jobs("type"="insert") where Name='${jobName}'"""
         assert jobCount.size() == 1
 

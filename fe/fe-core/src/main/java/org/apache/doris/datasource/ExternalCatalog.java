@@ -39,6 +39,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.MetaCacheBudgetManager;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
@@ -436,6 +437,11 @@ public abstract class ExternalCatalog
     protected void checkProperties(CatalogProperty property) throws DdlException {
         // check refresh parameter of catalog
         Map<String, String> properties = property.getProperties();
+        try {
+            checkMetaCacheWeightProperties(properties);
+        } catch (IllegalArgumentException e) {
+            throw new DdlException(e.getMessage());
+        }
         if (properties.containsKey(CatalogMgr.METADATA_REFRESH_INTERVAL_SEC)) {
             try {
                 int metadataRefreshIntervalSec = Integer.parseInt(
@@ -455,6 +461,11 @@ public abstract class ExternalCatalog
             throw new DdlException(
                     "The parameter " + SCHEMA_CACHE_TTL_SECOND + " is wrong, value is " + schemaCacheTtlSecond);
         }
+    }
+
+    /** Strict CREATE/ALTER validation for the core metadata-cache namespace owned by this catalog. */
+    protected void checkMetaCacheWeightProperties(Map<String, String> properties) {
+        CacheSpec.checkWeightProperties(properties, "default", "schema");
     }
 
     /**
@@ -609,14 +620,24 @@ public abstract class ExternalCatalog
     }
 
     private Runnable resetToUninitialized(boolean invalidCache, boolean deferAccessControllerCleanup) {
-        Runnable accessControllerCleanup;
-        synchronized (this) {
-            this.objectCreated = false;
-            this.initialized = false;
-            accessControllerCleanup = detachAccessController();
-            closeResourcesQuietly("resetting catalog");
-        }
+        return resetToUninitialized(invalidCache, deferAccessControllerCleanup, () -> { });
+    }
+
+    private Runnable resetToUninitialized(boolean invalidCache, boolean deferAccessControllerCleanup,
+            Runnable retireCaches) {
+        Runnable accessControllerCleanup = () -> { };
         try {
+            synchronized (this) {
+                this.objectCreated = false;
+                this.initialized = false;
+                accessControllerCleanup = detachAccessController();
+                try {
+                    closeResourcesQuietly("resetting catalog");
+                } finally {
+                    // Retire core and connector budgets before lazy initialization can publish a new limit.
+                    retireCaches.run();
+                }
+            }
             onRefreshCache(invalidCache);
         } catch (RuntimeException | Error e) {
             accessControllerCleanup.run();
@@ -853,7 +874,6 @@ public abstract class ExternalCatalog
 
     @Override
     public void modifyCatalogProps(Map<String, String> props) {
-        catalogProperty.modifyCatalogProps(props);
         notifyPropertiesUpdated(props);
     }
 
@@ -862,7 +882,6 @@ public abstract class ExternalCatalog
      * blocking close operation to CatalogMgr so it can run after releasing the global catalog write lock.
      */
     public Runnable modifyCatalogPropsWithDeferredAccessControllerCleanup(Map<String, String> props) {
-        catalogProperty.modifyCatalogProps(props);
         return resetAfterPropertyUpdate(props, true);
     }
 
@@ -872,28 +891,38 @@ public abstract class ExternalCatalog
 
     private void invalidateCachesAfterPropertyUpdate(Map<String, String> updatedProps) {
         ExternalMetaCacheMgr cacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
-        if (updatedProps.get(SCHEMA_CACHE_TTL_SECOND) != null) {
+        if (updatedProps.get(SCHEMA_CACHE_TTL_SECOND) != null
+                || updatedProps.containsKey(MetaCacheBudgetManager.CATALOG_MAX_WEIGHT_PROPERTY)) {
             cacheMgr.removeCatalog(id);
-        } else {
-            cacheMgr.invalidateCatalog(id);
+            return;
         }
+        Set<String> removedEngines = Sets.newHashSet();
+        for (String key : updatedProps.keySet()) {
+            if (key == null || !key.startsWith("meta.cache.")) {
+                continue;
+            }
+            String remainder = key.substring("meta.cache.".length());
+            int separator = remainder.indexOf('.');
+            if (separator <= 0) {
+                continue;
+            }
+            String engine = remainder.substring(0, separator);
+            if (cacheMgr.isEngineRegistered(engine) && removedEngines.add(engine)) {
+                cacheMgr.removeCatalogByEngine(id, engine);
+            }
+        }
+        // Scoped removal does not clear other engines or row counts. ALTER may also change the endpoint,
+        // including when a tolerated cache property names an engine that this catalog does not use.
+        cacheMgr.invalidateCatalog(id);
     }
 
     private Runnable resetAfterPropertyUpdate(Map<String, String> updatedProps,
             boolean deferAccessControllerCleanup) {
-        Runnable accessControllerCleanup = () -> { };
-        // Property and connector state may already have changed when reset fails, so cache invalidation is mandatory.
-        try {
-            accessControllerCleanup = resetToUninitialized(false, deferAccessControllerCleanup);
-        } finally {
-            try {
-                invalidateCachesAfterPropertyUpdate(updatedProps);
-            } catch (RuntimeException | Error e) {
-                accessControllerCleanup.run();
-                throw e;
-            }
-        }
-        return accessControllerCleanup;
+        return resetToUninitialized(false, deferAccessControllerCleanup,
+                () -> {
+                    catalogProperty.modifyCatalogProps(updatedProps);
+                    invalidateCachesAfterPropertyUpdate(updatedProps);
+                });
     }
 
     public void rollBackCatalogProps(Map<String, String> props) {

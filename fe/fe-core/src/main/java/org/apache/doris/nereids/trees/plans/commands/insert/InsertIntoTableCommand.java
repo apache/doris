@@ -82,7 +82,6 @@ import org.apache.doris.planner.LocalExchangeNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
@@ -420,9 +419,8 @@ public class InsertIntoTableCommand extends Command
             }
             stmtExecutor.setProfileType(ProfileType.LOAD);
             // We exposed @StmtExecutor#cancel as a unified entry point for statement interruption,
-            // so we need to set this here
+            // so executeSingleInsert publishes the coordinator at its common execution boundary.
             insertExecutor.getCoordinator().setTxnId(insertExecutor.getTxnId());
-            stmtExecutor.setCoord(insertExecutor.getCoordinator());
             if (needsExternalDmlAuditBarrier(insertExecutor)) {
                 // The resolved executor is the invariant that distinguishes an external write;
                 // logical sink roots are rewritten and are not a stable audit classification.
@@ -516,9 +514,6 @@ public class InsertIntoTableCommand extends Command
         try {
             stmtExecutor.setPlanner(planner);
             stmtExecutor.checkBlockRules();
-            if (ctx.getConnectType() == ConnectType.MYSQL && ctx.getMysqlChannel() != null) {
-                ctx.getMysqlChannel().reset();
-            }
             Optional<PhysicalSink<?>> plan = (planner.getPhysicalPlan()
                     .<PhysicalSink<?>>collect(PhysicalSink.class::isInstance)).stream()
                     .findAny();

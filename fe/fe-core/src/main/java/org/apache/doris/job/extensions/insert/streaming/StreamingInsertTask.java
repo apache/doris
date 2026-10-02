@@ -42,6 +42,7 @@ import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.tablefunction.CdcStreamTableValuedFunction;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
@@ -92,6 +93,7 @@ public class StreamingInsertTask extends AbstractStreamingTask {
         this.originTvfProps = originTvfProps;
         this.cloudCluster = cloudCluster;
         this.auditEnabled = S3TableValuedFunction.NAME.equalsIgnoreCase(offsetProvider.getSourceType());
+        this.noRetry = CdcStreamTableValuedFunction.NAME.equalsIgnoreCase(offsetProvider.getSourceType());
     }
 
     @Override

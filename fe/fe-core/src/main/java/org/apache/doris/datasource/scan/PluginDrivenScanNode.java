@@ -438,6 +438,16 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         return new ArrayList<>(selectedPartitions.selectedPartitions.keySet());
     }
 
+    /** Whether an opt-out connector must distinguish this scan-all encoding from an unpruned scan. */
+    static boolean partitionsPrunedToEmpty(SelectedPartitions selectedPartitions,
+            boolean ignorePartitionPruneShortCircuit) {
+        return ignorePartitionPruneShortCircuit
+                && selectedPartitions != null
+                && selectedPartitions.isPruned
+                && selectedPartitions.totalPartitionNum > 0
+                && selectedPartitions.selectedPartitions.isEmpty();
+    }
+
     /**
      * Partition counts to surface on this scan node — {@code {selectedPartitionNum, totalPartitionNum}}
      * — or {@code null} to leave the fields at their default (nothing to show). Drives the EXPLAIN
@@ -782,8 +792,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * Everything else falls through to {@code super} (partition key / regular).
      */
     @Override
-    protected TColumnCategory classifyColumn(SlotDescriptor slot, List<String> partitionKeys) {
-        String name = slot.getColumn().getName();
+    protected TColumnCategory classifyColumn(String name, List<String> partitionKeys) {
         if (name.startsWith(Column.GLOBAL_ROWID_COL)) {
             return TColumnCategory.SYNTHESIZED;
         }
@@ -794,7 +803,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (category == ConnectorColumnCategory.GENERATED) {
             return TColumnCategory.GENERATED;
         }
-        return super.classifyColumn(slot, partitionKeys);
+        return super.classifyColumn(name, partitionKeys);
     }
 
     /**
@@ -1103,6 +1112,14 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             attrs.setTrimDoubleQuotes(true);
         }
 
+        if ("true".equals(props.get(ScanNodePropertyKeys.TEXT_HIVE_OPEN_CSV))) {
+            // The optional wire field alone cannot fence old readers during a rolling upgrade.
+            if (Config.be_exec_version < Config.HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION) {
+                throw new UserException("Hive OpenCSVSerde requires backend execution version "
+                        + Config.HIVE_OPEN_CSV_MIN_BE_EXEC_VERSION + " or newer during rolling upgrade");
+            }
+            attrs.setHiveOpenCsv(true);
+        }
         attrs.setTextParams(textParams);
         attrs.setHeaderType("");
         attrs.setEnableTextValidateUtf8(sessionVariable.enableTextValidateUtf8);
@@ -1278,7 +1295,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // loaded, checks this reference's own pin), so it catches the latest-masked / @incr / MTMV-refresh
         // cases the version-blind analysis-time binding cannot. Per user decision 2026-07-13: throw for now;
         // the per-reference version-aware schema-binding refactor is tracked as D-MVCC-VERSION-SCHEMA. A
-        // latest / @incr / hive scan carries a null pinnedSchema -> no-op; so does a sys-table scan on a
+        // reference without a pinned schema is a no-op; so is a sys-table scan on a
         // connector that rejects sys-table time travel (resolveSysTableSnapshotPin returns empty). A sys-table
         // scan on a connector that DOES honor it (iceberg) is excluded inside the guard — see there.
         if (snapshot.isPresent() && snapshot.get() instanceof PluginDrivenMvccSnapshot) {
@@ -1307,12 +1324,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * (BE matches iceberg columns by id, so a rename that keeps the id is fine, a renumber / added column is
      * caught); {@code uniqueId < 0} (paimon has no top-level field-id) matches by name. Reader-synthesized
      * row-id columns ({@link Column#GLOBAL_ROWID_COL}) are skipped — they are not table columns and are
-     * absent from every pinned schema by construction.</p>
+     * absent from every pinned schema by construction. Connector-synthesized columns are likewise exempt
+     * on a schema miss; their classification comes from the scan provider, not connector-specific names.</p>
      *
      * <p>Two no-ops, both because the guard's precondition — {@code boundColumns} and {@code pinnedSchema}
      * describe the SAME table — does not hold:
      * <ul>
-     *   <li>A {@code null} pinnedSchema (latest / {@code @incr} / hive reference): nothing to compare.</li>
+     *   <li>A {@code null} pinnedSchema (e.g. {@code @incr} or an unversioned schema): nothing to compare.</li>
      *   <li>A {@code table} that is a {@link PluginDrivenSysExternalTable}: a sys-table scan's pin is BY
      *       CONSTRUCTION resolved off the SOURCE table ({@code resolveSysTableSnapshotPin}), so pinnedSchema
      *       carries the source's columns while boundColumns carries the sys table's synthetic ones
@@ -1325,7 +1343,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * The guard keeps full strength for real MVCC tables: {@link PluginDrivenSysExternalTable} and
      * {@link PluginDrivenMvccExternalTable} are sibling subclasses, so no normal table matches.</p>
      */
-    static void assertBoundColumnsResolveInPinnedSchema(List<Column> boundColumns,
+    void assertBoundColumnsResolveInPinnedSchema(List<Column> boundColumns,
             SchemaCacheValue pinnedSchema, TableIf table) throws UserException {
         if (pinnedSchema == null || table instanceof PluginDrivenSysExternalTable) {
             return;
@@ -1349,7 +1367,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             boolean resolved = bound.getUniqueId() >= 0
                     ? pinnedFieldIds.contains(bound.getUniqueId())
                     : pinnedNames.contains(bound.getName().toLowerCase());
-            if (!resolved) {
+            // Request-scoped synthesized columns do not belong to a physical schema generation.
+            // GENERATED columns still read file data and must pass the schema check.
+            if (!resolved && classifyColumnByConnector(bound.getName()) != ConnectorColumnCategory.SYNTHESIZED) {
                 throw new UserException("Reading the same table at multiple versions with different schemas "
                         + "in one statement is not supported yet: column '" + bound.getName() + "' of table '"
                         + tableName + "' is bound at a different version than the one this reference scans. "
@@ -1631,6 +1651,11 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 scanProvider, scanProvider::ignorePartitionPruneShortCircuit);
         List<String> requiredPartitions = resolveRequiredPartitions(
                 selectedPartitions, ignorePartitionPruneShortCircuit);
+        // Preserve why an opt-out request has an empty/scan-all partition list. A connector whose
+        // snapshot retains history outside the live FE universe must still plan that history, but it
+        // must not reinterpret "no live partition matched" as "validate every live partition".
+        boolean partitionsPrunedToEmpty = partitionsPrunedToEmpty(
+                selectedPartitions, ignorePartitionPruneShortCircuit);
         // Surface the partition counts for EXPLAIN (partition=N/M) and SQL-block-rule enforcement,
         // mirroring legacy MaxComputeScanNode.getSplits():720-722. Set BEFORE the pruned-to-zero
         // short-circuit below so a 0-partition selection still reports partition=0/total (e.g. WHERE
@@ -1689,6 +1714,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 .filter(remainingFilter)
                 .limit(sourceLimit)
                 .requiredPartitions(requiredPartitions)
+                .partitionsPrunedToEmpty(partitionsPrunedToEmpty)
                 .countPushdown(countPushdown)
                 // EXPLAIN plans the scan for real -- that is where its inputSplitNum comes from -- so a
                 // connector whose planning has a side effect on the source (ADBC: asking the driver to
@@ -2210,6 +2236,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
         // Delegate format-specific Thrift construction to the connector SPI
         scanRange.populateRangeParams(tableFormatFileDesc, rangeDesc);
+        if (rangeDesc.getFormatType() == TFileFormatType.FORMAT_PARQUET) {
+            // Mixed JNI/native scans must retain the Parquet contract after subsequent non-Parquet ranges.
+            params.setContainsNativeParquet(true);
+        }
 
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }
@@ -2587,9 +2617,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         return Optional.of(ExprToConnectorExpressionConverter.convertConjuncts(pushableConjuncts));
     }
 
-    private static boolean containsCastExpr(Expr expr) {
-        List<CastExpr> castExprs = new ArrayList<>();
-        expr.collect(CastExpr.class, castExprs);
+    static boolean containsCastExpr(Expr expr) {
+        List<Expr> castExprs = new ArrayList<>();
+        expr.collect(node -> node instanceof CastExpr, castExprs);
         return !castExprs.isEmpty();
     }
 }

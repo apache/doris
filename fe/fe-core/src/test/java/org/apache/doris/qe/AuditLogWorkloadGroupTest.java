@@ -26,7 +26,6 @@ import org.apache.doris.common.ConnectionException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.proto.Data;
-import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
 import org.junit.jupiter.api.AfterEach;
@@ -400,7 +399,6 @@ public class AuditLogWorkloadGroupTest {
         MultiStmtRecordingProcessor(ConnectContext ctx, List<StatementBase> parsedStmts,
                 List<String> auditedWorkloadGroups, int[] resolveCallCount) {
             super(ctx);
-            this.connectType = ConnectType.MYSQL;
             this.parsedStmts = parsedStmts;
             this.auditedWorkloadGroups = auditedWorkloadGroups;
             this.resolveCallCount = resolveCallCount;
