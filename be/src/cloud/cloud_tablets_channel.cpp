@@ -205,6 +205,7 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
     bool success = true;
 
     for (auto&& [tablet_id, base_writer] : _tablet_writers) {
+        RETURN_IF_ERROR(_check_cancelled());
         auto* writer = static_cast<CloudDeltaWriter*>(base_writer.get());
         // ATTN: the strict mode means strict filtering of column type conversions during import.
         // Sometimes all inputs are filtered, but the partition ID is still set, and the writer is

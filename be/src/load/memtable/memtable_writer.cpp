@@ -114,7 +114,7 @@ Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
     RETURN_IF_ERROR(
             ExecEnv::GetInstance()->storage_engine().memtable_flush_executor()->create_flush_token(
                     _flush_token, _rowset_writer, _req.is_high_priority, wg_sptr,
-                    _req.table_schema_param));
+                    _req.table_schema_param, _req.load_cancel_status));
 
     _is_init = true;
     return Status::OK();
@@ -132,6 +132,9 @@ Status MemTableWriter::write(const Block* block, const TabletAddRowsPayload& row
     _lock_watch.start();
     std::lock_guard<std::mutex> l(_lock);
     _lock_watch.stop();
+    if (_req.load_cancel_status && !_req.load_cancel_status->ok()) {
+        return _req.load_cancel_status->status();
+    }
     if (_is_cancelled) {
         return _cancel_status;
     }
@@ -221,10 +224,20 @@ Status MemTableWriter::_flush_memtable_async() {
 
 Status MemTableWriter::flush_async() {
     std::lock_guard<std::mutex> l(_lock);
-    // Three calling paths:
-    // 1. call by local, from `VTabletWriterV2::_write_memtable`.
-    // 2. call by remote, from `LoadChannelMgr::_get_load_channel`.
-    // 3. call by daemon thread, from `handle_paused_queries` -> `flush_workload_group_memtables`.
+    if (_req.load_cancel_status && !_req.load_cancel_status->ok()) {
+        // Reclaim the unsubmitted memtable even while an RPC retains this writer.
+        // Do not cancel the flush token here: pressure flushing holds the limiter
+        // lock and must not wait for running flush tasks. Leave _is_cancelled
+        // unset so the final owner's cancel still drains the token.
+        {
+            std::lock_guard<std::mutex> lm(_mem_table_ptr_lock);
+            _mem_table.reset();
+        }
+        return Status::Cancelled("Load has been cancelled: {}",
+                                 _req.load_cancel_status->status().to_string());
+    }
+    // Memory-pressure flushing can race with writer initialization or close.
+    // DeltaWriter also exposes this operation through flush_memtable_async().
     if (!_is_init || _is_closed) {
         // This writer is uninitialized or closed before flushing, do nothing.
         // We return OK instead of NOT_INITIALIZED or ALREADY_CLOSED.
@@ -280,6 +293,9 @@ Status MemTableWriter::close() {
     _lock_watch.start();
     std::lock_guard<std::mutex> l(_lock);
     _lock_watch.stop();
+    if (_req.load_cancel_status && !_req.load_cancel_status->ok()) {
+        return _req.load_cancel_status->status();
+    }
     if (_is_cancelled) {
         return _cancel_status;
     }
