@@ -25,6 +25,7 @@ import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
@@ -43,6 +44,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
@@ -165,6 +167,31 @@ public final class SPMPlanTreeSupport {
     };
 
     private SPMPlanTreeSupport() {
+    }
+
+    /**
+     * The top-level LIMIT / OFFSET a query tree exposes to its CALLER ({@code {limit,
+     * offset}}) or null when it has none. The descent follows the wrapper chain (result
+     * sink, sort, ...) and STOPS at a projection: a limit BELOW a projection is not the
+     * caller-visible top-level limit - and {@link #mergeLimitNode} cannot transfer the
+     * caller's values there either, which is exactly the situation the replay guard in
+     * SPMPlanner checks with this helper.
+     */
+    public static long[] topLevelLimitOf(Plan plan) {
+        Plan node = plan;
+        while (node != null && !(node instanceof LogicalLimit) && !(node instanceof LogicalTopN)
+                && !(node instanceof LogicalProject) && node.children().size() == 1) {
+            node = node.child(0);
+        }
+        if (node instanceof LogicalLimit) {
+            return new long[] {((LogicalLimit<?>) node).getLimit(),
+                    ((LogicalLimit<?>) node).getOffset()};
+        }
+        if (node instanceof LogicalTopN) {
+            return new long[] {((LogicalTopN<?>) node).getLimit(),
+                    ((LogicalTopN<?>) node).getOffset()};
+        }
+        return null;
     }
 
     // ==================== whole-tree transform (parameterize / substitute) ====================
@@ -1647,14 +1674,21 @@ public final class SPMPlanTreeSupport {
             NamedExpression rewrittenItem = rewrittenItems.get(i);
             NamedExpression userItem = userItems.get(i);
             String userLabel = outputLabelOf(userItem);
-            if (userLabel == null || !(rewrittenItem instanceof Alias
-                    || rewrittenItem instanceof UnboundAlias)
-                    || userLabel.equals(outputLabelOf(rewrittenItem))) {
+            String rewrittenLabel = outputLabelOf(rewrittenItem);
+            if (userLabel == null || rewrittenLabel == null
+                    || userLabel.equals(rewrittenLabel)) {
+                // no label on one of the two sides (or both equal): the position carries no
+                // captured header text to realign. A STAR projection is the important case:
+                // the frozen plan may project `*` while the caller names a bare column, and
+                // its expansion to real columns happens at binding - wrapping it in a
+                // renamed item builds an Alias over an unbound star and the analyzer
+                // rejects the tree ("Invalid call to ...getDataType() on unbound object").
                 aligned.add(rewrittenItem);
                 continue;
             }
-            // the caller's own header text (derived or explicit) replaces the label the
-            // frozen sink pinned; the SUBSTITUTED expression itself stays untouched
+            // the caller's own header text (explicit, derived or a bare column name)
+            // replaces the label the frozen sink pinned; the SUBSTITUTED expression
+            // itself stays untouched
             aligned.add(renameOutputItem(rewrittenItem, userLabel, isDerivedAlias(userItem)));
             changed = true;
         }
@@ -1696,17 +1730,49 @@ public final class SPMPlanTreeSupport {
         if (item instanceof UnboundAlias) {
             return new UnboundAlias(((UnboundAlias) item).child(), label, nameFromChild);
         }
-        return new Alias(((Alias) item).child(), label, nameFromChild);
+        if (item instanceof Alias) {
+            return new Alias(((Alias) item).child(), label, nameFromChild);
+        }
+        // a BARE item (a plain column of the frozen text): wrap it in an alias carrying
+        // the caller's label, mirroring the parse-time class of an unbound slot
+        if (item instanceof UnboundSlot) {
+            return new UnboundAlias(item, label, nameFromChild);
+        }
+        return new Alias(item, label, nameFromChild);
     }
 
     /**
-     * The label one top-level output item exposes: its explicit alias when it has one,
-     * otherwise the derived (nameFromChild) expression text, otherwise nothing (a bare
-     * slot keeps its column name through every replay).
+     * The label one top-level output item exposes: its explicit alias when it has one, a
+     * derived (nameFromChild) alias text, otherwise the BARE column name of a slot.
+     *
+     * <p>The bare-column case is a real contract gap: a manual plan may render a bind
+     * column under another label ({@code CREATE BASELINE PLAN 'SELECT k FROM t' WITH
+     * 'SELECT k AS other FROM t'}), so the frozen sink exposes {@code other} while the
+     * caller's item stays a bare {@link UnboundSlot}. Returning null here kept the
+     * captured alias as the caller's JDBC column label instead of restoring {@code k}.
      */
     private static String outputLabelOf(Expression item) {
         String explicit = explicitAliasName(item);
-        return explicit != null ? explicit : derivedAliasName(item);
+        if (explicit != null) {
+            return explicit;
+        }
+        String derived = derivedAliasName(item);
+        if (derived != null) {
+            return derived;
+        }
+        // A STAR is a Slot subclass but its "name" is not a caller label: it expands to
+        // the real column names downstream, so the alignment must leave the tree alone
+        // (the same reason the arity check exists).
+        if (item instanceof UnboundStar) {
+            return null;
+        }
+        if (item instanceof UnboundSlot) {
+            return ((UnboundSlot) item).getName();
+        }
+        if (item instanceof Slot) {
+            return ((Slot) item).getName();
+        }
+        return null;
     }
 
     /** The derived (nameFromChild) alias text of one expression, or null. */
@@ -2662,19 +2728,22 @@ public final class SPMPlanTreeSupport {
             // Without the flag the frozen (now filterless) plan kept matching after the
             // column became nullable, replaying rows the original query filtered out.
             //
-            // The flag travels as a SEPARATE entry section instead of being hashed into
-            // the column list: folding it into the hash would rewrite the hash of EVERY
-            // table that has a NOT NULL column, silently invalidating every baseline
-            // persisted before the upgrade. A section-less (pre-upgrade) entry is still
-            // accepted by the comparisons below, while two entries that BOTH carry the
-            // section must agree on it.
+            // The flag travels as a SEPARATE, FIXED-SIZE entry section: folding it into
+            // the schema hash would rewrite the hash of EVERY table that has a NOT NULL
+            // column (invalidating every baseline persisted before the section existed),
+            // while appending one digit per column grew the entry without bound - a
+            // VALID query joining ten 500-column tables would exceed the fingerprint
+            // column's VARCHAR(4096) before the table names and could not be persisted at
+            // all. The section is a digest of the flag list, so it still separates
+            // nullability changes exactly (a section-less pre-upgrade entry is accepted
+            // by the comparisons below, two section-carrying entries must agree).
             schema.append(column.getName()).append(':')
                     .append(column.getType().toString())
                     .append(',');
             nullability.append(column.isAllowNull() ? '1' : '0');
         }
         return table.getName() + "|" + table.getId() + "|" + SPMUtils.hashOf(schema.toString())
-                + "|" + NULLABILITY_SECTION + nullability;
+                + "|" + NULLABILITY_SECTION + SPMUtils.hashOf(nullability.toString());
     }
 
     /** Records one function call's dependency entry (see the schemaFingerprint caller). */

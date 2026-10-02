@@ -40,6 +40,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -253,13 +254,19 @@ public class SPMPlanner {
                 // non-expression literals (LIMIT / OFFSET) are long fields, not
                 // placeholders; adopt the user's values so a structurally identical query
                 // with a different limit is rewritten with the USER limit
-                usedBaselineId = candidate.getId();
-                usedBaseline = candidate;
                 // the frozen sink pinned the CAPTURED output labels: expose the caller's
                 // own ones (a value variant must not report the captured header)
-                return SPMPlanTreeSupport.mergeLimits(
+                LogicalPlan replay = SPMPlanTreeSupport.mergeLimits(
                         SPMPlanTreeSupport.alignRootOutputLabels(rewritten, matchPlan),
                         matchPlan);
+                if (!limitContractPreserved(replay, matchPlan, bindTree)) {
+                    LOG.info("SPM tryRewritePlan: baseline {} skipped: its plan cannot carry"
+                            + " the caller's LIMIT / OFFSET", candidate.getId());
+                    continue;
+                }
+                usedBaselineId = candidate.getId();
+                usedBaseline = candidate;
+                return replay;
             }
             LOG.info("SPM tryRewritePlan: baseline {} frozen planSql replay unavailable, "
                     + "falling back to parameterized plan tree", candidate.getId());
@@ -279,14 +286,52 @@ public class SPMPlanner {
             if (SPMPlanTreeSupport.containsPlaceholder(rewritten)) {
                 continue;
             }
-            usedBaselineId = candidate.getId();
-            usedBaseline = candidate;
             // same label contract as the frozen path: the caller's own headers win
-            return SPMPlanTreeSupport.mergeLimits(
+            LogicalPlan replay = SPMPlanTreeSupport.mergeLimits(
                     SPMPlanTreeSupport.alignRootOutputLabels(rewritten, matchPlan),
                     matchPlan);
+            if (!limitContractPreserved(replay, matchPlan, bindTree)) {
+                LOG.info("SPM tryRewritePlan: baseline {} skipped: its plan cannot carry"
+                        + " the caller's LIMIT / OFFSET", candidate.getId());
+                continue;
+            }
+            usedBaselineId = candidate.getId();
+            usedBaseline = candidate;
+            return replay;
         }
         return null;
+    }
+
+    /**
+     * Whether the CALLER's top-level LIMIT / OFFSET is honored by the replayed tree.
+     *
+     * <p>Top-level limit VALUES are deliberately ignored by the match (a limit variant
+     * reuses the baseline and gets its own values transferred by mergeLimits), but the
+     * transfer is a POSITIONAL merge: it only replaces values at nodes that align with
+     * the caller's tree. A manual plan may keep its OWN limit below a node the merge
+     * cannot align - {@code bind 'SELECT k FROM t ORDER BY k LIMIT 1' WITH 'SELECT
+     * DISTINCT k FROM (SELECT k FROM t ORDER BY k LIMIT 1) s'} - and replaying it for a
+     * caller asking LIMIT 2 would then return the CAPTURED row count (one row instead of
+     * two distinct keys). Such a candidate is skipped unless the caller asks for exactly
+     * the captured limit / offset, in which case the plan's own placement already IS the
+     * caller's contract.
+     *
+     * @param replayed the replayed tree AFTER the merge (its top-level limit is the one
+     *                 the caller would observe)
+     * @param userPlan the caller's own tree (top-level limit source)
+     * @param bindTree the stored parameterized bind tree (captured limit values)
+     * @return whether the replay may be used for this caller
+     */
+    private static boolean limitContractPreserved(LogicalPlan replayed, LogicalPlan userPlan,
+            LogicalPlan bindTree) {
+        long[] userLimit = SPMPlanTreeSupport.topLevelLimitOf(userPlan);
+        if (userLimit == null) {
+            return true;
+        }
+        if (Arrays.equals(userLimit, SPMPlanTreeSupport.topLevelLimitOf(replayed))) {
+            return true;
+        }
+        return Arrays.equals(userLimit, SPMPlanTreeSupport.topLevelLimitOf(bindTree));
     }
 
     /**

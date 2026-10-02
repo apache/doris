@@ -74,6 +74,15 @@ import java.util.function.Supplier;
 public class PlanCaptureManager extends MasterDaemon {
 
     /**
+     * Test seam replacing the live leadership probe of {@link #persistCheckpoint} (null in
+     * production). A capture cycle runs on the master, but an in-flight cycle can reach
+     * its checkpoint write AFTER a handoff (the daemon checks isMaster only at the cycle
+     * start), which a unit test cannot interleave otherwise.
+     */
+    @VisibleForTesting
+    public static volatile java.util.function.BooleanSupplier checkpointLeadershipProbeForTest;
+
+    /**
      * Statement timeout (seconds) of the checkpoint read / write. The default
      * StatisticsUtil overloads assign the ANALYZE timeout (43,200 seconds), so a stalled
      * internal-table read or write could hold the single capture cycle for hours and
@@ -284,6 +293,14 @@ public class PlanCaptureManager extends MasterDaemon {
 
     private CheckpointWriter checkpointWriter = (sql, params) -> StatisticsUtil.execUpdate(
             sql, params, CHECKPOINT_IO_TIMEOUT_SECONDS);
+
+    /**
+     * Whether a scripted checkpoint read / write seam is installed (tests only). The
+     * leadership fence of {@link #persistCheckpoint} guards LIVE writes: a scripted store
+     * stands in for the internal table, exactly like the simulator stores in
+     * BaselineManager.assertLeaderForWrite.
+     */
+    private boolean checkpointSeamsForTest = false;
 
     /** Whether the cloud-mode warning was already logged (the gate fires every cycle). */
     private boolean cloudModeWarned = false;
@@ -876,6 +893,19 @@ public class PlanCaptureManager extends MasterDaemon {
         if (!checkpointPersistenceEnabled()) {
             return true;
         }
+        if (!isLeaderForCheckpointWrite()) {
+            // A demoted FE's in-memory progress is OBSOLETE: the new master may have
+            // advanced (or REWOUND) the durable checkpoint meanwhile - it can have queued
+            // a retry for a late audit row the old cursor had not reached yet - and this
+            // forwarded UPSERT would replace that queue and cursor with ours. A row behind
+            // the revived cursor is then neither replayed from the queue nor reachable by
+            // keyset pagination, so it is never retried. Skipping the write is the fence;
+            // Env.transferToMaster drops the local progress when this FE is promoted
+            // again (see reloadCheckpointOnPromotion).
+            LOG.warn("SPM capture checkpoint NOT persisted: this FE is no longer the master"
+                    + " (the new leader owns the checkpoint)");
+            return false;
+        }
         // Truncation guard: the two JSON maps below keep only the most recent
         // MAX_PERSISTED_RETRIES entries, so persisting the CURRENT cursor / watermark while
         // entries were omitted would step over exactly those omitted retries - after a
@@ -1260,6 +1290,22 @@ public class PlanCaptureManager extends MasterDaemon {
      * For tests: resets the counters, the scan window and the resume cursor.
      */
     public void resetForTest() {
+        clearProgressState();
+        // restore the production read / write seams (tests replace them)
+        checkpointReader = () -> StatisticsUtil.executeQuery(
+                CHECKPOINT_SELECT_SQL, Collections.emptyMap(), CHECKPOINT_IO_TIMEOUT_SECONDS);
+        checkpointWriter = (sql, params) -> StatisticsUtil.execUpdate(
+                sql, params, CHECKPOINT_IO_TIMEOUT_SECONDS);
+        checkpointSeamsForTest = false;
+        successCount.set(0);
+        skipDuplicateCount.set(0);
+        skipSingleTableCount.set(0);
+        skipFilterCount.set(0);
+        failCount.set(0);
+    }
+
+    /** Drops every in-memory PROGRESS field (window / cursor / caches), as a fresh process. */
+    private void clearProgressState() {
         lastScanTimestamp = 0;
         clearPendingWindow();
         cursorQueryTime = AuditLogScanner.CURSOR_ABSENT;
@@ -1279,16 +1325,40 @@ public class PlanCaptureManager extends MasterDaemon {
         failedCaptureAnchors.clear();
         checkpointLoaded = false;
         durableCheckpointObserved = false;
-        // restore the production read / write seams (tests replace them)
-        checkpointReader = () -> StatisticsUtil.executeQuery(
-                CHECKPOINT_SELECT_SQL, Collections.emptyMap(), CHECKPOINT_IO_TIMEOUT_SECONDS);
-        checkpointWriter = (sql, params) -> StatisticsUtil.execUpdate(
-                sql, params, CHECKPOINT_IO_TIMEOUT_SECONDS);
-        successCount.set(0);
-        skipDuplicateCount.set(0);
-        skipSingleTableCount.set(0);
-        skipFilterCount.set(0);
-        failCount.set(0);
+    }
+
+    /**
+     * MASTER PROMOTION hook (called from Env.transferToMaster): the in-memory progress may
+     * be STALE - this FE ran the daemon under an earlier mastership, or lost a cycle after
+     * a demotion - while the interim master advanced (or rewound) the durable checkpoint.
+     * Continuing from the stale cursor / queue would either skip rows the interim master
+     * had not consumed yet, or clobber its retry queue on the next persist (a queued row
+     * behind the revived cursor is never retried). Drop the local progress and force the
+     * next cycle to RELOAD the durable checkpoint, exactly like a freshly started process
+     * ({@link #loadCheckpointIfNeeded}).
+     *
+     * <p>The initial-reservation confirmation of a cycle does not cover this: it protects
+     * the window THIS process is about to consume, not progress adopted from an earlier
+     * mastership.
+     */
+    public void reloadCheckpointOnPromotion() {
+        clearProgressState();
+        LOG.info("SPM capture checkpoint state dropped on master promotion; the next cycle"
+                + " reloads the durable checkpoint");
+    }
+
+    /** The live leadership probe of the checkpoint write (see persistCheckpoint). */
+    private boolean isLeaderForCheckpointWrite() {
+        if (checkpointLeadershipProbeForTest != null) {
+            return checkpointLeadershipProbeForTest.getAsBoolean();
+        }
+        if (FeConstants.runningUnitTest || Env.getCurrentEnv() == null
+                || checkpointSeamsForTest) {
+            // unit tests / an uninitialized process / a scripted store have no live
+            // master to fence (same convention as BaselineManager.assertLeaderForWrite)
+            return true;
+        }
+        return Env.getCurrentEnv().isMaster();
     }
 
     /**
@@ -1411,11 +1481,13 @@ public class PlanCaptureManager extends MasterDaemon {
     @VisibleForTesting
     public void setCheckpointReaderForTest(Supplier<List<ResultRow>> reader) {
         this.checkpointReader = reader;
+        this.checkpointSeamsForTest = true;
     }
 
     @VisibleForTesting
     public void setCheckpointWriterForTest(CheckpointWriter writer) {
         this.checkpointWriter = writer;
+        this.checkpointSeamsForTest = true;
     }
 
     @VisibleForTesting

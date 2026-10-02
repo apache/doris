@@ -137,12 +137,14 @@ public class CreateBaselinePlanCommand extends Command implements Forward {
      * Runs on the FE the user is connected to after the forwarded CREATE finished on the
      * master: refresh the local cache right away so the new baseline becomes visible on
      * this FE without waiting for the next BaselineRefreshDaemon cycle. The refresh is
-     * CONFIRMED: a pre-DDL in-flight load is fenced and an unconfirmable read surfaces as
-     * a retryable failure instead of silently leaving the baseline invisible here.
+     * CONFIRMED: the local metadata is synchronized with the master first (the forward
+     * carries no journal wait of its own), a pre-DDL in-flight load is fenced and an
+     * unconfirmable read surfaces as a retryable failure instead of silently leaving the
+     * baseline invisible here.
      */
     @Override
     public void afterForwardToMaster(ConnectContext ctx) {
-        BaselineManager.getInstance().refreshAfterForwardedDdl();
+        BaselineManager.getInstance().refreshAfterForwardedDdl(ctx);
     }
 
     @Override
