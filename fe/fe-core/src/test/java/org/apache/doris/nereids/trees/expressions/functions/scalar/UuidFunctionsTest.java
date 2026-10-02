@@ -128,6 +128,29 @@ class UuidFunctionsTest {
     }
 
     @Test
+    void arrayFunctionsAcceptUuidElements() {
+        for (boolean nullable : List.of(false, true)) {
+            SlotReference array = new SlotReference("items", ArrayType.of(UuidType.INSTANCE), nullable);
+            SlotReference value = new SlotReference("value", UuidType.INSTANCE, nullable);
+            List<ScalarFunction> functions = List.of(
+                    new ArrayDistinct(array), new ArrayUnion(array, array), new ArrayIntersect(array, array),
+                    new ArrayExcept(array, array), new ArrayExceptAll(array, array),
+                    new ArraysOverlap(array, array), new ArrayContainsAll(array, array),
+                    new ArrayEnumerateUniq(array), new ArrayEnumerateUniq(array, array),
+                    new ArrayContains(array, value), new ArrayPosition(array, value),
+                    new ArrayRemove(array, value), new CountEqual(array, value),
+                    new ArrayMin(array), new ArrayMax(array));
+            Assertions.assertAll(functions.stream().map(function -> () -> {
+                Assertions.assertDoesNotThrow(function::checkLegalityBeforeTypeCoercion, function.getName());
+                Assertions.assertDoesNotThrow(function::getSignature, function.getName());
+            }));
+            Assertions.assertEquals(array.getDataType(), new ArrayDistinct(array).getDataType());
+            Assertions.assertEquals(UuidType.INSTANCE, new ArrayMin(array).getDataType());
+            Assertions.assertEquals(UuidType.INSTANCE, new ArrayMax(array).getDataType());
+        }
+    }
+
+    @Test
     void decoderRequiresConstantTimezone() {
         Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
                 () -> new UuidV7ToDateTime(NORMAL, new SlotReference("tz", StringType.INSTANCE))
