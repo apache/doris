@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -846,6 +847,139 @@ public class BaselineManagerConcurrencyTest {
             BaselineManager.leaderProbeForTest = null;
             BaselineManager.statusProtocolStoreForTest = null;
             manager.clearForTest();
+        }
+    }
+
+    // ==================== round-25: forwarded-DDL visibility and collision fencing ====================
+
+    /**
+     * round-25 #1: the post-forward refresh must SYNCHRONIZE with the master BEFORE it
+     * reads the snapshot. A forwarded GLOBAL DDL (FORWARD_NO_SYNC) carries no journal wait
+     * of its own, so a follower's still-visible OLD version would be read and published as
+     * the "confirmed" post-DDL state - after a DROP the removed baseline would keep being
+     * replayed locally although the command reported success. The reader below returns
+     * the PRE-DDL snapshot until the sync ran, so a refresh that read first would publish
+     * the dropped row.
+     */
+    @Test
+    public void testForwardedDdlRefreshSynchronizesBeforeReading() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        List<String> order = new ArrayList<>();
+        try {
+            manager.createBaseline(baseline("fp-forwarded", "select 8"));
+            Map<Long, BaselinePlan> preDdl = Map.copyOf(
+                    manager.getAllBaselines().stream().collect(
+                            java.util.stream.Collectors.toMap(BaselinePlan::getId, p -> p)));
+            BaselineManager.forwardedDdlSyncForTest = () -> order.add("sync");
+            BaselineManager.snapshotReaderForTest = () -> {
+                order.add("read");
+                // the DDL (a DROP of that baseline) is only visible AFTER the journal sync
+                return order.contains("sync") ? Map.of() : preDdl;
+            };
+
+            manager.refreshAfterForwardedDdl();
+
+            Assertions.assertEquals(List.of("sync", "read"), order,
+                    "the master's completed DDL must be synchronized to BEFORE the snapshot"
+                            + " read: " + order);
+            Assertions.assertEquals(0, manager.getAllBaselines().size(),
+                    "the confirmed refresh must publish the post-DDL state, not the"
+                            + " pre-DDL snapshot");
+        } finally {
+            BaselineManager.forwardedDdlSyncForTest = null;
+            BaselineManager.snapshotReaderForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-25 #2: when the id-collision repair loses leadership the CREATE must FAIL. The
+     * competing row is a DIFFERENT baseline another master already returned under the same
+     * id, so publishing / returning the id with both rows alive would let a reload pick the
+     * other incarnation - this caller's baseline would silently not exist.
+     */
+    @Test
+    public void testCreateFailsWhenTheCollisionRepairLosesLeadership() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        AtomicBoolean leader = new AtomicBoolean(true);
+        DemotingIdentityStore store = new DemotingIdentityStore(leader);
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            BaselineManager.leaderProbeForTest = leader::get;
+            store.foreign = baseline("zz-foreign", "select 9"); // ours wins ("aa" < "zz")
+            BaselinePlan own = baseline("aa-own", "select 10");
+
+            RuntimeException failure = Assertions.assertThrows(RuntimeException.class,
+                    () -> manager.createBaseline(own));
+            Assertions.assertTrue(failure.getMessage().contains("no longer the master"),
+                    failure.getMessage());
+            Assertions.assertTrue(store.insertedId > 0, "the create must have reached the"
+                    + " collision probe");
+            Assertions.assertNull(manager.getBaseline(store.insertedId),
+                    "a create whose repair failed must not be published");
+            Assertions.assertEquals(1, store.countDigest(store.insertedId, "zz-foreign"),
+                    "the competing row must be left untouched");
+        } finally {
+            BaselineManager.leaderProbeForTest = null;
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * Identity store whose INSERT drops the mastership (the handoff lands between the
+     * create's INSERT and its collision repair) and which injects a competing row into the
+     * FIRST by-id probe.
+     */
+    private static class DemotingIdentityStore
+            implements BaselineManager.IdAllocatorStoreForTest {
+        final Map<Long, List<BaselinePlan>> rows = new ConcurrentHashMap<>();
+        BaselinePlan foreign;
+        long insertedId = -1;
+        private final AtomicBoolean leader;
+        private boolean injected;
+
+        DemotingIdentityStore(AtomicBoolean leader) {
+            this.leader = leader;
+        }
+
+        @Override
+        public long watermark() {
+            return 0;
+        }
+
+        @Override
+        public void insert(BaselinePlan plan) {
+            rows.computeIfAbsent(plan.getId(), id -> new ArrayList<>()).add(plan);
+            insertedId = plan.getId();
+            leader.set(false); // the handoff lands right after OUR insert
+        }
+
+        @Override
+        public List<BaselinePlan> readById(long id) {
+            if (foreign != null && !injected) {
+                injected = true;
+                foreign.setId(id);
+                rows.computeIfAbsent(id, k -> new ArrayList<>()).add(foreign);
+            }
+            return new ArrayList<>(rows.getOrDefault(id, List.of()));
+        }
+
+        @Override
+        public void deleteByIdentity(BaselinePlan plan) {
+            rows.computeIfPresent(plan.getId(), (id, current) -> {
+                List<BaselinePlan> updated = new ArrayList<>(current);
+                updated.removeIf(row -> Objects.equals(row.getBindSqlDigest(), plan.getBindSqlDigest())
+                        && Objects.equals(row.getPlanSql(), plan.getPlanSql()));
+                return updated.isEmpty() ? null : updated;
+            });
+        }
+
+        int countDigest(long id, String digest) {
+            return (int) rows.getOrDefault(id, List.of()).stream()
+                    .filter(row -> Objects.equals(row.getBindSqlDigest(), digest)).count();
         }
     }
 

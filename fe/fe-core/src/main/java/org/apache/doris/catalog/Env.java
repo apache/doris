@@ -1925,6 +1925,16 @@ public class Env {
                 LOG.warn("SPM baseline invalidation on master transfer failed (will retry"
                         + " lazily)", t);
             }
+            // SPM capture: the in-memory checkpoint progress must not survive a master
+            // transfer either - this FE may have run the daemon under an earlier
+            // mastership (or lost a cycle mid-flight after a demotion) and would then
+            // resume from a cursor / retry queue the interim master has since advanced.
+            // The next cycle reloads the durable checkpoint instead.
+            try {
+                PlanCaptureManager.getInstance().reloadCheckpointOnPromotion();
+            } catch (Throwable t) {
+                LOG.warn("SPM capture checkpoint invalidation on master transfer failed", t);
+            }
             canRead.set(true);
             isReady.set(true);
             checkLowerCaseTableNames();

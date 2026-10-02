@@ -32,6 +32,8 @@ import org.apache.doris.nereids.spm.SPMPlanTreeSupport;
 import org.apache.doris.nereids.spm.SPMPlanner;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.MasterOpExecutor;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -186,6 +188,16 @@ public class BaselineManager {
      */
     @VisibleForTesting
     public static volatile Supplier<Map<Long, BaselinePlan>> snapshotReaderForTest;
+
+    /**
+     * Test seam replacing the journal synchronization of
+     * {@link #refreshAfterForwardedDdl} (null in production): the real sync asks the
+     * master for its max journal id and waits locally, which a unit test cannot do. A
+     * test whose snapshot reader returns a PRE-DDL snapshot until this seam ran proves
+     * the sync happens BEFORE the snapshot read.
+     */
+    @VisibleForTesting
+    public static volatile Runnable forwardedDdlSyncForTest;
 
     /**
      * Test seam invoked by a load right after it captured its generation and BEFORE the
@@ -643,19 +655,18 @@ public class BaselineManager {
                 }
                 if (winsIdCollision(plan, foreign)) {
                     // deterministic winner keeps the id; repair the competing row away so
-                    // every restart / refresh converges on this baseline
-                    try {
-                        persistDeleteByIdentity(foreign);
-                        LOG.warn("SPM baseline create kept id {} on collision (digest {});"
-                                        + " removed the competing row (digest {})",
-                                id, plan.getBindSqlDigest(), foreign.getBindSqlDigest());
-                    } catch (RuntimeException e) {
-                        // best-effort repair: both sides pick the same winner, so the
-                        // leftover is warned about here and resolved on the next probe /
-                        // load
-                        LOG.warn("SPM failed to repair a colliding baseline row (id={}): {}",
-                                id, e.getMessage());
-                    }
+                    // every restart / refresh converges on this baseline. The repair is
+                    // NOT best-effort here: the competing row is a DIFFERENT baseline some
+                    // other caller was already promised under this id (the new master can
+                    // complete its own CREATE at the same MAX(id)+1 while this demoted
+                    // create resumes), so returning the id with both rows alive would let
+                    // a reload pick the OTHER incarnation - this caller's baseline would
+                    // silently not exist. The repair is leadership-fenced, so a demotion
+                    // mid-create fails the CREATE retryably instead.
+                    persistDeleteByIdentity(foreign);
+                    LOG.warn("SPM baseline create kept id {} on collision (digest {});"
+                                    + " removed the competing row (digest {})",
+                            id, plan.getBindSqlDigest(), foreign.getBindSqlDigest());
                     publishBaseline(plan);
                     return id;
                 }
@@ -1524,6 +1535,7 @@ public class BaselineManager {
             statusProtocolStoreForTest = null; // and never route through a leaked test seam
             idAllocatorStoreForTest = null; // (the create-time collision seam, same reason)
             leaderProbeForTest = null; // (the leadership seam, same reason)
+            forwardedDdlSyncForTest = null; // (the forwarded-DDL sync seam, same reason)
             durableVisibilityProbeForTest = null; // (the write-visibility seam, same reason)
             snapshotReadStartedHookForTest = null; // (the load-generation seam, same reason)
             snapshotReaderForTest = null; // (the load snapshot seam, same reason)
@@ -1821,6 +1833,16 @@ public class BaselineManager {
      * dropped / disabled baseline) and a retryable failure surfaces to the caller.
      */
     public void refreshAfterForwardedDdl() {
+        refreshAfterForwardedDdl(ConnectContext.get());
+    }
+
+    /**
+     * As {@link #refreshAfterForwardedDdl()}, with the forwarding statement's context: the
+     * journal synchronization below talks to the master through it.
+     *
+     * @param ctx the context of the statement that was forwarded (may be null in tests)
+     */
+    public void refreshAfterForwardedDdl(ConnectContext ctx) {
         if (!persistenceEnabled() && snapshotReaderForTest == null) {
             return;
         }
@@ -1829,6 +1851,13 @@ public class BaselineManager {
             // older background load holding the slot will be discarded by the generation
             // check instead of resurrecting pre-DDL content after this method returns.
             storeGeneration.incrementAndGet();
+            // Follower-lag fence: the generation check only rejects overlapping LOCAL
+            // reads. A forwarded global DDL (FORWARD_NO_SYNC) has no journal wait of its
+            // own, so without synchronizing to the master first the LOCAL snapshot read
+            // below may still see the pre-DDL visible version - after the master completed
+            // a DROP / DISABLE this "confirmed" refresh would republish the removed row
+            // and the command would report success while this FE kept replaying it.
+            syncJournalWithMaster(ctx);
             if (!loaded) {
                 // Wait (bounded) for the in-flight load to finish and discard itself,
                 // then load once against the CURRENT table content.
@@ -1866,6 +1895,37 @@ public class BaselineManager {
             // No writer can interleave (writerLock is held) and loads return early while
             // loaded, so the snapshot is authoritative for this instant.
             applyRefreshedBaselines(snapshot);
+        }
+    }
+
+    /**
+     * Waits until this FE's metadata includes the FORWARDED global DDL the master already
+     * completed: {@code CREATE / ALTER / DROP BASELINE PLAN} forward with
+     * FORWARD_NO_SYNC, and the checkpoint-free internal reads of the refresh run locally,
+     * so a follower's still-visible OLD version would be published as the confirmed
+     * post-DDL state. The journal sync is the same mechanism a strong-consistency user
+     * query uses (see {@code StmtExecutor#syncJournalIfNeeded}): it asks the master for
+     * its max journal id and waits locally. A failure surfaces as a retryable error -
+     * never as a silently published pre-DDL state.
+     *
+     * @param ctx the forwarded statement's context (null = skip: no way to talk to the master)
+     */
+    private static void syncJournalWithMaster(ConnectContext ctx) {
+        if (forwardedDdlSyncForTest != null) {
+            forwardedDdlSyncForTest.run();
+            return;
+        }
+        if (FeConstants.runningUnitTest || Env.getCurrentEnv() == null
+                || Env.getCurrentEnv().isMaster() || ctx == null) {
+            // the master executed the DDL on its own metadata - nothing to wait for
+            return;
+        }
+        try {
+            new MasterOpExecutor(ctx).syncJournal();
+        } catch (Exception e) {
+            throw new IllegalStateException("SPM cannot synchronize this FE with the master"
+                    + " after the forwarded GLOBAL DDL (please retry later): "
+                    + e.getMessage(), e);
         }
     }
 

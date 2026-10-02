@@ -448,4 +448,101 @@ public class PlanCaptureCycleHandoffTest {
             manager.resetForTest();
         }
     }
+
+    /**
+     * round-25 #5: the FINAL progress UPSERT is fenced by leadership. A demoted FE's local
+     * cursor / retry queue is OBSOLETE - the new master may have advanced or REWOUND the
+     * durable checkpoint (it can queue a retry for a late audit row the old cursor had not
+     * reached yet) - and a forwarded UPSERT would replace that queue and cursor with ours.
+     * The row behind the revived cursor is then neither replayed from the queue nor
+     * reachable by keyset pagination, so it is never retried.
+     */
+    @Test
+    public void testFinalCheckpointWriteIsFencedAfterADemotion() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            AtomicReference<Map<String, String>> visible = new AtomicReference<>();
+            manager.setCheckpointReaderForTest(() -> visible.get() == null
+                    ? List.of() : List.of(checkpointRow(visible.get())));
+            AtomicInteger writes = new AtomicInteger();
+            manager.setCheckpointWriterForTest((sql, params) -> {
+                writes.incrementAndGet();
+                visible.set(new HashMap<>(params));
+            });
+            RecordingScanner scanner = new RecordingScanner(List.of(), true,
+                    AuditLogScanner.CURSOR_ABSENT, "", "", "");
+            manager.setScannerForTest(scanner);
+
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(1, scanner.calls.get());
+            Assertions.assertEquals(2, writes.get(),
+                    "the initial reservation AND the consumed page both persist");
+
+            // the mastership is lost while this FE is mid-cycle: the page may be finished
+            // (the candidates were already captured), but the durable checkpoint now
+            // belongs to the new leader
+            manager.checkpointLeadershipProbeForTest = () -> false;
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(2, scanner.calls.get(),
+                    "a demoted FE may still finish the page it started");
+            Assertions.assertEquals(2, writes.get(),
+                    "the obsolete cursor must not be UPSERTed over the new leader's checkpoint");
+        } finally {
+            manager.checkpointLeadershipProbeForTest = null;
+            manager.resetForTest();
+        }
+    }
+
+    /**
+     * round-25 #5: a RE-PROMOTED FE must drop its obsolete in-memory progress and reload
+     * the durable checkpoint before capturing again. The other leader may have advanced or
+     * (for queued retries) rewound it, so resuming from the stale local cursor would skip
+     * exactly the rows that leader queued (or re-consume rows it already handled).
+     */
+    @Test
+    public void testPromotionReloadsTheDurableCheckpoint() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            String tail = "[\"10.0.0.3\",\"h3\",\"300\",\"30\",\"m3\"]";
+            // the new master's checkpoint: a DIFFERENT cursor, rewound for a queued retry
+            ResultRow newMasters = new ResultRow(List.of(
+                    "999", "500", "600", "42", "2026-01-03 00:00:00", "qid-new",
+                    "{\"k\":1}", "{\"k\":1}", tail));
+            AtomicInteger reads = new AtomicInteger();
+            manager.setCheckpointReaderForTest(() -> {
+                reads.incrementAndGet();
+                return List.of(newMasters);
+            });
+            RecordingScanner scanner = new RecordingScanner(List.of(), true,
+                    AuditLogScanner.CURSOR_ABSENT, "", "", "");
+            manager.setScannerForTest(scanner);
+            List<String> statements = new ArrayList<>();
+            manager.setCheckpointWriterForTest((sql, params) -> statements.add(sql));
+
+            manager.reloadCheckpointOnPromotion();
+            Assertions.assertFalse(manager.isCheckpointLoadedForTest(),
+                    "promotion must drop the stale local progress");
+
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(1, reads.get(), "the re-promoted FE re-reads the checkpoint");
+            Assertions.assertEquals(1, scanner.calls.get());
+            Assertions.assertEquals(42L, scanner.cursors.get(0)[0],
+                    "the scan must resume from the NEW master's cursor, not from the"
+                            + " obsolete local progress");
+            Assertions.assertEquals("2026-01-03 00:00:00", scanner.cursors.get(0)[1]);
+            Assertions.assertEquals("qid-new", scanner.cursors.get(0)[2]);
+            Assertions.assertEquals(tail, scanner.tails.get(0),
+                    "the queued-retry cursor tail must survive the reload");
+            Assertions.assertTrue(manager.isCheckpointLoadedForTest(),
+                    "the reloaded checkpoint stays loaded for the next cycle");
+        } finally {
+            manager.checkpointLeadershipProbeForTest = null;
+            manager.resetForTest();
+        }
+    }
 }
