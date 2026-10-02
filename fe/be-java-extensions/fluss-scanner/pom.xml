@@ -65,6 +65,28 @@ under the License.
         </dependency>
 
         <!--
+          Doris's copies of the fluss-client classes that would end BE when a client thread dies
+          (FatalExitExceptionHandler, ShutdownableThread; see that module). copy-dependencies puts
+          its jar in this plugin's directory, where its Doris-Shadows-Classes manifest entry makes
+          PluginRuntime search it ahead of fluss-client. Declared BEFORE fluss-client because
+          surefire's classpath follows declaration order, so the tests run on the copies the
+          deployed plugin runs on - FlussClientThreadDeathTest depends on that. Every transitive is
+          excluded: the module's own dependency is provided, so all that could come along are the
+          logging artifacts the fe parent pom declares on every module.
+        -->
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fluss-client-patch</artifactId>
+            <version>${project.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!--
           The whole fluss client, as one ~69MB unrelocated fat jar: fluss-common, fluss-rpc,
           frocksdbjni (with its natives, for the kv-snapshot path), a relocated Arrow
           (org.apache.fluss.shaded.arrow.**, allocator included) and slf4j-api 1.7 are all inside
@@ -224,52 +246,6 @@ under the License.
                         </classpathDependencyExclude>
                     </classpathDependencyExcludes>
                 </configuration>
-            </plugin>
-            <!--
-              The plugin's own classes go into fluss-scanner.jar; the fluss classes it patches
-              (org.apache.fluss.utils.FatalExitExceptionHandler and
-              org.apache.fluss.utils.concurrent.ShutdownableThread, see their headers: fluss's
-              versions stop the whole BE when one of the client's threads dies) go into a jar of
-              their own, written straight into target/lib so that build.sh deploys it with the
-              dependencies. That jar names the classes in Doris-Shadows-Classes, which is what makes
-              PluginRuntime search it ahead of fluss-client's copies; the layout check
-              (tools/be-java-plugins/check_plugin_layout.py) requires a shadowing jar to hold nothing
-              but the classes it names, hence two jars from one module. Merged with the parent's
-              Doris-Jni-Plugin-Api-Version entry, not replacing it. The tests need none of this:
-              surefire puts target/classes ahead of every dependency.
-            -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-jar-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>default-jar</id>
-                        <configuration>
-                            <excludes>
-                                <exclude>org/apache/fluss/**</exclude>
-                            </excludes>
-                        </configuration>
-                    </execution>
-                    <execution>
-                        <id>fluss-client-patch</id>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>jar</goal>
-                        </goals>
-                        <configuration>
-                            <classifier>fluss-client-patch</classifier>
-                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
-                            <includes>
-                                <include>org/apache/fluss/**</include>
-                            </includes>
-                            <archive>
-                                <manifestEntries>
-                                    <Doris-Shadows-Classes>org.apache.fluss.utils.FatalExitExceptionHandler,org.apache.fluss.utils.concurrent.ShutdownableThread</Doris-Shadows-Classes>
-                                </manifestEntries>
-                            </archive>
-                        </configuration>
-                    </execution>
-                </executions>
             </plugin>
             <!--
               A plugin is a directory of jars, not one jar with everything shaded into it. Its own
