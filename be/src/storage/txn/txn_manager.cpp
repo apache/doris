@@ -980,6 +980,32 @@ void TxnManager::get_txn_related_tablets(
     }
 }
 
+Status TxnManager::get_publishable_tablet_txn_info(TPartitionId partition_id,
+                                                   TTransactionId transaction_id,
+                                                   const TabletInfo& tablet_info, bool require_mow,
+                                                   std::shared_ptr<TabletTxnInfo>* txn_info) {
+    txn_info->reset();
+    std::shared_lock txn_rdlock(_get_txn_map_lock(transaction_id));
+    auto& txn_tablet_map = _get_txn_tablet_map(transaction_id);
+    auto txn_iter = txn_tablet_map.find(TxnKey(partition_id, transaction_id));
+    if (txn_iter != txn_tablet_map.end()) {
+        auto tablet_iter = txn_iter->second.find(tablet_info);
+        if (tablet_iter != txn_iter->second.end()) {
+            const auto& info = tablet_iter->second;
+            if (info->rowset != nullptr && info->state == TxnState::COMMITTED &&
+                (!require_mow ||
+                 (info->unique_key_merge_on_write && info->delete_bitmap != nullptr))) {
+                *txn_info = info;
+                return Status::OK();
+            }
+        }
+    }
+    return Status::Error<TRANSACTION_NOT_EXIST, false>(
+            "local transaction is not ready for publish, partition_id={}, transaction_id={}, "
+            "tablet={}",
+            partition_id, transaction_id, tablet_info.to_string());
+}
+
 void TxnManager::get_all_related_tablets(std::set<TabletInfo>* tablet_infos) {
     for (int32_t i = 0; i < _txn_map_shard_size; i++) {
         std::shared_lock txn_rdlock(_txn_map_locks[i]);

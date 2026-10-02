@@ -141,10 +141,12 @@ TEST_F(StorageEngineTest, TestAsyncPublish) {
     TabletSharedPtr tablet = _storage_engine->tablet_manager()->get_tablet(tablet_id);
     EXPECT_EQ(tablet->max_version().second, 10);
 
-    for (int64_t i = 5; i < 12; ++i) {
-        _storage_engine->add_async_publish_task(partition_id, tablet_id, i, i, false, i * 10);
+    for (int64_t i = 5; i < 11; ++i) {
+        ASSERT_TRUE(_storage_engine
+                            ->add_async_publish_task(partition_id, tablet_id, i, i, false, i * 10)
+                            .ok());
     }
-    EXPECT_EQ(_storage_engine->_async_publish_tasks[tablet_id].size(), 7);
+    EXPECT_EQ(_storage_engine->_async_publish_tasks[tablet_id].size(), 6);
     EXPECT_EQ(_storage_engine->get_pending_publish_min_version(tablet_id), 5);
 
     std::unordered_map<int64_t, int64_t> version_to_commit_tso;
@@ -162,23 +164,29 @@ TEST_F(StorageEngineTest, TestAsyncPublish) {
             });
     EXPECT_TRUE(st.ok()) << st;
     EXPECT_EQ(version_to_commit_tso[5], 50);
-    EXPECT_EQ(version_to_commit_tso[11], 110);
+    EXPECT_EQ(version_to_commit_tso[10], 100);
 
-    for (int64_t i = 1; i < 8; ++i) {
+    for (int64_t i = 1; i < 7; ++i) {
         _storage_engine->_process_async_publish();
-        EXPECT_EQ(_storage_engine->_async_publish_tasks[tablet_id].size(), 7 - i);
+        EXPECT_EQ(_storage_engine->_async_publish_tasks[tablet_id].size(), 6 - i);
     }
     _storage_engine->_process_async_publish();
     EXPECT_EQ(_storage_engine->_async_publish_tasks.size(), 0);
 
     for (int64_t i = 100; i < config::max_tablet_version_num + 120; ++i) {
-        _storage_engine->add_async_publish_task(partition_id, tablet_id, i, i, false, -1 /*tso*/);
+        ASSERT_TRUE(
+                _storage_engine
+                        ->add_async_publish_task(partition_id, tablet_id, i, i, false, -1 /*tso*/)
+                        .ok());
     }
     EXPECT_EQ(_storage_engine->_async_publish_tasks[tablet_id].size(),
               config::max_tablet_version_num + 20);
 
     for (int64_t i = 90; i < 120; ++i) {
-        _storage_engine->add_async_publish_task(partition_id, tablet_id, i, i, false, -1 /*tso*/);
+        ASSERT_TRUE(
+                _storage_engine
+                        ->add_async_publish_task(partition_id, tablet_id, i, i, false, -1 /*tso*/)
+                        .ok());
     }
     EXPECT_EQ(_storage_engine->_async_publish_tasks[tablet_id].size(),
               config::max_tablet_version_num + 30);
