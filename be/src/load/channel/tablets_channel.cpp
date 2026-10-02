@@ -234,6 +234,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
         wrequest.txn_id = _txn_id;
         wrequest.partition_id = tablet.partition_id();
         wrequest.load_id = params.id();
+        wrequest.delete_bitmap_cancellation = _delete_bitmap_cancellation;
         wrequest.tuple_desc = _tuple_desc;
         wrequest.slots = index_slots;
         wrequest.is_high_priority = _is_high_priority;
@@ -572,6 +573,7 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
                 .write_file_cache = request.write_file_cache(),
                 .storage_vault_id = request.storage_vault_id(),
                 .enable_table_memtable_backpressure = request.is_adaptive_random_bucket(),
+                .delete_bitmap_cancellation = _delete_bitmap_cancellation,
         };
         if (tablet.has_binlog_tablet_id()) {
             wrequest.binlog_tablet_id = tablet.binlog_tablet_id();

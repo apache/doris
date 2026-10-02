@@ -88,6 +88,17 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
         if (it != _load_channels.end()) {
             channel = it->second;
         } else {
+            // Reordered/retried opens must not create a new generation behind a
+            // live terminal record. A completed load can acknowledge a duplicate
+            // open without creating writers; a failed load returns its first error.
+            auto* handle = _load_state_channels->lookup(load_id.to_string());
+            if (handle != nullptr) {
+                auto* value = static_cast<CacheValue*>(_load_state_channels->value(handle));
+                auto status =
+                        value != nullptr ? Status::Cancelled(value->_cancel_reason) : Status::OK();
+                _load_state_channels->release(handle);
+                return status;
+            }
             // create a new load channel
             int64_t timeout_in_req_s =
                     params.has_load_channel_timeout_s() ? params.load_channel_timeout_s() : -1;
@@ -183,22 +194,62 @@ Status LoadChannelMgr::add_batch(const PTabletWriterAddBlockRequest& request,
 
     // 4. handle finish
     if (channel->is_finished()) {
-        _finish_load_channel(load_id);
+        RETURN_IF_ERROR(_finish_load_channel(load_id, channel));
     }
     return Status::OK();
 }
 
-void LoadChannelMgr::_finish_load_channel(const UniqueId load_id) {
-    VLOG_NOTICE << "removing load channel " << load_id << " because it's finished";
-    {
-        std::lock_guard<std::mutex> l(_lock);
-        if (_load_channels.contains(load_id)) {
-            _load_channels.erase(load_id);
-        }
-        auto* handle = _load_state_channels->insert(load_id.to_string(), nullptr, 1, 1);
-        _load_state_channels->release(handle);
+Status LoadChannelMgr::_finish_load_channel(const UniqueId& load_id,
+                                            const std::shared_ptr<LoadChannel>& channel) {
+    std::lock_guard<std::mutex> l(_lock);
+    auto it = _load_channels.find(load_id);
+    if (it != _load_channels.end() && it->second != channel) {
+        return Status::Cancelled("Load channel {} has been replaced", load_id.to_string());
     }
-    VLOG_CRITICAL << "removed load channel " << load_id;
+
+    // Cancellation/timeout removes the channel and records its terminal state under
+    // this same lock, before draining bitmap work. A late EOS must not overwrite it.
+    auto* existing_handle = _load_state_channels->lookup(load_id.to_string());
+    if (existing_handle != nullptr) {
+        auto* value = static_cast<CacheValue*>(_load_state_channels->value(existing_handle));
+        auto status = value != nullptr ? Status::Cancelled(value->_cancel_reason) : Status::OK();
+        _load_state_channels->release(existing_handle);
+        if (it != _load_channels.end()) {
+            _load_channels.erase(it);
+        }
+        return status;
+    }
+    if (it == _load_channels.end()) {
+        // Even if its terminal cache entry was evicted, a removed channel cannot succeed.
+        return Status::Cancelled("Load channel {} is no longer active", load_id.to_string());
+    }
+    if (channel->is_cancelled()) {
+        _record_cancelled_load(load_id, "load channel cancelled");
+        _load_channels.erase(it);
+        return Status::Cancelled("load channel cancelled");
+    }
+    _load_channels.erase(it);
+    auto* handle = _load_state_channels->insert(load_id.to_string(), nullptr, 1, 1);
+    _load_state_channels->release(handle);
+    VLOG_CRITICAL << "removed finished load channel " << load_id;
+    return Status::OK();
+}
+
+void LoadChannelMgr::_record_cancelled_load(const UniqueId& load_id, const std::string& reason) {
+    auto* existing_handle = _load_state_channels->lookup(load_id.to_string());
+    if (existing_handle != nullptr) {
+        _load_state_channels->release(existing_handle);
+        return;
+    }
+    auto value = std::make_unique<CacheValue>();
+    value->_cancel_reason = reason.empty() ? "load channel cancelled" : reason;
+    LOG(INFO) << "load_id = " << print_id(load_id)
+              << ", record_error reason = " << value->_cancel_reason;
+    size_t cache_capacity = value->_cancel_reason.capacity() + sizeof(CacheValue);
+    auto* handle =
+            _load_state_channels->insert(load_id.to_string(), value.get(), 1, cache_capacity);
+    value.release();
+    _load_state_channels->release(handle);
 }
 
 Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
@@ -210,24 +261,7 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
             cancelled_channel = _load_channels[load_id];
             _load_channels.erase(load_id);
         }
-        // We just need to record the first cancel msg
-        auto* existing_handle = _load_state_channels->lookup(load_id.to_string());
-        if (existing_handle == nullptr) {
-            if (params.has_cancel_reason() && !params.cancel_reason().empty()) {
-                std::unique_ptr<CacheValue> cancel_reason_ptr = std::make_unique<CacheValue>();
-                cancel_reason_ptr->_cancel_reason = params.cancel_reason();
-                size_t cache_capacity =
-                        cancel_reason_ptr->_cancel_reason.capacity() + sizeof(CacheValue);
-                auto* handle = _load_state_channels->insert(
-                        load_id.to_string(), cancel_reason_ptr.get(), 1, cache_capacity);
-                cancel_reason_ptr.release();
-                _load_state_channels->release(handle);
-                LOG(INFO) << fmt::format("load_id = {}, record_error reason = {}",
-                                         print_id(load_id), params.cancel_reason());
-            }
-        } else {
-            _load_state_channels->release(existing_handle);
-        }
+        _record_cancelled_load(load_id, params.cancel_reason());
     }
 
     if (cancelled_channel != nullptr) {
@@ -270,6 +304,7 @@ Status LoadChannelMgr::_start_load_channels_clean() {
         }
 
         for (auto& key : need_delete_channel_ids) {
+            _record_cancelled_load(key, "load channel timed out");
             _load_channels.erase(key);
             LOG(INFO) << "erase timeout load channel: " << key;
         }
