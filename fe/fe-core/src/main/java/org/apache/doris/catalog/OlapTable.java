@@ -2026,6 +2026,16 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             sb.append(Util.getSchemaSignatureString(partitionColumns));
         }
 
+        // Restore compares only intersecting partition names, which can be empty when appending
+        // partitions. The table-wide hash must still match because writes use the default layout.
+        // Keep the legacy signature unchanged for CRC32 and random distribution.
+        if (defaultDistributionInfo instanceof HashDistributionInfo) {
+            HashDistributionInfo.HashType hashType = ((HashDistributionInfo) defaultDistributionInfo).getHashType();
+            if (hashType != HashDistributionInfo.HashType.CRC32) {
+                sb.append(hashType);
+            }
+        }
+
         // partition and distribution
         Collections.sort(partNames, String.CASE_INSENSITIVE_ORDER);
         for (String partName : partNames) {
@@ -2038,6 +2048,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
                 sb.append(Util.getSchemaSignatureString(hashDistributionInfo.getDistributionColumns()));
                 sb.append(hashDistributionInfo.getBucketNum());
+                sb.append(hashDistributionInfo.getHashType());
             }
         }
 

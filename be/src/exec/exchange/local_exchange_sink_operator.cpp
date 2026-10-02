@@ -50,7 +50,17 @@ Status LocalExchangeSinkOperatorX::_create_partitioner(RuntimeState* state, int 
         RETURN_IF_ERROR(_partitioner->init(_texprs));
     } else if (_type == TLocalPartitionType::BUCKET_HASH_SHUFFLE) {
         DCHECK_GT(bucket_count, 0);
-        _partitioner = std::make_unique<Crc32HashPartitioner<ShuffleChannelIds>>(bucket_count);
+        switch (_distribution_hash_type) {
+        case TDistributionHashType::CRC32:
+            _partitioner = std::make_unique<Crc32HashPartitioner<ShuffleChannelIds>>(bucket_count);
+            break;
+        case TDistributionHashType::IDENTITY:
+            _partitioner = std::make_unique<IdentityHashPartitioner>(bucket_count);
+            break;
+        default:
+            return Status::InternalError("unsupported distribution_hash_type {}",
+                                         static_cast<int>(_distribution_hash_type));
+        }
         RETURN_IF_ERROR(_partitioner->init(_texprs));
     }
     return Status::OK();

@@ -24,10 +24,12 @@ import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.foundation.util.BitUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TDistributionHashType;
 import org.apache.doris.thrift.TMinMaxRuntimeFilterType;
 import org.apache.doris.thrift.TPartitionTargetExprMonotonicity;
 import org.apache.doris.thrift.TRuntimeFilterDesc;
@@ -146,6 +148,7 @@ public final class RuntimeFilter {
             = new HashMap<>();
     private final Set<PlanNodeId> partitionPruningTargetScanIds = new HashSet<>();
     private final Set<PlanNodeId> bucketPruningTargetScanIds = new HashSet<>();
+    private final Map<PlanNodeId, HashDistributionInfo.HashType> bucketPruningTargetHashTypes = new HashMap<>();
 
     /**
      * Internal representation of a runtime filter target.
@@ -389,6 +392,10 @@ public final class RuntimeFilter {
             tFilter.setBucketPruningTargetIds(bucketPruningTargetScanIds.stream()
                     .map(PlanNodeId::asInt)
                     .collect(Collectors.toSet()));
+            Map<Integer, TDistributionHashType> hashTypes = new HashMap<>();
+            bucketPruningTargetHashTypes.forEach((nodeId, hashType) ->
+                    hashTypes.put(nodeId.asInt(), DataPartition.toTHashType(hashType)));
+            tFilter.setBucketPruningTargetHashTypes(hashTypes);
         }
 
         return tFilter;
@@ -422,8 +429,10 @@ public final class RuntimeFilter {
         return partitionPruningTargetScanIds.contains(scanNodeId);
     }
 
-    public void markTargetCanPruneBuckets(PlanNodeId scanNodeId) {
+    public void markTargetCanPruneBuckets(PlanNodeId scanNodeId,
+            HashDistributionInfo.HashType hashType) {
         bucketPruningTargetScanIds.add(scanNodeId);
+        bucketPruningTargetHashTypes.put(scanNodeId, hashType);
     }
 
     public boolean canPruneBucketsFor(PlanNodeId scanNodeId) {
