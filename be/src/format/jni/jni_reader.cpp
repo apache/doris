@@ -31,6 +31,7 @@
 #include "format/table/partition_column_filler.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
+#include "util/defer_op.h"
 #include "util/jni-util.h"
 
 namespace doris {
@@ -131,6 +132,7 @@ Status JniReader::open(RuntimeState* state, RuntimeProfile* profile) {
         _java_create_vector_table_time =
                 ADD_CHILD_TIMER(_profile, "JavaCreateVectorTableTime", _connector_name.c_str());
         _fill_block_time = ADD_CHILD_TIMER(_profile, "FillBlockTime", _connector_name.c_str());
+        _jvm_heap_wait_time = ADD_CHILD_TIMER(_profile, "JvmHeapWaitTime", _connector_name.c_str());
         _max_time_split_weight_counter = _profile->add_conditition_counter(
                 "MaxTimeSplitWeight", TUnit::UNIT, [](int64_t _c, int64_t c) { return c > _c; },
                 _connector_name.c_str());
@@ -144,6 +146,21 @@ Status JniReader::open(RuntimeState* state, RuntimeProfile* profile) {
     }
     _batch_size = batch_size;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
+    int64_t heap_wait_ns = 0;
+    RETURN_IF_ERROR(JniScanHeapGate::instance()->acquire(
+            // A cancelled query opens without waiting for heap and stops at its next block.
+            [this]() { return _state != nullptr && _state->is_cancelled(); }, &_heap_permit,
+            &heap_wait_ns));
+    if (_profile != nullptr) {
+        COUNTER_UPDATE(_jvm_heap_wait_time, heap_wait_ns);
+    }
+    // The permit covers the Java scanner: close() releases it, and here it goes if the scanner
+    // did not open.
+    Defer release_unless_opened {[this]() {
+        if (!_scanner_opened) {
+            _heap_permit.release();
+        }
+    }};
     SCOPED_RAW_TIMER(&_jni_scanner_open_watcher);
     if (_state) {
         _scanner_params.emplace("time_zone", _state->timezone());
@@ -170,6 +187,8 @@ Status JniReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof)
         RETURN_IF_ERROR(_jni_scanner_obj.call_long_method(env, _scanner_api->get_next_batch_meta)
                                 .call(&meta_address));
     }
+    // Whatever the scanner holds now is in the heap the gate measures.
+    _heap_permit.opened();
     if (meta_address == 0) {
         *read_rows = 0;
         *eof = true;
@@ -215,6 +234,7 @@ Status JniReader::close() {
         close_status = std::move(java_close_status);
     }
     if (close_status.ok()) {
+        _heap_permit.release();
         _scanner_opened = false;
         _closed = true;
     }

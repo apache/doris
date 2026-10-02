@@ -455,6 +455,11 @@ Status FlussUnionLakeReader::_read_tail_keys(const Tail& tail, SuppressionKeys* 
     // just as surely as one it updated, and what the tail ended up saying is contributed by its own
     // range, not by this read.
     FlussJniReader reader;
+    // The lake split this tail suppresses is already prepared, and when the lake half is read
+    // through JNI (a merge read of an uncompacted primary-key table) its reader holds a JVM heap
+    // permit on this very thread. Waiting at the gate here would be waiting for that reader, which
+    // cannot go on before this read is done. The read is bounded by fluss.union_read.max_tail_rows.
+    reader.exempt_from_heap_gate();
     // On the scan's own profile, deliberately: this read therefore also lands in the FlussJniScanner
     // node beside the log-side ranges, so the Java-side breakdown there - how much of it was fluss's
     // own scan against how much was moving the rows across JNI - covers the tail read as well. The

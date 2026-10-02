@@ -1895,6 +1895,14 @@ DECLARE_mDouble(max_hdfs_wirter_jni_heap_usage_ratio);
 DECLARE_mInt64(hdfs_jni_write_sleep_milliseconds);
 // The max retry times when hdfs write failed
 DECLARE_mInt64(hdfs_jni_write_max_retry_time);
+// Whether a JNI scanner waits for JVM heap before it opens (util/jni_scan_heap_gate.h)
+DECLARE_mBool(enable_jni_scanner_heap_limiter);
+// The share of the JVM's maximum heap that JNI scanners are admitted into
+DECLARE_mDouble(jni_scanner_max_heap_usage_ratio);
+// The JVM heap reserved, in MB, for an admitted JNI scanner until it produces its first batch
+DECLARE_mInt64(jni_scanner_heap_reserved_mb_per_open);
+// The longest a JNI scanner waits for JVM heap before it opens anyway, in milliseconds
+DECLARE_mInt64(jni_scanner_heap_max_wait_ms);
 
 // The min thread num for NonBlockCloseThreadPool
 DECLARE_Int64(min_nonblock_close_thread_num);

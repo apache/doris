@@ -31,6 +31,7 @@
 #include "runtime/runtime_profile.h"
 #include "util/jni-util.h"
 #include "util/jni_plugin_registry.h"
+#include "util/jni_scan_heap_gate.h"
 #include "util/profile_collector.h"
 #include "util/string_util.h"
 
@@ -155,6 +156,7 @@ private:
     RuntimeProfile::Counter* _java_append_data_time = nullptr;
     RuntimeProfile::Counter* _java_create_vector_table_time = nullptr;
     RuntimeProfile::Counter* _fill_block_time = nullptr;
+    RuntimeProfile::Counter* _jvm_heap_wait_time = nullptr;
     RuntimeProfile::ConditionCounter* _max_time_split_weight_counter = nullptr;
 
     int64_t _jni_scanner_open_watcher = 0;
@@ -165,6 +167,9 @@ private:
 
     bool _closed = false;
     bool _scanner_opened = false;
+    // Admits the Java scanner by the JVM heap left (util/jni_scan_heap_gate.h). Held while the
+    // scanner is open; marked opened once it produced its first batch.
+    JniScanHeapGate::Permit _heap_permit;
 
     Jni::GlobalObject _jni_scanner_obj;
     // Resolved on the SPI base class and shared by every reader in the process, so this is a
