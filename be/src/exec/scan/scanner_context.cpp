@@ -146,10 +146,8 @@ int ScannerContext::_available_pickup_scanner_count() {
         return _max_scan_concurrency;
     }
 
-    int min_scanners = std::max(1, _min_scan_concurrency);
     int max_scanners = _scanner_mem_limiter->available_scanner_count(_ins_idx);
     max_scanners = std::min(max_scanners, _max_scan_concurrency);
-    min_scanners = std::min(min_scanners, max_scanners);
     if (_ins_idx == 0) {
         // Adjust memory limit via memory share arbitrator
         _adjust_scan_mem_limit(_scanner_mem_limiter->get_arb_scanner_mem_bytes(),
@@ -166,14 +164,17 @@ int ScannerContext::_available_pickup_scanner_count() {
     P.adjust_scanners_last_timestamp = now;
     auto old_scanners = P.expected_scanners;
 
-    scanners = std::max(min_scanners, scanners);
-    scanners = std::min(max_scanners, scanners);
+    // The memory limiter is what adapts: its ceiling shrinks when blocks are estimated larger or
+    // the query's scan budget is shared by more scan nodes, and grows back when they are not. Take
+    // the whole ceiling. Clamping the previous value into [minimum, ceiling] instead never raises
+    // it above the minimum, since expected_scanners starts at zero, so every scan would keep a
+    // single scanner however much memory there is. The ceiling still wins over the minimum, and a
+    // scheduler without slack still holds the Context at its minimum in _get_margin() and
+    // can_admit_scan_task().
+    scanners = max_scanners;
     VLOG_DEBUG << fmt::format(
-            "_available_pickup_scanner_count. context = {}, old_scanners = {}, scanners = {} "
-            ", min_scanners: {}, max_scanners: {}",
-            debug_string(), old_scanners, scanners, min_scanners, max_scanners);
-
-    // TODO(gabriel): Scanners are scheduled adaptively based on the memory usage now.
+            "_available_pickup_scanner_count. context = {}, old_scanners = {}, scanners = {}",
+            debug_string(), old_scanners, scanners);
     return scanners;
 }
 
