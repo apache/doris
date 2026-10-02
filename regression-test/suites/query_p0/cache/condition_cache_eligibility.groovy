@@ -78,7 +78,11 @@ suite("condition_cache_eligibility", "nonConcurrent") {
                     "array_shuffle(a, 1) = [1,2,3,4,5,6,7]",
                     "shuffle(a, 1) = [1,2,3,4,5,6,7]",
                     "CAST(TIMEDIFF(dt1, dt2) AS DATE) = CURRENT_DATE()",
-                    "CAST(TIMEDIFF(dt1, dt2) AS DATETIME) = CAST(CURRENT_DATE() AS DATETIME)"]) {
+                    "CAST(TIMEDIFF(dt1, dt2) AS DATETIME) = CAST(CURRENT_DATE() AS DATETIME)",
+                    "CAST(ARRAY(TIMEDIFF(dt1, dt2)) AS ARRAY<DATETIME>)[1] = CAST(CURRENT_DATE() AS DATETIME)",
+                    "CAST(MAP(1, TIMEDIFF(dt1, dt2)) AS MAP<INT, DATETIME>)[1] = CAST(CURRENT_DATE() AS DATETIME)",
+                    "STRUCT_ELEMENT(CAST(STRUCT(k, TIMEDIFF(dt1, dt2)) AS STRUCT<id:BIGINT, d:DATETIME>), 2)"
+                            + " = CAST(CURRENT_DATE() AS DATETIME)"]) {
                 long before = cacheLookups()
                 2.times {
                     // Keep one-row batches inexpensive under ASAN while retaining the volatile scan predicate.
@@ -88,6 +92,45 @@ suite("condition_cache_eligibility", "nonConcurrent") {
                         "Volatile scan looked up condition cache: batch_size=${batchSize}, ${predicate}")
             }
         }
+
+        sql "DROP TABLE IF EXISTS condition_cache_rf_probe"
+        sql """
+            CREATE TABLE condition_cache_rf_probe (k BIGINT, s STRING NOT NULL)
+            DUPLICATE KEY(k) DISTRIBUTED BY HASH(k) BUCKETS 1
+            PROPERTIES ("replication_num" = "1")
+        """
+        sql """
+            INSERT INTO condition_cache_rf_probe
+            SELECT number, '00:00:00' FROM numbers("number" = "10000")
+        """
+        sql "DROP TABLE IF EXISTS condition_cache_rf_build"
+        sql """
+            CREATE TABLE condition_cache_rf_build (d DATETIME NOT NULL)
+            DUPLICATE KEY(d) DISTRIBUTED BY HASH(d) BUCKETS 1
+            PROPERTIES ("replication_num" = "1")
+        """
+        // Keep the expected join count stable even if these executions cross midnight.
+        sql """
+            INSERT INTO condition_cache_rf_build VALUES
+                (CURRENT_DATE() - INTERVAL 1 DAY), (CURRENT_DATE()), (CURRENT_DATE() + INTERVAL 1 DAY)
+        """
+        sql "set enable_runtime_filter_prune = false"
+        sql "set runtime_filter_wait_infinitely = true"
+        sql "set disable_join_reorder = true"
+        def rfQuery = """
+            SELECT count(*) FROM condition_cache_rf_probe p
+            JOIN [broadcast] condition_cache_rf_build b
+            ON CAST(CAST(p.s AS TIME) AS DATETIME) = b.d
+        """
+        explain {
+            sql rfQuery
+            contains "RF"
+            contains "CAST(CAST"
+        }
+        long beforeRuntimeFilter = cacheLookups()
+        order_qt_volatile_rf_first rfQuery
+        order_qt_volatile_rf_second rfQuery
+        assertEquals(beforeRuntimeFilter, cacheLookups(), "Volatile runtime-filter probe looked up condition cache")
 
         sql "set enable_profile = false"
         def token = UUID.randomUUID().toString()
