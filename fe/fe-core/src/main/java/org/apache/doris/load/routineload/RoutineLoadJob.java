@@ -284,10 +284,6 @@ public abstract class RoutineLoadJob
     @SerializedName("ccid")
     private String cloudClusterId;
 
-    protected byte enclose = 0;
-
-    protected byte escape = 0;
-
     protected boolean emptyFieldAsNull = false;
 
     // use for cloud cluster mode
@@ -417,8 +413,6 @@ public abstract class RoutineLoadJob
                     new String(new byte[]{csvFileFormatProperties.getEscape()}));
             jobProperties.put(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL,
                     String.valueOf(csvFileFormatProperties.getEmptyFieldAsNull()));
-            this.enclose = csvFileFormatProperties.getEnclose();
-            this.escape = csvFileFormatProperties.getEscape();
             this.emptyFieldAsNull = csvFileFormatProperties.getEmptyFieldAsNull();
         } else if (fileFormatProperties instanceof JsonFileFormatProperties) {
             JsonFileFormatProperties jsonFileFormatProperties = (JsonFileFormatProperties) fileFormatProperties;
@@ -621,11 +615,13 @@ public abstract class RoutineLoadJob
     }
 
     public byte getEnclose() {
-        return enclose;
+        String value = jobProperties.get(CsvFileFormatProperties.PROP_ENCLOSE);
+        return Strings.isNullOrEmpty(value) ? 0 : (byte) value.charAt(0);
     }
 
     public byte getEscape() {
-        return escape;
+        String value = jobProperties.get(CsvFileFormatProperties.PROP_ESCAPE);
+        return Strings.isNullOrEmpty(value) ? 0 : value.getBytes()[0];
     }
 
     public boolean getEmptyFieldAsNull() {
