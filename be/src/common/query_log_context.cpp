@@ -54,7 +54,7 @@ void set_query_log_identity(QueryLogIdentity* identity) {
 void write_log_id(std::ostream& stream, uint64_t hi, uint64_t lo) {
     // At most 16 hex digits per half plus the separator. No formatting allocation.
     char buffer[33];
-    auto first = std::to_chars(buffer, buffer + sizeof(buffer), hi, 16);
+    auto first = std::to_chars(buffer, buffer + 16, hi, 16);
     *first.ptr++ = '-';
     auto last = std::to_chars(first.ptr, buffer + sizeof(buffer), lo, 16);
     stream.write(buffer, static_cast<std::streamsize>(last.ptr - buffer));
