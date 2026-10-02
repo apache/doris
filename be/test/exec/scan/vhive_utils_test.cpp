@@ -67,4 +67,19 @@ TEST_F(VHiveUtilsTest, test_make_partition_name) {
     }
 }
 
+TEST_F(VHiveUtilsTest, test_make_delta_partition_name) {
+    std::vector<THiveColumn> columns;
+    THiveColumn column1;
+    column1.name = "PartitionTwo";
+    columns.emplace_back(std::move(column1));
+    THiveColumn column2;
+    column2.name = "PartitionOne";
+    columns.emplace_back(std::move(column2));
+
+    std::vector<int> partition_columns_input_index = {0, 1};
+    EXPECT_EQ("PartitionTwo=two/PartitionOne=",
+              VHiveUtils::make_partition_name(columns, partition_columns_input_index, {"two", ""},
+                                              false));
+}
+
 } // namespace doris

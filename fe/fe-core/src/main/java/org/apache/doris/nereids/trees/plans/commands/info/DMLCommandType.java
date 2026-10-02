@@ -37,5 +37,7 @@ public enum DMLCommandType {
     MERGE,
     // for all other load jobs, including Stream Load, Broker Load, S3 Load
     // Routine Load etc.
-    LOAD
+    LOAD,
+    // for MERGE INTO
+    MERGE
 }

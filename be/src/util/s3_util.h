@@ -28,6 +28,7 @@
 #include <gtest/gtest_prod.h>
 #endif
 
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
@@ -62,6 +63,9 @@ struct S3ClientConf {
     std::string ak;
     std::string sk;
     std::string token;
+    // Optional expiry for vended object-storage credentials, in Unix milliseconds.
+    // A zero value preserves the legacy behavior for long-lived credentials.
+    int64_t token_expiration_time_ms = 0;
     // For azure we'd better support the bucket at the first time init azure blob container client
     std::string bucket;
     io::ObjStorageProvider provider = io::ObjStorageProvider::AWS;
@@ -92,6 +96,7 @@ struct S3ClientConf {
         // Use crc32_hash(ak + sk) hash to prevent swapped AK/SK order from producing same result.
         hash_code ^= crc32_hash(ak + sk);
         hash_code ^= crc32_hash(token);
+        hash_code ^= token_expiration_time_ms;
         hash_code ^= crc32_hash(endpoint);
         hash_code ^= crc32_hash(region);
         hash_code ^= crc32_hash(bucket);
@@ -112,11 +117,11 @@ struct S3ClientConf {
     std::string to_string() const {
         return fmt::format(
                 "(ak={}, token={}, endpoint={}, region={}, bucket={}, max_connections={}, "
-                "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={}, "
+                "request_timeout_ms={}, connect_timeout_ms={}, token_expiration_time_ms={}, use_virtual_addressing={}, "
                 "cred_provider_type={},role_arn={}, external_id={}, credential_type={}, "
                 "is_internal_bucket={}",
-                hide_access_key(ak), token.empty() ? "" : "******", endpoint, region, bucket,
-                max_connections, request_timeout_ms, connect_timeout_ms, use_virtual_addressing,
+                hide_access_key(ak), token.empty() ? "<not set>" : "<set>", endpoint, region, bucket,
+                max_connections, request_timeout_ms, connect_timeout_ms, token_expiration_time_ms, use_virtual_addressing,
                 cred_provider_type, role_arn, external_id, credential_type_name(credential),
                 is_internal_bucket);
     }

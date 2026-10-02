@@ -24,6 +24,17 @@ namespace doris {
 AzureClientBuildResult AzureAuthFactory::create(
         std::string_view container_url, const AzureCredentialOptions& credential,
         Azure::Storage::Blobs::BlobClientOptions client_options) {
+    if (credential.type == AzureCredentialType::SAS) {
+        if (credential.sas_token.empty()) {
+            return {.error = "empty Azure SAS token"};
+        }
+        std::string sas_url(container_url);
+        sas_url += sas_url.find('?') == std::string::npos ? "?" : "&";
+        sas_url += credential.sas_token.front() == '?' ? credential.sas_token.substr(1)
+                                                       : credential.sas_token;
+        return {.container_client = std::make_shared<Azure::Storage::Blobs::BlobContainerClient>(
+                        std::move(sas_url), std::move(client_options))};
+    }
     if (credential.type != AzureCredentialType::SHARED_KEY) {
         return {.error = "unsupported Azure credential type"};
     }

@@ -1,0 +1,2 @@
+{"commitInfo":{"timestamp":1700000000002,"inCommitTimestamp":1700000000002,"operation":"WRITE","readVersion":1,"isolationLevel":"Serializable","isBlindAppend":true}}
+{"add":{"path":"part-00002.parquet","partitionValues":{},"size":200,"modificationTime":1700000000002,"dataChange":true}}

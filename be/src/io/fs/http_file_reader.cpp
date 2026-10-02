@@ -21,14 +21,23 @@
 #include <curl/easy.h>
 
 #include <algorithm>
+#include <charconv>
+#include <string_view>
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/cdc_client_mgr.h"
 #include "runtime/exec_env.h"
+#include "util/time.h"
 
 namespace doris::io {
+namespace {
+
+constexpr std::string_view VENDED_TOKEN_EXPIRATION_TIME_MS = "AWS_TOKEN_EXPIRATION_TIME_MS";
+constexpr std::string_view HTTP_AUTHORIZATION_HEADER = "http.header.Authorization";
+
+} // namespace
 
 Result<FileReaderSPtr> HttpFileReader::create(const std::string& url,
                                               const std::map<std::string, std::string>& props,
@@ -467,6 +476,7 @@ Status HttpFileReader::prepare_client(bool set_fail_on_error) {
     if (!_client) {
         return Status::InternalError("HttpClient is not initialized");
     }
+    RETURN_IF_ERROR(validate_vended_token_lifetime());
 
     // Initialize the HTTP client with URL
     RETURN_IF_ERROR(_client->init(_url, set_fail_on_error));
@@ -478,6 +488,29 @@ Status HttpFileReader::prepare_client(bool set_fail_on_error) {
         }
     }
 
+    return Status::OK();
+}
+
+Status HttpFileReader::validate_vended_token_lifetime() const {
+    auto expiration = _extend_kv.find(std::string(VENDED_TOKEN_EXPIRATION_TIME_MS));
+    if (expiration == _extend_kv.end()) {
+        return Status::OK();
+    }
+    auto authorization = _extend_kv.find(std::string(HTTP_AUTHORIZATION_HEADER));
+    if (authorization == _extend_kv.end() || authorization->second.empty()) {
+        return Status::InvalidArgument(
+                "HTTP vended-token expiry is set without an Authorization header");
+    }
+    int64_t expiration_time_ms = 0;
+    const std::string& value = expiration->second;
+    auto [end, error] =
+            std::from_chars(value.data(), value.data() + value.size(), expiration_time_ms);
+    if (error != std::errc {} || end != value.data() + value.size() || expiration_time_ms <= 0) {
+        return Status::InvalidArgument("Invalid HTTP vended-token expiration time");
+    }
+    if (expiration_time_ms <= UnixMillis()) {
+        return Status::InvalidArgument("HTTP vended token is expired");
+    }
     return Status::OK();
 }
 

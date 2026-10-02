@@ -30,12 +30,14 @@ namespace doris {
 
 enum class AzureCredentialType {
     SHARED_KEY,
+    SAS,
 };
 
 struct AzureCredentialOptions {
     AzureCredentialType type = AzureCredentialType::SHARED_KEY;
     std::string account_name;
     std::string account_key;
+    std::string sas_token;
 };
 
 struct AzureClientBuildResult {

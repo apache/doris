@@ -52,4 +52,13 @@ public class ConnectorWritePlanProviderDefaultsTest {
                         + "would signal a present-but-empty sort order) so its sink output stays "
                         + "byte-identical with no engine-built TSortInfo");
     }
+
+    @Test
+    public void existingConnectorsDoNotOptIntoCopyOnWrite() {
+        Assertions.assertFalse(new BareWritePlanProvider().supportsCopyOnWriteDml());
+        ConnectorTableHandle unversionedTable = new ConnectorTableHandle() {
+        };
+        Assertions.assertFalse(unversionedTable.getCopyOnWriteSnapshotVersion().isPresent(),
+                "an unversioned handle must not invent snapshot zero for a copy-on-write base");
+    }
 }

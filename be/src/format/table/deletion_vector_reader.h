@@ -48,13 +48,20 @@ struct DeleteFileDesc {
     enum class Format {
         PAIMON,
         ICEBERG,
+        DELTA,
     };
 
     std::string key = "";
     std::string path = "";
     std::string fs_name = "";
+    // Delta deletion vectors carry a descriptor instead of a plain byte range.
+    std::string storage_type = "";
+    std::string path_or_inline_dv = "";
+    std::string table_path = "";
     int64_t start_offset = 0;
     int64_t size = 0;
+    int64_t size_in_bytes = 0;
+    int64_t cardinality = -1;
     int64_t file_size = -1;
     int64_t modification_time = 0;
     Format format = Format::PAIMON;

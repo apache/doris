@@ -31,6 +31,12 @@ inline bool supports_iceberg_scan_semantics_v1(const TFileScanRangeParams* param
            params->iceberg_scan_semantics_version >= ICEBERG_SCAN_SEMANTICS_VERSION_1;
 }
 
+inline bool supports_external_scan_semantics_v1(const TFileScanRangeParams* params) {
+    return supports_iceberg_scan_semantics_v1(params) ||
+           (params != nullptr && params->__isset.external_scan_semantics_version &&
+            params->external_scan_semantics_version >= ICEBERG_SCAN_SEMANTICS_VERSION_1);
+}
+
 inline bool supports_iceberg_scan_semantics_v2(const TFileScanRangeParams* params) {
     return params != nullptr && params->__isset.iceberg_scan_semantics_version &&
            params->iceberg_scan_semantics_version >= ICEBERG_SCAN_SEMANTICS_VERSION_2;

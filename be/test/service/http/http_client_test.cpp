@@ -50,6 +50,7 @@
 
 #include "common/config.h"
 #include "gtest/gtest_pred_impl.h"
+#include "io/fs/http_file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "service/backend_service.h"
@@ -567,6 +568,18 @@ public:
     }
 };
 
+class HttpBearerRangeHandler : public HttpHandler {
+public:
+    void handle(HttpRequest* req) override {
+        if (req->header(HttpHeaders::AUTHORIZATION) != "Bearer gcs-vended-token" ||
+            req->header(HttpHeaders::RANGE).empty()) {
+            HttpChannel::send_reply(req, HttpStatus::UNAUTHORIZED, "missing bearer or range");
+            return;
+        }
+        HttpChannel::send_reply(req, HttpStatus::PARTIAL_CONTENT, "native-delta");
+    }
+};
+
 static EvHttpServer* s_server = nullptr;
 static int real_port = 0;
 static std::string hostname = "";
@@ -578,6 +591,7 @@ static HttpNotFoundHandler s_not_found_handler;
 static ExternalAuthHandler s_external_auth_handler;
 static HttpDownloadFileHandler s_download_file_handler;
 static HttpBatchDownloadFileHandler s_batch_download_file_handler;
+static HttpBearerRangeHandler s_bearer_range_handler;
 
 class HttpClientTest : public testing::Test {
 public:
@@ -632,6 +646,7 @@ public:
                                    &s_batch_download_file_handler);
         s_server->register_handler(POST, "/api/_tablet/_batch_download",
                                    &s_batch_download_file_handler);
+        s_server->register_handler(GET, "/bearer_range", &s_bearer_range_handler);
         static_cast<void>(s_server->start());
         real_port = s_server->get_real_port();
         EXPECT_NE(0, real_port);
@@ -676,6 +691,39 @@ TEST_F(HttpClientTest, external_request_omits_cluster_token) {
     std::string response;
     ASSERT_TRUE(client.execute(&response).ok());
     EXPECT_EQ(response, "|Bearer google-token");
+}
+
+TEST_F(HttpClientTest, file_reader_forwards_bearer_header_on_range_request) {
+    io::OpenFileInfo file_info;
+    file_info.path = io::Path(hostname + "/bearer_range");
+    file_info.extend_info = {{"file_size", "12"},
+                             {"http.header.Authorization", "Bearer gcs-vended-token"},
+                             {"AWS_TOKEN_EXPIRATION_TIME_MS", "4102444800000"}};
+    io::HttpFileReader reader(file_info, file_info.path.native(), 0);
+    ASSERT_TRUE(reader.open({}).ok());
+
+    char data[6];
+    size_t bytes_read = 0;
+    ASSERT_TRUE(reader.read_at(0, Slice(data, sizeof(data)), &bytes_read).ok());
+    EXPECT_EQ(bytes_read, sizeof(data));
+    EXPECT_EQ(std::string_view(data, bytes_read), "native");
+    EXPECT_TRUE(reader.close().ok());
+}
+
+TEST_F(HttpClientTest, file_reader_rejects_expired_bearer_before_request) {
+    io::OpenFileInfo file_info;
+    file_info.path = io::Path(hostname + "/bearer_range");
+    file_info.extend_info = {{"file_size", "12"},
+                             {"http.header.Authorization", "Bearer gcs-vended-token"},
+                             {"AWS_TOKEN_EXPIRATION_TIME_MS", "1"}};
+    io::HttpFileReader reader(file_info, file_info.path.native(), 0);
+    ASSERT_TRUE(reader.open({}).ok());
+
+    char data[1];
+    size_t bytes_read = 0;
+    const Status status = reader.read_at(0, Slice(data, sizeof(data)), &bytes_read);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("vended token is expired"), std::string::npos);
 }
 
 TEST_F(HttpClientTest, download) {

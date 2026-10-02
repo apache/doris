@@ -63,6 +63,8 @@ private:
     // Returns OK on success with _range_supported set appropriately
     Status detect_range_support();
 
+    Status validate_vended_token_lifetime() const;
+
     // Start the CDC client process
     // Called at the start of open() when enable_cdc_client=true.
     Status setup_cdc_client();
