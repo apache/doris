@@ -24,6 +24,7 @@
 
 #include "CLucene/index/DocRange.h"
 #include "common/check.h"
+#include "common/compiler_util.h"
 #include "common/exception.h"
 #include "storage/index/inverted/inverted_index_common.h"
 #include "storage/index/query/spi/postings_cursor.h"
@@ -66,6 +67,7 @@ public:
                                          ? std::span<const uint32_t>(_block.norm_many->data(),
                                                                      _block.norm_many_size_)
                                          : std::span<const uint32_t>()};
+                _freqs = _block.freq_many ? _block.freq_many->data() : nullptr;
                 _prox_cursor = 0;
                 _block_available = true;
             }
@@ -189,13 +191,13 @@ public:
         return Status::OK();
     }
 
-    // The open and the drain in one CLucene error frame.
+    // The open and the drain in one CLucene error frame. It runs once per document a phrase reads,
+    // so the error status is built only when CLucene throws.
     Status append_positions(uint32_t ordinal, uint32_t offset,
                             std::vector<uint32_t>& output) override {
         if (_raw_positions == nullptr) {
             return Status::NotSupported("This posting type does not support position information");
         }
-        ErrorContext error_context;
         uint32_t position = 0;
         uint32_t remaining = 0;
         bool opened = false;
@@ -209,15 +211,14 @@ public:
                 output.push_back(position + offset);
             }
         } catch (CLuceneError& error) {
-            error_context.eptr = std::current_exception();
-            error_context.err_msg = error.what();
-        }
-        FINALLY({
             if (opened) {
                 _position = position;
                 _position_remaining = remaining;
             }
-        });
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>("{}", error.what());
+        }
+        _position = position;
+        _position_remaining = remaining;
         return Status::OK();
     }
 
@@ -229,9 +230,10 @@ private:
         }
     }
 
-    void _open_positions(uint32_t ordinal) {
+    // Inlined into each open: it runs once per document a phrase reads.
+    ALWAYS_INLINE void _open_positions(uint32_t ordinal) {
         DORIS_CHECK(_block_available);
-        DORIS_CHECK(_block.freq_many != nullptr);
+        DORIS_CHECK(_freqs != nullptr);
         DORIS_CHECK(ordinal < _block.freq_many_size_);
         DORIS_CHECK(ordinal >= _prox_cursor);
         if (_position_open) {
@@ -239,12 +241,12 @@ private:
         }
         int32_t skip_count = 0;
         for (uint32_t i = _prox_cursor; i < ordinal; ++i) {
-            skip_count += (*_block.freq_many)[i];
+            skip_count += _freqs[i];
         }
         if (skip_count > 0) {
             _raw_positions->addLazySkipProxCount(skip_count);
         }
-        _position_frequency = (*_block.freq_many)[ordinal];
+        _position_frequency = _freqs[ordinal];
         _position_remaining = _position_frequency;
         _position = 0;
         _position_open = true;
@@ -267,6 +269,8 @@ private:
     IterVariant _iter;
     lucene::index::TermDocs* _raw_iter = nullptr;
     DocRange _block;
+    // The current block's frequencies, when it holds them.
+    const uint32_t* _freqs = nullptr;
     uint32_t _prox_cursor = 0;
     lucene::index::TermPositions* _raw_positions = nullptr;
     uint32_t _position_frequency = 0;
