@@ -1724,7 +1724,7 @@ public class IcebergWritePlanProviderTest {
     }
 
     @Test
-    public void planMergePreservesExplicitlyEmptyReadAcrossConcurrentFirstAppend() {
+    public void planMergeKeepsExplicitEmptyReadFencedAcrossConcurrentFirstAppend() {
         InMemoryCatalog catalog = freshCatalog();
         TableIdentifier id = TableIdentifier.of("db1", "tv2");
         Table empty = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
@@ -1751,8 +1751,9 @@ public class IcebergWritePlanProviderTest {
         providerFor(ops.table, ctx).planWrite(new WriteSession(txn),
                 new WriteHandle(emptyPinnedHandle).writeOperation(WriteOperation.MERGE));
 
-        Assertions.assertNull(txn.getBaseSnapshotId(),
-                "an explicitly empty read must leave RowDelta validation unbounded across the first append");
+        Assertions.assertEquals(Long.valueOf(-1L), txn.getBaseSnapshotId(),
+                "an explicit empty read is an OCC fence (base -1), not an absent pin: the pinned empty "
+                        + "generation must survive the concurrent first append instead of drifting to S1");
     }
 
     // ───────────────────────────── MERGE sink (TIcebergMergeSink) ─────────────────────────────
