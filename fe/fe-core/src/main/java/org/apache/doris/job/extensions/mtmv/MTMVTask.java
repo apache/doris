@@ -88,6 +88,7 @@ import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -345,6 +346,7 @@ public class MTMVTask extends AbstractTask {
                     mtmv.getQuerySql(), ctx);
             this.relation = MTMVPlanUtil.generateMTMVRelation(queryAnalysis.getAllLevelTables(),
                     queryAnalysis.getOneLevelTables());
+            checkNoRowTtlBaseTable();
             beforeMTMVRefresh();
             List<TableIf> tableIfs = Lists.newArrayList(queryAnalysis.getAllLevelTables());
             tableIfs.sort(Comparator.comparing(TableIf::getId));
@@ -416,6 +418,18 @@ public class MTMVTask extends AbstractTask {
             }
         } finally {
             closeExecutionContext(ctx);
+        }
+    }
+
+    @VisibleForTesting
+    public void checkNoRowTtlBaseTable() throws AnalysisException {
+        try {
+            MTMVUtil.checkNoRowTtlBaseTable(relation);
+        } catch (AnalysisException e) {
+            if (!MTMVState.SCHEMA_CHANGE.equals(mtmv.getStatus().getState())) {
+                mtmv.invalidateWholeMv(e.getMessage()).await();
+            }
+            throw e;
         }
     }
 

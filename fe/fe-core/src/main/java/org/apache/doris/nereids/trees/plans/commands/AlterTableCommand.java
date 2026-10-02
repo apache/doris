@@ -282,6 +282,9 @@ public class AlterTableCommand extends Command implements ForwardWithSync {
                 if (alterFeature == null || alterFeature == EnableFeatureOp.Features.UNKNOWN) {
                     throw new AnalysisException("unknown feature for alter clause");
                 }
+                if (alterFeature == EnableFeatureOp.Features.SEQUENCE_LOAD && table.hasRowTtl()) {
+                    throw new AnalysisException(PropertyAnalyzer.ROW_TTL_SEQUENCE_COLUMN_CONFLICT);
+                }
                 if (table.getKeysType() != KeysType.UNIQUE_KEYS
                         && alterFeature == EnableFeatureOp.Features.BATCH_DELETE) {
                     throw new AnalysisException("Batch delete only supported in unique tables.");

@@ -60,6 +60,7 @@
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/partial_update_info.h"
+#include "storage/row_ttl.h"
 #include "storage/rowset/rowset_writer_context.h" // RowsetWriterContext
 #include "storage/rowset/segment_creator.h"
 #include "storage/segment/column_writer.h" // ColumnWriter

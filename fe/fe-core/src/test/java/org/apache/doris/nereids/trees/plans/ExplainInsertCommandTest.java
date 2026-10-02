@@ -67,6 +67,20 @@ public class ExplainInsertCommandTest extends TestWithFeService {
                 + "properties(\n"
                 + "    \"replication_num\"=\"1\"\n"
                 + ")");
+        createTable("create table row_ttl_dup (\n"
+                + "    k int,\n"
+                + "    event_time datetimev2(6),\n"
+                + "    v int\n"
+                + ")\n"
+                + "duplicate key(k)\n"
+                + "distributed by hash(k) buckets 1\n"
+                + "properties(\n"
+                + "    \"replication_num\"=\"1\",\n"
+                + "    \"function_column.enable_row_ttl\"=\"true\",\n"
+                + "    \"function_column.ttl_col\"=\"event_time\",\n"
+                + "    \"function_column.ttl\"=\"1 day\",\n"
+                + "    \"function_column.ttl_time_zone\"=\"+08:00\"\n"
+                + ")");
         createTable("create table src (\n"
                 + "    k1 int,\n"
                 + "    k2 int,\n"
@@ -121,6 +135,36 @@ public class ExplainInsertCommandTest extends TestWithFeService {
         Assertions.assertEquals(6, getOutputFragment(sql).getOutputExprs().size());
         sql = "explain insert into agg_have_dup_base values(-4, -4, -4, 'd')";
         Assertions.assertEquals(9, getOutputFragment(sql).getOutputExprs().size());
+    }
+
+    @Test
+    public void testInsertIntoRowTtlTable() throws Exception {
+        String sql = "explain insert into row_ttl_dup(k, event_time, v) values"
+                + "(1, now(6) - interval 2 day, 10),"
+                + "(2, null, 20),"
+                + "(3, now(6), 30)";
+        Assertions.assertEquals(4, getOutputFragment(sql).getOutputExprs().size());
+    }
+
+    @Test
+    public void testInsertDirectRowTtlExpressions() throws Exception {
+        createTable("create table row_ttl_direct_insert (k int, v int) duplicate key(k) "
+                + "distributed by hash(k) buckets 1 properties('replication_num'='1', "
+                + "'function_column.enable_row_ttl'='true')");
+        String target = "explain insert into row_ttl_direct_insert(k, v, __DORIS_TTL_COL__) ";
+        for (String expiration : new String[] {"NULL", "DEFAULT", "9223372036854775807",
+                "cast('2039-01-01' as date)", "cast('2039-01-01 00:00:00.123456' as datetime(6))",
+                "cast('2039-01-01 00:00:00.123456+08:00' as timestamptz(6))"}) {
+            Assertions.assertEquals(3, getOutputFragment(target + "values(1, 2, " + expiration + ")")
+                    .getOutputExprs().size(), expiration);
+        }
+        Assertions.assertEquals(3, getOutputFragment(target + "values "
+                + "(1, 2, cast('2039-01-01' as date)), (2, 3, 9223372036854775807), (3, 4, NULL)")
+                .getOutputExprs().size());
+        Assertions.assertEquals(3, getOutputFragment(target
+                + "select k1, k2, cast('2039-01-01' as datetime(6)) from src").getOutputExprs().size());
+        Assertions.assertEquals(3, getOutputFragment("explain insert into row_ttl_direct_insert values(1, 2)")
+                .getOutputExprs().size());
     }
 
     @Test

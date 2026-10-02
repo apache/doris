@@ -61,12 +61,13 @@ bool check_tablet_schema(const doris::TabletSchemaCloudPB& schema,
     // Sort by column id
     std::sort(saved_schema.mutable_column()->begin(), saved_schema.mutable_column()->end(),
               [](auto& c1, auto& c2) { return c1.unique_id() < c2.unique_id(); });
-    auto& schema_ref = const_cast<doris::TabletSchemaCloudPB&>(schema);
+    // Comparing schemas must not reorder the caller's columns: ttl_col_idx is an ordinal.
+    doris::TabletSchemaCloudPB schema_ref(schema);
     std::sort(schema_ref.mutable_column()->begin(), schema_ref.mutable_column()->end(),
               [](auto& c1, auto& c2) { return c1.unique_id() < c2.unique_id(); });
     for (int i = 0; i < saved_schema.column_size(); ++i) {
-        auto& saved_column = saved_schema.column(i);
-        auto& column = schema.column(i);
+        const auto& saved_column = saved_schema.column(i);
+        const auto& column = schema_ref.column(i);
         if (saved_column.unique_id() != column.unique_id() ||
             transform(saved_column.type()) != transform(column.type())) {
             LOG(WARNING) << "existed column: " << saved_column.DebugString()
@@ -85,8 +86,8 @@ bool check_tablet_schema(const doris::TabletSchemaCloudPB& schema,
     std::sort(schema_ref.mutable_index()->begin(), schema_ref.mutable_index()->end(),
               [](auto& i1, auto& i2) { return i1.index_id() < i2.index_id(); });
     for (int i = 0; i < saved_schema.index_size(); ++i) {
-        auto& saved_index = saved_schema.index(i);
-        auto& index = schema.index(i);
+        const auto& saved_index = saved_schema.index(i);
+        const auto& index = schema_ref.index(i);
         if (saved_index.index_id() != index.index_id() ||
             saved_index.index_type() != index.index_type()) {
             LOG(WARNING) << "existed index: " << saved_index.DebugString()

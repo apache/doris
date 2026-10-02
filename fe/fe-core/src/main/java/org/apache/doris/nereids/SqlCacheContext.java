@@ -175,6 +175,9 @@ public class SqlCacheContext {
         if (tableIf == null) {
             return;
         }
+        if (tableIf instanceof OlapTable && ((OlapTable) tableIf).hasRowTtl()) {
+            setHasUnsupportedTables(true);
+        }
         DatabaseIf database = tableIf.getDatabase();
         if (database == null) {
             setCannotProcessExpression(true);
