@@ -441,6 +441,51 @@ under the License.
                     </classpathDependencyExcludes>
                 </configuration>
             </plugin>
+            <!--
+              The plugin's own classes go into paimon-scanner.jar; the paimon class it patches
+              (org.apache.paimon.utils.FatalExitExceptionHandler, see its header: paimon's version
+              stops the whole BE when one of paimon's pool threads dies) goes into a jar of its own,
+              written straight into target/lib so that build.sh deploys it with the dependencies.
+              That jar names the class in Doris-Shadows-Classes, which is what makes PluginRuntime
+              search it ahead of paimon-common's copy and of the one paimon-hive-connector bundles;
+              the layout check (tools/be-java-plugins/check_plugin_layout.py) requires a shadowing
+              jar to hold nothing but the classes it names, hence two jars from one module. Merged
+              with the parent's Doris-Jni-Plugin-Api-Version entry, not replacing it. The tests need
+              none of this: surefire puts target/classes ahead of every dependency.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-jar</id>
+                        <configuration>
+                            <excludes>
+                                <exclude>org/apache/paimon/**</exclude>
+                            </excludes>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>paimon-common-patch</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>jar</goal>
+                        </goals>
+                        <configuration>
+                            <classifier>paimon-common-patch</classifier>
+                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
+                            <includes>
+                                <include>org/apache/paimon/**</include>
+                            </includes>
+                            <archive>
+                                <manifestEntries>
+                                    <Doris-Shadows-Classes>org.apache.paimon.utils.FatalExitExceptionHandler</Doris-Shadows-Classes>
+                                </manifestEntries>
+                            </archive>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-dependency-plugin</artifactId>
