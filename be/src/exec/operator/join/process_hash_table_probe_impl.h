@@ -310,8 +310,8 @@ uint32_t ProcessHashTableProbe<JoinOpType>::
     bool is_strict = shared_state->asof_inequality_is_strict;
 
     // Two-phase probe with compile-time dispatched binary search
-    [[maybe_unused]] auto probe_with_index = [&](const auto& asof_groups, const auto* typed_probe_col,
-                                auto key_getter) -> uint32_t {
+    [[maybe_unused]] auto probe_with_index =
+            [&](const auto& asof_groups, const auto* typed_probe_col, auto key_getter) -> uint32_t {
         using IntType =
                 typename std::remove_reference_t<decltype(asof_groups)>::value_type::int_type;
         const auto& probe_data = typed_probe_col->get_data();
