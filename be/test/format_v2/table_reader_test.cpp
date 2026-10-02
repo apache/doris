@@ -2447,7 +2447,9 @@ TEST(TableReaderTest, PartitionValueReadsRealParquetFootersAndPropagatesErrors) 
             ASSERT_TRUE(status.ok()) << status;
             EXPECT_EQ(block.rows(), path == empty_path ? 0 : 1);
             if (path == nonempty_path) {
-                EXPECT_EQ(block.get_by_position(0).column->get_int(0), 7);
+                // Table columns of an external scan are nullable, so unwrap the null map the way
+                // the other partition-value assertions in this file do before reading the value.
+                expect_int32_column_values(*block.get_by_position(0).column, {7});
             }
             ASSERT_TRUE(reader.get_block(&block, &eos).ok());
             EXPECT_TRUE(eos);
@@ -2545,8 +2547,11 @@ TEST(TableReaderTest, PartitionValueUsesFooterAndPreservesNullPartition) {
             EXPECT_EQ(block.rows(), footer_rows > 0 ? 1 : 0);
             ASSERT_TRUE(block.check_type_and_column().ok());
             if (footer_rows > 0) {
-                EXPECT_EQ(block.get_by_position(0).column->get_int(0), 7);
-                EXPECT_TRUE(block.get_by_position(1).column->is_null_at(0));
+                // Table columns of an external scan are nullable, so unwrap the null map the way
+                // the other partition-value assertions in this file do before reading the value.
+                expect_int32_column_values(*block.get_by_position(0).column, {7});
+                EXPECT_TRUE(block.get_by_position(1).column->convert_to_full_column_if_const()
+                                    ->is_null_at(0));
             }
             ASSERT_TRUE(fake_state->last_aggregate_request.has_value());
             EXPECT_EQ(fake_state->last_aggregate_request->agg_type, TPushAggOp::type::COUNT);
