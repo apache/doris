@@ -1,0 +1,2 @@
+{"remove":{"path":"part-00000.parquet","deletionTimestamp":1700000002000,"dataChange":true,"extendedFileMetadata":true,"partitionValues":{},"size":100}}
+{"add":{"path":"part-00002.parquet","partitionValues":{},"size":300,"modificationTime":1700000002000,"dataChange":true}}

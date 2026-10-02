@@ -361,6 +361,9 @@ under the License.
         <!-- Please modify iceberg.version and avro.version together,
          you can find avro version info in iceberg mvn repository -->
         <iceberg.version>1.11.0</iceberg.version>
+        <delta-kernel.version>4.3.1</delta-kernel.version>
+        <unitycatalog.version>0.5.0</unitycatalog.version>
+        <gcs-connector.version>4.0.0</gcs-connector.version>
         <!-- 0.56.1 has bug that "SplitMode" in query response may not be set-->
         <maxcompute.version>0.53.2-public</maxcompute.version>
         <!-- FE-only POC: validate whether Arrow Java 19.0.0 can compile before touching BE/C++ thirdparty. -->
@@ -1572,6 +1575,38 @@ under the License.
                 <version>${jettison.version}</version>
             </dependency>
 
+            <!-- Delta Kernel: format-level snapshot and scan planning POC -->
+            <dependency>
+                <groupId>io.delta</groupId>
+                <artifactId>delta-kernel-api</artifactId>
+                <version>${delta-kernel.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.delta</groupId>
+                <artifactId>delta-kernel-defaults</artifactId>
+                <version>${delta-kernel.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.delta</groupId>
+                <artifactId>delta-kernel-unitycatalog</artifactId>
+                <version>${delta-kernel.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.unitycatalog</groupId>
+                <artifactId>unitycatalog-client</artifactId>
+                <version>${unitycatalog.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.unitycatalog</groupId>
+                <artifactId>unitycatalog-hadoop</artifactId>
+                <version>${unitycatalog.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.google.cloud.bigdataoss</groupId>
+                <artifactId>gcs-connector</artifactId>
+                <version>${gcs-connector.version}</version>
+                <classifier>shaded</classifier>
+            </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.iceberg/iceberg-core -->
             <dependency>
                 <groupId>org.apache.iceberg</groupId>

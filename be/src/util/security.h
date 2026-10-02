@@ -23,13 +23,12 @@
 namespace doris {
 
 inline std::string mask_token(const std::string& str) {
-    std::regex pattern("token=[\\w|-]+");
-    return std::regex_replace(str, pattern, "token=******");
+    std::regex pattern("((token|upload_id)=)[^&#\\s]+");
+    return std::regex_replace(str, pattern, "$1******");
 }
 
 inline std::string mask_token(const char* str) {
-    std::regex pattern("token=[\\w|-]+");
-    return std::regex_replace(str, pattern, "token=******");
+    return mask_token(std::string(str));
 }
 
 } // namespace doris

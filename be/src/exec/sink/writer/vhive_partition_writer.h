@@ -20,6 +20,7 @@
 #include <gen_cpp/DataSinks_types.h>
 
 #include <optional>
+#include <set>
 
 #include "core/column/column.h"
 #include "exprs/vexpr_fwd.h"
@@ -53,8 +54,9 @@ public:
                          TUpdateMode::type update_mode,
                          const VExprContextSPtrs& write_output_expr_ctxs,
                          std::vector<std::string> write_column_names, WriteInfo write_info,
-                         std::string file_name, int file_name_index,
-                         TFileFormatType::type file_format_type,
+                         std::map<std::string, std::string> partition_values,
+                         std::set<std::string> null_partition_columns, std::string file_name,
+                         int file_name_index, TFileFormatType::type file_format_type,
                          TFileCompressType::type hive_compress_type,
                          const THiveSerDeProperties* hive_serde_properties,
                          const std::map<std::string, std::string>& hadoop_conf);
@@ -74,19 +76,23 @@ public:
     inline size_t written_len() { return _file_format_transformer->written_len(); }
 
 private:
-    std::string _get_target_file_name();
+    std::string _get_target_file_name() const;
 
 private:
     THivePartitionUpdate _build_partition_update();
+    TConnectorFileCommitData _build_connector_file_commit_data() const;
     bool _build_s3_mpu_pending_upload(TS3MPUPendingUpload* pending_upload);
     void _add_s3_mpu_pending_upload_for_rollback();
 
     std::string _get_file_extension(TFileFormatType::type file_format_type,
-                                    TFileCompressType::type write_compress_type);
+                                    TFileCompressType::type write_compress_type) const;
 
     std::string _path;
 
     std::string _partition_name;
+
+    std::map<std::string, std::string> _partition_values;
+    std::set<std::string> _null_partition_columns;
 
     TUpdateMode::type _update_mode;
 
@@ -105,6 +111,8 @@ private:
     const std::map<std::string, std::string>& _hadoop_conf;
     bool _supports_deferred_azure_multipart = false;
     std::optional<std::string> _hive_parquet_time_zone;
+
+    bool _connector_file_sink;
 
     std::shared_ptr<io::FileSystem> _fs = nullptr;
 

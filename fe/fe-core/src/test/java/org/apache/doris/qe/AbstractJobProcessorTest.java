@@ -23,6 +23,7 @@ import org.apache.doris.qe.runtime.BackendFragmentId;
 import org.apache.doris.qe.runtime.MultiFragmentsPipelineTask;
 import org.apache.doris.qe.runtime.PipelineExecutionTask;
 import org.apache.doris.qe.runtime.SingleFragmentPipelineTask;
+import org.apache.doris.thrift.TConnectorFileCommitData;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
@@ -72,6 +73,21 @@ class AbstractJobProcessorTest {
         TReportExecStatusParams params = new TReportExecStatusParams()
                 .setStatus(new TStatus(TStatusCode.OK))
                 .setConnectorCommitData(Collections.singletonList(ByteBuffer.wrap(new byte[] {1})));
+
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> processor.updateFragmentExecStatus(params));
+    }
+
+    @Test
+    void typedConnectorFilesRequireARegisteredFragmentHandler() {
+        TestJobProcessor processor = new TestJobProcessor(Mockito.mock(CoordinatorContext.class));
+        processor.setBackendFragmentTasks(Collections.emptyMap());
+        TReportExecStatusParams params = new TReportExecStatusParams()
+                .setStatus(new TStatus(TStatusCode.OK))
+                .setConnectorFileCommitDatas(Collections.singletonList(new TConnectorFileCommitData()
+                        .setFilePath("s3://bucket/data/0.parquet")
+                        .setFileSize(32)
+                        .setRowCount(1)));
 
         Assertions.assertThrows(IllegalStateException.class,
                 () -> processor.updateFragmentExecStatus(params));

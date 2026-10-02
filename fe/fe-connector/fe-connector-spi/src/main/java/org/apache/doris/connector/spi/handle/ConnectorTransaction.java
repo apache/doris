@@ -20,6 +20,7 @@ package org.apache.doris.connector.spi.handle;
 import org.apache.doris.connector.spi.pushdown.ConnectorPredicate;
 
 import java.io.Closeable;
+import java.util.OptionalLong;
 
 /**
  * A connector-managed transaction that scopes one or more write operations.
@@ -69,6 +70,15 @@ public interface ConnectorTransaction extends Closeable {
     /** Returns the number of rows affected by the write(s) bound to this transaction. */
     default long getUpdateCnt() {
         return 0;
+    }
+
+    /**
+     * Row count of the pinned full-table replacement base, when exact metadata is available. A copy-on-write
+     * DELETE reports this count minus {@link #getUpdateCnt()} (survivor rows written). Empty means the original
+     * row count is unknown, never zero. Other write implementations keep the empty default.
+     */
+    default OptionalLong getOriginalRowCount() {
+        return OptionalLong.empty();
     }
 
     /**

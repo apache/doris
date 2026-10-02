@@ -291,14 +291,17 @@ public class PluginDrivenTableSink extends BaseExternalTableDataSink {
         boolean overwrite = false;
         Map<String, String> writeContext = Collections.emptyMap();
         Optional<String> branchName = Optional.empty();
+        Optional<ConnectorTableHandle> overwriteBaseHandle = Optional.empty();
         if (insertCtx.isPresent() && insertCtx.get() instanceof PluginDrivenInsertCommandContext) {
             PluginDrivenInsertCommandContext ctx = (PluginDrivenInsertCommandContext) insertCtx.get();
             overwrite = ctx.isOverwrite();
             writeContext = ctx.getStaticPartitionSpec();
             branchName = ctx.getBranchName();
+            overwriteBaseHandle = ctx.getOverwriteBaseHandle();
         }
-        ConnectorTableHandle boundTableHandle = tableHandle;
-        if (connectorMetadata != null && targetTable != null) {
+        // Source scans selected this generation; the transaction and sink must reuse the same baseline.
+        ConnectorTableHandle boundTableHandle = overwriteBaseHandle.orElse(tableHandle);
+        if (!overwriteBaseHandle.isPresent() && connectorMetadata != null && targetTable != null) {
             Optional<TableScanParams> scanParams = branchName.map(branch ->
                     new TableScanParams(TableScanParams.BRANCH, Collections.emptyMap(),
                             Collections.singletonList(branch)));

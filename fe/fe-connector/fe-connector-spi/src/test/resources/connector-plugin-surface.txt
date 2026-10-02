@@ -87,6 +87,16 @@ org.apache.doris.connector.spi.ConnectorTableSchema#toString():java.lang.String
 org.apache.doris.connector.spi.handle.ConnectorColumnHandle#equals(java.lang.Object):boolean
 org.apache.doris.connector.spi.handle.ConnectorColumnHandle#hashCode():int
 org.apache.doris.connector.spi.handle.ConnectorColumnHandle#withProjectedFieldIds(java.util.Set):org.apache.doris.connector.spi.handle.ConnectorColumnHandle
+org.apache.doris.connector.spi.handle.ConnectorTableHandle#getCopyOnWriteSnapshotVersion():java.util.OptionalLong
+org.apache.doris.connector.spi.handle.ConnectorTransaction#addCommitData(byte[]):void
+org.apache.doris.connector.spi.handle.ConnectorTransaction#applyWriteConstraint(org.apache.doris.connector.spi.pushdown.ConnectorPredicate):void
+org.apache.doris.connector.spi.handle.ConnectorTransaction#close():void
+org.apache.doris.connector.spi.handle.ConnectorTransaction#commit():void
+org.apache.doris.connector.spi.handle.ConnectorTransaction#getOriginalRowCount():java.util.OptionalLong
+org.apache.doris.connector.spi.handle.ConnectorTransaction#getTransactionId():long
+org.apache.doris.connector.spi.handle.ConnectorTransaction#getUpdateCnt():long
+org.apache.doris.connector.spi.handle.ConnectorTransaction#profileLabel():java.lang.String
+org.apache.doris.connector.spi.handle.ConnectorTransaction#rollback():void
 org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getBeExecVersion():int
 org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getBoundTargetColumns():java.util.List
 org.apache.doris.connector.spi.handle.ConnectorWriteHandle#getBoundWriteMetadataIdentity():java.lang.String
@@ -209,6 +219,7 @@ org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#requiresParallel
 org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#requiresPartitionHashWrite():boolean
 org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#requiresPartitionLocalSort():boolean
 org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#supportedOperations():java.util.Set
+org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#supportsCopyOnWriteDml():boolean
 org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#supportsWriteBranch():boolean
 org.apache.doris.connector.spi.write.ConnectorWritePlanProvider#validateRowLevelDml(org.apache.doris.connector.spi.ConnectorSession,org.apache.doris.connector.spi.handle.ConnectorTableHandle,org.apache.doris.connector.spi.write.ConnectorRowLevelDmlRequest):void
 org.apache.doris.extension.spi.Plugin#close():void

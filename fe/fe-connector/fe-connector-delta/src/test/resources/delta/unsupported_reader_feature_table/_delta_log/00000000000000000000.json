@@ -1,0 +1,2 @@
+{"protocol":{"minReaderVersion":3,"minWriterVersion":7,"readerFeatures":["typeWidening"],"writerFeatures":["typeWidening"]}}
+{"metaData":{"id":"2f4e6395-417f-40f5-a692-91150a2a6628","format":{"provider":"parquet","options":{}},"schemaString":"{\"type\":\"struct\",\"fields\":[{\"name\":\"id\",\"type\":\"long\",\"nullable\":false,\"metadata\":{}}]}","partitionColumns":[],"configuration":{"delta.feature.typeWidening":"supported"},"createdTime":1700000000000}}

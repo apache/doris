@@ -25,6 +25,13 @@
 namespace doris {
 
 const std::string S3URI::_SCHEME_S3 = "s3";
+const std::string S3URI::_SCHEME_S3A = "s3a";
+const std::string S3URI::_SCHEME_S3N = "s3n";
+const std::string S3URI::_SCHEME_GS = "gs";
+const std::string S3URI::_SCHEME_ABFS = "abfs";
+const std::string S3URI::_SCHEME_ABFSS = "abfss";
+const std::string S3URI::_SCHEME_WASB = "wasb";
+const std::string S3URI::_SCHEME_WASBS = "wasbs";
 const std::string S3URI::_SCHEME_HTTP = "http";
 const std::string S3URI::_SCHEME_HTTPS = "https";
 const std::string S3URI::_SCHEME_DELIM = "://";
@@ -44,7 +51,8 @@ Status S3URI::parse() {
     std::vector<std::string> scheme_split = absl::StrSplit(_location, _SCHEME_DELIM);
     std::string rest;
     if (scheme_split.size() == 2) {
-        if (scheme_split[0] == _SCHEME_S3) {
+        if (scheme_split[0] == _SCHEME_S3 || scheme_split[0] == _SCHEME_S3A ||
+            scheme_split[0] == _SCHEME_S3N || scheme_split[0] == _SCHEME_GS) {
             // has scheme, eg: s3://bucket1/path/to/file.txt
             rest = scheme_split[1];
             std::vector<std::string> authority_split =
@@ -54,6 +62,21 @@ Status S3URI::parse() {
             }
             _bucket = authority_split[0];
             // support s3://bucket1
+            _key = authority_split.size() == 1 ? "/" : authority_split[1];
+        } else if (scheme_split[0] == _SCHEME_ABFS || scheme_split[0] == _SCHEME_ABFSS ||
+                   scheme_split[0] == _SCHEME_WASB || scheme_split[0] == _SCHEME_WASBS) {
+            // Azure Data Lake paths use container@account-host as the authority.
+            rest = scheme_split[1];
+            std::vector<std::string> authority_split =
+                    absl::StrSplit(rest, absl::MaxSplits(_PATH_DELIM, 1));
+            if (authority_split.empty() || authority_split[0].empty()) {
+                return Status::InvalidArgument("Invalid Azure URI: {}", _location);
+            }
+            const auto at = authority_split[0].find('@');
+            if (at == std::string::npos || at == 0 || at + 1 == authority_split[0].size()) {
+                return Status::InvalidArgument("Invalid Azure URI authority: {}", _location);
+            }
+            _bucket = authority_split[0].substr(0, at);
             _key = authority_split.size() == 1 ? "/" : authority_split[1];
         } else if (scheme_split[0] == _SCHEME_HTTP || scheme_split[0] == _SCHEME_HTTPS) {
             // has scheme, eg: http(s)://host/bucket1/path/to/file.txt

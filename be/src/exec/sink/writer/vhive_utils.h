@@ -37,8 +37,10 @@ public:
 
     static std::string make_partition_name(const std::vector<THiveColumn>& columns,
                                            const std::vector<int>& partition_columns_input_index,
-                                           const std::vector<std::string>& values);
+                                           const std::vector<std::string>& values,
+                                           bool use_hive_partition_encoding = true);
 
-    static std::string escape_path_name(const std::string& path);
+    static std::string escape_path_name(const std::string& path,
+                                        bool use_hive_partition_encoding = true);
 };
 } // namespace doris

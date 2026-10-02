@@ -534,6 +534,39 @@ TEST(TableReaderTest, LastProjectionDetachesNestedMapWithoutCopyingStrings) {
     EXPECT_EQ(detached_values.get_chars().data(), original_value_bytes);
 }
 
+TEST(TableReaderTest, ProjectionAlignsNullableFileColumnToRequiredTableColumn) {
+    auto nested = ColumnInt64::create();
+    nested->insert_value(10);
+    nested->insert_value(20);
+    auto null_map = ColumnUInt8::create(2, 0);
+    auto source = ColumnNullable::create(std::move(nested), std::move(null_map));
+    const auto nullable_type = make_nullable(std::make_shared<DataTypeInt64>());
+    const auto required_type = std::make_shared<DataTypeInt64>();
+
+    Block block;
+    block.insert({std::move(source), nullable_type, "id"});
+
+    ColumnMapping mapping;
+    mapping.global_index = GlobalIndex(0);
+    mapping.table_column_name = "id";
+    mapping.file_column_name = "id";
+    mapping.file_local_id = 0;
+    mapping.file_type = nullable_type;
+    mapping.table_type = required_type;
+    mapping.projection =
+            VExprContext::create_shared(VSlotRef::create_shared(0, 0, -1, nullable_type, "id"));
+
+    TableReaderMaterializeTestHelper reader;
+    ColumnPtr result;
+    ASSERT_TRUE(reader._materialize_mapping_column(mapping, &block, 2, &result,
+                                                   /*take_projection_result=*/true)
+                        .ok());
+    const auto& values = assert_cast<const ColumnInt64&>(*result);
+    ASSERT_EQ(values.size(), 2);
+    EXPECT_EQ(values.get_element(0), 10);
+    EXPECT_EQ(values.get_element(1), 20);
+}
+
 VExprSPtr table_int32_sum_expr(int left_slot_id, int left_column_id, int right_slot_id,
                                int right_column_id) {
     const auto int_type = std::make_shared<DataTypeInt32>();
@@ -692,6 +725,43 @@ void write_parquet_file(const std::string& file_path, int32_t id, const std::str
     builder.compression(::parquet::Compression::UNCOMPRESSED);
     PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 1,
                                                       builder.build()));
+}
+
+void write_single_int_parquet_file(const std::string& file_path, const std::string& column_name,
+                                   int32_t value) {
+    auto schema = arrow::schema({arrow::field(column_name, arrow::int32(), false)});
+    auto table = arrow::Table::Make(schema, {build_int32_array({value})});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 1,
+                                                      builder.build()));
+}
+
+void write_nullable_bigint_pair_parquet_file(const std::string& file_path, bool contains_null) {
+    arrow::Int64Builder values;
+    if (contains_null) {
+        ASSERT_TRUE(values.AppendNull().ok());
+    } else {
+        ASSERT_TRUE(values.Append(1).ok());
+    }
+    ASSERT_TRUE(values.Append(2).ok());
+    const auto schema = arrow::schema({arrow::field("id", arrow::int64(), true)});
+    const auto table = arrow::Table::Make(schema, {finish_array(&values)});
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    auto out = *file_result;
+    ::parquet::WriterProperties::Builder writer;
+    writer.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out, 2,
+                                                      writer.build()));
+    ASSERT_TRUE(out->Close().ok());
 }
 
 void write_struct_parquet_file(const std::string& file_path, int32_t id) {
@@ -2941,6 +3011,54 @@ TEST(TableReaderTest, NestedCurrentNameWinsBeforeHistoricalAliasForComplexTypes)
     EXPECT_EQ(remove_nullable(context.schema_column->children[1].type)->get_primitive_type(),
               TYPE_MAP);
     ASSERT_EQ(context.schema_column->children[1].children.size(), 2);
+}
+
+TEST(TableReaderTest, FieldIdLookupUsesExternalScanSemanticsForCurrentAndHistoricalSchemas) {
+    auto profile_field = external_struct_field(
+            "profile", 20,
+            {external_array_field("renamed_payload", 21, external_schema_field("element", 22),
+                                  {"payload"}),
+             external_map_field("payload", 23, external_schema_field("key", 24),
+                                external_schema_field("value", 25))});
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto string_type = std::make_shared<DataTypeString>();
+    auto profile_type = std::make_shared<DataTypeStruct>(
+            DataTypes {std::make_shared<DataTypeMap>(string_type, string_type),
+                       std::make_shared<DataTypeArray>(int_type)},
+            Strings {"payload", "renamed_payload"});
+
+    for (const bool historical : {false, true}) {
+        SCOPED_TRACE(historical ? "historical schema" : "current schema");
+        TFileScanRangeParams scan_params;
+        scan_params.__set_current_schema_id(200);
+        std::vector<schema::external::TSchema> schemas {
+                external_schema(historical ? 100 : 200, {profile_field})};
+        if (historical) {
+            schemas.push_back(external_schema(200, {}));
+        }
+        scan_params.__set_history_schema_info(std::move(schemas));
+        RuntimeState state;
+        TableReader reader;
+        ASSERT_TRUE(reader.init({.format = FileFormat::PARQUET,
+                                 .scan_params = &scan_params,
+                                 .runtime_state = &state})
+                            .ok());
+
+        const auto legacy_column =
+                reader._find_table_column_by_field_id(20, profile_type, historical);
+        ASSERT_TRUE(legacy_column.has_value());
+        ASSERT_EQ(legacy_column->children.size(), 2);
+        EXPECT_EQ(remove_nullable(legacy_column->children[0].type)->get_primitive_type(), TYPE_MAP);
+
+        scan_params.__set_external_scan_semantics_version(ICEBERG_SCAN_SEMANTICS_VERSION_1);
+        const auto column = reader._find_table_column_by_field_id(20, profile_type, historical);
+        ASSERT_TRUE(column.has_value());
+        ASSERT_EQ(column->children.size(), 2);
+        EXPECT_EQ(remove_nullable(column->children[0].type)->get_primitive_type(), TYPE_ARRAY);
+        ASSERT_EQ(column->children[0].children.size(), 1);
+        EXPECT_EQ(remove_nullable(column->children[1].type)->get_primitive_type(), TYPE_MAP);
+        ASSERT_EQ(column->children[1].children.size(), 2);
+    }
 }
 
 TEST(TableReaderTest, AnnotateProjectedColumnPrefersCurrentNameOverHistoricalAlias) {
@@ -5563,6 +5681,77 @@ TEST(TableReaderTest, OpenReaderBuildsTableFiltersFromConjuncts) {
 
     ASSERT_TRUE(filtered_reader.close().ok());
     std::filesystem::remove_all(test_dir);
+}
+
+// GTest assertion branches inflate this four-case NULL/filter matrix.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST(TableReaderTest, RequiredBigintValidatesNullabilityBeforeComparisonFilter) {
+    const auto test_dir = std::filesystem::temp_directory_path() /
+                          "doris_table_reader_required_bigint_predicate_test";
+    std::filesystem::create_directories(test_dir);
+    const auto bigint_type = std::make_shared<DataTypeInt64>();
+    const auto bool_type = std::make_shared<DataTypeUInt8>();
+
+    for (const bool contains_null : {false, true}) {
+        SCOPED_TRACE(contains_null ? "rows [NULL, 2]" : "rows [1, 2]");
+        const auto file_path =
+                (test_dir / (contains_null ? "with-null.parquet" : "no-null.parquet")).string();
+        ASSERT_NO_FATAL_FAILURE(write_nullable_bigint_pair_parquet_file(file_path, contains_null));
+
+        for (const bool with_filter : {false, true}) {
+            SCOPED_TRACE(with_filter ? "id >= 2" : "unfiltered");
+            auto table_column = make_table_column(0, "id", bigint_type);
+            // The common helper models nullable external columns; Delta also preserves NOT NULL.
+            table_column.type = bigint_type;
+            std::vector<ColumnDefinition> projected_columns {table_column};
+            set_name_identifiers(&projected_columns);
+            RuntimeState state {TQueryOptions(), TQueryGlobals()};
+            VExprContextSPtrs conjuncts;
+            if (with_filter) {
+                auto predicate = table_function_expr("ge", bool_type, {bigint_type, bigint_type},
+                                                     TExprNodeType::BINARY_PRED, TExprOpcode::GE);
+                predicate->add_child(VSlotRef::create_shared(0, 0, -1, bigint_type, "id"));
+                predicate->add_child(
+                        VLiteral::create_shared(bigint_type, Field::create_field<TYPE_BIGINT>(2)));
+                ASSERT_FALSE(predicate->data_type()->is_nullable());
+                conjuncts.push_back(prepared_conjunct(&state, predicate));
+            }
+
+            TableReader reader;
+            ASSERT_TRUE(reader.init({
+                                            .projected_columns = projected_columns,
+                                            .conjuncts = conjuncts,
+                                            .format = FileFormat::PARQUET,
+                                            .scan_params = nullptr,
+                                            .io_ctx = nullptr,
+                                            .runtime_state = &state,
+                                            .scanner_profile = nullptr,
+                                    })
+                                .ok());
+            ASSERT_TRUE(reader.prepare_split(build_split_options(file_path)).ok());
+            Block block = build_table_block(projected_columns);
+            bool eos = false;
+            const auto status = reader.get_block(&block, &eos);
+            if (contains_null) {
+                // Filtering NULL first would make the invalid file look like the valid row [2].
+                EXPECT_FALSE(status.ok());
+                EXPECT_NE(status.to_string().find("non-nullable table column"), std::string::npos)
+                        << status;
+            } else {
+                ASSERT_TRUE(status.ok()) << status;
+                const auto expected_ids =
+                        with_filter ? std::vector<int64_t> {2} : std::vector<int64_t> {1, 2};
+                ASSERT_EQ(block.rows(), expected_ids.size());
+                EXPECT_TRUE(block.get_by_position(0).type->equals(*bigint_type));
+                ASSERT_FALSE(block.get_by_position(0).column->is_nullable());
+                const auto& ids = assert_cast<const ColumnInt64&>(*block.get_by_position(0).column);
+                for (size_t row = 0; row < expected_ids.size(); ++row) {
+                    EXPECT_EQ(ids.get_element(row), expected_ids[row]);
+                }
+            }
+            EXPECT_TRUE(reader.close().ok());
+        }
+    }
 }
 
 TEST(TableReaderTest, OpenReaderPushesVExprPredicateToParquetReader) {

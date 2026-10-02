@@ -125,6 +125,11 @@ void RuntimeState::append_external_file_commit_data(TReportExecStatusParams* par
         params->hive_partition_updates.insert(params->hive_partition_updates.end(), updates.begin(),
                                               updates.end());
     }
+    if (auto commit_datas = connector_file_commit_datas(); !commit_datas.empty()) {
+        params->__isset.connector_file_commit_datas = true;
+        params->connector_file_commit_datas.insert(params->connector_file_commit_datas.end(),
+                                                   commit_datas.begin(), commit_datas.end());
+    }
     append_iceberg_commit_datas(&params->iceberg_commit_datas);
     if (!params->iceberg_commit_datas.empty()) {
         params->__isset.iceberg_commit_datas = true;

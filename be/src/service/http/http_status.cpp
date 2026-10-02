@@ -40,6 +40,7 @@ static std::map<HttpStatus, std::string> s_reason_map = {
         {HttpStatus::NOT_MODIFIED, "Not Modified"},
         {HttpStatus::USE_PROXY, "Use Proxy"},
         {HttpStatus::TEMPORARY_REDIRECT, "Temporary Redirect"},
+        {HttpStatus::RESUME_INCOMPLETE, "Resume Incomplete"},
         {HttpStatus::BAD_REQUEST, "Bad Request"},
         {HttpStatus::UNAUTHORIZED, "Unauthorized"},
         {HttpStatus::PAYMENT_REQUIRED, "Payment Required"},

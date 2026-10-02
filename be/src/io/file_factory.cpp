@@ -31,6 +31,8 @@
 #include "io/fs/broker_file_writer.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
+#include "io/fs/gcs_file_system.h"
+#include "io/fs/gcs_file_writer.h"
 #include "io/fs/hdfs/hdfs_mgr.h"
 #include "io/fs/hdfs_file_reader.h"
 #include "io/fs/hdfs_file_system.h"
@@ -58,6 +60,17 @@
 namespace doris {
 
 constexpr std::string_view RANDOM_CACHE_BASE_PATH = "random";
+
+namespace {
+
+bool use_gcs_oauth_writer(const std::map<std::string, std::string>& properties) {
+    auto provider = properties.find("provider");
+    auto authorization = properties.find("http.header.Authorization");
+    return provider != properties.end() && provider->second == "GCP" &&
+           authorization != properties.end() && !authorization->second.empty();
+}
+
+} // namespace
 
 io::FileReaderOptions FileFactory::get_reader_options(const TQueryOptions& option,
                                                       const io::FileDescription& fd) {
@@ -113,6 +126,9 @@ Result<io::FileSystemSPtr> FileFactory::create_fs(const io::FSPropertiesRef& fs_
                                             *fs_properties.properties, io::FileSystem::TMP_FS_ID);
     }
     case TFileType::FILE_S3: {
+        if (use_gcs_oauth_writer(*fs_properties.properties)) {
+            return io::GcsFileSystem::create(*fs_properties.properties, io::FileSystem::TMP_FS_ID);
+        }
         S3URI s3_uri(file_description.path);
         RETURN_IF_ERROR_RESULT(s3_uri.parse());
         S3Conf s3_conf;
@@ -177,6 +193,9 @@ Result<io::FileWriterPtr> FileFactory::create_file_writer(
         return io::BrokerFileWriter::create(env, broker_addresses[index], properties, path);
     }
     case TFileType::FILE_S3: {
+        if (use_gcs_oauth_writer(properties)) {
+            return io::GcsFileWriter::create(path, properties);
+        }
         S3URI s3_uri(path);
         RETURN_IF_ERROR_RESULT(s3_uri.parse());
         S3Conf s3_conf;
