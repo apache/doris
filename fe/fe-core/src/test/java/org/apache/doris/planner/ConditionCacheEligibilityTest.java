@@ -36,7 +36,7 @@ class ConditionCacheEligibilityTest extends TestWithFeService {
     protected void runBeforeAll() throws Exception {
         createDatabase("cache_eligibility");
         useDatabase("cache_eligibility");
-        createTable("create table t(k int, a array<int>, dt1 datetime, dt2 datetime) "
+        createTable("create table t(k int, a array<int>, dt1 datetime, dt2 datetime, s string) "
                 + "duplicate key(k) distributed by hash(k) buckets 3 properties('replication_num'='1')");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
         connectContext.getSessionVariable().setEnableQueryCache(true);
@@ -54,7 +54,10 @@ class ConditionCacheEligibilityTest extends TestWithFeService {
                 "array_shuffle(a, 1) = [1,2,3]",
                 "shuffle(a, 1) = [1,2,3]",
                 "cast(timediff(dt1, dt2) as date) = date '2026-10-01'",
-                "cast(timediff(dt1, dt2) as datetime) = cast(dt1 as datetime)")) {
+                "cast(timediff(dt1, dt2) as datetime) = cast(dt1 as datetime)",
+                "cast(array(timediff(dt1, dt2)) as array<datetime>)[1] = dt1",
+                "cast(map(1, timediff(dt1, dt2)) as map<int, datetime>)[1] = dt1",
+                "struct_element(cast(struct(k, timediff(dt1, dt2)) as struct<id:int, d:datetime>), 2) = dt1")) {
             Planner planner = getSqlStmtExecutor("select k, sum(k) from t where " + predicate + " group by k")
                     .planner();
             List<TPlanNode> scans = scans(planner);
@@ -98,7 +101,10 @@ class ConditionCacheEligibilityTest extends TestWithFeService {
                         .supportSqlCache(), expression);
             }
             for (String expression : ImmutableList.of("cast(timediff(dt1, dt2) as date)",
-                    "cast(timediff(dt1, dt2) as datetime)", "array_shuffle(a)", "shuffle(a, 1)")) {
+                    "cast(timediff(dt1, dt2) as datetime)", "array_shuffle(a)", "shuffle(a, 1)",
+                    "cast(array(timediff(dt1, dt2)) as array<datetime>)",
+                    "cast(map(1, timediff(dt1, dt2)) as map<int, datetime>)",
+                    "cast(struct(k, timediff(dt1, dt2)) as struct<id:int, d:datetime>)")) {
                 NereidsPlanner planner = (NereidsPlanner) getSqlStmtExecutor("select " + expression + " from t")
                         .planner();
                 SqlCacheContext cache = planner.getStatementContext().getSqlCacheContext().orElseThrow();
@@ -106,6 +112,25 @@ class ConditionCacheEligibilityTest extends TestWithFeService {
             }
         } finally {
             connectContext.getSessionVariable().setEnableSqlCache(enabled);
+        }
+    }
+
+    @Test
+    void testRuntimeFilterProbeEligibility() throws Exception {
+        for (boolean clockDependent : ImmutableList.of(true, false)) {
+            String probe = clockDependent ? "cast(cast(p.s as time) as datetime)" : "cast(p.s as datetime)";
+            Planner planner = getSqlStmtExecutor("select /*+ SET_VAR(disable_join_reorder=true, "
+                    + "enable_runtime_filter_prune=false) */ p.k from t p join [broadcast] t b on "
+                    + probe + " = b.dt1").planner();
+            List<TPlanNode> targets = new ArrayList<>();
+            for (TPlanNode scan : scans(planner)) {
+                if (scan.isSetRuntimeFilters() && scan.getRuntimeFilters().stream().anyMatch(filter ->
+                        filter.planId_to_target_expr.containsKey(scan.getNodeId()))) {
+                    targets.add(scan);
+                    Assertions.assertEquals(!clockDependent, scan.isEnableConditionCache(), probe);
+                }
+            }
+            Assertions.assertFalse(targets.isEmpty(), "Expected a runtime filter target for " + probe);
         }
     }
 

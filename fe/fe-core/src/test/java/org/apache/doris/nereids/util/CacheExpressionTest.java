@@ -44,7 +44,10 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 
@@ -113,6 +116,52 @@ class CacheExpressionTest {
         Assertions.assertFalse(uncacheable(new Cast(time, TimeV2Type.of(6))));
         Assertions.assertFalse(uncacheable(new Cast(
                 new SlotReference("dt", DateTimeV2Type.SYSTEM_DEFAULT), DateV2Type.INSTANCE)));
+    }
+
+    @Test
+    void testNestedTimeCastsDependOnQueryDate() {
+        for (DataType date : ImmutableList.of(DateV2Type.INSTANCE, DateTimeV2Type.SYSTEM_DEFAULT)) {
+            DataType time = TimeV2Type.SYSTEM_DEFAULT;
+            for (DataType[] types : ImmutableList.of(
+                    new DataType[] {ArrayType.of(time), ArrayType.of(date)},
+                    new DataType[] {MapType.of(time, IntegerType.INSTANCE), MapType.of(date, IntegerType.INSTANCE)},
+                    new DataType[] {MapType.of(IntegerType.INSTANCE, time), MapType.of(IntegerType.INSTANCE, date)},
+                    new DataType[] {structWithSecondField(time), structWithSecondField(date)},
+                    new DataType[] {ArrayType.of(MapType.of(IntegerType.INSTANCE, structWithSecondField(time))),
+                            ArrayType.of(MapType.of(IntegerType.INSTANCE, structWithSecondField(date)))})) {
+                Cast cast = new Cast(new SlotReference("nested", types[0]), types[1]);
+                Assertions.assertFalse(cast.isDeterministic(), cast.toSql());
+                Assertions.assertFalse(cast.foldable(), cast.toSql());
+                Assertions.assertTrue(uncacheable(cast), cast.toSql());
+                Expression nullCast = new Cast(new NullLiteral(types[0]), types[1]);
+                Assertions.assertEquals(new NullLiteral(types[1]),
+                        FoldConstantRuleOnFE.evaluateWithoutContext(nullCast));
+            }
+        }
+    }
+
+    @Test
+    void testDeterministicNestedCastsRemainCacheable() {
+        DataType time = TimeV2Type.SYSTEM_DEFAULT;
+        for (DataType[] types : ImmutableList.of(
+                new DataType[] {ArrayType.of(time), ArrayType.of(StringType.INSTANCE)},
+                new DataType[] {MapType.of(IntegerType.INSTANCE, time), MapType.of(BigIntType.INSTANCE, time)},
+                new DataType[] {structWithSecondField(time), structWithSecondField(TimeV2Type.of(6))},
+                new DataType[] {ArrayType.of(DateTimeV2Type.SYSTEM_DEFAULT), ArrayType.of(DateV2Type.INSTANCE)})) {
+            Cast cast = new Cast(new SlotReference("nested", types[0]), types[1]);
+            Assertions.assertTrue(cast.isDeterministic(), cast.toSql());
+            Assertions.assertTrue(cast.foldable(), cast.toSql());
+            Assertions.assertFalse(uncacheable(cast), cast.toSql());
+        }
+        // An invalid shape must still reach the existing cast-legality check before NULL folding.
+        Expression invalid = new Cast(new NullLiteral(structWithSecondField(time)),
+                new StructType(ImmutableList.of(new StructField("x", DateV2Type.INSTANCE, true, ""))));
+        Assertions.assertSame(invalid, FoldConstantRuleOnFE.evaluateWithoutContext(invalid));
+    }
+
+    private DataType structWithSecondField(DataType type) {
+        return new StructType(ImmutableList.of(new StructField("stable", IntegerType.INSTANCE, true, ""),
+                new StructField("value", type, true, "")));
     }
 
     @Test
