@@ -23,7 +23,9 @@
 
 #include "common/check.h"
 #include "common/status.h"
+#include "storage/index/query/phrase/exact_phrase_matcher.h"
 #include "storage/index/query/phrase/position_math.h"
+#include "storage/index/query/phrase/position_span.h"
 
 namespace doris::index_query {
 namespace exact_phrase_stream_matcher_detail {
@@ -49,14 +51,6 @@ Status seek_document(std::span<Cursor> cursors, std::span<const size_t> phrase_p
     return Status::OK();
 }
 
-template <typename Cursor>
-Status advance_to(Cursor* cursor, uint32_t target, uint32_t* position, bool* available) {
-    do {
-        RETURN_IF_ERROR(cursor->next_position(position, available));
-    } while (*available && *position < target);
-    return Status::OK();
-}
-
 } // namespace exact_phrase_stream_matcher_detail
 
 template <typename Cursor>
@@ -76,8 +70,10 @@ void validate_exact_phrase_stream_inputs(std::span<Cursor> cursors,
     }
 }
 
-// Cursors advance within one document and validate skipped data in finish_doc().
-// Every referenced cursor is finished before a successful match returns.
+// Cursors advance within one document: advance_to(target) gives the first position at or after
+// target and stays on it, so a later call may give it again, whole(span) gives the document's
+// remaining positions when the cursor already holds all of them, and finish_doc() validates
+// skipped data. Every referenced cursor is finished before a successful match returns.
 template <typename Cursor>
 Status match_exact_phrase_document(std::span<Cursor> cursors,
                                    std::span<const size_t> phrase_plan_index,
@@ -90,63 +86,39 @@ Status match_exact_phrase_document(std::span<Cursor> cursors,
             exact_phrase_stream_matcher_detail::seek_document(cursors, phrase_plan_index, docid));
 
     Cursor& lead = cursors[phrase_plan_index.front()];
+    // Two clauses held whole check with the block kernel.
+    PhrasePositionSpan lead_span;
+    PhrasePositionSpan other_span;
+    if (phrase_plan_index.size() == 2 && lead.whole(&lead_span) &&
+        cursors[phrase_plan_index[1]].whole(&other_span)) {
+        *matched = contains_two_term_phrase(lead_span, other_span,
+                                            position_offsets[1] - position_offsets[0]);
+        return exact_phrase_stream_matcher_detail::finish_document(cursors, phrase_plan_index);
+    }
     uint32_t lead_position = 0;
     bool available = false;
-    RETURN_IF_ERROR(
-            exact_phrase_stream_matcher_detail::advance_to(&lead, 0, &lead_position, &available));
-    if (!available) {
-        return exact_phrase_stream_matcher_detail::finish_document(cursors, phrase_plan_index);
-    }
-
-    const size_t no_retained_clause = phrase_plan_index.size();
-    size_t retained_clause = no_retained_clause;
-    uint32_t retained_position = 0;
-    while (true) {
-        bool restart = false;
-        for (size_t clause = 1; clause < phrase_plan_index.size(); ++clause) {
-            const uint32_t offset = position_offsets[clause] - position_offsets.front();
-            uint32_t expected_position = 0;
-            if (!add_position_offset(lead_position, offset, &expected_position)) {
-                return exact_phrase_stream_matcher_detail::finish_document(cursors,
-                                                                           phrase_plan_index);
-            }
-
-            uint32_t clause_position = 0;
-            if (retained_clause == clause) {
-                clause_position = retained_position;
-                retained_clause = no_retained_clause;
-            } else {
-                RETURN_IF_ERROR(exact_phrase_stream_matcher_detail::advance_to(
-                        &cursors[phrase_plan_index[clause]], expected_position, &clause_position,
-                        &available));
-                if (!available) {
-                    return exact_phrase_stream_matcher_detail::finish_document(cursors,
-                                                                               phrase_plan_index);
-                }
-            }
-            if (clause_position == expected_position) {
-                continue;
-            }
-
-            const uint32_t lead_target = clause_position - offset;
-            RETURN_IF_ERROR(exact_phrase_stream_matcher_detail::advance_to(
-                    &lead, lead_target, &lead_position, &available));
-            if (!available) {
-                return exact_phrase_stream_matcher_detail::finish_document(cursors,
-                                                                           phrase_plan_index);
-            }
-            retained_clause = lead_position == lead_target ? clause : no_retained_clause;
-            retained_position = clause_position;
-            restart = true;
+    RETURN_IF_ERROR(lead.advance_to(0, &lead_position, &available));
+    // Each clause is checked against the lead's position in turn; a clause past it moves the
+    // lead up and starts the checks over.
+    size_t clause = 1;
+    while (available && clause < phrase_plan_index.size()) {
+        const uint32_t offset = position_offsets[clause] - position_offsets.front();
+        uint32_t expected = 0;
+        if (!add_position_offset(lead_position, offset, &expected)) {
             break;
         }
-        if (restart) {
+        uint32_t clause_position = 0;
+        RETURN_IF_ERROR(cursors[phrase_plan_index[clause]].advance_to(expected, &clause_position,
+                                                                      &available));
+        if (available && clause_position != expected) {
+            RETURN_IF_ERROR(lead.advance_to(clause_position - offset, &lead_position, &available));
+            clause = 1;
             continue;
         }
-
-        *matched = true;
-        return exact_phrase_stream_matcher_detail::finish_document(cursors, phrase_plan_index);
+        ++clause;
     }
+    *matched = available && clause == phrase_plan_index.size();
+    return exact_phrase_stream_matcher_detail::finish_document(cursors, phrase_plan_index);
 }
 
 } // namespace doris::index_query

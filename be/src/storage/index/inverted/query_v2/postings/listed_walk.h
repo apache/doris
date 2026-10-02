@@ -17,12 +17,14 @@
 
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
 #include <vector>
 
 #include "common/check.h"
+#include "common/compiler_util.h"
 #include "common/status.h"
 #include "storage/index/query/exec/cursor_chained_postings.h"
 #include "storage/index/query/phrase/position_span.h"
@@ -132,13 +134,13 @@ private:
 
 // One term walked over listed rows, all of which it holds, in ascending order, as the streaming
 // exact phrase matcher reads it: each row is opened in turn and its positions decode only as far
-// as they are read.
+// as they are read, a chunk at a time.
 class StreamWalk : private ListedBlocks {
 public:
     StreamWalk(index_query::PostingsCursor& cursor, std::span<const uint32_t> rows)
             : ListedBlocks(cursor, rows) {}
 
-    // Opens the next listed row, which is `doc`.
+    // Opens the next listed row, which is `doc`, and pulls its first chunk.
     Status seek(uint32_t doc) {
         DCHECK_LT(_next, _rows.size());
         DCHECK_EQ(_rows[_next], doc);
@@ -148,18 +150,70 @@ public:
         }
         const uint32_t ordinal = _asked[_next - _begin];
         ++_next;
-        return _cursor.open_positions(ordinal, &_positions);
+        RETURN_IF_ERROR(_cursor.open_positions(ordinal, &_positions));
+        return _pull();
     }
 
-    Status next_position(uint32_t* position, bool* available) {
-        return _positions->next_position(position, available);
+    // The open row's positions not passed yet, when the walk holds all of them.
+    bool whole(index_query::PhrasePositionSpan* span) const {
+        if (!_last_chunk) {
+            return false;
+        }
+        *span = {_buffer.data() + _read, _buffer.data() + _buffered};
+        return true;
+    }
+
+    // The open row's first position at or after `target`; the walk stays on it.
+    ALWAYS_INLINE Status advance_to(uint32_t target, uint32_t* position, bool* available) {
+        if (!_scan(target) && !_last_chunk) {
+            RETURN_IF_ERROR(_scan_next_chunks(target));
+        }
+        *available = _read < _buffered;
+        if (*available) {
+            *position = _buffer[_read];
+        }
+        return Status::OK();
     }
 
     Status finish_doc() { return _positions->finish_doc(); }
 
 private:
+    // Passes the buffered positions below `target`, from locals so the loop stays in registers;
+    // whether the buffer has one left.
+    bool _scan(uint32_t target) {
+        size_t read = _read;
+        const size_t buffered = _buffered;
+        while (read < buffered && _buffer[read] < target) {
+            ++read;
+        }
+        _read = read;
+        return read < buffered;
+    }
+
+    // A chunk shorter than the buffer is the row's last.
+    Status _pull() {
+        RETURN_IF_ERROR(_positions->next_positions(_buffer, &_buffered));
+        _read = 0;
+        _last_chunk = _buffered < _buffer.size();
+        return Status::OK();
+    }
+
+    // Pulls chunks until one holds a position at or after `target`.
+    NO_INLINE Status _scan_next_chunks(uint32_t target) {
+        do {
+            RETURN_IF_ERROR(_pull());
+        } while (!_scan(target) && !_last_chunk);
+        return Status::OK();
+    }
+
     size_t _next = 0;
     index_query::PositionCursor* _positions = nullptr;
+    // The positions pulled from the open row, the first of them not passed yet, and whether the
+    // row has none after them.
+    std::array<uint32_t, 16> _buffer {};
+    size_t _buffered = 0;
+    size_t _read = 0;
+    bool _last_chunk = false;
 };
 
 } // namespace doris::segment_v2::inverted_index::query_v2

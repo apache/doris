@@ -268,6 +268,32 @@ Status PrxPositionIterator::skip_positions(uint32_t count) {
     return Status::OK();
 }
 
+// Skips a raw or zstd frame's documents up to `end_ordinal` in one loop, adding their position
+// counts to the frame's total.
+Status PrxPositionIterator::skip_documents(uint32_t end_ordinal) {
+    DCHECK(codec_ != PrxCodec::kPfor);
+    ByteSource& source = *payload_source_;
+    uint64_t total_positions = frame_stats_.total_positions;
+    for (; next_doc_ordinal_ < end_ordinal; ++next_doc_ordinal_) {
+        uint32_t frequency = 0;
+        Status read = source.get_varint32_fast(&frequency);
+        if (!read.ok()) {
+            return fail(std::move(read));
+        }
+        total_positions += frequency;
+        if (total_positions > kReaderPrxWindowLimits.max_positions) {
+            return fail(
+                    corrupted_iterator_payload("prx iterator: position count exceeds sane cap"));
+        }
+        Status skipped = source.skip_varints(frequency);
+        if (!skipped.ok()) {
+            return fail(std::move(skipped));
+        }
+    }
+    frame_stats_.total_positions = total_positions;
+    return Status::OK();
+}
+
 Status PrxPositionIterator::seek(uint32_t doc_ordinal) {
     if (failed_ || finished_ || active_doc_) {
         return fail(invalid_iterator_state("prx iterator: seek in invalid state"));
@@ -280,12 +306,7 @@ Status PrxPositionIterator::seek(uint32_t doc_ordinal) {
         frequency_ = pfor_counts_[doc_ordinal];
         RETURN_IF_ERROR(advance_pfor_cursor(pfor_offsets_[doc_ordinal], false, false));
     } else {
-        while (next_doc_ordinal_ < doc_ordinal) {
-            uint32_t skipped_frequency = 0;
-            RETURN_IF_ERROR(read_frequency(&skipped_frequency));
-            RETURN_IF_ERROR(skip_positions(skipped_frequency));
-            ++next_doc_ordinal_;
-        }
+        RETURN_IF_ERROR(skip_documents(doc_ordinal));
         RETURN_IF_ERROR(read_frequency(&frequency_));
     }
     ++frame_stats_.selected_docs;
@@ -304,21 +325,9 @@ Status PrxPositionIterator::next_position(uint32_t* position, bool* available) {
         return fail(invalid_iterator_state("prx iterator: next_position in invalid state"));
     }
     if (codec_ == PrxCodec::kPfor) {
-        if (decoded_from_doc_ == frequency_) {
-            *available = false;
-            return Status::OK();
-        }
-        const uint32_t stream_position = pfor_offsets_[next_doc_ordinal_] + decoded_from_doc_;
-        RETURN_IF_ERROR(advance_pfor_cursor(stream_position, true, true));
-        const uint32_t delta = pfor_run_[pfor_run_index_++];
-        if (!first_position_ && delta > std::numeric_limits<uint32_t>::max() - previous_position_) {
-            return fail(corrupted_iterator_payload("prx iterator: position accumulation overflow"));
-        }
-        previous_position_ = first_position_ ? delta : previous_position_ + delta;
-        first_position_ = false;
-        ++decoded_from_doc_;
-        *position = previous_position_;
-        *available = true;
+        size_t count = 0;
+        RETURN_IF_ERROR(next_pfor_positions(std::span<uint32_t>(position, 1), &count));
+        *available = count != 0;
         return Status::OK();
     }
     if (scratch_position_ == scratch_size_) {
@@ -343,6 +352,56 @@ Status PrxPositionIterator::next_position(uint32_t* position, bool* available) {
     return Status::OK();
 }
 
+// Positions next_position left in the scratch come first; the rest decode straight into `out`.
+Status PrxPositionIterator::next_positions(std::span<uint32_t> out, size_t* count) {
+    if (failed_ || finished_ || !active_doc_) {
+        return fail(invalid_iterator_state("prx iterator: next_positions in invalid state"));
+    }
+    if (codec_ == PrxCodec::kPfor) {
+        return next_pfor_positions(out, count);
+    }
+    const size_t buffered = std::min<size_t>(out.size(), scratch_size_ - scratch_position_);
+    std::copy_n(scratch_.begin() + scratch_position_, buffered, out.begin());
+    scratch_position_ += static_cast<uint32_t>(buffered);
+    const size_t decoded = std::min<size_t>(out.size() - buffered, frequency_ - decoded_from_doc_);
+    Status status = payload_source_->decode_delta_batch(out.subspan(buffered, decoded),
+                                                        &previous_position_, &first_position_);
+    if (!status.ok()) {
+        return fail(std::move(status));
+    }
+    decoded_from_doc_ += static_cast<uint32_t>(decoded);
+    *count = buffered + decoded;
+    return Status::OK();
+}
+
+// Deltas are taken out of the decoded run, and the next run decodes once it is used up.
+Status PrxPositionIterator::next_pfor_positions(std::span<uint32_t> out, size_t* count) {
+    size_t filled = 0;
+    while (filled < out.size() && decoded_from_doc_ < frequency_) {
+        RETURN_IF_ERROR(advance_pfor_cursor(pfor_offsets_[next_doc_ordinal_] + decoded_from_doc_,
+                                            true, true));
+        const auto taken = static_cast<uint32_t>(
+                std::min<size_t>({out.size() - filled, frequency_ - decoded_from_doc_,
+                                  pfor_run_length_ - pfor_run_index_}));
+        for (uint32_t i = 0; i < taken; ++i) {
+            const uint32_t delta = pfor_run_[pfor_run_index_ + i];
+            if (!first_position_ &&
+                delta > std::numeric_limits<uint32_t>::max() - previous_position_) {
+                return fail(
+                        corrupted_iterator_payload("prx iterator: position accumulation overflow"));
+            }
+            previous_position_ = first_position_ ? delta : previous_position_ + delta;
+            first_position_ = false;
+            out[filled + i] = previous_position_;
+        }
+        pfor_run_index_ += taken;
+        decoded_from_doc_ += taken;
+        filled += taken;
+    }
+    *count = filled;
+    return Status::OK();
+}
+
 Status PrxPositionIterator::finish_doc() {
     if (failed_ || finished_ || !active_doc_) {
         return fail(invalid_iterator_state("prx iterator: finish_doc in invalid state"));
@@ -351,7 +410,7 @@ Status PrxPositionIterator::finish_doc() {
         RETURN_IF_ERROR(
                 advance_pfor_cursor(pfor_offsets_[next_doc_ordinal_ + 1], frequency_ != 0, false));
         decoded_from_doc_ = frequency_;
-    } else {
+    } else if (decoded_from_doc_ != frequency_) {
         RETURN_IF_ERROR(skip_positions(frequency_ - decoded_from_doc_));
     }
     scratch_position_ = 0;
@@ -372,12 +431,7 @@ Status PrxPositionIterator::finish_frame() {
         RETURN_IF_ERROR(advance_pfor_cursor(pfor_offsets_.back(), false, false));
         next_doc_ordinal_ = doc_count_;
     } else {
-        while (next_doc_ordinal_ < doc_count_) {
-            uint32_t skipped_frequency = 0;
-            RETURN_IF_ERROR(read_frequency(&skipped_frequency));
-            RETURN_IF_ERROR(skip_positions(skipped_frequency));
-            ++next_doc_ordinal_;
-        }
+        RETURN_IF_ERROR(skip_documents(doc_count_));
     }
     if (!payload_source_->eof()) {
         return fail(corrupted_iterator_payload("prx iterator: trailing bytes after payload"));

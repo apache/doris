@@ -183,6 +183,18 @@ std::vector<uint32_t> positions_of(SniiPostingsCursor& cursor, uint32_t ordinal)
     return out;
 }
 
+// The open document's remaining positions, pulled `chunk` at a time.
+std::vector<uint32_t> read_in_chunks(index_query::PositionCursor* positions, size_t chunk) {
+    std::vector<uint32_t> out;
+    std::vector<uint32_t> buffer(chunk);
+    size_t count = 0;
+    do {
+        EXPECT_TRUE(positions->next_positions(buffer, &count).ok());
+        out.insert(out.end(), buffer.begin(), buffer.begin() + count);
+    } while (count != 0);
+    return out;
+}
+
 // Compares every block's positions with the decoder's, in listing order.
 void expect_positions(const Fixture& fixture, const Term& term, const char* name) {
     const auto expected = fixture.oracle_positions(term);
@@ -399,6 +411,7 @@ TEST(SniiPostingsCursor, FrequenciesAndNormsWhenScoring) {
                         std::vector<uint32_t>(positions->view()->begin(), positions->view()->end()),
                         expected[doc_index]);
                 EXPECT_EQ(positions->frequency(), expected[doc_index].size());
+                EXPECT_EQ(read_in_chunks(positions, 3), expected[doc_index]);
                 assert_ok(positions->finish_doc());
             }
         }
@@ -460,10 +473,15 @@ void expect_streamed_block(SniiPostingsCursor& cursor, const std::vector<uint32_
         EXPECT_FALSE(positions->view().has_value());
         const std::vector<uint32_t>& want = expected[chosen[i]];
         EXPECT_EQ(positions->frequency(), want.size());
-        if (i % 2 == 0) {
+        if (i % 3 == 0) {
             std::vector<uint32_t> streamed;
             assert_ok(positions->append_remaining_positions(0, streamed));
             EXPECT_EQ(streamed, want);
+            continue;
+        }
+        if (i % 3 == 1) {
+            EXPECT_EQ(read_in_chunks(positions, 3), want);
+            assert_ok(positions->finish_doc());
             continue;
         }
         uint32_t position = 0;
@@ -475,8 +493,8 @@ void expect_streamed_block(SniiPostingsCursor& cursor, const std::vector<uint32_
     }
 }
 
-// Every other document of each block streams the decoder's positions, a document left after its
-// first position included, and each block's frame is checked once its last chosen document is
+// Every other document of each block streams the decoder's positions, read whole, in chunks or
+// only up to the first, and each block's frame is checked once its last chosen document is
 // finished.
 TEST(SniiPostingsCursor, StreamedPositionsMatchTheDecoder) {
     Fixture fixture;

@@ -20,11 +20,13 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <limits>
 #include <numeric>
 #include <span>
+#include <utility>
 #include <vector>
 
 #include "common/status.h"
@@ -569,6 +571,110 @@ TEST(PrxPositionIteratorPforTest, ProfiledStreamingDoesNotReadClock) {
     EXPECT_EQ(context_stats.selected_positions, 2U);
     EXPECT_EQ(context_stats.decode_ns, 0U);
     EXPECT_EQ(testing::prx_clock_read_count(), 0U);
+}
+
+// Documents crossing scratch batches and PFOR runs, framed with every codec.
+struct ChunkFrames {
+    PerDoc docs;
+    std::vector<ByteSink> frames;
+};
+
+ChunkFrames make_chunk_frames() {
+    ChunkFrames out;
+    out.docs = make_repeated_positions(/*doc_count=*/4, /*positions_per_doc=*/200);
+    out.docs[0].resize(48);
+    out.docs[1] = {7};
+    out.docs[2] = {2,   9,   30,  31,  32,  100, 101, 400, 401,
+                   402, 403, 404, 405, 406, 407, 408, 409, 500};
+    std::vector<uint32_t> counts;
+    std::vector<uint32_t> deltas;
+    for (const auto& positions : out.docs) {
+        counts.push_back(static_cast<uint32_t>(positions.size()));
+        for (size_t i = 0; i < positions.size(); ++i) {
+            deltas.push_back(i == 0 ? positions[i] : positions[i] - positions[i - 1]);
+        }
+    }
+    for (const int level : {0, 3}) {
+        ByteSink frame;
+        EXPECT_TRUE(build_prx_window(out.docs, level, &frame).ok());
+        out.frames.push_back(std::move(frame));
+    }
+    out.frames.push_back(make_pfor_frame(counts, deltas));
+    expect_frame_codec(out.frames[0].view(), PrxCodec::kRaw);
+    expect_frame_codec(out.frames[1].view(), PrxCodec::kZstd);
+    expect_frame_codec(out.frames[2].view(), PrxCodec::kPfor);
+    return out;
+}
+
+// The open document's positions, `singles` read one at a time and the rest `chunk` at a time.
+std::vector<uint32_t> read_document(PrxPositionIterator* iterator, size_t singles, size_t chunk) {
+    std::vector<uint32_t> positions;
+    for (size_t i = 0; i < singles; ++i) {
+        uint32_t position = 0;
+        bool available = false;
+        EXPECT_TRUE(iterator->next_position(&position, &available).ok());
+        EXPECT_TRUE(available);
+        positions.push_back(position);
+    }
+    std::vector<uint32_t> buffer(chunk);
+    size_t count = 0;
+    do {
+        EXPECT_TRUE(iterator->next_positions(buffer, &count).ok());
+        positions.insert(positions.end(), buffer.begin(), buffer.begin() + count);
+    } while (count != 0);
+    return positions;
+}
+
+// Reads every document of `frame`, `singles` positions one at a time and the rest `chunk` at a
+// time.
+void expect_chunked_reads(const ByteSink& frame, const PerDoc& docs, size_t singles, size_t chunk) {
+    PrxPositionIterator iterator;
+    ASSERT_TRUE(iterator.reset(frame.view(), docs.size(), {}, nullptr).ok());
+    for (uint32_t ordinal = 0; ordinal < docs.size(); ++ordinal) {
+        const std::vector<uint32_t>& want = docs[ordinal];
+        ASSERT_TRUE(iterator.seek(ordinal).ok());
+        EXPECT_EQ(read_document(&iterator, std::min(singles, want.size()), chunk), want)
+                << ordinal << " after " << singles << " in chunks of " << chunk;
+        ASSERT_TRUE(iterator.finish_doc().ok());
+    }
+    ASSERT_TRUE(iterator.finish_frame().ok());
+}
+
+// Reads the first chunk of every document of `frame` and leaves the document there.
+void expect_first_chunks(const ByteSink& frame, const PerDoc& docs) {
+    PrxPositionIterator iterator;
+    ASSERT_TRUE(iterator.reset(frame.view(), docs.size(), {}, nullptr).ok());
+    for (uint32_t ordinal = 0; ordinal < docs.size(); ++ordinal) {
+        const std::vector<uint32_t>& want = docs[ordinal];
+        std::array<uint32_t, 5> chunk {};
+        size_t count = 0;
+        ASSERT_TRUE(iterator.seek(ordinal).ok());
+        ASSERT_TRUE(iterator.next_positions(chunk, &count).ok());
+        ASSERT_EQ(count, std::min(chunk.size(), want.size()));
+        EXPECT_TRUE(std::equal(chunk.begin(), chunk.begin() + count, want.begin()));
+        ASSERT_TRUE(iterator.finish_doc().ok());
+    }
+    ASSERT_TRUE(iterator.finish_frame().ok());
+}
+
+// Chunked reads hand out what single reads do, from any point of a document.
+TEST(PrxPositionIteratorTest, ChunkedReadsMatchSingleReadsOnEveryCodec) {
+    const ChunkFrames fixture = make_chunk_frames();
+    const std::vector<std::pair<size_t, size_t>> reads {{0, 1},  {0, 5},   {0, 16},
+                                                        {3, 16}, {17, 40}, {0, 300}};
+    for (const ByteSink& frame : fixture.frames) {
+        for (const auto& [singles, chunk] : reads) {
+            expect_chunked_reads(frame, fixture.docs, singles, chunk);
+        }
+    }
+}
+
+// A document left after its first chunk skips the rest, and the next one reads from its start.
+TEST(PrxPositionIteratorTest, LeavingADocumentAfterAChunkSkipsItsRest) {
+    const ChunkFrames fixture = make_chunk_frames();
+    for (const ByteSink& frame : fixture.frames) {
+        expect_first_chunks(frame, fixture.docs);
+    }
 }
 
 TEST(PrxPositionIteratorTest, RejectsNonMonotonicSeekWithoutMergingStats) {

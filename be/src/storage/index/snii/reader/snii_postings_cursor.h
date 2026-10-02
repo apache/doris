@@ -126,6 +126,7 @@ public:
 
     uint32_t frequency() const override;
     Status next_position(uint32_t* position, bool* available) override;
+    Status next_positions(std::span<uint32_t> out, size_t* count) override;
     Status finish_doc() override;
     std::optional<std::span<const uint32_t>> view() const override;
 

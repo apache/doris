@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -33,6 +34,21 @@ public:
     virtual ~PositionCursor() = default;
     virtual uint32_t frequency() const = 0;
     virtual Status next_position(uint32_t* position, bool* available) = 0;
+    // The next positions into `out`, filling it unless fewer are left: a *count below out.size()
+    // means the document has none after them.
+    virtual Status next_positions(std::span<uint32_t> out, size_t* count) {
+        size_t filled = 0;
+        bool available = true;
+        while (filled < out.size()) {
+            RETURN_IF_ERROR(next_position(&out[filled], &available));
+            if (!available) {
+                break;
+            }
+            ++filled;
+        }
+        *count = filled;
+        return Status::OK();
+    }
     virtual Status finish_doc() = 0;
 
     // An absent view requires streaming; an empty span is a materialized empty document.

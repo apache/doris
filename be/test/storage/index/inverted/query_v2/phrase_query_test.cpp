@@ -1095,6 +1095,46 @@ TEST_F(PhraseQueryV2Test, AListedPhraseStreamsOnlyHeavyExactUnscoredDistinctTerm
     EXPECT_TRUE(scored->streams["quick"].empty());
 }
 
+// `count` positions from `first`, `step` apart.
+static std::vector<uint32_t> stepped(uint32_t first, uint32_t step, uint32_t count) {
+    std::vector<uint32_t> positions(count);
+    for (uint32_t i = 0; i < count; ++i) {
+        positions[i] = first + i * step;
+    }
+    return positions;
+}
+
+// Rows whose positions run past a 16-position chunk: row 0 matches in the third chunk of
+// "quick", row 2 at the last position of its first chunk and the first of the second chunk of
+// "brown", and rows 1 and 3 fill whole chunks without a match.
+static std::shared_ptr<index_query::testing::FakeIndexSource> chunked_phrase_source(
+        uint64_t position_work) {
+    auto source = std::make_shared<index_query::testing::FakeIndexSource>();
+    source->batches = true;
+    source->set_doc_count(8);
+    source->position_work = position_work;
+    std::vector<uint32_t> edge_quick = stepped(0, 4, 16);
+    edge_quick.insert(edge_quick.end(), {100, 104});
+    std::vector<uint32_t> edge_brown = stepped(2, 4, 15);
+    edge_brown.insert(edge_brown.end(), {59, 61});
+    source->add("quick", {posting(0, stepped(0, 2, 40)), posting(1, stepped(0, 1, 16)),
+                          posting(2, edge_quick), posting(3, stepped(0, 4, 32))});
+    source->add("brown", {posting(0, {79}), posting(1, stepped(100, 1, 16)), posting(2, edge_brown),
+                          posting(3, stepped(2, 4, 32))});
+    return source;
+}
+
+// A streamed phrase finds what the whole-block decode finds when its rows' positions span
+// several chunks.
+TEST_F(PhraseQueryV2Test, AStreamedPhraseMatchesAcrossChunks) {
+    auto streamed = chunked_phrase_source(128);
+    EXPECT_EQ(fake_phrase_docs(streamed, {"quick", "brown"}, {}), (std::set<uint32_t> {0, 2}));
+    EXPECT_EQ(streamed->streams["quick"], (std::vector<std::vector<uint32_t>> {{0, 1, 2, 3}}));
+    auto decoded = chunked_phrase_source(7);
+    EXPECT_EQ(fake_phrase_docs(decoded, {"quick", "brown"}, {}), (std::set<uint32_t> {0, 2}));
+    EXPECT_TRUE(decoded->streams["quick"].empty());
+}
+
 TEST_F(PhraseQueryV2Test, AListedScoredPhrasePrefixScoresLikeTheStreamedOne) {
     std::map<uint32_t, float> streamed;
     for (const bool batches : {false, true}) {

@@ -796,6 +796,17 @@ Status SniiPostingsCursor::next_position(uint32_t* position, bool* available) {
     return Status::OK();
 }
 
+Status SniiPostingsCursor::next_positions(std::span<uint32_t> out, size_t* count) {
+    DORIS_CHECK(_doc_open);
+    if (_doc_streamed) {
+        return _stream.next_positions(out, count);
+    }
+    *count = std::min(out.size(), _doc_positions.size() - _doc_position_next);
+    std::copy_n(_doc_positions.begin() + _doc_position_next, *count, out.begin());
+    _doc_position_next += *count;
+    return Status::OK();
+}
+
 // Finishing the last streamed document checks the rest of its frame.
 Status SniiPostingsCursor::finish_doc() {
     DORIS_CHECK(_doc_open);
