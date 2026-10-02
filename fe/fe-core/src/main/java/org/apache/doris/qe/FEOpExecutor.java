@@ -202,10 +202,16 @@ public class FEOpExecutor {
         // FE's store: attach the currently ENABLED rows (rebuilt from the store HERE, so a
         // client SET cannot inject rows) - the master otherwise plans the forwarded
         // statement in a fresh context with an empty store and silently ignores the very
-        // baseline this connection created.
-        ctx.getSessionVariable().setSpmForwardedSessionBaselines(
-                org.apache.doris.nereids.spm.SPMForwardedSession.serialize(
-                        ctx.getSessionBaselineStore()));
+        // baseline this connection created. With rewrite disabled the master can never
+        // consult a baseline, so nothing is shipped: serializing every enabled row would
+        // add unbounded (re)parse work to each forwarded statement of such a connection.
+        if (ctx.getSessionVariable().isEnableSpmRewrite()) {
+            ctx.getSessionVariable().setSpmForwardedSessionBaselines(
+                    org.apache.doris.nereids.spm.SPMForwardedSession.serialize(
+                            ctx.getSessionBaselineStore()));
+        } else {
+            ctx.getSessionVariable().setSpmForwardedSessionBaselines("");
+        }
         params.setSessionVariables(ctx.getSessionVariable().getForwardVariables());
         params.setUserVariables(getForwardUserVariables(ctx.getUserVars()));
         if (null != ctx.queryId()) {

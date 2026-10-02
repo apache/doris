@@ -190,6 +190,15 @@ public class BaselineManager {
     public static volatile Supplier<Map<Long, BaselinePlan>> snapshotReaderForTest;
 
     /**
+     * Test seam counting the background load threads that were actually STARTED by
+     * {@link #scheduleAsyncLoad} (one per load-slot claim). A query burst must coalesce
+     * onto the in-flight load instead of starting one thread per caller, which this
+     * counter makes observable. Null in production.
+     */
+    @VisibleForTesting
+    public static volatile java.util.concurrent.atomic.AtomicInteger asyncLoadSpawnCountForTest;
+
+    /**
      * Test seam replacing the journal synchronization of
      * {@link #refreshAfterForwardedDdl} (null in production): the real sync asks the
      * master for its max journal id and waits locally, which a unit test cannot do. A
@@ -429,6 +438,15 @@ public class BaselineManager {
      */
     private long stateVersion = 0;
 
+    /**
+     * The largest durable id this store has EVER seen - the load snapshot's MAX(id) and
+     * every locally published row. The table allocates ids upward only, so a table whose
+     * MAX(id) is not above this value has no row this store does not know: the
+     * create-path key dedup can then be answered from the in-memory key index instead of
+     * scanning the whole table (see {@link #readPersistedRowsForCreate}).
+     */
+    private volatile long maxPersistedIdSeen = 0;
+
     /** id -> BaselinePlan (Phase 1 in-memory storage). */
     private final Map<Long, BaselinePlan> baselines = new HashMap<>();
 
@@ -555,7 +573,7 @@ public class BaselineManager {
             // writerLock keeps another writer's INSERT/DELETE pair out of this window.
             if (persistenceEnabled() && plan.getBindSqlDigest() != null) {
                 List<BaselinePlan> durable =
-                        readPersistedByKey(plan.getBindSqlDigest(), plan.getPlanSql());
+                        readPersistedRowsForCreate(plan, watermark);
                 if (!durable.isEmpty()) {
                     List<BaselinePlan> sameFingerprint = new ArrayList<>();
                     List<BaselinePlan> staleRows = new ArrayList<>();
@@ -794,6 +812,7 @@ public class BaselineManager {
     private void publishBaseline(BaselinePlan plan) {
         stateLock.writeLock().lock();
         try {
+            maxPersistedIdSeen = Math.max(maxPersistedIdSeen, plan.getId());
             BaselinePlan replaced = baselines.put(plan.getId(), plan);
             if (replaced != null) {
                 removeFromHashIndex(replaced);
@@ -1524,6 +1543,12 @@ public class BaselineManager {
         persistToTable = enabled;
     }
 
+    /** For tests: drives the coalesced background-load scheduling (see #scheduleAsyncLoad). */
+    @VisibleForTesting
+    void scheduleAsyncLoadForTest() {
+        scheduleAsyncLoad();
+    }
+
     /**
      * For tests: clears the storage.
      */
@@ -1539,8 +1564,10 @@ public class BaselineManager {
             durableVisibilityProbeForTest = null; // (the write-visibility seam, same reason)
             snapshotReadStartedHookForTest = null; // (the load-generation seam, same reason)
             snapshotReaderForTest = null; // (the load snapshot seam, same reason)
+            asyncLoadSpawnCountForTest = null; // (the load-scheduling seam, same reason)
             baselines.clear();
             hashIndex.clear();
+            maxPersistedIdSeen = 0;
             stateVersion++;
         } finally {
             stateLock.writeLock().unlock();
@@ -1655,20 +1682,46 @@ public class BaselineManager {
      * Schedules the first load on a background thread (coalesced): the query path must
      * never read the shared table synchronously, and a failed read is simply retried by
      * the next query / refresh cycle instead of blocking the current one.
+     *
+     * <p>The load slot is claimed ATOMICALLY here, at scheduling time: checking
+     * {@code loadInProgress} and starting the thread were separate, so a query burst (or
+     * repeated failed reads) could start one throwaway {@code spm-baseline-async-load}
+     * thread per caller - only the CAS winner inside {@link #tryLoadNow()} performed the
+     * read, every other thread exited immediately. Reserving the slot first means a
+     * caller that cannot claim it simply returns: the owner releases the slot when its
+     * read finishes ({@link #readAndPublishPossessingLoadSlot()}), so the next caller
+     * retries against the fresh state.
      */
     private void scheduleAsyncLoad() {
-        if (loaded || loadInProgress.get()) {
-            return;
+        if (loaded || !loadInProgress.compareAndSet(false, true)) {
+            return; // already loaded, or the load slot is owned (another caller is loading)
         }
         Thread loader = new Thread(() -> {
             try {
-                tryLoadNow();
+                // the slot is already ours: readAndPublishPossessingLoadSlot releases it
+                // (and wakes the waiters) in its own finally, even when the read fails
+                readAndPublishPossessingLoadSlot();
             } catch (Throwable t) {
                 LOG.warn("SPM baseline background load failed (will retry): {}", t.getMessage());
             }
         }, "spm-baseline-async-load");
         loader.setDaemon(true);
-        loader.start();
+        java.util.concurrent.atomic.AtomicInteger spawnCount = asyncLoadSpawnCountForTest;
+        if (spawnCount != null) {
+            spawnCount.incrementAndGet();
+        }
+        try {
+            loader.start();
+        } catch (Throwable t) {
+            // the thread never ran, so nothing will release the slot: release it here,
+            // otherwise every later ensureLoaded() fails its CAS and the store never loads
+            loadInProgress.set(false);
+            synchronized (loadMonitor) {
+                loadMonitor.notifyAll();
+            }
+            LOG.warn("SPM baseline background load could not start (will retry): {}",
+                    t.getMessage());
+        }
     }
 
     /**
@@ -1747,6 +1800,8 @@ public class BaselineManager {
         hashIndex.clear();
         baselines.putAll(loadedPlans);
         hashIndex.putAll(loadedIndex);
+        // the snapshot read every row: no row above this id can exist undiscovered
+        maxPersistedIdSeen = Math.max(maxPersistedIdSeen, maxId);
         if (maxId >= idGenerator.get()) {
             idGenerator.set(maxId + 1);
         }
@@ -2218,6 +2273,70 @@ public class BaselineManager {
     @VisibleForTesting
     public static BaselinePlan parsePersistedRowForTest(ResultRow row) throws Exception {
         return parsePersistedRow(row);
+    }
+
+    /**
+     * Durable dedup lookup of the CREATE path: served from the store's key INDEX while
+     * the store is complete for this table, and from the durable table only when the
+     * table carries a row this store has never seen.
+     *
+     * <p>Every GLOBAL CREATE used to filter bind_sql_digest / plan_sql in SQL, but the
+     * table is keyed and distributed only by id: that predicate scans EVERY bucket and
+     * row, while the table grows without a cap (auto capture), so the lookup eventually
+     * ran into its fixed timeout and CREATE slowed down / failed as baselines
+     * accumulated. The store already holds every row (the load reads them all) plus
+     * every local write, and it is invalidated + reloaded on promotion / forwarded DDL,
+     * so the in-memory index answers correctly whenever the table has no NEWER id than
+     * the store has seen ({@link #mustScanDurableForKey}); only a newer id - another
+     * master's write, an out-of-band insert, a load that could not run - requires the
+     * complete (scanned) answer, which is then paid for.
+     *
+     * @param plan           the baseline being created
+     * @param tableWatermark MAX(id) of the durable table, read by the caller
+     * @return the rows carrying the plan's (bind_sql_digest, plan_sql) key
+     */
+    private List<BaselinePlan> readPersistedRowsForCreate(BaselinePlan plan, long tableWatermark) {
+        if (mustScanDurableForKey(tableWatermark) || plan.getBindSqlHash() == 0) {
+            // the store may miss durable rows (or cannot index this key): the scanned
+            // read is the only COMPLETE answer
+            return readPersistedByKey(plan.getBindSqlDigest(), plan.getPlanSql());
+        }
+        return storeRowsByKey(plan.getBindSqlHash(), plan.getBindSqlDigest(), plan.getPlanSql());
+    }
+
+    /**
+     * Whether the durable by-key scan is unavoidable: true when the table's MAX(id) is
+     * above the largest id this store has seen. Ids are allocated upward only (single
+     * writer = the master), so a MAX(id) the store has already passed proves every
+     * durable row is present in memory; a HIGHER id means at least one row is not.
+     *
+     * @param tableWatermark the table's MAX(id) (0 for an empty table)
+     */
+    @VisibleForTesting
+    boolean mustScanDurableForKey(long tableWatermark) {
+        return tableWatermark > maxPersistedIdSeen;
+    }
+
+    /**
+     * The store's rows with exactly the given (bind_sql_digest, plan_sql) key, looked up
+     * through the same hash index the phase-1 duplicate check uses (an O(1) path - the
+     * point of the indexed dedup).
+     */
+    private List<BaselinePlan> storeRowsByKey(long bindSqlHash, String bindSqlDigest,
+            String planSql) {
+        List<BaselinePlan> result = new ArrayList<>();
+        stateLock.readLock().lock();
+        try {
+            for (BaselinePlan row : findByHash(bindSqlHash)) {
+                if (Objects.equals(row.getBindSqlDigest(), bindSqlDigest)
+                        && Objects.equals(row.getPlanSql(), planSql)) {
+                    result.add(row);
+                }
+            }
+        } finally {
+            stateLock.readLock().unlock();
+        }
+        return result;
     }
 
     /**

@@ -46,6 +46,16 @@ public class AuditLoader extends Plugin implements AuditPlugin {
 
     public static final String AUDIT_LOG_TABLE = "audit_log";
 
+    /**
+     * How long the load worker sleeps between queue polls (millis). A queued event can
+     * therefore stay visible to the loader this long after it was released by the audit
+     * event pipeline - together with WorkloadRuntimeStatusMgr's hold
+     * ({@code query_audit_log_timeout_ms} / {@code be_report_query_statistics_timeout_ms})
+     * and the batch interval this is part of the upstream publication delay the SPM
+     * capture overlap must cover (see PlanCaptureManager#scanWindowOverlapMs).
+     */
+    public static final long QUEUE_POLL_INTERVAL_MILLIS = 5_000L;
+
     // the "0x1F" and "0x1E" are used to separate columns and lines in audit log data
     public static final char AUDIT_TABLE_COL_SEPARATOR = 0x1F;
     public static final char AUDIT_TABLE_LINE_DELIMITER = 0x1E;
@@ -313,7 +323,8 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         public void run() {
             while (!isClosed) {
                 try {
-                    AuditEvent event = auditEventQueue.poll(5, TimeUnit.SECONDS);
+                    AuditEvent event = auditEventQueue.poll(QUEUE_POLL_INTERVAL_MILLIS,
+                            TimeUnit.MILLISECONDS);
                     if (event != null) {
                         assembleAudit(event);
                     }

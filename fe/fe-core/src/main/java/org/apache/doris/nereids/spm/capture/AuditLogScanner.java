@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.spm.capture;
 
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.VariableMgr;
@@ -25,6 +26,8 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -78,6 +81,8 @@ public class AuditLogScanner {
      * next cycle retry.
      */
     static final int AUDIT_SCAN_TIMEOUT_SECONDS = 30;
+
+    private static final Logger LOG = LogManager.getLogger(AuditLogScanner.class);
 
     private static final DateTimeFormatter DATETIME_FORMAT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -151,20 +156,36 @@ public class AuditLogScanner {
          * three NULL comparisons and then terminate it - skipping the group's
          * remaining rows, where the old chain still reached them. */
         private final boolean hasNamespaceKeys;
+        /**
+         * The session time zone the cursor's timestamp strings were RENDERED in (the
+         * audit writer's zone, see {@link #auditWriteZone()}); null in a tail written
+         * before the element existed. A PENDING window keeps scanning in this zone so a
+         * global time_zone change never mixes two renderings inside one window (the
+         * bounds are epoch millis re-formatted every cycle, while the cursor is the
+         * persisted string).
+         */
+        private final String zoneId;
 
         CursorTail(String clientIp, String sqlHash, String scanRows, String returnRows,
                 String stmtHash) {
-            this(clientIp, sqlHash, scanRows, returnRows, stmtHash, null, null, null, false);
+            this(clientIp, sqlHash, scanRows, returnRows, stmtHash, null, null, null, false, null);
         }
 
         CursorTail(String clientIp, String sqlHash, String scanRows, String returnRows,
                 String stmtHash, String catalog, String db, String sqlMode) {
-            this(clientIp, sqlHash, scanRows, returnRows, stmtHash, catalog, db, sqlMode, true);
+            this(clientIp, sqlHash, scanRows, returnRows, stmtHash, catalog, db, sqlMode, true,
+                    null);
+        }
+
+        CursorTail(String clientIp, String sqlHash, String scanRows, String returnRows,
+                String stmtHash, String catalog, String db, String sqlMode, String zoneId) {
+            this(clientIp, sqlHash, scanRows, returnRows, stmtHash, catalog, db, sqlMode, true,
+                    zoneId);
         }
 
         private CursorTail(String clientIp, String sqlHash, String scanRows, String returnRows,
                 String stmtHash, String catalog, String db, String sqlMode,
-                boolean hasNamespaceKeys) {
+                boolean hasNamespaceKeys, String zoneId) {
             this.clientIp = clientIp;
             this.sqlHash = sqlHash;
             this.scanRows = scanRows;
@@ -174,6 +195,7 @@ public class AuditLogScanner {
             this.db = db;
             this.sqlMode = sqlMode;
             this.hasNamespaceKeys = hasNamespaceKeys;
+            this.zoneId = zoneId;
         }
 
         String getClientIp() {
@@ -212,6 +234,11 @@ public class AuditLogScanner {
         boolean hasNamespaceKeys() {
             return hasNamespaceKeys;
         }
+
+        /** The zone the timestamp strings were rendered in (null = not recorded). */
+        String getZoneId() {
+            return zoneId;
+        }
     }
 
     /** Encodes a cursor tail as a compact JSON list (null-safe; empty text = absent). */
@@ -233,9 +260,16 @@ public class AuditLogScanner {
             return new Gson().toJson(Arrays.asList(tail.getClientIp(), tail.getSqlHash(),
                     tail.getScanRows(), tail.getReturnRows(), tail.getStmtHash()));
         }
+        if (tail.getZoneId() == null) {
+            // a tail written before the zone element existed (or by a fixture): keep the
+            // eight-element form so it decodes without a zone again
+            return new Gson().toJson(Arrays.asList(tail.getClientIp(), tail.getSqlHash(),
+                    tail.getScanRows(), tail.getReturnRows(), tail.getStmtHash(),
+                    tail.getCatalog(), tail.getDb(), tail.getSqlMode()));
+        }
         return new Gson().toJson(Arrays.asList(tail.getClientIp(), tail.getSqlHash(),
                 tail.getScanRows(), tail.getReturnRows(), tail.getStmtHash(),
-                tail.getCatalog(), tail.getDb(), tail.getSqlMode()));
+                tail.getCatalog(), tail.getDb(), tail.getSqlMode(), tail.getZoneId()));
     }
 
     /** Decodes a cursor tail; blank / broken / all-null text decodes to null (legacy cursor). */
@@ -266,9 +300,15 @@ public class AuditLogScanner {
                 return new CursorTail(values.get(0), values.get(1), values.get(2),
                         values.get(3), values.get(4));
             }
+            if (values.size() < 9) {
+                // namespace-aware tail without the zone element (pre-zone writer)
+                return new CursorTail(values.get(0), values.get(1), values.get(2),
+                        values.get(3), values.get(4), values.get(5), values.get(6),
+                        values.get(7));
+            }
             return new CursorTail(values.get(0), values.get(1), values.get(2),
                     values.get(3), values.get(4), values.get(5), values.get(6),
-                    values.get(7));
+                    values.get(7), values.get(8));
         } catch (RuntimeException e) {
             return null;
         }
@@ -386,8 +426,17 @@ public class AuditLogScanner {
      */
     public ScanBatch scan(long startTimeMs, long endTimeMs, int maxBatchSize,
             long cursorQueryTime, String cursorTime, String cursorQueryId, String cursorTail) {
-        String start = formatTimestamp(startTimeMs);
-        String end = formatTimestamp(endTimeMs);
+        // The bounds are rendered in the zone the AUDIT WRITER used (the global session
+        // time_zone, see auditWriteZone) - not the FE host zone - because
+        // __internal_schema.audit_log.time stores the writer's rendering. A PENDING
+        // window keeps the zone recorded in its cursor: the window's epoch bounds are
+        // re-rendered every cycle while the cursor is the persisted string, so a global
+        // time_zone change mid-window would otherwise compare two different renderings
+        // and skip the whole unconsumed range. Only a NEW window follows a changed
+        // global zone.
+        ZoneId auditZone = scanZoneFor(cursorTail);
+        String start = formatTimestamp(startTimeMs, auditZone);
+        String end = formatTimestamp(endTimeMs, auditZone);
         // defense in depth: a non-positive batch size can no longer be written through
         // SQL SET (see SessionVariable), but LIMIT 0 here would mark the window exhausted
         // on an empty page and advance the watermark over every eligible row
@@ -403,7 +452,54 @@ public class AuditLogScanner {
         // overload would inherit the 12h analyze timeout)
         List<ResultRow> rows = StatisticsUtil.execStatisticQuery(sql, false,
                 AUDIT_SCAN_TIMEOUT_SECONDS);
-        return toBatch(rows, limit);
+        return toBatch(rows, limit, auditZone);
+    }
+
+    /**
+     * The zone bounds and the resume cursor are rendered in for the given cursor: a
+     * PENDING window keeps the zone recorded in its cursor (its epoch bounds are
+     * re-rendered every cycle while the cursor is the persisted string - a global
+     * time_zone change would otherwise mix two renderings inside one window), and a NEW
+     * window follows the current global zone (the audit writer's own zone).
+     */
+    static ZoneId scanZoneFor(String cursorTail) {
+        ZoneId pendingZone = zoneOfTail(cursorTail);
+        if (pendingZone == null) {
+            return auditWriteZone();
+        }
+        if (!pendingZone.equals(auditWriteZone())) {
+            LOG.info("SPM audit scan continues the pending window in zone {} (the global"
+                    + " time_zone is now {}); the next window follows the new zone",
+                    pendingZone, auditWriteZone());
+        }
+        return pendingZone;
+    }
+
+    /**
+     * The zone the audit WRITER rendered its timestamps in. AuditLoader formats the
+     * event time with {@link TimeUtils}, which on its own (context-less) worker thread
+     * falls back to the GLOBAL session variable time_zone; the scan bounds must use
+     * exactly the same zone, otherwise a non-UTC host zone makes every stored row fall
+     * outside the windows (or renders window bounds that match nothing).
+     */
+    static ZoneId auditWriteZone() {
+        return TimeUtils.getOrSystemTimeZone(
+                VariableMgr.getDefaultSessionVariable().getTimeZone()).toZoneId();
+    }
+
+    /** The zone recorded in a cursor tail, or null when absent / unparsable. */
+    private static ZoneId zoneOfTail(String cursorTail) {
+        CursorTail tail = decodeCursorTail(cursorTail);
+        if (tail == null || tail.getZoneId() == null || tail.getZoneId().isEmpty()) {
+            return null;
+        }
+        try {
+            return ZoneId.of(tail.getZoneId(), TimeUtils.timeZoneAliasMap);
+        } catch (RuntimeException e) {
+            LOG.warn("SPM audit scan ignores an unparsable cursor zone '{}': {}",
+                    tail.getZoneId(), e.getMessage());
+            return null;
+        }
     }
 
     /**
@@ -416,6 +512,20 @@ public class AuditLogScanner {
      * @return the scan batch
      */
     static ScanBatch toBatch(List<ResultRow> rows, int maxBatchSize) {
+        return toBatch(rows, maxBatchSize, auditWriteZone());
+    }
+
+    /**
+     * Turns one page of raw audit rows into a batch with an explicit timestamp zone (the
+     * zone the bounds were rendered in; it travels with the cursor so a pending window
+     * keeps its rendering, see {@link CursorTail#getZoneId()}).
+     *
+     * @param rows         the raw rows of one page
+     * @param maxBatchSize the batch limit (a shorter page exhausts the window)
+     * @param auditZone    the zone the window bounds were rendered in
+     * @return the scan batch
+     */
+    static ScanBatch toBatch(List<ResultRow> rows, int maxBatchSize, ZoneId auditZone) {
         if (rows == null || rows.isEmpty()) {
             return new ScanBatch(List.of(), true, CURSOR_ABSENT, "", "");
         }
@@ -440,7 +550,7 @@ public class AuditLogScanner {
             // or was skipped after the first LIMIT (duplicate non-NULL tuples)
             lastTail = new CursorTail(valueAt(row, 12), valueAt(row, 5), valueAt(row, 2),
                     valueAt(row, 3), valueAt(row, 13), valueAt(row, 7), valueAt(row, 6),
-                    valueAt(row, 11));
+                    valueAt(row, 11), auditZone == null ? null : auditZone.getId());
             CapturedQuery candidate = rowToCapturedQuery(row);
             if (candidate == null || candidate.getStmt() == null || candidate.getStmt().isEmpty()) {
                 continue;
@@ -741,9 +851,9 @@ public class AuditLogScanner {
         return value.replace("'", "''");
     }
 
-    private static String formatTimestamp(long epochMillis) {
-        LocalDateTime time = LocalDateTime.ofInstant(
-                Instant.ofEpochMilli(epochMillis), ZoneId.systemDefault());
+    /** Formats a scan bound in the given zone (see {@link #auditWriteZone()}). */
+    static String formatTimestamp(long epochMillis, ZoneId zone) {
+        LocalDateTime time = LocalDateTime.ofInstant(Instant.ofEpochMilli(epochMillis), zone);
         return time.format(DATETIME_FORMAT);
     }
 

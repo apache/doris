@@ -27,6 +27,7 @@ import org.apache.doris.nereids.spm.BaselineSource;
 import org.apache.doris.nereids.spm.SPMPlanner;
 import org.apache.doris.nereids.spm.SPMUtils;
 import org.apache.doris.nereids.spm.manager.BaselineManager;
+import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
@@ -1243,20 +1244,34 @@ public class PlanCaptureManager extends MasterDaemon {
     }
 
     /**
-     * Minimum scan-window overlap: the greater of the base five minutes and TWO audit
-     * loader batch intervals ({@code audit_plugin_max_batch_interval_sec}). The loader
-     * publishes rows asynchronously in batches, so a row can become visible up to one
-     * (worst case two) full loader intervals after its event time; the overlap must
-     * cover that publication lag, otherwise a row whose event time is newer than the
-     * new watermark (or older than the cursor -- see AuditLogScanner#ORDER_BY, which
-     * sorts by event time) is reachable only while its window is still being scanned.
+     * Minimum scan-window overlap: the greater of the base five minutes and TWO of the
+     * whole upstream publication delay - the audit loader batch interval
+     * ({@code audit_plugin_max_batch_interval_sec}) PLUS the delay before an event even
+     * reaches the loader: WorkloadRuntimeStatusMgr holds a finished query's audit event
+     * until {@code query_audit_log_timeout_ms} (or, while external DML statistics are
+     * still awaited, up to {@code be_report_query_statistics_timeout_ms}) has passed, and
+     * the loader then only polls its queue every {@link AuditLoader#QUEUE_POLL_INTERVAL_MILLIS}.
+     *
+     * <p>A row is reachable ONLY while its event time is still inside a window's range or
+     * inside the overlap of a later one (pagination walks the event time DESC, so a late
+     * row above the page cursor is never reached by the pending pages). With only the
+     * batch interval covered, a row released later than that - a large
+     * query_audit_log_timeout_ms / be_report_query_statistics_timeout_ms, a slow loader
+     * queue - fell outside every later overlap and was silently never captured; the
+     * horizon must therefore follow the WHOLE upstream delay, not just the batch
+     * interval. The completion predicate (time + query_time >= start) stays as is: it
+     * covers the query DURATION, this overlap covers the publication delay.
      *
      * @param auditBatchIntervalSec the configured audit loader batch interval (seconds)
      * @return the overlap in milliseconds (never less than {@link #SCAN_WINDOW_OVERLAP_MS})
      */
     static long scanWindowOverlapMs(long auditBatchIntervalSec) {
         long batchMs = Math.max(0L, auditBatchIntervalSec) * 1000L;
-        return Math.max(SCAN_WINDOW_OVERLAP_MS, 2 * batchMs);
+        long upstreamDelayMs = Math.max(
+                Math.max(Config.query_audit_log_timeout_ms,
+                        Config.be_report_query_statistics_timeout_ms),
+                AuditLoader.QUEUE_POLL_INTERVAL_MILLIS);
+        return Math.max(SCAN_WINDOW_OVERLAP_MS, 2 * (batchMs + upstreamDelayMs));
     }
 
     /**

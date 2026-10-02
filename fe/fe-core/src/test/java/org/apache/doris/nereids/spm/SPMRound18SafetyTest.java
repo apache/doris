@@ -199,6 +199,9 @@ public class SPMRound18SafetyTest {
         Assertions.assertFalse(payload.isEmpty(), "an enabled row must be carried");
 
         ConnectContext masterCtx = new ConnectContext();
+        // the import follows the statement's enable_spm_rewrite (round-26: with rewrite
+        // disabled a baseline can never be consulted, so nothing is rebuilt)
+        masterCtx.getSessionVariable().setEnableSpmRewrite(true);
         SPMForwardedSession.importInto(masterCtx, payload);
         Assertions.assertEquals(1, masterCtx.getSessionBaselineStore().getAllBaselines().size(),
                 "the master context must see the connection's session baseline");
