@@ -99,6 +99,14 @@ inline constexpr char SPILL_WRITE_SERIALIZE_BLOCK_TIME[] = "SpillWriteSerializeB
 inline constexpr char SPILL_WRITE_BLOCK_COUNT[] = "SpillWriteBlockCount";
 inline constexpr char SPILL_WRITE_BLOCK_BYTES[] = "SpillWriteBlockBytes";
 inline constexpr char SPILL_WRITE_ROWS[] = "SpillWriteRows";
+// Remote (object storage) spill write counters. Zero when spill is written to local disks.
+// Request counters count logical requests; retries inside the object storage client are not
+// included.
+inline constexpr char SPILL_REMOTE_WRITE_REQUESTS[] = "SpillRemoteWriteRequests";
+inline constexpr char SPILL_REMOTE_UPLOAD_PART_REQUESTS[] = "SpillRemoteUploadPartRequests";
+inline constexpr char SPILL_REMOTE_UPLOAD_BYTES[] = "SpillRemoteUploadBytes";
+inline constexpr char SPILL_REMOTE_UPLOAD_TIME[] = "SpillRemoteUploadTime";
+inline constexpr char SPILL_REMOTE_UPLOAD_WAIT_TIME[] = "SpillRemoteUploadWaitTime";
 
 // Spill write file counters (Source-only)
 inline constexpr char SPILL_WRITE_FILE_BYTES[] = "SpillWriteFileBytes";
@@ -119,6 +127,8 @@ inline constexpr char SPILL_READ_BLOCK_BYTES[] = "SpillReadBlockBytes";
 inline constexpr char SPILL_READ_FILE_BYTES[] = "SpillReadFileBytes";
 inline constexpr char SPILL_READ_ROWS[] = "SpillReadRows";
 inline constexpr char SPILL_READ_FILE_COUNT[] = "SpillReadFileCount";
+// Remote (object storage) spill read counters. Zero when spill is read from local disks.
+inline constexpr char SPILL_REMOTE_READ_REQUESTS[] = "SpillRemoteReadRequests";
 
 // Spill partition counters (Sink-only)
 inline constexpr char SPILL_MAX_ROWS_OF_PARTITION[] = "SpillMaxRowsOfPartition";

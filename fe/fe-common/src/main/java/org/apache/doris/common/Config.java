@@ -3577,6 +3577,16 @@ public class Config extends ConfigBase {
     @ConfField(description = "Maximum concurrent number of get tablet stat jobs.")
     public static int max_get_tablet_stat_task_threads_num = 4;
 
+    @ConfField(mutable = true, description = "Interval, in seconds, at which every FE polls the remote spill "
+            + "stats shown by SHOW DATA from the backends in cloud mode.")
+    public static int cloud_spill_stats_poll_interval_second = 60;
+
+    @ConfField(mutable = true, description = "Max age, in seconds, of the remote spill stats shown by SHOW DATA "
+            + "in cloud mode. When the last successful poll is older than the larger of this and "
+            + "3 * cloud_spill_stats_poll_interval_second, SHOW DATA reports an error instead of showing a stale "
+            + "value, because the value is a billing input.")
+    public static int cloud_spill_stats_max_age_second = 300;
+
     @ConfField(description = "Cloud table and partition version syncer interval. All frontends will perform the "
             + "checking.")
     public static int cloud_version_syncer_interval_second = 60;

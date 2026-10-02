@@ -91,6 +91,28 @@ public class WorkloadRuntimeStatusMgrTest {
         Assertions.assertEquals(8, result.getFinishedTasksNum());
     }
 
+    // ---- Merge: spill bytes are summed across BEs, local and remote separately ----
+
+    @Test
+    public void testSpillBytesSummedAcrossBes() {
+        TQueryStatistics be1 = buildStats(1, 1);
+        be1.setSpillWriteBytesToLocalStorage(100);
+        be1.setSpillReadBytesFromLocalStorage(90);
+        be1.setSpillWriteBytesToRemoteStorage(1000);
+        be1.setSpillReadBytesFromRemoteStorage(900);
+        TQueryStatistics be2 = buildStats(1, 1);
+        be2.setSpillWriteBytesToRemoteStorage(2000);
+        be2.setSpillReadBytesFromRemoteStorage(1800);
+        mgr.updateBeQueryStats(buildParams(10001L, "q1", be1));
+        mgr.updateBeQueryStats(buildParams(10002L, "q1", be2));
+
+        TQueryStatistics result = getMergedSnapshot().get("q1");
+        Assertions.assertEquals(100, result.getSpillWriteBytesToLocalStorage());
+        Assertions.assertEquals(90, result.getSpillReadBytesFromLocalStorage());
+        Assertions.assertEquals(3000, result.getSpillWriteBytesToRemoteStorage());
+        Assertions.assertEquals(2700, result.getSpillReadBytesFromRemoteStorage());
+    }
+
     // ---- Merge: multiple BEs, multiple queries remain independent ----
 
     @Test

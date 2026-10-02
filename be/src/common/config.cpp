@@ -1696,6 +1696,28 @@ DEFINE_String(spill_storage_limit, "20%");               // 20%
 DEFINE_mInt32(spill_gc_interval_ms, "2000");             // 2s
 DEFINE_mInt32(spill_gc_work_time_ms, "2000");            // 2s
 DEFINE_mInt64(spill_file_part_size_bytes, "1073741824"); // 1GB
+DEFINE_String(spill_storage_type, "local");
+// s3: cloud mode only; spill is written to the S3 storage vault under
+// spill/{ip}_{port}/{query_id}/, where ip is the address of this BE and port its
+// heartbeat_service_port.
+// The BE deletes the objects of a spill file when the query is done with it. What a BE that
+// crashed left behind is not deleted by Doris: give the bucket a lifecycle rule that expires
+// the keys under spill/ and aborts incomplete multipart uploads.
+DEFINE_Validator(spill_storage_type, [](const std::string& config) -> bool {
+    return config == "local" || config == "s3";
+});
+// Empty means the default vault of the instance, resolved when this BE spills for the first
+// time; a later SET DEFAULT STORAGE VAULT applies to spill after the BE restarts.
+DEFINE_String(spill_s3_storage_vault, "");
+DEFINE_mInt64(spill_s3_storage_limit_bytes, "0");
+DEFINE_Validator(spill_s3_storage_limit_bytes, [](int64_t config) -> bool { return config >= 0; });
+DEFINE_mInt64(spill_s3_max_inflight_upload_bytes, "268435456"); // 256MB
+DEFINE_Validator(spill_s3_max_inflight_upload_bytes,
+                 [](int64_t config) -> bool { return config > 0; });
+// The footer probe is bounded by it as well; the rest of a block offset array that does not fit
+// in the probe is read whole, like a single block larger than it.
+DEFINE_mInt64(spill_s3_read_coalesce_bytes, "8388608"); // 8MB
+DEFINE_Validator(spill_s3_read_coalesce_bytes, [](int64_t config) -> bool { return config >= 0; });
 
 // paused query in queue timeout(ms) will be resumed or canceled
 DEFINE_Int64(spill_in_paused_queue_timeout_ms, "60000");

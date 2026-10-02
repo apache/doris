@@ -33,6 +33,11 @@ struct SpillWriteCounters {
     RuntimeProfile::Counter* spill_write_block_count = nullptr;
     RuntimeProfile::Counter* spill_write_block_data_size = nullptr;
     RuntimeProfile::Counter* spill_write_rows_count = nullptr;
+    RuntimeProfile::Counter* spill_remote_write_requests = nullptr;
+    RuntimeProfile::Counter* spill_remote_upload_part_requests = nullptr;
+    RuntimeProfile::Counter* spill_remote_upload_bytes = nullptr;
+    RuntimeProfile::Counter* spill_remote_upload_timer = nullptr;
+    RuntimeProfile::Counter* spill_remote_upload_wait_timer = nullptr;
 
     void init(RuntimeProfile* profile) {
         spill_write_timer = ADD_TIMER_WITH_LEVEL(profile, profile::SPILL_WRITE_TIME, 1);
@@ -51,6 +56,16 @@ struct SpillWriteCounters {
                 ADD_COUNTER_WITH_LEVEL(profile, profile::SPILL_WRITE_BLOCK_BYTES, TUnit::BYTES, 1);
         spill_write_rows_count =
                 ADD_COUNTER_WITH_LEVEL(profile, profile::SPILL_WRITE_ROWS, TUnit::UNIT, 1);
+        spill_remote_write_requests = ADD_COUNTER_WITH_LEVEL(
+                profile, profile::SPILL_REMOTE_WRITE_REQUESTS, TUnit::UNIT, 1);
+        spill_remote_upload_part_requests = ADD_COUNTER_WITH_LEVEL(
+                profile, profile::SPILL_REMOTE_UPLOAD_PART_REQUESTS, TUnit::UNIT, 1);
+        spill_remote_upload_bytes = ADD_COUNTER_WITH_LEVEL(
+                profile, profile::SPILL_REMOTE_UPLOAD_BYTES, TUnit::BYTES, 1);
+        spill_remote_upload_timer =
+                ADD_TIMER_WITH_LEVEL(profile, profile::SPILL_REMOTE_UPLOAD_TIME, 1);
+        spill_remote_upload_wait_timer =
+                ADD_TIMER_WITH_LEVEL(profile, profile::SPILL_REMOTE_UPLOAD_WAIT_TIME, 1);
     }
 };
 
@@ -67,6 +82,7 @@ struct SpillReadCounters {
     RuntimeProfile::Counter* spill_read_file_size = nullptr;
     RuntimeProfile::Counter* spill_read_rows_count = nullptr;
     RuntimeProfile::Counter* spill_read_file_count = nullptr;
+    RuntimeProfile::Counter* spill_remote_read_requests = nullptr;
 
     void init(RuntimeProfile* profile) {
         spill_recover_time = ADD_TIMER_WITH_LEVEL(profile, profile::SPILL_RECOVER_TIME, 1);
@@ -89,6 +105,8 @@ struct SpillReadCounters {
                 ADD_COUNTER_WITH_LEVEL(profile, profile::SPILL_READ_ROWS, TUnit::UNIT, 1);
         spill_read_file_count =
                 ADD_COUNTER_WITH_LEVEL(profile, profile::SPILL_READ_FILE_COUNT, TUnit::UNIT, 1);
+        spill_remote_read_requests = ADD_COUNTER_WITH_LEVEL(
+                profile, profile::SPILL_REMOTE_READ_REQUESTS, TUnit::UNIT, 1);
     }
 };
 

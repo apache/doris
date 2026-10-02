@@ -22,6 +22,7 @@
 #include "exec/operator/iceberg_table_sink_operator.h"
 #include "exec/sink/writer/iceberg/viceberg_sort_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
+#include "runtime/runtime_profile_counter_names.h"
 
 namespace doris {
 
@@ -196,6 +197,11 @@ void SpillIcebergTableSinkLocalState::_init_spill_counters() {
     ADD_COUNTER_WITH_LEVEL(profile, "SpillWriteFileBytes", TUnit::BYTES, 1);
     ADD_COUNTER_WITH_LEVEL(profile, "SpillWriteRows", TUnit::UNIT, 1);
     ADD_COUNTER_WITH_LEVEL(profile, "SpillWriteFileTotalCount", TUnit::UNIT, 1);
+    ADD_COUNTER_WITH_LEVEL(profile, profile::SPILL_REMOTE_WRITE_REQUESTS, TUnit::UNIT, 1);
+    ADD_COUNTER_WITH_LEVEL(profile, profile::SPILL_REMOTE_UPLOAD_PART_REQUESTS, TUnit::UNIT, 1);
+    ADD_COUNTER_WITH_LEVEL(profile, profile::SPILL_REMOTE_UPLOAD_BYTES, TUnit::BYTES, 1);
+    ADD_TIMER_WITH_LEVEL(profile, profile::SPILL_REMOTE_UPLOAD_TIME, 1);
+    ADD_TIMER_WITH_LEVEL(profile, profile::SPILL_REMOTE_UPLOAD_WAIT_TIME, 1);
 
     //seems init_spill_read_counters()
     ADD_TIMER_WITH_LEVEL(profile, "SpillTotalTime", 1);
@@ -210,6 +216,7 @@ void SpillIcebergTableSinkLocalState::_init_spill_counters() {
     ADD_COUNTER_WITH_LEVEL(profile, "SpillReadFileBytes", TUnit::BYTES, 1);
     ADD_COUNTER_WITH_LEVEL(profile, "SpillReadRows", TUnit::UNIT, 1);
     ADD_COUNTER_WITH_LEVEL(profile, "SpillReadFileCount", TUnit::UNIT, 1);
+    ADD_COUNTER_WITH_LEVEL(profile, profile::SPILL_REMOTE_READ_REQUESTS, TUnit::UNIT, 1);
     ADD_COUNTER_WITH_LEVEL(profile, "SpillWriteFileCurrentBytes", TUnit::BYTES, 1);
 }
 

@@ -587,6 +587,8 @@ public class QueryProfileAction extends RestBaseController {
         public long scanBytesFromRemoteStorage;
         public long spillWriteBytesToLocalStorage;
         public long spillReadBytesFromLocalStorage;
+        public long spillWriteBytesToRemoteStorage;
+        public long spillReadBytesFromRemoteStorage;
 
         public QueryStatistics(TQueryStatistics queryStatistics) {
             this.scanRows = queryStatistics.getScanRows();
@@ -601,6 +603,8 @@ public class QueryProfileAction extends RestBaseController {
             this.scanBytesFromRemoteStorage = queryStatistics.getScanBytesFromRemoteStorage();
             this.spillWriteBytesToLocalStorage = queryStatistics.getSpillWriteBytesToLocalStorage();
             this.spillReadBytesFromLocalStorage = queryStatistics.getSpillReadBytesFromLocalStorage();
+            this.spillWriteBytesToRemoteStorage = queryStatistics.getSpillWriteBytesToRemoteStorage();
+            this.spillReadBytesFromRemoteStorage = queryStatistics.getSpillReadBytesFromRemoteStorage();
         }
     }
 }

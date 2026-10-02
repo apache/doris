@@ -1121,6 +1121,9 @@ message PGetBeResourceRequest {
 message PGlobalResourceUsage {
     optional int64 mem_limit = 1;
     optional int64 mem_usage = 2;
+    // Bytes of query spill this BE currently holds in object storage (cloud mode,
+    // spill_storage_type=s3); summed by every FE for SHOW DATA.
+    optional int64 remote_spill_bytes = 3;
 }
 
 message PGetBeResourceResponse {

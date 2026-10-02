@@ -28,7 +28,9 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
@@ -94,6 +96,12 @@ public class ShowDataCommand extends ShowCommand {
                     .addColumn(new Column("RecycleSize", ScalarType.createVarchar(20)))
                     .addColumn(new Column("BinlogSize", ScalarType.createVarchar(20)))
                     .build();
+
+    // Row of the entire-warehouse listing that carries the query spill currently held in object
+    // storage (cloud mode, spill_storage_type=s3). Spill is not attributable to a database; it gets
+    // its own row and is included in the total. A user database name has to start with a letter,
+    // so this name cannot collide with one.
+    private static final String REMOTE_SPILL_ROW_NAME = "__remote_spill__";
 
     private static final ShowResultSetMetaData SHOW_INDEX_DATA_META_DATA =
             ShowResultSetMetaData.builder()
@@ -585,8 +593,17 @@ public class ShowDataCommand extends ShowCommand {
         return toSql();
     }
 
+    /**
+     * Bytes of query spill currently held in object storage, summed over the alive BEs as
+     * periodically polled by RemoteSpillStatsPoller on every FE. This is a billing input, so a
+     * missing or stale value is reported instead of being shown as zero.
+     */
+    private long getRemoteSpillSize() throws AnalysisException {
+        return ((CloudEnv) Env.getCurrentEnv()).getRemoteSpillStatsPoller().getRemoteSpillBytes();
+    }
+
     // |DBName|DataSize|RecycleSize|BinlogSize|
-    private boolean getDbStatsByProperties() {
+    private boolean getDbStatsByProperties() throws AnalysisException {
         if (properties == null) {
             return false;
         }
@@ -655,6 +672,12 @@ public class ShowDataCommand extends ShowCommand {
                     totalBinlogSize += binlogSize;
                     totalRecycleSize += recycleSize;
                 }
+            }
+            // The spill row belongs to the whole warehouse, not to a list of databases.
+            if (dbList == null && Config.isCloudMode()) {
+                long remoteSpillSize = getRemoteSpillSize();
+                totalRows.add(Arrays.asList(REMOTE_SPILL_ROW_NAME, String.valueOf(remoteSpillSize), "0", "0"));
+                total += remoteSpillSize;
             }
             List<String> result = Arrays.asList("total", String.valueOf(total), String.valueOf(totalRecycleSize),
                     String.valueOf(totalBinlogSize));

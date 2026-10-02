@@ -446,6 +446,10 @@ public class ProfileManager extends MasterDaemon {
                     summary.getSpillWriteBytesToLocalStorage() + queryStats.getSpillWriteBytesToLocalStorage());
             summary.setSpillReadBytesFromLocalStorage(
                     summary.getSpillReadBytesFromLocalStorage() + queryStats.getSpillReadBytesFromLocalStorage());
+            summary.setSpillWriteBytesToRemoteStorage(
+                    summary.getSpillWriteBytesToRemoteStorage() + queryStats.getSpillWriteBytesToRemoteStorage());
+            summary.setSpillReadBytesFromRemoteStorage(
+                    summary.getSpillReadBytesFromRemoteStorage() + queryStats.getSpillReadBytesFromRemoteStorage());
         }
         return summary;
     }
