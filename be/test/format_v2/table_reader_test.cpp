@@ -2550,7 +2550,8 @@ TEST(TableReaderTest, PartitionValueUsesFooterAndPreservesNullPartition) {
                 // Table columns of an external scan are nullable, so unwrap the null map the way
                 // the other partition-value assertions in this file do before reading the value.
                 expect_int32_column_values(*block.get_by_position(0).column, {7});
-                EXPECT_TRUE(block.get_by_position(1).column->convert_to_full_column_if_const()
+                EXPECT_TRUE(block.get_by_position(1)
+                                    .column->convert_to_full_column_if_const()
                                     ->is_null_at(0));
             }
             ASSERT_TRUE(fake_state->last_aggregate_request.has_value());
