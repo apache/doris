@@ -1772,7 +1772,8 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
     });
 
     if (!rowsets_skip_alignment.empty()) {
-        auto token = self->calc_delete_bitmap_executor()->create_token();
+        auto token = self->calc_delete_bitmap_executor()->create_load_token(
+                txn_id, LoadTaskPriority::HIGHEST, LoadTaskType::LEAF, txn_info->workload_group);
         // set rowset_writer to nullptr to skip the alignment process
         RETURN_IF_ERROR(calc_delete_bitmap(self, rowset, segments, rowsets_skip_alignment,
                                            delete_bitmap, cur_version - 1, token.get(), nullptr,
@@ -1821,15 +1822,15 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
         transient_rs_writer = std::move(group_writer);
     }
 
-    // When there is only one segment, it will be calculated in the current thread.
-    // Otherwise, it will be submitted to the thread pool for calculation.
+    // Compute a single segment inline, including on shared load workers, to avoid
+    // child-task scheduling and waiting while holding the tablet lock.
     if (segments.size() <= 1) {
         RETURN_IF_ERROR(calc_delete_bitmap(self, rowset, segments, specified_rowsets, delete_bitmap,
                                            cur_version - 1, nullptr, transient_rs_writer.get(),
                                            tablet_delete_bitmap));
-
     } else {
-        auto token = self->calc_delete_bitmap_executor()->create_token();
+        auto token = self->calc_delete_bitmap_executor()->create_load_token(
+                txn_id, LoadTaskPriority::HIGHEST, LoadTaskType::LEAF, txn_info->workload_group);
         RETURN_IF_ERROR(calc_delete_bitmap(self, rowset, segments, specified_rowsets, delete_bitmap,
                                            cur_version - 1, token.get(), transient_rs_writer.get(),
                                            tablet_delete_bitmap));

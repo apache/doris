@@ -25,6 +25,7 @@
 #include "cloud/config.h"
 #include "load/channel/tablets_channel.h"
 #include "load/delta_writer/delta_writer.h"
+#include "runtime/thread_context.h"
 #include "storage/tablet_info.h"
 
 namespace doris {
@@ -278,7 +279,17 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
     std::vector<std::function<Status()>> tasks;
     tasks.reserve(writers_to_commit.size());
     for (auto* writer : writers_to_commit) {
-        tasks.emplace_back([writer] { return writer->commit_rowset(); });
+        tasks.emplace_back([writer, caller_bthread_id = bthread_self()] {
+            // bthread_fork_join runs inline if starting a bthread fails. The caller
+            // already has the load context attached; do not attach it twice.
+            if (bthread_self() == caller_bthread_id) {
+                return writer->commit_rowset();
+            }
+            // Empty writers initialize their rowset and bitmap token during commit.
+            // The new bthread must inherit the load's memory tracker and workload group.
+            SCOPED_ATTACH_TASK(writer->resource_context());
+            return writer->commit_rowset();
+        });
     }
     _close_status = cloud::bthread_fork_join(tasks, 10);
     if (!_close_status.ok()) {
