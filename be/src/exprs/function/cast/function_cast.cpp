@@ -19,7 +19,7 @@
 
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_decimal.h"
-#include "core/data_type/data_type_number.h" // IWYU pragma: keep
+#include "core/data_type/data_type_number.h"       // IWYU pragma: keep
 #include "core/data_type/data_type_timestamp_ns.h" // IWYU pragma: keep
 #include "core/data_type/data_type_variant.h"
 #include "core/data_type/data_type_variant_v2.h"
