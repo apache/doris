@@ -327,6 +327,11 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
     _evict_by_try_release = std::make_shared<bvar::Adder<size_t>>(
             _cache_base_path.c_str(), "file_cache_evict_by_try_release");
 
+    _ttl_converged_block_num_metrics = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_ttl_converged_block_num");
+    _ttl_converged_bytes_metrics = std::make_shared<bvar::Adder<size_t>>(
+            _cache_base_path.c_str(), "file_cache_ttl_converged_bytes");
+
     _num_read_blocks = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
                                                              "file_cache_num_read_blocks");
     _num_hit_blocks = std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
@@ -2113,20 +2118,48 @@ void BlockFileCache::change_cache_type(const UInt128Wrapper& hash, size_t offset
         auto& file_blocks = iter->second;
         if (auto cell_it = file_blocks.find(offset); cell_it != file_blocks.end()) {
             FileBlockCell& cell = cell_it->second;
-            auto& cur_queue = get_queue(cell.file_block->cache_type());
+            auto old_type = cell.file_block->cache_type();
+            auto& cur_queue = get_queue(old_type);
             DCHECK(cell.queue_iterator.has_value());
             cur_queue.remove(*cell.queue_iterator, cache_lock);
-            _lru_recorder->record_queue_event(
-                    cell.file_block->cache_type(), CacheLRULogType::REMOVE,
-                    cell.file_block->get_hash_value(), cell.file_block->offset(), cell.size());
+            _lru_recorder->record_queue_event(old_type, CacheLRULogType::REMOVE,
+                                              cell.file_block->get_hash_value(),
+                                              cell.file_block->offset(), cell.size());
             auto& new_queue = get_queue(new_type);
             cell.queue_iterator =
                     new_queue.add(hash, offset, cell.file_block->range().size(), cache_lock);
             _lru_recorder->record_queue_event(new_type, CacheLRULogType::ADD,
                                               cell.file_block->get_hash_value(),
                                               cell.file_block->offset(), cell.size());
+            // add_cell() and remove() maintain _cur_ttl_size from the block's type, so a type
+            // change has to move it as well or the counter drifts for the rest of the process.
+            if (old_type == FileCacheType::TTL && new_type != FileCacheType::TTL) {
+                _cur_ttl_size -= cell.size();
+            } else if (old_type != FileCacheType::TTL && new_type == FileCacheType::TTL) {
+                _cur_ttl_size += cell.size();
+            }
         }
     }
+}
+
+void BlockFileCache::converge_restored_block_meta(const UInt128Wrapper& hash, size_t offset,
+                                                  FileCacheType type, uint64_t expiration_time,
+                                                  std::lock_guard<std::mutex>& cache_lock) {
+    auto* cell = get_cell(hash, offset, cache_lock);
+    if (cell == nullptr || cell->file_block == nullptr) {
+        return;
+    }
+    if (!cell->file_block->meta_from_lru_dump()) {
+        // Not a restored placeholder. Whatever is in memory was put there by a real writer or
+        // by an earlier converge, which makes it at least as fresh as the snapshot the loader
+        // is walking, so it stays.
+        return;
+    }
+    if (!cell->file_block->converge_meta_to_storage(type, expiration_time, cache_lock)) {
+        return;
+    }
+    *_ttl_converged_block_num_metrics << 1;
+    *_ttl_converged_bytes_metrics << cell->size();
 }
 
 // @brief: get a path's disk capacity used percent, inode used percent

@@ -720,10 +720,12 @@ TEST_F(BlockFileCacheTest, handle_already_loaded_block_updates_size_and_tablet) 
 
     constexpr size_t kNewSize = 2 * kOriginalSize;
     constexpr int64_t kTabletId = 4242;
+    io::CacheContext loaded_context = context;
+    loaded_context.tablet_id = kTabletId;
     bool handled = false;
     {
         SCOPED_CACHE_LOCK(cache._mutex, (&cache));
-        handled = fs_storage->handle_already_loaded_block(&cache, key, 0, kNewSize, kTabletId,
+        handled = fs_storage->handle_already_loaded_block(&cache, key, 0, kNewSize, loaded_context,
                                                           cache_lock);
     }
 
