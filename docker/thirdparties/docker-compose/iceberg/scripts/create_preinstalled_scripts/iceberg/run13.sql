@@ -1,3 +1,4 @@
+SET spark.sql.leafNodeDefaultParallelism = 10;
 use demo.test_db;
 
 CREATE TABLE test_iceberg_systable_unpartitioned (
@@ -37,3 +38,4 @@ INSERT INTO test_iceberg_systable_partitioned VALUES
 
 INSERT INTO test_iceberg_systable_partitioned VALUES (2, 'Bob Updated');
 DELETE FROM test_iceberg_systable_partitioned WHERE id = 3;
+RESET spark.sql.leafNodeDefaultParallelism;
