@@ -519,6 +519,13 @@ Status JvmLauncher::_attach_current_thread(JNIEnv** env) {
     if (rc == JNI_EDETACHED) {
         rc = _vm->AttachCurrentThread(reinterpret_cast<void**>(&thread_env), nullptr);
     }
+    if (rc == JNI_ERR) {
+        // What an attach gets, most often, when the JVM cannot allocate the thread's java.lang.Thread:
+        // its heap is full, for instance while the scanners of a statement that ran out of it are still
+        // on their way out.
+        return Status::JniError("Failed to attach the current thread to the JVM, code={}. {}", rc,
+                                Util::jvm_heap_exhausted_hint());
+    }
     if (rc != JNI_OK || thread_env == nullptr) {
         return Status::JniError("Failed to attach the current thread to the JVM, code={}", rc);
     }
