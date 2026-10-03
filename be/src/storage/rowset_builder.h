@@ -67,7 +67,7 @@ public:
         return Status::NotSupported("BaseRowsetBuilder::commit_txn not implemented");
     }
 
-    Status cancel();
+    virtual Status cancel(const Status& st = Status::Cancelled("already cancelled"));
 
     const std::shared_ptr<RowsetWriter>& rowset_writer() const { return _rowset_writer; }
 
@@ -205,6 +205,8 @@ public:
     Status submit_calc_delete_bitmap_task() override;
 
     Status wait_calc_delete_bitmap() override;
+
+    Status cancel(const Status& st) override;
 
     Status commit_txn() override;
 

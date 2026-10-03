@@ -37,6 +37,8 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "load/delta_writer/delta_writer.h"
+#include "runtime/thread_context.h"
+#include "runtime/workload_management/resource_context.h"
 #include "storage/binlog.h"
 #include "storage/data_dir.h"
 #include "storage/olap_common.h"
@@ -478,6 +480,15 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
     {
         std::lock_guard<std::shared_mutex> wrlock(_get_txn_map_lock(transaction_id));
         auto load_info = std::make_shared<TabletTxnInfo>(load_id, rowset_ptr);
+        // Publish workers attach their own memory context. Preserve the writer's
+        // resource domain here; recovered/contextless transactions use the default pool.
+        if (!is_recovery) {
+            SCOPED_INIT_THREAD_CONTEXT();
+            auto* ctx = thread_context();
+            if (ctx->is_attach_task()) {
+                load_info->workload_group = ctx->resource_ctx()->workload_group();
+            }
+        }
         load_info->attach_row_binlog = attach_row_binlog;
         // resolve the independent binlog tablet in advance for the later publish phase.
         if (load_info->attach_row_binlog.rowset != nullptr &&

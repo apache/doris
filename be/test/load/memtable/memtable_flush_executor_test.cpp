@@ -28,6 +28,8 @@
 #include <chrono>
 #include <string>
 #include <thread>
+#include <utility>
+#include <vector>
 
 #include "common/config.h"
 #include "exec/sink/autoinc_buffer.h"
@@ -48,10 +50,21 @@
 #include "storage/tablet/tablet_meta_manager.h"
 #include "storage/utils.h"
 #include "testutil/creators.h"
+#include "util/countdown_latch.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
 namespace {
+
+class FlushOrderTask final : public Runnable {
+public:
+    explicit FlushOrderTask(std::vector<int>* order) : _order(order) {}
+    void run() override { _order->push_back(3); }
+
+private:
+    std::vector<int>* _order;
+};
 
 class MockRowsetWriter final : public RowsetWriter {
 public:
@@ -327,6 +340,71 @@ void tear_down() {
                         .ok());
 }
 
+TEST(MemTableFlushExecutorTest, GlobalPriorityForMowAndNonMowFlushes) {
+    using namespace std::chrono_literals;
+    // UNIQUE_KEYS without MoW must be treated like DUP/AGG, not like a MoW writer.
+    for (auto [keys_type, is_mow] : {std::pair {DUP_KEYS, false},
+                                     {UNIQUE_KEYS, false},
+                                     {UNIQUE_KEYS, true},
+                                     {AGG_KEYS, false}}) {
+        for (bool grouped : {false, true}) {
+            std::unique_ptr<ThreadPool> pool;
+            ASSERT_TRUE(
+                    ThreadPoolBuilder("flush_priority_test").set_max_threads(1).build(&pool).ok());
+            std::atomic<int> flush_count = 0;
+            std::shared_ptr<RowsetWriter> writer = std::make_shared<MockRowsetWriter>(&flush_count);
+            RowsetWriterContext context;
+            context.txn_id = 1;
+            context.enable_unique_key_merge_on_write = is_mow;
+            context.tablet_schema = std::make_shared<TabletSchema>();
+            context.tablet_schema->_keys_type = keys_type;
+            ASSERT_TRUE(writer->init(context).ok());
+            if (grouped) {
+                auto binlog_writer = std::make_shared<MockRowsetWriter>(&flush_count);
+                RowsetWriterContext binlog_context;
+                binlog_context.txn_id = context.txn_id;
+                ASSERT_TRUE(binlog_writer->init(binlog_context).ok());
+                auto group_writer = std::make_shared<GroupRowsetWriter>();
+                group_writer->set_data_writer(writer);
+                group_writer->set_row_binlog_writer(binlog_writer);
+                ASSERT_TRUE(group_writer->init(context).ok());
+                writer = group_writer;
+            }
+            auto flush = FlushToken::create_shared(pool.get(), nullptr);
+            flush->set_rowset_writer(writer);
+            auto write_bitmap = pool->new_load_token(2, LoadTaskPriority::MID, LoadTaskType::LEAF);
+            auto write_end_bitmap =
+                    pool->new_load_token(3, LoadTaskPriority::HIGH, LoadTaskType::LEAF);
+            auto commit_bitmap =
+                    pool->new_load_token(4, LoadTaskPriority::HIGHEST, LoadTaskType::LEAF);
+            CountDownLatch entered(1), release(1);
+            std::vector<int> order;
+            Defer unblock = [&] { release.count_down(); };
+            EXPECT_TRUE(pool->submit_func([&] {
+                                entered.count_down();
+                                release.wait();
+                            }).ok());
+            EXPECT_TRUE(entered.wait_for(5s));
+            EXPECT_TRUE(write_end_bitmap->submit_func([&] { order.push_back(10); }).ok());
+            EXPECT_TRUE(
+                    flush->_submit_sub_tasks(pool.get(), {std::make_shared<FlushOrderTask>(&order),
+                                                          std::make_shared<FlushOrderTask>(&order)})
+                            .ok());
+            EXPECT_TRUE(write_end_bitmap->submit_func([&] { order.push_back(11); }).ok());
+            EXPECT_TRUE(write_bitmap->submit_func([&] { order.push_back(2); }).ok());
+            EXPECT_TRUE(commit_bitmap->submit_func([&] { order.push_back(0); }).ok());
+            release.count_down();
+            pool->wait();
+            if (is_mow) {
+                EXPECT_EQ(order, (std::vector<int> {0, 10, 11, 2, 3, 3}));
+            } else {
+                // Non-MoW flushes share P1 FIFO with write-end bitmaps, below P0.
+                EXPECT_EQ(order, (std::vector<int> {0, 10, 3, 3, 11, 2}));
+            }
+        }
+    }
+}
+
 TEST(MemTableFlushExecutorTest, TestDynamicThreadPoolUpdate) {
     // Setup
     set_up();
@@ -368,10 +446,11 @@ TEST(MemTableFlushExecutorTest, TestDynamicThreadPoolUpdate) {
         EXPECT_EQ(actual_max, expected_max);
     }
 
-    // Test 4: Update high_priority_flush_thread_num_per_store
+    // Test 4: The retired high-priority setting does not resize the shared pool.
+    int shared_max_threads = flush_executor->flush_pool()->max_threads();
     config::high_priority_flush_thread_num_per_store = 8;
     flush_executor->update_memtable_flush_threads();
-    // Note: We can't directly access _high_prio_flush_pool, but update should not crash
+    EXPECT_EQ(flush_executor->flush_pool()->max_threads(), shared_max_threads);
 
     // Test 5: Set very small values
     config::flush_thread_num_per_store = 0; // Should be adjusted to 1 by std::max

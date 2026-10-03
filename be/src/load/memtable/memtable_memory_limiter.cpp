@@ -298,6 +298,11 @@ int64_t MemTableMemoryLimiter::_flush_active_memtables(int64_t need_flush) {
             continue;
         }
         Status st = w->flush_async();
+        if (st.is<ErrorCode::CANCELLED>()) {
+            // No memory was flushed. The final writer owner handles cleanup;
+            // cancel_with_status() would wait for flush tasks under _lock.
+            continue;
+        }
         if (!st.ok()) {
             auto err_msg = fmt::format(
                     "tablet writer failed to reduce mem consumption by flushing memtable, "

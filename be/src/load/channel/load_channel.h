@@ -40,6 +40,8 @@ class PTabletWriterAddBlockRequest;
 class PTabletWriterAddBlockResult;
 class OpenPartitionRequest;
 class BaseTabletsChannel;
+class DeleteBitmapCancellation;
+class AtomicStatus;
 
 // A LoadChannel manages tablets channels for all indexes
 // corresponding to a certain load job
@@ -59,7 +61,13 @@ public:
     // return true if this load channel has been opened and all tablets channels are closed then.
     bool is_finished();
 
-    Status cancel();
+    // Publish without channel/writer locks; safe under the manager lock.
+    void publish_cancel_status(const Status& reason);
+
+    // Publish cancellation and drain bitmap tasks without channel/writer locks.
+    // Call outside the manager lock because running callbacks may need it.
+    Status cancel(const Status& reason = Status::Cancelled("load channel cancelled"));
+    Status cancel_status() const;
 
     time_t last_updated_time() const { return _last_updated_time.load(); }
 
@@ -69,7 +77,7 @@ public:
 
     bool is_high_priority() const { return _is_high_priority; }
 
-    bool is_cancelled() const { return _cancelled.load(); }
+    bool is_cancelled() const;
 
     WorkloadGroupPtr workload_group() const { return _resource_ctx->workload_group(); }
 
@@ -112,7 +120,8 @@ private:
     std::unordered_set<int64_t> _finished_channel_ids;
     // set to true if at least one tablets channel has been opened
     bool _opened = false;
-    std::atomic<bool> _cancelled {false};
+    const std::shared_ptr<DeleteBitmapCancellation> _delete_bitmap_cancellation;
+    const std::shared_ptr<AtomicStatus> _cancel_status;
 
     std::shared_ptr<ResourceContext> _resource_ctx;
 
