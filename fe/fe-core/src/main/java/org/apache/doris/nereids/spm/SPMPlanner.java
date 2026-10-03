@@ -621,7 +621,11 @@ public class SPMPlanner {
      * connection_id() survives parameterization, the creator-context optimization then
      * resolves it to a LITERAL, and the frozen planSql persists that value - while
      * matching still compares the original unbound bind tree, so a global baseline would
-     * serve every other user the creator's identity / variables.
+     * serve every other user the creator's identity / variables. Clock functions are the
+     * same class of value: FE constant folding evaluates now() / current_timestamp() from
+     * the CREATE statement's start time (see DateTimeAcquire), so a baseline for
+     * {@code SELECT now() AS ts FROM t} returned the CREATE timestamp on every later
+     * matching query.
      */
     private static void rejectReplayContextExpressions(LogicalPlan bindPlan, LogicalPlan planPlan,
             String bindSql) throws AnalysisException {
@@ -630,7 +634,10 @@ public class SPMPlanner {
             throw new AnalysisException("SPM does not support replay-time context expressions"
                     + " (user/session variables including a parsed @v, current_user(),"
                     + " session_user(), user(), database(), current_catalog(), connection_id(),"
-                    + " last_query_id(), version(), and any * REPLACE payload carrying one):"
+                    + " last_query_id(), version(), a clock function evaluated at the"
+                    + " statement start - now() / current_timestamp() / current_date() /"
+                    + " utc_timestamp() / localtime() / unix_timestamp() without arguments -"
+                    + " and any * REPLACE payload carrying one):"
                     + " the frozen SQL would persist the creator's value: "
                     + bindSql);
         }

@@ -197,11 +197,15 @@ public class BaselinePlanDurableWinnerTest {
     }
 
     /**
-     * A delete failure that did NOT commit rolls the freshly inserted row back and keeps
-     * the old-status version - the update reports the failure and memory reverts.
+     * A delete failure that did NOT commit keeps BOTH versions (round-30 #2): the failed
+     * ALTER reports its error and memory stays on the old status, but the freshly inserted
+     * row must not be compensated away - when that delete actually committed and only its
+     * PUBLICATION lagged, deleting the new row would leave the baseline with no durable
+     * version at all once the committed delete became visible. Duplicate rows are resolved
+     * deterministically by the load path (pickDurableWinner: the later updateTime wins).
      */
     @Test
-    public void testStatusUpdateRollsBackUncommittedDeleteFailure() {
+    public void testStatusUpdateKeepsBothRowsWhenTheDeleteOutcomeIsUnknown() {
         BaselineManager manager = BaselineManager.getInstance();
         manager.clearForTest();
         long id = seedEnabledBaseline(manager);
@@ -232,11 +236,13 @@ public class BaselinePlanDurableWinnerTest {
                     () -> manager.updateStatus(id, BaselineStatus.DISABLED));
             Assertions.assertEquals(BaselineStatus.ENABLED,
                     manager.getBaseline(id).getStatus(),
-                    "the in-memory flip must be reverted");
+                    "the failed ALTER must not flip the live object");
             Assertions.assertTrue(durable.contains(BaselineStatus.ENABLED),
                     "the old-status row must stay durable");
-            Assertions.assertFalse(durable.contains(BaselineStatus.DISABLED),
-                    "the rollback must delete the freshly inserted row");
+            Assertions.assertTrue(durable.contains(BaselineStatus.DISABLED),
+                    "an UNKNOWN delete outcome must keep the new-status row as well - a"
+                            + " rollback would leave NOTHING behind when the delete had"
+                            + " actually committed and only its publication lagged");
         } finally {
             BaselineManager.statusProtocolStoreForTest = null;
             manager.clearForTest();

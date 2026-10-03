@@ -316,7 +316,10 @@ public class InternalSchema {
         // window was OPENED with (-1 = no pending window): the audit SQL and the
         // in-memory filter must both use the window's own values, so a window truncated
         // before a `SET GLOBAL plan_capture_min_query_time_ms` keeps scanning with the
-        // thresholds its already-consumed rows were judged by.
+        // thresholds its already-consumed rows were judged by. include_pattern /
+        // exclude_pattern are the table-name regexes of that same snapshot (empty = none):
+        // a pattern change mid-window must not terminally filter away rows the window's
+        // earlier pages had admitted.
         SPM_CAPTURE_CHECKPOINT_SCHEMA = new ArrayList<>();
         SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("id",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
@@ -342,6 +345,10 @@ public class InternalSchema {
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
         SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("min_scan_rows",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("include_pattern",
+                ScalarType.createVarchar(4096), ColumnNullableType.NOT_NULLABLE));
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("exclude_pattern",
+                ScalarType.createVarchar(4096), ColumnNullableType.NOT_NULLABLE));
         SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("update_time",
                 ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
     }

@@ -163,7 +163,9 @@ public class PlanCaptureCycleHandoffTest {
                 params.getOrDefault("retryQueue", "{}"),
                 params.getOrDefault("cursorTail", ""),
                 params.getOrDefault("minQueryTimeMs", "-1"),
-                params.getOrDefault("minScanRows", "-1")));
+                params.getOrDefault("minScanRows", "-1"),
+                params.getOrDefault("includePattern", ""),
+                params.getOrDefault("excludePattern", "")));
     }
 
     /**
@@ -612,6 +614,12 @@ public class PlanCaptureCycleHandoffTest {
                 cursorQueryId, cursorTail);
     }
 
+    private static AuditLogScanner.ScanBatch candidatePage(CapturedQuery candidate,
+            long cursorQueryTime, String cursorTime, String cursorQueryId, String cursorTail) {
+        return new AuditLogScanner.ScanBatch(List.of(candidate), false, cursorQueryTime,
+                cursorTime, cursorQueryId, cursorTail);
+    }
+
     private static AuditLogScanner.ScanBatch exhaustedPage() {
         return new AuditLogScanner.ScanBatch(List.of(), true, AuditLogScanner.CURSOR_ABSENT,
                 "", "", "");
@@ -745,24 +753,36 @@ public class PlanCaptureCycleHandoffTest {
                 visible.set(new HashMap<>(params));
             });
 
-            PlanCaptureFilter windowFilter = new PlanCaptureFilter(null, null, 1000L, 100L);
+            PlanCaptureFilter windowFilter = new PlanCaptureFilter("db\\.t.*", "tmp.*",
+                    1000L, 100L);
             manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(), windowFilter);
             Assertions.assertArrayEquals(new long[] {1000L, 100L}, scanner.thresholds.get(0));
             Object[] fields = manager.checkpointFieldsForTest();
             Assertions.assertEquals(1000L, ((Number) fields[7]).longValue(),
                     "the pending window pins the threshold it was opened with");
             Assertions.assertEquals(100L, ((Number) fields[8]).longValue());
+            Assertions.assertEquals("db\\.t.*", fields[9],
+                    "the table-name patterns are part of the pinned snapshot");
+            Assertions.assertEquals("tmp.*", fields[10]);
             Assertions.assertEquals("1000",
                     persisted.get(persisted.size() - 1).get("minQueryTimeMs"),
                     "the pin is durable");
+            Assertions.assertEquals("db\\\\.t.*",
+                    persisted.get(persisted.size() - 1).get("includePattern"),
+                    "the patterns are durable with the window (escapeSQL doubles the"
+                            + " backslash, the reader decodes it back)");
 
             // a window that is still pending is NOT re-judged by the new globals: every
-            // page of cycle 2 keeps the pinned values
-            PlanCaptureFilter raised = new PlanCaptureFilter(null, null, 7L, 7L);
+            // page of cycle 2 keeps the pinned values - including the patterns, so a
+            // `SET GLOBAL plan_capture_include_pattern` cannot filter away rows the
+            // window's earlier pages admitted
+            PlanCaptureFilter raised = new PlanCaptureFilter("only_this_table", "", 7L, 7L);
             manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(), raised);
             Assertions.assertArrayEquals(new long[] {1000L, 100L},
                     scanner.thresholds.get(PlanCaptureManager.maxPagesPerCycleForTest()),
                     "the resumed window keeps its own thresholds, not the takeover's globals");
+            Assertions.assertEquals("db\\.t.*", manager.getFilter().getIncludePatternText(),
+                    "and its own table-name patterns");
             Assertions.assertEquals(1000L, ((Number) manager.checkpointFieldsForTest()[7]).longValue(),
                     "the pin stays on the pending window");
             Assertions.assertTrue(manager.isPendingWindowResumePromptForTest(),
@@ -788,7 +808,69 @@ public class PlanCaptureCycleHandoffTest {
             manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(), raised);
             Assertions.assertArrayEquals(new long[] {7L, 7L}, resumed.thresholds.get(1),
                     "a new window follows the current globals");
+            Assertions.assertEquals("only_this_table",
+                    manager.getFilter().getIncludePatternText(),
+                    "including its table-name patterns");
         } finally {
+            manager.resetForTest();
+        }
+    }
+
+    /**
+     * round-30 #9: the page drain must PAUSE when the retry queue holds more than the
+     * leader FE should retain. A metadata outage makes every capture fail, so a 50-page
+     * drain could otherwise enqueue tens of thousands of full statements in one wakeup -
+     * and the unconsumed pages must stay reachable while the replay burns the queue down.
+     */
+    @Test
+    public void testQueueBudgetPausesTheDrainAndKeepsTheWindowReachable() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            // the production budget is measured in megabytes of statements; a test-sized
+            // budget is reached by the FIRST queued failure of the drain
+            PlanCaptureManager.setQueuedFailureBudgetForTest(0L);
+            PlanCaptureFilter accepting = new PlanCaptureFilter(null, null, 1000L, 1000L);
+            CapturedQuery failing = new CapturedQuery(
+                    "SELECT t1.a FROM t1 JOIN t2 ON t1.a = t2.a WHERE t1.b = 7",
+                    5000, 100000, 0, "digest-budget", "hash", "db", "internal",
+                    "qid-budget");
+            String tail = "[\"10.0.0.9\",\"h9\",\"900\",\"90\",\"m9\"]";
+            DrainingScanner scanner = new DrainingScanner(
+                    candidatePage(failing, 45L, "2026-01-02 00:00:00", "qid-drain", tail),
+                    exhaustedPage(), Integer.MAX_VALUE);
+            manager.setScannerForTest(scanner);
+            AtomicReference<Map<String, String>> visible = new AtomicReference<>();
+            manager.setCheckpointReaderForTest(() -> visible.get() == null
+                    ? List.of() : List.of(checkpointRow(visible.get())));
+            manager.setCheckpointWriterForTest((sql, params) -> visible.set(new HashMap<>(params)));
+
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(), accepting);
+            Assertions.assertEquals(1, scanner.calls.get(),
+                    "the drain consumes the page that queues the failure and then PAUSES"
+                            + " while the queue is over budget");
+            Assertions.assertTrue(manager.isQueuedForTest("qid-budget"),
+                    "the failed capture is queued");
+            Assertions.assertTrue(manager.isPendingWindowResumePromptForTest(),
+                    "the paused window resumes promptly");
+            Object[] fields = manager.checkpointFieldsForTest();
+            Assertions.assertEquals(scanner.windows.get(0)[0], ((Number) fields[1]).longValue(),
+                    "the window stays pending so its remaining rows remain reachable");
+            Assertions.assertEquals(scanner.windows.get(0)[1], ((Number) fields[2]).longValue());
+            Assertions.assertEquals(45L, ((Number) fields[3]).longValue(),
+                    "the consumed page's cursor is durable, so the resume continues after it");
+            Assertions.assertEquals(tail, fields[6]);
+
+            // once the queue is back under budget the same window drains normally
+            PlanCaptureManager.setQueuedFailureBudgetForTest(Long.MAX_VALUE);
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(), accepting);
+            Assertions.assertEquals(1 + PlanCaptureManager.maxPagesPerCycleForTest(),
+                    scanner.calls.get(), "the drain resumes on the next cycle");
+            Assertions.assertEquals(45L,
+                    ((Number) scanner.cursors.get(1)[0]).longValue(),
+                    "and continues exactly after the persisted cursor");
+        } finally {
+            PlanCaptureManager.setQueuedFailureBudgetForTest(null);
             manager.resetForTest();
         }
     }

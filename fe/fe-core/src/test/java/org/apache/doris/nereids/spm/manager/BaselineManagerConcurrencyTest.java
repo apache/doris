@@ -1442,6 +1442,14 @@ public class BaselineManagerConcurrencyTest {
         private final Map<BaselineStatus, Integer> rows = new ConcurrentHashMap<>();
         private boolean failOldDeleteAfterCommit;
         private boolean failOldDeleteWithoutCommit;
+        /**
+         * When set together with {@link #failOldDeleteWithoutCommit}, the reconciliation
+         * reads that follow the failed delete are UNCONFIRMABLE as well (every count
+         * throws): the outcome is then genuinely unknown.
+         */
+        private boolean failReconcileReadAfterFailedDelete;
+        /** Set by the failed delete: no read can tell what happened. */
+        private boolean unconfirmableReads;
 
         @Override
         public void insert(BaselinePlan plan) {
@@ -1455,6 +1463,9 @@ public class BaselineManagerConcurrencyTest {
                 throw new RuntimeException("KV_TXN_MAYBE_COMMITTED");
             }
             if (failOldDeleteWithoutCommit && status == BaselineStatus.ENABLED) {
+                if (failReconcileReadAfterFailedDelete) {
+                    unconfirmableReads = true;
+                }
                 throw new RuntimeException("KV_TXN_MAYBE_COMMITTED");
             }
             rows.computeIfPresent(status, (k, v) -> Math.max(0, v - 1));
@@ -1462,6 +1473,9 @@ public class BaselineManagerConcurrencyTest {
 
         @Override
         public int countByIdAndStatus(long id, BaselineStatus status) {
+            if (unconfirmableReads) {
+                throw new RuntimeException("internal table read timed out");
+            }
             return rows.getOrDefault(status, 0);
         }
     }
@@ -1496,12 +1510,15 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * The uncommitted counterpart: DELETE(old) failed AND did not commit. The rollback
-     * may remove the freshly inserted row, but the OLD version must survive and the ALTER
-     * must report failure.
+     * The uncommitted counterpart: DELETE(old) failed AND did not commit. Reporting the
+     * failure is correct, but the freshly inserted row must be KEPT: an old-row delete
+     * that DID commit behind the reconciliation read (publication lag) would otherwise be
+     * compensated into a state where neither status survives once that delete publishes.
+     * Both rows stay, the load path resolves them deterministically (pickDurableWinner),
+     * and the next refresh / ALTER retry reconciles the cache with the winner.
      */
     @Test
-    public void testUncommittedStatusDeleteKeepsTheOldRow() {
+    public void testUncommittedStatusDeleteKeepsBothRows() {
         BaselineManager manager = BaselineManager.getInstance();
         manager.clearForTest();
         StatusProtocolSimulator store = new StatusProtocolSimulator();
@@ -1517,10 +1534,134 @@ public class BaselineManagerConcurrencyTest {
                     "the failed ALTER must not flip the live object");
             Assertions.assertEquals(1, store.rows.getOrDefault(BaselineStatus.ENABLED, 0),
                     "the old version must survive: " + store.rows);
-            Assertions.assertEquals(0, store.rows.getOrDefault(BaselineStatus.DISABLED, 0),
-                    "the rollback removes the new row: " + store.rows);
+            Assertions.assertEquals(1, store.rows.getOrDefault(BaselineStatus.DISABLED, 0),
+                    "the new row is KEPT for an unknown outcome - a compensating delete of"
+                            + " it would leave NOTHING behind when the old-row delete actually"
+                            + " committed and only its publication lagged: " + store.rows);
         } finally {
             BaselineManager.statusProtocolStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-30 #2: the reconciliation read itself can fail. Treating that "no" as "the old
+     * row survived, safe to roll back" deleted the ONLY other durable version - and the
+     * committed old-row delete then removed the old one as well. An unconfirmable outcome
+     * must keep BOTH rows and report the failure.
+     */
+    @Test
+    public void testFailedReconciliationReadKeepsBothStatusRows() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        StatusProtocolSimulator store = new StatusProtocolSimulator();
+        try {
+            long id = manager.createBaseline(baseline("d-st3", "p-st3"));
+            BaselineManager.statusProtocolStoreForTest = store;
+            store.rows.put(BaselineStatus.ENABLED, 1);
+            store.failOldDeleteWithoutCommit = true;
+            store.failReconcileReadAfterFailedDelete = true;
+
+            Assertions.assertThrows(RuntimeException.class,
+                    () -> manager.updateStatus(id, BaselineStatus.DISABLED));
+            Assertions.assertEquals(BaselineStatus.ENABLED, manager.getBaseline(id).getStatus(),
+                    "the failed ALTER must not flip the live object");
+            Assertions.assertEquals(1, store.rows.getOrDefault(BaselineStatus.ENABLED, 0),
+                    "the old version must survive: " + store.rows);
+            Assertions.assertEquals(1, store.rows.getOrDefault(BaselineStatus.DISABLED, 0),
+                    "an unconfirmable outcome must never compensate the new row away: "
+                            + store.rows);
+        } finally {
+            BaselineManager.statusProtocolStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-30 #4: a status ROUND TRIP (ENABLED at T0 -> DISABLE at T1 -> ENABLE at T2)
+     * leaves every compared field at its T0 value, so the refresh discarded the fresh T2
+     * row and kept reporting the stale T0 object forever (SHOW included). The persisted
+     * update_time takes part in the comparison at the table's SECOND precision.
+     */
+    @Test
+    public void testRefreshDetectsAStatusRoundTripByItsUpdateTime() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        try {
+            long t0 = 1_700_000_000_000L;
+            BaselinePlan cached = baseline("d-flip", "p-flip");
+            cached.setId(11);
+            cached.setCreateTime(t0);
+            cached.setUpdateTime(t0);
+            manager.applyRefreshedBaselines(java.util.Map.of(11L, cached));
+            Assertions.assertEquals(t0, manager.getBaseline(11).getUpdateTime(),
+                    "precondition: the follower cached the T0 row");
+
+            // the master completed DISABLE (T1) and ENABLE (T2): same status, same SQL,
+            // only the persisted update_time moved
+            BaselinePlan roundTrip = baseline("d-flip", "p-flip");
+            roundTrip.setId(11);
+            roundTrip.setCreateTime(t0);
+            roundTrip.setUpdateTime(t0 + 2_000L);
+            manager.applyRefreshedBaselines(java.util.Map.of(11L, roundTrip));
+
+            Assertions.assertEquals(t0 + 2_000L, manager.getBaseline(11).getUpdateTime(),
+                    "a status round trip must NOT be discarded as 'unchanged' - the cached"
+                            + " object would report its stale update_time forever");
+        } finally {
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-30 #7: an INSERT can report SQL OK (committed) while no read sees the row. The
+     * CREATE fails retryably - but the id IS consumed. A client retry that allocated a
+     * second id would write the same baseline twice: both rows publish under different
+     * ids, and dropping the id the client was told about leaves the other one ACTIVE. The
+     * retry must ADOPT the remembered identity instead (deferring until it is readable).
+     */
+    @Test
+    public void testRetryOfAnUnconfirmedCreateDoesNotAllocateASecondId() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            // the INSERT commits, but no read sees the row within the probe budget
+            BaselineManager.durableVisibilityProbeForTest = (id, status) -> false;
+
+            RuntimeException first = Assertions.assertThrows(RuntimeException.class,
+                    () -> manager.createBaseline(baseline("d-pend", "p-pend")));
+            Assertions.assertTrue(first.getMessage().contains("not readable"),
+                    first.getMessage());
+            Assertions.assertEquals(1, store.rows.size(),
+                    "the committed insert consumed exactly one id: " + store.rows);
+            long consumedId = store.rows.keySet().iterator().next();
+            Assertions.assertEquals(1, manager.pendingCreateCountForTest(),
+                    "the unconfirmed identity must be remembered");
+
+            // the retry DEFERS instead of writing a second row
+            RuntimeException deferred = Assertions.assertThrows(RuntimeException.class,
+                    () -> manager.createBaseline(baseline("d-pend", "p-pend")));
+            Assertions.assertTrue(deferred.getMessage().contains("awaiting publication"),
+                    "the retry must defer until the committed write resolves: "
+                            + deferred.getMessage());
+            Assertions.assertEquals(1, store.rows.size(),
+                    "no second id may be allocated for the same baseline: " + store.rows);
+
+            // once the committed row is readable the deferral resolves and the durable-key
+            // dedup ADOPTS that very row (the same id, no second row)
+            BaselineManager.durableVisibilityProbeForTest = (id, status) -> true;
+            long adoptedId = manager.createBaseline(baseline("d-pend", "p-pend"));
+            Assertions.assertEquals(consumedId, adoptedId,
+                    "the retry must adopt the committed id, not allocate a new one");
+            Assertions.assertEquals(0, manager.pendingCreateCountForTest(),
+                    "a readable row resolves the remembered identity");
+            Assertions.assertEquals(1, store.rows.size(),
+                    "still no second row: " + store.rows);
+        } finally {
+            BaselineManager.durableVisibilityProbeForTest = null;
+            BaselineManager.idAllocatorStoreForTest = null;
             manager.clearForTest();
         }
     }
@@ -1589,12 +1730,13 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * The DROP half: the cache entry is removed only after the identity delete is
-     * provably invisible; an unconfirmed delete keeps the row and reports a retryable
-     * failure instead of a success a refresh would undo.
+     * The DROP half: a reported-successful identity delete whose PUBLICATION lags past every
+     * probe is still a committed delete - the DROP must fail CLOSED (remove the cache entry
+     * and report success). Failing it instead kept an ACTIVE baseline in the master's cache
+     * that ordinary queries kept replaying although the DROP had already landed.
      */
     @Test
-    public void testDropWaitsForTheDeleteToBecomeInvisible() {
+    public void testDropFailsClosedWhenTheDeletePublicationLags() {
         BaselineManager manager = BaselineManager.getInstance();
         manager.clearForTest();
         SimulatedStore store = new SimulatedStore();
@@ -1603,14 +1745,14 @@ public class BaselineManagerConcurrencyTest {
             long id = manager.createBaseline(baseline("d-drop", "p-drop"));
 
             BaselineManager.durableVisibilityProbeForTest = (rowId, status) -> true;
-            Assertions.assertThrows(RuntimeException.class, () -> manager.dropBaseline(id));
-            Assertions.assertNotNull(manager.getBaseline(id),
-                    "the unconfirmed delete must keep the cache entry");
+            Assertions.assertTrue(manager.dropBaseline(id),
+                    "a committed delete that is merely not visible yet IS the durable outcome");
+            Assertions.assertNull(manager.getBaseline(id),
+                    "the dropped baseline must not stay replayable in the cache");
 
             BaselineManager.durableVisibilityProbeForTest = (rowId, status) -> false;
-            Assertions.assertTrue(manager.dropBaseline(id),
-                    "a confirmed-invisible delete completes the drop");
-            Assertions.assertNull(manager.getBaseline(id));
+            Assertions.assertFalse(manager.dropBaseline(id),
+                    "a second drop of the same id reports the baseline as absent");
         } finally {
             BaselineManager.durableVisibilityProbeForTest = null;
             BaselineManager.idAllocatorStoreForTest = null;
