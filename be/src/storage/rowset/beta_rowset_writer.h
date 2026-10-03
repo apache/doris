@@ -224,7 +224,7 @@ protected:
     virtual Status _check_segment_number_limit(size_t segnum);
     virtual int64_t _num_seg() const;
     // build a tmp rowset for load segment to calc delete_bitmap for this segment
-    Status _build_tmp(RowsetSharedPtr& rowset_ptr);
+    Status _build_tmp(RowsetSharedPtr& rowset_ptr, int32_t segment_id);
 
     uint64_t get_rowset_num_rows() {
         std::lock_guard l(_segid_statistics_map_mutex);
