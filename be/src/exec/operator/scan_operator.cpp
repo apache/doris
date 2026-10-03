@@ -238,7 +238,8 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     }
 
     // Disable condition cache in topn filter valid. TODO:: Try to support the topn filter in condition cache
-    if (state->query_options().condition_cache_digest && p._topn_filter_source_node_ids.empty()) {
+    if (p._enable_condition_cache && state->query_options().condition_cache_digest &&
+        p._topn_filter_source_node_ids.empty()) {
         _condition_cache_digest = state->query_options().condition_cache_digest;
         for (auto& conjunct : _conjuncts) {
             _condition_cache_digest = conjunct->get_digest(_condition_cache_digest);
@@ -1209,6 +1210,7 @@ ScanOperatorX<LocalStateType>::ScanOperatorX(ObjectPool* pool, const TPlanNode& 
                                              int operator_id, const DescriptorTbl& descs,
                                              int parallel_tasks)
         : OperatorX<LocalStateType>(pool, tnode, operator_id, descs),
+          _enable_condition_cache(tnode.enable_condition_cache),
           _runtime_filter_descs(tnode.runtime_filters),
           _parallel_tasks(parallel_tasks) {
     if (tnode.__isset.push_down_count) {
