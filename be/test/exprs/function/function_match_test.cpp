@@ -470,6 +470,68 @@ TEST(FunctionMatchTest, array_offset_handling) {
     }
 }
 
+TEST(FunctionMatchTest, array_match_keeps_tokens_from_all_elements) {
+    TQueryOptions query_options;
+    query_options.__set_enable_match_without_inverted_index(true);
+    RuntimeState runtime_state(query_options, TQueryGlobals {});
+    auto context = FunctionContext::create_context(&runtime_state, {}, {});
+    auto ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_ENGLISH);
+
+    auto string_col = ColumnString::create();
+    for (const std::string value : {"alpha token", "tail only", "head only", "omega token",
+                                    "unrelated head", "unrelated tail", "alpha token", ""}) {
+        string_col->insert_data(value.data(), value.size());
+    }
+    ColumnArray::Offsets64 array_offsets = {2, 4, 6, 8, 8};
+
+    FunctionMatchAny match_any;
+    FunctionMatchAll match_all;
+    FunctionMatchRegexp match_regexp;
+    FunctionMatchPhrase match_phrase;
+    FunctionMatchPhrasePrefix match_phrase_prefix;
+    FunctionMatchPhraseEdge match_phrase_edge;
+    auto check_match = [&](const FunctionMatchBase& function, const std::string& query,
+                           const std::vector<uint8_t>& expected) {
+        SCOPED_TRACE(function.get_name() + ": " + query);
+        ColumnUInt8::Container result(array_offsets.size(), 0);
+        ASSERT_TRUE(function.execute_match(context.get(), "tags", query, array_offsets.size(),
+                                           string_col.get(), ctx.ctx.get(), &array_offsets, result)
+                            .ok());
+        for (size_t row = 0; row < expected.size(); ++row) {
+            EXPECT_EQ(result[row], expected[row]) << "row: " << row;
+        }
+    };
+    check_match(match_any, "alpha", {1, 0, 0, 1, 0});
+    check_match(match_any, "omega", {0, 1, 0, 0, 0});
+    check_match(match_all, "alpha tail", {1, 0, 0, 0, 0});
+    check_match(match_regexp, "^alpha$", {1, 0, 0, 1, 0});
+    check_match(match_phrase, "alpha token", {1, 0, 0, 1, 0});
+    check_match(match_phrase, "token tail", {0, 0, 0, 0, 0});
+    check_match(match_phrase_prefix, "alpha tok", {1, 0, 0, 1, 0});
+    check_match(match_phrase_prefix, "token tai", {0, 0, 0, 0, 0});
+    check_match(match_phrase_edge, "pha tok", {1, 0, 0, 1, 0});
+    check_match(match_phrase_edge, "ken tai", {0, 0, 0, 0, 0});
+
+    segment_v2::inverted_index::CustomAnalyzerConfig::Builder builder;
+    builder.with_tokenizer_config("keyword", {});
+    builder.add_token_filter_config("lowercase", {});
+    auto provider =
+            std::make_shared<segment_v2::inverted_index::CustomAnalyzerProvider>(builder.build());
+    ctx.ctx->parser_type = InvertedIndexParserType::PARSER_NONE;
+    ctx.ctx->analyzer_name = "custom_keyword_lowercase";
+    ctx.ctx->analyzer_provider = provider;
+    ctx.ctx->analyzer = provider->get_analyzer();
+    check_match(match_any, "ALPHA TOKEN", {1, 0, 0, 1, 0});
+    check_match(match_phrase, "ALPHA TOKEN", {1, 0, 0, 1, 0});
+
+    ctx = create_inverted_index_ctx(InvertedIndexParserType::PARSER_NONE);
+    check_match(match_any, "alpha token", {1, 0, 0, 1, 0});
+    check_match(match_all, "alpha token", {1, 0, 0, 1, 0});
+    check_match(match_phrase, "alpha token", {1, 0, 0, 1, 0});
+    check_match(match_phrase_prefix, "alpha", {1, 0, 0, 1, 0});
+    check_match(match_phrase_edge, "pha", {1, 0, 0, 1, 0});
+}
+
 // Test Unicode and special character handling
 TEST(FunctionMatchTest, unicode_and_special_chars) {
     FunctionMatchAny match_any;

@@ -44,6 +44,116 @@ const InvertedIndexAnalyzerCtx* get_match_analyzer_ctx(FunctionContext* context)
     return analyzer_ctx;
 }
 
+bool match_phrase_tokens(const std::vector<segment_v2::TermInfo>& data_tokens,
+                         const std::vector<segment_v2::TermInfo>& query_tokens) {
+    bool matched = false;
+    auto data_it = data_tokens.begin();
+    while (data_it != data_tokens.end()) {
+        // find position of first token
+        data_it = std::find_if(data_it, data_tokens.end(), [&](const segment_v2::TermInfo& info) {
+            return info.get_single_term() == query_tokens[0].get_single_term();
+        });
+        if (data_it != data_tokens.end()) {
+            matched = true;
+            auto data_it_next = ++data_it;
+            auto query_it = query_tokens.begin() + 1;
+            // compare query_tokens after the first to data_tokens one by one
+            while (query_it != query_tokens.end()) {
+                if (data_it_next == data_tokens.end() ||
+                    data_it_next->get_single_term() != query_it->get_single_term()) {
+                    matched = false;
+                    break;
+                }
+                query_it++;
+                data_it_next++;
+            }
+
+            if (matched) {
+                break;
+            }
+        }
+    }
+
+    return matched;
+}
+
+bool match_phrase_prefix_tokens(const std::vector<segment_v2::TermInfo>& data_tokens,
+                                const std::vector<segment_v2::TermInfo>& query_tokens) {
+    if (data_tokens.size() < query_tokens.size()) {
+        return false;
+    }
+    const auto dis_count = data_tokens.size() - query_tokens.size();
+
+    for (size_t j = 0; j < dis_count + 1; j++) {
+        if (data_tokens[j].get_single_term() == query_tokens[0].get_single_term() ||
+            query_tokens.size() == 1) {
+            bool match = true;
+            for (size_t k = 0; k < query_tokens.size(); k++) {
+                const std::string& data_token = data_tokens[j + k].get_single_term();
+                const std::string& query_token = query_tokens[k].get_single_term();
+                if (k == query_tokens.size() - 1) {
+                    if (!data_token.starts_with(query_token)) {
+                        match = false;
+                        break;
+                    }
+                } else {
+                    if (data_token != query_token) {
+                        match = false;
+                        break;
+                    }
+                }
+            }
+            if (match) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool match_phrase_edge_tokens(const std::vector<segment_v2::TermInfo>& data_tokens,
+                              const std::vector<segment_v2::TermInfo>& query_tokens) {
+    if (data_tokens.size() < query_tokens.size()) {
+        return false;
+    }
+    const auto dis_count = data_tokens.size() - query_tokens.size();
+
+    for (size_t j = 0; j < dis_count + 1; j++) {
+        bool match = true;
+        if (query_tokens.size() == 1) {
+            if (data_tokens[j].get_single_term().find(query_tokens[0].get_single_term()) ==
+                std::string::npos) {
+                match = false;
+            }
+        } else {
+            for (size_t k = 0; k < query_tokens.size(); k++) {
+                const std::string& data_token = data_tokens[j + k].get_single_term();
+                const std::string& query_token = query_tokens[k].get_single_term();
+                if (k == 0) {
+                    if (!data_token.ends_with(query_token)) {
+                        match = false;
+                        break;
+                    }
+                } else if (k == query_tokens.size() - 1) {
+                    if (!data_token.starts_with(query_token)) {
+                        match = false;
+                        break;
+                    }
+                } else {
+                    if (data_token != query_token) {
+                        match = false;
+                        break;
+                    }
+                }
+            }
+        }
+        if (match) {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 Status FunctionMatchBase::evaluate_inverted_index(
@@ -258,9 +368,12 @@ inline std::vector<segment_v2::TermInfo> FunctionMatchBase::analyse_data_token(
             auto reader = doris::segment_v2::inverted_index::InvertedIndexAnalyzer::create_reader(
                     analyzer_ctx->char_filter_map);
             reader->init(str_ref.data, (int)str_ref.size, true);
-            data_tokens =
+            auto element_tokens =
                     doris::segment_v2::inverted_index::InvertedIndexAnalyzer::get_analyse_result(
                             reader, analyzer_ctx->analyzer.get());
+            for (auto& token : element_tokens) {
+                data_tokens.emplace_back(std::move(token));
+            }
         }
     } else {
         const auto& str_ref = string_col->get_data_at(current_block_row_idx);
@@ -399,42 +512,12 @@ Status FunctionMatchPhrase::execute_match(FunctionContext* context, const std::s
 
     auto current_src_array_offset = 0;
     for (int i = 0; i < input_rows_count; i++) {
-        auto data_tokens = analyse_data_token(column_name, analyzer_ctx, string_col, i,
-                                              array_offsets, current_src_array_offset);
-
-        // TODO: more efficient impl
-        bool matched = false;
-        auto data_it = data_tokens.begin();
-        while (data_it != data_tokens.end()) {
-            // find position of first token
-            data_it =
-                    std::find_if(data_it, data_tokens.end(), [&](const segment_v2::TermInfo& info) {
-                        return info.get_single_term() == query_tokens[0].get_single_term();
-                    });
-            if (data_it != data_tokens.end()) {
-                matched = true;
-                auto data_it_next = ++data_it;
-                auto query_it = query_tokens.begin() + 1;
-                // compare query_tokens after the first to data_tokens one by one
-                while (query_it != query_tokens.end()) {
-                    if (data_it_next == data_tokens.end() ||
-                        data_it_next->get_single_term() != query_it->get_single_term()) {
-                        matched = false;
-                        break;
-                    }
-                    query_it++;
-                    data_it_next++;
-                }
-
-                if (matched) {
-                    break;
-                }
-            }
-        }
-
-        // check matched
-        if (matched) {
-            result[i] = true;
+        const auto element_begin = array_offsets ? (*array_offsets)[i - 1] : i;
+        const auto element_end = array_offsets ? (*array_offsets)[i] : i + 1;
+        for (auto element = element_begin; element < element_end && !result[i]; ++element) {
+            auto data_tokens = analyse_data_token(column_name, analyzer_ctx, string_col, element,
+                                                  nullptr, current_src_array_offset);
+            result[i] = match_phrase_tokens(data_tokens, query_tokens);
         }
     }
 
@@ -461,38 +544,12 @@ Status FunctionMatchPhrasePrefix::execute_match(
 
     int32_t current_src_array_offset = 0;
     for (int i = 0; i < input_rows_count; i++) {
-        auto data_tokens = analyse_data_token(column_name, analyzer_ctx, string_col, i,
-                                              array_offsets, current_src_array_offset);
-
-        int64_t dis_count = data_tokens.size() - query_tokens.size();
-        if (dis_count < 0) {
-            continue;
-        }
-
-        for (size_t j = 0; j < dis_count + 1; j++) {
-            if (data_tokens[j].get_single_term() == query_tokens[0].get_single_term() ||
-                query_tokens.size() == 1) {
-                bool match = true;
-                for (size_t k = 0; k < query_tokens.size(); k++) {
-                    const std::string& data_token = data_tokens[j + k].get_single_term();
-                    const std::string& query_token = query_tokens[k].get_single_term();
-                    if (k == query_tokens.size() - 1) {
-                        if (data_token.compare(0, query_token.size(), query_token) != 0) {
-                            match = false;
-                            break;
-                        }
-                    } else {
-                        if (data_token != query_token) {
-                            match = false;
-                            break;
-                        }
-                    }
-                }
-                if (match) {
-                    result[i] = true;
-                    break;
-                }
-            }
+        const auto element_begin = array_offsets ? (*array_offsets)[i - 1] : i;
+        const auto element_end = array_offsets ? (*array_offsets)[i] : i + 1;
+        for (auto element = element_begin; element < element_end && !result[i]; ++element) {
+            auto data_tokens = analyse_data_token(column_name, analyzer_ctx, string_col, element,
+                                                  nullptr, current_src_array_offset);
+            result[i] = match_phrase_prefix_tokens(data_tokens, query_tokens);
         }
     }
 
@@ -593,47 +650,12 @@ Status FunctionMatchPhraseEdge::execute_match(
 
     int32_t current_src_array_offset = 0;
     for (int i = 0; i < input_rows_count; i++) {
-        auto data_tokens = analyse_data_token(column_name, analyzer_ctx, string_col, i,
-                                              array_offsets, current_src_array_offset);
-
-        int64_t dis_count = data_tokens.size() - query_tokens.size();
-        if (dis_count < 0) {
-            continue;
-        }
-
-        for (size_t j = 0; j < dis_count + 1; j++) {
-            bool match = true;
-            if (query_tokens.size() == 1) {
-                if (data_tokens[j].get_single_term().find(query_tokens[0].get_single_term()) ==
-                    std::string::npos) {
-                    match = false;
-                }
-            } else {
-                for (size_t k = 0; k < query_tokens.size(); k++) {
-                    const std::string& data_token = data_tokens[j + k].get_single_term();
-                    const std::string& query_token = query_tokens[k].get_single_term();
-                    if (k == 0) {
-                        if (!data_token.ends_with(query_token)) {
-                            match = false;
-                            break;
-                        }
-                    } else if (k == query_tokens.size() - 1) {
-                        if (!data_token.starts_with(query_token)) {
-                            match = false;
-                            break;
-                        }
-                    } else {
-                        if (data_token != query_token) {
-                            match = false;
-                            break;
-                        }
-                    }
-                }
-            }
-            if (match) {
-                result[i] = true;
-                break;
-            }
+        const auto element_begin = array_offsets ? (*array_offsets)[i - 1] : i;
+        const auto element_end = array_offsets ? (*array_offsets)[i] : i + 1;
+        for (auto element = element_begin; element < element_end && !result[i]; ++element) {
+            auto data_tokens = analyse_data_token(column_name, analyzer_ctx, string_col, element,
+                                                  nullptr, current_src_array_offset);
+            result[i] = match_phrase_edge_tokens(data_tokens, query_tokens);
         }
     }
 
