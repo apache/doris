@@ -276,6 +276,20 @@ suite("test_hive_runtime_filter_partition_pruning", "p0,external") {
                         ["""with latest as (select max(p) + 0 as p from hive_partition_value_parquet)
                             select t.p,t.q,t.v from hive_partition_value_parquet t
                             join latest l on t.p=l.p""", true],
+                        // A grouped aggregate over a bounded child: the aggregate never adds rows,
+                        // so the one-row bound proven by the Limit below it must reach both
+                        // consumers of this twice-used materialized CTE.
+                        ["""with c as (select k, min(v) as mv
+                                from (select p as k, v from hive_partition_value_parquet limit 1) s
+                                group by k)
+                            select t.p,t.q,t.v from hive_partition_value_parquet t
+                            join c c1 on t.p=c1.k join c c2 on t.p=c2.k""", false],
+                        // A row-preserving Window over a bounded child: same requirement, reached
+                        // through PhysicalWindow instead of an aggregate.
+                        ["""with c as (select p, row_number() over (order by p) as n
+                                from (select p from hive_partition_value_parquet limit 3) s)
+                            select t.p,t.q,t.v from hive_partition_value_parquet t
+                            join c c1 on t.p=c1.p and c1.n = 1 join c c2 on t.p=c2.p""", false],
                         // A predicate on a visible column bounds the relation as a whole, so a
                         // producer whose root is Project(Filter(...)) must inherit too. This is the
                         // shape an external table read through a partition filter produces.
