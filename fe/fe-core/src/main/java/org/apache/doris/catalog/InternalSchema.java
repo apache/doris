@@ -312,6 +312,11 @@ public class InternalSchema {
         // AuditLogScanner#CursorTail): it keeps rows sharing (time, query_time,
         // query_id) - e.g. a page of NULL query ids - from looping or being skipped
         // after a handoff; a legacy row without it re-scans its pending window.
+        // min_query_time_ms / min_scan_rows are the capture thresholds the PENDING
+        // window was OPENED with (-1 = no pending window): the audit SQL and the
+        // in-memory filter must both use the window's own values, so a window truncated
+        // before a `SET GLOBAL plan_capture_min_query_time_ms` keeps scanning with the
+        // thresholds its already-consumed rows were judged by.
         SPM_CAPTURE_CHECKPOINT_SCHEMA = new ArrayList<>();
         SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("id",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
@@ -333,6 +338,10 @@ public class InternalSchema {
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NOT_NULLABLE));
         SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("retry_queue",
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NOT_NULLABLE));
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("min_query_time_ms",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("min_scan_rows",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
         SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("update_time",
                 ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
     }

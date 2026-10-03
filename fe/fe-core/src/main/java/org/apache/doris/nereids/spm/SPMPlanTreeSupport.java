@@ -40,6 +40,7 @@ import org.apache.doris.nereids.spm.matcher.SPMAstCheckVisitor;
 import org.apache.doris.nereids.spm.matcher.SPMFrozenTreeReplacer;
 import org.apache.doris.nereids.spm.placeholder.SpmConstList;
 import org.apache.doris.nereids.spm.placeholder.SpmConstVar;
+import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
@@ -1878,9 +1879,31 @@ public final class SPMPlanTreeSupport {
                 + '|' + tablets
                 + '|' + String.valueOf(relation.getHints())
                 + '|' + String.valueOf(relation.getIndexName())
-                + '|' + relation.getTableSample().map(Object::toString).orElse("")
+                + '|' + describeTableSample(relation.getTableSample().orElse(null))
                 + '|' + relation.getTableSnapshot().map(Object::toString).orElse("")
                 + '|' + scanParamsText;
+    }
+
+    /**
+     * Selector rendering of a TABLESAMPLE clause from its FIELDS. The default
+     * {@code Object#toString} must never be used here: {@code TableSample} overrides
+     * {@code equals} / {@code hashCode} by value but not {@code toString}, so its default
+     * text is the IDENTITY hash - unstable across parses and process runs. It made one
+     * query's audit fingerprint differ between two parses of the same statement (the
+     * dedup identity then no longer collapsed them) and made a bind / plan pair carrying
+     * the SAME sample render as two different selectors (a legitimate baseline rejected
+     * by the mismatch guard).
+     *
+     * @param sample the sample clause, may be null
+     * @return the stable field rendering, empty when there is no sample
+     */
+    @VisibleForTesting
+    static String describeTableSample(TableSample sample) {
+        if (sample == null) {
+            return "";
+        }
+        return (sample.isPercent ? "percent:" : "rows:") + sample.sampleValue
+                + ",seek:" + sample.seek;
     }
 
     /** The scan-selector descriptions of every base-table relation in the plan. */
@@ -3062,13 +3085,27 @@ public final class SPMPlanTreeSupport {
         return false;
     }
 
-    /** Optional value equality with a textual fallback for value types without equals. */
+    /**
+     * Optional value equality with a textual fallback for value types without equals.
+     *
+     * <p>{@code TableSample} is compared by its VALUE equality only: it overrides
+     * {@code equals} / {@code hashCode} by value but not {@code toString}, so its default
+     * text is the identity hash. The textual fallback was therefore wrong in BOTH
+     * directions for it - two identical clauses parsed separately (bind vs plan, two
+     * audit parses of one statement) compared unequal, and two DIFFERENT samples compared
+     * equal whenever the two objects' identity hashes collided.
+     */
     private static <T> boolean sameOptionalValue(Optional<T> bind, Optional<T> user) {
         if (!bind.isPresent() || !user.isPresent()) {
             return bind.isPresent() == user.isPresent();
         }
-        return Objects.equals(bind.get(), user.get())
-                || Objects.equals(bind.get().toString(), user.get().toString());
+        T bindValue = bind.get();
+        T userValue = user.get();
+        if (bindValue instanceof TableSample && userValue instanceof TableSample) {
+            return bindValue.equals(userValue);
+        }
+        return Objects.equals(bindValue, userValue)
+                || Objects.equals(bindValue.toString(), userValue.toString());
     }
 
     private static boolean sameScanParams(TableScanParams bind, TableScanParams user) {

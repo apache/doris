@@ -581,6 +581,15 @@ public class StatementContext implements Closeable {
      *   {@code LEADING(a b)} hint UNUSED and the "ordinary" fallback picks another join
      *   order. Reverting here restores the pre-statement values; the fallback pass
      *   re-applies whatever ITS OWN hints ask for.
+     *
+     * Five further pass-owned states are reset:
+     *
+     * - the registered hints ({@link #addHint}): they are consumed by the MV / join-order
+     *   rules of the pass that registered them, so a plan-side hint of the ABANDONED
+     *   pass (e.g. {@code NO_USE_MV(mv1)} in a frozen baseline's plan text) kept excluding
+     *   mv1 for the FALLBACK as well - although the fallback plans the original statement
+     *   and the hint is not part of it (the original statement's own hints are registered
+     *   again while it is analyzed).
      */
     public void resetPlannerStateForReplan() {
         hintForcePreAggOn = false;
@@ -594,6 +603,11 @@ public class StatementContext implements Closeable {
         spmExcludedRules = null;
         disableRules = null;
         restoreAbandonedSessionChanges();
+        // drop the ABANDONED pass's hints: a plan-side hint it registered (NO_USE_MV /
+        // ORDERED / LEADING / USE_MV / distribute) must not reach the fallback, which
+        // plans the ORIGINAL statement - and re-registers exactly the ORIGINAL hints
+        // while that statement is analyzed
+        hints.clear();
     }
 
     /**

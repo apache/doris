@@ -18,12 +18,12 @@
 package org.apache.doris.nereids.spm.capture;
 
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import org.apache.logging.log4j.LogManager;
@@ -412,6 +412,14 @@ public class AuditLogScanner {
      * Scans the audit_log table within the given time window, resuming after the FULL
      * cursor tuple (see {@link CursorTail}).
      *
+     * <p>The thresholds are read from the CURRENT global session variables. Only callers
+     * outside the capture cycle (tests, tooling) may use this overload: the cycle owns a
+     * pinned snapshot of them and must pass it via
+     * {@link #scan(long, long, int, PlanCaptureFilter, long, String, String, String)}, so
+     * that the SQL stage and the in-memory
+     * {@link PlanCaptureFilter#shouldCapture} stage never compare against two different
+     * threshold sets.
+     *
      * @param startTimeMs    window start (epoch millis, inclusive)
      * @param endTimeMs      window end (epoch millis, exclusive)
      * @param maxBatchSize   max number of raw rows per batch
@@ -427,6 +435,42 @@ public class AuditLogScanner {
      */
     public ScanBatch scan(long startTimeMs, long endTimeMs, int maxBatchSize,
             long cursorQueryTime, String cursorTime, String cursorQueryId, String cursorTail) {
+        // no pattern is used here, so only the thresholds matter: the constructor reads
+        // them from the current globals
+        return scan(startTimeMs, endTimeMs, maxBatchSize, new PlanCaptureFilter(null, null),
+                cursorQueryTime, cursorTime, cursorQueryId, cursorTail);
+    }
+
+    /**
+     * Scans the audit_log table within the given time window, resuming after the FULL
+     * cursor tuple (see {@link CursorTail}), with the thresholds of the given filter.
+     *
+     * <p>Deriving the SQL thresholds from the SAME filter instance that later decides
+     * {@link PlanCaptureFilter#shouldCapture} is what keeps the two stages consistent: the
+     * SQL returns a row exactly when the filter would accept it, so no row the filter
+     * rejects is ever consumed (marked processed) and no row the filter accepts is
+     * unreachable behind the cursor. Reading the globals here instead made a
+     * `SET GLOBAL plan_capture_min_query_time_ms` between the cycle's filter construction
+     * and this statement return rows the stale in-memory filter then failed TERMINALLY,
+     * and a LOWERED threshold made already-passed rows unreachable below the cursor.
+     *
+     * @param startTimeMs    window start (epoch millis, inclusive)
+     * @param endTimeMs      window end (epoch millis, exclusive)
+     * @param maxBatchSize   max number of raw rows per batch
+     * @param filter         the threshold snapshot of this window (the caller's filter)
+     * @param cursorQueryTime query_time of the last consumed row (CURSOR_ABSENT = start
+     *                        from the top; CURSOR_QUERY_TIME_NULL = that row's value was
+     *                        NULL; any other value - including 0 - is a real cursor)
+     * @param cursorTime     event time of the last consumed row; empty = SQL NULL
+     * @param cursorQueryId  query_id of the last consumed row; empty = SQL NULL
+     * @param cursorTail     encoded tail of the last consumed row (empty = legacy cursor
+     *                       without a tail: the resume predicate falls back to the
+     *                       (time, query_time, query_id) prefix)
+     * @return the scan batch (candidates + resume cursor)
+     */
+    public ScanBatch scan(long startTimeMs, long endTimeMs, int maxBatchSize,
+            PlanCaptureFilter filter, long cursorQueryTime, String cursorTime,
+            String cursorQueryId, String cursorTail) {
         // The bounds are rendered in the zone the AUDIT WRITER used (the global session
         // time_zone, see auditWriteZone) - not the FE host zone - because
         // __internal_schema.audit_log.time stores the writer's rendering. A PENDING
@@ -445,9 +489,8 @@ public class AuditLogScanner {
         // exhausted on an empty page and advance the watermark over every eligible row
         int limit = Math.max(1, maxBatchSize);
 
-        SessionVariable global = VariableMgr.getDefaultSessionVariable();
-        long minQueryTimeMs = global.getPlanCaptureMinQueryTimeMs();
-        long minScanRows = global.getPlanCaptureMinScanRows();
+        long minQueryTimeMs = filter.getMinQueryTimeMs();
+        long minScanRows = filter.getMinScanRows();
         String sql = buildScanSql(windowRanges, limit, minQueryTimeMs, minScanRows,
                 cursorPredicate(cursorQueryTime, cursorTime, cursorQueryId, cursorTail),
                 zoneOffsetSwingSeconds(auditZone));
@@ -591,8 +634,16 @@ public class AuditLogScanner {
      * means backslash + a, while the default mode reads '\a' as 'a'), and parsing both
      * rows in the daemon's mode made their fingerprints equal although SPM compares
      * them concretely - one eligible row was discarded as a duplicate.
+     *
+     * <p>Package-private for tests: the identity is the only observable of the gate.
+     *
+     * @param stmt the audit statement text
+     * @param digest the audit digest (null / empty falls back to the statement)
+     * @param sqlMode the ORIGINATING parser mode of the row
+     * @return the dedup identity
      */
-    private static String dedupIdentity(String stmt, String digest, long sqlMode) {
+    @VisibleForTesting
+    static String dedupIdentity(String stmt, String digest, long sqlMode) {
         if (digest == null || digest.isEmpty()) {
             return stmt;
         }
@@ -611,15 +662,42 @@ public class AuditLogScanner {
         return digest + '\u0001' + generators + '\u0001' + selectors;
     }
 
-    /** Whether the statement can carry a concrete scan selector (partition / tablet / ...). */
-    private static boolean mentionsScanSelector(String stmt) {
+    /**
+     * Whether the statement can carry a concrete scan selector. The tokens are the ones
+     * the grammar actually spells out; each one is a selector the audit digest MASKS
+     * (PARTITION(p1) and PARTITION(p2) both render as PARTITION(?)) while SPM compares it
+     * concretely (sameScanIdentity / sameScanParams), so the fingerprint must join the
+     * dedup identity for exactly these statements:
+     * <ul>
+     *   <li>PARTITION / TABLET / TABLESAMPLE / INDEX: specifiedPartition, tabletList,
+     *       sample and index selectors;</li>
+     *   <li>"FOR VERSION AS OF" / "FOR TIME AS OF": tableSnapshot. The formerly checked
+     *       "FOR TIMESTAMP" is not a form the grammar accepts, so a statement using
+     *       time travel never got a fingerprint and two same-digest variants (only the
+     *       version / time differs) collapsed into one identity - the capture then kept
+     *       one of them and dropped the other;</li>
+     *   <li>'@': optScanParams, the relation-level scan parameters that SPM keeps
+     *       concrete (sameScanParams compares type + payloads), i.e. the {@code @branch}
+     *       / {@code @incr} / {@code @tag} / {@code @options} forms.</li>
+     * </ul>
+     * A statement mentioning none of them keeps the plain digest: the gate only has to be
+     * a cheap pre-filter, over-matching costs one parse, under-matching loses identity.
+     *
+     * <p>Package-private for tests.
+     *
+     * @param stmt the audit statement text
+     * @return whether the statement needs its concrete selectors in the dedup identity
+     */
+    @VisibleForTesting
+    static boolean mentionsScanSelector(String stmt) {
         if (stmt == null) {
             return false;
         }
         String upper = stmt.toUpperCase(java.util.Locale.ROOT);
         return upper.contains("PARTITION") || upper.contains("TABLET")
                 || upper.contains("TABLESAMPLE") || upper.contains("INDEX")
-                || upper.contains("FOR TIMESTAMP");
+                || upper.contains("FOR VERSION AS OF") || upper.contains("FOR TIME AS OF")
+                || upper.indexOf('@') >= 0;
     }
 
     /** The concrete scan selectors of the statement (the full text when unparsable). */

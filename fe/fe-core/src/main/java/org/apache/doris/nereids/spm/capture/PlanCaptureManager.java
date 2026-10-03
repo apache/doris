@@ -116,6 +116,22 @@ public class PlanCaptureManager extends MasterDaemon {
     private static final int MAX_TRACKED_QUERY_IDS = 10000;
 
     /**
+     * Audit pages ONE wakeup may consume. The daemon interval (default 3h) bounds how
+     * often the backlog is drained, so consuming a single page per wakeup left a window
+     * truncated at the page limit needing one extra interval per page - a window holding
+     * more than `plan_capture_max_batch_size` eligible rows per interval could never catch
+     * up. The drain stays BOUNDED so one cycle cannot run unboundedly long (each page is
+     * one bounded query plus its checkpoint write).
+     */
+    private static final int MAX_PAGES_PER_CYCLE = 50;
+
+    /**
+     * Wakeup delay used while a window is still pending after a cycle: the backlog drains
+     * promptly instead of one page per `plan_capture_interval_seconds`.
+     */
+    private static final long PENDING_WINDOW_RESUME_INTERVAL_MS = 5_000L;
+
+    /**
      * Bounded retries for a FAILED capture: the query id stays retryable for later
      * overlapping scans until it either succeeds or reaches this attempt count. Marking
      * the id before processing would make a transient failure permanent - the
@@ -137,7 +153,8 @@ public class PlanCaptureManager extends MasterDaemon {
     private static final String CHECKPOINT_SELECT_SQL =
             "SELECT `last_scan_timestamp`, `pending_window_start`, `pending_window_end`,"
                     + " `cursor_query_time`, `cursor_time`, `cursor_query_id`,"
-                    + " `failed_attempts`, `retry_queue`, `cursor_tail` FROM " + CHECKPOINT_TABLE
+                    + " `failed_attempts`, `retry_queue`, `cursor_tail`,"
+                    + " `min_query_time_ms`, `min_scan_rows` FROM " + CHECKPOINT_TABLE
                     + " WHERE `id` = " + CHECKPOINT_ID + " ORDER BY `update_time` DESC LIMIT 1";
 
     /**
@@ -163,10 +180,12 @@ public class PlanCaptureManager extends MasterDaemon {
             "INSERT INTO " + CHECKPOINT_TABLE
                     + " (`id`, `last_scan_timestamp`, `pending_window_start`, `pending_window_end`,"
                     + " `cursor_query_time`, `cursor_time`, `cursor_query_id`, `cursor_tail`,"
-                    + " `failed_attempts`, `retry_queue`, `update_time`)"
+                    + " `failed_attempts`, `retry_queue`, `min_query_time_ms`, `min_scan_rows`,"
+                    + " `update_time`)"
                     + " VALUES (" + CHECKPOINT_ID + ", ${lastScan}, ${pendingStart}, ${pendingEnd},"
                     + " ${cursorQueryTime}, '${cursorTime}', '${cursorQueryId}', '${cursorTail}',"
-                    + " '${failedAttempts}', '${retryQueue}', NOW())";
+                    + " '${failedAttempts}', '${retryQueue}', ${minQueryTimeMs}, ${minScanRows},"
+                    + " NOW())";
 
     private AuditLogScanner scanner = new AuditLogScanner();
 
@@ -185,6 +204,26 @@ public class PlanCaptureManager extends MasterDaemon {
      */
     private long pendingWindowStart = 0;
     private long pendingWindowEnd = 0;
+
+    /**
+     * The FILTER SNAPSHOT the pending window was opened with (null while none is pending).
+     * The audit SQL and the in-memory {@link PlanCaptureFilter#shouldCapture} stage must
+     * judge one window's rows by the SAME thresholds: a `SET GLOBAL
+     * plan_capture_min_query_time_ms` between two pages of the same window otherwise made
+     * the SQL return rows the stale filter rejected terminally (they were consumed,
+     * never captured) or pushed already-passed rows behind the cursor where a LOWERED
+     * threshold could no longer reach them. The whole filter is pinned, so a pattern
+     * change applies from the next window on.
+     */
+    private PlanCaptureFilter pendingWindowFilter;
+
+    /**
+     * Set when a cycle could not finish its pending window (page budget / failed
+     * checkpoint write): the daemon then reschedules the next cycle promptly instead of
+     * waiting the full `plan_capture_interval_seconds` (default 3h), which would grow the
+     * backlog by one interval's worth of eligible rows per consumed page.
+     */
+    private volatile boolean pendingWindowNeedsPromptResume;
 
     /** Query ids already handled in earlier (overlapping) windows. */
     private final Map<String, Boolean> processedQueryIds = new LinkedHashMap<>();
@@ -390,6 +429,16 @@ public class PlanCaptureManager extends MasterDaemon {
             return;
         }
         runCaptureCycle(global, newFilter);
+        if (pendingWindowNeedsPromptResume) {
+            // A window this cycle could not finish (page budget reached or its progress
+            // not durable) must NOT wait another full interval: the next wakeup continues
+            // exactly where this one stopped. The configured interval would add one
+            // interval's worth of eligible rows per consumed page, so a window holding
+            // more than one page per interval would never drain.
+            setInterval(Math.min(
+                    Math.max(1L, global.getPlanCaptureIntervalSeconds()) * 1000L,
+                    PENDING_WINDOW_RESUME_INTERVAL_MS));
+        }
     }
 
     /**
@@ -405,9 +454,6 @@ public class PlanCaptureManager extends MasterDaemon {
     @VisibleForTesting
     public void runCaptureCycle(SessionVariable global, PlanCaptureFilter newFilter) {
         try {
-            // refresh the filter so SET GLOBAL changes take effect this cycle
-            this.filter = newFilter;
-
             // A restarted / newly promoted leader must NOT start from a fresh
             // interval-derived window: a truncated window from the previous leader is
             // checkpointed here, and skipping it would permanently exclude its unconsumed
@@ -420,6 +466,18 @@ public class PlanCaptureManager extends MasterDaemon {
                 LOG.warn("Plan capture cycle skipped: durable checkpoint not confirmed");
                 return;
             }
+
+            // A window that is still PENDING keeps the filter snapshot it was opened with:
+            // its rows behind the cursor were already judged by those thresholds, and the
+            // audit SQL must use exactly the same values (see AuditLogScanner#scan). The
+            // snapshot is chosen AFTER the checkpoint load, so a TAKEOVER continues the
+            // restored window with the restored thresholds in its very first cycle. A NEW
+            // window follows the filter refreshed for this cycle, so `SET GLOBAL
+            // plan_capture_min_query_time_ms` takes effect from the next window on.
+            PlanCaptureFilter cycleFilter = pendingWindowFilter != null
+                    ? pendingWindowFilter : newFilter;
+            this.filter = cycleFilter;
+            pendingWindowNeedsPromptResume = false;
 
             long currentTime = System.currentTimeMillis();
             // a non-positive interval / batch size can never be written through SQL SET
@@ -442,18 +500,6 @@ public class PlanCaptureManager extends MasterDaemon {
                 return;
             }
 
-            // Snapshot the pre-page state: when this page ends up with more retries than
-            // the durable checkpoint can carry, persistCheckpoint falls back to THIS
-            // state so the next leader re-scans the page instead of stepping over the
-            // omitted retries.
-            pageStartLastScanTimestamp = lastScanTimestamp;
-            pageStartWindowStart = scanStart;
-            pageStartWindowEnd = scanEnd;
-            pageStartCursorQueryTime = cursorQueryTime;
-            pageStartCursorTime = cursorTime;
-            pageStartCursorQueryId = cursorQueryId;
-            pageStartCursorTail = cursorTail;
-
             if (!durableCheckpointObserved) {
                 // FIRST cycle after a successful-but-EMPTY read: the store holds NO row
                 // describing the window this process is about to consume, so its bounds and
@@ -467,6 +513,7 @@ public class PlanCaptureManager extends MasterDaemon {
                 // state could ever resume.
                 pendingWindowStart = scanStart;
                 pendingWindowEnd = scanEnd;
+                pendingWindowFilter = cycleFilter;
                 if (!persistCheckpointAndConfirm()) {
                     LOG.warn("Plan capture cycle skipped: the initial checkpoint row could not"
                             + " be confirmed VISIBLE (a reservation nothing can read cannot"
@@ -474,17 +521,70 @@ public class PlanCaptureManager extends MasterDaemon {
                     return;
                 }
             }
-            AuditLogScanner.ScanBatch batch = scanner.scan(scanStart, scanEnd,
-                    batchSize, cursorQueryTime, cursorTime, cursorQueryId, cursorTail);
+
+            // Drain this window with a BOUNDED number of pages: one page per wakeup would
+            // make a window holding more than one page wait one interval per page, so a
+            // capture rate above `plan_capture_max_batch_size` per interval could never
+            // catch up with the audit stream.
             Set<String> scannedQueryIds = new HashSet<>();
-            for (CapturedQuery candidate : batch.getCandidates()) {
-                scannedQueryIds.add(retryKeyOf(candidate));
-                handleCandidate(candidate);
+            AuditLogScanner.ScanBatch batch = null;
+            int pages = 0;
+            for (int page = 0; page < MAX_PAGES_PER_CYCLE; page++) {
+                // Snapshot the PRE-PAGE state: when this page ends up with more retries
+                // than the durable checkpoint can carry, persistCheckpoint falls back to
+                // THIS state so the next leader re-scans the page instead of stepping
+                // over the omitted retries. Refreshed per page - a retry queued by page N
+                // must stay reachable from page N's top, not from the cycle's.
+                pageStartLastScanTimestamp = lastScanTimestamp;
+                pageStartWindowStart = scanStart;
+                pageStartWindowEnd = scanEnd;
+                pageStartCursorQueryTime = cursorQueryTime;
+                pageStartCursorTime = cursorTime;
+                pageStartCursorQueryId = cursorQueryId;
+                pageStartCursorTail = cursorTail;
+
+                batch = scanner.scan(scanStart, scanEnd, batchSize, cycleFilter,
+                        cursorQueryTime, cursorTime, cursorQueryId, cursorTail);
+                pages++;
+                for (CapturedQuery candidate : batch.getCandidates()) {
+                    scannedQueryIds.add(retryKeyOf(candidate));
+                    handleCandidate(candidate);
+                }
+                if (batch.isWindowExhausted()) {
+                    break;
+                }
+                // The batch limit truncated the window: KEEP the window BOUNDS and remember
+                // the full total-order cursor of the last consumed row, so the next page
+                // (and a later leader) resumes inside the same window. Advancing to the
+                // window end here would permanently skip every eligible row beyond the
+                // LIMIT; letting the next cycle derive a new interval window would skip
+                // everything the cursor has not reached yet as well. The cursor TAIL is
+                // what keeps rows sharing (time, query_time, query_id) - e.g. a whole page
+                // of NULL query ids - from looping or being skipped (see
+                // AuditLogScanner#ORDER_BY).
+                pendingWindowStart = scanStart;
+                pendingWindowEnd = scanEnd;
+                pendingWindowFilter = cycleFilter;
+                cursorQueryTime = batch.getCursorQueryTime();
+                cursorTime = batch.getCursorTime();
+                cursorQueryId = batch.getCursorQueryId();
+                cursorTail = batch.getCursorTail();
+                // Make this page's progress durable BEFORE consuming the next one: a page
+                // nothing durable describes would be re-derived as a NEW window by a
+                // takeover (see the reservation above). A failed write STOPS the drain -
+                // consuming further pages while the store is unavailable is exactly what
+                // the reservation exists to prevent - and the cycle resumes promptly.
+                if (!persistCheckpoint()) {
+                    break;
+                }
             }
             // Rows whose capture failed stay queued: keyset pagination moved the cursor
             // past their raw rows and the five-minute overlap only re-reads recent ones,
             // so without this replay attempts 2..N would be unreachable for older
-            // failures. An id that ALSO appeared in this page was already retried above.
+            // failures. Replayed ONCE per cycle with the UNION of every page's keys: an id
+            // that appeared in ANY page of this cycle was already retried there, and
+            // replaying per page would burn one attempt per page for a failure the page
+            // loop kept failing.
             replayQueuedFailures(scannedQueryIds);
             if (batch.isWindowExhausted()) {
                 // The whole window was scanned: advance the watermark to the CONSUMED
@@ -498,26 +598,24 @@ public class PlanCaptureManager extends MasterDaemon {
                 cursorQueryId = "";
                 cursorTail = "";
             } else {
-                // The batch limit truncated the window: KEEP the window BOUNDS and remember
-                // the full total-order cursor of the last consumed row, so the next cycle
-                // resumes inside the same window. Advancing to the window end here would
-                // permanently skip every eligible row beyond the LIMIT; letting the next
-                // cycle derive a new interval window would skip everything the cursor has
-                // not reached yet as well. The cursor TAIL is what keeps rows sharing
-                // (time, query_time, query_id) - e.g. a whole page of NULL query ids -
-                // from looping or being skipped (see AuditLogScanner#ORDER_BY).
+                // The window is still not consumed (page budget reached or the last
+                // checkpoint write failed): keep the bounds, the cursor and the pinned
+                // filter, and resume promptly instead of after a full interval.
                 pendingWindowStart = scanStart;
                 pendingWindowEnd = scanEnd;
+                pendingWindowFilter = cycleFilter;
                 cursorQueryTime = batch.getCursorQueryTime();
                 cursorTime = batch.getCursorTime();
                 cursorQueryId = batch.getCursorQueryId();
                 cursorTail = batch.getCursorTail();
+                pendingWindowNeedsPromptResume = true;
             }
             // Make the progress durable for the NEXT process (leader handoff / restart).
             persistCheckpoint();
 
-            LOG.info("PlanCapture cycle finished: captured={}, dup={}, singleTable={}, filtered={}, fail={}",
-                    successCount.get(), skipDuplicateCount.get(), skipSingleTableCount.get(),
+            LOG.info("PlanCapture cycle finished: pages={}, captured={}, dup={},"
+                            + " singleTable={}, filtered={}, fail={}",
+                    pages, successCount.get(), skipDuplicateCount.get(), skipSingleTableCount.get(),
                     skipFilterCount.get(), failCount.get());
         } catch (Exception e) {
             LOG.warn("Plan capture cycle failed", e);
@@ -866,6 +964,28 @@ public class PlanCaptureManager extends MasterDaemon {
         failedCaptureQueue.clear();
         failedCaptureQueue.putAll(decodeRetryQueue(row.get(7)));
         failedCaptureAnchors.clear();
+        // The threshold columns are APPENDED as well (same reason as the cursor tail).
+        // They describe the PENDING window: the scan of this window continues with the
+        // values its already-consumed rows were judged by, not with the takeover's
+        // current globals - a row behind the cursor cannot be re-judged, so a changed
+        // threshold (especially a RAISED minimum) must not re-filter the window halfway.
+        // An absent / NULL pair (a row written before the columns existed, or
+        // fabricated by tests) leaves the window unpinned: the cycle then uses the
+        // filter it refreshed from the globals.
+        pendingWindowFilter = null;
+        if (pendingWindowStart < pendingWindowEnd
+                && row.getValues().size() > 10
+                && row.get(9) != null && row.get(10) != null) {
+            long restoredMinQueryTimeMs = parseLongValue(row.get(9));
+            long restoredMinScanRows = parseLongValue(row.get(10));
+            if (restoredMinQueryTimeMs >= 0 && restoredMinScanRows >= 0) {
+                SessionVariable global = VariableMgr.getDefaultSessionVariable();
+                pendingWindowFilter = new PlanCaptureFilter(
+                        global.getPlanCaptureIncludePattern(),
+                        global.getPlanCaptureExcludePattern(),
+                        restoredMinQueryTimeMs, restoredMinScanRows);
+            }
+        }
         // a row was READ: this process now knows a durable record exists, so the initial
         // reservation in runCaptureCycle never overwrites / takes over its role
         durableCheckpointObserved = true;
@@ -993,6 +1113,13 @@ public class PlanCaptureManager extends MasterDaemon {
                 StatisticsUtil.escapeSQL(encodeFailedAttempts(failedCaptureAttempts)));
         params.put("retryQueue",
                 StatisticsUtil.escapeSQL(encodeRetryQueue(failedCaptureQueue)));
+        // The thresholds of the PENDING window (its filter snapshot), or the -1 sentinel
+        // when none is pending: the takeover must continue the window with the values the
+        // rows behind its cursor were judged by (see applyCheckpointRow).
+        params.put("minQueryTimeMs", String.valueOf(
+                pendingWindowFilter == null ? -1L : pendingWindowFilter.getMinQueryTimeMs()));
+        params.put("minScanRows", String.valueOf(
+                pendingWindowFilter == null ? -1L : pendingWindowFilter.getMinScanRows()));
         try {
             // Single UPSERT: the new row is durable BEFORE the old one stops being read
             // (the table is UNIQUE-key(id) + merge-on-write), so no crash / timeout can
@@ -1299,6 +1426,9 @@ public class PlanCaptureManager extends MasterDaemon {
     private void clearPendingWindow() {
         pendingWindowStart = 0;
         pendingWindowEnd = 0;
+        // the pinned threshold snapshot belongs to the window: a later window must follow
+        // the globals again
+        pendingWindowFilter = null;
     }
 
     /**
@@ -1424,12 +1554,37 @@ public class PlanCaptureManager extends MasterDaemon {
 
     /**
      * For tests: the live checkpoint fields (lastScan, pendingStart, pendingEnd,
-     * cursorQueryTime, cursorTime, cursorQueryId, cursorTail).
+     * cursorQueryTime, cursorTime, cursorQueryId, cursorTail, minQueryTimeMs,
+     * minScanRows).
      */
     @VisibleForTesting
     public Object[] checkpointFieldsForTest() {
         return new Object[] {lastScanTimestamp, pendingWindowStart, pendingWindowEnd,
-                cursorQueryTime, cursorTime, cursorQueryId, cursorTail};
+                cursorQueryTime, cursorTime, cursorQueryId, cursorTail,
+                pendingWindowFilter == null ? -1L : pendingWindowFilter.getMinQueryTimeMs(),
+                pendingWindowFilter == null ? -1L : pendingWindowFilter.getMinScanRows()};
+    }
+
+    /**
+     * For tests: whether the last cycle left a window that must resume PROMPTLY (the
+     * daemon then sleeps {@link #PENDING_WINDOW_RESUME_INTERVAL_MS} instead of the
+     * configured interval).
+     *
+     * @return true when a pending window could not be finished by the last cycle
+     */
+    @VisibleForTesting
+    public boolean isPendingWindowResumePromptForTest() {
+        return pendingWindowNeedsPromptResume;
+    }
+
+    /**
+     * For tests: the page budget of ONE cycle (see {@link #MAX_PAGES_PER_CYCLE}).
+     *
+     * @return how many audit pages one wakeup may consume
+     */
+    @VisibleForTesting
+    public static int maxPagesPerCycleForTest() {
+        return MAX_PAGES_PER_CYCLE;
     }
 
     /**

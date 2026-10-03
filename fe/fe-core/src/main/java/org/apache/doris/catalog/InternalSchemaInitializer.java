@@ -607,12 +607,21 @@ public class InternalSchemaInitializer extends Thread {
      *   it a checkpointed truncated window can only resume on the (time, query_time,
      *   query_id) prefix: a page whose rows share those keys (e.g. NULL query ids)
      *   either loops on the same page forever or skips its remainder after a handoff.
+     * - min_query_time_ms / min_scan_rows: the capture thresholds the pending window was
+     *   opened with (-1 = no pending window). The takeover must scan with the SAME
+     *   values, otherwise rows the cursor has already passed are judged again under a
+     *   changed threshold and either become unreachable or get consumed while failing the
+     *   stale in-memory filter.
      */
     @VisibleForTesting
     static final Map<String, ScalarType> SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS = new LinkedHashMap<>();
 
     static {
         SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS.put("cursor_tail", ScalarType.createVarchar(4096));
+        SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS.put("min_query_time_ms",
+                ScalarType.createType(PrimitiveType.BIGINT));
+        SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS.put("min_scan_rows",
+                ScalarType.createType(PrimitiveType.BIGINT));
     }
 
     /**
@@ -630,6 +639,9 @@ public class InternalSchemaInitializer extends Thread {
 
     static {
         SPM_CAPTURE_CHECKPOINT_UPGRADE_POSITIONS.put("cursor_tail", "cursor_query_id");
+        // both thresholds sit between retry_queue and update_time in the canonical schema
+        SPM_CAPTURE_CHECKPOINT_UPGRADE_POSITIONS.put("min_query_time_ms", "retry_queue");
+        SPM_CAPTURE_CHECKPOINT_UPGRADE_POSITIONS.put("min_scan_rows", "min_query_time_ms");
     }
 
     /**

@@ -17,6 +17,11 @@
 
 package org.apache.doris.nereids.trees.plans.commands.spm;
 
+import org.apache.doris.nereids.spm.BaselinePlan;
+import org.apache.doris.nereids.spm.BaselineScope;
+import org.apache.doris.nereids.spm.BaselineSource;
+import org.apache.doris.nereids.spm.BaselineStatus;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -39,6 +44,35 @@ public class ShowBaselinePlansCommandTest {
                 "LIKE '' matches only empty values, so no baseline row passes it");
         Assertions.assertTrue(matcher.matcher("").matches(),
                 "the empty pattern matches the empty value");
+    }
+
+    /**
+     * Round-29 #5: the LIKE chain must cover every column the WHERE form filters on. A
+     * SESSION baseline whose SQL text never spells "SESSION" was missing from
+     * {@code SHOW BASELINE PLANS LIKE 'SESSION'} because only the SQL text, source and
+     * status were searched.
+     */
+    @Test
+    public void testLikeAlsoMatchesTheMetadataColumns() throws Exception {
+        BaselinePlan baseline = new BaselinePlan();
+        baseline.setBindSql("SELECT a FROM t1");
+        baseline.setPlanSql("SELECT a FROM t1");
+        baseline.setSource(BaselineSource.CAPTURE);
+        baseline.setStatus(BaselineStatus.ENABLED);
+        baseline.setScope(BaselineScope.SESSION);
+
+        Assertions.assertTrue(ShowBaselinePlansCommand.matchesLike(baseline,
+                ShowBaselinePlansCommand.buildLikeMatcher("SESSION")),
+                "LIKE 'SESSION' must find a session baseline whose SQL does not mention it");
+        Assertions.assertTrue(ShowBaselinePlansCommand.matchesLike(baseline,
+                ShowBaselinePlansCommand.buildLikeMatcher("cap%")),
+                "the source is searched");
+        Assertions.assertTrue(ShowBaselinePlansCommand.matchesLike(baseline,
+                ShowBaselinePlansCommand.buildLikeMatcher("%t1%")),
+                "the stored SQL text stays searchable");
+        Assertions.assertFalse(ShowBaselinePlansCommand.matchesLike(baseline,
+                ShowBaselinePlansCommand.buildLikeMatcher("GLOBAL")),
+                "a GLOBAL operand must not match a SESSION baseline");
     }
 
     /**
