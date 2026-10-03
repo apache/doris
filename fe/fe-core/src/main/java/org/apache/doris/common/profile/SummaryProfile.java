@@ -570,6 +570,20 @@ public class SummaryProfile {
         updateExecutionSummaryProfile();
     }
 
+    public void clearExecutionDetails() {
+        rpcPhase1Latency = null;
+        rpcPhase2Latency = null;
+        executionSummaryProfile.addInfoString(SCHEDULE_TIME_PER_BE, "{}");
+    }
+
+    public void clearPlanDetails() {
+        assignedWeightPerBackend = null;
+        summaryProfile.addInfoString(DISTRIBUTED_PLAN, "N/A");
+        executionSummaryProfile.addInfoString(QUERY_BACKEND_SELECTION, "N/A");
+        executionSummaryProfile.addInfoString(LOAD_BACKEND_SELECTION, "N/A");
+        executionSummaryProfile.addInfoString(SPLITS_ASSIGNMENT_WEIGHT, "N/A");
+    }
+
     // This method is used to display the final data status when the overall query ends.
     // This can avoid recalculating some strings and so on every time during the update process.
     public void queryFinished() {

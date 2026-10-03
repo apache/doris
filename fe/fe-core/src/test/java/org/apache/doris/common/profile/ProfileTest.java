@@ -20,6 +20,8 @@ package org.apache.doris.common.profile;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SafeStringBuilder;
+import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
 
 import org.junit.jupiter.api.AfterEach;
@@ -35,6 +37,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -57,6 +60,43 @@ public class ProfileTest {
     @AfterEach
     public void tearDown() {
         ProfileManager.getInstance().removeProfile(profile);
+    }
+
+    @Test
+    public void testClearAttemptSummaryState() {
+        SummaryProfile summary = profile.getSummaryProfile();
+        summary.setQueryBeginTime(123);
+        summary.update(Map.of(SummaryProfile.DISTRIBUTED_PLAN, "abandoned-plan",
+                SummaryProfile.QUERY_BACKEND_SELECTION, "abandoned-query-selection",
+                SummaryProfile.LOAD_BACKEND_SELECTION, "abandoned-load-selection"));
+        TNetworkAddress address = new TNetworkAddress("abandoned-backend", 9060);
+        summary.setRpcPhase1Latency(Map.of(address, List.of(1L, 2L, 3L, 4L)));
+        summary.setRpcPhase2Latency(Map.of(address, List.of(5L, 6L, 7L, 8L)));
+        Backend backend = new Backend(1L, "abandoned-backend", 9050);
+        summary.setAssignedWeightPerBackend(Map.of(backend, 100L));
+        summary.queryFinished();
+        summary.update(Collections.emptyMap());
+        Assertions.assertTrue(summary.getExecutionSummary().getInfoString(SummaryProfile.SCHEDULE_TIME_PER_BE)
+                .contains("abandoned-backend"));
+
+        profile.clearExecutionProfiles();
+        summary.update(Collections.emptyMap());
+        Assertions.assertEquals("{}", summary.getExecutionSummary()
+                .getInfoString(SummaryProfile.SCHEDULE_TIME_PER_BE));
+        // Inner retries reuse scan assignments.
+        Assertions.assertEquals("abandoned-plan", summary.getSummary().getInfoString(SummaryProfile.DISTRIBUTED_PLAN));
+        Assertions.assertTrue(summary.getExecutionSummary().getInfoString(SummaryProfile.SPLITS_ASSIGNMENT_WEIGHT)
+                .contains("abandoned-backend"));
+
+        profile.clearPlan();
+        summary.queryFinished();
+        summary.update(Collections.emptyMap());
+        Assertions.assertEquals("N/A", summary.getSummary().getInfoString(SummaryProfile.DISTRIBUTED_PLAN));
+        for (String key : List.of(SummaryProfile.QUERY_BACKEND_SELECTION, SummaryProfile.LOAD_BACKEND_SELECTION,
+                SummaryProfile.SPLITS_ASSIGNMENT_WEIGHT)) {
+            Assertions.assertEquals("N/A", summary.getExecutionSummary().getInfoString(key));
+        }
+        Assertions.assertEquals(123, summary.getQueryBeginTime());
     }
 
     @Test

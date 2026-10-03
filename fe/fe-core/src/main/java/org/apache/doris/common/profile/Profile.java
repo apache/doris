@@ -284,6 +284,28 @@ public class Profile {
     public synchronized void clearExecutionProfiles() {
         ProfileManager.getInstance().removeProfile(this);
         this.executionProfiles.clear();
+        summaryProfile.clearExecutionDetails();
+        // Clear failed-attempt rows before reusing the plan.
+        rowsProducedMap.clear();
+        resetActualRowCounts(physicalPlan);
+    }
+
+    private void resetActualRowCounts(Plan plan) {
+        if (plan == null) {
+            return;
+        }
+        ((AbstractPlan) plan).updateActualRowCount(-1L);
+        for (Plan child : plan.children()) {
+            resetActualRowCounts(child);
+        }
+    }
+
+    public synchronized void clearPlan() {
+        summaryProfile.clearPlanDetails();
+        physicalPlan = null;
+        physicalRelations.clear();
+        planNodeMap = Maps.newHashMap();
+        rowsProducedMap.clear();
     }
 
     // This API will also add the profile to ProfileManager, so that we could get the profile from ProfileManager.

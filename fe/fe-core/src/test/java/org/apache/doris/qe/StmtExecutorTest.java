@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.arrowflight.protocol.FlightProtocolAdapter;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.InternalSchemaInitializer;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.common.Config;
@@ -28,21 +29,34 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Status;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.ExecutionProfile;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.plans.LimitPhase;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
+import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
+import org.apache.doris.qe.protocol.ResultSender;
+import org.apache.doris.resource.BackendSelection;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.model.Statistics;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCounter;
 import org.apache.doris.thrift.TDetailedReportParams;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -63,10 +77,13 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedConstruction;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.file.Path;
 import java.util.Collections;
@@ -564,6 +581,384 @@ public class StmtExecutorTest extends TestWithFeService {
         } finally {
             QeProcessorImpl.INSTANCE.unregisterQuery(firstQueryId);
             QeProcessorImpl.INSTANCE.unregisterQuery(retryQueryId);
+            manager.removeProfile(profile);
+        }
+    }
+
+    private interface CoordinatorConfigurer {
+        void configure(Coordinator coordinator) throws Exception;
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"SUCCESS", "EXHAUSTED", "PLANNING_FAILURE", "RPC", "DIRECT",
+            "FLIGHT_SUCCESS", "FLIGHT_DEFERRED", "FETCH_FAILURE_SAME_ID", "FETCH_FAILURE_NEW_ID", "FETCH_FAILURE_PLANNING"})
+    @ResourceLock("global")
+    public void testCloudReplanDispatchProfileLifecycle(String outcome) throws Exception {
+        String oldCloudUniqueId = Config.cloud_unique_id;
+        int oldRetryTime = Config.max_query_retry_time;
+        SessionVariable originalSession = connectContext.getSessionVariable();
+        SessionVariable session = new SessionVariable();
+        session.enableProfile = true;
+        session.profileLevel = 3;
+        session.autoProfileThresholdMs = 0;
+        session.enableSqlCache = false;
+        session.cloudCluster = "profile-replan-test";
+        ConnectContext context = Mockito.spy(connectContext);
+        boolean flight = outcome.startsWith("FLIGHT_");
+        FlightProtocolAdapter flightAdapter = flight ? new FlightProtocolAdapter("profile-replan-test") : null;
+        if (flight) {
+            Mockito.doReturn(flightAdapter).when(context).getProtocolAdapter();
+            Mockito.doAnswer(invocation -> flightAdapter.returnsResultFromLocal(context))
+                    .when(context).isReturnResultFromLocal();
+        }
+        context.setSessionVariable(session);
+        Mockito.doReturn(Mockito.mock(ResultSender.class)).when(context).getResultSender();
+        Mockito.doReturn(connectContext.getComputeGroup()).when(context).getComputeGroup();
+        context.setStartTime();
+        TUniqueId firstQueryId = new TUniqueId(0x22040L, 7L);
+        context.setQueryId(firstQueryId);
+        StmtExecutor executor = Mockito.spy(new StmtExecutor(context, "select 1"));
+        Method parse = StmtExecutor.class.getDeclaredMethod("parseByNereids");
+        parse.setAccessible(true);
+        parse.invoke(executor);
+        LogicalPlanAdapter statement = (LogicalPlanAdapter) executor.getParsedStmt();
+        statement.setResultExprs(Collections.emptyList());
+        statement.setColLabels(Lists.newArrayList());
+        Assertions.assertTrue(executor.isProfileSafeStmt());
+        Profile profile = executor.getProfile();
+        profile.getSummaryProfile().setQueryBeginTime(context.getStartTime());
+        ProfileManager manager = ProfileManager.getInstance();
+        boolean fetchFailure = outcome.startsWith("FETCH_FAILURE_");
+        Planner planner = fetchFailure ? Mockito.mock(NereidsPlanner.class) : Mockito.mock(Planner.class);
+        Statistics failedStatistics = Mockito.mock(Statistics.class);
+        Statistics successfulStatistics = Mockito.mock(Statistics.class);
+        Mockito.when(failedStatistics.printColumnStats()).thenReturn("abandoned-plan-column-statistics\n");
+        Mockito.when(successfulStatistics.printColumnStats()).thenReturn("successful-plan-column-statistics\n");
+        Field plannerField = StmtExecutor.class.getDeclaredField("planner");
+        plannerField.setAccessible(true);
+        Method handle = StmtExecutor.class.getDeclaredMethod("handleQueryWithRetry", TUniqueId.class);
+        handle.setAccessible(true);
+        List<ExecutionProfile> executions = Lists.newArrayList();
+        List<PhysicalEmptyRelation> plans = Lists.newArrayList();
+        AtomicInteger attempts = new AtomicInteger();
+        AtomicInteger failedAttemptCallbacks = new AtomicInteger();
+        Mockito.doAnswer(invocation -> {
+            TUniqueId queryId = invocation.getArgument(0);
+            context.setQueryId(queryId);
+            context.getProtocolAdapter().beforeAttempt(context);
+            context.setStartTime();
+            profile.getSummaryProfile().setQueryBeginTime(context.getStartTime());
+            if (attempts.incrementAndGet() > 1) {
+                Assertions.assertEquals(Long.MAX_VALUE, profile.getQueryFinishTimestamp());
+                Assertions.assertNull(manager.getExecutionProfile(firstQueryId));
+                Assertions.assertTrue(profile.getExecutionProfiles().isEmpty());
+                Assertions.assertNull(QeProcessorImpl.INSTANCE.getCoordinator(firstQueryId));
+                Assertions.assertEquals(1, failedAttemptCallbacks.get());
+                if (fetchFailure) {
+                    Assertions.assertNull(profile.getPhysicalPlan());
+                    Assertions.assertTrue(profile.rowsProducedMap.isEmpty());
+                }
+                if ("PLANNING_FAILURE".equals(outcome) || "FETCH_FAILURE_PLANNING".equals(outcome)) {
+                    context.getState().setError("terminal planning failure");
+                    throw new UserException("terminal planning failure");
+                }
+            }
+            if (fetchFailure) {
+                int relationId = attempts.get() == 1 || "FETCH_FAILURE_SAME_ID".equals(outcome) ? 1 : 2;
+                PhysicalEmptyRelation plan = new PhysicalEmptyRelation(new RelationId(relationId),
+                        Collections.emptyList(), Optional.empty(), null, PhysicalProperties.ANY,
+                        attempts.get() == 1 ? failedStatistics : successfulStatistics);
+                plans.add(plan);
+                FragmentIdMapping<DistributedPlan> distributedPlans = null;
+                if (attempts.get() == 1) {
+                    DistributedPlan distributedPlan = Mockito.mock(DistributedPlan.class);
+                    Mockito.when(distributedPlan.toString(Mockito.anyInt())).thenReturn("abandoned-distributed-plan");
+                    distributedPlans = new FragmentIdMapping<>();
+                    distributedPlans.put(new PlanFragmentId(0), distributedPlan);
+                    context.getBackendSelectionProfile().recordQuerySelection(
+                            new BackendSelection.SelectionHint("abandoned-backend-selection",
+                                    BackendSelection.Mode.PREFER, "test"),
+                            BackendSelection.QuerySelectionResult.PREFERRED_HIT);
+                }
+                Mockito.when(((NereidsPlanner) planner).getDistributedPlans()).thenReturn(distributedPlans);
+                Mockito.when(((NereidsPlanner) planner).getPhysicalPlan()).thenReturn(plan);
+                Mockito.when(((NereidsPlanner) planner).getPhysicalRelations())
+                        .thenReturn(Collections.singletonList(plan));
+            }
+            plannerField.set(executor, planner);
+            try {
+                handle.invoke(executor, queryId);
+            } catch (InvocationTargetException e) {
+                context.getState().setError(e.getCause().getMessage());
+                throw e.getCause();
+            }
+            return null;
+        }).when(executor).execute(Mockito.any(TUniqueId.class));
+        EnvFactory factory = Mockito.mock(EnvFactory.class);
+        CoordinatorConfigurer configureCoordinator = coordinator -> {
+            TUniqueId queryId = context.queryId();
+            ExecutionProfile execution = new ExecutionProfile(queryId, Collections.singletonList(0));
+            executions.add(execution);
+            TQueryOptions options = new TQueryOptions();
+            options.enable_profile = true;
+            Mockito.when(coordinator.getQueryOptions()).thenReturn(options);
+            Mockito.when(coordinator.getExecutionProfile()).thenReturn(execution);
+            Mockito.when(coordinator.getExecStatus()).thenReturn(Status.OK);
+            Mockito.when(coordinator.mustOutliveDispatch()).thenReturn("FLIGHT_DEFERRED".equals(outcome));
+            Mockito.when(coordinator.getNext()).thenAnswer(fetch -> {
+                if (fetchFailure && executions.size() == 1) {
+                    String failedText = profile.getProfileByLevel();
+                    Assertions.assertTrue(failedText.contains("abandoned-plan-column-statistics"));
+                    Assertions.assertTrue(failedText.contains("abandoned-distributed-plan"));
+                    Assertions.assertTrue(failedText.contains("abandoned-backend-selection"));
+                    Assertions.assertEquals(1000L,
+                            profile.rowsProducedMap.get(String.valueOf(plans.get(0).getId())));
+                    throw new UserException(SystemInfoService.ERROR_E230);
+                }
+                return new RowBatch();
+            });
+            Mockito.doAnswer(dispatch -> {
+                Assertions.assertSame(execution, manager.getExecutionProfile(queryId));
+                Assertions.assertSame(coordinator, QeProcessorImpl.INSTANCE.getCoordinator(queryId));
+                if (fetchFailure) {
+                    execution.addFragmentBackend(0, 1L);
+                    Assertions.assertTrue(execution.updateProfile(
+                            createBackendRowsProfile(queryId, plans.get(plans.size() - 1).getId(),
+                                    executions.size() == 1 ? 1000 : 42),
+                            new TNetworkAddress("127.0.0.1", 9060), true).ok());
+                }
+                if (executions.size() == 1) {
+                    QeProcessorImpl.INSTANCE.registerQueryFinishCallback(DebugUtil.printId(queryId),
+                            failedAttemptCallbacks::incrementAndGet);
+                    if (flight) {
+                        Assertions.assertFalse(context.isReturnResultFromLocal());
+                        Assertions.assertFalse(execution.isCompleted());
+                    }
+                    if (fetchFailure) {
+                        return null;
+                    }
+                    if ("RPC".equals(outcome)) {
+                        throw new RpcException("test-be", SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
+                    }
+                    throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
+                }
+                return null;
+            }).when(coordinator).exec();
+        };
+        Mockito.when(factory.createCoordinator(Mockito.eq(context), Mockito.eq(planner), Mockito.any()))
+                .thenAnswer(invocation -> {
+                    Coordinator coordinator = Mockito.mock(Coordinator.class);
+                    configureCoordinator.configure(coordinator);
+                    return coordinator;
+                });
+
+        try (MockedStatic<EnvFactory> factories = Mockito.mockStatic(EnvFactory.class);
+                MockedConstruction<NereidsCoordinator> coordinators = Mockito.mockConstruction(NereidsCoordinator.class,
+                        (coordinator, construction) -> configureCoordinator.configure(coordinator))) {
+            factories.when(EnvFactory::getInstance).thenReturn(factory);
+            Config.cloud_unique_id = "profile-replan-test";
+            Config.max_query_retry_time = "EXHAUSTED".equals(outcome) ? 0 : 1;
+            context.setThreadLocalInfo();
+            if ("SUCCESS".equals(outcome) || flight
+                    || (fetchFailure && !"FETCH_FAILURE_PLANNING".equals(outcome))) {
+                executor.queryRetry(firstQueryId);
+                Assertions.assertEquals(2, attempts.get());
+                ExecutionProfile successful = executions.get(1);
+                Assertions.assertEquals(Collections.singletonList(successful), profile.getExecutionProfiles());
+                Assertions.assertEquals(DebugUtil.printId(successful.getQueryId()), profile.getId());
+                Assertions.assertNotNull(manager.findProfileElementObject(profile.getId()));
+                Assertions.assertNull(manager.findProfileElementObject(DebugUtil.printId(firstQueryId)));
+                Assertions.assertNull(manager.getExecutionProfile(firstQueryId));
+                if (flight) {
+                    Assertions.assertEquals(1, failedAttemptCallbacks.get());
+                    Assertions.assertEquals(Long.MAX_VALUE, profile.getQueryFinishTimestamp());
+                    Assertions.assertSame(successful, manager.getExecutionProfile(successful.getQueryId()));
+                    Assertions.assertSame(executor.getCoord(),
+                            QeProcessorImpl.INSTANCE.getCoordinator(successful.getQueryId()));
+                    Assertions.assertEquals("FLIGHT_DEFERRED".equals(outcome), executor.isDeferredForArrowFlight());
+                    if (executor.isDeferredForArrowFlight()) {
+                        flightAdapter.closeDeferredExecutors();
+                    } else {
+                        executor.finalizeQuery();
+                    }
+                    Assertions.assertEquals(1, failedAttemptCallbacks.get());
+                }
+                Assertions.assertTrue(successful.getQueryFinishTime() > 0);
+                Assertions.assertEquals(TimeUtils.longToTimeString(context.getStartTime()),
+                        profile.getSummaryProfile().getSummary().getInfoString(SummaryProfile.START_TIME));
+                if (fetchFailure) {
+                    String finalText = profile.getProfileByLevel();
+                    Assertions.assertTrue(finalText.contains("PhysicalPlan:"));
+                    Assertions.assertTrue(finalText.contains("successful-plan-column-statistics"));
+                    Assertions.assertFalse(finalText.contains("abandoned-plan-column-statistics"));
+                    Assertions.assertFalse(finalText.contains("abandoned-distributed-plan"));
+                    Assertions.assertFalse(finalText.contains("abandoned-backend-selection"));
+                    Assertions.assertFalse(profile.rowsProducedMap.containsKey(String.valueOf(plans.get(0).getId())));
+                    Assertions.assertEquals(42L, profile.rowsProducedMap.get(String.valueOf(plans.get(1).getId())));
+                    Mockito.verify(failedStatistics, Mockito.times(1)).printColumnStats();
+                }
+            } else {
+                Class<? extends Exception> errorType = "RPC".equals(outcome) ? RpcException.class : UserException.class;
+                if ("DIRECT".equals(outcome)) {
+                    Assertions.assertThrows(errorType, () -> executor.execute(firstQueryId));
+                } else {
+                    Assertions.assertThrows(errorType, () -> executor.queryRetry(firstQueryId));
+                }
+                if ("PLANNING_FAILURE".equals(outcome) || "FETCH_FAILURE_PLANNING".equals(outcome)) {
+                    Assertions.assertEquals(2, attempts.get());
+                    Assertions.assertTrue(profile.getExecutionProfiles().isEmpty());
+                    Assertions.assertNull(manager.getExecutionProfile(firstQueryId));
+                    Assertions.assertNull(profile.getPhysicalPlan());
+                    String finalText = profile.getProfileByLevel();
+                    Assertions.assertFalse(finalText.contains("abandoned-plan-column-statistics"));
+                    Assertions.assertFalse(finalText.contains("abandoned-distributed-plan"));
+                    Assertions.assertFalse(finalText.contains("abandoned-backend-selection"));
+                } else {
+                    Assertions.assertEquals(1, attempts.get());
+                    Assertions.assertEquals(Collections.singletonList(executions.get(0)), profile.getExecutionProfiles());
+                    Assertions.assertNotNull(manager.findProfileElementObject(DebugUtil.printId(firstQueryId)));
+                    Assertions.assertSame(executions.get(0), manager.getExecutionProfile(firstQueryId));
+                    Assertions.assertTrue(executions.get(0).getQueryFinishTime() > 0);
+                }
+            }
+            Assertions.assertEquals(fetchFailure ? 1 : 0, coordinators.constructed().size());
+            Assertions.assertNotEquals(Long.MAX_VALUE, profile.getQueryFinishTimestamp());
+            Assertions.assertEquals(context.getStartTime(), profile.getSummaryProfile().getQueryBeginTime());
+            for (ExecutionProfile execution : executions) {
+                Assertions.assertNull(QeProcessorImpl.INSTANCE.getCoordinator(execution.getQueryId()));
+            }
+        } finally {
+            Config.cloud_unique_id = oldCloudUniqueId;
+            Config.max_query_retry_time = oldRetryTime;
+            connectContext.setSessionVariable(originalSession);
+            connectContext.setThreadLocalInfo();
+            for (ExecutionProfile execution : executions) {
+                QeProcessorImpl.INSTANCE.unregisterQuery(execution.getQueryId());
+            }
+            manager.removeProfile(profile);
+        }
+    }
+
+    @Test
+    @ResourceLock("global")
+    public void testInnerRetryClearsRenderedActualRows(@TempDir Path profileDirectory) throws Exception {
+        String oldCloudUniqueId = Config.cloud_unique_id;
+        int oldRetryTime = Config.max_query_retry_time;
+        SessionVariable originalSession = connectContext.getSessionVariable();
+        SessionVariable session = new SessionVariable();
+        session.enableProfile = true;
+        session.autoProfileThresholdMs = 0;
+        session.enableSqlCache = false;
+        ConnectContext context = Mockito.spy(connectContext);
+        context.setSessionVariable(session);
+        Mockito.doReturn(Mockito.mock(ResultSender.class)).when(context).getResultSender();
+        context.getMysqlChannel().reset();
+        context.setStartTime();
+        TUniqueId firstQueryId = new TUniqueId(0x22040L, 19L);
+        context.setQueryId(firstQueryId);
+        StmtExecutor executor = new StmtExecutor(context, "select 1");
+        Method parse = StmtExecutor.class.getDeclaredMethod("parseByNereids");
+        parse.setAccessible(true);
+        parse.invoke(executor);
+        LogicalPlanAdapter statement = (LogicalPlanAdapter) executor.getParsedStmt();
+        statement.setOrigStmt(new OriginStatement("select 1", 0));
+        statement.setResultExprs(Collections.emptyList());
+        statement.setColLabels(Lists.newArrayList());
+        Profile profile = executor.getProfile();
+        profile.getSummaryProfile().setQueryBeginTime(context.getStartTime());
+        Statistics rootStatistics = new Statistics(1, Collections.emptyMap());
+        Statistics childStatistics = new Statistics(1, Collections.emptyMap());
+        PhysicalEmptyRelation leaf = new PhysicalEmptyRelation(new RelationId(0), Collections.emptyList(),
+                Optional.empty(), null, PhysicalProperties.ANY, null);
+        PhysicalLimit<Plan> child = new PhysicalLimit<>(1, 0, LimitPhase.GLOBAL, Optional.empty(), null,
+                PhysicalProperties.ANY, childStatistics, leaf);
+        PhysicalLimit<Plan> plan = new PhysicalLimit<>(1, 0, LimitPhase.GLOBAL, Optional.empty(), null,
+                PhysicalProperties.ANY, rootStatistics, child);
+        NereidsPlanner planner = Mockito.mock(NereidsPlanner.class);
+        Mockito.when(planner.getPhysicalPlan()).thenReturn(plan);
+        Field plannerField = StmtExecutor.class.getDeclaredField("planner");
+        plannerField.setAccessible(true);
+        plannerField.set(executor, planner);
+        List<ExecutionProfile> executions = Lists.newArrayList();
+        ProfileManager manager = ProfileManager.getInstance();
+        EnvFactory factory = Mockito.mock(EnvFactory.class);
+        Mockito.when(factory.createCoordinator(Mockito.eq(context), Mockito.eq(planner), Mockito.any()))
+                .thenAnswer(invocation -> {
+                    TUniqueId queryId = context.queryId();
+                    boolean firstAttempt = executions.isEmpty();
+                    ExecutionProfile execution = new ExecutionProfile(queryId, Lists.newArrayList(0, 1));
+                    executions.add(execution);
+                    Coordinator coordinator = Mockito.mock(Coordinator.class);
+                    TQueryOptions options = new TQueryOptions();
+                    options.enable_profile = true;
+                    Mockito.when(coordinator.getQueryOptions()).thenReturn(options);
+                    Mockito.when(coordinator.getExecutionProfile()).thenReturn(execution);
+                    Mockito.when(coordinator.getExecStatus()).thenReturn(Status.OK);
+                    Mockito.doAnswer(dispatch -> {
+                        if (!firstAttempt) {
+                            Assertions.assertSame(plan, profile.getPhysicalPlan());
+                            Assertions.assertTrue(profile.rowsProducedMap.isEmpty());
+                            Assertions.assertEquals(-1L, rootStatistics.getActualRowCount());
+                            Assertions.assertEquals(-1L, childStatistics.getActualRowCount());
+                            Assertions.assertNull(manager.getExecutionProfile(firstQueryId));
+                            Assertions.assertNull(QeProcessorImpl.INSTANCE.getCoordinator(firstQueryId));
+                        }
+                        execution.addFragmentBackend(0, 1L);
+                        execution.addFragmentBackend(1, 1L);
+                        TNetworkAddress backend = new TNetworkAddress("127.0.0.1", 9060);
+                        Assertions.assertTrue(execution.updateProfile(
+                                createBackendRowsProfile(queryId, plan.getId(), firstAttempt ? 1000 : 42),
+                                backend, true).ok());
+                        if (firstAttempt) {
+                            TQueryProfile childReport = createBackendRowsProfile(queryId, child.getId(), 500);
+                            childReport.setFragmentIdToProfile(Collections.singletonMap(1,
+                                    childReport.getFragmentIdToProfile().get(0)));
+                            Assertions.assertTrue(execution.updateProfile(childReport, backend, true).ok());
+                        }
+                        return null;
+                    }).when(coordinator).exec();
+                    Mockito.when(coordinator.getNext()).thenAnswer(fetch -> {
+                        if (firstAttempt) {
+                            String firstText = profile.getProfileByLevel();
+                            Assertions.assertTrue(firstText.contains("actualRows=1000"));
+                            Assertions.assertTrue(firstText.contains("actualRows=500"));
+                            Assertions.assertEquals(500L, childStatistics.getActualRowCount());
+                            throw new RpcException("test-be", "fetch failed before sending results");
+                        }
+                        return new RowBatch();
+                    });
+                    return coordinator;
+                });
+        try (MockedStatic<EnvFactory> factories = Mockito.mockStatic(EnvFactory.class)) {
+            factories.when(EnvFactory::getInstance).thenReturn(factory);
+            Config.cloud_unique_id = "";
+            Config.max_query_retry_time = 1;
+            context.setThreadLocalInfo();
+            Method handle = StmtExecutor.class.getDeclaredMethod("handleQueryWithRetry", TUniqueId.class);
+            handle.setAccessible(true);
+            handle.invoke(executor, firstQueryId);
+            Assertions.assertEquals(2, executions.size());
+            Assertions.assertEquals(Collections.singletonList(executions.get(1)), profile.getExecutionProfiles());
+            Assertions.assertFalse(executions.get(1).isCompleted());
+            String finalText = profile.getProfileByLevel();
+            Assertions.assertTrue(finalText.contains("actualRows=42"));
+            Assertions.assertFalse(finalText.contains("actualRows=1000"));
+            Assertions.assertFalse(finalText.contains("actualRows=500"));
+            Assertions.assertEquals(42L, rootStatistics.getActualRowCount());
+            Assertions.assertEquals(-1L, childStatistics.getActualRowCount());
+            Assertions.assertFalse(profile.rowsProducedMap.containsKey(String.valueOf(child.getId())));
+            profile.writeToStorage(profileDirectory.toString());
+            Profile stored = Profile.read(profile.getProfileStoragePath());
+            Assertions.assertNotNull(stored);
+            Assertions.assertFalse(stored.getProfileByLevel().contains("actualRows=500"));
+        } finally {
+            Config.cloud_unique_id = oldCloudUniqueId;
+            Config.max_query_retry_time = oldRetryTime;
+            connectContext.setSessionVariable(originalSession);
+            connectContext.setThreadLocalInfo();
+            for (ExecutionProfile execution : executions) {
+                QeProcessorImpl.INSTANCE.unregisterQuery(execution.getQueryId());
+            }
             manager.removeProfile(profile);
         }
     }
