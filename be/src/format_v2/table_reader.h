@@ -551,6 +551,10 @@ protected:
     Status _evaluate_partition_prune_conjuncts(const VExprContextSPtrs& conjuncts,
                                                bool* can_filter_all);
     static bool _is_safe_to_pre_execute(const VExprContextSPtr& conjunct);
+    // Whether every conjunct the scanner will evaluate reads nothing but partition columns.
+    // Only then may PARTITION_VALUE hand it the one-row block it synthesizes: see
+    // _supports_aggregate_pushdown(TPushAggOp::type::PARTITION_VALUE).
+    bool _conjuncts_reference_only_partition_columns() const;
     Status _build_partition_prune_block(Block* block) const;
     Status _open_local_filter_exprs(const FileScanRequest& file_request);
     Status _init_reader_condition_cache(const FileScanRequest& file_request);
@@ -1119,20 +1123,11 @@ protected:
         if (!_all_runtime_filters_applied_for_split) {
             return false;
         }
-        // Scanner owns the original conjunct list and evaluates it after TableReader finalizes
-        // rows. Even a slotless conjunct that cannot become a TableFilter must see every source
-        // row before an aggregate reduces the stream to synthetic COUNT/MINMAX rows.
-        if (!_conjuncts.empty()) {
-            return false;
-        }
-        // Only support aggregate pushdown when there is no delete or filter, so
+        // Only support aggregate pushdown when there is no delete, so
         // the reduced rows consumed by the upper aggregate remain semantically equivalent to a
         // normal scan.
         if ((_delete_rows != nullptr && !_delete_rows->empty()) ||
             (_deletion_vector != nullptr && !_deletion_vector->isEmpty())) {
-            return false;
-        }
-        if (!_table_filters.empty()) {
             return false;
         }
         if (agg_type == TPushAggOp::type::PARTITION_VALUE) {
@@ -1144,10 +1139,30 @@ protected:
                 || _projected_columns.empty() || !_file_scan_request->delete_conjuncts.empty()) {
                 return false;
             }
-            return std::ranges::all_of(_projected_columns, [this](const auto& column) {
-                return column.is_partition_key &&
-                       find_partition_value(column, _partition_values) != nullptr;
-            });
+            if (!std::ranges::all_of(_projected_columns, [this](const auto& column) {
+                    return column.is_partition_key &&
+                           find_partition_value(column, _partition_values) != nullptr;
+                })) {
+                return false;
+            }
+            // A retained predicate is NOT a reason to decline. Scanner::_filter_output_block()
+            // evaluates the scanner's conjuncts on whatever block this reader returns, so the
+            // one-row block synthesized for PARTITION_VALUE is filtered exactly like a real row.
+            // That is sound only while the conjuncts read nothing but partition columns: the
+            // synthesized row carries partition values and nothing else, so a predicate on a
+            // data column, or on a slot outside the projection, would be evaluated against
+            // unrelated values. Requiring at least one referenced slot also keeps a slotless
+            // predicate from being evaluated once here instead of once per source row.
+            return _conjuncts_reference_only_partition_columns();
+        }
+        // Scanner owns the original conjunct list and evaluates it after TableReader finalizes
+        // rows. Even a slotless conjunct that cannot become a TableFilter must see every source
+        // row before an aggregate reduces the stream to synthetic COUNT/MINMAX rows.
+        if (!_conjuncts.empty()) {
+            return false;
+        }
+        if (!_table_filters.empty()) {
+            return false;
         }
         if (agg_type == TPushAggOp::type::COUNT) {
             // Old FEs do not serialize push_down_count_slot_ids. During the supported BE-first

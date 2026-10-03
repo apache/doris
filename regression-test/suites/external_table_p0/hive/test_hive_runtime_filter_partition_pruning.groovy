@@ -145,6 +145,10 @@ suite("test_hive_runtime_filter_partition_pruning", "p0,external") {
                     "select p,max(q) from hive_partition_value_parquet group by p order by p",
                     "select max(p) from hive_partition_value_parquet where p=2",
                     "select max(p+1) from hive_partition_value_parquet where p>=2",
+                    // A retained predicate on a partition column must still be applied: the
+                    // answer is 1, not the unfiltered max of 4. This is the case that used to
+                    // make the reader decline the range because a scan conjunct was present.
+                    "select max(p) from hive_partition_value_parquet where p<=1",
                     "select p from hive_partition_value_parquet where p>=2 group by p order by p",
                     "select min(p),max(p),min(q),max(q) from hive_partition_value_orc",
                     "select distinct p,q from hive_partition_value_orc order by p,q",
