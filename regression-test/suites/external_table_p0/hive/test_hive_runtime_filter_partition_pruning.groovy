@@ -276,6 +276,26 @@ suite("test_hive_runtime_filter_partition_pruning", "p0,external") {
                         assertTrue((plan =~ /runtime filters: RF\d+\[\w+\] ->/).find(),
                                 "a CTE must not drop the runtime filter on the probe scan, plan: ${plan}")
                     }
+                    // The plan alone is not enough: it can say pushdown agg=PARTITION_VALUE while
+                    // the reader declines the range and falls back to an ordinary scan. Prove the
+                    // optimization really ran by looking at the profile: the scan must feed the
+                    // aggregate one row per nonempty range instead of one row per data row.
+                    sql "set enable_profile=true"
+                    def totalRows = sql("select count(*) from hive_partition_value_parquet")[0][0] as long
+                    profile("partition_value_input_rows") {
+                        run {
+                            sql """/* partition_value_input_rows */
+                                select max(p) from hive_partition_value_parquet"""
+                        }
+                        check { profileString, exception ->
+                            assert exception == null
+                            def scanRows = (profileString =~ /InputRows:\s+sum\s+(\d+)/)
+                                    .collect { it[1] as long }.max()
+                            assertTrue(scanRows < totalRows,
+                                    "PARTITION_VALUE must not materialize every row: the scan read " +
+                                    "${scanRows} rows for a ${totalRows}-row table")
+                        }
+                    }
                 }
             } finally {
                 originalSettings.each { name, value -> sql "set ${name}=${value}" }
