@@ -52,6 +52,13 @@ public class AliasUdfBuilder extends UdfBuilder {
         this.aliasUdf = aliasUdf;
     }
 
+    /** The alias definition (body + saved session variables). Used by the SPM
+     *  dependency fingerprint: a definition change (x+1 -&gt; x+2) must fail the replay
+     *  check of an already-created baseline. */
+    public AliasUdf getAliasUdf() {
+        return aliasUdf;
+    }
+
     @Override
     public List<DataType> getArgTypes() {
         return aliasUdf.getArgTypes();

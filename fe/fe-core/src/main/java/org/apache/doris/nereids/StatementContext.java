@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
@@ -50,6 +51,7 @@ import org.apache.doris.nereids.hint.UseMvHint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
+import org.apache.doris.nereids.spm.BaselinePlan;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -72,6 +74,7 @@ import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.ShortCircuitQueryContext;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.statistics.model.Statistics;
 import org.apache.doris.system.Backend;
@@ -176,12 +179,12 @@ public class StatementContext implements Closeable {
     private final IdGenerator<CTEId> cteIdGenerator = CTEId.createGenerator();
     private final IdGenerator<TableId> talbeIdGenerator = TableId.createGenerator();
 
-    private final Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers = new HashMap<>();
-    private final Map<CTEId, Set<Slot>> cteIdToOutputIds = new HashMap<>();
+    private final Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers = new LinkedHashMap<>();
+    private final Map<CTEId, Set<Slot>> cteIdToOutputIds = new LinkedHashMap<>();
 
     private final Map<CTEId, LogicalCTEProducer<? extends Plan>> cteIdToProducer = new HashMap<>();
 
-    private final Map<RelationId, Set<Expression>> consumerIdToFilters = new HashMap<>();
+    private final Map<RelationId, Set<Expression>> consumerIdToFilters = new LinkedHashMap<>();
     private final Map<RelationId, Long> consumerIdToLimitRows = new HashMap<>();
     // Used to update consumer's stats
     private final Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
@@ -208,7 +211,19 @@ public class StatementContext implements Closeable {
     // the columns in Plan.getExpressions(), such as columns in join condition or
     // filter condition, group by expression
     private final Set<SlotReference> keySlots = Sets.newHashSet();
+    // the rules this statement must not apply: disable_nereids_rules plus, when the
+    // session carries a non-empty enable_nereids_rules (a whitelist), every rule that
+    // is outside that whitelist (see getOrCacheDisableRules)
     private BitSet disableRules;
+
+    /**
+     * SPM-local rule exclusion mask: the rules a baseline-creation statement must not
+     * apply. Installed only by SPMOptimizer on its private StatementContext, so the public
+     * enable_nereids_rules variable keeps its established (planning-inert) behavior - a
+     * session value such as enable_nereids_rules='ELIMINATE_GROUP_BY_KEY_BY_UNIFORM' must
+     * not forbid every binding / implementation rule for ordinary statements.
+     */
+    private BitSet spmExcludedRules = null;
 
     // A per-statement memoization arena for connectors: e.g. Iceberg loads a table once and shares that
     // single object across read + write resolvers within the statement. Lazily built (see
@@ -301,6 +316,14 @@ public class StatementContext implements Closeable {
 
     private ShortCircuitQueryContext shortCircuitQueryContext;
 
+    /**
+     * The session's runtime_filter_wait_time_ms BEFORE NereidsPlanner assigned its
+     * automatic value (see NereidsPlanner#configRuntimeFilterWaitTime); null while no
+     * pass assigned one. Recorded so the SPM fallback replan can undo the abandoned
+     * pass's assignment (see resetPlannerStateForReplan).
+     */
+    private Long runtimeFilterWaitTimeBeforePlannerSet;
+
     private FormatOptions formatOptions = FormatOptions.getDefault();
 
     private Set<PlannerHook> plannerHooks = new HashSet<>();
@@ -386,6 +409,18 @@ public class StatementContext implements Closeable {
     // CTEs that must be materialized (e.g., containing non-deterministic functions)
     private final Set<CTEId> forceMaterializeCTEs = new HashSet<>();
 
+    // ==================== SPM (SQL Plan Management) rewrite state (Phase 1) ====================
+    /** Whether the SPM rewrite replaced this query's plan with a matched baseline plan. */
+    private boolean spmBaselineApplied = false;
+    /** The baseline id used by the SPM rewrite (-1 when none). */
+    private long spmUsedBaselineId = -1;
+    /**
+     * The baseline OBJECT the match used: the post-plan replay validation must keep the
+     * fingerprint of the SAME incarnation, which a concurrent DROP / refresh could
+     * otherwise hide (see SPMPlanner#verifyReplayMetadata).
+     */
+    private BaselinePlan spmUsedBaseline;
+
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
@@ -470,6 +505,30 @@ public class StatementContext implements Closeable {
         return next;
     }
 
+    public void setSpmBaselineApplied(boolean spmBaselineApplied) {
+        this.spmBaselineApplied = spmBaselineApplied;
+    }
+
+    public boolean isSpmBaselineApplied() {
+        return spmBaselineApplied;
+    }
+
+    public void setSpmUsedBaselineId(long spmUsedBaselineId) {
+        this.spmUsedBaselineId = spmUsedBaselineId;
+    }
+
+    public long getSpmUsedBaselineId() {
+        return spmUsedBaselineId;
+    }
+
+    public BaselinePlan getSpmUsedBaseline() {
+        return spmUsedBaseline;
+    }
+
+    public void setSpmUsedBaseline(BaselinePlan spmUsedBaseline) {
+        this.spmUsedBaseline = spmUsedBaseline;
+    }
+
     public void setNeedLockTables(boolean needLockTables) {
         this.needLockTables = needLockTables;
     }
@@ -480,6 +539,124 @@ public class StatementContext implements Closeable {
 
     public boolean isHintForcePreAggOn() {
         return hintForcePreAggOn;
+    }
+
+    /**
+     * Clears the planner-owned per-pass state before REPLANNING the SAME statement (the
+     * SPM fallback after a failed rewritten-plan pass): the rewritten pass may have set
+     * hintForcePreAggOn from a plan-side PREAGGOPEN hint - the original
+     * {@code t@incr(...)} query then fails with a spurious PREAGGOPEN error - and it
+     * cached the tables IT resolved, so after its locks were released a concurrent
+     * DROP / CREATE of t would let the fallback bind the old TableIf. The original
+     * statement is analyzed / planned like a fresh execution: the hint flag returns to
+     * its default and every resolved-table cache is dropped.
+     *
+     * Four further pass-owned states are reset:
+     *
+     * - isShortCircuitQuery: an independent frozen plan can be a point lookup even when
+     *   the original statement is a join / external scan
+     *   (LogicalResultSinkToShortCircuitPointQuery sets the flag for the REWRITTEN
+     *   tree). The second plan cannot unset it, so StmtExecutor would select the
+     *   PointQueryExecutor for a non-point plan (an external scan even fails the
+     *   OlapScanNode cast);
+     * - runtime_filter_wait_time_ms: the abandoned pass may have assigned an automatic
+     *   wait derived from ITS scans (e.g. 50s for an external-table frozen plan), and
+     *   the shared SessionVariable would otherwise leak it into the fallback - whose
+     *   own configRuntimeFilterWaitTime skips recomputation because the value no
+     *   longer equals the default. The pre-pass value (including an explicit user SET)
+     *   is restored;
+     * - the SPM replay rule mask ({@link #setSpmExcludedRules}, installed by
+     *   SPMOptimizer#installSpmReplayRuleMask): it forbids the whole MATERIALIZED_VIEW
+     *   family for the REPLAY only. Clearing it (together with the cached
+     *   {@code disableRules} that already merged it) lets the fallback plan the
+     *   ORIGINAL statement under the session's own rules - otherwise an original
+     *   aggregate with an eligible refreshed MTMV would scan base tables instead of
+     *   using ordinary MV planning;
+     * - the session variables the abandoned pass changed for "this statement" (a
+     *   plan-side ORDERED hint sets {@code disable_join_reorder}, the planner assigns
+     *   runtime_filter_wait_time_ms, a plan-side SET_VAR sets its own key): they are
+     *   recorded on the shared SessionVariable as single-set-var originals and are only
+     *   reverted at statement END, so the fallback would run with the abandoned values -
+     *   a leaked {@code disable_join_reorder} marks the CALLER's own
+     *   {@code LEADING(a b)} hint UNUSED and the "ordinary" fallback picks another join
+     *   order. Reverting here restores the pre-statement values; the fallback pass
+     *   re-applies whatever ITS OWN hints ask for.
+     *
+     * Five further pass-owned states are reset:
+     *
+     * - the registered hints ({@link #addHint}): they are consumed by the MV / join-order
+     *   rules of the pass that registered them, so a plan-side hint of the ABANDONED
+     *   pass (e.g. {@code NO_USE_MV(mv1)} in a frozen baseline's plan text) kept excluding
+     *   mv1 for the FALLBACK as well - although the fallback plans the original statement
+     *   and the hint is not part of it (the original statement's own hints are registered
+     *   again while it is analyzed).
+     */
+    public void resetPlannerStateForReplan() {
+        hintForcePreAggOn = false;
+        tables.clear();
+        oneLevelTables.clear();
+        mtmvRelatedTables.clear();
+        insertTargetTables.clear();
+        isShortCircuitQuery = false;
+        shortCircuitQueryContext = null;
+        restoreRuntimeFilterWaitTime();
+        spmExcludedRules = null;
+        disableRules = null;
+        restoreAbandonedSessionChanges();
+        // drop the ABANDONED pass's hints: a plan-side hint it registered (NO_USE_MV /
+        // ORDERED / LEADING / USE_MV / distribute) must not reach the fallback, which
+        // plans the ORIGINAL statement - and re-registers exactly the ORIGINAL hints
+        // while that statement is analyzed
+        hints.clear();
+    }
+
+    /**
+     * Reverts the session-variable changes a statement applied through the hint / planner
+     * "single set var" mechanism (see {@link #resetPlannerStateForReplan}).
+     */
+    private void restoreAbandonedSessionChanges() {
+        if (connectContext == null || connectContext.getSessionVariable() == null) {
+            return;
+        }
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        if (sessionVariable.getSessionOriginValue() == null
+                || sessionVariable.getSessionOriginValue().isEmpty()) {
+            return;
+        }
+        try {
+            VariableMgr.revertSessionValue(sessionVariable);
+            sessionVariable.setIsSingleSetVar(false);
+            sessionVariable.clearSessionOriginValue();
+        } catch (DdlException e) {
+            LOG.warn("failed to revert the abandoned pass's session variable changes: {}",
+                    e.getMessage());
+        }
+    }
+
+    /**
+     * Records the session's runtime_filter_wait_time_ms BEFORE NereidsPlanner computes
+     * the automatic wait of a pass. First-wins: every later pass of the same statement
+     * sees the value a previous pass left behind, so only the ORIGINAL pre-statement
+     * value is worth restoring (a user's explicit SET stays intact).
+     *
+     * @param value the value observed before the planner's assignment
+     */
+    public void recordRuntimeFilterWaitTimeBeforePlannerSet(int value) {
+        if (runtimeFilterWaitTimeBeforePlannerSet == null) {
+            runtimeFilterWaitTimeBeforePlannerSet = (long) value;
+        }
+    }
+
+    /** Undoes the planner's automatic runtime_filter_wait_time_ms assignment (see above). */
+    private void restoreRuntimeFilterWaitTime() {
+        Long saved = runtimeFilterWaitTimeBeforePlannerSet;
+        if (saved == null) {
+            return;
+        }
+        runtimeFilterWaitTimeBeforePlannerSet = null;
+        if (connectContext != null && connectContext.getSessionVariable() != null) {
+            connectContext.getSessionVariable().setRuntimeFilterWaitTimeMs(saved.intValue());
+        }
     }
 
     /**
@@ -584,6 +761,22 @@ public class StatementContext implements Closeable {
         }
         return tables.computeIfAbsent(
                 tableQualifier, k -> RelationUtil.getTable(k, connectContext.getEnv(), unboundRelation));
+    }
+
+    /**
+     * Resolves a table WITHOUT populating the per-statement resolved-table cache. The SPM
+     * view guard runs BEFORE the planner binds / locks its relations: caching the pre-lock
+     * TableIf would hand the later collectAndLockTable / BindRelation pass a detached
+     * object that survives a concurrent DROP / CREATE t. Resolution errors propagate
+     * exactly like getAndCacheTable.
+     *
+     * @param tableQualifier the table qualifier (catalog / db parts, as written)
+     * @param unboundRelation the relation being resolved, for hint / index context
+     * @return the resolved table
+     */
+    public TableIf resolveTableWithoutCache(List<String> tableQualifier,
+            Optional<UnboundRelation> unboundRelation) {
+        return RelationUtil.getTable(tableQualifier, connectContext.getEnv(), unboundRelation);
     }
 
     public void setConnectContext(ConnectContext connectContext) {
@@ -780,11 +973,38 @@ public class StatementContext implements Closeable {
         return supplier.get();
     }
 
+    /**
+     * Installs the SPM rule exclusion mask on this (private) statement context.
+     */
+    public synchronized void setSpmExcludedRules(BitSet spmExcludedRules) {
+        this.spmExcludedRules = spmExcludedRules;
+    }
+
+    /**
+     * The rules this statement must not apply, derived from the session variables and
+     * cached per statement:
+     *
+     * - disable_nereids_rules (a blacklist), plus
+     * - the SPM-local exclusion mask (set by SPMOptimizer for the nested
+     *   baseline-creation statement only; see {@link #setSpmExcludedRules}).
+     *
+     * CHECK_PRIVILEGES / CHECK_ROW_POLICY are never gated by either source (privilege
+     * and row-policy enforcement must always run; mirrors
+     * SessionVariable#getDisableNereidsRules(), which refuses to disable them).
+     */
     public synchronized BitSet getOrCacheDisableRules(SessionVariable sessionVariable) {
         if (this.disableRules != null) {
             return this.disableRules;
         }
-        this.disableRules = sessionVariable.getDisableNereidsRules();
+        BitSet forbiddenRules = sessionVariable.getDisableNereidsRules();
+        if (spmExcludedRules != null) {
+            // clone before OR: the session's bitset is shared state
+            forbiddenRules = (BitSet) forbiddenRules.clone();
+            forbiddenRules.or(spmExcludedRules);
+            forbiddenRules.clear(RuleType.CHECK_PRIVILEGES.type());
+            forbiddenRules.clear(RuleType.CHECK_ROW_POLICY.type());
+        }
+        this.disableRules = forbiddenRules;
         return this.disableRules;
     }
 
@@ -824,7 +1044,8 @@ public class StatementContext implements Closeable {
      */
     public synchronized void invalidCache(String cacheKey) {
         contextCacheMap.remove(cacheKey);
-        if (cacheKey.equalsIgnoreCase(SessionVariable.DISABLE_NEREIDS_RULES)) {
+        if (cacheKey.equalsIgnoreCase(SessionVariable.DISABLE_NEREIDS_RULES)
+                || cacheKey.equalsIgnoreCase(SessionVariable.ENABLE_NEREIDS_RULES)) {
             this.disableRules = null;
         }
     }
@@ -938,9 +1159,9 @@ public class StatementContext implements Closeable {
     }
 
     private static <K, V> Map<K, Set<V>> copyMapOfSets(Map<K, Set<V>> source) {
-        Map<K, Set<V>> copied = new HashMap<>();
+        Map<K, Set<V>> copied = new LinkedHashMap<>();
         for (Map.Entry<K, Set<V>> entry : source.entrySet()) {
-            copied.put(entry.getKey(), new HashSet<>(entry.getValue()));
+            copied.put(entry.getKey(), new LinkedHashSet<>(entry.getValue()));
         }
         return copied;
     }

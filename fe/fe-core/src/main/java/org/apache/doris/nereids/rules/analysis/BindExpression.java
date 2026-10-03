@@ -915,8 +915,22 @@ public class BindExpression implements AnalysisRuleFactory {
                 otherJoinConjuncts.add(conjunct);
             }
         }
+        // MARK join conjuncts (the three-valued IN / NOT IN key of a SEMI/ANTI MARK join)
+        // must be bound and preserved here. Without them an authored
+        // "SEMI/ANTI MARK JOIN ... MARK_CONDITION(k) ... MARK_SLOT m" would silently drop
+        // its mark key during analysis and degrade to a 2-valued EXISTS mark.
+        Builder<Expression> markJoinConjuncts = ImmutableList.builderWithExpectedSize(
+                join.getMarkJoinConjuncts().size());
+        for (Expression markJoinConjunct : join.getMarkJoinConjuncts()) {
+            Expression boundExpr = analyzer.analyze(markJoinConjunct);
+            for (Expression conjunct : ExpressionUtils.extractConjunction(boundExpr)) {
+                conjunct = TypeCoercionUtils.castIfNotSameType(conjunct, BooleanType.INSTANCE);
+                markJoinConjuncts.add(conjunct);
+            }
+        }
         List<Expression> hashConjuncts = hashJoinConjuncts.build();
         List<Expression> otherConjuncts = otherJoinConjuncts.build();
+        List<Expression> markConjuncts = markJoinConjuncts.build();
         if (join.getJoinType().isAsofJoin()) {
             // validate hash conjuncts
             if (!JoinUtils.extractExpressionForHashTable(join.left().getOutput(), join.right().getOutput(),
@@ -959,7 +973,7 @@ public class BindExpression implements AnalysisRuleFactory {
             }
         }
         return new LogicalJoin<>(join.getJoinType(),
-                hashConjuncts, otherConjuncts,
+                hashConjuncts, otherConjuncts, markConjuncts,
                 join.getDistributeHint(), join.getMarkJoinSlotReference(),
                 join.children(), null);
     }

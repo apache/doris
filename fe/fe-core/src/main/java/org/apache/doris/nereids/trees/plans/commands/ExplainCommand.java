@@ -23,6 +23,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
+import org.apache.doris.nereids.spm.SPMOptimizer;
+import org.apache.doris.nereids.spm.SPMPlanner;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -35,12 +37,17 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.Optional;
 
 /**
  * explain command.
  */
 public class ExplainCommand extends Command implements NoForward {
+
+    private static final Logger LOG = LogManager.getLogger(ExplainCommand.class);
 
     /**
      * explain level.
@@ -79,6 +86,19 @@ public class ExplainCommand extends Command implements NoForward {
         this.showPlanProcess = showPlanProcess;
     }
 
+    /**
+     * Whether this EXPLAIN wraps a QUERY (mirrors StmtExecutor.isQuery). The forced
+     * forwarding policy that sends a SELECT to the master must route its EXPLAIN the same
+     * way: EXPLAIN is a Command (NoForward), so an observer whose baseline cache predates
+     * a baseline just created on the master reported "no hit" although the immediately
+     * following SELECT is forwarded and uses that baseline.
+     *
+     * @return true when the explained statement is a query rather than a command
+     */
+    public boolean isQueryExplain() {
+        return !(logicalPlan instanceof Command);
+    }
+
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!(logicalPlan instanceof Explainable)) {
@@ -100,6 +120,33 @@ public class ExplainCommand extends Command implements NoForward {
                 explainCtx.getStatementContext().setIsDelete(true);
             }
             LogicalPlan explainPlan = ((LogicalPlan) explainable.getExplainPlan(explainCtx));
+            LogicalPlan originalPlan = explainPlan;
+            // SPM (SQL Plan Management) rewrite for EXPLAIN: mirrors the query path
+            // (StmtExecutor SPM integration point) so EXPLAIN reports the matched
+            // baseline (id + bindSqlDigest) when enable_spm_rewrite is on.
+            if (explainCtx.getSessionVariable().isEnableSpmRewrite() && explainPlan != null) {
+                try {
+                    long deadline = System.currentTimeMillis()
+                            + explainCtx.getSessionVariable().getSpmRewriteTimeoutMs();
+                    SPMPlanner spmPlanner = new SPMPlanner();
+                    LogicalPlan rewrittenPlan = spmPlanner.tryRewritePlan(explainPlan, deadline);
+                    if (rewrittenPlan != null) {
+                        explainPlan = rewrittenPlan;
+                        explainCtx.getStatementContext().setSpmBaselineApplied(true);
+                        explainCtx.getStatementContext().setSpmUsedBaselineId(
+                                spmPlanner.getUsedBaselineId());
+                        explainCtx.getStatementContext().setSpmUsedBaseline(
+                                spmPlanner.getUsedBaseline());
+                        // Same as the query path: the frozen plan's source tables must stay
+                        // the ones a replay reads, so the MATERIALIZED_VIEW rewrites are
+                        // forbidden while it is re-planned (SPMOptimizer
+                        // #installSpmReplayRuleMask).
+                        SPMOptimizer.installSpmReplayRuleMask(explainCtx.getStatementContext());
+                    }
+                } catch (Throwable e) {
+                    LOG.warn("SPM rewrite failed for EXPLAIN, fallback to normal planning", e);
+                }
+            }
             Optional<NereidsPlanner> explainPlanner =
                     explainable.getExplainPlanner(explainPlan, explainCtx.getStatementContext());
             NereidsPlanner planner = explainPlanner.isPresent()
@@ -128,7 +175,69 @@ public class ExplainCommand extends Command implements NoForward {
             if (explainCtx.getSessionVariable().isEnableMaterializedViewRewrite()) {
                 explainCtx.getStatementContext().addPlannerHook(InitMaterializationContextHook.INSTANCE);
             }
-            planner.plan(logicalPlanAdapter, explainCtx.getSessionVariable().toThrift());
+            try {
+                planner.plan(logicalPlanAdapter, explainCtx.getSessionVariable().toThrift());
+                if (explainCtx.getStatementContext().isSpmBaselineApplied()) {
+                    // Mirror the query path (StmtExecutor): the pre-match fingerprint guard
+                    // ran BEFORE the planner took its metadata locks, so an ALTER TABLE
+                    // committing in between would drift between validation and planning.
+                    // Ordinary execution revalidates the frozen baseline against the
+                    // metadata the REPLAYED plan was actually planned with; without that
+                    // check EXPLAIN reported a baseline and a plan that the equivalent
+                    // query would not use. A mismatch throws into the catch below, which
+                    // applies the same fallback / surfacing policy (enable_spm_fallback).
+                    SPMPlanner.verifyReplayMetadata(explainCtx,
+                            explainCtx.getStatementContext().getSpmUsedBaselineId(),
+                            planner.getPhysicalPlan());
+                }
+            } catch (Throwable t) {
+                // A failed planning of the REPLACEMENT tree must degrade like the query
+                // path (StmtExecutor): clear the applied flag and replan the ORIGINAL
+                // tree, so EXPLAIN cannot fail for a query that succeeds. The rewritten
+                // tree is validated again at execution time, so a broken frozen text
+                // must not make EXPLAIN unusable. When the operator disabled the
+                // fallback (enable_spm_fallback = false), the failure is reported
+                // instead - a broken baseline must not be hidden.
+                if (explainCtx.getStatementContext().isSpmBaselineApplied()
+                        && explainCtx.getSessionVariable().isEnableSpmFallback()
+                        && originalPlan != null && originalPlan != explainPlan) {
+                    LOG.warn("SPM EXPLAIN planning failed on the rewritten tree,"
+                            + " retrying with the original plan", t);
+                    explainCtx.getStatementContext().setSpmBaselineApplied(false);
+                    explainCtx.getStatementContext().setSpmUsedBaselineId(-1);
+                    explainCtx.getStatementContext().setSpmUsedBaseline(null);
+                    // Authorization must never be inherited from the abandoned rewrite: planning the
+                    // REWRITTEN tree already ran (and passed) CheckPrivileges and set privChecked, which
+                    // would make the retry below skip the privilege check on the ORIGINAL plan - and the
+                    // two trees may reference different objects (e.g. a rewritten tree over base tables
+                    // where the original reads a view). Reset it so the retry is authorized exactly like a
+                    // normal EXPLAIN of the original statement (mirrors StmtExecutor's SPM fallback).
+                    explainCtx.getStatementContext().setPrivChecked(false);
+                    // The rest of the first pass's planner state must not leak either: the rewritten
+                    // tree can have set hintForcePreAggOn (a plan-side PREAGGOPEN hint) - a spurious
+                    // PREAGGOPEN failure on the ORIGINAL t@incr(...) EXPLAIN - and its resolved
+                    // TableIf objects survive an intervening DDL (DROP + CREATE), binding the retry to
+                    // the OLD table. StmtExecutor resets the same state in its fallback.
+                    explainCtx.getStatementContext().resetPlannerStateForReplan();
+                    explainPlan = originalPlan;
+                    Optional<NereidsPlanner> retryPlanner =
+                            explainable.getExplainPlanner(explainPlan,
+                                    explainCtx.getStatementContext());
+                    planner = retryPlanner.isPresent()
+                            ? retryPlanner.get()
+                            : new NereidsPlanner(explainCtx.getStatementContext());
+                    logicalPlanAdapter =
+                            new LogicalPlanAdapter(explainPlan, explainCtx.getStatementContext());
+                    logicalPlanAdapter.setIsExplain(explainOptions);
+                    executor.setParsedStmt(logicalPlanAdapter);
+                    planner.plan(logicalPlanAdapter,
+                            explainCtx.getSessionVariable().toThrift());
+                } else {
+                    LOG.warn("SPM EXPLAIN analyze/plan failed; rewritten tree:\n{}",
+                            explainPlan.treeString(), t);
+                    throw t;
+                }
+            }
             executor.setPlanner(planner);
             // Skip SQL block rules check for EXPLAIN statements since they only show
             // the execution plan without actually executing the query

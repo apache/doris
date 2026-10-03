@@ -208,6 +208,11 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
 
     private static void collectConst(Expression expr, Map<String, Expression> constMap,
             Map<String, TExpr> tExprMap, IdGenerator<ExprId> idGenerator) {
+        // SpmConstVar / SpmConstList report isConstant() == false, so they never reach
+        // the foldable branch above; this additional guard is a fail-safe in case a
+        // future change makes a placeholder look constant again - folding a placeholder
+        // during the SPM baseline CREATE optimization would bake the captured constant
+        // into the frozen plan and break value substitution at rewrite time.
         if (expr.isConstant() && !expr.isLiteral() && !expr.anyMatch(e -> shouldSkipFold((Expression) e))) {
             String id = idGenerator.getNextId().toString();
             constMap.put(id, expr);
@@ -236,6 +241,13 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
     private static boolean shouldSkipFold(Expression expr) {
         // getResultExpression cannot decode UUID PValues, including UUID inside complex types.
         if (containsUuid(expr.getDataType())) {
+            return true;
+        }
+        // SPM placeholder markers must never be folded (see SpmConstVar / SpmConstList):
+        // they report isConstant() == false already, this is a belt-and-suspenders guard
+        // so folding can never bake a captured constant into a frozen SPM plan.
+        if (expr instanceof org.apache.doris.nereids.spm.placeholder.SpmConstVar
+                || expr instanceof org.apache.doris.nereids.spm.placeholder.SpmConstList) {
             return true;
         }
 

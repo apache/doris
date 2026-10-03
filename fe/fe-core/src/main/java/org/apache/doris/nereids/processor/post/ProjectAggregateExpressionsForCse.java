@@ -45,7 +45,8 @@ import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -87,8 +88,8 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
         // select sum(A+B), ...
         // "A+B" is a cse candidate
         // cseCandidates: A+B -> alias(A+B)
-        Map<Expression, Alias> cseCandidates = new HashMap<>();
-        Set<Slot> inputSlots = new HashSet<>();
+        Map<Expression, Alias> cseCandidates = new LinkedHashMap<>();
+        Set<Slot> inputSlots = new LinkedHashSet<>();
         List<Expression> allAggFunctionChildren = new ArrayList<>();
 
         for (Expression expr : aggregate.getExpressions()) {
@@ -122,7 +123,7 @@ public class ProjectAggregateExpressionsForCse extends PlanPostProcessor {
         // select sum(A+B),...
         // slotMap: A+B -> alias(A+B) to slot#3
         // sum(A+B) is replaced by sum(slot#3)
-        Map<Expression, Slot> slotMap = new HashMap<>();
+        Map<Expression, Slot> slotMap = new LinkedHashMap<>();
         for (Expression key : cseCandidates.keySet()) {
             slotMap.put(key, cseCandidates.get(key).toSlot());
         }
