@@ -32,14 +32,14 @@ public:
 
     Status build(RowsetSharedPtr& rowset) override;
 
+    Status build_from_assembled_meta(const RowsetMetaPB& meta, RowsetSharedPtr& rowset);
+
 private:
     Status _build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num = false,
                               std::vector<int64_t>* completed_segment_ids = nullptr) override;
 
     Status _collect_all_packed_slice_locations(RowsetMeta* rowset_meta);
 
-    Status _collect_packed_slice_location(io::FileWriter* file_writer, const std::string& file_path,
-                                          RowsetMeta* rowset_meta);
     CloudStorageEngine& _engine;
 };
 

@@ -126,7 +126,10 @@ public:
     // @param rs_meta Metadata of the rowset to be warmed up.
     // @param sync_wait_timeout_ms Timeout in milliseconds to wait for the warm-up
     //                              to complete. Non-positive value means no waiting.
-    void warm_up_rowset(RowsetMeta& rs_meta, int64_t table_id, int64_t sync_wait_timeout_ms = -1);
+    // @param warm_up_local Only warms this BE's cache if true. Used when memtable-on-sink
+    //                      is enabled and the sink BE uploads files directly to object storage.
+    void warm_up_rowset(RowsetMeta& rs_meta, int64_t table_id, int64_t sync_wait_timeout_ms = -1,
+                        bool warm_up_local = false);
 
     void recycle_cache(int64_t tablet_id, const std::vector<RecycledRowsets>& rowsets);
 
@@ -183,7 +186,8 @@ private:
     std::vector<JobReplicaInfo> get_replica_info(int64_t tablet_id, int64_t table_id,
                                                  bool bypass_cache, bool& cache_hit);
 
-    void _warm_up_rowset(RowsetMeta& rs_meta, int64_t table_id, int64_t sync_wait_timeout_ms);
+    void _warm_up_rowset(RowsetMeta& rs_meta, int64_t table_id, int64_t sync_wait_timeout_ms,
+                         bool warm_up_local = false);
     void _recycle_cache(int64_t tablet_id, const std::vector<RecycledRowsets>& rowsets);
 
     void submit_download_tasks(io::Path path, int64_t file_size, io::FileSystemSPtr file_system,

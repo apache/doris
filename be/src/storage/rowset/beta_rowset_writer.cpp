@@ -71,19 +71,6 @@ using namespace ErrorCode;
 
 namespace {
 
-bool is_segment_overlapping(const std::vector<KeyBoundsPB>& segments_encoded_key_bounds) {
-    std::string_view last;
-    for (auto&& segment_encode_key : segments_encoded_key_bounds) {
-        auto&& cur_min = segment_encode_key.min_key();
-        auto&& cur_max = segment_encode_key.max_key();
-        if (cur_min <= last) {
-            return true;
-        }
-        last = cur_max;
-    }
-    return false;
-}
-
 bool copy_key_bounds_with_truncation(const KeyBoundsPB& src, KeyBoundsPB* dst) {
     DCHECK(dst != nullptr);
     if (config::random_segments_key_bounds_truncation) {
@@ -420,10 +407,19 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
         return Status::OK();
     }
     std::vector<RowsetSharedPtr> specified_rowsets;
-    {
+    if (_context.mow_context->snapshot_delete_bitmap != nullptr) {
+        specified_rowsets = _context.mow_context->rowset_ptrs;
+    } else {
         std::shared_lock meta_rlock(_context.tablet->get_header_lock());
         specified_rowsets =
                 _context.tablet->get_rowset_by_ids(_context.mow_context->rowset_ids.get());
+    }
+
+    RowsetSharedPtr streamed_rowset;
+    if (_seg_files.get(segment_id) == nullptr) {
+        // Streamed files are closed by LoadStreamWriter. Snapshot their packed mappings on
+        // its serial receive thread before later file closes mutate the shared rowset meta.
+        RETURN_IF_ERROR(_build_tmp(streamed_rowset, segment_id));
     }
 
     // Submit the entire delete bitmap calculation process to thread pool for async execution
@@ -432,7 +428,7 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     const auto submit_time_us = MonotonicMicros();
     return _calc_delete_bitmap_token->submit_func([this, segment_id,
                                                    specified_rowsets = std::move(specified_rowsets),
-                                                   submit_time_us]() -> Status {
+                                                   submit_time_us, streamed_rowset]() -> Status {
         const auto queue_time_us = MonotonicMicros() - submit_time_us;
         Status st = Status::OK();
         // Step 1: Close file_writer (must be done before load_segments)
@@ -457,10 +453,9 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
 
         OlapStopWatch watch;
         // Step 2: Build tmp rowset (needs file_writer to be closed)
-        RowsetSharedPtr rowset_ptr;
-        st = _build_tmp(rowset_ptr);
-        if (!st.ok()) {
-            return st;
+        RowsetSharedPtr rowset_ptr = streamed_rowset;
+        if (rowset_ptr == nullptr) {
+            RETURN_IF_ERROR(_build_tmp(rowset_ptr, segment_id));
         }
 
         // Step 3: Load segments (needs file_writer to be closed and rowset to be built)
@@ -477,7 +472,7 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
         st = BaseTablet::calc_delete_bitmap(_context.tablet, rowset_ptr, segments,
                                             specified_rowsets, _context.mow_context->delete_bitmap,
                                             _context.mow_context->max_version, nullptr, nullptr,
-                                            nullptr);
+                                            _context.mow_context->snapshot_delete_bitmap);
         if (!st.ok()) {
             return st;
         }
@@ -961,9 +956,11 @@ Status BaseBetaRowsetWriter::_close_file_writers() {
 
 Status BetaRowsetWriter::_close_file_writers() {
     RETURN_IF_ERROR(BaseBetaRowsetWriter::_close_file_writers());
-    // if _segment_start_id is not zero, that means it's a transient rowset writer for
-    // MoW partial update, don't need to do segment compaction.
-    if (_segment_start_id == 0) {
+    // Skip writer-local segment compaction for:
+    // 1. A distributed partial output writer, whose physical segment IDs are constrained to a
+    //    coordinator-assigned slot that may start at zero.
+    // 2. A transient MoW partial-update writer, which appends segments from a nonzero segment ID.
+    if (!_context.is_partial_output_writer && _segment_start_id == 0) {
         if (_segcompaction_worker->cancel()) {
             std::lock_guard lk(_is_doing_segcompaction_lock);
             _is_doing_segcompaction = false;
@@ -1057,7 +1054,8 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     std::vector<int64_t> segment_ids;
     std::optional<bool> segments_key_bounds_truncated;
     const bool record_segment_ids =
-            _context.write_type == DataWriteType::TYPE_COMPACTION && _segment_start_id != 0;
+            _context.is_partial_output_writer ||
+            (_context.write_type == DataWriteType::TYPE_COMPACTION && _segment_start_id != 0);
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
         if (record_segment_ids) {
@@ -1117,7 +1115,9 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
         rowset_meta->set_segments_overlap(OVERLAPPING);
     }
 
-    auto segment_num = _num_seg();
+    // A temporary rowset contains only completed segments, which may finish out of order.
+    auto segment_num =
+            completed_segment_ids != nullptr ? completed_segment_ids->size() : _num_seg();
     if (check_segment_num && config::check_segment_when_build_rowset_meta) {
         auto segments_encoded_key_bounds_size = segments_encoded_key_bounds.size();
         if (segments_encoded_key_bounds_size != segment_num) {
@@ -1148,15 +1148,18 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     rowset_meta->set_index_disk_size(total_index_size + _total_index_size);
     bool aggregate_key_bounds = config::enable_aggregate_non_mow_key_bounds &&
                                 !_context.enable_unique_key_merge_on_write &&
-                                !_rowset_meta->is_row_binlog();
-    rowset_meta->set_segments_key_bounds(segments_encoded_key_bounds, aggregate_key_bounds);
+                                !_rowset_meta->is_row_binlog() &&
+                                !_context.is_partial_output_writer;
+    rowset_meta->set_segments_key_bounds(
+            segments_encoded_key_bounds, aggregate_key_bounds,
+            /*truncate_key_bounds=*/!_context.is_partial_output_writer);
     // TODO write zonemap to meta
     rowset_meta->set_empty((num_rows_written + _num_rows_written) == 0);
     rowset_meta->set_creation_time(time(nullptr));
     return Status::OK();
 }
 
-Status BaseBetaRowsetWriter::_build_tmp(RowsetSharedPtr& rowset_ptr) {
+Status BaseBetaRowsetWriter::_build_tmp(RowsetSharedPtr& rowset_ptr, int32_t segment_id) {
     Status status;
     std::shared_ptr<RowsetMeta> tmp_rs_meta = std::make_shared<RowsetMeta>();
     tmp_rs_meta->init(_rowset_meta.get());
@@ -1168,6 +1171,15 @@ Status BaseBetaRowsetWriter::_build_tmp(RowsetSharedPtr& rowset_ptr) {
         return status;
     }
     tmp_rs_meta->set_segment_ids(completed_segment_ids);
+
+    if (_context.packed_file_active) {
+        // Bitmap calculation reads only this segment's primary-key index. Other flushes
+        // may still be creating/closing files, so do not traverse their writer collections.
+        if (auto* writer = _seg_files.get(segment_id); writer != nullptr) {
+            RETURN_IF_ERROR(tmp_rs_meta->collect_packed_slice_location(
+                    *writer, _context.segment_path(segment_id)));
+        }
+    }
 
     status = RowsetFactory::create_rowset(_context.tablet_schema, _context.tablet_path, tmp_rs_meta,
                                           &rowset_ptr);
@@ -1304,8 +1316,11 @@ Status BetaRowsetWriter::_check_segment_number_limit(size_t segnum) {
 Status BaseBetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStatistics& segstat) {
     uint32_t segid_offset = segment_id - _segment_start_id;
     bool key_bounds_truncated = false;
-    SegmentStatistics stored_segstat =
-            copy_segment_statistics_with_truncated_key_bounds(segstat, key_bounds_truncated);
+    SegmentStatistics stored_segstat = segstat;
+    if (!_context.is_partial_output_writer) {
+        stored_segstat =
+                copy_segment_statistics_with_truncated_key_bounds(segstat, key_bounds_truncated);
+    }
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
         CHECK_EQ(_segid_statistics_map.find(segment_id) == _segid_statistics_map.end(), true);

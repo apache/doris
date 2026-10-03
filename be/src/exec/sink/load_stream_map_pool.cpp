@@ -99,6 +99,15 @@ void LoadStreamMap::save_tablets_to_commit(int64_t dst_id,
     }
 }
 
+void LoadStreamMap::save_segments_for_tablet(
+        const std::unordered_map<int64_t, int32_t>& segments_for_tablet) {
+    std::lock_guard<std::mutex> lock(_tablets_to_commit_mutex);
+    // Unshared DeltaWriters on the same BE each report their own segment count.
+    for (const auto& [tablet_id, count] : segments_for_tablet) {
+        _segments_for_tablet[tablet_id] += count;
+    }
+}
+
 bool LoadStreamMap::release() {
     int num_use = --_use_cnt;
     if (num_use == 0) {

@@ -90,6 +90,7 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
     private boolean enableProfile = false;
 
     private boolean memtableOnSinkNode = false;
+    private boolean cloudMemtableSinkUpload = true;
     private int streamPerNode = 2;
 
     private byte enclose = 0;
@@ -327,6 +328,11 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         return memtableOnSinkNode;
     }
 
+    @Override
+    public boolean isCloudMemtableSinkUpload() {
+        return cloudMemtableSinkUpload;
+    }
+
     public void setMemtableOnSinkNode(boolean memtableOnSinkNode) {
         this.memtableOnSinkNode = memtableOnSinkNode;
     }
@@ -368,6 +374,7 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
      * setMultiTableBaseTaskInfo
      */
     public void setMultiTableBaseTaskInfo(LoadTaskInfo task) throws UserException {
+        this.cloudMemtableSinkUpload = Config.cloud_stream_load_default_memtable_sink_upload;
         this.mergeType = task.getMergeType();
         this.columnSeparator = task.getColumnSeparator();
         this.whereExpr = task.getWhereExpr() != null ? parseWhereExpr(
@@ -515,6 +522,11 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
             this.memtableOnSinkNode = request.isMemtableOnSinkNode();
         } else {
             this.memtableOnSinkNode = Config.stream_load_default_memtable_on_sink_node;
+        }
+        if (request.isSetCloudMemtableSinkUpload()) {
+            this.cloudMemtableSinkUpload = request.isCloudMemtableSinkUpload();
+        } else {
+            this.cloudMemtableSinkUpload = Config.cloud_stream_load_default_memtable_sink_upload;
         }
         if (request.isSetStreamPerNode()) {
             this.streamPerNode = request.getStreamPerNode();

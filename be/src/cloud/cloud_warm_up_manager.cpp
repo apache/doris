@@ -684,11 +684,11 @@ std::vector<JobReplicaInfo> CloudWarmUpManager::get_replica_info(int64_t tablet_
 }
 
 void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t table_id,
-                                        int64_t sync_wait_timeout_ms) {
+                                        int64_t sync_wait_timeout_ms, bool warm_up_local) {
     if (sync_wait_timeout_ms <= 0) {
         auto rs_meta_pb = std::make_shared<RowsetMetaPB>(rs_meta.get_rowset_pb());
-        auto st = _thread_pool_token->submit_func([this, rs_meta_pb, table_id,
-                                                   sync_wait_timeout_ms]() {
+        auto st = _thread_pool_token->submit_func([this, rs_meta_pb, table_id, sync_wait_timeout_ms,
+                                                   warm_up_local]() {
             RowsetMeta async_rs_meta;
             bool init_succeed = async_rs_meta.init_from_pb(*rs_meta_pb);
             TEST_SYNC_POINT_CALLBACK("CloudWarmUpManager::warm_up_rowset.async_init_from_pb",
@@ -697,7 +697,7 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t table_id,
                 LOG(WARNING) << "Failed to init rowset meta when warming up rowset asynchronously";
                 return;
             }
-            _warm_up_rowset(async_rs_meta, table_id, sync_wait_timeout_ms);
+            _warm_up_rowset(async_rs_meta, table_id, sync_wait_timeout_ms, warm_up_local);
         });
         if (!st.ok()) {
             LOG(WARNING) << "Failed to submit warm up rowset task: " << st;
@@ -711,7 +711,7 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t table_id,
     bool finished = false;
     std::unique_lock<bthread::Mutex> lock(mu);
     auto st = _thread_pool_token->submit_func([&, this]() {
-        _warm_up_rowset(rs_meta, table_id, sync_wait_timeout_ms);
+        _warm_up_rowset(rs_meta, table_id, sync_wait_timeout_ms, warm_up_local);
         std::unique_lock<bthread::Mutex> l(mu);
         finished = true;
         cv.notify_one();
@@ -728,18 +728,28 @@ void CloudWarmUpManager::warm_up_rowset(RowsetMeta& rs_meta, int64_t table_id,
 }
 
 void CloudWarmUpManager::_warm_up_rowset(RowsetMeta& rs_meta, int64_t table_id,
-                                         int64_t sync_wait_timeout_ms) {
+                                         int64_t sync_wait_timeout_ms, bool warm_up_local) {
     TEST_SYNC_POINT_CALLBACK("CloudWarmUpManager::_warm_up_rowset.enter", &rs_meta,
                              &sync_wait_timeout_ms);
     bool cache_hit = false;
-    auto replicas = get_replica_info(rs_meta.tablet_id(), table_id, false, cache_hit);
+    std::vector<JobReplicaInfo> replicas;
+    if (warm_up_local) {
+        TReplicaInfo replica;
+        replica.__set_backend_id(ExecEnv::GetInstance()->cluster_info()->backend_id);
+        replica.__set_host(BackendOptions::get_localhost());
+        replica.__set_brpc_port(config::brpc_port);
+        replicas.push_back(JobReplicaInfo {0, std::move(replica)});
+    } else {
+        replicas = get_replica_info(rs_meta.tablet_id(), table_id, false, cache_hit);
+    }
     if (replicas.empty()) {
         VLOG_DEBUG << "There is no need to warmup tablet=" << rs_meta.tablet_id()
                    << ", skipping rowset=" << rs_meta.rowset_id().to_string();
         g_file_cache_event_driven_warm_up_skipped_rowset_num << 1;
         return;
     }
-    Status st = _do_warm_up_rowset(rs_meta, table_id, replicas, sync_wait_timeout_ms, !cache_hit);
+    Status st = _do_warm_up_rowset(rs_meta, table_id, replicas, sync_wait_timeout_ms,
+                                   !warm_up_local && !cache_hit);
     if (cache_hit && !st.ok() && st.is<ErrorCode::TABLE_NOT_FOUND>()) {
         replicas = get_replica_info(rs_meta.tablet_id(), table_id, true, cache_hit);
         st = _do_warm_up_rowset(rs_meta, table_id, replicas, sync_wait_timeout_ms, true);
@@ -780,6 +790,9 @@ Status CloudWarmUpManager::_do_warm_up_rowset(RowsetMeta& rs_meta, int64_t table
                                               std::vector<JobReplicaInfo>& replicas,
                                               int64_t sync_wait_timeout_ms,
                                               bool skip_existence_check) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudWarmUpManager::_do_warm_up_rowset", Status::OK(),
+                                      &rs_meta, &replicas, &sync_wait_timeout_ms,
+                                      &skip_existence_check);
     auto tablet_id = rs_meta.tablet_id();
     int64_t now_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                              std::chrono::system_clock::now().time_since_epoch())
