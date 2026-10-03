@@ -116,23 +116,6 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
     @Override
     public void initialize(String jobId, DataSource dataSource, Map<String, String> config) {
         this.serializer.init(config);
-
-        // Initialize thread pool for parallel polling
-        int parallelism =
-                Integer.parseInt(
-                        config.getOrDefault(
-                                DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
-                                DataSourceConfigKeys.SNAPSHOT_PARALLELISM_DEFAULT));
-        this.snapshotPollExecutor =
-                Executors.newFixedThreadPool(
-                        parallelism,
-                        r -> {
-                            Thread t = new Thread(r);
-                            t.setName("snapshot-reader-" + jobId + "-" + t.getId());
-                            t.setDaemon(true);
-                            return t;
-                        });
-        LOG.info("Initialized poll executor with parallelism: {}", parallelism);
     }
 
     /**
@@ -321,6 +304,17 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
         }
         this.snapshotReaderContexts.clear();
         this.completedSplitIds.clear();
+
+        shutdownSnapshotPollExecutor();
+        this.snapshotPollExecutor =
+                Executors.newFixedThreadPool(
+                        splits.size(),
+                        r -> {
+                            Thread t = new Thread(r);
+                            t.setName("snapshot-reader-" + baseReq.getJobId() + "-" + t.getId());
+                            t.setDaemon(true);
+                            return t;
+                        });
 
         List<CompletableFuture<Void>> futures = new ArrayList<>();
         // Create reader for each split and submit
@@ -946,6 +940,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
 
     @Override
     public synchronized void finishSplitRecords() {
+        shutdownSnapshotPollExecutor();
         // Cancel any active poll operations
         if (activePollFutures != null) {
             activePollFutures.forEach(f -> f.cancel(true));
@@ -1012,6 +1007,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
     protected void shutdownSnapshotPollExecutor() {
         if (snapshotPollExecutor != null) {
             snapshotPollExecutor.shutdownNow();
+            snapshotPollExecutor = null;
         }
     }
 

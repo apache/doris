@@ -152,22 +152,6 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     @Override
     public void initialize(String jobId, DataSource dataSource, Map<String, String> config) {
         this.serializer.init(config);
-
-        int parallelism =
-                Integer.parseInt(
-                        config.getOrDefault(
-                                DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
-                                DataSourceConfigKeys.SNAPSHOT_PARALLELISM_DEFAULT));
-        this.snapshotPollExecutor =
-                Executors.newFixedThreadPool(
-                        parallelism,
-                        r -> {
-                            Thread t = new Thread(r);
-                            t.setName("snapshot-reader-" + jobId + "-" + t.getId());
-                            t.setDaemon(true);
-                            return t;
-                        });
-        LOG.info("Initialized poll executor with parallelism: {}", parallelism);
     }
 
     /**
@@ -381,6 +365,17 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         }
         this.snapshotReaderContexts.clear();
         this.completedSplitIds.clear();
+
+        shutdownSnapshotPollExecutor();
+        this.snapshotPollExecutor =
+                Executors.newFixedThreadPool(
+                        splits.size(),
+                        r -> {
+                            Thread t = new Thread(r);
+                            t.setName("snapshot-reader-" + baseReq.getJobId() + "-" + t.getId());
+                            t.setDaemon(true);
+                            return t;
+                        });
 
         List<CompletableFuture<Void>> futures = new ArrayList<>();
 
@@ -1143,7 +1138,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
 
     @Override
     public synchronized void finishSplitRecords() {
-
+        shutdownSnapshotPollExecutor();
         // Cancel any active poll operations
         if (activePollFutures != null) {
             activePollFutures.forEach(f -> f.cancel(true));
@@ -1308,6 +1303,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     protected void shutdownSnapshotPollExecutor() {
         if (snapshotPollExecutor != null) {
             snapshotPollExecutor.shutdownNow();
+            snapshotPollExecutor = null;
         }
     }
 
