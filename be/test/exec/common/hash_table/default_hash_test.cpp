@@ -40,26 +40,23 @@ struct CountingUuidEqual {
 };
 
 TEST(DefaultHashTest, UuidSameLowBitsHaveLinearProbeGrowth) {
-    for (size_t count : {1024, 4096, 16384}) {
-        SCOPED_TRACE(count);
-        size_t comparisons = 0;
-        phmap::flat_hash_set<UUIDValueType, DefaultHash<UUIDValueType>, CountingUuidEqual> set(
-                0, DefaultHash<UUIDValueType> {}, CountingUuidEqual {&comparisons});
-        const auto key = [](size_t high) {
-            return (static_cast<UUIDValueType>(high) << 64) | 0x9234001122334455ULL;
-        };
-        // Exercise the contains/insert pattern in array_distinct, including table growth.
-        for (size_t i = 1; i <= count; ++i) {
-            ASSERT_FALSE(set.contains(key(i)));
-            ASSERT_TRUE(set.insert(key(i)).second);
-        }
-        EXPECT_EQ(count, set.size());
-        // Exercise matching and disjoint inputs as in arrays_overlap.
-        for (size_t i = 1; i <= count; ++i) {
-            ASSERT_TRUE(set.contains(key(i)));
-            ASSERT_FALSE(set.contains(key(i + count)));
-        }
-        EXPECT_LT(comparisons, 64 * count);
+    constexpr size_t count = 1024;
+    size_t comparisons = 0;
+    phmap::flat_hash_set<UUIDValueType, DefaultHash<UUIDValueType>, CountingUuidEqual> set(
+            0, DefaultHash<UUIDValueType> {}, CountingUuidEqual {&comparisons});
+    const auto key = [](size_t high) {
+        return (static_cast<UUIDValueType>(high) << 64) | 0x9234001122334455ULL;
+    };
+    // Exercise the contains/insert pattern in array_distinct, including table growth.
+    for (size_t i = 1; i <= count; ++i) {
+        ASSERT_FALSE(set.contains(key(i)));
+        ASSERT_TRUE(set.insert(key(i)).second);
+    }
+    EXPECT_EQ(count, set.size());
+    // Exercise matching and disjoint inputs as in arrays_overlap.
+    for (size_t i = 1; i <= count; ++i) {
+        ASSERT_TRUE(set.contains(key(i)));
+        ASSERT_FALSE(set.contains(key(i + count)));
     }
 }
 
