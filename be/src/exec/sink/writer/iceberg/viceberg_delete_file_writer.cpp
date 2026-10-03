@@ -44,10 +44,12 @@ std::unique_ptr<iceberg::Schema> build_position_delete_schema() {
 
 VIcebergDeleteFileWriter::VIcebergDeleteFileWriter(TFileContent::type delete_type,
                                                    const std::string& output_path,
+                                                   const std::string& original_output_path,
                                                    TFileFormatType::type file_format,
                                                    TFileCompressType::type compress_type)
         : _delete_type(delete_type),
           _output_path(output_path),
+          _original_output_path(original_output_path),
           _file_format(file_format),
           _compress_type(compress_type) {}
 
@@ -146,8 +148,9 @@ Status VIcebergDeleteFileWriter::close(TIcebergCommitData& commit_data) {
         _file_size = _file_format_transformer->written_len();
     }
 
-    // Fill commit data (use __set_ to mark optional fields as present)
-    commit_data.__set_file_path(_output_path);
+    // Fill commit data (use __set_ to mark optional fields as present).
+    // The manifest gets the original path, never the normalized one the file was written through.
+    commit_data.__set_file_path(_original_output_path);
     commit_data.__set_row_count(_written_rows);
     commit_data.__set_affected_rows(_written_rows);
     commit_data.__set_file_size(_file_size);
@@ -169,9 +172,10 @@ Status VIcebergDeleteFileWriter::close(TIcebergCommitData& commit_data) {
 // Factory method
 std::unique_ptr<VIcebergDeleteFileWriter> VIcebergDeleteFileWriterFactory::create_writer(
         TFileContent::type delete_type, const std::string& output_path,
-        TFileFormatType::type file_format, TFileCompressType::type compress_type) {
-    return std::make_unique<VIcebergDeleteFileWriter>(delete_type, output_path, file_format,
-                                                      compress_type);
+        const std::string& original_output_path, TFileFormatType::type file_format,
+        TFileCompressType::type compress_type) {
+    return std::make_unique<VIcebergDeleteFileWriter>(
+            delete_type, output_path, original_output_path, file_format, compress_type);
 }
 
 } // namespace doris
