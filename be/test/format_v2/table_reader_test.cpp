@@ -2553,7 +2553,8 @@ TEST(TableReaderTest, PartitionValuePreservesNullPartitionWithoutCountRequest) {
             // the other partition-value assertions in this file do before reading the value.
             expect_int32_column_values(*block.get_by_position(0).column, {7});
             EXPECT_TRUE(
-                    block.get_by_position(1).column->convert_to_full_column_if_const()->is_null_at(0));
+                    block.get_by_position(1).column->convert_to_full_column_if_const()->is_null_at(
+                            0));
             // No metadata count request: the optimization does not need to prove nonemptiness.
             EXPECT_FALSE(fake_state->last_aggregate_request.has_value());
             EXPECT_EQ(fake_state->init_count, 1);
