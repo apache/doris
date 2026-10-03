@@ -90,14 +90,15 @@ Status PrimaryKeyModelRowRetriever::retrieve_historical_row(const Int8* delete_s
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
 
     CHECK(_context.rowset_writer_ctx != nullptr);
-    bool write_before =
-            _context.rowset_writer_ctx->write_binlog_opt().write_binlog_config().write_before;
+    bool need_historical_value = _context.rowset_writer_ctx->write_binlog_opt()
+                                         .write_binlog_config()
+                                         .need_historical_value;
     // The lookup uses the tablet's latest schema, the delete-sign rule the source schema. Hold the
     // shared pointer: tablet_schema() hands out a copy and the probe only borrows it.
     TabletSchemaSPtr lookup_schema = _context.tablet->tablet_schema();
     MowKeyProbe probe = MowKeyProbe::for_row_binlog(_context.tablet.get(), lookup_schema.get(),
                                                     tablet_schema->has_sequence_col(), _mow_context,
-                                                    write_before);
+                                                    need_historical_value);
     // the binlog retriever reports no partial update counters
     PartialUpdateStats discarded_stats;
 
@@ -174,12 +175,13 @@ Status PrimaryKeyModelRowRetriever::materialize_flexible_partial_update(
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
 
     CHECK(_context.rowset_writer_ctx != nullptr);
-    const bool write_before =
-            _context.rowset_writer_ctx->write_binlog_opt().write_binlog_config().write_before;
+    const bool need_historical_value = _context.rowset_writer_ctx->write_binlog_opt()
+                                                   .write_binlog_config()
+                                                   .need_historical_value;
     TabletSchemaSPtr lookup_schema = _context.tablet->tablet_schema();
     MowKeyProbe probe = MowKeyProbe::for_row_binlog(_context.tablet.get(), lookup_schema.get(),
                                                     tablet_schema->has_sequence_col(), _mow_context,
-                                                    write_before);
+                                                    need_historical_value);
     BlockAggregator aggregator(*tablet_schema, _context.tablet, _mow_context,
                                *_context.partial_update_info, *_key_encoder, probe, *_row_fetcher);
 

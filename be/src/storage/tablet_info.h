@@ -58,6 +58,7 @@ class TupleDescriptor;
 struct OlapTableIndexSchema {
     int64_t index_id;
     int64_t row_binlog_id = 0;
+    PRowBinlogWriteColumnMappings row_binlog_column_mappings;
     std::vector<SlotDescriptor*> slots;
     int32_t schema_hash;
     std::vector<TabletColumn*> columns;

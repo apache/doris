@@ -129,10 +129,11 @@ public:
     }
 
     // The row binlog history lookup: marks nothing, and keeps the old values of a sequence loser,
-    // and of a delete-signed row when a __BEFORE__* image is wanted.
+    // and of a delete-signed row when historical values are requested.
     static MowKeyProbe for_row_binlog(BaseTablet* tablet, TabletSchema* lookup_schema,
                                       bool has_sequence_col,
-                                      std::shared_ptr<MowContext> mow_context, bool write_before) {
+                                      std::shared_ptr<MowContext> mow_context,
+                                      bool need_historical_value) {
         return MowKeyProbe {tablet,
                             lookup_schema,
                             has_sequence_col,
@@ -141,7 +142,7 @@ public:
                             0,
                             Policy {
                                     .mark_deleted = MarkDeleted::NONE,
-                                    .use_defaults_for_delete_signed = !write_before,
+                                    .use_defaults_for_delete_signed = !need_historical_value,
                                     .use_defaults_for_seq_loser = false,
                                     .use_defaults_for_in_load_deleted = false,
                             }};

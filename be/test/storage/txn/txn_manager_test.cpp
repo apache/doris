@@ -431,6 +431,11 @@ TEST_F(TxnManagerTest, TxnWithRowBinlog) {
             std::move(guard), false, nullptr, attach_row_binlog);
     ASSERT_TRUE(st.ok()) << st;
 
+    RowsetMetaSharedPtr committed_meta(new RowsetMeta());
+    st = RowsetMetaManager::get_rowset_meta(_meta.get(), _tablet_uid, _rowset->rowset_id(),
+                                            committed_meta);
+    ASSERT_TRUE(st.ok()) << st;
+
     RowsetMetaSharedPtr committed_binlog_meta(new RowsetMeta());
     st = RowsetMetaManager::get_rowset_meta(_meta.get(), _tablet_uid, binlog_rowset->rowset_id(),
                                             committed_binlog_meta);

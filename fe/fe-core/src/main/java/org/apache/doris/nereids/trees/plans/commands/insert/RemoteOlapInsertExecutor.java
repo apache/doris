@@ -50,11 +50,17 @@ import org.apache.doris.thrift.TCommitRemoteTxnResult;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.transaction.BeginTransactionException;
+import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionState.RowBinlogWriteMapping;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Map;
 
 /**
  * Remote executor for Doris Catalog remote insert.
@@ -67,6 +73,7 @@ import org.apache.logging.log4j.Logger;
 public class RemoteOlapInsertExecutor extends OlapInsertExecutor {
 
     private static final Logger LOG = LogManager.getLogger(RemoteOlapInsertExecutor.class);
+    private Map<Long, RowBinlogWriteMapping> rowBinlogColumnMappings = Collections.emptyMap();
 
     public RemoteOlapInsertExecutor(ConnectContext ctx, RemoteOlapTable table,
             String labelName, org.apache.doris.nereids.NereidsPlanner planner,
@@ -141,6 +148,8 @@ public class RemoteOlapInsertExecutor extends OlapInsertExecutor {
                     false,
                     isStrictMode,
                     timeout, olapInsertCtx);
+            rowBinlogColumnMappings = TransactionState.collectRowBinlogColumnMappings(
+                    remoteOlapTableSink.getOlapTableSchemaParam());
 
             if (fragment.getPlanRoot() instanceof ExchangeNode
                     && fragment.getDataPartition().getType() == TPartitionType.OLAP_TABLE_SINK_HASH_PARTITIONED) {
@@ -200,6 +209,14 @@ public class RemoteOlapInsertExecutor extends OlapInsertExecutor {
         request.setTbl(table.getName());
         request.setCommitInfos(coordinator.getCommitInfos());
         request.setInsertVisibleTimeoutMs(ctx.getSessionVariable().getInsertVisibleTimeoutMs());
+        request.setRowBinlogSourceIndexIds(new ArrayList<>(rowBinlogColumnMappings.size()));
+        request.setRowBinlogColumnMappings(new ArrayList<>(rowBinlogColumnMappings.size()));
+        request.setRowBinlogNeedHistoricalValues(new ArrayList<>(rowBinlogColumnMappings.size()));
+        for (Map.Entry<Long, RowBinlogWriteMapping> entry : rowBinlogColumnMappings.entrySet()) {
+            request.addToRowBinlogSourceIndexIds(entry.getKey());
+            request.addToRowBinlogColumnMappings(entry.getValue().toThriftEntries());
+            request.addToRowBinlogNeedHistoricalValues(entry.getValue().isHistorical());
+        }
         try {
             TCommitRemoteTxnResult result = client.commitRemoteTxn(request);
             if (result.getStatus().getStatusCode() == TStatusCode.OK) {

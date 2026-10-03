@@ -299,10 +299,21 @@ protected:
                   context.row_binlog_tablet.get());
         ASSERT_NE(txn_info_it->second->attach_row_binlog.rowset, nullptr);
 
+        // Direct task execution bypasses FE publish decoding; supply the writer's snapshot.
+        ASSERT_EQ(context.schema_param->indexes().size(), 1);
+        const auto* source_index = context.schema_param->indexes().front();
+        ASSERT_EQ(source_index->index_id, context.data_request.index_id);
+        POlapTableIndexSchema index_schema;
+        source_index->to_protobuf(&index_schema);
+        auto attach_row_binlog = txn_info_it->second->attach_row_binlog;
+        attach_row_binlog.column_mapping_snapshot =
+                std::make_shared<const PRowBinlogWriteColumnMappings>(
+                        index_schema.row_binlog_column_mappings());
+
         TabletPublishTxnTask publish_task(
-                *engine_ref, nullptr, context.base_tablet, rowset_it->second,
-                txn_info_it->second->attach_row_binlog, context.data_request.partition_id,
-                context.data_request.txn_id, Version(version, version), base_tablet_info, -1);
+                *engine_ref, nullptr, context.base_tablet, rowset_it->second, attach_row_binlog,
+                context.data_request.partition_id, context.data_request.txn_id,
+                Version(version, version), base_tablet_info, -1);
         publish_task.handle();
         ASSERT_TRUE(publish_task.result().ok()) << publish_task.result();
     }
