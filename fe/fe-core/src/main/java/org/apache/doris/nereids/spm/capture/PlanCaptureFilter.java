@@ -114,6 +114,27 @@ public class PlanCaptureFilter {
     }
 
     /**
+     * The minimum query time (ms) this filter was built with. The audit scan renders the
+     * SAME value into its SQL, so one filter instance is one threshold snapshot shared by
+     * the SQL stage and the in-memory {@link #shouldCapture} stage.
+     *
+     * @return the minimum query time in milliseconds
+     */
+    public long getMinQueryTimeMs() {
+        return minQueryTimeMs;
+    }
+
+    /**
+     * The minimum scanned rows this filter was built with (see
+     * {@link #getMinQueryTimeMs()}).
+     *
+     * @return the minimum scan rows
+     */
+    public long getMinScanRows() {
+        return minScanRows;
+    }
+
+    /**
      * The pure, catalog-independent part of the filter chain (Levels 1, 2, 3, 5).
      *
      * @param event  the audit record

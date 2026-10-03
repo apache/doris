@@ -49,6 +49,8 @@ public class PlanCaptureCycleHandoffTest {
         private final List<long[]> windows = new ArrayList<>();
         private final List<Object[]> cursors = new ArrayList<>();
         private final List<String> tails = new ArrayList<>();
+        /** Thresholds of the filter each page was scanned with, in call order. */
+        private final List<long[]> thresholds = new ArrayList<>();
         private final List<CapturedQuery> candidates;
         private final boolean exhausted;
         private final long returnCursorQueryTime;
@@ -69,12 +71,13 @@ public class PlanCaptureCycleHandoffTest {
 
         @Override
         public ScanBatch scan(long startTimeMs, long endTimeMs, int maxBatchSize,
-                long cursorQueryTime, String cursorTime, String cursorQueryId,
-                String cursorTail) {
+                PlanCaptureFilter filter, long cursorQueryTime, String cursorTime,
+                String cursorQueryId, String cursorTail) {
             calls.incrementAndGet();
             windows.add(new long[] {startTimeMs, endTimeMs});
             cursors.add(new Object[] {cursorQueryTime, cursorTime, cursorQueryId});
             tails.add(cursorTail);
+            thresholds.add(new long[] {filter.getMinQueryTimeMs(), filter.getMinScanRows()});
             return new ScanBatch(candidates, exhausted, returnCursorQueryTime,
                     returnCursorTime, returnCursorQueryId, returnCursorTail);
         }
@@ -158,12 +161,17 @@ public class PlanCaptureCycleHandoffTest {
                 params.getOrDefault("cursorQueryId", ""),
                 params.getOrDefault("failedAttempts", "{}"),
                 params.getOrDefault("retryQueue", "{}"),
-                params.getOrDefault("cursorTail", "")));
+                params.getOrDefault("cursorTail", ""),
+                params.getOrDefault("minQueryTimeMs", "-1"),
+                params.getOrDefault("minScanRows", "-1")));
     }
 
     /**
-     * A TRUNCATED batch (limit reached) must persist the FULL cursor of its last raw row
-     * - including the tail - and the next cycle must resume with exactly that tail.
+     * A TRUNCATED window is drained page by page WITHIN one cycle (a single page per
+     * wakeup would make the backlog grow by one interval per page), and every consumed
+     * page is persisted with the FULL cursor of its last raw row - including the tail - so
+     * the next cycle resumes with exactly that tail. The cycle stops at the page budget
+     * and asks for a PROMPT resume instead of waiting another full interval.
      */
     @Test
     public void testTruncatedCycleKeepsFullCursorInCheckpoint() {
@@ -189,24 +197,31 @@ public class PlanCaptureCycleHandoffTest {
             manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
                     manager.getFilter());
             Object[] fields = manager.checkpointFieldsForTest();
+            Assertions.assertEquals(PlanCaptureManager.maxPagesPerCycleForTest(), scanner.calls.get(),
+                    "one cycle drains up to the page budget of the same window");
             Assertions.assertEquals(42L, fields[3],
                     "a truncated window keeps the cursor of its last consumed row");
             Assertions.assertEquals("2026-01-02 00:00:00", fields[4]);
             Assertions.assertEquals("qid-t", fields[5]);
             Assertions.assertEquals(tail, fields[6],
                     "the FULL cursor tail must be kept in memory");
-            Assertions.assertEquals(2, persisted.size(),
-                    "the initial reservation AND the consumed page both persist");
-            Assertions.assertEquals(tail, persisted.get(1).get("cursorTail"),
+            Assertions.assertEquals(2 + PlanCaptureManager.maxPagesPerCycleForTest(), persisted.size(),
+                    "the initial reservation, every drained page AND the final state persist");
+            Assertions.assertEquals(tail, persisted.get(persisted.size() - 1).get("cursorTail"),
                     "the tail must be persisted for the next leader");
+            Assertions.assertTrue(manager.isPendingWindowResumePromptForTest(),
+                    "a window cut off by the page budget must not wait a full interval");
 
             // the next cycle resumes inside the SAME pending window with the SAME tail
             manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
                     manager.getFilter());
-            Assertions.assertEquals(2, scanner.calls.get());
-            Assertions.assertEquals(tail, scanner.tails.get(1),
+            Assertions.assertEquals(2 * PlanCaptureManager.maxPagesPerCycleForTest(),
+                    scanner.calls.get());
+            Assertions.assertEquals(tail,
+                    scanner.tails.get(PlanCaptureManager.maxPagesPerCycleForTest()),
                     "the resumed scan must use the persisted tail: " + scanner.tails);
-            Assertions.assertArrayEquals(scanner.windows.get(0), scanner.windows.get(1),
+            Assertions.assertArrayEquals(scanner.windows.get(0),
+                    scanner.windows.get(PlanCaptureManager.maxPagesPerCycleForTest()),
                     "a truncated window keeps both bounds across cycles");
         } finally {
             manager.resetForTest();
@@ -542,6 +557,238 @@ public class PlanCaptureCycleHandoffTest {
                     "the reloaded checkpoint stays loaded for the next cycle");
         } finally {
             manager.checkpointLeadershipProbeForTest = null;
+            manager.resetForTest();
+        }
+    }
+
+    // ==================== round-29 #3 / #4: drain, prompt resume, pinned thresholds ====================
+
+    /**
+     * A scanner stub with a REPEATING (truncated) page and an exhaust page it switches to
+     * after a scripted number of truncated pages - the keyset cursor advances in
+     * production, so the drain's page sequence is what a test has to script.
+     */
+    private static final class DrainingScanner extends AuditLogScanner {
+        private final AtomicInteger calls = new AtomicInteger();
+        private final List<long[]> windows = new ArrayList<>();
+        private final List<Object[]> cursors = new ArrayList<>();
+        private final List<String> tails = new ArrayList<>();
+        private final List<long[]> thresholds = new ArrayList<>();
+        private final ScanBatch truncatedPage;
+        private final ScanBatch exhaustedPage;
+        private volatile int truncatedPages;
+
+        DrainingScanner(ScanBatch truncatedPage, ScanBatch exhaustedPage, int truncatedPages) {
+            this.truncatedPage = truncatedPage;
+            this.exhaustedPage = exhaustedPage;
+            this.truncatedPages = truncatedPages;
+        }
+
+        void truncatePages(int pages) {
+            this.truncatedPages = pages;
+        }
+
+        /** Truncates the NEXT {@code pages} calls (the counter is cumulative). */
+        void truncateNextPages(int pages) {
+            this.truncatedPages = calls.get() + pages;
+        }
+
+        @Override
+        public ScanBatch scan(long startTimeMs, long endTimeMs, int maxBatchSize,
+                PlanCaptureFilter filter, long cursorQueryTime, String cursorTime,
+                String cursorQueryId, String cursorTail) {
+            int call = calls.incrementAndGet();
+            windows.add(new long[] {startTimeMs, endTimeMs});
+            cursors.add(new Object[] {cursorQueryTime, cursorTime, cursorQueryId});
+            tails.add(cursorTail);
+            thresholds.add(new long[] {filter.getMinQueryTimeMs(), filter.getMinScanRows()});
+            return call <= truncatedPages ? truncatedPage : exhaustedPage;
+        }
+    }
+
+    private static AuditLogScanner.ScanBatch truncatedPage(long cursorQueryTime, String cursorTime,
+            String cursorQueryId, String cursorTail) {
+        return new AuditLogScanner.ScanBatch(List.of(), false, cursorQueryTime, cursorTime,
+                cursorQueryId, cursorTail);
+    }
+
+    private static AuditLogScanner.ScanBatch exhaustedPage() {
+        return new AuditLogScanner.ScanBatch(List.of(), true, AuditLogScanner.CURSOR_ABSENT,
+                "", "", "");
+    }
+
+    /**
+     * #4: ONE cycle consumes the whole truncated window page by page - the second page
+     * resumes from the first page's FULL cursor - and only then advances the watermark. A
+     * single page per wakeup would make the backlog grow by one interval per page.
+     */
+    @Test
+    public void testOneCycleDrainsTheWindowPageByPage() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            String tail = "[\"10.0.0.3\",\"h3\",\"300\",\"30\",\"m3\"]";
+            DrainingScanner scanner = new DrainingScanner(
+                    truncatedPage(42L, "2026-01-02 00:00:00", "qid-page", tail),
+                    exhaustedPage(), 3);
+            manager.setScannerForTest(scanner);
+            AtomicReference<Map<String, String>> visible = new AtomicReference<>();
+            manager.setCheckpointReaderForTest(() -> visible.get() == null
+                    ? List.of() : List.of(checkpointRow(visible.get())));
+            manager.setCheckpointWriterForTest((sql, params) -> visible.set(new HashMap<>(params)));
+
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(4, scanner.calls.get(),
+                    "3 truncated pages plus the page that exhausts the window: "
+                            + scanner.calls.get());
+            Assertions.assertEquals(42L, scanner.cursors.get(1)[0],
+                    "page 2 resumes from page 1's cursor");
+            Assertions.assertEquals("2026-01-02 00:00:00", scanner.cursors.get(1)[1]);
+            Assertions.assertEquals("qid-page", scanner.cursors.get(1)[2]);
+            Assertions.assertEquals(tail, scanner.tails.get(1),
+                    "every page resumes with the FULL cursor tail");
+
+            Object[] fields = manager.checkpointFieldsForTest();
+            Assertions.assertEquals(scanner.windows.get(0)[1], ((Number) fields[0]).longValue(),
+                    "an exhausted window advances the watermark to the consumed end");
+            Assertions.assertEquals(0L, ((Number) fields[1]).longValue(),
+                    "the drained window leaves no pending window");
+            Assertions.assertEquals(-1L, ((Number) fields[7]).longValue(),
+                    "no threshold snapshot remains for a drained window");
+            Assertions.assertFalse(manager.isPendingWindowResumePromptForTest(),
+                    "a drained window keeps the configured interval");
+        } finally {
+            manager.resetForTest();
+        }
+    }
+
+    /**
+     * #4: a window that STILL has rows when the page budget is reached stays pending with
+     * its cursor AND asks for a prompt resume; the next cycle continues the same window and
+     * finishes it.
+     */
+    @Test
+    public void testPageBudgetLeavesTheWindowPendingAndReschedulesPromptly() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            String tail = "[\"10.0.0.4\",\"h4\",\"400\",\"40\",\"m4\"]";
+            DrainingScanner scanner = new DrainingScanner(
+                    truncatedPage(43L, "2026-01-02 00:00:00", "qid-keep", tail),
+                    exhaustedPage(), Integer.MAX_VALUE);
+            manager.setScannerForTest(scanner);
+            AtomicReference<Map<String, String>> visible = new AtomicReference<>();
+            manager.setCheckpointReaderForTest(() -> visible.get() == null
+                    ? List.of() : List.of(checkpointRow(visible.get())));
+            manager.setCheckpointWriterForTest((sql, params) -> visible.set(new HashMap<>(params)));
+
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(PlanCaptureManager.maxPagesPerCycleForTest(), scanner.calls.get(),
+                    "the drain is BOUNDED by the page budget");
+            Object[] fields = manager.checkpointFieldsForTest();
+            Assertions.assertEquals(43L, ((Number) fields[3]).longValue(),
+                    "the unfinished window keeps the cursor of its last consumed row");
+            Assertions.assertEquals(tail, fields[6]);
+            Assertions.assertEquals(scanner.windows.get(0)[0], ((Number) fields[1]).longValue(),
+                    "the pending window keeps its bounds");
+            Assertions.assertEquals(scanner.windows.get(0)[1], ((Number) fields[2]).longValue());
+            Assertions.assertTrue(manager.isPendingWindowResumePromptForTest(),
+                    "a window cut off by the page budget resumes after the short delay");
+
+            // the next cycle continues the SAME window and finishes it
+            scanner.truncateNextPages(1);
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(PlanCaptureManager.maxPagesPerCycleForTest() + 2,
+                    scanner.calls.get());
+            Assertions.assertEquals(43L,
+                    ((Number) scanner.cursors.get(PlanCaptureManager.maxPagesPerCycleForTest())[0])
+                            .longValue(),
+                    "the resumed cycle starts from the persisted cursor");
+            Object[] drained = manager.checkpointFieldsForTest();
+            Assertions.assertEquals(0L, ((Number) drained[1]).longValue(),
+                    "the finished window drops its bounds");
+            Assertions.assertFalse(manager.isPendingWindowResumePromptForTest(),
+                    "a finished window keeps the configured interval again");
+        } finally {
+            manager.resetForTest();
+        }
+    }
+
+    /**
+     * #3: a window is scanned with the threshold snapshot it was OPENED with. The audit SQL
+     * and the in-memory filter must agree: a `SET GLOBAL
+     * plan_capture_min_query_time_ms` between two pages of one window otherwise returned
+     * rows the stale filter rejected terminally, or pushed already-passed rows behind the
+     * cursor where a lowered threshold could not reach them.
+     */
+    @Test
+    public void testPendingWindowKeepsTheThresholdSnapshotOfItsFirstPage() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            String tail = "[\"10.0.0.5\",\"h5\",\"500\",\"50\",\"m5\"]";
+            // the first window is cut off by the page budget, so it stays PENDING with the
+            // filter it was opened with
+            DrainingScanner scanner = new DrainingScanner(
+                    truncatedPage(44L, "2026-01-02 00:00:00", "qid-thr", tail),
+                    exhaustedPage(), Integer.MAX_VALUE);
+            manager.setScannerForTest(scanner);
+            AtomicReference<Map<String, String>> visible = new AtomicReference<>();
+            List<Map<String, String>> persisted = new ArrayList<>();
+            manager.setCheckpointReaderForTest(() -> visible.get() == null
+                    ? List.of() : List.of(checkpointRow(visible.get())));
+            manager.setCheckpointWriterForTest((sql, params) -> {
+                persisted.add(new HashMap<>(params));
+                visible.set(new HashMap<>(params));
+            });
+
+            PlanCaptureFilter windowFilter = new PlanCaptureFilter(null, null, 1000L, 100L);
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(), windowFilter);
+            Assertions.assertArrayEquals(new long[] {1000L, 100L}, scanner.thresholds.get(0));
+            Object[] fields = manager.checkpointFieldsForTest();
+            Assertions.assertEquals(1000L, ((Number) fields[7]).longValue(),
+                    "the pending window pins the threshold it was opened with");
+            Assertions.assertEquals(100L, ((Number) fields[8]).longValue());
+            Assertions.assertEquals("1000",
+                    persisted.get(persisted.size() - 1).get("minQueryTimeMs"),
+                    "the pin is durable");
+
+            // a window that is still pending is NOT re-judged by the new globals: every
+            // page of cycle 2 keeps the pinned values
+            PlanCaptureFilter raised = new PlanCaptureFilter(null, null, 7L, 7L);
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(), raised);
+            Assertions.assertArrayEquals(new long[] {1000L, 100L},
+                    scanner.thresholds.get(PlanCaptureManager.maxPagesPerCycleForTest()),
+                    "the resumed window keeps its own thresholds, not the takeover's globals");
+            Assertions.assertEquals(1000L, ((Number) manager.checkpointFieldsForTest()[7]).longValue(),
+                    "the pin stays on the pending window");
+            Assertions.assertTrue(manager.isPendingWindowResumePromptForTest(),
+                    "the window is still pending after the second cycle");
+
+            // a process handoff restores the pin from the checkpoint row
+            Map<String, String> restored = new HashMap<>(visible.get());
+            manager.resetForTest();
+            manager.setCheckpointReaderForTest(() -> List.of(checkpointRow(restored)));
+            manager.setCheckpointWriterForTest((sql, params) -> { });
+            DrainingScanner resumed = new DrainingScanner(
+                    truncatedPage(44L, "2026-01-02 00:00:00", "qid-thr", tail),
+                    exhaustedPage(), 0);
+            manager.setScannerForTest(resumed);
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(), raised);
+            Assertions.assertArrayEquals(new long[] {1000L, 100L}, resumed.thresholds.get(0),
+                    "the takeover continues the window with the thresholds it was opened"
+                            + " with, not with its own globals");
+            Assertions.assertEquals(-1L, ((Number) manager.checkpointFieldsForTest()[7]).longValue(),
+                    "an exhausted window drops the pin; the next window follows the globals");
+
+            // the NEXT window follows the refreshed filter again
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(), raised);
+            Assertions.assertArrayEquals(new long[] {7L, 7L}, resumed.thresholds.get(1),
+                    "a new window follows the current globals");
+        } finally {
             manager.resetForTest();
         }
     }

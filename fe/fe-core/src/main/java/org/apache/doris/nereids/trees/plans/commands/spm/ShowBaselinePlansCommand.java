@@ -38,6 +38,7 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 
 import java.time.Instant;
@@ -217,7 +218,12 @@ public class ShowBaselinePlansCommand extends ShowCommand {
     /**
      * Java-side filter: an exact match on the WHERE column (id / bind_sql_digest /
      * bind_sql / plan_sql / source / status / scope), or a MySQL LIKE match on
-     * source / status / bindSql / planSql when the pattern operand was given.
+     * source / status / scope / bindSql / planSql when the pattern operand was given.
+     *
+     * <p>The LIKE chain covers every column the WHERE form accepts, so
+     * {@code SHOW BASELINE PLANS LIKE 'SESSION'} finds a session baseline whose SQL text
+     * does not spell "SESSION" (it used to be missing from the chain, so the pattern only
+     * ever matched a baseline that happened to carry the word inside its SQL).
      *
      * @param baseline the baseline to test
      * @param matcher  the LIKE pattern matcher (null when no LIKE pattern was given)
@@ -250,16 +256,33 @@ public class ShowBaselinePlansCommand extends ShowCommand {
         if (matcher == null) {
             return true;
         }
-        // MySQL LIKE semantics: % and _ are wildcards and the pattern must match the
-        // WHOLE value; the matcher escapes literal regex characters (see buildLikeMatcher),
-        // so a SQL-shaped operand like '%SELECT * FROM%' is matchable and % spans the
-        // newlines the stored SQL text is printed with.
+        return matchesLike(baseline, matcher);
+    }
+
+    /**
+     * The LIKE chain: an operand matches a baseline when it matches the stored bind SQL,
+     * the stored plan SQL or one of the metadata values the WHERE form filters on
+     * (source / status / scope), so {@code SHOW BASELINE PLANS LIKE 'SESSION'} finds a
+     * session baseline whose SQL text does not spell "SESSION".
+     *
+     * <p>MySQL LIKE semantics: % and _ are wildcards and the pattern must match the WHOLE
+     * value; the matcher escapes literal regex characters (see buildLikeMatcher), so a
+     * SQL-shaped operand like '%SELECT * FROM%' is matchable and % spans the newlines the
+     * stored SQL text is printed with.
+     *
+     * @param baseline the baseline to test
+     * @param matcher  the LIKE pattern matcher (never null)
+     * @return whether the pattern matches one of the searched values
+     */
+    @VisibleForTesting
+    static boolean matchesLike(BaselinePlan baseline, java.util.regex.Pattern matcher) {
         return matcher.matcher(baseline.getBindSql() == null ? "" : baseline.getBindSql())
                 .matches()
                 || matcher.matcher(baseline.getPlanSql() == null ? "" : baseline.getPlanSql())
                         .matches()
                 || matcher.matcher(baseline.getSource().toString()).matches()
-                || matcher.matcher(baseline.getStatus().toString()).matches();
+                || matcher.matcher(baseline.getStatus().toString()).matches()
+                || matcher.matcher(baseline.getScope().toString()).matches();
     }
 
     /**
