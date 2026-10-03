@@ -35,9 +35,8 @@ namespace {
 using Segment = VariantElementV2PathSegment;
 
 VariantField encode_json(std::string_view json) {
-    JsonStringToVariantEncoder encoder({.max_json_key_length = 1024,
-                                        .throw_on_invalid_json = true,
-                                        .check_duplicate_json_path = false});
+    JsonStringToVariantEncoder encoder(
+            {.max_json_key_length = 1024, .throw_on_invalid_json = true});
     encoder.add_json({json.data(), json.size()});
     VariantBatchBuilder block = encoder.finish_batch();
     return VariantField::from_ref(block.value_at(0));

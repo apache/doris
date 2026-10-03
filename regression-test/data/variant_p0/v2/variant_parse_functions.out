@@ -8,17 +8,11 @@
 3	false	false	false	1	1
 
 -- !strict_error_to_null --
-true	false
-
--- !permissive_invalid_json_is_string --
-{	false	{	false
+true	true	true
 
 -- !key_too_long_error_to_null --
 true
 
 -- !duplicate_key_error_to_null --
 true
-
--- !duplicate_key_first_wins --
-{"dup":1}	{"dup":1}
 
