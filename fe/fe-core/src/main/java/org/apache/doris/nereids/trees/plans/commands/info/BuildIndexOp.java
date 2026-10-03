@@ -149,6 +149,13 @@ public class BuildIndexOp extends AlterTableOp {
                 && !isSniiInvertedIndex)) {
             throw new AnalysisException(indexType + " index is not needed to build.");
         }
+        // In cloud mode BUILD INDEX rewrites the rowsets through the normal rowset writer, which
+        // builds the GLOBAL_POINT blooms. The local-mode index builder only writes per-segment
+        // index files; there, historical rowsets get their bloom when compaction rewrites them.
+        if (Config.isNotCloudMode() && indexType == IndexType.GLOBAL_POINT) {
+            throw new AnalysisException("BUILD INDEX for a GLOBAL_POINT index is only supported in cloud mode. "
+                    + "Historical rowsets get the index when compaction rewrites them.");
+        }
 
         if (indexType == IndexType.ANN) {
             List<String> columns = existedIdx.getColumns();

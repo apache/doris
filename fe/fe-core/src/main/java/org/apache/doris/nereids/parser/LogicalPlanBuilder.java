@@ -6521,6 +6521,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             indexType = "ANN";
         } else if (ctx.BLOOMFILTER() != null) {
             indexType = "BLOOMFILTER";
+        } else if (ctx.GLOBAL_POINT() != null) {
+            indexType = "GLOBAL_POINT";
         }
         String comment = ctx.STRING_LITERAL() == null ? "" : stripQuotes(ctx.STRING_LITERAL().getText());
         IndexDefinition indexDefinition = new IndexDefinition(indexName, ifNotExists, indexCols, indexType,

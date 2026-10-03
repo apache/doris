@@ -200,6 +200,20 @@ std::string StorageResource::remote_segment_path(const RowsetMeta& rowset, int64
     }
 }
 
+std::string StorageResource::remote_global_point_index_path(int64_t tablet_id,
+                                                            std::string_view rowset_id,
+                                                            int32_t col_unique_id) const {
+    switch (path_version) {
+    case 0:
+        return fmt::format("{}/{}/{}_{}.gpidx", DATA_PREFIX, tablet_id, rowset_id, col_unique_id);
+    case 1:
+        return fmt::format("{}/{}/{}/{}/{}.gpidx", DATA_PREFIX, shard_fn(tablet_id), tablet_id,
+                           rowset_id, col_unique_id);
+    default:
+        exit_at_unknown_path_version(fs->id(), path_version);
+    }
+}
+
 // TODO(dx)
 // fix this, it is a tricky function. Pass the upper layer's tablet ID to the io layer instead of using this tricky method
 // Tricky, It is used to parse tablet_id from remote segment path, and it is used in tablet manager to parse tablet_id from remote segment path.

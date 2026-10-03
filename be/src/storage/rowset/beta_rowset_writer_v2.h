@@ -25,6 +25,7 @@
 #include <memory>
 #include <mutex>
 #include <roaring/roaring.hh>
+#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
@@ -40,6 +41,7 @@ class Block;
 
 namespace segment_v2 {
 class VerticalSegmentWriter;
+class GlobalPointIndexBuilder;
 } // namespace segment_v2
 
 class LoadStreamStub;
@@ -112,6 +114,11 @@ public:
 
     Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat) override;
 
+    // Sends the GLOBAL_POINT bloom of every indexed column to each replica that supports it.
+    // Must be called after every memtable is flushed and before CLOSE_LOAD, i.e. from
+    // DeltaWriterV2::close_wait(). A failed send only costs pruning, so this never fails.
+    Status send_point_query_indexes();
+
     Result<int32_t> allocate_segment_id() override {
         return _segment_creator.allocate_segment_id();
     };
@@ -135,6 +142,9 @@ public:
     }
 
 private:
+    // This writer is the sender of the load stream, the only side that sees column values.
+    Status _init_global_point_index_builders();
+
     mutable std::mutex _lock; // protect following vectors.
     // record rows number of every segment already written, using for rowid
     // conversion when compaction in unique key with MoW model
@@ -151,6 +161,21 @@ private:
     fmt::memory_buffer vlog_buffer;
 
     std::vector<std::shared_ptr<LoadStreamStub>> _streams;
+
+    // One bloom builder per indexed column, covering every segment this sender writes.
+    std::unordered_map<int32_t, std::unique_ptr<segment_v2::GlobalPointIndexBuilder>>
+            _global_point_index_builders;
+    bool _point_query_indexes_sent = false;
+
+#ifdef BE_TEST
+public:
+    const std::unordered_map<int32_t, std::unique_ptr<segment_v2::GlobalPointIndexBuilder>>&
+    global_point_index_builders() const {
+        return _global_point_index_builders;
+    }
+
+private:
+#endif
 
     int64_t _delete_bitmap_ns = 0;
     int64_t _segment_writer_ns = 0;

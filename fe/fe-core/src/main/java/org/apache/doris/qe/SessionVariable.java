@@ -669,6 +669,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String INVERTED_INDEX_COMPATIBLE_READ = "inverted_index_compatible_read";
     public static final String ENABLE_INVERTED_INDEX_WAND_QUERY = "enable_inverted_index_wand_query";
 
+    public static final String ENABLE_GLOBAL_POINT_INDEX_PRUNE = "enable_global_point_index_prune";
+
     public static final String AUTO_ANALYZE_START_TIME = "auto_analyze_start_time";
 
     public static final String AUTO_ANALYZE_END_TIME = "auto_analyze_end_time";
@@ -933,6 +935,11 @@ public class SessionVariable implements Serializable, Writable {
     @VarAttrDef.VarAttr(name = ENABLE_INVERTED_INDEX_WAND_QUERY,
             description = "Whether to enable inverted index WAND query optimization")
     public boolean enableInvertedIndexWandQuery = true;
+
+    @VarAttrDef.VarAttr(name = ENABLE_GLOBAL_POINT_INDEX_PRUNE,
+            description = "Whether to prune tablets at planning time with GLOBAL_POINT indexes. Only takes effect "
+                    + "when the FE config enable_global_point_index_prune is also on.")
+    public boolean enableGlobalPointIndexPrune = true;
 
     public void setHotValueCollectCount(int count) {
         this.hotValueCollectCount = count;

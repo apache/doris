@@ -59,6 +59,8 @@ class FileWriter;
 
 namespace segment_v2 {
 
+class GlobalPointIndexBuilder;
+
 enum class VariantWriterInputFormat : uint8_t {
     UNSET,
     V2,
@@ -79,6 +81,9 @@ struct ColumnWriterOptions {
     bool is_ngram_bf_index = false;
     bool need_inverted_index = false;
     bool need_ann_index = false;
+    // GLOBAL_POINT index: the builder is owned by the rowset writer, because one bloom covers all
+    // segments of the rowset. This column writer only feeds values into it. Null means no index.
+    GlobalPointIndexBuilder* point_query_index_builder = nullptr;
     uint8_t gram_size;
     uint16_t gram_bf_size;
     BloomFilterOptions bf_options;
@@ -356,6 +361,8 @@ private:
     std::unique_ptr<ZoneMapIndexWriter> _zone_map_index_builder;
     std::vector<std::unique_ptr<IndexColumnWriter>> _inverted_index_builders;
     std::unique_ptr<BloomFilterIndexWriter> _bloom_filter_index_builder;
+    // Borrowed from the rowset writer, see ColumnWriterOptions::point_query_index_builder.
+    GlobalPointIndexBuilder* _point_query_index_builder = nullptr;
 
     // call before flush data page.
     FlushPageCallback* _new_page_callback = nullptr;

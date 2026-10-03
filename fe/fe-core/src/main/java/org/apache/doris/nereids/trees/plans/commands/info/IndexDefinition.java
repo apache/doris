@@ -55,6 +55,9 @@ public class IndexDefinition {
     public static final String NGRAM_BF_SIZE_KEY = "bf_size";
     public static final String DEFAULT_NGRAM_SIZE = "2";
     public static final String DEFAULT_NGRAM_BF_SIZE = "256";
+    public static final String GLOBAL_POINT_FPP_KEY = "fpp";
+    public static final double MIN_GLOBAL_POINT_FPP = 1e-6;
+    public static final double MAX_GLOBAL_POINT_FPP = 0.5;
     private static final double MIN_BF_FPP = 0.0001;
     private static final double MAX_BF_FPP = 0.05;
 
@@ -99,6 +102,10 @@ public class IndexDefinition {
                     this.indexType = IndexType.ANN;
                     break;
                 }
+                case "GLOBAL_POINT": {
+                    this.indexType = IndexType.GLOBAL_POINT;
+                    break;
+                }
                 default:
                     throw new AnalysisException("unknown index type " + indexTypeName);
             }
@@ -111,6 +118,8 @@ public class IndexDefinition {
         if (indexType == IndexType.NGRAM_BF) {
             this.properties.putIfAbsent(NGRAM_SIZE_KEY, DEFAULT_NGRAM_SIZE);
             this.properties.putIfAbsent(NGRAM_BF_SIZE_KEY, DEFAULT_NGRAM_BF_SIZE);
+        } else if (indexType == IndexType.GLOBAL_POINT) {
+            this.properties.putIfAbsent(GLOBAL_POINT_FPP_KEY, String.valueOf(Config.global_point_index_default_fpp));
         }
 
         this.comment = comment;
@@ -146,6 +155,37 @@ public class IndexDefinition {
     }
 
     /**
+     * Check if the column type is supported for GLOBAL_POINT index.
+     *
+     * <p>Stricter than {@link #isSupportIdxType}: the bloom filter is probed with the literal's
+     * storage bytes, so only types whose equality is exactly byte equality are allowed. FLOAT and
+     * DOUBLE are excluded because of unreliable equality, DECIMAL because its byte form depends on
+     * scale (a probe with a different scale would be a false negative), and nested, JSON and
+     * VARIANT types because point-lookup semantics on them are not defined.
+     */
+    public static boolean isSupportGlobalPointIdxType(DataType columnType) {
+        if (columnType.isArrayType() || columnType.isMapType() || columnType.isStructType()
+                || columnType.isJsonType() || columnType.isVariantType()) {
+            return false;
+        }
+        return columnType.isDateLikeType() || columnType.isIntegralType()
+                || columnType.isStringLikeType() || columnType.isLargeIntType();
+    }
+
+    /**
+     * Same check as {@link #isSupportGlobalPointIdxType(DataType)}, for catalog column types.
+     */
+    public static boolean isSupportGlobalPointIdxType(Type columnType) {
+        if (columnType.isArrayType() || columnType.isMapType() || columnType.isStructType()
+                || columnType.isJsonbType() || columnType.isVariantType()) {
+            return false;
+        }
+        PrimitiveType primitiveType = columnType.getPrimitiveType();
+        return primitiveType.isDateLikeType() || primitiveType.isFixedPointType()
+                || primitiveType.isStringType() || primitiveType == PrimitiveType.LARGEINT;
+    }
+
+    /**
      * Scalar column types the SNII storage format can serve with its native BKD index.
      *
      * <p>This mirrors {@code field_is_numeric_type} on the BE side, which is what
@@ -176,6 +216,15 @@ public class IndexDefinition {
     public void checkColumn(ColumnDefinition column, KeysType keysType,
             boolean enableUniqueKeyMergeOnWrite,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
+        if (indexType == IndexType.GLOBAL_POINT) {
+            caseSensitivityCols.add(column.getName());
+            if (!isSupportGlobalPointIdxType(column.getType())) {
+                throw new AnalysisException(column.getType() + " is not supported in GLOBAL_POINT index. "
+                        + "invalid index: " + name);
+            }
+            validateGlobalPointProperties();
+            return;
+        }
         if (indexType == IndexType.ANN) {
             if (column.isNullable()) {
                 throw new AnalysisException("ANN index must be built on a column that is not nullable");
@@ -299,6 +348,15 @@ public class IndexDefinition {
      */
     public void checkColumn(Column column, KeysType keysType, boolean enableUniqueKeyMergeOnWrite,
                             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat) throws AnalysisException {
+        if (indexType == IndexType.GLOBAL_POINT) {
+            caseSensitivityCols.add(column.getName());
+            if (!isSupportGlobalPointIdxType(column.getType())) {
+                throw new AnalysisException(column.getType() + " is not supported in GLOBAL_POINT index. "
+                        + "invalid index: " + name);
+            }
+            validateGlobalPointProperties();
+            return;
+        }
         if (indexType == IndexType.ANN) {
             if (column.isAllowNull()) {
                 throw new AnalysisException("ANN index must be built on a column that is not nullable");
@@ -418,7 +476,7 @@ public class IndexDefinition {
             partitionNames.validate();
         }
         if (isBuildDeferred && (indexType == IndexType.INVERTED || indexType == IndexType.NGRAM_BF
-                || indexType == IndexType.BLOOMFILTER)) {
+                || indexType == IndexType.BLOOMFILTER || indexType == IndexType.GLOBAL_POINT)) {
             if (Strings.isNullOrEmpty(name)) {
                 throw new AnalysisException("index name cannot be blank.");
             }
@@ -434,7 +492,8 @@ public class IndexDefinition {
         }
 
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED
-                || indexType == IndexType.BLOOMFILTER || indexType == IndexType.NGRAM_BF) {
+                || indexType == IndexType.BLOOMFILTER || indexType == IndexType.NGRAM_BF
+                || indexType == IndexType.GLOBAL_POINT) {
             if (cols == null || cols.size() != 1) {
                 throw new AnalysisException(
                         indexType.toString() + " index can only apply to a single column.");
@@ -579,6 +638,28 @@ public class IndexDefinition {
             }
         } catch (NumberFormatException e) {
             throw new AnalysisException("Bloom filter fpp is not Double", e);
+        }
+    }
+
+    private void validateGlobalPointProperties() {
+        for (String key : properties.keySet()) {
+            if (!GLOBAL_POINT_FPP_KEY.equals(key)) {
+                throw new AnalysisException("GLOBAL_POINT index only supports property " + GLOBAL_POINT_FPP_KEY
+                        + ", invalid property: " + key);
+            }
+        }
+        String fpp = properties.get(GLOBAL_POINT_FPP_KEY);
+        if (fpp == null) {
+            return;
+        }
+        try {
+            double fppValue = Double.parseDouble(fpp);
+            if (!Double.isFinite(fppValue) || fppValue < MIN_GLOBAL_POINT_FPP || fppValue > MAX_GLOBAL_POINT_FPP) {
+                throw new AnalysisException("GLOBAL_POINT index fpp should be in [" + MIN_GLOBAL_POINT_FPP + ", "
+                        + MAX_GLOBAL_POINT_FPP + "]");
+            }
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("GLOBAL_POINT index fpp is not a double: " + fpp, e);
         }
     }
 

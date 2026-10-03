@@ -743,6 +743,9 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
                 scanNode.updateScanRangeVersions(
                         ((OlapTableWrapper) table).getPartitionVisibleVersionMap());
             } else {
+                // Must run before updateScanRangeVersions(): a prune rebuilds the scan ranges, and
+                // the rebuilt ranges still need their versions set.
+                scanNode.applyGlobalPointIndexPrune(visibleVersionMap);
                 scanNode.updateScanRangeVersions(visibleVersionMap);
             }
         }

@@ -2048,6 +2048,35 @@ DECLARE_mString(aws_credentials_provider_version);
 DECLARE_mBool(enable_concurrency_stats_dump);
 DECLARE_mInt32(concurrency_stats_dump_interval_ms);
 
+// GLOBAL_POINT index.
+// Expected number of bloom filters per tablet. The fpp in the index DDL is a budget for the whole
+// tablet, and each rowset bloom gets this share of it. Compaction keeps the real number small.
+DECLARE_mInt32(global_point_index_expected_blooms_per_tablet);
+// Row count used to size a bloom on the load path, where the final row count of the rowset is not
+// known yet. An underestimate only raises the fpp; it never causes a false negative.
+DECLARE_mInt64(global_point_index_write_path_estimated_rows);
+// Upper bound of one bloom on the load path, rounded down to a power of two. A load holds one bloom
+// per indexed column for every tablet it writes to. Compaction and BUILD INDEX size exactly and are
+// not capped.
+DECLARE_mInt64(global_point_index_max_write_path_bloom_bytes);
+// Tolerance of the bloom sizing self-check, in percent of the bits per key the bloom's own fpp
+// needs. 0 or less disables the check.
+DECLARE_mInt32(global_point_index_bloom_size_slack_percent);
+// Scan-time gate: before opening the segments of a rowset, test its GLOBAL_POINT blooms against
+// EQ/IN predicates and skip the rowset on a definite miss. Read-path only; turning it off has no
+// effect on stored data.
+DECLARE_mBool(enable_global_point_index_scan_gate);
+// Build GLOBAL_POINT blooms on the sender of memtable-on-sink-node loads and send them to the
+// receivers. Blooms are only sent to receivers that advertise support, so a mixed-version cluster
+// is safe; rowsets whose receiver does not support it simply get no descriptor.
+DECLARE_mBool(enable_global_point_index_sink_build);
+// Threads that read and test .gpidx files for plan-time prune requests, shared by all requests on
+// the BE. This bounds the concurrent object storage reads of pruning.
+DECLARE_Int32(global_point_index_prune_io_max_threads);
+// Threads that bring .gpidx files into the file cache for warm-up requests. A separate pool, so
+// warm-up never delays pruning.
+DECLARE_Int32(global_point_index_warmup_io_max_threads);
+
 DECLARE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin);
 
 DECLARE_mBool(enable_cloud_make_rs_visible_on_be);

@@ -208,6 +208,9 @@ Status DeltaWriterV2::close_wait(int32_t& num_segments, RuntimeProfile* profile)
         _update_profile(profile);
     }
     RETURN_IF_ERROR(_memtable_writer->close_wait(profile));
+    // Every memtable is flushed, so the blooms have seen all rows of this sender, and CLOSE_LOAD
+    // is not sent yet, so the receivers are still listening.
+    RETURN_IF_ERROR(_rowset_writer->send_point_query_indexes());
     num_segments = _rowset_writer->next_segment_id();
 
     _delta_written_success = true;

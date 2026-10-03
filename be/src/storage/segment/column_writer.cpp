@@ -31,6 +31,7 @@
 #include "core/types.h"
 #include "io/fs/file_writer.h"
 #include "storage/index/bloom_filter/bloom_filter_index_writer.h"
+#include "storage/index/global_point/global_point_index_writer.h"
 #include "storage/index/inverted/inverted_index_writer.h"
 #include "storage/index/ordinal_page_index.h"
 #include "storage/index/zone_map/zone_map_index.h"
@@ -584,6 +585,7 @@ Status ScalarColumnWriter::init() {
                                                            &_bloom_filter_index_builder));
         }
     }
+    _point_query_index_builder = _opts.point_query_index_builder;
     return Status::OK();
 }
 
@@ -600,6 +602,9 @@ Status ScalarColumnWriter::append_nulls(size_t num_rows) {
     }
     if (_opts.need_bloom_filter) {
         _bloom_filter_index_builder->add_nulls(cast_set<uint32_t>(num_rows));
+    }
+    if (_point_query_index_builder != nullptr) {
+        _point_query_index_builder->add_nulls(num_rows);
     }
     return Status::OK();
 }
@@ -635,6 +640,9 @@ Status ScalarColumnWriter::_internal_append_data_in_current_page(const uint8_t* 
     }
     if (_opts.need_bloom_filter) {
         RETURN_IF_ERROR(_bloom_filter_index_builder->add_values(data, *num_written));
+    }
+    if (_point_query_index_builder != nullptr) {
+        _point_query_index_builder->add_values(get_column()->type(), data, *num_written);
     }
 
     _next_rowid += *num_written;

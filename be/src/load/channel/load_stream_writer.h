@@ -60,6 +60,12 @@ public:
 
     Status add_segment(uint32_t segid, const SegmentStatistics& stat);
 
+    // Hands one sender's partial GLOBAL_POINT bloom to the rowset writer, which ORs it in.
+    Status add_point_query_index(const PGlobalPointIndexPart& part, butil::IOBuf buf);
+
+    // Drops every received part, so the rowset gets no GLOBAL_POINT descriptor.
+    void drop_point_query_indexes();
+
     Status pre_close() {
         std::lock_guard<std::mutex> l(_lock);
         return _pre_close();

@@ -481,6 +481,27 @@ void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
     }
     // In partial update the rowset schema maybe updated when table contains variant type, so we need the newest schema to be updated
     // Otherwise the schema is stale and lead to wrong data read
+    // MOW partial-update publish appends `other`'s segments to this rowset without re-encoding.
+    // This rowset's GLOBAL_POINT blooms only cover its original segments, so a value that exists
+    // only in the appended segments would be a false negative. `other` carries no bloom of its own
+    // (see BaseBetaRowsetWriter::_init_global_point_index_builders), and two blooms of different
+    // sizes cannot be merged, so the descriptors of non-key columns are dropped: the tablet is
+    // scanned until compaction rebuilds them. Key columns keep theirs, because partial update
+    // supplies every key column and an appended row repeats a key already in the original
+    // segments.
+    if (_rowset_meta_pb.point_query_indexes_size() > 0 && other.num_segments() > 0) {
+        const TabletSchemaSPtr& schema = tablet_schema();
+        google::protobuf::RepeatedPtrField<ColumnPointIndexPB> kept;
+        for (const auto& desc : _rowset_meta_pb.point_query_indexes()) {
+            // A column dropped since the bloom was written is not found here; its descriptor can
+            // never be probed again, so it is dropped too.
+            int32_t idx = schema == nullptr ? -1 : schema->field_index(desc.column_unique_id());
+            if (idx >= 0 && schema->column(cast_set<size_t>(idx)).is_key()) {
+                *kept.Add() = desc;
+            }
+        }
+        _rowset_meta_pb.mutable_point_query_indexes()->Swap(&kept);
+    }
     TEST_SYNC_POINT_RETURN_WITH_VOID("RowsetMeta::merge_rowset_meta:skip_schema_merge");
     if (tablet_schema()->num_variant_columns() > 0) {
         // merge extracted columns

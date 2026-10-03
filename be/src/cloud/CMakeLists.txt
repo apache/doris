@@ -28,8 +28,12 @@ pch_reuse(Cloud)
 # The two http action TUs stay individual: sibling TUs' file-scope
 # `using namespace ErrorCode` makes the unscoped HttpStatus enum constants
 # (OK, NOT_FOUND, ...) shadow ErrorCode variables under -Wshadow -Werror.
+# cloud_global_point_index.cpp also stays individual, so that the batch boundaries of the other
+# TUs do not move: some of them include brpc headers without service/brpc.h, and only compile
+# when no earlier TU in their batch has defined hdfs.h's EINTERNAL macro.
 set(CLOUD_UNITY_SKIP
     ${CMAKE_CURRENT_SOURCE_DIR}/cloud_compaction_action.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/cloud_global_point_index.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/injection_point_action.cpp)
 doris_skip_unity_inclusion(${CLOUD_UNITY_SKIP})
 set_target_properties(Cloud PROPERTIES UNITY_BUILD ${DORIS_UNITY_BUILD}

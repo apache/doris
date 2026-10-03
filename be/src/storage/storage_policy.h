@@ -77,6 +77,9 @@ struct StorageResource {
                                     int64_t seg_id) const;
     std::string remote_segment_path(const RowsetMeta& rowset, int64_t seg_id) const;
     std::string remote_tablet_path(int64_t tablet_id) const;
+    // Must match global_point_index_path() in cloud/src/recycler/util.h.
+    std::string remote_global_point_index_path(int64_t tablet_id, std::string_view rowset_id,
+                                               int32_t col_unique_id) const;
     std::string remote_delete_bitmap_path(int64_t tablet_id, std::string_view rowset_id) const;
 
     std::string remote_idx_v1_path(const RowsetMeta& rowset, int64_t seg_id, int64_t index_id,

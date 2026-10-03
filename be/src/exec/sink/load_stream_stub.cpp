@@ -225,6 +225,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
     if (response.tablet_load_rowset_num_infos_size() > 0) {
         _refresh_back_pressure_version_wait_time(response.tablet_load_rowset_num_infos());
     }
+    _supports_point_query_index.store(response.supports_point_query_index());
     if (cntl.Failed()) {
         brpc::StreamClose(_stream_id);
         _status = Status::InternalError("Failed to connect to backend {}: {}", _dst_id,
@@ -279,6 +280,30 @@ Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64
     header.set_opcode(doris::PStreamHeader::ADD_SEGMENT);
     segment_stat.to_pb(header.mutable_segment_statistics());
     return _encode_and_send(header);
+}
+
+// ADD_POINT_QUERY_INDEX
+Status LoadStreamStub::add_point_query_index(int64_t partition_id, int64_t index_id,
+                                             int64_t tablet_id, const PGlobalPointIndexPart& part,
+                                             std::span<const Slice> body) {
+    if (!_supports_point_query_index.load()) {
+        // An older receiver would read this opcode as APPEND_DATA. Without the part, the rowset
+        // written by that receiver simply has no GLOBAL_POINT descriptor.
+        return Status::OK();
+    }
+    if (!_is_open.load()) {
+        // Not a failed tablet: a missing bloom only costs pruning.
+        return _status;
+    }
+    PStreamHeader header;
+    header.set_src_id(_src_id);
+    *header.mutable_load_id() = _load_id;
+    header.set_partition_id(partition_id);
+    header.set_index_id(index_id);
+    header.set_tablet_id(tablet_id);
+    header.set_opcode(doris::PStreamHeader::ADD_POINT_QUERY_INDEX);
+    header.mutable_point_query_index()->CopyFrom(part);
+    return _encode_and_send(header, body);
 }
 
 // CLOSE_LOAD

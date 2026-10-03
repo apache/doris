@@ -75,6 +75,13 @@ inline std::string inverted_index_path_v2(int64_t tablet_id, const std::string& 
     return fmt::format("data/{}/{}_{}.idx", tablet_id, rowset_id, segment_id);
 }
 
+// One GLOBAL_POINT index file per rowset and indexed column. Must match
+// StorageResource::remote_global_point_index_path() on BE.
+inline std::string global_point_index_path(int64_t tablet_id, const std::string& rowset_id,
+                                           int32_t col_unique_id) {
+    return fmt::format("data/{}/{}_{}.gpidx", tablet_id, rowset_id, col_unique_id);
+}
+
 inline std::string inverted_index_path_v1(int64_t tablet_id, const std::string& rowset_id,
                                           int64_t segment_id, int64_t index_id,
                                           std::string_view index_path_suffix) {

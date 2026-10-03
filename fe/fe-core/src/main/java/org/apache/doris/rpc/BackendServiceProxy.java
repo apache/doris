@@ -584,6 +584,34 @@ public class BackendServiceProxy {
         return null;
     }
 
+    // Returns null instead of throwing, so the caller can treat a failed send like any other
+    // reason to keep the tablets.
+    public Future<InternalService.PGlobalPointIndexPruneResponse> pruneGlobalPointIndexAsync(
+            TNetworkAddress address, InternalService.PGlobalPointIndexPruneRequest request) {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.pruneGlobalPointIndex(request, Config.global_point_index_prune_timeout_ms);
+        } catch (Throwable e) {
+            LOG.warn("prune global point index failed, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+        }
+        return null;
+    }
+
+    // The BE answers once the tablets are queued, so a short deadline is enough. Returns null on
+    // failure, like pruneGlobalPointIndexAsync.
+    public Future<InternalService.PGpIdxWarmUpResponse> warmUpGlobalPointIndexAsync(
+            TNetworkAddress address, InternalService.PGpIdxWarmUpRequest request) {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.warmUpGlobalPointIndex(request, 10);
+        } catch (Throwable e) {
+            LOG.warn("warm up global point index failed, address={}:{}",
+                    address.getHostname(), address.getPort(), e);
+        }
+        return null;
+    }
+
     public Future<InternalService.PDeleteDictionaryResponse> deleteDictionaryAsync(TNetworkAddress address,
             int timeoutSec, InternalService.PDeleteDictionaryRequest request) {
         try {
