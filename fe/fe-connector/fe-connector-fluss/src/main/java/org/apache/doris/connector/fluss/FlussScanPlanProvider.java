@@ -39,6 +39,7 @@ import org.apache.fluss.metadata.PartitionInfo;
 import org.apache.fluss.metadata.TableBucket;
 import org.apache.fluss.metadata.TablePath;
 import org.apache.fluss.types.DataType;
+import org.apache.fluss.types.RowType;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -155,6 +156,14 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
      * has no segment to name.
      */
     static final String SESSION_UNION_READ_MODE = "fluss_union_read_mode";
+
+    /**
+     * The session variable that has a statement's primary-key ranges declare the JVM heap BE's reader of
+     * each will hold, so that BE admits those readers by it ({@link FlussJniHeapEstimate}). Byte-identical
+     * to {@code SessionVariable.ENABLE_JNI_HEAP_ADMISSION}; off by default, and then no range declares
+     * anything.
+     */
+    static final String SESSION_JNI_HEAP_ADMISSION = "enable_jni_heap_admission";
 
     /**
      * The SCAN-LEVEL table format, read by BE's scanner selection before it fetches any range. Every reader
@@ -284,6 +293,9 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         List<ConnectorScanRange> ranges = union != null && handle.hasPrimaryKey()
                 ? planPrimaryKeyUnion(session, handle, union, request)
                 : planWithoutKeyMerging(session, handle, union, request);
+        if (handle.hasPrimaryKey() && isJniHeapAdmissionEnabled(session)) {
+            ranges = FlussJniHeapEstimate.declare(ranges, jniHeapRowBytes(session, handle, request));
+        }
 
         plannedReadMode = handle.isLogOnly() ? READ_MODE_LOG : READ_MODE_DEFAULT;
         plannedLogRanges = count(ranges, FlussScanRange.RangeType.LOG);
@@ -295,6 +307,33 @@ public class FlussScanPlanProvider implements ConnectorScanPlanProvider {
         // half-way through, and EXPLAIN has to say what was actually planned.
         plannedUnionRead = unionRead != null;
         return ranges;
+    }
+
+    private static boolean isJniHeapAdmissionEnabled(ConnectorSession session) {
+        return session != null
+                && Boolean.parseBoolean(session.getSessionProperties().get(SESSION_JNI_HEAP_ADMISSION));
+    }
+
+    /**
+     * A row as a primary-key range's reader keeps it: the columns the statement reads and the physical key
+     * columns, which the reader adds to merge by. The schema is the statement's own (see
+     * {@link FlussStatementScope}), the one the column handles index into.
+     */
+    private long jniHeapRowBytes(ConnectorSession session, FlussTableHandle handle,
+            ConnectorScanRequest request) {
+        TablePath path = handle.toTablePath();
+        RowType rowType = FlussStatementScope.sharedTableInfo(session, path, () -> adminOps.getTableInfo(path))
+                .getRowType();
+        Set<Integer> fields = new LinkedHashSet<>();
+        for (ConnectorColumnHandle column : request.getColumns()) {
+            if (column instanceof FlussColumnHandle) {
+                fields.add(((FlussColumnHandle) column).getFieldIndex());
+            }
+        }
+        for (String key : handle.getPhysicalPrimaryKeys()) {
+            fields.add(rowType.getFieldIndex(key));
+        }
+        return FlussJniHeapEstimate.rowBytes(rowType, fields);
     }
 
     /**
