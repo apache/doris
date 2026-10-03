@@ -155,4 +155,22 @@ Status StreamLoadRecorder::get_batch(const std::string& start, int batch_size,
     return Status::OK();
 }
 
+Status StreamLoadRecorder::get_batch_desc(int count,
+                                          std::map<std::string, std::string>* stream_load_records) {
+    rocksdb::ColumnFamilyHandle* handle = _handles[DEFAULT_COLUMN_FAMILY_INDEX];
+    std::unique_ptr<rocksdb::Iterator> it(_db->NewIterator(rocksdb::ReadOptions(), handle));
+    it->SeekToLast();
+    rocksdb::Status status = it->status();
+    if (!status.ok()) {
+        LOG(WARNING) << "rocksdb SeekToLast failed. reason:" << status.ToString();
+        return Status::InternalError("Stream load record rocksdb SeekToLast failed");
+    }
+    int num = 0;
+    for (; it->Valid() && num < count; it->Prev()) {
+        (*stream_load_records)[it->key().ToString()] = it->value().ToString();
+        num++;
+    }
+    return Status::OK();
+}
+
 } // namespace doris

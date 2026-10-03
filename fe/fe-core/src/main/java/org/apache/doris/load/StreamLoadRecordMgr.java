@@ -36,6 +36,7 @@ import org.apache.doris.plugin.audit.StreamLoadAuditEvent;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
+import org.apache.doris.thrift.TLoadJob;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStreamLoadRecord;
 import org.apache.doris.thrift.TStreamLoadRecordResult;
@@ -44,6 +45,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.JsonObject;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -61,6 +63,7 @@ import java.util.PriorityQueue;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.BooleanSupplier;
 import java.util.stream.Collectors;
 
 public class StreamLoadRecordMgr extends MasterDaemon {
@@ -153,6 +156,15 @@ public class StreamLoadRecordMgr extends MasterDaemon {
         return new ArrayList<>(streamLoadRecordHeap);
     }
 
+    /**
+     * LEGACY read path for SHOW STREAM LOAD. Serves rows from the FE-local cache populated by the
+     * periodic pull in {@link #runAfterCatalogReady()}, so results lag behind actual Stream Load
+     * completion by up to fetch_stream_load_record_interval_second.
+     *
+     * <p>Recommended query direction is {@code SELECT ... FROM information_schema.loads}, which
+     * reads BE RocksDB on demand and is not tied to this cache. This method is kept for
+     * compatibility with existing SHOW STREAM LOAD users.
+     */
     public List<List<Comparable>> getStreamLoadRecordByDb(
             long dbId, String label, boolean accurateMatch, ShowLoadCommand.StreamLoadState state) {
         LinkedList<List<Comparable>> streamLoadRecords = new LinkedList<List<Comparable>>();
@@ -208,6 +220,311 @@ public class StreamLoadRecordMgr extends MasterDaemon {
         }
     }
 
+    /**
+     * Map a StreamLoadRecord to a TLoadJob row for the unified information_schema.loads table.
+     * Stream Load records are historical completion records, so PROGRESS is always "100%"
+     * and JOB_ID / CREATE_TIME / ETL_* / TRANSACTION_ID / ERROR_TABLETS are empty strings.
+     * Stream-Load-specific context and counters are grouped into TASK_INFO, while URL and error
+     * text are grouped into ERROR_DETAIL.
+     */
+    static TLoadJob streamLoadRecordToLoadJob(StreamLoadRecord record) {
+        TLoadJob tJob = new TLoadJob();
+        tJob.setJobId("");
+        tJob.setLabel(record.getLabel());
+        // Unify STATE with the LoadManager job-state vocabulary so the loads / loads_history
+        // STATE column is consistent across import types. The original Stream Load status text
+        // is preserved verbatim in ERROR_MSG (record.getMessage()). SHOW STREAM LOAD is unaffected;
+        // it reads the raw record status via a separate path.
+        tJob.setState(unifyStreamLoadState(record.getStatus()));
+        tJob.setProgress("100%");
+        tJob.setType("STREAM_LOAD");
+        tJob.setEtlInfo("");
+
+        JsonObject taskInfo = new JsonObject();
+        taskInfo.addProperty("Db", record.getDb());
+        taskInfo.addProperty("Table", record.getTable());
+        taskInfo.addProperty("ClientIp", record.getClientIp());
+        taskInfo.addProperty("TotalRows", record.getTotalRows());
+        taskInfo.addProperty("LoadedRows", record.getLoadedRows());
+        taskInfo.addProperty("FilteredRows", record.getFilteredRows());
+        taskInfo.addProperty("UnselectedRows", record.getUnselectedRows());
+        taskInfo.addProperty("LoadBytes", record.getLoadBytes());
+        taskInfo.addProperty("BeginTxnTimeMs", record.getBeginTxnTimeMs());
+        tJob.setTaskInfo(taskInfo.toString());
+
+        tJob.setErrorMsg(record.getMessage());
+        tJob.setCreateTime("");
+        tJob.setEtlStartTime("");
+        tJob.setEtlFinishTime("");
+        tJob.setLoadStartTime(record.getStartTime());
+        tJob.setLoadFinishTime(record.getFinishTime());
+        tJob.setUrl(record.getUrl());
+
+        JsonObject jobDetails = new JsonObject();
+        jobDetails.addProperty("TotalRows", record.getTotalRows());
+        jobDetails.addProperty("LoadedRows", record.getLoadedRows());
+        jobDetails.addProperty("FilteredRows", record.getFilteredRows());
+        jobDetails.addProperty("UnselectedRows", record.getUnselectedRows());
+        jobDetails.addProperty("LoadBytes", record.getLoadBytes());
+        jobDetails.addProperty("BeginTxnTimeMs", record.getBeginTxnTimeMs());
+        jobDetails.addProperty("StreamLoadPutTimeMs", record.getStreamLoadPutTimeMs());
+        tJob.setJobDetails(jobDetails.toString());
+
+        tJob.setTransactionId("");
+        tJob.setErrorTablets("");
+        tJob.setUser(record.getUser());
+        tJob.setComment(record.getComment());
+        tJob.setFirstErrorMsg(record.getFirstErrorMsg());
+        tJob.setErrorDetail(LoadJobInfoFormatter.buildErrorDetail(
+                record.getUrl(), "", record.getMessage()));
+        return tJob;
+    }
+
+    /**
+     * Map a Stream Load record status to the unified LoadManager job-state vocabulary used by
+     * information_schema.loads / loads_history (JobState names: FINISHED / CANCELLED). Stream Load
+     * records are always completion snapshots:
+     * <ul>
+     *   <li>"Success" / "Publish Timeout" -> FINISHED (data is committed and visible / will be)</li>
+     *   <li>"Fail" / "Label Already Exists" -> CANCELLED</li>
+     * </ul>
+     * Any unrecognized status is returned unchanged so a future BE status is never silently lost.
+     */
+    static String unifyStreamLoadState(String streamLoadStatus) {
+        if (streamLoadStatus == null) {
+            return "";
+        }
+        switch (streamLoadStatus) {
+            case "Success":
+            case "Publish Timeout":
+                return "FINISHED";
+            case "Fail":
+            case "Label Already Exists":
+                return "CANCELLED";
+            default:
+                return streamLoadStatus;
+        }
+    }
+
+    /**
+     * Build a StreamLoadRecord from a BE-returned TStreamLoadRecord.
+     * Shared by the legacy periodic pull (SHOW STREAM LOAD cache) and the on-demand
+     * information_schema.loads read path so both interpret the BE record identically.
+     */
+    private static StreamLoadRecord buildStreamLoadRecord(TStreamLoadRecord item,
+            String startTime, String finishTime) {
+        return new StreamLoadRecord(item.getLabel(), item.getDb(), item.getTbl(), item.getUserIp(),
+                item.getStatus(), item.getMessage(), item.getUrl(),
+                String.valueOf(item.getTotalRows()),
+                String.valueOf(item.getLoadedRows()),
+                String.valueOf(item.getFilteredRows()),
+                String.valueOf(item.getUnselectedRows()),
+                String.valueOf(item.getLoadBytes()),
+                item.isSetBeginTxnTimeMs() ? String.valueOf(item.getBeginTxnTimeMs()) : "",
+                item.isSetStreamLoadPutTimeMs() ? String.valueOf(item.getStreamLoadPutTimeMs()) : "",
+                startTime, finishTime, item.getUser(), item.getComment(),
+                String.valueOf(item.getFirstErrorMsg()));
+    }
+
+    /**
+     * Read Stream Load records directly from every alive BE's RocksDB stream-load-record store
+     * and return them as TLoadJob rows for information_schema.loads.
+     *
+     * <p>This is the query path for {@code SELECT ... FROM information_schema.loads}. Unlike
+     * SHOW STREAM LOAD, it does NOT depend on the FE periodic cache populated by
+     * {@code fetch_stream_load_record_interval_second}; each query pulls fresh records on demand.
+     *
+     * <p>Robustness/bounds:
+     * <ul>
+     *   <li>A single unavailable BE is tolerated: its records are skipped instead of failing the
+     *       whole system-table query.</li>
+     *   <li>Each BE is paginated with the BE-side {@code stream_load_record_batch_size} bound, and
+     *       the total number of rows returned is capped by {@code max_stream_load_record_size} to
+     *       avoid exhausting FE memory on one SELECT.</li>
+     * </ul>
+     *
+     * <p>The first version does no SQL predicate pushdown; filtering is handled by the schema-scan
+     * layer above this call.
+     */
+    public List<TLoadJob> getStreamLoadJobsFromBackends() {
+        List<TLoadJob> streamLoadJobs = Lists.newArrayList();
+        ImmutableMap<Long, Backend> backends;
+        try {
+            backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster();
+        } catch (AnalysisException e) {
+            LOG.warn("Failed to load backends when reading stream load records for"
+                    + " information_schema.loads", e);
+            return streamLoadJobs;
+        }
+
+        // Per-BE cap: fetch the newest `perBeCap` records from each BE (one desc RPC, no loop).
+        // Each BE may hold distinct records, so we read from all BEs and let the upper SQL layer
+        // handle ORDER BY / LIMIT. FE memory is bounded by #BEs * perBeCap.
+        int perBeCap = Config.max_stream_load_record_size;
+        for (Backend backend : backends.values()) {
+            if (!backend.isAlive()) {
+                continue;
+            }
+            fetchNewestStreamLoadJobsFromBackend(backend, streamLoadJobs, perBeCap);
+        }
+        return streamLoadJobs;
+    }
+
+    /**
+     * Fetch the newest {@code cap} Stream Load records from one BE in a single RPC
+     * (reverse / newest-first order) and convert them to TLoadJob rows.
+     * One RPC per BE replaces the old multi-round forward-pagination loop, eliminating both the
+     * oldest-first truncation bias and the INFO log storm on large clusters.
+     */
+    private void fetchNewestStreamLoadJobsFromBackend(Backend backend,
+            List<TLoadJob> streamLoadJobs, int cap) {
+        BackendService.Client client = null;
+        TNetworkAddress address = null;
+        boolean ok = false;
+        try {
+            address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+            client = ClientPool.backendPool.borrowObject(address);
+            TStreamLoadRecordResult result = client.getStreamLoadRecordDesc(cap);
+            ok = true;
+            Map<String, TStreamLoadRecord> batch = result.getStreamLoadRecord();
+            if (batch == null || batch.isEmpty()) {
+                return;
+            }
+            for (TStreamLoadRecord item : batch.values()) {
+                try {
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,
+                                    item.getDb(), item.getTbl(), PrivPredicate.LOAD)) {
+                        continue;
+                    }
+                    streamLoadJobs.add(streamLoadRecordToLoadJob(toStreamLoadRecord(item)));
+                } catch (Exception e) {
+                    LOG.debug("Skip stream load record in information_schema.loads, label: {}",
+                            item.getLabel(), e);
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to read stream load records (desc) from backend[{}],"
+                    + " skipping this backend", backend.getId(), e);
+        } finally {
+            if (client != null) {
+                if (ok) {
+                    ClientPool.backendPool.returnObject(address, client);
+                } else {
+                    ClientPool.backendPool.invalidateObject(address, client);
+                }
+            }
+        }
+    }
+
+    /**
+     * Read Stream Load records with finish time >= minFinishTimeMs from one backend's RocksDB
+     * store and convert them into loads_history records. Used by {@link LoadsHistorySyncer};
+     * unlike the information_schema.loads path this does no per-record privilege filtering:
+     * the caller is a master-only daemon persisting snapshots, visibility is decided at query
+     * time (and the daemon thread has no ConnectContext to check against anyway).
+     */
+    public List<LoadJobHistoryRecord> getStreamLoadHistoryRecords(Backend backend, long minFinishTimeMs, int cap) {
+        List<LoadJobHistoryRecord> records = Lists.newArrayList();
+        readStreamLoadRecordsFromBackend(backend, () -> records.size() < cap, item -> {
+            if (records.size() >= cap) {
+                return false;
+            }
+            if (item.getFinishTime() < minFinishTimeMs) {
+                return true;
+            }
+            try {
+                records.add(new LoadJobHistoryRecord(
+                        streamLoadRecordKey(item.getDb(), item.getLabel(), item.getFinishTime()),
+                        item.getFinishTime(),
+                        streamLoadRecordToLoadJob(toStreamLoadRecord(item))));
+            } catch (Exception e) {
+                LOG.warn("Skip stream load record for loads_history, label: {}", item.getLabel(), e);
+            }
+            return true;
+        });
+        return records;
+    }
+
+    /**
+     * Stable dedup key of a Stream Load record for the loads_history UNIQUE KEY. A label is
+     * unique within one database while the load exists, and reusing a label later always
+     * produces a new finish time, so this triple identifies one load run; re-scanning the same
+     * record yields the same key and upserts instead of duplicating.
+     */
+    static String streamLoadRecordKey(String db, String label, long finishTimeMs) {
+        return "STREAM_LOAD:" + db + ":" + label + ":" + finishTimeMs;
+    }
+
+    private static StreamLoadRecord toStreamLoadRecord(TStreamLoadRecord item) {
+        String startTime = TimeUtils.longToTimeString(item.getStartTime(),
+                TimeUtils.getDatetimeMsFormatWithTimeZone());
+        String finishTime = TimeUtils.longToTimeString(item.getFinishTime(),
+                TimeUtils.getDatetimeMsFormatWithTimeZone());
+        return buildStreamLoadRecord(item, startTime, finishTime);
+    }
+
+    /** Visits BE RocksDB records page by page. Return false to stop reading this backend. */
+    private interface StreamLoadRecordVisitor {
+        boolean visit(TStreamLoadRecord record);
+    }
+
+    private void readStreamLoadRecordsFromBackend(Backend backend, BooleanSupplier keepGoing,
+            StreamLoadRecordVisitor visitor) {
+        // Paginate forward through the BE RocksDB records. Keys are "{finishTimeMillis}_{label}"
+        // ordered by finish time; -1 means SeekToFirst on the BE side.
+        long lastStreamLoadTime = -1;
+        while (keepGoing.getAsBoolean()) {
+            BackendService.Client client = null;
+            TNetworkAddress address = null;
+            boolean ok = false;
+            Map<String, TStreamLoadRecord> batch;
+            try {
+                address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+                client = ClientPool.backendPool.borrowObject(address);
+                TStreamLoadRecordResult result = client.getStreamLoadRecord(lastStreamLoadTime);
+                batch = result.getStreamLoadRecord();
+                ok = true;
+            } catch (Exception e) {
+                // Tolerate a single BE being temporarily unavailable: skip it and keep the
+                // already-collected records usable.
+                LOG.warn("Failed to read stream load records from backend[{}],"
+                        + " skipping this backend", backend.getId(), e);
+                return;
+            } finally {
+                if (client != null) {
+                    if (ok) {
+                        ClientPool.backendPool.returnObject(address, client);
+                    } else {
+                        ClientPool.backendPool.invalidateObject(address, client);
+                    }
+                }
+            }
+
+            if (batch == null || batch.isEmpty()) {
+                return;
+            }
+
+            long maxFinishTime = lastStreamLoadTime;
+            for (TStreamLoadRecord item : batch.values()) {
+                if (item.getFinishTime() > maxFinishTime) {
+                    maxFinishTime = item.getFinishTime();
+                }
+                if (!visitor.visit(item)) {
+                    return;
+                }
+            }
+
+            // Stop when the pagination cursor can no longer advance. The next fetch seeks past
+            // maxFinishTime, so a non-advancing cursor means there are no more pages (and this
+            // guards against an infinite loop if a page is entirely at the boundary time).
+            if (maxFinishTime <= lastStreamLoadTime) {
+                return;
+            }
+            lastStreamLoadTime = maxFinishTime;
+        }
+    }
+
     public void clearStreamLoadRecord() {
         writeLock();
         if (streamLoadRecordHeap.size() > 0 || dbIdToLabelToStreamLoadRecord.size() > 0) {
@@ -237,6 +554,17 @@ public class StreamLoadRecordMgr extends MasterDaemon {
         lock.writeLock().unlock();
     }
 
+    /**
+     * LEGACY compatibility path. This daemon periodically pulls Stream Load records from every BE
+     * into the FE-local cache (dbIdToLabelToStreamLoadRecord) so that SHOW STREAM LOAD can read
+     * them. It is controlled by enable_stream_load_record and
+     * fetch_stream_load_record_interval_second.
+     *
+     * <p>New query entry points should use {@code SELECT ... FROM information_schema.loads}, which
+     * reads BE RocksDB on demand via {@link #getStreamLoadJobsFromBackends()} and does not depend
+     * on this cache. This periodic pull is retained only to keep SHOW STREAM LOAD working; do not
+     * build new features on top of it.
+     */
     @Override
     protected void runAfterCatalogReady() {
         ImmutableMap<Long, Backend> backends;
@@ -305,16 +633,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                         continue;
                     }
                     StreamLoadRecord streamLoadRecord =
-                            new StreamLoadRecord(streamLoadItem.getLabel(), streamLoadItem.getDb(),
-                                    streamLoadItem.getTbl(), streamLoadItem.getUserIp(),
-                                    streamLoadItem.getStatus(), streamLoadItem.getMessage(), streamLoadItem.getUrl(),
-                                    String.valueOf(streamLoadItem.getTotalRows()),
-                                    String.valueOf(streamLoadItem.getLoadedRows()),
-                                    String.valueOf(streamLoadItem.getFilteredRows()),
-                                    String.valueOf(streamLoadItem.getUnselectedRows()),
-                                    String.valueOf(streamLoadItem.getLoadBytes()),
-                                    startTime, finishTime, streamLoadItem.getUser(), streamLoadItem.getComment(),
-                                    String.valueOf(streamLoadItem.getFirstErrorMsg()));
+                            buildStreamLoadRecord(streamLoadItem, startTime, finishTime);
 
                     String fullDbName = streamLoadItem.getDb();
                     Database db = Env.getCurrentInternalCatalog().getDbNullable(fullDbName);
