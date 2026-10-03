@@ -177,6 +177,9 @@ public class JdbcOracleConnectorClient extends JdbcConnectorClient {
                 }
                 return createDecimalOrString(scale, scale);
             }
+            case "BINARY_FLOAT":
+                return ConnectorType.of("FLOAT");
+            case "BINARY_DOUBLE":
             case "FLOAT":
                 return ConnectorType.of("DOUBLE");
             case "DATE":
