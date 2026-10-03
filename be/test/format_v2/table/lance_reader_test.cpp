@@ -1368,6 +1368,39 @@ TEST(LanceTableReaderSnapshotTest, OpenErrorsNameTheVersionWithoutTheQueryString
     EXPECT_TRUE(reader.close().ok());
 }
 
+TEST(LanceTableReaderSnapshotTest, OpenErrorsShowTheUriWithoutItsPassword) {
+    // A password in the user information may carry a credential and is removed; a user part
+    // without a password stays, since Azure URIs name the container there. Lance parses a
+    // memory:// URI as a URL and names only the object path in its own error text, so the whole
+    // error must be free of the password and the query string. (A file:// URI with user
+    // information is not a valid URL; Lance would open it as a relative local path and echo it.)
+    TQueryGlobals query_globals;
+    RuntimeState state(query_globals);
+    const Columns columns {projected_column("row_id", TYPE_BIGINT, false),
+                           projected_column("_distance", TYPE_FLOAT, true)};
+    for (const auto& [uri, shown] : std::vector<std::pair<std::string, std::string>> {
+                 {"memory://doris:secret@localhost/open_error.lance?token=hidden",
+                  "memory://localhost/open_error.lance"},
+                 {"memory://container@localhost/open_error.lance?token=hidden",
+                  "memory://container@localhost/open_error.lance"}}) {
+        SCOPED_TRACE(uri);
+        RuntimeProfile profile("lance_open_error_uri");
+        auto scan_params = make_float32_vector_search_params({0.0F, 0.0F, 0.0F}, 2, 0);
+        LanceTableReader reader;
+        ASSERT_TRUE(init_reader(&reader, columns, &state, &profile, &scan_params).ok());
+        auto range = make_lance_range("open_error.lance", 999, {0});
+        range.table_format_params.lance_params.__set_dataset_uri(uri);
+        const auto status = prepare_range(&reader, range);
+        ASSERT_FALSE(status.ok());
+        const std::string message = status.to_string();
+        EXPECT_NE(message.find("Lance dataset version 999 at " + shown + ": "), std::string::npos)
+                << message;
+        EXPECT_EQ(message.find("secret"), std::string::npos) << message;
+        EXPECT_EQ(message.find("hidden"), std::string::npos) << message;
+        EXPECT_TRUE(reader.close().ok());
+    }
+}
+
 TEST(LanceTableReaderVectorSearchTest, MultiVectorTopOnePreservesPrecisionAndBatchIndependence) {
     const std::filesystem::path uri = "./be/test/format_v2/table/lance/data/multivector.lance";
     LanceFixtureInfo fixture;
