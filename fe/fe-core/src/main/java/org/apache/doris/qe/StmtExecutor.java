@@ -1678,8 +1678,10 @@ public class StmtExecutor {
                 // ExecuteCommand publishes this same context after a successful first prepared execution.
                 statementContext.setShortCircuitQueryContext(shortCircuitQueryContext);
             }
-            coordBase = new PointQueryExecutor(shortCircuitQueryContext,
-                    context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
+            int maxMessageSize = context.getSessionVariable().getMaxMsgSizeOfResultReceiver();
+            coordBase = BatchPointQueryExecutor.isBatchQuery(shortCircuitQueryContext.scanNode)
+                    ? new BatchPointQueryExecutor(shortCircuitQueryContext, maxMessageSize)
+                    : new PointQueryExecutor(shortCircuitQueryContext, maxMessageSize);
             context.getState().setIsQuery(true);
         } else if (planner instanceof NereidsPlanner && ((NereidsPlanner) planner).getDistributedPlans() != null) {
             setCoord(new NereidsCoordinator(context,
@@ -1704,6 +1706,10 @@ public class StmtExecutor {
             Preconditions.checkState(outFileClause != null, "OUTFILE query must have OutFileClause");
         }
 
+        if (coordBase instanceof BatchPointQueryExecutor) {
+            // KILL QUERY does not set ConnectContext.isKilled(); route it to the outstanding lookup RPCs.
+            setCancelDelegate(coordBase::cancel);
+        }
         try {
             if (outFileClause != null) {
                 deleteExistingOutfileFilesInFe(outFileClause);
@@ -1845,6 +1851,9 @@ public class StmtExecutor {
             setCoord(null);
             throw e;
         } finally {
+            if (coordBase instanceof BatchPointQueryExecutor) {
+                clearCancelDelegate();
+            }
             // For deferred Arrow Flight queries the coordinator is closed later by ConnectContext
             // (next query / connection teardown), so the BE can still fetch splits during DoGet.
             // See #62259.

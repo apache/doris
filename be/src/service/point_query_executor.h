@@ -310,9 +310,13 @@ public:
 private:
     Status _init_keys(const PTabletKeyLookupRequest* request);
 
+    Status _init_read_version(const PTabletKeyLookupRequest* request);
+
     Status _lookup_row_key();
 
     Status _lookup_row_data();
+
+    static void _filter_deleted_rows(Block& block, int delete_sign_idx);
 
     Status _output_data();
 
@@ -349,6 +353,7 @@ private:
     int32_t _row_hits = 0;
     // snapshot read version
     int64_t _version = -1;
+    bool _snapshot_read = false;
 };
 
 } // namespace doris
