@@ -783,7 +783,11 @@ Status Segment::load_index(OlapReaderStatistics* stats, const io::IOContext* sou
             _pk_index_reader = std::make_unique<PrimaryKeyIndexReader>();
             RETURN_IF_ERROR(_pk_index_reader->parse_index(_file_reader, *_pk_index_meta, stats,
                                                           source_io_ctx));
-            // _meta_mem_usage += _pk_index_reader->get_memory_size();
+            _pk_index_cache_bytes.store(_pk_index_reader->get_memory_size(),
+                                        std::memory_order_relaxed);
+            if (_cache_charge_callback) {
+                _cache_charge_callback(cache_charge());
+            }
             return Status::OK();
         } else {
             // read and parse short key index page
