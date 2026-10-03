@@ -1621,4 +1621,73 @@ TEST_F(SpillFileTest, DataDirCapacityTracking) {
     ASSERT_GT(after_write_bytes, initial_bytes);
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// Disk selection
+// ═══════════════════════════════════════════════════════════════════════
+
+namespace {
+
+// Build a manager over `count` same-medium dirs whose reported usage is driven purely by
+// the values we set here, so the selection policy can be exercised without touching real
+// disks. Usage is 1 - available/capacity, see SpillDataDir::_get_disk_usage.
+std::unique_ptr<SpillFileManager> make_manager_with_dirs(
+        const std::string& root, size_t count,
+        const std::function<int64_t(size_t)>& available_bytes_of) {
+    constexpr int64_t kCapacity = 1024L * 1024 * 1024;
+    std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> data_map;
+    for (size_t i = 0; i < count; ++i) {
+        auto path = fmt::format("{}/disk_{}", root, i);
+        auto dir = std::make_unique<SpillDataDir>(path, kCapacity, TStorageMedium::SSD);
+        // Bypass init(): it would stat a real filesystem. The selection path only reads
+        // these three fields (-fno-access-control lets the test set them directly).
+        dir->_disk_capacity_bytes = kCapacity;
+        dir->_available_bytes = available_bytes_of(i);
+        dir->_spill_data_limit_bytes = kCapacity;
+        data_map.emplace(path, std::move(dir));
+    }
+    return std::make_unique<SpillFileManager>(std::move(data_map));
+}
+
+} // namespace
+
+// A stale usage snapshot must not funnel every caller onto one disk. _get_disk_usage() is
+// derived from _available_bytes, which the GC thread only refreshes every
+// config::spill_gc_interval_ms (2s), so without shuffling every call inside that window
+// sorts identically and returns the same winner.
+TEST_F(SpillFileTest, EquallyEmptyDisksAreSelectedInVaryingOrder) {
+    constexpr size_t kDirCount = 4;
+    constexpr int kDraws = 200;
+    auto mgr = make_manager_with_dirs("./ut_dir/spill_select_equal", kDirCount,
+                                      [](size_t) { return 1024L * 1024 * 1024; });
+
+    std::set<std::string> chosen;
+    for (int i = 0; i < kDraws; ++i) {
+        auto dirs = mgr->_get_stores_for_spill(TStorageMedium::SSD);
+        ASSERT_EQ(dirs.size(), kDirCount);
+        chosen.insert(dirs.front()->path());
+    }
+
+    // Every equally-empty disk must be reachable. With a uniform draw over 4 disks the
+    // odds of missing one across 200 draws are ~1e-25, so this cannot flake; the old
+    // deterministic policy yields exactly one distinct winner.
+    ASSERT_EQ(chosen.size(), kDirCount);
+}
+
+// Shuffling must stay confined to the near-equal head: a disk that is genuinely emptier
+// than the rest still has to win every time.
+TEST_F(SpillFileTest, ClearlyEmptiestDiskAlwaysWins) {
+    constexpr int64_t kCapacity = 1024L * 1024 * 1024;
+    // disk_0 is ~10% used, the others ~60% -- far beyond USAGE_EQUIVALENCE_BAND.
+    auto mgr = make_manager_with_dirs("./ut_dir/spill_select_skewed", 3, [](size_t i) {
+        return i == 0 ? static_cast<int64_t>(kCapacity * 0.9)
+                      : static_cast<int64_t>(kCapacity * 0.4);
+    });
+
+    for (int i = 0; i < 50; ++i) {
+        auto dirs = mgr->_get_stores_for_spill(TStorageMedium::SSD);
+        ASSERT_EQ(dirs.size(), 3);
+        ASSERT_EQ(dirs.front()->path(), "./ut_dir/spill_select_skewed/disk_0");
+    }
+}
+
 } // namespace doris::vectorized
