@@ -629,6 +629,19 @@ PAIMON_RUST_NAME="paimon-rust-v0.4.0-rc1.tar.gz"
 PAIMON_RUST_SOURCE="paimon-rust-0.4.0-rc1"
 PAIMON_RUST_MD5SUM="23cd0634692108debf77a26ef4dc20a7"
 
+# openblas
+OPENBLAS_DOWNLOAD="https://github.com/OpenMathLib/OpenBLAS/releases/download/v0.3.30/OpenBLAS-0.3.30.tar.gz"
+OPENBLAS_NAME="OpenBLAS-0.3.30.tar.gz"
+OPENBLAS_SOURCE="OpenBLAS-0.3.30"
+OPENBLAS_MD5SUM="8db3d57f4d4485c6ae3f21ea465660e7"
+
+# datasketches-cpp
+# No release has the HLL union estimate/serialization fix yet, so pin the commit that has it.
+DATASKETCHES_DOWNLOAD="https://github.com/apache/datasketches-cpp/archive/46025e9aeed8368b1184cbde9634dd99d0ee47c0.tar.gz"
+DATASKETCHES_NAME="datasketches-cpp-46025e9aeed8368b1184cbde9634dd99d0ee47c0.tar.gz"
+DATASKETCHES_SOURCE="datasketches-cpp-46025e9aeed8368b1184cbde9634dd99d0ee47c0"
+DATASKETCHES_MD5SUM="33f318cdc01670c420f345a37e2579fc"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'MECAB_IPADIC'
@@ -718,6 +731,8 @@ export TP_ARCHIVES=(
     'PUGIXML'
     'LANCE_C'
     'PAIMON_RUST'
+    'OPENBLAS'
+    'DATASKETCHES'
 )
 
 # This variable is unset on macOS; callers may source this file with nounset.
