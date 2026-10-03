@@ -21,10 +21,41 @@ import org.apache.doris.common.UserException;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.Optional;
 
 public class S3URITest {
+
+    @ParameterizedTest
+    @ValueSource(strings = {"dir//file.csv", "dir/./file.csv", "dir/sub/../file.csv",
+            "./file.csv", "dir/file.csv/", "dir/.../file.csv", "dir/.", "dir/.."})
+    public void testAwsCliStylePreservesObjectKeyPathSegments(String key) throws UserException {
+        S3URI uri = S3URI.create("s3://bucket/" + key);
+        Assertions.assertEquals("bucket", uri.getBucket());
+        Assertions.assertEquals(key, uri.getKey());
+        Assertions.assertEquals(Optional.empty(), uri.getEndpoint());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"dir//file.csv", "dir/./file.csv", "dir/sub/../file.csv",
+            "./file.csv", "dir/file.csv/", "dir/.../file.csv", "dir/.", "dir/.."})
+    public void testStandardUriPreservesObjectKeyPathSegments(String key) throws UserException {
+        for (String scheme : new String[] {"https", "s3"}) {
+            S3URI virtualHosted = S3URI.create(scheme + "://bucket.s3.us-west-1.amazonaws.com/" + key,
+                    false, true);
+            S3URI pathStyle = S3URI.create(scheme + "://s3.us-west-1.amazonaws.com/bucket/" + key,
+                    true, true);
+            for (S3URI uri : new S3URI[] {virtualHosted, pathStyle}) {
+                Assertions.assertEquals("bucket", uri.getBucket());
+                Assertions.assertEquals(key, uri.getKey());
+                Assertions.assertEquals("s3.us-west-1.amazonaws.com", uri.getEndpoint().get());
+                Assertions.assertEquals("us-west-1", uri.getRegion().get());
+            }
+        }
+    }
+
     @Test
     public void testLocationParsing() throws UserException {
         String p1 = "s3://my-bucket/path/to/file";
