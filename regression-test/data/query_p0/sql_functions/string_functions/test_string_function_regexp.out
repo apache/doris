@@ -247,6 +247,24 @@ aXb
 -- !sql_regexp_extract_all_5 --
 ['Case1','Case2','Case3']
 
+-- !sql_regexp_extract_all_zero_width_1 --
+['a']
+
+-- !sql_regexp_extract_all_zero_width_2 --
+['a','a']
+
+-- !sql_regexp_extract_all_zero_width_3 --
+['a','a','a']
+
+-- !sql_regexp_extract_all_zero_width_4 --
+['a','a']
+
+-- !sql_regexp_extract_all_zero_width_5 --
+['','a']
+
+-- !sql_regexp_extract_all_zero_width_6 --
+
+
 -- !sql_regexp_extract_all_6 --
 ['foo\nbar']
 
@@ -316,6 +334,24 @@ billie eillish	1	["billie", "eillish"]
 []
 []
 []
+[]
+
+-- !regexp_extract_all_array_zero_width_1 --
+["a"]
+
+-- !regexp_extract_all_array_zero_width_2 --
+["a", "a"]
+
+-- !regexp_extract_all_array_zero_width_3 --
+["a", "a", "a"]
+
+-- !regexp_extract_all_array_zero_width_4 --
+["a", "a"]
+
+-- !regexp_extract_all_array_zero_width_5 --
+["", "a"]
+
+-- !regexp_extract_all_array_zero_width_6 --
 []
 
 -- !sql --
@@ -544,3 +580,4 @@ Ben
 
 -- !sql_field5 --
 2
+
