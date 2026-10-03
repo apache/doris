@@ -319,6 +319,14 @@ public class FlussJniScanner extends JniScanner {
                 config.setString(entry.getKey().substring(CLIENT_PREFIX.length()), entry.getValue());
             }
         }
+        if (!config.contains(ConfigOptions.NETTY_CLIENT_NUM_NETWORK_THREADS)) {
+            // A connection serves one range at a time (FlussConnectionPool): one stream of requests,
+            // which one network thread carries. Fluss's default is four per connection - four selectors
+            // opened up front, and a thread for each server the connection reaches - while a scan reads
+            // up to sixteen ranges at once, each on a connection of its own, so eight concurrent scans
+            // held over a hundred connections. A catalog that sets the option keeps its number.
+            config.set(ConfigOptions.NETTY_CLIENT_NUM_NETWORK_THREADS, 1);
+        }
         if (!RANGE_TYPE_PK_FULL.equals(rangeType)) {
             // Local-first mistakes lake-covered offsets for readable local log. Remote-first first
             // tries a retained remote segment, then falls back to local; a missing segment is
