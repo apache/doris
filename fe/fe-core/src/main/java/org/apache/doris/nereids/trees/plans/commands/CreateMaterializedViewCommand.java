@@ -107,7 +107,8 @@ import java.util.stream.Collectors;
  * create synchronized materialized view
  */
 public class CreateMaterializedViewCommand extends Command implements ForwardWithSync {
-    private static final String SYNC_MV_PLANER_DISABLE_RULES = "HAVING_TO_FILTER";
+    // MV columns and their order are validated against every declared group key.
+    private static final String SYNC_MV_PLANER_DISABLE_RULES = "HAVING_TO_FILTER,SIMPLIFY_AGG_GROUP_BY";
     private final TableNameInfo name;
 
     private final LogicalPlan logicalPlan;
