@@ -603,6 +603,14 @@ public class SPMMatchingSafetyTest {
                 () -> parse("SHOW BASELINE PLANS WHERE id > 1"));
         Assertions.assertThrows(AnalysisException.class,
                 () -> parse("SHOW BASELINE PLANS WHERE unknown_column = 1"));
+        // round-27: an equality whose LHS is not one of the supported columns (`1 = 1`,
+        // `id + 0 = 1`) used to be read as a LIKE pattern ('1'): the true predicate
+        // searched SQL / status / source text for 1 instead of being rejected with the
+        // advertised analysis error
+        Assertions.assertThrows(AnalysisException.class,
+                () -> parse("SHOW BASELINE PLANS WHERE 1 = 1"));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> parse("SHOW BASELINE PLANS WHERE id + 0 = 1"));
     }
 
     // ==================== MARK join state is part of the match ====================

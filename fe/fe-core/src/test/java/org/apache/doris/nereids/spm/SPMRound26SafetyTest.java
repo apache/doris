@@ -108,9 +108,11 @@ public class SPMRound26SafetyTest {
     }
 
     /**
-     * The comparison is a per-table MULTISET: the two occurrences of a self-joined table
-     * are one multiset, so a swap of the pin between occurrences is indistinguishable
-     * (and reads the same rows overall), while pinning only ONE of them is rejected.
+     * The comparison is per-table and IN STATEMENT ORDER: the two occurrences of a self
+     * joined table are compared one by one, so a swap of the pin between occurrences is
+     * rejected as ambiguous (round-27: the multiset was equal, but after a partition
+     * change the bind pair and the replayed pairing diverge), while pinning only ONE of
+     * them is rejected as a mismatch.
      */
     @Test
     public void testSelectorComparisonIsAMultiset() throws Exception {
@@ -119,11 +121,14 @@ public class SPMRound26SafetyTest {
                 "SELECT a.k FROM t PARTITION(p1) a JOIN t PARTITION(p1) b ON a.k = b.k",
                 "SELECT a.k FROM t PARTITION(p1) a JOIN t PARTITION(p1) b ON a.k = b.k");
         Assertions.assertNotNull(selfJoin.getBindSql());
-        // the pinned occurrence swapped -> the multiset is equal, accepted
-        BaselinePlan swapped = new SPMPlanner().buildBaseline(
-                "SELECT a.k FROM t PARTITION(p1) a JOIN t b ON a.k = b.k",
-                "SELECT a.k FROM t a JOIN t PARTITION(p1) b ON a.k = b.k");
-        Assertions.assertNotNull(swapped.getBindSql());
+        // the pinned occurrence swapped -> rejected: the multiset is equal but the pin is
+        // not attached to the same occurrence
+        RuntimeException swapped = Assertions.assertThrows(RuntimeException.class,
+                () -> new SPMPlanner().buildBaseline(
+                        "SELECT a.k FROM t PARTITION(p1) a JOIN t b ON a.k = b.k",
+                        "SELECT a.k FROM t a JOIN t PARTITION(p1) b ON a.k = b.k"));
+        Assertions.assertTrue(swapped.getMessage().contains("DIFFERENT occurrences"),
+                swapped.getMessage());
         // only ONE occurrence pinned on the plan side -> rejected
         RuntimeException failure = Assertions.assertThrows(RuntimeException.class,
                 () -> new SPMPlanner().buildBaseline(

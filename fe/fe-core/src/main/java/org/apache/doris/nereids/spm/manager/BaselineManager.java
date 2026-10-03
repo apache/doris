@@ -200,10 +200,11 @@ public class BaselineManager {
 
     /**
      * Test seam replacing the journal synchronization of
-     * {@link #refreshAfterForwardedDdl} (null in production): the real sync asks the
-     * master for its max journal id and waits locally, which a unit test cannot do. A
-     * test whose snapshot reader returns a PRE-DDL snapshot until this seam ran proves
-     * the sync happens BEFORE the snapshot read.
+     * {@link #refreshAfterForwardedDdl} and {@link #confirmGlobalRowsForShow} (null in
+     * production): the real sync asks the master for its max journal id and waits
+     * locally, which a unit test cannot do. A test whose snapshot reader returns a
+     * PRE-DDL snapshot until this seam ran proves the sync happens BEFORE the snapshot
+     * read.
      */
     @VisibleForTesting
     public static volatile Runnable forwardedDdlSyncForTest;
@@ -1444,16 +1445,103 @@ public class BaselineManager {
     }
 
     /**
-     * Confirms the GLOBAL store is LOADED before a read whose answer must be
-     * authoritative (SHOW BASELINE PLANS). {@link #getAllBaselines()} only STARTS the
+     * Confirms the GLOBAL store is LOADED. {@link #getAllBaselines()} only STARTS the
      * asynchronous load and returns the current map, so at startup or right after a
-     * promotion - when that map was just cleared - SHOW reported ZERO global rows even
+     * promotion - when that map was just cleared - a caller reported ZERO global rows even
      * though durable rows existed, and a pending or failed read never converged. This
-     * uses the same confirmed read (and retryable error) the mutating DDL relies on;
-     * query matching keeps ensureLoaded()'s nonblocking degradation.
+     * uses the same load (and retryable error) the mutating DDL relies on; query matching
+     * keeps ensureLoaded()'s nonblocking degradation.
+     *
+     * <p>A caller whose answer must reflect GLOBAL DDL completed on ANOTHER FE uses
+     * {@link #confirmGlobalRowsForShow()} instead: "loaded" only means this FE read the
+     * table ONCE, so a follower that finished its load before the master committed keeps
+     * answering from its old map until the refresh daemon runs.
      */
     public void ensureLoadedConfirmed() {
         ensureLoadedOrThrow();
+    }
+
+    /**
+     * CONFIRMED durable read for the GLOBAL rows of SHOW BASELINE PLANS (and, in tests,
+     * of any caller that must observe a GLOBAL DDL completed on another FE).
+     * {@link #ensureLoadedConfirmed()} returns immediately once {@code loaded=true}, and
+     * {@link #getAllBaselines()} then copies this FE's cache, so a follower that loaded
+     * BEFORE a GLOBAL DDL completed on the master kept listing its OLD map: a completed
+     * CREATE was invisible and a completed DROP stayed listed until the next refresh
+     * daemon cycle (and, for a failed read, indefinitely).
+     *
+     * <p>The GLOBAL portion of SHOW is documented as authoritative, so this performs the
+     * module's confirmed read instead:
+     *
+     * <ul>
+     *   <li>the master (or a store without table persistence, whose memory IS the durable
+     *       state) answers from its own publish - every committed GLOBAL DDL ran locally;
+     *   <li>a follower first synchronizes its metadata with the master (the same
+     *       strong-consistency mechanism a forwarded DDL and {@code syncJournalIfNeeded}
+     *       use), then fences every snapshot read that started before that point through
+     *       the store generation;
+     *   <li>the durable rows are then read FRESH: while the store is still unpublished the
+     *       read is performed inline (bounded wait for the in-flight load first, exactly
+     *       like the forwarded-DDL refresh), while it is published the fresh snapshot
+     *       replaces the cache under {@code writerLock} (no local mutation can publish
+     *       meanwhile);
+     *   <li>a failed read surfaces as a retryable error - SHOW must never print a table it
+     *       cannot confirm. The published cache is deliberately NOT invalidated: unlike a
+     *       forwarded DDL, no committed write is known to have happened, so query
+     *       matching keeps its current state and the read is retried (by SHOW or the
+     *       refresh daemon).
+     * </ul>
+     */
+    public void confirmGlobalRowsForShow() {
+        if (snapshotReaderForTest == null && (!persistenceEnabled()
+                || Env.getCurrentEnv() == null || Env.getCurrentEnv().isMaster())) {
+            // no durable store behind this cache, or this FE is the one that executes
+            // every GLOBAL DDL itself: its memory is at least as fresh as the table
+            ensureLoadedOrThrow();
+            return;
+        }
+        synchronized (writerLock) {
+            // Fence: a snapshot whose READ started before this point may predate the
+            // master's committed DDL, so it must never publish after this method
+            // returns (the generation check discards the in-flight load instead).
+            storeGeneration.incrementAndGet();
+            syncJournalWithMaster(ConnectContext.get());
+            if (!loaded) {
+                // Wait (bounded) for the in-flight load to finish and discard itself,
+                // then load once against the CURRENT table content.
+                long deadline = System.currentTimeMillis() + MANAGEMENT_LOAD_WAIT_MILLIS;
+                while (!loaded && System.currentTimeMillis() < deadline) {
+                    if (loadInProgress.compareAndSet(false, true)) {
+                        readAndPublishPossessingLoadSlot();
+                        break;
+                    }
+                    synchronized (loadMonitor) {
+                        try {
+                            loadMonitor.wait(50L);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            break;
+                        }
+                    }
+                }
+                if (!loaded) {
+                    throw new IllegalStateException("SPM baseline store is not ready yet"
+                            + " (the baseline table has not been loaded); please retry later");
+                }
+                return;
+            }
+            final Map<Long, BaselinePlan> snapshot;
+            try {
+                snapshot = readPersistedSnapshot();
+            } catch (Throwable t) {
+                throw new IllegalStateException("SPM baseline rows cannot be confirmed"
+                        + " (SHOW must not report a stale table); please retry later: "
+                        + t.getMessage(), t);
+            }
+            // No writer can interleave (writerLock is held) and loads return early while
+            // loaded, so the snapshot is authoritative for this instant.
+            applyRefreshedBaselines(snapshot);
+        }
     }
 
     /**

@@ -2001,29 +2001,52 @@ public final class SPMPlanTreeSupport {
                 // divergent selection.
                 continue;
             }
-            List<String> fromBind = new ArrayList<>(entry.getValue());
-            List<String> fromPlan = new ArrayList<>(planSelectors.get(entry.getKey()));
-            Collections.sort(fromBind);
-            Collections.sort(fromPlan);
-            if (!fromBind.equals(fromPlan)) {
-                throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                        "SPM cannot align the plan SQL with the bind SQL: their scan"
-                                + " selectors of table '" + entry.getKey() + "' differ (bind side "
-                                + fromBind + ", plan side " + fromPlan + "). The bind text is the"
-                                + " matching key, so every caller matching it carries the BIND's"
-                                + " selection while the frozen plan would read the plan's own one"
-                                + " - after a partition change rows silently appear or disappear."
-                                + " Write both statements with the same PARTITION / TABLET /"
-                                + " TABLESAMPLE / FOR TIMESTAMP / index selection: " + bindSql);
+            List<String> fromBind = entry.getValue();
+            List<String> fromPlan = planSelectors.get(entry.getKey());
+            if (fromBind.equals(fromPlan)) {
+                // identical descriptions IN STATEMENT ORDER: every occurrence carries the
+                // same selection in both texts.
+                continue;
             }
+            if (sameSelectionIgnoreOrder(fromBind, fromPlan)) {
+                // The SAME multiset sits on DIFFERENT occurrences: e.g. the bind reads
+                // `t PARTITION(p1) a CROSS JOIN t PARTITION(p2) b` while the manual plan
+                // pins p2 on `a` and p1 on `b`. Each occurrence keeps its own pin, so the
+                // pin/occurrence mapping is AMBIGUOUS and cannot be aligned: initially the
+                // two plans can agree, but after a new partition arrives (p2 gains an
+                // extra row) the bind pair changes while the replayed plan returns the
+                // other pairing - silently different results. Reject it: comparing only
+                // the per-table multiset (the previous behavior) accepted exactly this
+                // swap.
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                        "SPM cannot align the plan SQL with the bind SQL: the scan selectors"
+                                + " of table '" + entry.getKey() + "' are the same set but pin"
+                                + " DIFFERENT occurrences (bind side " + fromBind + ", plan side "
+                                + fromPlan + ", in statement order). A self-join occurrence"
+                                + " keeps its own PARTITION / TABLET / TABLESAMPLE / index"
+                                + " selection, so the pin/occurrence mapping is ambiguous - after"
+                                + " a partition change the replay silently returns the other"
+                                + " pairing. Write the selections in the SAME occurrence order in"
+                                + " both statements: " + bindSql);
+            }
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "SPM cannot align the plan SQL with the bind SQL: their scan"
+                            + " selectors of table '" + entry.getKey() + "' differ (bind side "
+                            + fromBind + ", plan side " + fromPlan + "). The bind text is the"
+                            + " matching key, so every caller matching it carries the BIND's"
+                            + " selection while the frozen plan would read the plan's own one"
+                            + " - after a partition change rows silently appear or disappear."
+                            + " Write both statements with the same PARTITION / TABLET /"
+                            + " TABLESAMPLE / FOR TIMESTAMP / index selection: " + bindSql);
         }
     }
 
     /**
      * The scan-selector description of every base-table relation, grouped by the
-     * relation's LAST name part (the table name): the bind and plan texts may qualify
-     * their tables differently, and a self join contributes one entry per occurrence
-     * (the comparison is a multiset).
+     * relation's LAST name part (the table name) and kept in STATEMENT (walk) ORDER: the
+     * bind and plan texts may qualify their tables differently, while a self join
+     * contributes one entry per occurrence - the caller compares the lists of one table
+     * per occurrence, so a pin stays attached to the occurrence it belongs to.
      */
     private static Map<String, List<String>> scanSelectorsByTable(Plan plan) {
         Map<String, List<String>> byTable = new HashMap<>();

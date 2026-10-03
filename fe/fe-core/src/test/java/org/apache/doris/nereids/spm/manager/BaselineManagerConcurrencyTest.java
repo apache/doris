@@ -988,8 +988,10 @@ public class BaselineManagerConcurrencyTest {
     /**
      * SHOW BASELINE PLANS used the ASYNCHRONOUS getAllBaselines(): right after startup / a
      * promotion (empty map, load not finished) it listed ZERO rows although durable
-     * baselines existed, and a failed read never converged. The command now requires
-     * ensureLoadedConfirmed(); the query-matching read stays nonblocking and empty.
+     * baselines existed, and a failed read never converged. The command now requires a
+     * confirmed read (confirmGlobalRowsForShow, the same path round-27 exercises for
+     * GLOBAL DDL completed on another FE); the query-matching read stays nonblocking and
+     * empty.
      */
     @Test
     public void testConfirmedLoadIsRequiredForShow() {
@@ -999,11 +1001,12 @@ public class BaselineManagerConcurrencyTest {
             // startup / promotion state: the store is NOT loaded and the table gate is on
             manager.prepareLoadForTest();
             manager.setPersistToTableForTest(true);
+            BaselineManager.forwardedDdlSyncForTest = () -> { };
             BaselineManager.snapshotReaderForTest = () -> {
                 throw new RuntimeException("internal table not ready");
             };
             Assertions.assertThrows(IllegalStateException.class,
-                    manager::ensureLoadedConfirmed,
+                    manager::confirmGlobalRowsForShow,
                     "SHOW must surface a retryable failure instead of listing ZERO rows"
                             + " from an unreadable store");
             Assertions.assertEquals(0, manager.getAllBaselines().size(),
@@ -1011,14 +1014,96 @@ public class BaselineManagerConcurrencyTest {
 
             BaselineManager.snapshotReaderForTest =
                     () -> Map.of(7L, withId(baseline("d1", "p1"), 7L));
-            manager.ensureLoadedConfirmed();
+            manager.confirmGlobalRowsForShow();
             Assertions.assertEquals(1, manager.getAllBaselines().size(),
                     "the confirmed read publishes the durable rows for SHOW");
         } finally {
             BaselineManager.snapshotReaderForTest = null;
+            BaselineManager.forwardedDdlSyncForTest = null;
             manager.clearForTest();
         }
     }
+
+    // ==================== authoritative SHOW rows (round-27) ====================
+
+    /**
+     * Round-27: on a NON-master FE whose cache is already loaded, ensureLoadedConfirmed()
+     * returned immediately and getAllBaselines() copied the OLD map - so a GLOBAL DDL the
+     * master completed after this FE's load stayed invisible (a completed DROP stayed
+     * listed) until the next refresh daemon cycle. The SHOW path now re-reads the durable
+     * rows: the master sync runs BEFORE that read (observable through the seam) and the
+     * fresh snapshot replaces the cache, so SHOW - and only SHOW - reflects the committed
+     * state.
+     */
+    @Test
+    public void testShowRefreshesDurableRowsDespiteLoadedCache() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        List<String> order = new ArrayList<>();
+        try {
+            // this FE loaded the table BEFORE the master's DDL: one row, and it is LOADED
+            manager.setPersistToTableForTest(true);
+            manager.prepareLoadForTest();
+            BaselineManager.snapshotReaderForTest =
+                    () -> Map.of(7L, withId(baseline("d1", "p1"), 7L));
+            manager.loadFromInternalTable();
+            Assertions.assertFalse(manager.getAllBaselines().isEmpty(), "precondition: loaded");
+
+            // the master then CREATEd id 8 and DROPped 7; this FE has not refreshed yet
+            BaselineManager.forwardedDdlSyncForTest = () -> order.add("sync");
+            BaselineManager.snapshotReaderForTest = () -> {
+                order.add("read");
+                return Map.of(8L, withId(baseline("d2", "p2"), 8L));
+            };
+            manager.confirmGlobalRowsForShow();
+            Assertions.assertEquals(List.of("sync", "read"), order,
+                    "the master sync must precede the authoritative snapshot read");
+            List<BaselinePlan> rows = manager.getAllBaselines();
+            Assertions.assertEquals(1, rows.size(),
+                    "SHOW must list the committed state, not this FE's old cache: " + rows);
+            Assertions.assertEquals(8L, rows.get(0).getId(),
+                    "the row created on the master is visible, the dropped one is gone");
+        } finally {
+            BaselineManager.snapshotReaderForTest = null;
+            BaselineManager.forwardedDdlSyncForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * Round-27: when the authoritative read fails, SHOW must fail retryably instead of
+     * printing the old cache as if it were confirmed. The published cache is NOT
+     * invalidated (no committed write is known to have happened, unlike the
+     * forwarded-DDL path), so query matching keeps its state and the next SHOW retries.
+     */
+    @Test
+    public void testShowFailsRetryableWhenTheRowsCannotBeRead() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        try {
+            manager.setPersistToTableForTest(true);
+            manager.prepareLoadForTest();
+            BaselineManager.snapshotReaderForTest =
+                    () -> Map.of(7L, withId(baseline("d1", "p1"), 7L));
+            manager.loadFromInternalTable();
+            BaselineManager.forwardedDdlSyncForTest = () -> { };
+
+            BaselineManager.snapshotReaderForTest = () -> {
+                throw new RuntimeException("internal table not ready");
+            };
+            Assertions.assertThrows(IllegalStateException.class,
+                    manager::confirmGlobalRowsForShow,
+                    "an unconfirmable read must surface as a retryable SHOW failure");
+            Assertions.assertEquals(1, manager.getAllBaselines().size(),
+                    "the cache stays usable for query matching (not invalidated)");
+        } finally {
+            BaselineManager.snapshotReaderForTest = null;
+            BaselineManager.forwardedDdlSyncForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    // ==================== unresolved deletes / temporary markers (round-18) ====================
     // ==================== unresolved deletes / temporary markers (round-18) ====================
 
     /** Scripted identity store: the durable rows plus injectable read / delete failures. */

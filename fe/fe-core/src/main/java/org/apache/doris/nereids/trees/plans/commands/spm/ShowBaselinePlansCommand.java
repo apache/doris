@@ -184,11 +184,14 @@ public class ShowBaselinePlansCommand extends ShowCommand {
         List<BaselinePlan> all = Lists.newArrayList();
         all.addAll(ctx.getSessionBaselineStore().getAllBaselines());
         // GLOBAL rows must be authoritative: getAllBaselines() only STARTS the
-        // asynchronous load and returns the current map, so right after startup / a
-        // promotion (which clears the map) SHOW reported ZERO rows although durable
-        // baselines existed, and a failed read never converged. Use the same confirmed
-        // read (with a retryable error) the mutating DDL relies on.
-        BaselineManager.getInstance().ensureLoadedConfirmed();
+        // asynchronous load and returns the current cache, so right after startup / a
+        // promotion (which clears it) SHOW reported ZERO rows although durable baselines
+        // existed, and - with the cache merely "loaded" - a GLOBAL DDL completed on the
+        // MASTER stayed invisible (a completed DROP stayed listed) until this follower's
+        // next refresh daemon cycle. confirmGlobalRowsForShow() does the module's
+        // confirmed durable read instead: master sync, generation fence, fresh snapshot
+        // apply, retryable error when the rows cannot be read (never a stale table).
+        BaselineManager.getInstance().confirmGlobalRowsForShow();
         all.addAll(BaselineManager.getInstance().getAllBaselines());
         all.sort(Comparator.comparingLong(BaselinePlan::getId));
 

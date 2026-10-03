@@ -80,6 +80,7 @@ import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.spm.SPMOptimizer;
 import org.apache.doris.nereids.spm.SPMPlanner;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -1044,6 +1045,15 @@ public class StmtExecutor {
                         statementContext.setSpmBaselineApplied(true);
                         statementContext.setSpmUsedBaselineId(spmPlanner.getUsedBaselineId());
                         statementContext.setSpmUsedBaseline(spmPlanner.getUsedBaseline());
+                        // The replay must not let an MV rewrite substitute its storage
+                        // table for the frozen plan's SOURCE tables (SPMOptimizer
+                        // #installSpmReplayRuleMask): the frozen plan was produced with
+                        // every MV rewrite excluded, so its fingerprint pins those source
+                        // tables - an async MV that became eligible afterwards would make
+                        // the post-plan fingerprint guard reject its own replay and, with
+                        // the default enable_spm_fallback=false, fail the SELECT although
+                        // the source table did not change.
+                        SPMOptimizer.installSpmReplayRuleMask(statementContext);
                         if (LOG.isDebugEnabled()) {
                             LOG.debug("SPM rewrite applied for query: {}",
                                     originStmt.originStmt);

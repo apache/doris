@@ -204,6 +204,55 @@ public class SPMOptimizer {
     }
 
     /**
+     * Installs the REPLAY-side rule mask on a replaying statement's context: every
+     * MATERIALIZED_VIEW rewrite is forbidden while the frozen plan is re-planned.
+     *
+     * <p>The frozen plan was produced under the SPM whitelist (see {@link #optimize}) -
+     * every MV rewrite excluded - so its fingerprint pins the SOURCE tables. The replay
+     * is normally planned with the session's full rule set, and an MV that became
+     * eligible AFTER the baseline was created (the reported case: an async MTMV over the
+     * very query, built and refreshed later) then substitutes the MV's storage table for
+     * the source table. The post-plan fingerprint guard
+     * ({@code SPMPlanner#verifyReplayMetadata}, which pins the frozen plan's tables)
+     * rejects its own replay and, with the default {@code enable_spm_fallback=false}, the
+     * SELECT fails although the source table has not changed.
+     *
+     * <p>The mask is deliberately NARROWER than the CREATE-side whitelist: it forbids
+     * exactly the rules that SUBSTITUTE one table for another. The remaining
+     * SPM-excluded rules are optimization opportunities that a re-plan may legally take
+     * (they either keep the frozen tables - salt join, structural rewrites, predicate
+     * inference - or their absence would break semantics: ELIMINATE_LIMIT turns the
+     * CALLER's LIMIT 0 into an empty relation, and a full CREATE mask forbids it, which
+     * replayed {@code LIMIT 0} as one row). Rules that REMOVE a table (UK / FK join
+     * elimination, aggregate-to-constant) keep their established fail-closed behavior:
+     * the fingerprint mismatch surfaces through the caller's fallback policy.
+     *
+     * @param statementContext the REPLAYING statement's context; its rule cache must not
+     *                         have been computed yet (the callers install the mask before
+     *                         the planner runs)
+     */
+    public static void installSpmReplayRuleMask(StatementContext statementContext) {
+        statementContext.setSpmExcludedRules(materializedViewRuleMask());
+    }
+
+    /**
+     * The replay mask: one bit per materialized-view rewrite rule
+     * ({@link RuleType#isMaterializedViewRule()}, so newly added MV rules are covered
+     * automatically).
+     *
+     * @return the forbidden-rule mask of the whole MV family
+     */
+    private static BitSet materializedViewRuleMask() {
+        BitSet mask = new BitSet();
+        for (RuleType ruleType : RuleType.values()) {
+            if (ruleType.isMaterializedViewRule()) {
+                mask.set(ruleType.ordinal());
+            }
+        }
+        return mask;
+    }
+
+    /**
      * All materialized view rewrite rule names (RuleTypeClass.MATERIALIZE_VIEW),
      * enumerated programmatically so newly added MV rules are excluded from the SPM
      * whitelist automatically.
