@@ -27,7 +27,7 @@
  */
 suite("test_local_shuffle_fe_be_consistency") {
 
-    def setVarBase = "disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0"
+    def setVarBase = "disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,broadcast_row_count_limit=0"
 
     // Run the given SQL twice — once with enable_local_shuffle_planner=true (FE planner)
     // and once with =false (BE-native) — and assert the result rows are identical.
@@ -135,9 +135,9 @@ suite("test_local_shuffle_fe_be_consistency") {
     """
 
     // SET_VAR prefix used in most test SQLs (disables plan reorder/colocate for deterministic plans)
-    def sv = "/*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0)*/"
+    def sv = "/*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,broadcast_row_count_limit=0)*/"
     // Same as sv but forces serial source path (default in many environments)
-    def svSerialSource = "/*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=true,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0)*/"
+    def svSerialSource = "/*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=true,parallel_pipeline_task_num=4,broadcast_row_count_limit=0)*/"
 
     // ================================================================
     // Section 1: AggSink / StreamingAgg scenarios
@@ -598,7 +598,7 @@ suite("test_local_shuffle_fe_be_consistency") {
     checkConsistencyWithSql("agg_after_nlj_non_bucket",
         """SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,
                              ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,
-                             auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0)*/ a.k2, count(*) AS cnt
+                             broadcast_row_count_limit=0)*/ a.k2, count(*) AS cnt
            FROM ls_t1 a, ls_t2 b WHERE a.k1 > b.k1
            GROUP BY a.k2 ORDER BY a.k2""")
 
@@ -615,7 +615,7 @@ suite("test_local_shuffle_fe_be_consistency") {
     checkConsistencyWithSql("agg_after_nlj_bucket_key",
         """SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,
                              ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,
-                             auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0)*/ a.k1, count(*) AS cnt
+                             broadcast_row_count_limit=0)*/ a.k1, count(*) AS cnt
            FROM ls_t1 a, ls_t2 b WHERE a.k1 > b.k1
            GROUP BY a.k1 ORDER BY a.k1""")
 
