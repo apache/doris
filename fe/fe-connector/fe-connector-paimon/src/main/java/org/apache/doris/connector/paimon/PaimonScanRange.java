@@ -133,6 +133,11 @@ public class PaimonScanRange implements ConnectorScanRange {
         if (builder.paimonSplit != null) {
             props.put("paimon.self_split_weight", String.valueOf(builder.selfSplitWeight));
         }
+        // The JVM heap the JNI reader of this split will hold (PaimonJniHeapEstimate), declared only by a
+        // statement with enable_jni_heap_admission; read back by populateRangeParams.
+        if (builder.paimonSplit != null && builder.jniHeapBytes > 0) {
+            props.put("paimon.jni_heap_bytes", String.valueOf(builder.jniHeapBytes));
+        }
         this.properties = Collections.unmodifiableMap(props);
     }
 
@@ -249,6 +254,10 @@ public class PaimonScanRange implements ConnectorScanRange {
             if (weightStr != null) {
                 rangeDesc.setSelfSplitWeight(Long.parseLong(weightStr));
             }
+            String jniHeapBytes = props.get("paimon.jni_heap_bytes");
+            if (jniHeapBytes != null) {
+                rangeDesc.setJniHeapBytes(Long.parseLong(jniHeapBytes));
+            }
         } else {
             // Native reader path — format already set by file extension
             // FIX-READER-TYPE (3645dc94306): native (ORC/Parquet) reader stack.
@@ -358,6 +367,9 @@ public class PaimonScanRange implements ConnectorScanRange {
         // Bucket of the backing DataSplit; null for splits that have none (see the props comment).
         private Integer bucket;
 
+        // JVM heap the JNI reader will hold; 0 when the statement did not ask (see the props comment).
+        private long jniHeapBytes;
+
         public Builder path(String path) {
             this.path = path;
             return this;
@@ -439,6 +451,11 @@ public class PaimonScanRange implements ConnectorScanRange {
 
         public Builder bucket(int bucket) {
             this.bucket = bucket;
+            return this;
+        }
+
+        public Builder jniHeapBytes(long jniHeapBytes) {
+            this.jniHeapBytes = jniHeapBytes;
             return this;
         }
 
