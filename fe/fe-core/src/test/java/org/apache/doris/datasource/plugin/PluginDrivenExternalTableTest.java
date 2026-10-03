@@ -1026,6 +1026,48 @@ public class PluginDrivenExternalTableTest {
     }
 
     @Test
+    public void displaySchemaUsesDeclaredNullability() {
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.eq("db1"), Mockito.eq("t1")))
+                .thenReturn(Optional.of(handle));
+        Mockito.when(metadata.getTableSchema(Mockito.any(), Mockito.eq(handle)))
+                .thenReturn(new ConnectorTableSchema("t1", ImmutableList.of(
+                        new ConnectorColumn("id", ConnectorType.of("INT"), "", true, null, true)
+                                .withDeclaredNullable(false),
+                        new ConnectorColumn("name", ConnectorType.of("STRING"), "", true, null, true)),
+                        "ICEBERG", Collections.emptyMap()));
+        Mockito.when(metadata.fromRemoteColumnName(Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.anyString())).thenAnswer(inv -> inv.getArgument(3));
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Mockito.when(session.getStatementScope()).thenReturn(ConnectorStatementScope.NONE);
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
+        ExternalDatabase db = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(db.getRemoteName()).thenReturn("db1");
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        Mockito.when(catalog.buildCrossStatementSession()).thenReturn(session);
+        PluginDrivenExternalTable table =
+                Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(table, "catalog", catalog);
+        Deencapsulation.setField(table, "db", db);
+        Deencapsulation.setField(table, "remoteName", "t1");
+        Mockito.doReturn(false).when(table).isView();
+        SchemaCacheValue cached = table.initSchema().get();
+        Mockito.doReturn(Optional.of(cached)).when(table).getSchemaCacheValue();
+        Mockito.doReturn(cached.getSchema()).when(table).getFullSchema();
+
+        List<Column> display = table.getBaseSchemaForDisplay(false);
+
+        Assertions.assertFalse(display.get(0).isAllowNull());
+        Assertions.assertTrue(display.get(1).isAllowNull());
+        // The cached columns keep the nullable read semantics used by scans.
+        Assertions.assertTrue(table.getBaseSchema(false).stream().allMatch(Column::isAllowNull));
+    }
+
+    @Test
     public void systemTableOverridesResolveIsViewToFalse() {
         // A system/metadata table ($snapshots etc.) overrides resolveIsView to a constant false so the base
         // never issues a viewExists round-trip on its synthetic "$"-suffixed name. Here the catalog declares

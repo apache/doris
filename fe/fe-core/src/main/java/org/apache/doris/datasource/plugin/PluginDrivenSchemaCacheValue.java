@@ -61,6 +61,9 @@ public class PluginDrivenSchemaCacheValue extends SchemaCacheValue {
     // carrier. Empty for every connector that does not refine per table.
     private final Set<ConnectorCapability> tableCapabilities;
     private final String writeMetadataIdentity;
+    // Names of the columns the source declares NOT NULL although they are read as nullable
+    // (ConnectorColumn.isDeclaredNullable()). Only metadata display applies them.
+    private final Set<String> declaredNotNullColumns;
 
     public PluginDrivenSchemaCacheValue(List<Column> schema, List<Column> partitionColumns,
             List<String> partitionColumnRemoteNames) {
@@ -82,12 +85,21 @@ public class PluginDrivenSchemaCacheValue extends SchemaCacheValue {
     public PluginDrivenSchemaCacheValue(List<Column> schema, List<Column> partitionColumns,
             List<String> partitionColumnRemoteNames, Map<String, String> tableProperties,
             Set<ConnectorCapability> tableCapabilities, String writeMetadataIdentity) {
+        this(schema, partitionColumns, partitionColumnRemoteNames, tableProperties, tableCapabilities,
+                writeMetadataIdentity, Collections.emptySet());
+    }
+
+    public PluginDrivenSchemaCacheValue(List<Column> schema, List<Column> partitionColumns,
+            List<String> partitionColumnRemoteNames, Map<String, String> tableProperties,
+            Set<ConnectorCapability> tableCapabilities, String writeMetadataIdentity,
+            Set<String> declaredNotNullColumns) {
         super(schema);
         this.partitionColumns = partitionColumns;
         this.partitionColumnRemoteNames = partitionColumnRemoteNames;
         this.tableProperties = tableProperties == null ? Collections.emptyMap() : tableProperties;
         this.tableCapabilities = tableCapabilities == null ? Collections.emptySet() : tableCapabilities;
         this.writeMetadataIdentity = writeMetadataIdentity;
+        this.declaredNotNullColumns = declaredNotNullColumns;
     }
 
     public List<Column> getPartitionColumns() {
@@ -108,5 +120,9 @@ public class PluginDrivenSchemaCacheValue extends SchemaCacheValue {
 
     public String getWriteMetadataIdentity() {
         return writeMetadataIdentity;
+    }
+
+    public Set<String> getDeclaredNotNullColumns() {
+        return declaredNotNullColumns;
     }
 }
