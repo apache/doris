@@ -23,6 +23,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.spm.capture.PlanCaptureManager;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterOp;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterTableOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.ModifyColumnOp;
 import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.statistics.StatisticConstants;
@@ -467,6 +468,50 @@ class InternalSchemaInitializerTest {
             Assertions.assertNull(InternalSchemaInitializer.checkpointColumnPosition(column,
                             new HashSet<>()),
                     "without the anchor the upgrade falls back to the append order");
+        }
+    }
+
+    /**
+     * Round-31 #5: SET GLOBAL accepts ANY compiling regex for
+     * plan_capture_include_pattern / plan_capture_exclude_pattern, so a fixed
+     * VARCHAR(4096) made a valid 4097-byte pattern fail the reservation INSERT - the
+     * capture cycle then returned before scanning, with the pattern still accepted by SET.
+     * Both schemas (fresh create AND the upgrade ALTER) store the patterns as STRING, with
+     * the same headroom as the retry-queue columns.
+     */
+    @Test
+    public void testCheckpointPatternColumnsCanStoreAnyAcceptedRegex() {
+        for (String column : List.of("include_pattern", "exclude_pattern")) {
+            Type freshType = InternalSchema.SPM_CAPTURE_CHECKPOINT_SCHEMA.stream()
+                    .filter(def -> def.getName().equals(column))
+                    .map(ColumnDef::getType)
+                    .findFirst().orElseThrow();
+            Assertions.assertEquals(PrimitiveType.STRING, freshType.getPrimitiveType(),
+                    column + " must be STRING, not a bounded VARCHAR: " + freshType);
+            Type upgradeType = InternalSchemaInitializer.SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS
+                    .get(column);
+            Assertions.assertNotNull(upgradeType, "the upgrade must add " + column);
+            Assertions.assertEquals(PrimitiveType.STRING, upgradeType.getPrimitiveType(),
+                    "the upgrade must add " + column + " as STRING as well: " + upgradeType);
+        }
+    }
+
+    /**
+     * Round-31 (found while verifying #5): every upgraded SPM column is a VALUE column.
+     * An ADD COLUMN flagged KEY lands AFTER the existing value columns, and the schema
+     * change validator rejects any key column that follows a value column
+     * ("Invalid column order. value should be after key"): the ALTER threw, the wait loop
+     * retried the same column forever and an in-place upgraded cluster never gained the
+     * columns its reader / writer already use.
+     */
+    @Test
+    public void testUpgradedSpmColumnsAreValueColumns() {
+        for (String column : List.of("include_pattern", "cursor_tail", "min_query_time_ms")) {
+            ColumnDefinition definition = InternalSchemaInitializer.spmUpgradeColumnDefinition(
+                    column, ScalarType.createType(PrimitiveType.STRING));
+            Assertions.assertEquals(column, definition.getName());
+            Assertions.assertFalse(definition.isKey(),
+                    column + " must be added as a VALUE column, not a key: " + definition);
         }
     }
 }

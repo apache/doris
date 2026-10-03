@@ -1015,6 +1015,76 @@ public class BaselineManagerConcurrencyTest {
                 "the loop advances strictly past the oversized group: " + requestedBounds);
     }
 
+    /**
+     * Round-31 #3: the paginated snapshot must describe ONE state of the table. The loop
+     * issues one SELECT per page and the internal table offers no read view, so a DDL
+     * committing between two pages would be merged into a state that never existed: the
+     * review example reads ENABLED low-id A on page 1, the master drops A and creates
+     * high-id B, page 2 reads B - the published map kept BOTH, so SHOW reported the
+     * completed DROP and matching replayed A until the next refresh. The fence (MAX(id) /
+     * COUNT(*) / MAX(update_time)) is read before AND after the loop; when it moved, the
+     * whole read restarts.
+     */
+    @Test
+    public void testSnapshotReadRetriesWhenDdlLandsDuringThePageLoop() {
+        Map<Long, List<BaselinePlan>> table = new java.util.LinkedHashMap<>();
+        table.put(1L, List.of(withId(baseline("dA", "select k from ta"), 1L)));
+        boolean[] ddlDone = {false};
+        List<String> fenceCalls = new ArrayList<>();
+        Map<Long, BaselinePlan> snapshot;
+        try {
+            snapshot = BaselineManager.readStableSnapshot(pageStart -> {
+                List<ResultRow> rows = table.entrySet().stream()
+                        .filter(entry -> pageStart == null || entry.getKey() >= pageStart)
+                        .flatMap(entry -> entry.getValue().stream())
+                        .map(BaselineManagerConcurrencyTest::rowOf)
+                        .collect(java.util.stream.Collectors.toList());
+                if (!rows.isEmpty() && !ddlDone[0]) {
+                    // the master DROPs A and CREATEs B while this page is being read
+                    ddlDone[0] = true;
+                    table.clear();
+                    table.put(9L, List.of(withId(baseline("dB", "select k from tb"), 9L)));
+                }
+                return rows;
+            }, () -> {
+                fenceCalls.add("fence");
+                return new BaselineManager.SnapshotFence(
+                        table.keySet().stream().mapToLong(Long::longValue).max().orElse(0L),
+                        table.values().stream().mapToLong(List::size).sum(),
+                        table.keySet().toString());
+            });
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        Assertions.assertEquals(List.of(9L),
+                snapshot.keySet().stream().sorted().collect(java.util.stream.Collectors.toList()),
+                "the retried read publishes ONLY the state after the DDL: " + snapshot.keySet());
+        Assertions.assertFalse(snapshot.containsKey(1L),
+                "the dropped baseline A must not survive in the published snapshot");
+        Assertions.assertEquals(4, fenceCalls.size(),
+                "one fence pair per attempt: the mixed first read is discarded, the second"
+                        + " one is published");
+    }
+
+    /**
+     * Round-31 #3 (fail-closed side): a table that never stays stable while its snapshot is
+     * read must NOT be published - a mixed state would let a dropped / re-created baseline
+     * keep replaying until the next refresh. The read gives up after its bounded retries
+     * with a RETRYABLE error (every caller re-reads on its next cycle).
+     */
+    @Test
+    public void testSnapshotReadFailsClosedWhenTheTableNeverStaysStable() {
+        int[] fenceReads = {0};
+        IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
+                () -> BaselineManager.readStableSnapshot(pageStart -> List.of(),
+                        () -> new BaselineManager.SnapshotFence(++fenceReads[0], 1, "t")));
+        Assertions.assertTrue(failure.getMessage().contains("kept changing"),
+                "the failure must say the table moved and the operation is retryable:"
+                        + " " + failure.getMessage());
+        Assertions.assertEquals(6, fenceReads[0],
+                "one fence pair per attempt, bounded to the retry budget");
+    }
+
     /** One internal-table row built from a BaselinePlan (column order mirrors fromRow). */
     private static ResultRow rowOf(BaselinePlan plan) {
         return new ResultRow(List.of(

@@ -19,6 +19,8 @@ package org.apache.doris.nereids.spm;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.catalog.FunctionVolatility;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.datasource.ExternalTable;
@@ -47,10 +49,12 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Explode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
+import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -620,6 +624,117 @@ public class SPMPlan2SQLBuilderTest {
         String sql = new SPMPlan2SQLBuilder().toSQL(agg);
         Assertions.assertTrue(sql.contains("GROUPING SETS((a), (a, b))"),
                 "GROUPING SETS must be reconstructed: " + sql);
+    }
+
+    // ==================== user names that collide with execution-internal markers ====================
+
+    /**
+     * Round-31 #1: a user UDAF whose own name starts with "partial_" is NOT an internal
+     * execution stage. The physical plan keeps the USER'S function in every stage - the
+     * "partial_" text is only a RENDERING of a buffer aggregate mode - so the name test
+     * classified this one-phase GLOBAL aggregate as an intermediate stage, discarded the
+     * aggregate and froze "SELECT * FROM t" (wrong cardinality AND columns on every later
+     * baseline hit).
+     */
+    @Test
+    public void testUserAggregateNamedPartialIsNotAnInternalStage() {
+        SlotReference v = new SlotReference("v", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(v));
+
+        // a REAL user UDAF instance whose own name starts with the internal prefix
+        JavaUdaf userFn = new JavaUdaf("partial_myagg", 1L, "test_db", null,
+                FunctionSignature.ret(IntegerType.INSTANCE).args(IntegerType.INSTANCE),
+                null, org.apache.doris.catalog.Function.NullableMode.ALWAYS_NULLABLE,
+                FunctionVolatility.IMMUTABLE, null, null, null, null, null, null, null, null,
+                null, null, false, null, false, -1L, v);
+        NamedExpression output = new Alias(new AggregateExpression(userFn,
+                new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT)), "c");
+
+        PhysicalHashAggregate<?> agg = Mockito.mock(PhysicalHashAggregate.class);
+        Mockito.when(agg.child(0)).thenReturn(scan);
+        Mockito.when(agg.getAggPhase()).thenReturn(AggPhase.GLOBAL);
+        Mockito.when(agg.getGroupByExpressions()).thenReturn(List.of());
+        Mockito.when(agg.getOutputExpressions()).thenReturn(List.of(output));
+        stubAccept(agg);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(agg);
+        Assertions.assertTrue(sql.contains("partial_myagg(v)"),
+                "the user aggregate must survive the decompile under its OWN name: " + sql);
+    }
+
+    /**
+     * Round-31 #2: a quoted user column named {@code count()} is a DATA argument, not the
+     * count-star buffer. The buffer slot is decided by PROVENANCE - a slot the child
+     * relation does not export - while this column is registered by its scan. The name
+     * test alone froze {@code count(`count()`)} as count(*), so every later baseline hit
+     * counted ROWS where the column is NULL (the review example returned 3 instead of 2).
+     */
+    @Test
+    public void testQuotedCountColumnStaysAnAggregateArgument() {
+        SlotReference countCol = new SlotReference("count()", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(countCol));
+        NamedExpression output = new Alias(new AggregateExpression(new Count(countCol),
+                new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT), countCol), "c");
+
+        PhysicalHashAggregate<?> agg = Mockito.mock(PhysicalHashAggregate.class);
+        Mockito.when(agg.child(0)).thenReturn(scan);
+        Mockito.when(agg.getAggPhase()).thenReturn(AggPhase.GLOBAL);
+        Mockito.when(agg.getGroupByExpressions()).thenReturn(List.of());
+        Mockito.when(agg.getOutputExpressions()).thenReturn(List.of(output));
+        stubAccept(agg);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(agg);
+        Assertions.assertTrue(sql.contains("count(`count()`)"),
+                "the quoted column must stay the aggregate argument: " + sql);
+        Assertions.assertFalse(sql.contains("count(*)"),
+                "a user column named count() must not collapse into a star: " + sql);
+    }
+
+    /**
+     * Round-31 #2 (the other side of the same provenance rule): an EXECUTION-ONLY buffer
+     * slot - named after the count-star SQL but exported by NO relation - still collapses
+     * into count(*), so the fix does not leak {@code count(partial_count(*))} into the
+     * frozen SQL.
+     */
+    @Test
+    public void testExecutionOnlyCountBufferStillCollapsesIntoStar() {
+        SlotReference k = new SlotReference("k", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(k));
+        SlotReference buffer = new SlotReference("partial_count(*)", IntegerType.INSTANCE);
+        NamedExpression output = new Alias(new AggregateExpression(new Count(),
+                new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT), buffer), "c");
+
+        PhysicalHashAggregate<?> agg = Mockito.mock(PhysicalHashAggregate.class);
+        Mockito.when(agg.child(0)).thenReturn(scan);
+        Mockito.when(agg.getAggPhase()).thenReturn(AggPhase.GLOBAL);
+        Mockito.when(agg.getGroupByExpressions()).thenReturn(List.of());
+        Mockito.when(agg.getOutputExpressions()).thenReturn(List.of(output));
+        stubAccept(agg);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(agg);
+        Assertions.assertTrue(sql.contains("count(*)"),
+                "the unexported execution buffer must still collapse into count(*): " + sql);
+    }
+
+    /**
+     * Round-31 #6: a legal user column named GROUPING_ID must flow through projections.
+     * Only the synthetic ROLLUP marker is dropped, told apart by provenance (no relation
+     * exports it) rather than by the name: the name test removed the column from the
+     * frozen child SELECT while the outer projection still referenced it, so every replay
+     * failed with "Unknown column 'GROUPING_ID' in 'table list'".
+     */
+    @Test
+    public void testUserColumnNamedGroupingIdIsExported() {
+        SlotReference groupId = new SlotReference("GROUPING_ID", IntegerType.INSTANCE);
+        SlotReference k = new SlotReference("k", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(k, groupId));
+        PhysicalProject<?> project = mockProjectExprs(List.of(
+                (NamedExpression) groupId,
+                (NamedExpression) new Alias(new Add(k, new IntegerLiteral(1)), "kk")), scan);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(project);
+        Assertions.assertTrue(sql.contains("GROUPING_ID"),
+                "a user column named GROUPING_ID must stay in the SELECT list: " + sql);
     }
 
     // ==================== ASSERT_ROWS (PhysicalAssertNumRows) ====================

@@ -258,9 +258,33 @@ public class BaselineManager {
      */
     private static final int SNAPSHOT_PAGE_SIZE = 2000;
 
+    /**
+     * Fence re-reads a paginated snapshot read is allowed before it fails closed (see
+     * {@link #readStableSnapshot}): one DDL overlapping the loop then converges on the
+     * retry, while a table that never stays stable must not be published as a snapshot.
+     */
+    private static final int SNAPSHOT_STABILITY_ATTEMPTS = 3;
+
     /** The persistence-layer id watermark (see the class javadoc "Id source"): read
      *  before every id allocation. MAX over an aggregate is a light single-row query. */
     private static final String SELECT_MAX_ID_SQL = "SELECT MAX(`id`) FROM " + SPM_BASELINES_TABLE;
+
+    /**
+     * The consistency fence of the paginated snapshot read (see
+     * {@link #readStableSnapshot}): the id high-water mark, the row count and the newest
+     * update_time of the WHOLE table, read before AND after the page loop. An internal
+     * paginated snapshot issues one SELECT per page and the internal table has no
+     * long-lived read view, so a CREATE / ALTER / DROP committing between two pages would
+     * otherwise be merged into a state no single point in time ever had (the reviewer's
+     * example: a follower reads ENABLED low-id A on page 1, the master drops A and creates
+     * high-id B before page 2 - the published cache then contains BOTH, SHOW reports the
+     * completed DROP and matching replays A until the next refresh). MAX(id) catches every
+     * CREATE, COUNT(*) catches a pure DROP, MAX(update_time) catches a status flip (SECOND
+     * precision: a flip within the same second as the previous write remains a residual
+     * window, closed by the refresh daemon).
+     */
+    private static final String SELECT_SNAPSHOT_FENCE_SQL = "SELECT MAX(`id`), COUNT(*),"
+            + " MAX(`update_time`) FROM " + SPM_BASELINES_TABLE;
 
     /**
      * Reads every durable row carrying ONE id - the collision probe of a create (see
@@ -2415,7 +2439,8 @@ public class BaselineManager {
         if (snapshotReaderForTest != null) {
             return snapshotReaderForTest.get();
         }
-        return collectSnapshotPages(BaselineManager::readSnapshotPage, SNAPSHOT_PAGE_SIZE);
+        return readStableSnapshot(BaselineManager::readSnapshotPage,
+                BaselineManager::readSnapshotFence);
     }
 
     /** One page of the whole-table snapshot, read through the internal table. */
@@ -2423,6 +2448,92 @@ public class BaselineManager {
         return inInternalIoMode(() -> StatisticsUtil.executeQuery(
                 snapshotPageSql(pageStart), Collections.emptyMap(),
                 INTERNAL_QUERY_TIMEOUT_SECONDS));
+    }
+
+    /**
+     * Reads the paginated snapshot only if the table was UNCHANGED for the whole read
+     * (see {@link #SELECT_SNAPSHOT_FENCE_SQL}): the fence is read before and after the page
+     * loop and the read is retried while it moved. The publisher of the returned map can
+     * therefore treat it as a single-point-in-time state.
+     *
+     * <p>DDL is rare compared to refreshes, so one retry normally converges; a table that
+     * never stays stable (a write storm) fails CLOSED with a retryable exception instead of
+     * publishing a mixed state - every caller re-reads on the next cycle / retry (the
+     * refresh daemon, SHOW, load).
+     *
+     * @param reader      reads one snapshot page (inclusive lower bound on the id)
+     * @param fenceReader reads the {@link SnapshotFence} token
+     * @return the rows of one stable state, collapsed per id
+     * @throws Exception when a read fails or the table never stays stable
+     */
+    @VisibleForTesting
+    static Map<Long, BaselinePlan> readStableSnapshot(SnapshotPageReader reader,
+            SnapshotFenceReader fenceReader) throws Exception {
+        for (int attempt = 1; ; attempt++) {
+            SnapshotFence before = fenceReader.readFence();
+            Map<Long, BaselinePlan> snapshot = collectSnapshotPages(reader, SNAPSHOT_PAGE_SIZE);
+            SnapshotFence after = fenceReader.readFence();
+            if (before.matches(after)) {
+                return snapshot;
+            }
+            LOG.warn("SPM baseline table changed while its paginated snapshot was read"
+                            + " ({} -> {}), attempt {}/{}",
+                    before, after, attempt, SNAPSHOT_STABILITY_ATTEMPTS);
+            if (attempt >= SNAPSHOT_STABILITY_ATTEMPTS) {
+                throw new IllegalStateException("SPM baseline table kept changing while its"
+                        + " paginated snapshot was read (concurrent CREATE / ALTER / DROP);"
+                        + " retry the operation");
+            }
+        }
+    }
+
+    /** The fence of one paginated snapshot read (see {@link #readStableSnapshot}). */
+    @VisibleForTesting
+    static final class SnapshotFence {
+        final long maxId;
+        final long rowCount;
+        final String maxUpdateTime;
+
+        SnapshotFence(long maxId, long rowCount, String maxUpdateTime) {
+            this.maxId = maxId;
+            this.rowCount = rowCount;
+            this.maxUpdateTime = maxUpdateTime == null ? "" : maxUpdateTime;
+        }
+
+        boolean matches(SnapshotFence other) {
+            return maxId == other.maxId && rowCount == other.rowCount
+                    && maxUpdateTime.equals(other.maxUpdateTime);
+        }
+
+        @Override
+        public String toString() {
+            return "(maxId=" + maxId + ", rows=" + rowCount
+                    + ", maxUpdateTime=" + maxUpdateTime + ")";
+        }
+    }
+
+    /** Reads the fence token of the snapshot read (see {@link #readStableSnapshot}). */
+    @FunctionalInterface
+    interface SnapshotFenceReader {
+        SnapshotFence readFence() throws Exception;
+    }
+
+    /** Reads {@link #SELECT_SNAPSHOT_FENCE_SQL} (one all-NULL row when the table is empty). */
+    private static SnapshotFence readSnapshotFence() throws Exception {
+        List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+                SELECT_SNAPSHOT_FENCE_SQL, Collections.emptyMap(),
+                INTERNAL_QUERY_TIMEOUT_SECONDS));
+        if (rows == null || rows.isEmpty()) {
+            return new SnapshotFence(0, 0, "");
+        }
+        ResultRow row = rows.get(0);
+        String maxId = row.getWithDefault(0, "");
+        String count = row.getWithDefault(1, "");
+        String maxUpdateTime = row.getValues().size() > 2 ? row.getWithDefault(2, "") : "";
+        return new SnapshotFence(
+                maxId == null || maxId.isEmpty() ? 0 : Long.parseLong(maxId.trim()),
+                count == null || count.isEmpty() ? 0 : Long.parseLong(count.trim()),
+                maxUpdateTime == null ? "" : maxUpdateTime.trim());
     }
 
     /**

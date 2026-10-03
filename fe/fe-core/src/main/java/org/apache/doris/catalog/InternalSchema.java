@@ -345,10 +345,14 @@ public class InternalSchema {
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
         SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("min_scan_rows",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        // STRING, not VARCHAR(4096): SET GLOBAL accepts ANY compiling regex, so a valid
+        // pattern longer than a fixed VARCHAR silently failed at the reservation INSERT
+        // and the capture cycle returned before scanning (a valid 4097-byte ASCII pattern
+        // could never be stored). STRING matches the retry-queue columns' headroom.
         SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("include_pattern",
-                ScalarType.createVarchar(4096), ColumnNullableType.NOT_NULLABLE));
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NOT_NULLABLE));
         SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("exclude_pattern",
-                ScalarType.createVarchar(4096), ColumnNullableType.NOT_NULLABLE));
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NOT_NULLABLE));
         SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("update_time",
                 ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
     }

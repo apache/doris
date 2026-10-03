@@ -17,11 +17,16 @@
 
 package org.apache.doris.nereids.spm.capture;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.statistics.repository.ResultRow;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -576,6 +581,7 @@ public class PlanCaptureCycleHandoffTest {
         private final List<Object[]> cursors = new ArrayList<>();
         private final List<String> tails = new ArrayList<>();
         private final List<long[]> thresholds = new ArrayList<>();
+        private final List<PlanCaptureFilter> filters = new ArrayList<>();
         private final ScanBatch truncatedPage;
         private final ScanBatch exhaustedPage;
         private volatile int truncatedPages;
@@ -604,6 +610,7 @@ public class PlanCaptureCycleHandoffTest {
             cursors.add(new Object[] {cursorQueryTime, cursorTime, cursorQueryId});
             tails.add(cursorTail);
             thresholds.add(new long[] {filter.getMinQueryTimeMs(), filter.getMinScanRows()});
+            filters.add(filter);
             return call <= truncatedPages ? truncatedPage : exhaustedPage;
         }
     }
@@ -871,6 +878,90 @@ public class PlanCaptureCycleHandoffTest {
                     "and continues exactly after the persisted cursor");
         } finally {
             PlanCaptureManager.setQueuedFailureBudgetForTest(null);
+            manager.resetForTest();
+        }
+    }
+
+    /**
+     * round-31 #4: the REWOUND retry window carries the FILTER SNAPSHOT of the page its
+     * oldest queued failure was first seen on. A W1 scan queues 65 transient failures; the
+     * checkpoint keeps the oldest W1 pre-page cursor but the durable JSON retains only 64
+     * entries - and W1's exhaustion clears the pending-window filter. Persisting the
+     * (now null) pending filter next to the W1 cursor left the rewound range unpinned: a
+     * `SET GLOBAL plan_capture_min_query_time_ms` for the NEXT cycle then judged the
+     * re-scanned rows by the tighter configuration, terminally filtering the omitted
+     * oldest failure before the restored retry queue could ever retry it.
+     */
+    @Test
+    public void testRewoundRetryWindowKeepsTheEligibilitySnapshotOfItsFirstPage()
+            throws Exception {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            // a capture that cannot be planned because its catalog metadata is unavailable
+            // is the retryable failure the queue exists for (see PlanCaptureTest)
+            Env env = Mockito.mock(Env.class);
+            CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+            ExternalCatalog external = Mockito.mock(ExternalCatalog.class);
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+            Mockito.when(catalogMgr.getCatalog("ext_cat")).thenReturn(external);
+            Mockito.when(external.isInitialized()).thenReturn(false);
+            Mockito.when(external.getDbNullable("ext_db")).thenReturn(null);
+
+            // ONE page with 65 failing candidates that exhausts the window: all of them
+            // are queued, the window's filter is dropped (clearPendingWindow) and the
+            // durable JSON can only carry the NEWEST 64 entries
+            List<CapturedQuery> failures = new ArrayList<>();
+            for (int i = 0; i < 65; i++) {
+                failures.add(new CapturedQuery(
+                        "SELECT t1.a FROM ext_cat.ext_db.t" + i + " t1 JOIN ext_cat.ext_db.u"
+                                + i + " t2 ON t1.a = t2.a",
+                        5000, 100000, 0, "digest-r31-" + i, "hash", "ext_db", "ext_cat",
+                        "qid-r31-" + i));
+            }
+            AuditLogScanner.ScanBatch wholeWindow = new AuditLogScanner.ScanBatch(failures,
+                    true, AuditLogScanner.CURSOR_ABSENT, "", "", "");
+            DrainingScanner scanner = new DrainingScanner(wholeWindow, exhaustedPage(),
+                    Integer.MAX_VALUE);
+            manager.setScannerForTest(scanner);
+            AtomicReference<Map<String, String>> visible = new AtomicReference<>();
+            manager.setCheckpointReaderForTest(() -> visible.get() == null
+                    ? List.of() : List.of(checkpointRow(visible.get())));
+            manager.setCheckpointWriterForTest((sql, params) -> visible.set(new HashMap<>(params)));
+
+            // W1 is judged by THIS snapshot: threshold 111/11, exclude pattern F1_EXCLUDED
+            PlanCaptureFilter windowFilter = new PlanCaptureFilter("", "F1_EXCLUDED", 111L, 11L);
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(), windowFilter);
+            Assertions.assertTrue(manager.isQueuedForTest("qid-r31-0"),
+                    "the oldest failure is queued (its retry will be omitted from the JSON)");
+            Assertions.assertTrue(manager.isQueuedForTest("qid-r31-64"),
+                    "the newest failure is queued as well");
+            Map<String, String> persisted = visible.get();
+            Assertions.assertEquals("111", persisted.get("minQueryTimeMs"),
+                    "the rewound window pins the filter its page was judged by, not -1");
+            Assertions.assertEquals("11", persisted.get("minScanRows"));
+            Assertions.assertEquals("F1_EXCLUDED", persisted.get("excludePattern"),
+                    "including the table-name patterns of that page");
+
+            // TAKEOVER while the globals were tightened: the restored window must be
+            // re-scanned with ITS OWN snapshot, or the re-scan terminally filters the
+            // omitted oldest failure (5000 < 999999) before its retry is reachable
+            Map<String, String> restored = new HashMap<>(persisted);
+            manager.resetForTest();
+            manager.setCheckpointReaderForTest(() -> List.of(checkpointRow(restored)));
+            manager.setCheckpointWriterForTest((sql, params) -> { });
+            DrainingScanner resumed = new DrainingScanner(exhaustedPage(), exhaustedPage(), 0);
+            manager.setScannerForTest(resumed);
+            PlanCaptureFilter tightened = new PlanCaptureFilter("only_this_table", "",
+                    999999L, 999999L);
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(), tightened);
+            Assertions.assertArrayEquals(new long[] {111L, 11L}, resumed.thresholds.get(0),
+                    "the takeover re-scans the rewound window with the eligibility its rows"
+                            + " were first admitted under");
+            Assertions.assertEquals("F1_EXCLUDED", resumed.filters.get(0).getExcludePatternText(),
+                    "the pinned table-name pattern travels with the rewound window as well");
+        } finally {
             manager.resetForTest();
         }
     }
