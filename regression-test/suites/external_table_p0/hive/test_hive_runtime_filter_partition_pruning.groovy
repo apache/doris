@@ -296,6 +296,30 @@ suite("test_hive_runtime_filter_partition_pruning", "p0,external") {
                                     "${scanRows} rows for a ${totalRows}-row table")
                         }
                     }
+                    // Same check on scanner V1. V1 is only reachable for non-Parquet formats:
+                    // FileQueryScanNode stamps parquet_timestamp_semantics_version=1, and
+                    // FileScanLocalState::should_use_file_scanner_v2 treats that as a required
+                    // timestamp contract, so every Parquet scan runs on V2 whatever
+                    // enable_file_scanner_v2 says. ORC carries no such contract and does reach V1.
+                    sql "set enable_file_scanner_v2=false"
+                    def orcTotalRows = sql("select count(*) from hive_partition_value_orc")[0][0] as long
+                    profile("partition_value_input_rows_v1") {
+                        run {
+                            sql """/* partition_value_input_rows_v1 */
+                                select max(p) from hive_partition_value_orc"""
+                        }
+                        check { profileString, exception ->
+                            assert exception == null
+                            assertTrue(profileString.contains("UseScannerV2:  false"),
+                                    "this case must exercise scanner V1")
+                            def scanRows = (profileString =~ /InputRows:\s+sum\s+(\d+)/)
+                                    .collect { it[1] as long }.max()
+                            assertTrue(scanRows < orcTotalRows,
+                                    "PARTITION_VALUE must not materialize every row on scanner V1: " +
+                                    "the scan read ${scanRows} rows for a ${orcTotalRows}-row table")
+                        }
+                    }
+                    sql "set enable_file_scanner_v2=true"
                 }
             } finally {
                 originalSettings.each { name, value -> sql "set ${name}=${value}" }
