@@ -471,6 +471,34 @@ public class FlussJniScannerLogTest {
     }
 
     /**
+     * A connection serves one range at a time, so the scanner opens it with one network thread rather
+     * than fluss's default four; a catalog that sets the number keeps it. Netty starts a thread for each
+     * server a connection reaches, up to that number, and a range here reaches two - the coordinator and
+     * the one tablet server - so one thread carries both, or two carry one each.
+     */
+    @Test
+    public void connectionRunsOneNetworkThreadUnlessTheCatalogSetsTheNumber() throws Exception {
+        TablePath tablePath = TablePath.of(db, "network_threads");
+        createIntTable(tablePath);
+        appendInts(tablePath, 0, 3);
+        FlussConnectionPool.INSTANCE.closeIdleLongerThan(0);
+        int before = settledClientThreads();
+
+        scanAll(tablePath, columns("id", "int"), 0, 3, 1024);
+        Assertions.assertEquals(1, FlussConnectionPool.INSTANCE.idleCount());
+        Assertions.assertEquals(before + 1, settledClientThreads(), "network threads of the default connection");
+
+        Map<String, String> params = params(tablePath, columns("id", "int"), 0, 3);
+        params.put("fluss.client.netty.client.num-network-threads", "2");
+        runScanner(params, 1024);
+        Assertions.assertEquals(2, FlussConnectionPool.INSTANCE.idleCount(),
+                "the setting opened a connection of its own");
+        Assertions.assertEquals(before + 3, settledClientThreads(), "network threads of both connections");
+
+        FlussConnectionPool.INSTANCE.closeIdleLongerThan(0);
+    }
+
+    /**
      * Only a range read to its end gives its connection back. One closed early - a LIMIT, a cancel - may
      * still have work in flight on it, and one that failed may have failed because of it; either way the
      * next range opens a connection of its own.
