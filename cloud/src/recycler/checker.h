@@ -26,9 +26,13 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <map>
 #include <memory>
+#include <set>
+#include <string>
 #include <string_view>
 #include <thread>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -185,6 +189,7 @@ public:
     bool stopped() const { return stopped_.load(std::memory_order_acquire); }
 
 private:
+    class PackedFileChecker;
     struct RowsetIndexesFormatV1 {
         std::string rowset_id;
         std::unordered_set<int64_t> segment_ids;
@@ -280,6 +285,152 @@ private:
     std::shared_ptr<SnapshotManager> snapshot_manager_;
     std::shared_ptr<ResourceManager> resource_mgr_;
     bool table_stream_versioned_write_ {false};
+};
+
+class InstanceChecker::PackedFileChecker {
+public:
+    /**
+         * Creates a checker for the enclosing instance.
+         *
+         * @param checker Instance whose packed files and metadata are checked.
+         */
+    explicit PackedFileChecker(InstanceChecker& checker);
+
+    /**
+         * Discovers every packed-file candidate and checks its metadata, references, and object.
+         *
+         * @return 0 if all candidates are consistent, 1 if a mismatch is found, and -1 if the
+         *         check is interrupted or encounters a temporary error.
+         */
+    int run();
+
+private:
+    // (tablet_id, rowset_id, txn_id): identifies an owner in visible rowset metadata.
+    using RowsetIdentity = std::tuple<int64_t, std::string, int64_t>;
+    using BitmapIdentity = std::pair<int64_t, std::string>;
+    using BitmapPaths = std::map<BitmapIdentity, std::set<std::string>>;
+
+    struct Reference {
+        RowsetIdentity owner;
+        PackedSliceLocationPB location;
+        std::string resource_id;
+        bool is_delete_bitmap = false;
+    };
+
+    struct PackedFileMetadata {
+        int packed_ret = 1;
+        PackedFileInfoPB info;
+    };
+
+    // A packed-file path discovered from rowset metadata, packed KV, or object listing.
+    struct Candidate {
+        std::set<RowsetIdentity> visible_rowsets;
+        std::map<BitmapIdentity, std::string> bitmap_resources;
+        std::unordered_map<std::string, Reference> references;
+        PackedFileMetadata packed_file_metadata;
+        std::unordered_set<std::string> object_resources;
+        std::set<std::string> conflicting_small_paths;
+    };
+
+    struct FileCheckContext {
+        /**
+             * Creates the state shared by all metadata checks for one packed-file path.
+             *
+             * @param path Packed-file object path being checked.
+             * @param candidate Owners and object resources found during candidate discovery.
+             */
+        FileCheckContext(const std::string& path, const Candidate& candidate);
+
+        // Packed-file object path checked by this context.
+        const std::string& path;
+        // Packed-file KV lookup result.
+        PackedFileMetadata packed_file_metadata;
+        // Small-file paths whose discovery references conflict.
+        std::set<std::string> conflicting_small_paths;
+        // Packed KV slices indexed by path; pointers refer into packed_file_metadata.info.
+        std::unordered_map<std::string, const PackedSlicePB*> slices;
+        // References whose locations point to this packed-file path.
+        std::unordered_map<std::string, Reference> references;
+        // Number of non-deleted slices in the packed KV.
+        int64_t live_slices = 0;
+        int result = 0;
+    };
+
+    struct Stats {
+        long num_scanned_rowsets = 0;
+        long num_scanned_packed_files = 0;
+        long num_packed_file_loss = 0;
+        long num_packed_file_leak = 0;
+        long num_packed_file_meta_mismatch = 0;
+        long num_ref_count_mismatch = 0;
+        long num_small_file_ref_mismatch = 0;
+
+        /**
+             * Reports whether any confirmed mismatch counter is nonzero.
+             *
+             * @return true if the check found a mismatch, otherwise false.
+             */
+        bool has_mismatch() const;
+    };
+
+    /**
+     * Collects the union of packed-file paths from rowsets, delete bitmaps, packed KVs, and
+     * object listings.
+         *
+         * @return 0 on success and -1 if a scan fails or is interrupted.
+         */
+    int collect_candidates();
+
+    int collect_delete_bitmap_candidates(BitmapPaths* bitmap_paths);
+    int collect_rowset_candidates(const BitmapPaths& bitmap_paths);
+
+    /**
+         * Checks one packed file and coordinates its metadata and object-list checks.
+         *
+         * @param path Packed-file object path to check.
+         * @param discovered Candidate owners and object resources found by the initial scans.
+         * @return 0 if consistent, 1 if a mismatch is found, and -1 on a temporary error.
+         */
+    int check_file(const std::string& path, const Candidate& discovered);
+
+    /**
+         * Validates packed KV metadata collected during candidate discovery against rowset references.
+         *
+         * @param context Shared state for the packed file; populated with metadata and references.
+         */
+    void check_metadata_and_references(FileCheckContext* context);
+
+    /**
+         * Compares live slices, valid rowset references, and the packed-file reference count.
+         *
+         * @param context Shared state containing the sets and counters to compare.
+         */
+    void check_reference_consistency(FileCheckContext* context);
+
+    /**
+         * Compares object listings with packed-file metadata by resource.
+         *
+         * @param discovered Candidate object resources found by the initial listing.
+         * @param context Shared state containing the path and packed metadata.
+         */
+    void check_objects(const Candidate& discovered, FileCheckContext* context);
+
+    /**
+         * Marks the current file inconsistent and records the mismatch.
+         *
+         * @param context Shared state for the current packed file.
+         * @param count Counter associated with the mismatch type.
+         * @param reason Diagnostic text describing the mismatch.
+         */
+    void mark_mismatch(FileCheckContext* context, long* count, const std::string& reason);
+
+    InstanceChecker& checker_;
+    Stats stats_;
+    // Packed-file candidates keyed by object path, unioned from rowsets, delete bitmaps,
+    // packed-file KVs, and object listings.
+    std::unordered_map<std::string, Candidate> candidates_;
+    // References observed across the visible rowset and bitmap scans, grouped by small-file path.
+    std::unordered_map<std::string, std::vector<Reference>> discovered_references_;
 };
 
 } // namespace doris::cloud
