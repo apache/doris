@@ -80,6 +80,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/io_common.h"
+#include "load/channel/eos_completion.h"
 #include "load/channel/load_channel_mgr.h"
 #include "load/channel/load_stream_mgr.h"
 #include "load/delta_writer/delta_writer.h"
@@ -540,10 +541,11 @@ void PInternalService::tablet_writer_add_block(google::protobuf::RpcController* 
         int64_t wait_execution_time_ns = MonotonicNanos() - submit_task_time_ns;
         brpc::ClosureGuard closure_guard(done);
         int64_t execution_time_ns = 0;
+        std::shared_ptr<EosCompletion> eos_completion;
         {
             SCOPED_RAW_TIMER(&execution_time_ns);
             signal::SignalTaskIdKeeper keeper(request->id());
-            auto st = _exec_env->load_channel_mgr()->add_batch(*request, response);
+            auto st = _exec_env->load_channel_mgr()->add_batch(*request, response, &eos_completion);
             if (!st.ok()) {
                 LOG(WARNING) << "tablet writer add block failed, message=" << st
                              << ", id=" << request->id() << ", index_id=" << request->index_id()
@@ -554,6 +556,17 @@ void PInternalService::tablet_writer_add_block(google::protobuf::RpcController* 
         }
         response->set_execution_time_us(execution_time_ns / NANOS_PER_MICRO);
         response->set_wait_execution_time_us(wait_execution_time_ns / NANOS_PER_MICRO);
+        if (eos_completion && response->status().status_code() == TStatusCode::OK) {
+            // Transfer done before publishing the callback: a completed barrier
+            // can invoke it inline. All request/response access above must end
+            // first, including profiling, timers and SignalTaskIdKeeper.
+            auto* deferred_done = closure_guard.release();
+            eos_completion->add_waiter([response, deferred_done](const Status& status) {
+                status.to_protobuf(response->mutable_status());
+                deferred_done->Run();
+                // The RPC objects (including HTTP's request wrapper) are gone.
+            });
+        }
     });
     if (!ret) {
         offer_failed(response, done, _heavy_work_pool);
