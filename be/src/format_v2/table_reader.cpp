@@ -1613,15 +1613,14 @@ bool TableReader::_conjuncts_reference_only_partition_columns() const {
         if (global_indices.empty()) {
             return false;
         }
-        const bool partition_only =
-                std::ranges::all_of(global_indices, [this](GlobalIndex index) {
-                    if (index.value() >= _projected_columns.size()) {
-                        return false;
-                    }
-                    const auto& column = _projected_columns[index.value()];
-                    return column.is_partition_key &&
-                           find_partition_value(column, _partition_values) != nullptr;
-                });
+        const bool partition_only = std::ranges::all_of(global_indices, [this](GlobalIndex index) {
+            if (index.value() >= _projected_columns.size()) {
+                return false;
+            }
+            const auto& column = _projected_columns[index.value()];
+            return column.is_partition_key &&
+                   find_partition_value(column, _partition_values) != nullptr;
+        });
         if (!partition_only) {
             return false;
         }

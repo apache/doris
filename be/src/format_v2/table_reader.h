@@ -1132,11 +1132,11 @@ protected:
         }
         if (agg_type == TPushAggOp::type::PARTITION_VALUE) {
             DORIS_CHECK(_file_scan_request != nullptr);
-            if (!_current_file_range_desc.__isset.table_format_params
-                || (_current_file_range_desc.table_format_params.table_format_type != "hive"
-                    && _current_file_range_desc.table_format_params.table_format_type != "hudi")
-                || (_format != FileFormat::PARQUET && _format != FileFormat::ORC)
-                || _projected_columns.empty() || !_file_scan_request->delete_conjuncts.empty()) {
+            if (!_current_file_range_desc.__isset.table_format_params ||
+                (_current_file_range_desc.table_format_params.table_format_type != "hive" &&
+                 _current_file_range_desc.table_format_params.table_format_type != "hudi") ||
+                (_format != FileFormat::PARQUET && _format != FileFormat::ORC) ||
+                _projected_columns.empty() || !_file_scan_request->delete_conjuncts.empty()) {
                 return false;
             }
             if (!std::ranges::all_of(_projected_columns, [this](const auto& column) {
