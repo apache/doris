@@ -649,7 +649,21 @@ template <int JoinOpType>
 uint32_t ProcessHashTableProbe<JoinOpType>::_process_probe_null_key(uint32_t probe_index) {
     const auto rows = _build_block->rows();
 
-    DCHECK_LT(_build_index_for_null_probe_key, rows);
+    // The enumeration may start at the row after the last one: when the build side is empty it only
+    // holds the placeholder row of the empty build side, so rows is 1, and a null probe key of a
+    // NULL_AWARE join with other conjuncts, a mark join which an IN subquery was converted into for
+    // example, starts the enumeration at that placeholder row. The loop then emits no row and the
+    // terminal row below is emitted for the null probe key alone: it carries the build index 0 and
+    // the null flag 0, which is the false of an empty build side (see ignore_null_map in
+    // process_probe, the null probe key of an empty build side is not resolved by the build side).
+    // For example the mark of the subquery of
+    //
+    //     select m.k, m.k in (select count(*) from i where i.k = m.k having count(*) = m.k) from m
+    //
+    // is computed by such a mark join (the HAVING clause is its other conjunct), the row with the
+    // null key probes the empty build side of a key whose HAVING clause rejects the aggregation of
+    // that key.
+    DCHECK_LE(_build_index_for_null_probe_key, rows);
     DCHECK_LT(0, _build_index_for_null_probe_key);
     uint32_t matched_cnt = 0;
     for (; _build_index_for_null_probe_key < rows && matched_cnt < _batch_size; ++matched_cnt) {

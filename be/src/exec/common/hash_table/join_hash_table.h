@@ -463,6 +463,12 @@ private:
             if (!build_idx) {
                 probe_idxs[matched_cnt] = probe_idx;
                 build_idxs[matched_cnt] = 0;
+                // the row is kept for the probe side only, so it did not match any row of the build
+                // side and the mark of a null aware join must be false (and not null) for it.
+                // `null_flags` belongs to the probe operator and is reused by the following batches
+                // (see `_process_probe_null_key`), so a stale flag would be read as a null match by
+                // `ProcessHashTableProbe::do_mark_join_conjuncts` and turn the mark into null.
+                null_flags[matched_cnt] = 0;
                 picking_null_keys = false;
                 matched_cnt++;
             }
