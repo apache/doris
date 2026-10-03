@@ -92,9 +92,6 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
     @Override
     public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, JobContext context) {
         join = visitChildren(this, join, context);
-        if (join.isMarkJoin()) {
-            return join;
-        }
         Plan left = join.left();
         Plan right = join.right();
         Set<Expression> expressions;
@@ -103,31 +100,46 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         } else {
             expressions = getAllExpressions(left, right, join.getOnClauseCondition());
         }
-        switch (join.getJoinType()) {
-            case CROSS_JOIN:
-                left = inferNewPredicate(left, expressions);
-                right = inferNewPredicate(right, expressions);
-                break;
-            case INNER_JOIN:
-            case ASOF_LEFT_INNER_JOIN:
-            case ASOF_RIGHT_INNER_JOIN:
-            case LEFT_SEMI_JOIN:
-            case RIGHT_SEMI_JOIN:
-                left = inferNewPredicateRemoveUselessIsNull(left, expressions, join, context.getCascadesContext());
-                right = inferNewPredicateRemoveUselessIsNull(right, expressions, join, context.getCascadesContext());
-                break;
-            case LEFT_OUTER_JOIN:
-            case ASOF_LEFT_OUTER_JOIN:
-            case LEFT_ANTI_JOIN:
-                right = inferNewPredicateRemoveUselessIsNull(right, expressions, join, context.getCascadesContext());
-                break;
-            case RIGHT_OUTER_JOIN:
-            case ASOF_RIGHT_OUTER_JOIN:
-            case RIGHT_ANTI_JOIN:
-                left = inferNewPredicateRemoveUselessIsNull(left, expressions, join, context.getCascadesContext());
-                break;
-            default:
-                break;
+        if (join.isMarkJoin()) {
+            // A mark join keeps all left rows and only appends the mark column, so an inferred
+            // predicate may only be pushed into the right side: pushing it into the left side
+            // would drop rows and change the query result. Inferring into the right side is
+            // safe because the inferred predicate is implied by the join condition and the
+            // left predicates, so it does not change which left rows match.
+            // e.g. SELECT p.id, CASE WHEN EXISTS (SELECT 1 FROM c WHERE c.parent_id = p.id) ...
+            //      FROM p WHERE p.id = 'P1'
+            // the constant 'P1' is combined with the correlation predicate and pushed into c's scan.
+            right = inferNewPredicateRemoveUselessIsNull(right, expressions, join, context.getCascadesContext());
+        } else {
+            switch (join.getJoinType()) {
+                case CROSS_JOIN:
+                    left = inferNewPredicate(left, expressions);
+                    right = inferNewPredicate(right, expressions);
+                    break;
+                case INNER_JOIN:
+                case ASOF_LEFT_INNER_JOIN:
+                case ASOF_RIGHT_INNER_JOIN:
+                case LEFT_SEMI_JOIN:
+                case RIGHT_SEMI_JOIN:
+                    left = inferNewPredicateRemoveUselessIsNull(left, expressions, join, context.getCascadesContext());
+                    right = inferNewPredicateRemoveUselessIsNull(right, expressions, join,
+                            context.getCascadesContext());
+                    break;
+                case LEFT_OUTER_JOIN:
+                case ASOF_LEFT_OUTER_JOIN:
+                case LEFT_ANTI_JOIN:
+                    right = inferNewPredicateRemoveUselessIsNull(right, expressions, join,
+                            context.getCascadesContext());
+                    break;
+                case RIGHT_OUTER_JOIN:
+                case ASOF_RIGHT_OUTER_JOIN:
+                case RIGHT_ANTI_JOIN:
+                    left = inferNewPredicateRemoveUselessIsNull(left, expressions, join,
+                            context.getCascadesContext());
+                    break;
+                default:
+                    break;
+            }
         }
         if (left != join.left() || right != join.right()) {
             return join.withChildren(left, right);
