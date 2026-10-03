@@ -111,32 +111,33 @@ void SchemaColumnDataSizesScanner::_collect_column_data_sizes_from_rowsets(
 
         // Get column data page stats from each segment footer and aggregate by column_unique_id
         for (const auto& segment : segments) {
-            auto collector = [&](const segment_v2::ColumnMetaPB& column_meta) {
+            auto collector = [&](const segment_v2::ColumnMetaPB& column_meta,
+                                 uint32_t column_unique_id) {
                 if (column_meta.has_compressed_data_bytes() &&
                     column_meta.has_uncompressed_data_bytes()) {
-                    auto cid = schema->field_index(column_meta.unique_id());
+                    auto cid = schema->field_index(column_unique_id);
                     if (cid == -1) {
                         return;
                     }
                     // Aggregate stats by column_unique_id
-                    if (aggregated_stats.contains(column_meta.unique_id())) {
-                        auto& existing_stats = aggregated_stats[column_meta.unique_id()];
+                    if (aggregated_stats.contains(column_unique_id)) {
+                        auto& existing_stats = aggregated_stats[column_unique_id];
                         existing_stats.compressed_data_bytes += column_meta.compressed_data_bytes();
                         existing_stats.uncompressed_data_bytes +=
                                 column_meta.uncompressed_data_bytes();
                         existing_stats.raw_data_bytes += column_meta.raw_data_bytes();
                     } else {
-                        aggregated_stats[column_meta.unique_id()] = ColumnDataSizeInfo {
+                        aggregated_stats[column_unique_id] = ColumnDataSizeInfo {
                                 .backend_id = backend_id_,
                                 .table_id = table_id,
                                 .index_id = index_id,
                                 .partition_id = partition_id,
                                 .tablet_id = tablet_id,
                                 .rowset_id = rowset_id,
-                                .column_unique_id = column_meta.unique_id(),
+                                .column_unique_id = column_unique_id,
                                 .column_name = schema->column(cid).name(),
                                 .column_type = TabletColumn::get_string_by_field_type(
-                                        static_cast<FieldType>(column_meta.type())),
+                                        schema->column(cid).type()),
                                 .compressed_data_bytes = column_meta.compressed_data_bytes(),
                                 .uncompressed_data_bytes = column_meta.uncompressed_data_bytes(),
                                 .raw_data_bytes = column_meta.raw_data_bytes(),
@@ -144,7 +145,25 @@ void SchemaColumnDataSizesScanner::_collect_column_data_sizes_from_rowsets(
                     }
                 }
             };
-            st = segment->traverse_column_meta_pbs(collector);
+            auto footer_collector = [&](const segment_v2::ColumnMetaPB& column_meta) {
+                // A variant meta counts the data of all its inner writers, whose own metas carry no
+                // data bytes. Compaction writes variant subcolumns as columns of their own, with
+                // data bytes but no unique id; count them to their root variant column.
+                uint32_t column_unique_id = column_meta.unique_id();
+                if (column_meta.unique_id() == -1 && column_meta.has_compressed_data_bytes()) {
+                    DORIS_CHECK(column_meta.has_column_path_info());
+                    column_unique_id = column_meta.column_path_info().parrent_column_unique_id();
+                }
+                collector(column_meta, column_unique_id);
+                if (column_meta.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_VARIANT)) {
+                    // External column meta (V3) embeds the sparse and doc value columns of a
+                    // variant into its root column meta.
+                    for (const auto& child : column_meta.children_columns()) {
+                        collector(child, column_unique_id);
+                    }
+                }
+            };
+            st = segment->traverse_column_meta_pbs(footer_collector);
             if (!st.ok()) {
                 continue;
             }
