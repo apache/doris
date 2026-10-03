@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalRecursiveUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.statistics.model.ColumnStatistic;
 import org.apache.doris.statistics.model.Statistics;
@@ -170,12 +171,13 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
      * Whether NATIVE effectiveness on this plan is a property of the whole relation rather than of
      * one join key, and may therefore be handed to another subtree through a CTE.
      *
-     * <p>Two ways qualify: the operator bounds the row count on its own (Limit, TopN,
-     * AssertNumRows, Intersect, a no-group-by aggregate, a bounded PartitionTopN), or it restricts
-     * the whole relation with a predicate on a visible column. A join does not qualify either way:
-     * the join visitor also marks a join NATIVE when its build side is selective, and that is a
-     * property of one join key — a LEFT JOIN preserves every probe row even when its build side is
-     * limited.
+     * <p>The operator either bounds the row count on its own (Limit, TopN, AssertNumRows, Intersect,
+     * a no-group-by aggregate, a bounded PartitionTopN) or inherits a bound from a child it cannot
+     * add rows on top of (a grouped aggregate, or the row-preserving Project / Distribute / Window);
+     * or it restricts the whole relation with a predicate on a visible column.
+     * A join qualifies neither way: the join visitor also marks a join NATIVE when its build side is
+     * selective, and that is a property of one join key — a LEFT JOIN preserves every probe row even
+     * when its build side is limited.
      */
     private boolean hasRelationGlobalEffectiveness(Plan plan) {
         if (plan instanceof PhysicalLimit || plan instanceof PhysicalTopN
@@ -183,7 +185,12 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
             return true;
         }
         if (plan instanceof PhysicalHashAggregate) {
-            return ((PhysicalHashAggregate<?>) plan).getGroupByExpressions().isEmpty();
+            // A no-group-by aggregate returns exactly one row. A grouped one returns at most one
+            // row per group, so it never adds rows either: a bound proven on its input still holds
+            // on its output. Carrying that through matters because a materialized CTE keeps its
+            // aggregate alive whenever some consumer selects the aggregate's argument.
+            return ((PhysicalHashAggregate<?>) plan).getGroupByExpressions().isEmpty()
+                    || carryBoundFromSingleChild(plan);
         }
         if (plan instanceof PhysicalPartitionTopN) {
             PhysicalPartitionTopN<?> topN = (PhysicalPartitionTopN<?>) plan;
@@ -197,17 +204,22 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         if (plan instanceof PhysicalFilter) {
             return hasVisibleColumnPredicate((PhysicalFilter<? extends Plan>) plan);
         }
-        // Project and Distribute are transparent: they reshape or move rows but never change how
-        // many there are. A CTE producer almost always has one of them on top of the operator that
-        // actually bounds the output (Project(hashAgg[GLOBAL]) for "SELECT max(p) AS p" is the
-        // canonical case), so stopping at the wrapper would refuse that producer for no reason.
-        // Looking through them stays safe against a join: the walk ends on the join and returns
-        // false, because a join's row count is a property of its join keys, not of the relation.
-        if ((plan instanceof PhysicalProject || plan instanceof PhysicalDistribute)
-                && plan.children().size() == 1) {
-            return hasRelationGlobalEffectiveness(plan.child(0));
+        // Project, Distribute and Window keep exactly one output row per input row, so a bound
+        // proven below them still holds above them. Window matters for the same reason as the
+        // aggregate: a materialized CTE keeps a row-preserving window alive whenever some consumer
+        // selects one of its window columns.
+        // The walk stops at a join: a join's row count is a property of its join keys, not of the
+        // relation, so a bound below a join says nothing about the join's output.
+        if (plan instanceof PhysicalProject || plan instanceof PhysicalDistribute
+                || plan instanceof PhysicalWindow) {
+            return carryBoundFromSingleChild(plan);
         }
         return false;
+    }
+
+    /** Whether the single-child plan's bound carries up to {@code plan} itself. */
+    private boolean carryBoundFromSingleChild(Plan plan) {
+        return plan.children().size() == 1 && hasRelationGlobalEffectiveness(plan.child(0));
     }
 
     @Override
