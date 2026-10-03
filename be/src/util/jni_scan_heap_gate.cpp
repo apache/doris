@@ -17,7 +17,9 @@
 
 #include "util/jni_scan_heap_gate.h"
 
+#include <algorithm>
 #include <chrono>
+#include <limits>
 #include <utility>
 
 #include "common/config.h"
@@ -29,158 +31,114 @@ namespace doris {
 
 namespace {
 
-// How often a waiting reader looks at the heap again although nobody told it to: a GC frees memory
-// without a word.
+// How often a waiting reader looks again although nobody told it to: to see its query cancelled and
+// its wait run out.
 constexpr auto POLL_INTERVAL = std::chrono::milliseconds(100);
 constexpr int64_t MB = 1024 * 1024;
 
-// The JVM's heap as java.lang.Runtime reports it, which answers without allocating: a measurement
-// taken while the heap is nearly full must not be what fills it.
-struct RuntimeHeap {
-    Jni::GlobalClass cls;
-    Jni::GlobalObject runtime;
-    Jni::MethodId total_memory;
-    Jni::MethodId free_memory;
-    Jni::MethodId max_memory;
-};
-
-Status init_runtime_heap(RuntimeHeap* heap) {
-    JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(Jni::Env::Get(&env));
-    RETURN_IF_ERROR(Jni::Util::find_class(env, "java/lang/Runtime", &heap->cls));
-    Jni::MethodId get_runtime;
-    RETURN_IF_ERROR(
-            heap->cls.get_static_method(env, "getRuntime", "()Ljava/lang/Runtime;", &get_runtime));
-    RETURN_IF_ERROR(heap->cls.call_static_object_method(env, get_runtime).call(&heap->runtime));
-    RETURN_IF_ERROR(heap->cls.get_method(env, "totalMemory", "()J", &heap->total_memory));
-    RETURN_IF_ERROR(heap->cls.get_method(env, "freeMemory", "()J", &heap->free_memory));
-    RETURN_IF_ERROR(heap->cls.get_method(env, "maxMemory", "()J", &heap->max_memory));
-    return Status::OK();
-}
-
-Status measure_jvm_heap(JniScanHeapGate::HeapUsage* usage) {
-    // Never destroyed, like the gate below: BE's exit runs static destructors while scanner
-    // threads may still be measuring.
-    static auto* heap = new RuntimeHeap();
-    static std::once_flag init_once;
-    static Status init_status;
-    std::call_once(init_once, []() { init_status = init_runtime_heap(heap); });
-    RETURN_IF_ERROR(init_status);
-
-    JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(Jni::Env::Get(&env));
-    jlong total = 0;
-    jlong free = 0;
-    jlong max = 0;
-    RETURN_IF_ERROR(heap->runtime.call_long_method(env, heap->total_memory).call(&total));
-    RETURN_IF_ERROR(heap->runtime.call_long_method(env, heap->free_memory).call(&free));
-    RETURN_IF_ERROR(heap->runtime.call_long_method(env, heap->max_memory).call(&max));
-    usage->used = total - free;
-    usage->max = max;
-    return Status::OK();
+// A share of the -Xmx the JVM was started with, read from the same options the JVM was created from
+// - not measured, so nothing here calls into the JVM.
+int64_t jvm_heap_budget() {
+    const double budget = static_cast<double>(Jni::Util::get_max_jni_heap_memory_size()) *
+                          config::jni_scanner_heap_budget_ratio;
+    // A BE_TEST build reports an unlimited heap (SIZE_MAX), which stays unlimited here.
+    constexpr auto UNLIMITED = std::numeric_limits<int64_t>::max();
+    return budget >= static_cast<double>(UNLIMITED) ? UNLIMITED : static_cast<int64_t>(budget);
 }
 
 } // namespace
 
-void JniScanHeapGate::Permit::opened() {
-    if (_gate != nullptr && _opening) {
-        _opening = false;
-        _gate->_opened();
-    }
-}
-
 void JniScanHeapGate::Permit::release() {
     if (_gate != nullptr) {
-        _gate->_release(_opening);
+        _gate->_release(_bytes);
         _gate = nullptr;
-        _opening = false;
+        _bytes = 0;
     }
 }
 
-JniScanHeapGate::JniScanHeapGate(HeapProbe probe) : _probe(std::move(probe)) {}
+JniScanHeapGate::JniScanHeapGate(std::function<int64_t()> budget) : _budget(std::move(budget)) {}
 
 JniScanHeapGate* JniScanHeapGate::instance() {
     // Never destroyed: BE's exit runs static destructors while scanner threads are still alive, and
     // a reader closing then releases its permit into this gate.
-    static auto* gate = new JniScanHeapGate(measure_jvm_heap);
+    static auto* gate = new JniScanHeapGate(jvm_heap_budget);
     return gate;
 }
 
-Status JniScanHeapGate::acquire(const std::function<bool()>& stop_waiting, Permit* permit,
-                                int64_t* wait_ns) {
+void JniScanHeapGate::acquire(int64_t bytes, const std::function<bool()>& stop_waiting,
+                              Permit* permit, int64_t* wait_ns) {
+    DORIS_CHECK(bytes > 0);
     DORIS_CHECK(permit != nullptr);
     DORIS_CHECK(!permit->held());
     DORIS_CHECK(wait_ns != nullptr);
     const int64_t start = MonotonicNanos();
+    std::unique_lock lock(_lock);
+    const uint64_t ticket = _next_ticket++;
+    _waiting.push_back(ticket);
     while (true) {
-        const bool enabled = config::enable_jni_scanner_heap_limiter;
-        HeapUsage heap;
-        // Measured before taking the lock: it is a call into the JVM, and a reader that waits measures
-        // again each time it looks.
-        if (enabled) {
-            RETURN_IF_ERROR(_probe(&heap));
-        }
+        // Asked without the lock: it is the caller's code.
+        lock.unlock();
         const bool stop = stop_waiting();
-        std::unique_lock lock(_lock);
+        lock.lock();
         const int64_t waited = MonotonicNanos() - start;
-        bool admit = !enabled || stop || _admissible(heap);
+        bool admit = stop || _fits(ticket, bytes);
         if (!admit && waited >= config::jni_scanner_heap_max_wait_ms * 1000 * 1000) {
-            LOG_EVERY_T(WARNING, 10)
-                    << "A JNI scanner opens after waiting " << waited / 1000 / 1000
-                    << " ms for JVM heap, longer than jni_scanner_heap_max_wait_ms: "
-                    << heap.used / MB << " MB used of " << heap.max / MB << " MB, " << _active
-                    << " scanners open, " << _opening << " of them not past their first batch";
+            LOG_EVERY_T(WARNING, 10) << "A JNI scanner opens after waiting " << waited / 1000 / 1000
+                                     << " ms for its share of the JVM heap, longer than "
+                                        "jni_scanner_heap_max_wait_ms: it declared "
+                                     << bytes / MB << " MB, while " << _holders << " scanners hold "
+                                     << _admitted_bytes / MB << " MB of a " << _budget() / MB
+                                     << " MB budget and " << _waiting.size() - 1 << " others wait";
             admit = true;
         }
         if (admit) {
-            ++_active;
-            ++_opening;
+            _waiting.erase(std::find(_waiting.begin(), _waiting.end(), ticket));
+            _admitted_bytes += bytes;
+            ++_holders;
             permit->_gate = this;
-            permit->_opening = true;
+            permit->_bytes = bytes;
             *wait_ns = waited;
-            return Status::OK();
+            // Whoever is first in line now may fit.
+            _cv.notify_all();
+            return;
         }
         _cv.wait_for(lock, POLL_INTERVAL);
     }
 }
 
-bool JniScanHeapGate::_admissible(const HeapUsage& heap) const {
-    if (_active == 0) {
-        // Nobody would free memory for this reader, so waiting cannot help it.
+bool JniScanHeapGate::_fits(uint64_t ticket, int64_t bytes) const {
+    if (_waiting.front() != ticket) {
+        return false;
+    }
+    if (_holders == 0) {
+        // Nobody would give a share back for this reader, so waiting cannot help it.
         return true;
     }
-    const auto limit = static_cast<int64_t>(static_cast<double>(heap.max) *
-                                            config::jni_scanner_max_heap_usage_ratio);
-    const int64_t reserved = config::jni_scanner_heap_reserved_mb_per_open * MB;
-    return heap.used + (_opening + 1) * reserved <= limit;
+    return _admitted_bytes + bytes <= _budget();
 }
 
-void JniScanHeapGate::_opened() {
+void JniScanHeapGate::_release(int64_t bytes) {
     std::lock_guard lock(_lock);
-    DORIS_CHECK(_opening > 0);
-    --_opening;
+    DORIS_CHECK(_holders > 0);
+    DORIS_CHECK(_admitted_bytes >= bytes);
+    --_holders;
+    _admitted_bytes -= bytes;
     _cv.notify_all();
 }
 
-void JniScanHeapGate::_release(bool opening) {
+int64_t JniScanHeapGate::admitted_bytes() const {
     std::lock_guard lock(_lock);
-    DORIS_CHECK(_active > 0);
-    --_active;
-    if (opening) {
-        DORIS_CHECK(_opening > 0);
-        --_opening;
-    }
-    _cv.notify_all();
+    return _admitted_bytes;
 }
 
-int64_t JniScanHeapGate::active() const {
+int64_t JniScanHeapGate::holders() const {
     std::lock_guard lock(_lock);
-    return _active;
+    return _holders;
 }
 
-int64_t JniScanHeapGate::opening() const {
+int64_t JniScanHeapGate::waiters() const {
     std::lock_guard lock(_lock);
-    return _opening;
+    return static_cast<int64_t>(_waiting.size());
 }
 
 } // namespace doris

@@ -19,40 +19,39 @@
 
 #include <condition_variable>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <mutex>
 
-#include "common/status.h"
-
 namespace doris {
 
-// Admits Java scanners into the JVM heap they all share.
+// Admits Java scanners by the JVM heap they declare they will hold.
 //
-// Every JNI reader in BE runs its Java scanner in the one JVM BE starts, and nothing else bounds
-// what the scanners keep on its heap: a paimon merge read holds a row group of every file it
-// merges, a fluss primary-key bucket read replays its change log into a map, a fluss union read
-// keeps its whole log tail. Each fits; opened together - the sixteen scanners of one scan, or a few
-// queries at once - they run the heap out.
+// Every JNI reader in BE runs its Java scanner in the one JVM BE starts. A few kinds hold a large part
+// of its heap from before their first batch until they close: a paimon merge read keeps a row group of
+// every file it merges, a fluss primary-key bucket read replays its change log into a map, a fluss
+// union read keeps its whole log tail. Each fits; opened together - the sixteen scanners of one scan,
+// or a few queries at once - they can run the heap out.
 //
-// Those readers reach their peak before they produce their first batch. So a reader asks the gate
-// before it opens its Java scanner, and the gate admits it when the heap measured now, plus a fixed
-// reservation for every admitted reader that has not produced its first batch yet (its footprint is
-// not in the measurement yet) and one for this reader, stays within a share of the JVM's maximum
-// heap. A reader that has produced a batch is in the measurement and is no longer reserved for.
+// The connector that plans such a range can say how much heap its reader will hold
+// (TFileRangeDesc.jni_heap_bytes), and does so only for a statement that asks with the session variable
+// enable_jni_heap_admission. It is off by default: then no reader declares anything, the gate admits
+// nothing, and a scan that needs more heap than the JVM has fails with OutOfMemoryError and says how to
+// give the JVM more.
 //
-// A reader that is not admitted waits, and looks again whenever another reader produces its first
-// batch or closes, and every poll interval in between (a GC frees memory without telling anybody).
-// Three things end a wait whatever the heap says: no reader holding a permit (nobody would free
-// memory for this one, so one reader at a time is the slowest the gate ever gets), the caller asking
-// to stop waiting (a cancelled query), and the wait outlasting jni_scanner_heap_max_wait_ms.
+// A reader that declared its heap asks the gate before it opens its Java scanner. The gate keeps an
+// account of what the readers it admitted declared, admits the next one while the account plus this
+// reader stays within jni_scanner_heap_budget_ratio of the JVM's maximum heap, and takes a reader's
+// share back when its scanner closes. Nothing here looks at the heap itself: what other users of the
+// JVM hold, and garbage nobody has collected yet, are not the gate's business.
+//
+// Readers that do not fit wait in the order they came, so a large one is not passed over for ever by
+// small ones arriving behind it. Three things end a wait whatever the account says: no reader holding
+// a share (nobody would give one back for this reader, so one that declares more than the whole budget
+// runs alone), the caller asking to stop waiting (a cancelled query), and the wait outlasting
+// jni_scanner_heap_max_wait_ms.
 class JniScanHeapGate {
 public:
-    struct HeapUsage {
-        int64_t used = 0;
-        int64_t max = 0;
-    };
-    using HeapProbe = std::function<Status(HeapUsage*)>;
-
     // Held by a reader from before its Java scanner opens until that scanner is closed.
     class Permit {
     public:
@@ -61,8 +60,6 @@ public:
         Permit(const Permit&) = delete;
         Permit& operator=(const Permit&) = delete;
 
-        // The reader produced its first batch, or reached its end without one. Idempotent.
-        void opened();
         // The reader's Java scanner is closed. Idempotent; a permit never held is a no-op.
         void release();
         bool held() const { return _gate != nullptr; }
@@ -70,35 +67,42 @@ public:
     private:
         friend class JniScanHeapGate;
         JniScanHeapGate* _gate = nullptr;
-        bool _opening = false;
+        int64_t _bytes = 0;
     };
 
-    explicit JniScanHeapGate(HeapProbe probe);
+    // `budget` answers how many bytes the admitted readers may declare together. It is asked every
+    // time the gate looks, so a change of jni_scanner_heap_budget_ratio applies at once.
+    explicit JniScanHeapGate(std::function<int64_t()> budget);
 
-    // The gate every JNI reader of this process shares; it measures the JVM's heap.
+    // The gate every JNI reader of this process shares: its budget is jni_scanner_heap_budget_ratio
+    // of the -Xmx the JVM was started with.
     static JniScanHeapGate* instance();
 
-    // Waits until the heap has room for one more reader and hands that reader `permit`.
+    // Waits until `bytes` fit (see the class comment) and hands the reader `permit` for them.
     // `stop_waiting` is asked whenever the gate looks again; once it answers true the reader is
-    // admitted without further waiting, and is expected to notice the stop itself. `wait_ns` gets
-    // the time spent here. Fails only when the heap cannot be measured.
-    Status acquire(const std::function<bool()>& stop_waiting, Permit* permit, int64_t* wait_ns);
+    // admitted without further waiting, and is expected to notice the stop itself. `wait_ns` gets the
+    // time spent here.
+    void acquire(int64_t bytes, const std::function<bool()>& stop_waiting, Permit* permit,
+                 int64_t* wait_ns);
 
-    int64_t active() const;
-    int64_t opening() const;
+    int64_t admitted_bytes() const;
+    int64_t holders() const;
+    int64_t waiters() const;
 
 private:
     // Caller holds _lock.
-    bool _admissible(const HeapUsage& heap) const;
-    void _opened();
-    void _release(bool opening);
+    bool _fits(uint64_t ticket, int64_t bytes) const;
+    void _release(int64_t bytes);
 
-    const HeapProbe _probe;
+    const std::function<int64_t()> _budget;
     mutable std::mutex _lock;
     std::condition_variable _cv;
-    // Permits held, and those among them whose reader has not produced a batch yet.
-    int64_t _active = 0;
-    int64_t _opening = 0;
+    // What the admitted readers declared, and how many of them there are.
+    int64_t _admitted_bytes = 0;
+    int64_t _holders = 0;
+    // The readers waiting, in the order they came: only the first may be admitted by the account.
+    std::deque<uint64_t> _waiting;
+    uint64_t _next_ticket = 0;
 };
 
 } // namespace doris

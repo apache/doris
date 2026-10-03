@@ -126,8 +126,6 @@ Status JniTableReader::get_block(Block* output_block, bool* eos) {
         bool current_eof = false;
         // get next block data from Java scanner, and fill the data to _jni_block_template
         RETURN_IF_ERROR(_get_next_jni_block(&current_rows, &current_eof));
-        // Whatever the scanner holds now is in the heap the gate measures.
-        _heap_permit.opened();
         if (current_eof) {
             _eof = true;
             RETURN_IF_ERROR(_close_jni_scanner());
@@ -465,7 +463,7 @@ Status JniTableReader::_open_jni_scanner() {
 
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
-    RETURN_IF_ERROR(_admit_by_jvm_heap());
+    _admit_by_declared_heap();
     // The permit covers the Java scanner: _reset_split_state() releases it along with the scanner,
     // and here it goes if no scanner was created.
     Defer release_without_scanner {[this]() {
@@ -490,23 +488,26 @@ Status JniTableReader::_open_jni_scanner() {
     return Status::OK();
 }
 
-Status JniTableReader::_admit_by_jvm_heap() {
-    if (_heap_gate_exempt) {
-        return Status::OK();
+void JniTableReader::_admit_by_declared_heap() {
+    // Only the connector of a statement that set enable_jni_heap_admission declares the heap a
+    // reader will hold, and only for the readers that hold much; every other reader opens at once.
+    if (!_current_range.__isset.jni_heap_bytes || _current_range.jni_heap_bytes <= 0) {
+        return;
     }
     int64_t wait_ns = 0;
-    RETURN_IF_ERROR(JniScanHeapGate::instance()->acquire(
+    JniScanHeapGate::instance()->acquire(
+            _current_range.jni_heap_bytes,
             [this]() {
                 // Stopped or cancelled: open without waiting for heap, and see the stop at the
                 // first get_block(), the way a reader that was already open does.
                 return (_io_ctx != nullptr && _io_ctx->should_stop) ||
                        (_runtime_state != nullptr && _runtime_state->is_cancelled());
             },
-            &_heap_permit, &wait_ns));
+            &_heap_permit, &wait_ns);
     if (_scanner_profile != nullptr) {
         COUNTER_UPDATE(_jvm_heap_wait_time, wait_ns);
+        COUNTER_UPDATE(_jvm_heap_declared_bytes, _current_range.jni_heap_bytes);
     }
-    return Status::OK();
 }
 
 void JniTableReader::_apply_common_scanner_params() {
@@ -616,6 +617,8 @@ void JniTableReader::_init_profile() {
             ADD_CHILD_TIMER(_scanner_profile, "JavaCreateVectorTableTime", connector_name);
     _fill_block_time = ADD_CHILD_TIMER(_scanner_profile, "FillBlockTime", connector_name);
     _jvm_heap_wait_time = ADD_CHILD_TIMER(_scanner_profile, "JvmHeapWaitTime", connector_name);
+    _jvm_heap_declared_bytes = ADD_CHILD_COUNTER(_scanner_profile, "JvmHeapDeclaredBytes",
+                                                 TUnit::BYTES, connector_name);
     _max_time_split_weight_counter = _scanner_profile->add_conditition_counter(
             "MaxTimeSplitWeight", TUnit::UNIT, [](int64_t _c, int64_t c) { return c > _c; },
             connector_name);

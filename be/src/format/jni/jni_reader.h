@@ -67,11 +67,15 @@ public:
      * @param scanner_params   Configuration map passed to the Java scanner factory
      * @param column_names     Fields to read (also the required_fields in scanner_params)
      * @param self_split_weight  Weight for this split (for profile conditition counter)
+     * @param jni_heap_bytes   JVM heap the range declares this reader will hold
+     *                         (TFileRangeDesc.jni_heap_bytes); 0 when it declares none, and then
+     *                         the reader opens without waiting at the JNI heap gate
      */
     JniReader(const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
               RuntimeProfile* profile, Jni::PluginRef plugin_ref,
               std::map<std::string, std::string> scanner_params,
-              std::vector<std::string> column_names, int64_t self_split_weight = -1);
+              std::vector<std::string> column_names, int64_t self_split_weight = -1,
+              int64_t jni_heap_bytes = 0);
 
     /**
      * Constructor for table-schema-only mode (no data reading).
@@ -149,6 +153,7 @@ private:
     std::map<std::string, std::string> _scanner_params;
     std::vector<std::string> _column_names;
     int32_t _self_split_weight = -1;
+    int64_t _jni_heap_bytes = 0;
     bool _is_table_schema = false;
 
     RuntimeProfile::Counter* _open_scanner_time = nullptr;
@@ -157,6 +162,7 @@ private:
     RuntimeProfile::Counter* _java_create_vector_table_time = nullptr;
     RuntimeProfile::Counter* _fill_block_time = nullptr;
     RuntimeProfile::Counter* _jvm_heap_wait_time = nullptr;
+    RuntimeProfile::Counter* _jvm_heap_declared_bytes = nullptr;
     RuntimeProfile::ConditionCounter* _max_time_split_weight_counter = nullptr;
 
     int64_t _jni_scanner_open_watcher = 0;
@@ -167,8 +173,8 @@ private:
 
     bool _closed = false;
     bool _scanner_opened = false;
-    // Admits the Java scanner by the JVM heap left (util/jni_scan_heap_gate.h). Held while the
-    // scanner is open; marked opened once it produced its first batch.
+    // Admits the Java scanner by the JVM heap its range declares (util/jni_scan_heap_gate.h). Held
+    // while the scanner is open.
     JniScanHeapGate::Permit _heap_permit;
 
     Jni::GlobalObject _jni_scanner_obj;
