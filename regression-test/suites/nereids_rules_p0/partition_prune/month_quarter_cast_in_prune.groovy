@@ -125,29 +125,37 @@ suite("month_quarter_cast_in_prune") {
     ) distributed by hash(a) properties("replication_num"="1");"""
     sql """INSERT INTO monotonic_function_t values(10000,'1979-01-01','1979-01-01','abc'),(100000009999,'2012-01-01','2012-01-01','abc'),(100000009999999,'2020-01-01','2020-01-01','abc'),(10000000099999999,'2045-01-01','2045-01-01','abc')"""
 
-    explain {
-        sql """select * from monotonic_function_t where from_second(a) < '2001-09-09 12:33:19' """
-        contains("partitions=4/4 (p1,p2,p3,p4)")
-    }
-    explain {
-        sql """select * from monotonic_function_t where from_second(a) > '2001-09-09 12:33:19' """
-        contains("partitions=4/4 (p1,p2,p3,p4)")
-    }
-    explain {
-        sql """select * from monotonic_function_t where from_millisecond(a) < '2001-09-09 12:33:19' """
-        contains("partitions=4/4 (p1,p2,p3,p4)")
-    }
-    explain {
-        sql """select * from monotonic_function_t where from_millisecond(a) > '2001-09-09 12:33:19' """
-        contains("partitions=3/4 (p1,p3,p4)")
-    }
-    explain {
-        sql """select * from monotonic_function_t where from_microsecond(a) < '2000-09-09 12:33:19' """
-        contains("partitions=3/4 (p1,p2,p3)")
-    }
-    explain {
-        sql """select * from monotonic_function_t where from_microsecond(a) > '2002-09-09 12:33:19' """
-        contains("partitions=2/4 (p1,p4)")
+    def originalTimeZone = sql("select @@time_zone")[0][0]
+    try {
+        sql "set time_zone = 'Asia/Shanghai'"
+        explain {
+            sql """select * from monotonic_function_t where from_second(a) < '2001-09-09 12:33:19' """
+            contains("partitions=4/4 (p1,p2,p3,p4)")
+        }
+        explain {
+            sql """select * from monotonic_function_t where from_second(a) > '2001-09-09 12:33:19' """
+            contains("partitions=4/4 (p1,p2,p3,p4)")
+        }
+        explain {
+            sql """select * from monotonic_function_t where from_millisecond(a) < '2001-09-09 12:33:19' """
+            contains("partitions=4/4 (p1,p2,p3,p4)")
+        }
+        explain {
+            sql """select * from monotonic_function_t where from_millisecond(a) > '2001-09-09 12:33:19' """
+            // p2 spans the 1991 Asia/Shanghai fall-back, so it is not monotonic.
+            contains("partitions=4/4 (p1,p2,p3,p4)")
+        }
+        explain {
+            sql """select * from monotonic_function_t where from_microsecond(a) < '2000-09-09 12:33:19' """
+            contains("partitions=4/4 (p1,p2,p3,p4)")
+        }
+        explain {
+            sql """select * from monotonic_function_t where from_microsecond(a) > '2002-09-09 12:33:19' """
+            // p2 is a safe 1970 interval; p3 spans the 1991 fall-back.
+            contains("partitions=3/4 (p1,p3,p4)")
+        }
+    } finally {
+        sql "set time_zone = '${originalTimeZone}'"
     }
 
     // test makedate
