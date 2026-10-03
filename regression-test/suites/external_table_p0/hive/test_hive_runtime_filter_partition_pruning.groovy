@@ -149,6 +149,17 @@ suite("test_hive_runtime_filter_partition_pruning", "p0,external") {
                     // answer is 1, not the unfiltered max of 4. This is the case that used to
                     // make the reader decline the range because a scan conjunct was present.
                     "select max(p) from hive_partition_value_parquet where p<=1",
+                    // COUNT(DISTINCT) over a partition column: deduplicating "one row per file"
+                    // yields the same value set as deduplicating every row.
+                    // One CTE consumed twice through different shapes: a join and a scalar
+                    // subquery. Both consumers must inherit the producer's bounded output, so the
+                    // runtime filter still reaches the scanned table.
+                    """with latest as (select max(p) as p from hive_partition_value_parquet)
+                        select t.p,t.q,t.v from hive_partition_value_parquet t
+                        join latest l on t.p=l.p
+                        where t.p = (select p from latest) order by t.p,t.q,t.v""",
+                    "select count(distinct p) from hive_partition_value_parquet",
+                    "select count(distinct p) from hive_partition_value_orc",
                     "select p from hive_partition_value_parquet where p>=2 group by p order by p",
                     "select min(p),max(p),min(q),max(q) from hive_partition_value_orc",
                     "select distinct p,q from hive_partition_value_orc order by p,q",
@@ -221,7 +232,12 @@ suite("test_hive_runtime_filter_partition_pruning", "p0,external") {
                         "select distinct p+random() from hive_partition_value_parquet",
                         "select max(p) from hive_partition_value_parquet tablesample(50 percent) repeatable 7",
                         "select max(p) from hive_partition_value_parquet " +
-                                "where assert_true(p>0,'positive partition required')"
+                                "where assert_true(p>0,'positive partition required')",
+                        // COUNT with no DISTINCT counts rows, and the synthesized stream carries one
+                        // row per file, so it must NOT be answered from partition metadata.
+                        "select count(p) from hive_partition_value_parquet",
+                        // Other distinct aggregates are not duplicate-insensitive in general.
+                        "select sum(distinct p) from hive_partition_value_parquet"
                     ].each { query ->
                         explain {
                             sql(query)

@@ -925,10 +925,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         if (filter != null && !logicalScan.getSelectedPartitions().isPruned) {
             return false;
         }
-        // This optimization supports MIN/MAX and pure grouping, not distinct aggregate functions.
-        if (!aggregate.getDistinctArguments().isEmpty()) {
-            return false;
-        }
+        // This optimization supports MIN/MAX, and COUNT(DISTINCT ...); see the loop below for why
+        // other distinct aggregates are not duplicate-insensitive.
         Set<AggregateFunction> aggregateFunctions = aggregate.getAggregateFunctions();
         // A LogicalAggregate always has at least a group by key or an aggregate function; require it
         // explicitly so a degenerate aggregate never reaches the fast path.
@@ -936,9 +934,19 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             return false;
         }
         for (AggregateFunction function : aggregateFunctions) {
-            if (!(function instanceof Min) && !(function instanceof Max)) {
-                return false;
+            if (function instanceof Min || function instanceof Max) {
+                // MIN/MAX are unaffected by duplicates, and every row of a file carries the same
+                // partition values, so emitting one row per file cannot change the result.
+                continue;
             }
+            // COUNT(DISTINCT p) is safe for the same reason: deduplicating over "one row per file"
+            // yields the same value set as deduplicating over every row of every file.
+            // Plain COUNT is NOT safe -- it counts rows, and the synthesized stream has one row
+            // per file, so COUNT(p) would answer with the file count instead of the row count.
+            if (function instanceof Count && function.isDistinct()) {
+                continue;
+            }
+            return false;
         }
         return isAllPartitionColumns(scanOutputSlots(logicalScan), logicalScan);
     }
