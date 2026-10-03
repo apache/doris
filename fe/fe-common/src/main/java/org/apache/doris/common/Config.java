@@ -107,6 +107,20 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = "The threshold of slow query, in milliseconds. If the response time of a "
             + "query exceeds this threshold, it will be recorded in audit log.")
     public static long qe_slow_log_ms = 5000;
+
+    @ConfField(mutable = true, description = "Log slow Nereids planning passes after this many milliseconds. "
+            + "Non-positive values disable slow-pass logs; failed passes are still reported.")
+    public static volatile long nereids_planning_log_threshold_ms = 5000;
+
+    @ConfField(mutable = true, description = "Minimum interval in milliseconds between running-planner reports "
+            + "from the connection checker. Values below 1000 use 1000.")
+    public static volatile long nereids_planning_log_interval_ms = 30000;
+
+    @ConfField(mutable = true, description = "Slow planning lock wait/hold and external metadata operation threshold "
+            + "in milliseconds. Non-positive values disable slow-operation logs. At most 16 operations are logged "
+            + "per planning pass, after releasing planner resources; failures are reported regardless of threshold.")
+    public static volatile long nereids_planning_operation_log_threshold_ms = 1000;
+
     @ConfField(mutable = true, description = "The threshold of sql_digest generation, in milliseconds. If the "
             + "response time of a query exceeds this threshold, sql_digest will be " + "generated for it.")
     public static long sql_digest_generation_threshold_ms = 5000;

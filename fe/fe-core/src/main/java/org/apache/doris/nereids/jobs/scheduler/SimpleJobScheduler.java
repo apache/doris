@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.jobs.scheduler;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.profile.PlanningDiagnostics;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.errors.QueryPlanningErrors;
@@ -48,7 +49,15 @@ public class SimpleJobScheduler implements JobScheduler {
                 }
             }
             Job job = pool.pop();
-            job.execute();
+            PlanningDiagnostics diagnostics = PlanningDiagnostics.current(context.getConnectContext());
+            Class<?> previousJob = diagnostics == null ? null : diagnostics.setCurrentJob(job.getClass());
+            try {
+                job.execute();
+            } finally {
+                if (diagnostics != null) {
+                    diagnostics.setCurrentJob(previousJob);
+                }
+            }
         }
     }
 }

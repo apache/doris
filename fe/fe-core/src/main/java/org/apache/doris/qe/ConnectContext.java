@@ -49,6 +49,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.QueryLogContext;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.PlanningDiagnostics;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
@@ -1340,7 +1341,22 @@ public class ConnectContext {
         }
     }
 
+    // Published independently of StatementContext's monitor, which is held during table-lock acquisition.
+    private volatile PlanningDiagnostics planningDiagnostics;
+
+    public PlanningDiagnostics getPlanningDiagnostics() {
+        return planningDiagnostics;
+    }
+
+    public void setPlanningDiagnostics(PlanningDiagnostics diagnostics) {
+        planningDiagnostics = diagnostics;
+    }
+
     public void checkTimeout(long now) {
+        PlanningDiagnostics diagnostics = planningDiagnostics;
+        if (diagnostics != null) {
+            diagnostics.reportIfSlow();
+        }
         // Idle connections and metadata commands can retain an ID from the preceding query.
         boolean executingQuery = command == MysqlCommand.COM_QUERY || command == MysqlCommand.COM_STMT_PREPARE
                 || command == MysqlCommand.COM_STMT_EXECUTE;
