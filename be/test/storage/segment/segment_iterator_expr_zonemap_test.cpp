@@ -38,6 +38,7 @@
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/comparison_predicate.h"
 #include "storage/row_cursor.h"
+#include "storage/segment/column_reader.h"
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_iterator.h"
@@ -80,6 +81,7 @@ public:
     }
 
     ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
+        ++evaluations;
         auto zone_map = ctx.zone_map(_column_id);
         if (zone_map == nullptr) {
             return unsupported_zonemap_filter(ctx);
@@ -90,6 +92,8 @@ public:
         return zone_map->max_value.get<TYPE_INT>() >= _threshold ? ZoneMapFilterResult::kMayMatch
                                                                  : ZoneMapFilterResult::kNoMatch;
     }
+
+    mutable size_t evaluations = 0;
 
 private:
     int _column_id;
@@ -288,6 +292,7 @@ TEST_F(SegmentIteratorExprZonemapTest, ApplyExprZonemapPrunesPageRowRanges) {
     SegmentIterator iter(segment, read_schema);
     iter._file_reader = segment->_file_reader;
     iter._opts.stats = &_stats;
+    iter._row_bitmap.addRange(0, kNumRows);
 
     auto expr_ctx = std::make_shared<VExprContext>(std::make_shared<IntMaxAtLeastExpr>(1, 500));
     VExprContextSPtrs conjuncts {expr_ctx};
@@ -362,6 +367,84 @@ TEST_F(SegmentIteratorExprZonemapTest, NewIteratorPrunesCommitTsoByReadOptionVal
     EXPECT_TRUE(iter->empty());
     EXPECT_EQ(1, _stats.total_segment_number);
     EXPECT_EQ(1, _stats.filtered_segment_number);
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, SparseCandidatesSkipUnrelatedPageExpressions) {
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
+    SegmentIterator iter(segment, make_read_schema(_tablet_schema));
+    iter._file_reader = segment->_file_reader;
+    iter._opts.stats = &_stats;
+    iter._row_bitmap.add(1);
+    iter._row_bitmap.add(kNumRows - 1);
+    auto expr = std::make_shared<IntMaxAtLeastExpr>(1, 500);
+    VExprContextSPtrs conjuncts {std::make_shared<VExprContext>(expr)};
+    auto ranges = RowRanges::create_single(kNumRows);
+    ASSERT_TRUE(iter._apply_expr_zonemap_to_row_ranges(conjuncts, 0, &ranges).ok());
+    EXPECT_EQ(2, expr->evaluations);
+    EXPECT_EQ(2, _stats.zonemap_index_pages_evaluated);
+    EXPECT_EQ(1, _stats.expr_zonemap_filtered_pages);
+    auto survivors = iter._row_bitmap & RowRanges::ranges_to_roaring(ranges);
+    EXPECT_EQ(1, survivors.cardinality());
+    EXPECT_TRUE(survivors.contains(kNumRows - 1));
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, EmptyCandidatesSkipPageExpressions) {
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
+    SegmentIterator iter(segment, make_read_schema(_tablet_schema));
+    iter._file_reader = segment->_file_reader;
+    iter._opts.stats = &_stats;
+    auto expr = std::make_shared<IntMaxAtLeastExpr>(1, 500);
+    VExprContextSPtrs conjuncts {std::make_shared<VExprContext>(expr)};
+    auto ranges = RowRanges::create_single(kNumRows);
+    ASSERT_TRUE(iter._apply_expr_zonemap_to_row_ranges(conjuncts, 0, &ranges).ok());
+    EXPECT_EQ(0, expr->evaluations);
+    EXPECT_TRUE(ranges.is_empty());
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, SyntheticZoneMapsHaveNoPhysicalPages) {
+    constexpr int64_t kCommitTso = 466872251335573505L;
+    _tablet_schema = make_commit_tso_tablet_schema();
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_commit_tso_segment(&segment));
+    std::shared_ptr<ColumnReader> reader;
+    ASSERT_TRUE(segment->get_column_reader(1, &reader, &_stats, nullptr,
+                                           Field::create_field<TYPE_BIGINT>(kCommitTso))
+                        .ok());
+    ASSERT_NE(nullptr, dynamic_cast<ConstantColumnReader*>(reader.get()));
+    SegmentIterator iter(segment, make_read_schema(_tablet_schema));
+    iter._file_reader = segment->_file_reader;
+    iter._opts.stats = &_stats;
+    iter._row_bitmap.addRange(0, kCommitTsoRows);
+    // This expression must not be evaluated: the synthetic reader exposes only a
+    // segment ZoneMap, with neither page ZoneMaps nor an ordinal index.
+    auto expr = std::make_shared<IntMaxAtLeastExpr>(1, 500);
+    VExprContextSPtrs conjuncts {std::make_shared<VExprContext>(expr)};
+    auto ranges = RowRanges::create_single(kCommitTsoRows);
+    auto st = iter._apply_expr_zonemap_to_row_ranges(conjuncts, 0, &ranges);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(0, expr->evaluations);
+    EXPECT_EQ(kCommitTsoRows, ranges.count());
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, DisabledPageExpressionsPreserveInputRanges) {
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_segment(&segment));
+    SegmentIterator iter(segment, make_read_schema(_tablet_schema));
+    iter._file_reader = segment->_file_reader;
+    iter._opts.stats = &_stats;
+    iter._row_bitmap.add(1);
+    TQueryOptions query_options;
+    query_options.__set_enable_expr_zonemap_filter(false);
+    RuntimeState state {query_options, TQueryGlobals()};
+    iter._opts.runtime_state = &state;
+    auto expr = std::make_shared<IntMaxAtLeastExpr>(1, 500);
+    VExprContextSPtrs conjuncts {std::make_shared<VExprContext>(expr)};
+    auto ranges = RowRanges::create_single(kNumRows);
+    ASSERT_TRUE(iter._apply_expr_zonemap_to_row_ranges(conjuncts, 0, &ranges).ok());
+    EXPECT_EQ(0, expr->evaluations);
+    EXPECT_EQ(kNumRows, ranges.count());
 }
 
 } // namespace doris::segment_v2

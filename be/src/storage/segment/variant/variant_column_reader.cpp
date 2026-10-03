@@ -108,13 +108,15 @@ public:
     Status get_row_ranges_by_zone_map(
             const AndBlockColumnPredicate* col_predicates,
             const std::vector<std::shared_ptr<const ColumnPredicate>>* delete_predicates,
-            RowRanges* row_ranges) override {
-        return _inner->get_row_ranges_by_zone_map(col_predicates, delete_predicates, row_ranges);
+            const roaring::Roaring& row_bitmap, RowRanges* row_ranges) override {
+        return _inner->get_row_ranges_by_zone_map(col_predicates, delete_predicates, row_bitmap,
+                                                  row_ranges);
     }
 
     Status get_row_ranges_by_bloom_filter(const AndBlockColumnPredicate* col_predicates,
+                                          const roaring::Roaring& row_bitmap,
                                           RowRanges* row_ranges) override {
-        return _inner->get_row_ranges_by_bloom_filter(col_predicates, row_ranges);
+        return _inner->get_row_ranges_by_bloom_filter(col_predicates, row_bitmap, row_ranges);
     }
 
     Status get_row_ranges_by_dict(const AndBlockColumnPredicate* col_predicates,
