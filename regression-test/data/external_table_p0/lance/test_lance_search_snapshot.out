@@ -146,9 +146,9 @@
 103	doc 103 doris	36.0
 
 -- !tag_two_phase --
-24	doc 24 lance	23104.0
-23	doc 23 doris	23716.0
-22	doc 22 lance	24336.0
+3	doc 3 doris	0.25
+4	doc 4 lance	2.25
+2	doc 2 lance	6.25
 
 -- !evolved_two_phase --
 2	[2, 3, 4, 5]	note 2	doc 2 lance	0.25
