@@ -1129,16 +1129,6 @@ public class ProfileManager extends MasterDaemon {
         }
     }
 
-    public void removeProfileFromHistory(String profileId) {
-        writeLock.lock();
-        try {
-            profileIdToProfileMap.remove(profileId);
-        } finally {
-            writeLock.unlock();
-        }
-    }
-
-
     /**
      * Moves profiles to the archive pending directory.
      * Files in pending will be archived when batch size is reached or timeout occurs.

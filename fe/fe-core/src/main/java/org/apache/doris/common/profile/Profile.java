@@ -281,6 +281,11 @@ public class Profile {
         return this.executionProfiles;
     }
 
+    public synchronized void clearExecutionProfiles() {
+        ProfileManager.getInstance().removeProfile(this);
+        this.executionProfiles.clear();
+    }
+
     // This API will also add the profile to ProfileManager, so that we could get the profile from ProfileManager.
     // isFinished ONLY means the coordinator or stmt executor is finished.
     public synchronized void updateSummary(Map<String, String> summaryInfo, boolean isFinished,

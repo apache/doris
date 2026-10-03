@@ -29,24 +29,37 @@ import org.apache.doris.common.IncrWindowNotReadyException;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.profile.ExecutionProfile;
+import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultFileSink;
+import org.apache.doris.statistics.model.Statistics;
+import org.apache.doris.thrift.TCounter;
+import org.apache.doris.thrift.TDetailedReportParams;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TQueryOptions;
+import org.apache.doris.thrift.TQueryProfile;
+import org.apache.doris.thrift.TRuntimeProfileNode;
+import org.apache.doris.thrift.TRuntimeProfileTree;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.thrift.TUnit;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -55,8 +68,10 @@ import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -383,7 +398,8 @@ public class StmtExecutorTest extends TestWithFeService {
             // Dispatch failed before publishing history.
             executor.finalizeQuery(true);
             Assertions.assertEquals(Long.MAX_VALUE, executor.getProfile().getQueryFinishTimestamp());
-            Assertions.assertSame(firstExecutionProfile, manager.getExecutionProfile(firstQueryId));
+            Assertions.assertNull(manager.getExecutionProfile(firstQueryId));
+            Assertions.assertTrue(executor.getProfile().getExecutionProfiles().isEmpty());
 
             connectContext.setQueryId(retryQueryId);
             Coordinator retryCoord = Mockito.mock(Coordinator.class);
@@ -407,19 +423,21 @@ public class StmtExecutorTest extends TestWithFeService {
         }
     }
 
-    @Test
+    @ParameterizedTest
+    @EnumSource(value = TStatusCode.class, names = {"OK", "INTERNAL_ERROR"})
     @ResourceLock("global")
-    public void testRetryReplacesFirstAttemptHistoricalProfileId() throws Exception {
+    public void testRetryRetainsFinalProfileAboveStatementThreshold(TStatusCode finalStatus) throws Exception {
         ProfileManager manager = ProfileManager.getInstance();
         connectContext.getSessionVariable().enableProfile = true;
-        connectContext.getSessionVariable().autoProfileThresholdMs = 0;
+        connectContext.getSessionVariable().autoProfileThresholdMs = 5_000;
         TUniqueId firstQueryId = new TUniqueId(0x22040L, 3L);
         TUniqueId retryQueryId = new TUniqueId(0x22040L, 4L);
         connectContext.setQueryId(firstQueryId);
         connectContext.setStartTime();
         StmtExecutor executor = new StmtExecutor(connectContext,
                 analyzeAndGetStmtByNereids("select 1", connectContext));
-        executor.getSummaryProfile().setQueryBeginTime(System.currentTimeMillis());
+        long queryBeginTime = System.currentTimeMillis() - 6_100;
+        executor.getSummaryProfile().setQueryBeginTime(queryBeginTime);
         ExecutionProfile firstExecutionProfile = new ExecutionProfile(firstQueryId, Collections.emptyList());
         ExecutionProfile retryExecutionProfile = new ExecutionProfile(retryQueryId, Collections.emptyList());
         TQueryOptions queryOptions = new TQueryOptions();
@@ -437,12 +455,17 @@ public class StmtExecutorTest extends TestWithFeService {
             Assertions.assertNotNull(manager.findProfileElementObject(executor.getProfile().getId()));
             executor.finalizeQuery(true);
             Assertions.assertNull(manager.findProfileElementObject(executor.getProfile().getId()));
-            Assertions.assertSame(firstExecutionProfile, manager.getExecutionProfile(firstQueryId));
+            Assertions.assertNull(manager.getExecutionProfile(firstQueryId));
+            Assertions.assertTrue(executor.getProfile().getExecutionProfiles().isEmpty());
+            Assertions.assertEquals(Long.MAX_VALUE, executor.getProfile().getQueryFinishTimestamp());
+            Assertions.assertEquals(queryBeginTime, executor.getSummaryProfile().getQueryBeginTime());
 
             connectContext.setQueryId(retryQueryId);
             Coordinator retryCoord = Mockito.mock(Coordinator.class);
             Mockito.when(retryCoord.getQueryOptions()).thenReturn(queryOptions);
             Mockito.when(retryCoord.getExecutionProfile()).thenReturn(retryExecutionProfile);
+            Mockito.when(retryCoord.getExecStatus()).thenReturn(new Status(finalStatus, "final attempt"));
+            executor.setCoord(retryCoord);
             executor.getProfile().addExecutionProfile(retryExecutionProfile);
             QeProcessorImpl.INSTANCE.registerQuery(retryQueryId, new QeProcessorImpl.QueryInfo(retryCoord));
             executor.updateProfile(false);
@@ -452,11 +475,133 @@ public class StmtExecutorTest extends TestWithFeService {
             Assertions.assertNull(manager.findProfileElementObject(DebugUtil.printId(firstQueryId)));
             Assertions.assertNotNull(manager.findProfileElementObject(DebugUtil.printId(retryQueryId)));
             Assertions.assertNotEquals(Long.MAX_VALUE, executor.getProfile().getQueryFinishTimestamp());
+            Assertions.assertEquals(Collections.singletonList(retryExecutionProfile),
+                    executor.getProfile().getExecutionProfiles());
+            // Total duration is between one and two thresholds.
+            long durationMs = executor.getProfile().getQueryFinishTimestamp() - queryBeginTime;
+            Assertions.assertTrue(durationMs >= 5_000 && durationMs < 10_000);
         } finally {
             QeProcessorImpl.INSTANCE.unregisterQuery(firstQueryId);
             QeProcessorImpl.INSTANCE.unregisterQuery(retryQueryId);
             manager.cleanProfile();
         }
+    }
+
+    @Test
+    @ResourceLock("global")
+    public void testSuccessfulRetryRendersMergedProfileAndActualRows(@TempDir Path profileDirectory) throws Exception {
+        ProfileManager manager = ProfileManager.getInstance();
+        connectContext.getSessionVariable().enableProfile = true;
+        connectContext.getSessionVariable().autoProfileThresholdMs = 0;
+        TUniqueId firstQueryId = new TUniqueId(0x22040L, 5L);
+        TUniqueId retryQueryId = new TUniqueId(0x22040L, 6L);
+        connectContext.setQueryId(firstQueryId);
+        connectContext.setStartTime();
+        StmtExecutor executor = new StmtExecutor(connectContext,
+                analyzeAndGetStmtByNereids("select 1", connectContext));
+        executor.getSummaryProfile().setQueryBeginTime(System.currentTimeMillis());
+        Profile profile = executor.getProfile();
+        Statistics statistics = new Statistics(0, Collections.emptyMap());
+        PhysicalEmptyRelation physicalPlan = new PhysicalEmptyRelation(new RelationId(0), Collections.emptyList(),
+                Optional.empty(), null, PhysicalProperties.ANY, statistics);
+        int planNodeId = physicalPlan.getId();
+        profile.setPhysicalPlan(physicalPlan);
+        ExecutionProfile failedExecution = new ExecutionProfile(firstQueryId, Collections.singletonList(0));
+        ExecutionProfile successfulExecution = new ExecutionProfile(retryQueryId, Collections.singletonList(0));
+        TQueryOptions queryOptions = new TQueryOptions();
+        queryOptions.enable_profile = true;
+
+        try {
+            Coordinator firstCoord = Mockito.mock(Coordinator.class);
+            Mockito.when(firstCoord.getQueryOptions()).thenReturn(queryOptions);
+            Mockito.when(firstCoord.getExecutionProfile()).thenReturn(failedExecution);
+            profile.addExecutionProfile(failedExecution);
+            QeProcessorImpl.INSTANCE.registerQuery(firstQueryId, new QeProcessorImpl.QueryInfo(firstCoord));
+            Assertions.assertTrue(failedExecution.updateProfile(
+                    createBackendRowsProfile(firstQueryId, planNodeId, 1000),
+                    new TNetworkAddress("127.0.0.1", 9060), true).ok());
+            executor.updateProfile(false);
+            executor.finalizeQuery(true);
+
+            connectContext.setQueryId(retryQueryId);
+            Coordinator retryCoord = Mockito.mock(Coordinator.class);
+            Mockito.when(retryCoord.getQueryOptions()).thenReturn(queryOptions);
+            Mockito.when(retryCoord.getExecutionProfile()).thenReturn(successfulExecution);
+            Mockito.when(retryCoord.getExecStatus()).thenReturn(Status.OK);
+            executor.setCoord(retryCoord);
+            profile.addExecutionProfile(successfulExecution);
+            QeProcessorImpl.INSTANCE.registerQuery(retryQueryId, new QeProcessorImpl.QueryInfo(retryCoord));
+            successfulExecution.addFragmentBackend(0, 1L);
+            successfulExecution.addFragmentBackend(0, 2L);
+            Assertions.assertTrue(successfulExecution.updateProfile(
+                    createBackendRowsProfile(retryQueryId, planNodeId, 17),
+                    new TNetworkAddress("127.0.0.1", 9060), true).ok());
+            Assertions.assertTrue(successfulExecution.updateProfile(
+                    createBackendRowsProfile(retryQueryId, planNodeId, 25),
+                    new TNetworkAddress("127.0.0.2", 9060), true).ok());
+            Assertions.assertTrue(successfulExecution.isCompleted());
+            executor.updateProfile(false);
+            executor.finalizeQuery();
+            Assertions.assertNotNull(manager.findProfileElementObject(profile.getId()));
+
+            String profileText = profile.getProfileByLevel();
+            Assertions.assertTrue(profileText.contains("MergedProfile:"));
+            Assertions.assertTrue(profileText.contains("Pipeline 0(instance_num=2)"));
+            Assertions.assertTrue(profileText.contains("RowsProduced: sum 42"));
+            Assertions.assertFalse(profileText.contains("build merged simple profile failed"));
+            Assertions.assertFalse(profileText.contains("DetailProfile(" + DebugUtil.printId(firstQueryId) + ")"));
+            Assertions.assertTrue(profileText.contains("DetailProfile(" + DebugUtil.printId(retryQueryId) + ")"));
+            Assertions.assertEquals(42L, profile.rowsProducedMap.get(String.valueOf(planNodeId)));
+            Assertions.assertEquals(42L, statistics.getActualRowCount());
+
+            profile.writeToStorage(profileDirectory.toString());
+            Profile storedProfile = Profile.read(profile.getProfileStoragePath());
+            Assertions.assertNotNull(storedProfile);
+            String storedText = storedProfile.getProfileByLevel();
+            Assertions.assertTrue(storedText.contains("MergedProfile:"));
+            Assertions.assertTrue(storedText.contains("RowsProduced: sum 42"));
+            Assertions.assertFalse(storedText.contains("DetailProfile(" + DebugUtil.printId(firstQueryId) + ")"));
+        } finally {
+            QeProcessorImpl.INSTANCE.unregisterQuery(firstQueryId);
+            QeProcessorImpl.INSTANCE.unregisterQuery(retryQueryId);
+            manager.removeProfile(profile);
+        }
+    }
+
+    private static TQueryProfile createBackendRowsProfile(TUniqueId queryId, int planNodeId, long rowsProduced) {
+        TRuntimeProfileNode pipeline = createProfileNode("Pipeline 0", 1);
+        TRuntimeProfileNode task = createProfileNode("PipelineTask 0", 1);
+        TRuntimeProfileNode operator = createProfileNode("AGGREGATION_OPERATOR (nereids_id=" + planNodeId + ")", 1);
+        operator.setMetadata(planNodeId);
+        TRuntimeProfileNode commonCounters = createProfileNode("CommonCounters", 0);
+        TCounter rows = new TCounter("RowsProduced", TUnit.UNIT, rowsProduced);
+        rows.setLevel(1);
+        commonCounters.setCounters(Collections.singletonList(rows));
+        commonCounters.setChildCountersMap(Collections.singletonMap(RuntimeProfile.ROOT_COUNTER,
+                Collections.singleton("RowsProduced")));
+        TRuntimeProfileTree tree = new TRuntimeProfileTree();
+        tree.setNodes(Lists.newArrayList(pipeline, task, operator, commonCounters));
+        TDetailedReportParams report = new TDetailedReportParams();
+        report.setProfile(tree);
+        report.setIsFragmentLevel(false);
+        TQueryProfile queryProfile = new TQueryProfile();
+        queryProfile.setQueryId(queryId);
+        queryProfile.putToFragmentIdToProfile(0, Collections.singletonList(report));
+        return queryProfile;
+    }
+
+    private static TRuntimeProfileNode createProfileNode(String name, int children) {
+        TRuntimeProfileNode node = new TRuntimeProfileNode();
+        node.setName(name);
+        node.setNumChildren(children);
+        node.setCounters(Collections.emptyList());
+        node.setMetadata(0);
+        node.setIndent(true);
+        node.setInfoStrings(Collections.emptyMap());
+        node.setInfoStringsDisplayOrder(Collections.emptyList());
+        node.setChildCountersMap(Collections.emptyMap());
+        node.setTimestamp(0);
+        return node;
     }
 
     @Test

@@ -52,7 +52,6 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.profile.Profile;
-import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.profile.SummaryProfile.SummaryBuilder;
@@ -1147,8 +1146,8 @@ public class StmtExecutor {
 
     void finalizeQuery(boolean willRetry) {
         if (willRetry) {
-            // Keep execution data, but remove the old history entry before retrying.
-            ProfileManager.getInstance().removeProfileFromHistory(profile.getId());
+            // Discard the failed attempt; keep the statement open.
+            profile.clearExecutionProfiles();
         } else {
             // Update before unregistering to keep the final BE reports.
             updateProfile(true);

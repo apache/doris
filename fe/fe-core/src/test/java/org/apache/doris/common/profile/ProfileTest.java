@@ -135,7 +135,7 @@ public class ProfileTest {
 
     @Test
     @ResourceLock("global")
-    public void testShortFailedJobRemovesMultipleExecutionProfiles() {
+    public void testJobBelowCombinedThresholdRemovesMultipleExecutionProfiles() {
         ProfileManager manager = ProfileManager.getInstance();
         TUniqueId firstQueryId = executionProfile.getQueryId();
         UUID secondUuid = UUID.randomUUID();
@@ -144,7 +144,8 @@ public class ProfileTest {
         ExecutionProfile secondExecutionProfile = new ExecutionProfile(secondQueryId, Collections.emptyList());
         profile.addExecutionProfile(secondExecutionProfile);
         profile.autoProfileDurationMs = 10_000;
-        profile.getSummaryProfile().setQueryBeginTime(System.currentTimeMillis());
+        // Broker Load keeps its per-task threshold.
+        profile.getSummaryProfile().setQueryBeginTime(System.currentTimeMillis() - 15_000);
         manager.addExecutionProfile(executionProfile);
         manager.addExecutionProfile(secondExecutionProfile);
 
