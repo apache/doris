@@ -23,7 +23,11 @@ import org.apache.fluss.utils.concurrent.FutureUtils;
 import org.apache.fluss.utils.concurrent.ShutdownableThread;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -80,5 +84,71 @@ public class FlussClientThreadDeathTest {
         Assertions.assertFalse(thread.isAlive(), "the thread was meant to die");
         // What closing its log scanner does with it afterwards: must return, not wait on the dead thread.
         Assertions.assertTimeoutPreemptively(Duration.ofSeconds(60), thread::shutdown);
+    }
+
+    /**
+     * The heap was full as the thread started, and logging that it starts is the first thing it
+     * allocates. The thread is lost all the same; the close of its log scanner, which shuts it down on a
+     * scan thread, must still return instead of waiting for a thread that never said it stopped.
+     */
+    @Test
+    public void downloadThreadThatDiesAsItStartsLetsItsScannerClose() throws Exception {
+        ShutdownableThread thread = new ShutdownableThread("doris-fatal-exit-test") {
+            @Override
+            public void doWork() throws InterruptedException {
+                pause(1, TimeUnit.DAYS);
+            }
+        };
+        Field log = ShutdownableThread.class.getDeclaredField("log");
+        log.setAccessible(true);
+        log.set(thread, runningOutOfHeapOn("Starting", (Logger) log.get(thread)));
+
+        thread.start();
+        thread.join(TimeUnit.SECONDS.toMillis(60));
+        Assertions.assertFalse(thread.isAlive(), "the thread was meant to die");
+        Assertions.assertTimeoutPreemptively(Duration.ofSeconds(60), thread::shutdown);
+    }
+
+    /**
+     * Under a full heap the JVM can end a thread without running its {@code finally} blocks: a compiled
+     * frame whose scalar-replaced objects cannot be reallocated on deoptimization is unwound past them. The
+     * thread then never counts itself shut down, and closing its log scanner must return all the same.
+     */
+    @Test
+    public void downloadThreadThatEndsWithoutSayingSoLetsItsScannerClose() throws Exception {
+        ShutdownableThread thread = new ShutdownableThread("doris-fatal-exit-test") {
+            @Override
+            public void doWork() {
+            }
+
+            @Override
+            public void run() {
+                // What the JVM leaves when it unwinds ShutdownableThread#run past its finally: a thread
+                // that started and ended, and a shutdownComplete nobody counted down.
+            }
+        };
+        Field started = ShutdownableThread.class.getDeclaredField("isStarted");
+        started.setAccessible(true);
+        started.set(thread, true);
+
+        thread.start();
+        thread.join(TimeUnit.SECONDS.toMillis(60));
+        Assertions.assertFalse(thread.isAlive(), "the thread was meant to end");
+        Assertions.assertTimeoutPreemptively(Duration.ofSeconds(60), thread::shutdown);
+    }
+
+    /** {@code logger}, except that logging {@code message} at info runs out of heap. */
+    private static Logger runningOutOfHeapOn(String message, Logger logger) {
+        return (Logger) Proxy.newProxyInstance(Logger.class.getClassLoader(), new Class<?>[] {Logger.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("info") && args != null && message.equals(args[0])) {
+                        throw new OutOfMemoryError("simulated: Java heap space");
+                    }
+                    try {
+                        return method.invoke(logger, args);
+                    } catch (InvocationTargetException e) {
+                        throw e.getCause();
+                    }
+                });
     }
 }

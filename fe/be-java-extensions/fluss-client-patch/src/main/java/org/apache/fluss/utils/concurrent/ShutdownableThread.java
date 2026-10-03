@@ -38,9 +38,15 @@ import java.util.concurrent.TimeUnit;
  * every other {@code Throwable}. Nothing restarts it, so the log scanner it served fetches no further
  * remote segment: a range of that scanner that still needs one waits for it indefinitely.
  *
+ * <p>Closing that scanner shuts the thread down and waits for it, on a scan thread, so nothing may leave
+ * that wait hanging: an {@code Error} thrown as the thread starts is caught like one from its work (fluss
+ * logs the start outside its {@code try}), and {@link #awaitShutdown()} also returns once the thread has
+ * ended, since an {@code OutOfMemoryError} can end it without running the code that would say so.
+ *
  * <p>Found ahead of fluss-client's copy because the jar it ships in names it in
- * {@code Doris-Shadows-Classes} (see this module's pom). Apart from that one branch of {@link #run()} it
- * is fluss's class member for member, so the fluss classes compiled against that one link to this one.
+ * {@code Doris-Shadows-Classes} (see this module's pom). Apart from {@link #run()} and
+ * {@link #awaitShutdown()} it is fluss's class member for member, so the fluss classes compiled against
+ * that one link to this one.
  */
 public abstract class ShutdownableThread extends Thread {
 
@@ -91,13 +97,24 @@ public abstract class ShutdownableThread extends Thread {
         }
     }
 
-    /** After calling {@link #initiateShutdown()}, waits for the thread to finish its work. */
+    /**
+     * After calling {@link #initiateShutdown()}, waits for the thread to finish its work, or to have ended
+     * without saying so: fluss waits on the latch alone, and a thread can end without counting it down.
+     * Under a full heap the JVM may unwind a compiled frame without running its {@code catch} and
+     * {@code finally} blocks - when deoptimizing it cannot reallocate the frame's scalar-replaced objects,
+     * it throws "OutOfMemoryError: Java heap space: failed reallocation of scalar replaced objects" past
+     * them - and the close of the log scanner the thread served, on a scan thread, would never return.
+     */
     public void awaitShutdown() throws InterruptedException {
         if (!isShutdownInitiated()) {
             throw new IllegalStateException("initiateShutdown() was not called before awaitShutdown()");
         }
         if (isStarted) {
-            shutdownComplete.await();
+            while (!shutdownComplete.await(1, TimeUnit.SECONDS)) {
+                if (!isAlive()) {
+                    break;
+                }
+            }
         }
         log.info("Shutdown completed");
     }
@@ -108,8 +125,11 @@ public abstract class ShutdownableThread extends Thread {
     @Override
     public void run() {
         isStarted = true;
-        log.info("Starting");
         try {
+            // Inside the try, where fluss logs it before: logging allocates, and an Error thrown there
+            // would end the thread without counting shutdownComplete down, so that awaitShutdown() - the
+            // close of the log scanner this thread serves, on a scan thread - would wait for ever.
+            log.info("Starting");
             while (isRunning()) {
                 doWork();
             }
