@@ -75,7 +75,19 @@ Status RuntimeFilterProducer::publish(RuntimeState* state, bool build_hash_table
     if (!_has_remote_target) {
         // A runtime filter may have multiple targets and some of those are local-merge RF and others are not.
         // So for all runtime filters' producers, `publish` should notify all consumers in global RF mgr which manages local-merge RF and local RF mgr which manages others.
+        //
+        // The merger keeps merging the other producers into the wrapper it takes over, while
+        // consumers in local RF mgr use the wrapper they are signaled with right away. So when
+        // both kinds of consumers exist, consumers in local RF mgr get a private copy, which is
+        // taken before the merger can see this wrapper.
+        std::shared_ptr<RuntimeFilterWrapper> local_wrapper = _wrapper;
+        if (_need_do_merge(state) && !state->local_runtime_filter_mgr()
+                                              ->get_consume_filters(_wrapper->filter_id())
+                                              .empty()) {
+            RETURN_IF_ERROR(_wrapper->clone(&local_wrapper));
+        }
         RETURN_IF_ERROR(do_merge());
+        _wrapper = std::move(local_wrapper);
         RETURN_IF_ERROR(_send_to_local_targets(state, this, false));
     } else if (build_hash_table) {
         if (_is_broadcast_join) {
