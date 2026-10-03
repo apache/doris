@@ -21,6 +21,4 @@ import io.grpc.ManagedChannel;
 
 public interface MetaServiceClientChannelProvider {
     ManagedChannel createChannel(String target);
-
-    long currentConfigVersion();
 }

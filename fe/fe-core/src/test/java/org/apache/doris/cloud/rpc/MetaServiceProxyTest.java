@@ -650,7 +650,6 @@ public class MetaServiceProxyTest {
         MetaServiceClient client = Mockito.mock(MetaServiceClient.class);
         Mockito.when(client.isNormalState()).thenReturn(true);
         Mockito.when(client.isConnectionAgeExpired()).thenReturn(false);
-        Mockito.when(client.isUsingLatestChannelConfig()).thenReturn(true);
         return client;
     }
 }
