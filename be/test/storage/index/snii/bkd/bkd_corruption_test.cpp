@@ -15,33 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// P0-3 / P1-6, design 12.4: what damaged bytes do.
-//
-// THIS IS ONE OF THE TWO DEFECTS THE REWRITE EXISTS TO REMOVE (design 1b / 14
-// #1). In the CLucene BKD, `ByteArrayDataInput::readBytes` is an unchecked
-// std::copy and `readByte` throws std::out_of_range -- not a CLuceneError -- so
-// it escapes every catch in `query` / `try_query` / `BKDIndexSearcherBuilder`.
-// A damaged bkd_index there produced a heap overread or an uncaught exception,
-// NOT a Status the caller could downgrade on. The specific shape that did it:
-// an inflated LENGTH FIELD (an array or inner-node extent read straight off
-// disk and then trusted as a size).
-//
-// The contract asserted here, for every damaged input:
-//
-//   1. a Status comes back -- never a crash, never a read past the buffer;
-//   2. the Status is INVERTED_INDEX_FILE_CORRUPTED (damage) or
-//      INVERTED_INDEX_NOT_SUPPORTED (a capability boundary), because those are
-//      the two the caller knows how to downgrade on (design 8);
-//   3. a failed open leaves the caller's unique_ptr untouched.
-//
-// Disk bytes are NOT invariants: none of these paths may DORIS_CHECK, or a
-// recoverable index downgrade becomes a node crash.
-//
-// "Never reads past the buffer" is only observable under a sanitizer. run-be-ut.sh
-// builds with CMAKE_BUILD_TYPE=ASAN_UT by default (-fsanitize=address), which is
-// what makes the sweeps below more than smoke tests; a plain release UT build
-// still checks 1-3 but would not notice an overread that happens to stay inside
-// the heap.
+// Malformed BKD bytes must return corruption or unsupported-version Status without a crash. Failed open calls must leave the output pointer unchanged.
 
 #include <gtest/gtest.h>
 
@@ -445,12 +419,7 @@ TEST(BkdCorruptionTest, EveryByteFlipInBkdDataIsAStatusNeverACrash) {
     ASSERT_TRUE(build_image(sweep_points(), 16, &original).ok());
     ASSERT_GT(original.data_size, 0U);
 
-    // Leaf blocks are read lazily and are NOT covered by the open-time
-    // validation (design 8.3), so unlike bkd_index there is no checksum standing
-    // in front of them: every field a leaf decoder reads is a field it has to
-    // range-check itself. A flip may therefore be caught (a length that no
-    // longer fits), or absorbed (a value byte still decodes, the answer is just
-    // wrong) -- what it may never do is read past the block.
+    // Leaf data is checked when read, so malformed fields must never read beyond the block.
     for (size_t offset = 0; offset < original.data_size; ++offset) {
         for (const uint8_t mask : {uint8_t {0x01}, uint8_t {0x40}, uint8_t {0xFF}}) {
             Image damaged = original;
@@ -493,9 +462,7 @@ TEST(BkdCorruptionTest, EveryTruncationOfBkdIndexIsRejected) {
     Image original;
     ASSERT_TRUE(build_image(sweep_points(), 16, &original).ok());
 
-    // A short hot section can only ever be damage: there is no shape of
-    // bkd_index that is a valid prefix of a longer one (the frame declares its
-    // own length and the payload is fully consumed, design 5.1).
+    // A truncated bkd_index section is always corrupt.
     for (size_t length = 0; length < original.index_size; ++length) {
         Image damaged = original;
         damaged.sections.index_length = length;
@@ -618,8 +585,7 @@ TEST(BkdCorruptionTest, HeaderCountsThatContradictTheDirectoryAreRejected) {
     IndexPayload payload;
     ASSERT_TRUE(parse_payload(payload_of(original.index_bytes()), &payload));
 
-    // point_count is what bounds every leaf decode allocation (design 5.2), so a
-    // value the leaf counts do not add up to must not survive open.
+    // Reject a point count that disagrees with the sum of leaf counts.
     for (const uint64_t point_count :
          {uint64_t {0}, uint64_t {199}, uint64_t {201}, uint64_t {1} << 40}) {
         SCOPED_TRACE("point_count " + std::to_string(point_count));
@@ -662,9 +628,7 @@ TEST(BkdCorruptionTest, InflatedLeafDirectoryCountIsRejected) {
             original.bytes.begin() + static_cast<long>(original.data_begin + original.data_size));
     std::vector<uint8_t> payload = payload_of(original.index_bytes());
 
-    // The very last payload byte is the LAST leaf's count varint (design 5.1's
-    // directory is offsets then counts). Inflating it breaks the
-    // sum(counts) == point_count identity the leaf decode bound rests on.
+    // Inflating the last leaf count breaks the directory's point-count sum.
     ASSERT_EQ(payload.back(), 8U);
     payload.back() = 0x7F;
     const Image damaged = assemble(reframe(payload), data_bytes);
@@ -672,16 +636,7 @@ TEST(BkdCorruptionTest, InflatedLeafDirectoryCountIsRejected) {
     EXPECT_TRUE(is_rejected(outcome.open_status, "inflated leaf count"));
 }
 
-// The directory can be INTERNALLY CONSISTENT and still be a bomb. Inflating the
-// leaf's count alone breaks sum(counts) == point_count (the test above), but
-// inflating point_count by the same amount restores that identity, so every
-// open-time check passes. What then bounds the leaf decode allocation is a
-// number that came straight off disk: leaf_codec sizes the doc id vector by it,
-// while the leaf block itself can stay ~25 bytes (kAllEqual whose PFOR block is
-// zero-width). bkd_types.h documents "count <= points_per_leaf" as an
-// invariant -- open has to actually enforce it, or a bad_alloc escapes a module
-// that has no catch anywhere, which is precisely the "recoverable degradation
-// becomes a node crash" that design 8 exists to prevent.
+// A leaf count can match the total point count yet exceed points_per_leaf. Reject it before leaf decoding can allocate from that untrusted count.
 TEST(BkdCorruptionTest, SelfConsistentButAbsurdLeafCountsAreRejectedAtOpen) {
     // One leaf, so the tail is exactly: min | max | (no splits) | one offset
     // delta varint64 | one count varint32.
@@ -794,11 +749,7 @@ TEST(BkdCorruptionTest, SelfConsistentSplitAboveGlobalMaximumIsRejectedBeforeQue
 }
 
 TEST(BkdCorruptionTest, InflatedLeafBlockLengthFieldsAreRejectedAtQueryTime) {
-    // A leaf block starts with { point_count varint32, value_mode u8,
-    // common_prefix_len varint32, ... } and ends with { docid_block_offset
-    // varint32, offset_length u8 } (design 5.2). Each of those is a length or a
-    // tag read straight off disk -- the same class of field that made the old
-    // decoder overread -- so each one gets its own inflation here.
+    // Inflate each leaf length and tag field to check decoder bounds.
     struct Case {
         const char* name;
         // Offset from the START of bkd_data, or from its END when `from_end`.
@@ -882,8 +833,7 @@ TEST(BkdCorruptionTest, SectionExtentsAreValidatedNotTrusted) {
         EXPECT_TRUE(survives(damaged));
     }
     {
-        // A zero-length cold sub-file under a non-empty directory: legal shape
-        // for the EMPTY index only (design 5.3), damage here.
+        // A non-empty directory cannot refer to an empty bkd_data file.
         Image damaged = original;
         damaged.sections.data_length = 0;
         const Outcome outcome = probe(damaged);

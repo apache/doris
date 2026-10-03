@@ -27,10 +27,8 @@
 #include "storage/index/snii/writer/spimi_term_buffer.h"
 #include "storage/index/snii/writer/term_posting_test_utils.h"
 
-// Ingestion retains one append-only spool regardless of logical run count.
-// Final reduction limits active inputs, preserves chronological ranges and
-// coalesces a document split across runs. The historical run-file knob may
-// further restrict fan-in; zero still uses the workspace and fd bounds.
+// Spill runs share one spool, and merging preserves posting order.
+// A zero fan-in cap retains the posting workspace and file descriptor limits.
 using doris::Status;
 using doris::snii::writer::SpimiTermBuffer;
 using doris::snii::writer::StreamedTermPostings;

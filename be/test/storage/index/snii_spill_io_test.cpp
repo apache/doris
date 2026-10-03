@@ -15,17 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// R10-io-local-s3 spill backend tests.
-//
-// SpillableByteBuffer now spills to disk via Doris IO (io::global_local_filesystem()
-// create_file / appendv / close + read_at on read-back) instead of the standalone
-// doris::snii::io::Local{File}Writer/Reader. These tests pin the externally observable contract:
-// whatever lands on the spill scratch file, streamed back in append order, is byte-for-byte
-// identical to the concatenation of every append -- across the 0-byte branch, the
-// cap-crossing spill trigger, post-spill appends, and a >256 KiB chunk that also spans the
-// stream_into() copy window. The scratch file is a process-private intermediate (NOT the
-// published on-disk format v2), so this is an equivalence/round-trip guarantee, not a golden
-// byte test. Everything is deterministic: fixed cap_bytes and a fixed byte pattern.
+// Checks that the Doris IO spill backend returns appended bytes in order across empty, threshold-crossing, and large writes.
 
 #include <gtest/gtest.h>
 #include <unistd.h>

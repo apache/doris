@@ -29,19 +29,8 @@
 
 namespace doris::snii::writer {
 
-// Raw-u32 RUN compatibility codec for explicit fixtures and diagnostics. The
-// production spill/merge path uses EncodedRunWriter and StreamingRunReader
-// (encoded_spill_run.h); it never materializes an entire term in these classes.
-//
-// The former private format remains readable by the bounded merge path:
-//   run := record* (term ids ordered by vocabulary string rank)
-//   record := VInt term_id, VInt shape, VInt n_docs, u32 docid[n_docs]
-//   shape 0: docs only; no frequencies or positions
-//   shape 1: u32 frequency[n_docs]
-//   shape 2: u32 frequency[n_docs], VInt n_positions, u32 position[n_positions]
-// Fixed-width integers are little-endian. Positions are partitioned by positive
-// frequencies, whose sum equals n_positions. RunReader intentionally exposes
-// whole doc/frequency arrays for callers that request this materialized API.
+// Reads and writes legacy raw-u32 RUN files for fixtures and diagnostics.
+// Production spilling uses the bounded encoded codec in encoded_spill_run.h.
 
 // Writes a sorted sequence of terms (by id) to one run file. Term-ids must be
 // handed to write_term in vocab-string ascending order (the spill caller sorts
@@ -197,28 +186,16 @@ Status merge_run_sources(const std::vector<std::string>& run_paths,
                          const StreamedTermConsumer& fn, MemoryReporter* memory_reporter = nullptr,
                          bool allow_legacy = false);
 
-// Production input consists of independently sealed ranges in one append-only
-// spool. `ends` stores {u64 end_offset, u32 CRC} records and shares the posting
-// workspace; no per-run path or offset array is materialized. A nonzero fan-in
-// limit adds the historical run-file knob to the budget/fd constraints.
+// Merges sealed spool ranges within workspace and file descriptor limits, plus an optional fan-in cap.
+// The end-offset and CRC records in ends share the posting workspace.
 Status merge_spooled_run_sources(const std::string& spool, PostingByteBuffer* ends, size_t count,
                                  const std::vector<std::string>& vocab,
                                  const std::vector<uint32_t>& string_rank, bool has_positions,
                                  const StreamedTermConsumer& fn, MemoryReporter* reporter,
                                  size_t fan_in_limit);
 
-// Diagnostic/compaction interface: merges `run_paths` into one new run file at
-// `out_path`, keyed and ordered exactly like merge_run_sources (heap on
-// string_rank[term_id]; per-term postings concatenated across runs in run
-// order, boundary docs coalesced -- the same concat the final merge applies,
-// so compact-then-merge emits the identical term stream as merging the
-// originals). Compact fragments are copied with bounded buffers. Multi-pass
-// groups preserve chronological run order; the final consumer coalesces boundary
-// documents while decoding. The output uses the current private encoded format.
-// Every record's term-id must index string_rank (else Corruption). On error
-// `out_path` may hold a partial file the caller must delete; the input runs
-// are never modified. Active input fds are bounded by the shared workspace and
-// process fd limit; excess inputs are reduced through contiguous merge passes.
+// Merges run_paths into out_path in string-rank order using bounded groups that preserve posting order.
+// Input files are unchanged; on failure, the caller must remove any partial output file.
 Status compact_runs(const std::vector<std::string>& run_paths,
                     const std::vector<uint32_t>& string_rank, bool has_positions,
                     const std::string& out_path, MemoryReporter* memory_reporter = nullptr,

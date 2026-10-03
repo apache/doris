@@ -43,23 +43,7 @@
 #include "storage/index/snii/writer/snii_compound_writer.h"
 #include "storage/index/snii/writer/spimi_term_buffer.h"
 
-// Differential test for phrase_query WINDOW SKIPPING (design spec section 6.2).
-//
-// Builds a corpus with a VERY high-df term ("aa_hi", df=2500) whose .frq
-// posting spans MANY 256-doc windows, plus low/mid-df terms, and plants known
-// phrases (including a 5-term phrase whose FIRST term is the high-df term). For
-// every query the skipping phrase_query result must equal:
-//   (a) an in-memory brute-force ORACLE, and
-//   (b) an independent FULL-READ reference (decode every term's whole posting,
-//       intersect, positional check) -- the pre-skipping behavior.
-// Finally it asserts the byte/round reduction: a phrase whose low-df lead term
-// concentrates the candidates in a few windows reads FAR fewer bytes than the
-// full-read path, and the high-df windows touched are NOT proportional to the
-// term's total window count.
-//
-// NOTE on term naming: all real terms use an "aa_" prefix and a "zz_NNN" filler
-// vocabulary fills the lexicographic tail, so every real term sorts within the
-// SampledTermIndex's candidate range (the index samples per-block first terms).
+// Checks window-skipping phrase results against brute force and full-read results. Metered reads verify that sparse candidates avoid most high-frequency windows.
 using namespace doris::snii;
 using namespace doris::snii::format;
 using namespace doris::snii::reader;
@@ -564,7 +548,7 @@ TEST(SniiPhraseSkip, SkippingEqualsOracleAndFullRead) {
     //    high-df term contributes only its prelude + the candidate-covering
     //    windows (dd + prx sub-ranges), never its whole posting, so the 5-term
     //    skip query reads comfortably under 80% of the full-read bytes (a clear
-    //    reduction even with the richer Phase-D prelude and 4 companion terms).
+    //    reduction even with the prelude and 4 companion terms).
     EXPECT_LT(skip.total_request_bytes * 10, full.total_request_bytes * 8)
             << "skip=" << skip.total_request_bytes << " full=" << full.total_request_bytes;
     // 2. Skipping requests strictly fewer bytes than the full-read path.

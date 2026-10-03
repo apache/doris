@@ -15,32 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// The SNII BKD adapter across the WHOLE numeric type spread.
-//
-// bkd_differential_test already proves the CORE agrees with CLucene and with
-// brute force for every one of these types. What it cannot see is the ADAPTER,
-// which is where per-type breakage actually lives: SniiBkdIndexColumnWriter is
-// not a template, so it walks the caller's array by field_type_size(type) and
-// encodes with get_key_coder(type). If those two ever disagree for some type --
-// a CppType wider than the coder's output, a coder that is not length
-// preserving -- values land at the wrong offsets and every row's value is
-// silently shifted.
-//
-// The primary oracle is IDENTITY: for each distinct written value, an
-// exact-match lookup must return exactly the rows that value was written to. A
-// stride or width bug scrambles the value/row association and fails this
-// immediately, for any type, without the test needing to know how that type
-// compares.
-//
-// Identity alone is not enough, though, and this file used to stop there. An
-// exact-match answer only needs the encoding to be INJECTIVE, and its expected
-// sets are built with the same coder the writer used -- so a coder that lost its
-// sign flip would produce an oracle wrong in exactly the same way and every
-// assertion would still pass. The data made it worse: ranks started at 0, so no
-// value ever crossed zero and the sign flip could not be observed at all. Ranks
-// now straddle zero, and a second oracle taken from the NATIVE values checks a
-// RANGE -- the only query whose answer depends on the encoding being order
-// PRESERVING (INV-1).
+// Checks BKD adapter encoding across numeric types. Exact lookups verify value-to-row identity; native-value range queries verify encoded sort order.
 
 #include <gtest/gtest.h>
 

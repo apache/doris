@@ -27,26 +27,7 @@
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/writer/memory_reporter.h"
 
-// SniiSegmentTermCursor -- pull-model full-dictionary scan over ONE source
-// segment's logical index (T2.3, compaction index-merge fast path).
-//
-// The cursor walks the source's DICT blocks in ordinal order and yields every
-// DictEntry in lexicographic term order, one block resident at a time (never
-// the whole vocabulary). Entries are passed through UNINTERPRETED: the locator
-// (inline bytes / slim pod_ref / windowed pod_ref) reaches the downstream
-// decoder exactly as the reader produced it -- the merge pump (T2.4) decides
-// how to decode; per-doc term frequencies are recomputed from the position
-// stream, so this layer must not synthesize stats.
-//
-// Hidden-term gate (base-drift addendum ruling): the v1 merge fast path does
-// NOT merge legacy phrase-bigram postings. Any dictionary term carrying the
-// FULL 0x1F bigram marker (hidden bigram pair or the bare-marker sentinel,
-// classified by format::is_phrase_bigram_term -- NOT by a raw leading 0x1F
-// byte, which a legitimate user term may begin with) makes next() return
-// INVERTED_INDEX_NOT_SUPPORTED so the caller aborts THIS column's merge and
-// falls back to a full rebuild. The error is deliberately raised from next()
-// (not swallowed by skipping) because silently dropping hidden postings would
-// change phrase semantics on the merged output.
+// Scans one source dictionary in lexical order, keeping one DICT block resident at a time. A hidden phrase-bigram term returns INVERTED_INDEX_NOT_SUPPORTED so compaction can rebuild that column.
 namespace doris::snii::compaction {
 
 uint64_t big_endian_term_prefix(std::string_view term);

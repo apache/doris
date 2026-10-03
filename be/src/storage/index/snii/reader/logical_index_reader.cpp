@@ -365,19 +365,7 @@ Status LogicalIndexReader::dict_block_reader_for_ordinal(
 }
 
 Status LogicalIndexReader::load_resident_bsbf() {
-    // Block-split bloom XFilter -- gated on RESIDENCY (P1 cold-read fix, see
-    // docs/perf/P1-cold-read-amplification.md). The bloom is set up and used ONLY
-    // when the whole (small) filter fits under the resident cap: it is read in
-    // full, verified, and kept in memory so probes are in-memory and enter the
-    // Doris searcher cache with the rest of the logical-index metadata.
-    //
-    // When NON-resident (the common case for a real text column, where the filter
-    // is many MB) the bloom is skipped ENTIRELY: not even the 28B header is read,
-    // and has_bsbf_ stays false. Every term then falls through to sti -> dict,
-    // which yields the true found/absent. At 1 MiB cache-block granularity a
-    // non-resident bloom never saves a physical block (an absent term still costs
-    // one dict block either way), so its 28B header + per-term 32B probes were pure
-    // cold read amplification.
+    // Load and use the bloom filter only when it fits the resident metadata cap. Larger filters are skipped so cold lookups proceed directly through the sampled term index and DICT blocks.
     const RegionRef& bsbf = core_.section_refs.bsbf;
     if (open_mode_ != LogicalIndexOpenMode::kQuery || bsbf.length == 0 ||
         bsbf.length > bsbf_resident_max_bytes()) {

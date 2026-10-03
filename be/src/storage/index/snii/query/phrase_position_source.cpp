@@ -238,10 +238,9 @@ Status select_candidate_docs_for_prx(std::vector<uint32_t>* docids,
 }
 
 // PRX byte ranges for every candidate-bearing chunk across all phrase terms are
-// added to one shared BatchRangeFetcher and fetched in a single batched round
-// (T02). Pass 1 records, for each chunk that needs on-disk PRX bytes, where to
-// write the fetched slice back: which plan's PosSource, which chunk within it,
-// and the fetcher handle.
+// added to one shared BatchRangeFetcher and fetched together. Pass 1 records
+// where to write each fetched slice for chunks that need on-disk PRX bytes:
+// the plan's PosSource, the chunk within it, and the fetcher handle.
 
 struct PrxRangeAssignment {
     size_t plan_index;

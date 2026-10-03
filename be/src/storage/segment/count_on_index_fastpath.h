@@ -20,33 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 
-// G02 count-only fast-path caller guard (functional core, unit-testable
-// without a SegmentIterator).
-//
-// COUNT_ON_INDEX counts the rows of THIS segment that match the pushed-down
-// predicates MINUS deleted rows: SegmentIterator seeds _row_bitmap with
-// [0, num_rows), intersects the index result bitmap into it, then subtracts
-// the MOW delete bitmap and applies delete predicates / row ranges, and the
-// scan emits |_row_bitmap| default-valued rows that the agg counts. The SNII
-// fast path replaces the index result with a FABRICATED [0, df) bitmap whose
-// cardinality is exact but whose row ids are not real. That is only equal in
-// observable behavior when, for this segment iterator:
-//   1. only the COUNT matters (COUNT_ON_INDEX agg pushdown),
-//   2. the single pushed-down MATCH predicate is the ONLY filter (nothing else
-//      may intersect _row_bitmap before or after the index apply),
-//   3. no rows are deleted (mirror of the V3 handling: _lazy_init subtracts
-//      the per-segment delete bitmap AFTER the index apply, and delete
-//      predicates filter later -- a fabricated id range cannot participate in
-//      either subtraction),
-//   4. nothing consumes REAL row ids (rowid recording, ANN topn, BM25
-//      scoring, virtual columns), and
-//   5. rows are emitted as defaults without reading column data at the
-//      fabricated ids (the COUNT_ON_INDEX no-read-data contract must be
-//      active: enable_no_need_read_data_opt + DUP_KEYS or MOW).
-//
-// SegmentIterator fills the facts from its state right before applying the
-// index and only sets IndexQueryContext::count_on_index_fastpath when this
-// predicate holds.
+// Allows a fabricated count bitmap only when one MATCH predicate determines a COUNT_ON_INDEX result and nothing else needs real row IDs or row values. Deletes and other filters require normal evaluation.
 namespace doris::segment_v2 {
 
 struct CountOnIndexFastpathFacts {
@@ -83,36 +57,7 @@ inline bool count_on_index_fastpath_safe(const CountOnIndexFastpathFacts& f) {
            f.keys_type_supported;
 }
 
-// G03 count-emission shortcut guard (functional core, unit-testable without a
-// SegmentIterator).
-//
-// After the G02 fast path answered the single MATCH predicate with a
-// count-shaped bitmap, the only remaining work of the scan is to emit
-// |_row_bitmap| default-valued rows batch by batch: the per-batch rowid
-// iteration over the fabricated bitmap and the per-column no-read checks are
-// pure overhead. The shortcut replaces them with a countdown that fills the
-// block columns with defaults directly, in VStatisticsIterator-sized batches.
-//
-// That replacement is byte-for-byte equal to today's emission only when, at
-// the end of _lazy_init:
-//   1. the reader ACTUALLY answered from df (count_fastpath_hit) -- a mere
-//      guard pass with a row-accurate decode keeps today's path untouched,
-//   2. no evaluation stage survives (vec/short-circuit/expr eval, leftover
-//      column predicates or common exprs, delete predicates, lazy
-//      materialization),
-//   3. nothing consumes real row ids or per-row values (virtual columns,
-//      rowid recording),
-//   4. batch accounting is a pure countdown (no read limit, no reverse
-//      key-ordered read, no condition-cache writes), and
-//   5. the block is exactly the read schema and EVERY column would take a
-//      defaults fill in _read_columns_by_index (no real column read, no
-//      storage->schema cast, no version/lsn/tso rewrite) -- checked
-//      per-column by the iterator and summarized in one fact.
-//
-// Every fact is re-verified from live iterator state even though the G02
-// facts guard already implies most of them: the shortcut independently
-// refuses on any drift, falling through to today's emission (which is always
-// count-exact).
+// Allows direct default-row emission after a count-only index answer when no remaining stage needs real row IDs, values, or per-row processing. The iterator rechecks these conditions after initialization.
 struct CountEmitShortcutFacts {
     // (1) reader answered with a fabricated count bitmap.
     bool count_fastpath_hit = false;

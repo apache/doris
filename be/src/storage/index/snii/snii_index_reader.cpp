@@ -824,14 +824,8 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
     }
     std::vector<std::string> terms = to_terms(execution_query_info);
 
-    // G02 count-only fast path: the SegmentIterator asserted (via the context
-    // flag) that only the match COUNT of this predicate matters, so eligible
-    // shapes are answered from dict-entry df without decoding postings. Placed
-    // AFTER the query-cache lookup (a cached row-accurate bitmap is free and
-    // counts correctly) and BEFORE single-flight; the fabricated [0, df) bitmap
-    // is returned early and NEVER inserted into the query cache or published to
-    // single-flight followers -- both are keyed identically to row-accurate
-    // queries and must only ever serve real row ids.
+    // For count-only requests, use dict-entry df after checking the query cache.
+    // Never cache or share the fabricated bitmap because its row IDs are synthetic.
     if (context->count_on_index_fastpath) {
         bool count_handled = false;
         std::shared_ptr<roaring::Roaring> count_bitmap;
@@ -840,7 +834,7 @@ Status SniiIndexReader::_query(const IndexQueryContextPtr& context, const std::s
         if (count_handled) {
             bit_map = std::move(count_bitmap);
             RETURN_IF_ERROR(finish_query(logical_reader));
-            // G03 reply: tell the SegmentIterator the bitmap is count-shaped
+            // Reply: tell the SegmentIterator the bitmap is count-shaped
             // (cardinality exact, row ids fabricated) so it may short-circuit
             // row emission. Deliberately NOT set on the cache-hit return above
             // or on the decode path below -- those bitmaps are row-accurate
@@ -1049,26 +1043,7 @@ Status SniiIndexReader::_try_count_only_fastpath(
                                             &logical_reader));
     }
 
-    // ARRAY columns: df is NOT null-free, so nothing below may fabricate from it.
-    // ArrayColumnWriter::append_nullable hands add_array_values() every row of the
-    // batch -- the offsets come from the nested ColumnArray, and
-    // OlapColumnDataConvertorArray::convert_to_olap reads them without ever
-    // consulting the outer null map -- and the add_array_nulls() that follows only
-    // RECORDS the null row ids, it never retracts the tokens already emitted for
-    // them. A nullable array whose nested payload survives under the null map does
-    // occur: PreparedFunctionImpl::default_implementation_for_nulls documents that
-    // nested columns keep "arbitrary values in rows corresponding to NULL value",
-    // and need_replace_null_data_to_default() is false by default, so e.g.
-    // array_concat(arr, nullable_arr) writes arr's tokens on a NULL row. That row
-    // then sits in a posting and is counted by df. The decode path stays correct --
-    // mask_out_null subtracts it -- but the fabrication below deliberately places
-    // its ids OFF the null rows, so the same subtraction removes nothing and the
-    // count comes out too high. CLucene writes arrays identically
-    // (InvertedIndexColumnWriter::add_array_nulls only touches _null_bitmap), so
-    // this cannot be repaired from the reader side; decline whenever this segment
-    // has a null bitmap at all. Scalars are unaffected: ScalarColumnWriter::
-    // append_nullable splits the batch into runs and sends null runs to
-    // append_nulls(), which emits no tokens.
+    // Array postings may include values from an outer-NULL row, so their df is not a null-free match count. Fall back to decoded results when an array segment has nulls.
     if (_column_is_array && logical_reader->section_refs().null_bitmap.length > 0) {
         return Status::OK();
     }

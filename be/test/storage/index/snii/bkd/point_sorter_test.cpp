@@ -34,7 +34,7 @@ namespace {
 constexpr uint32_t kBytesPerDim = sizeof(int64_t);
 constexpr uint32_t kRecordSize = kBytesPerDim + kPointDocIdBytes;
 
-// ---- the build-time record layout of design 6.2 ---------------------------
+// Fixed-width point record layout.
 
 struct Point {
     int64_t value = 0;

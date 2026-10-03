@@ -41,24 +41,7 @@ class SniiBlobDirectory;
 // refcount -- a plain `delete` would double-free against a holder's DEC.
 using SniiBlobDirectoryPtr = std::unique_ptr<SniiBlobDirectory, DirectoryDeleter>;
 
-// Read-only lucene::store::Directory over ONE blob logical index entry of an
-// SNII container (design 2026-07-28 §5.1). It serves the entry's named files
-// as BufferedIndexInputs whose readInternal lands directly in the caller's
-// buffer via DorisSniiFileReader::read_into -- no per-refill allocation, no
-// second GiB-scale buffer on whole-blob loads. This is the ONLY new read
-// component blob indexes need: CLucene's bkd_reader and faiss's IOReader wrap
-// plain Directory/IndexInput and run on it unmodified.
-//
-// Contract pins:
-//   * openInput on a 0-length entry returns a length()==0 input (an empty BKD
-//     segment stores 0-byte `bkd`/`bkd_index`; throwing would make
-//     inverted_index_searcher misreport "empty" as "corrupt");
-//   * close() NEVER throws (~bkd_reader is implicitly noexcept and calls it
-//     when close_directory=true);
-//   * write operations throw UnsupportedOperation, mirroring
-//     DorisCompoundReader;
-//   * clones are independent (read_into is a stateless positional read; no
-//     base-stream mutex needed, unlike CSIndexInput).
+// Exposes one SNII blob entry as a read-only CLucene Directory using positioned reads. Empty entries open successfully, clones have independent cursors, and close() does not throw.
 class SniiBlobDirectory : public lucene::store::Directory {
 public:
     // Validates the entry (blob kind; every file inside [0, data_area_end)) and

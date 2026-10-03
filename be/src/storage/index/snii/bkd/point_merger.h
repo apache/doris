@@ -27,9 +27,7 @@
 #include "storage/index/snii/bkd/point_source.h"
 #include "storage/index/snii/common/slice.h"
 
-// The spilling half of design 6.2: a k-way merge over spilled runs, presented as
-// an ordinary PointSource so the leaf-cutting loop cannot tell the two build
-// modes apart.
+// Merges sorted spilled runs into a forward-only PointSource.
 namespace doris::snii::bkd {
 
 class MergingPointSource final : public PointSource {

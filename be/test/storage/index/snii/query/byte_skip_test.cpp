@@ -46,19 +46,7 @@
 #include "storage/index/snii/writer/spimi_term_buffer.h"
 #include "storage/index/snii_query_test_util.h"
 
-// PHASE B differential + byte-reduction test (design spec sections 1.4 & 2).
-//
-// Builds an index (~4000 docs, positions + scoring) with a HIGH-DF term spanning
-// MANY .frq windows plus low/mid-df terms and a planted 5-term phrase led by the
-// high-df term. Over a MeteredFileReader it asserts:
-//   (a) term_query and phrase_query docids equal a brute-force ORACLE (unchanged
-//       by the freq-skip optimization);
-//   (b) a docid-only term_query on the high-df term requests STRICTLY FEWER .frq
-//       bytes than the pre-PhaseB full-window path (sum of per-window frq_len),
-//       because the freq region is skipped on the wire;
-//   (c) scoring_query STILL reads the FULL windows (freq region present -> its
-//       .frq request bytes match the full-window total, strictly above the
-//       docid-only path) and returns the correct top-K.
+// Checks term and phrase results against brute force. Doc-only queries should read fewer .frq bytes than scoring queries because they skip frequencies.
 using namespace doris::snii;
 using namespace doris::snii::format;
 using namespace doris::snii::reader;
@@ -226,9 +214,7 @@ void WriteCorpus(const Corpus& c, const std::string& path) {
     ASSERT_TRUE(cw.finish().ok());
 }
 
-// Grouped-block byte totals of a windowed term (design 1.6): docs = dd-block
-// length (sum of per-window dd_disk_len). Also returns prelude_len and window
-// count.
+// Sum dd-block lengths across windows and return the prelude length and window count.
 struct FrqByteTotals {
     uint64_t docs = 0; // dd-block on-disk bytes (the contiguous docs-only run)
     uint64_t prelude_len = 0;
