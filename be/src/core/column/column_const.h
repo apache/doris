@@ -281,6 +281,11 @@ public:
     bool only_null() const override { return data->is_null_at(0); }
     StringRef get_raw_data() const override { return data->get_raw_data(); }
 
+    void inject_debug_nullable_payload(const uint8_t* null_map = nullptr) override {
+        auto mutable_data = data->assert_mutable();
+        mutable_data->inject_debug_nullable_payload(null_map);
+    }
+
     /// Not part of the common interface.
     const IColumn& get_data_column() const { return *data; }
     const ColumnPtr& get_data_column_ptr() const { return data; }

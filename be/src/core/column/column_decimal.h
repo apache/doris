@@ -148,6 +148,17 @@ public:
         memset(data.data() + old_size, 0, length * sizeof(data[0]));
     }
 
+    void inject_debug_nullable_payload(const uint8_t* null_map = nullptr) override {
+        if (null_map == nullptr) {
+            return;
+        }
+        for (size_t i = 0; i < data.size(); ++i) {
+            if (null_map[i] != 0) {
+                memset(&data[i], i % 2 == 0 ? 0x80 : 0x7F, sizeof(value_type));
+            }
+        }
+    }
+
     Status filter_by_selector(const uint16_t* sel, size_t sel_size,
                               IColumn* col_ptr) const override {
         Self* output = assert_cast<Self*>(col_ptr);
