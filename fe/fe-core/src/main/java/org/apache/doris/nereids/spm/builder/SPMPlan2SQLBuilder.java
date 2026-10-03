@@ -2364,10 +2364,20 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         return aggRelation;
     }
 
-    /** Whether the aggregate expression is a partial (product-buffer) local aggregate. */
+    /**
+     * Whether the aggregate expression is a partial (product-buffer) local aggregate.
+     *
+     * <p>The ONLY reliable provenance is the aggregation MODE: the physical plan keeps the
+     * USER'S function instance in every stage (a partial_sum buffer is a Sum expression
+     * with {@code aggMode.productAggregateBuffer}), and the "partial_" text is synthesized
+     * when the buffer stage is RENDERED ({@link AggregateExpression#computeToSql()}). A
+     * name test therefore misclassifies a user UDAF whose own name starts with
+     * {@code partial_}: its one-phase GLOBAL aggregate looked like an execution-only
+     * intermediate stage, the whole aggregate was folded away and the frozen SQL degraded
+     * to {@code SELECT * FROM t} (wrong cardinality AND columns on every later hit).
+     */
     private static boolean isPartialAggregate(AggregateExpression aggExpr) {
-        return aggExpr.getFunction().getName().startsWith("partial_")
-                || aggExpr.getAggregateParam().aggMode.productAggregateBuffer;
+        return aggExpr.getAggregateParam().aggMode.productAggregateBuffer;
     }
 
     /**
@@ -2417,15 +2427,30 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * Whether an aggregate argument is a nested no-argument count - the physical
      * merge-finalize count(*) representation whose local stage is nested as the
      * function's argument, either as a real partial expression (partial_count(*)) or as
-     * a buffer slot literally named after it (a scan-level pushAggOp=COUNT has no LOCAL
+     * an execution buffer slot (a scan-level pushAggOp=COUNT has no LOCAL
      * PhysicalHashAggregate node to record, so the enclosing count(*) references the
-     * buffer slot whose name is the count-star SQL, e.g. "count()"). A star contributes
-     * no data column, so it collapses into a plain count(*) instead of leaking as the
-     * invalid count(partial_count(*)) / count(count()).
+     * buffer slot whose name is the count-star SQL). A star contributes no data column,
+     * so it collapses into a plain count(*) instead of leaking as the invalid
+     * count(partial_count(*)) / count(count()).
+     *
+     * <p>The slot form is decided by PROVENANCE, never by the name alone: a slot the
+     * child relation EXPORTS as a column is a data argument no matter what it is called
+     * (a quoted user column named {@code count()} - legal under
+     * enable_unicode_name_support - froze as count(*) and every baseline hit then counted
+     * ROWS where the column is NULL, changing the value). Only a slot the relation does
+     * not export (an execution-only buffer) may collapse.
+     *
+     * @param expr  the aggregate argument (already resolved through localAggParams)
+     * @param child the decompiled child relation of the aggregate (null when unknown)
      */
-    private static boolean isNestedNoArgCount(Expression expr) {
+    private static boolean isNestedNoArgCount(Expression expr, SQLRelation child) {
         if (expr instanceof SlotReference) {
-            String name = ((SlotReference) expr).getName();
+            SlotReference slot = (SlotReference) expr;
+            if (child != null && child.getColumnNames().containsKey(slot.getExprId())) {
+                // a real / derived column of the child relation: a data argument
+                return false;
+            }
+            String name = slot.getName();
             if (name != null) {
                 String n = name.trim();
                 return n.endsWith("count()") || n.endsWith("count(*)");
@@ -2439,11 +2464,12 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             return false;
         }
         AggregateFunction fn = (AggregateFunction) expr;
-        String name = fn.getName();
-        if (name.startsWith("partial_")) {
-            name = name.substring("partial_".length());
-        }
-        if (!"count".equalsIgnoreCase(name)) {
+        // the physical plan keeps the USER'S function instance in every stage (the
+        // "partial_" prefix is a rendering of the aggregate mode - see isPartialAggregate),
+        // so the count-star buffer function is named exactly "count"; stripping a user
+        // function's own prefix here would turn a user UDAF named partial_count into a
+        // star as well
+        if (!"count".equalsIgnoreCase(fn.getName())) {
             return false;
         }
         List<Expression> children = fn.children();
@@ -2534,9 +2560,12 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             List<Pair<ExprId, String>> selects, boolean distinctMergeCount,
             boolean stageHasDistinctMergeBuffer) {
         Expression inner = output instanceof Alias ? ((Alias) output).child() : output;
-        if (inner instanceof SlotReference && isSystemColumnName(((SlotReference) inner).getName())) {
+        if (inner instanceof SlotReference
+                && (isSystemColumnName(((SlotReference) inner).getName())
+                || isRollupGroupingIdMarker((SlotReference) inner, child))) {
             // GROUPING_ID / rowid group-by marker: execution detail of ROLLUP, never a
-            // user-visible aggregate output column
+            // user-visible aggregate output column. A user column of that NAME is
+            // exported by the child relation and stays (see isRollupGroupingIdMarker)
             return;
         }
         String sql;
@@ -2601,7 +2630,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 // nested ones, e.g. sum(if(day = ?, buffer, buffer)) where the local
                 // buffer column happens to be named "sum") back to its input expression
                 Expression resolved = resolveBufferSlots(arg);
-                if (isNestedNoArgCount(resolved)) {
+                if (isNestedNoArgCount(resolved, child)) {
                     // A merge-finalize count(*) is physically represented with its local
                     // count(*) stage nested as the function argument
                     // (count(partial_count(*))); a star carries no data column, so it
@@ -2615,12 +2644,12 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     argSqls.add(argSql);
                 }
             }
-            // strip the partial_* execution prefix (partial_sum -> sum, partial_count
-            // -> count) so an intermediate stage fold renders the user aggregate name
+            // Keep the USER'S aggregate name as-is: the physical plan never renames a
+            // function to partial_* (that prefix exists only in the RENDERED text of a
+            // buffer stage - see isPartialAggregate), so the historical "strip the
+            // partial_ prefix" rewrite could only ever damage a user function whose own
+            // name carries it (partial_myagg -> myagg).
             String aggName = fn.getName();
-            if (aggName.startsWith("partial_")) {
-                aggName = aggName.substring("partial_".length());
-            }
             boolean distinct;
             if (fn.isDistinct()) {
                 distinct = true;
@@ -3293,16 +3322,34 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      * Column: every hidden execution column is named under the
      * Column.HIDDEN_COLUMN_PREFIX "__DORIS_" family (rowid columns, version /
      * delete-sign / sequence columns, ...), plus the lowercase shadow prefix
-     * Column.SHADOW_NAME_PREFIX; GROUPING_ID is the rollup execution marker
-     * (the user never selects it; ROLLUP is expressed as GROUPING SETS). Any new
-     * internal column added to Column under one of these prefixes is covered
-     * automatically.
+     * Column.SHADOW_NAME_PREFIX. Any new internal column added to Column under one of
+     * these prefixes is covered automatically.
+     *
+     * <p>GROUPING_ID is deliberately NOT part of this name family: it is a legal USER
+     * column name, and the rollup execution marker is told apart by provenance instead
+     * (see {@link #isRollupGroupingIdMarker}).
      */
     private static boolean isSystemColumnName(String name) {
         return name != null
                 && (name.startsWith(Column.HIDDEN_COLUMN_PREFIX)
-                || name.startsWith(Column.SHADOW_NAME_PREFIX)
-                || "GROUPING_ID".equals(name));
+                || name.startsWith(Column.SHADOW_NAME_PREFIX));
+    }
+
+    /**
+     * Whether a slot is the ROLLUP execution marker rather than a user column: the marker
+     * is a synthetic GROUPING_ID slot (Repeat.COL_GROUPING_ID) that NO relation
+     * exports, while a table column of that name is registered by its scan (see
+     * {@link #visitPhysicalRelation}). Skipping the marker by name alone dropped a real
+     * column named GROUPING_ID from the frozen child SELECT while the outer projection
+     * still referenced it, so the baseline failed to bind
+     * ("Unknown column 'GROUPING_ID' in 'table list'") on every replay.
+     *
+     * @param slot  the slot of a projection / group-by list
+     * @param owner the relation that must export the slot when it is a real column
+     */
+    private static boolean isRollupGroupingIdMarker(SlotReference slot, SQLRelation owner) {
+        return "GROUPING_ID".equals(slot.getName())
+                && (owner == null || !owner.getColumnNames().containsKey(slot.getExprId()));
     }
 
     /**
@@ -3313,9 +3360,13 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
     private void appendProjectSelect(SQLRelation relation, SQLRelation child, NamedExpression projectExpr,
             List<Pair<ExprId, String>> selects) {
         Expression inner = projectExpr instanceof Alias ? ((Alias) projectExpr).child() : projectExpr;
-        if (inner instanceof SlotReference && isSystemColumnName(((SlotReference) inner).getName())) {
-            // internal system column (e.g. rowid used by some joins): execution detail,
-            // not part of the user query - drop it from the decompiled projection.
+        if (inner instanceof SlotReference
+                && (isSystemColumnName(((SlotReference) inner).getName())
+                || isRollupGroupingIdMarker((SlotReference) inner, child))) {
+            // internal system column (e.g. rowid used by some joins) or the ROLLUP
+            // GROUPING_ID marker: execution detail, not part of the user query - drop it
+            // from the decompiled projection. A USER column named GROUPING_ID is
+            // registered by the child relation and stays (see isRollupGroupingIdMarker)
             return;
         }
         String exprSql = exprSqlBuilder.print(projectExpr, child);

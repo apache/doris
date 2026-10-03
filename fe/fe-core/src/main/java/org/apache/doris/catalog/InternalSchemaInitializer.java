@@ -580,10 +580,7 @@ public class InternalSchemaInitializer extends Thread {
             if (existing.contains(entry.getKey())) {
                 continue;
             }
-            ColumnDefinition definition = new ColumnDefinition(entry.getKey(),
-                    DataType.fromCatalogType(entry.getValue()),
-                    true, null, ColumnNullableType.NULLABLE, -1, Optional.empty(),
-                    Optional.empty(), "", true, Optional.empty());
+            ColumnDefinition definition = spmUpgradeColumnDefinition(entry.getKey(), entry.getValue());
             AddColumnOp addColumnOp = new AddColumnOp(definition, null, null, null);
             addColumnOp.setColumn(definition.translateToCatalogStyleForSchemaChange());
             TableNameInfo tableNameInfo = new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
@@ -596,6 +593,25 @@ public class InternalSchemaInitializer extends Thread {
             // finishes, and the wait loop's next round continues with the remainder
             return;
         }
+    }
+
+    /**
+     * The definition of ONE upgraded SPM column (baselines / capture checkpoint): an added
+     * column is always a VALUE column.
+     *
+     * <p>The key flag must be FALSE. An ADD COLUMN flagged as KEY lands AFTER the existing
+     * value columns in the altered schema, and the schema-change validator rejects any key
+     * column that follows a value column ("Invalid column order. value should be after
+     * key"): the ALTER threw, the initializer's wait loop retried the same column every
+     * {@code resource_not_ready_sleep_seconds} forever, and an in-place upgraded cluster
+     * never gained the columns its reader / writer already use - the baselines table stayed
+     * broken until a restart with a modified table or a drop + fresh create.
+     */
+    @VisibleForTesting
+    static ColumnDefinition spmUpgradeColumnDefinition(String name, ScalarType type) {
+        return new ColumnDefinition(name, DataType.fromCatalogType(type),
+                false, null, ColumnNullableType.NULLABLE, -1, Optional.empty(),
+                Optional.empty(), "", true, Optional.empty());
     }
 
     /**
@@ -627,10 +643,13 @@ public class InternalSchemaInitializer extends Thread {
                 ScalarType.createType(PrimitiveType.BIGINT));
         SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS.put("min_scan_rows",
                 ScalarType.createType(PrimitiveType.BIGINT));
+        // STRING, not VARCHAR(4096): see InternalSchema#SPM_CAPTURE_CHECKPOINT_SCHEMA -
+        // SET GLOBAL accepts any compiling regex, and a fixed VARCHAR made a valid long
+        // pattern fail the checkpoint INSERT (the cycle then returned before scanning).
         SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS.put("include_pattern",
-                ScalarType.createVarchar(4096));
+                ScalarType.createType(PrimitiveType.STRING));
         SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS.put("exclude_pattern",
-                ScalarType.createVarchar(4096));
+                ScalarType.createType(PrimitiveType.STRING));
     }
 
     /**
@@ -756,10 +775,7 @@ public class InternalSchemaInitializer extends Thread {
             if (existing.contains(entry.getKey())) {
                 continue;
             }
-            ColumnDefinition definition = new ColumnDefinition(entry.getKey(),
-                    DataType.fromCatalogType(entry.getValue()),
-                    true, null, ColumnNullableType.NULLABLE, -1, Optional.empty(),
-                    Optional.empty(), "", true, Optional.empty());
+            ColumnDefinition definition = spmUpgradeColumnDefinition(entry.getKey(), entry.getValue());
             // Restore the canonical schema order instead of appending: a positional
             // INSERT binds its values by POSITION, so an upgraded table must end up with
             // the layout of a freshly created one (see checkpointColumnPosition)

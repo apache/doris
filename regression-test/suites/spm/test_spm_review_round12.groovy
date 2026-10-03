@@ -123,7 +123,8 @@ suite("test_spm_review_round12", "spm") {
                     .collect { it[0].toString().toLowerCase() }
     assertEquals(["id", "last_scan_timestamp", "pending_window_start", "pending_window_end",
             "cursor_query_time", "cursor_time", "cursor_query_id", "cursor_tail",
-            "failed_attempts", "retry_queue", "update_time"], ckptColumns,
+            "failed_attempts", "retry_queue", "min_query_time_ms", "min_scan_rows",
+            "include_pattern", "exclude_pattern", "update_time"], ckptColumns,
             "the checkpoint layout must match the canonical schema order (see"
                     + " InternalSchema.SPM_CAPTURE_CHECKPOINT_SCHEMA)")
 

@@ -299,9 +299,12 @@ public class PlanCaptureManager extends MasterDaemon {
         final String cursorQueryId;
         final String cursorTail;
 
+        /** The filter snapshot the page was judged by (see pageStartFilter). */
+        final PlanCaptureFilter filter;
+
         RetryAnchor(long lastScanTimestamp, long windowStart, long windowEnd,
                 long cursorQueryTime, String cursorTime, String cursorQueryId,
-                String cursorTail) {
+                String cursorTail, PlanCaptureFilter filter) {
             this.lastScanTimestamp = lastScanTimestamp;
             this.windowStart = windowStart;
             this.windowEnd = windowEnd;
@@ -309,6 +312,7 @@ public class PlanCaptureManager extends MasterDaemon {
             this.cursorTime = cursorTime;
             this.cursorQueryId = cursorQueryId;
             this.cursorTail = cursorTail;
+            this.filter = filter;
         }
     }
 
@@ -341,6 +345,17 @@ public class PlanCaptureManager extends MasterDaemon {
     private String pageStartCursorTime = "";
     private String pageStartCursorQueryId = "";
     private String pageStartCursorTail = "";
+
+    /**
+     * The FILTER SNAPSHOT the CURRENT page was scanned with (the same value handed to
+     * {@link AuditLogScanner#scan}). It travels with {@link #currentPageAnchor()} and is
+     * persisted whenever the retry state rewinds the durable cursor to an anchor: the
+     * rows of that page were admitted (or filtered) by THESE thresholds / patterns, so a
+     * takeover must re-scan the rewound range with the same eligibility - judging the
+     * re-scan by a configuration that changed in between could terminally filter the
+     * omitted oldest failure before its retry is even reachable.
+     */
+    private PlanCaptureFilter pageStartFilter;
 
     /** Whether the durable checkpoint was already consulted in this process. */
     private boolean checkpointLoaded = false;
@@ -399,7 +414,7 @@ public class PlanCaptureManager extends MasterDaemon {
     private RetryAnchor currentPageAnchor() {
         return new RetryAnchor(pageStartLastScanTimestamp, pageStartWindowStart,
                 pageStartWindowEnd, pageStartCursorQueryTime, pageStartCursorTime,
-                pageStartCursorQueryId, pageStartCursorTail);
+                pageStartCursorQueryId, pageStartCursorTail, pageStartFilter);
     }
 
     public static PlanCaptureManager getInstance() {
@@ -586,6 +601,7 @@ public class PlanCaptureManager extends MasterDaemon {
                 pageStartCursorTime = cursorTime;
                 pageStartCursorQueryId = cursorQueryId;
                 pageStartCursorTail = cursorTail;
+                pageStartFilter = cycleFilter;
 
                 batch = scanner.scan(scanStart, scanEnd, batchSize, cycleFilter,
                         cursorQueryTime, cursorTime, cursorQueryId, cursorTail);
@@ -1145,9 +1161,13 @@ public class PlanCaptureManager extends MasterDaemon {
         // position BEFORE every persisted retry row: persistCheckpoint rewinds to the
         // oldest queued entry's PRE-PAGE anchor whenever the queue is non-empty (not only
         // when the JSON truncates), so a truncated 65th entry can still re-scan the row
-        // whose retry the JSON dropped.
+        // whose retry the JSON dropped. The anchor carries the RESTORED filter snapshot:
+        // the rewound range was judged by those thresholds / patterns when it was first
+        // scanned, and persisting it again (before anything re-scans it) keeps the
+        // eligibility stable across any number of handoffs.
         RetryAnchor restoredAnchor = new RetryAnchor(lastScanTimestamp, pendingWindowStart,
-                pendingWindowEnd, cursorQueryTime, cursorTime, cursorQueryId, cursorTail);
+                pendingWindowEnd, cursorQueryTime, cursorTime, cursorQueryId, cursorTail,
+                pendingWindowFilter);
         for (String retryKey : failedCaptureQueue.keySet()) {
             failedCaptureAnchors.put(retryKey, restoredAnchor);
         }
@@ -1267,15 +1287,23 @@ public class PlanCaptureManager extends MasterDaemon {
                 StatisticsUtil.escapeSQL(encodeRetryQueue(failedCaptureQueue)));
         // The thresholds AND the table-name patterns of the PENDING window (its filter
         // snapshot), or the -1 / empty sentinels when none is pending: the takeover must
-        // continue the window exactly as it was opened (see applyCheckpointRow).
+        // continue the window exactly as it was opened (see applyCheckpointRow). When the
+        // cursor was REWOUND to the oldest queued retry's pre-page anchor, the persisted
+        // snapshot is THAT page's filter instead: the re-scan of the rewound range must
+        // judge its rows by the eligibility they were first admitted with, not by a
+        // configuration that changed after W1 was exhausted (a tightened threshold /
+        // pattern would otherwise terminally filter the omitted oldest failure before the
+        // restored retry queue can retry it).
+        PlanCaptureFilter durableFilter = durableAnchor != null && durableAnchor.filter != null
+                ? durableAnchor.filter : pendingWindowFilter;
         params.put("minQueryTimeMs", String.valueOf(
-                pendingWindowFilter == null ? -1L : pendingWindowFilter.getMinQueryTimeMs()));
+                durableFilter == null ? -1L : durableFilter.getMinQueryTimeMs()));
         params.put("minScanRows", String.valueOf(
-                pendingWindowFilter == null ? -1L : pendingWindowFilter.getMinScanRows()));
-        params.put("includePattern", StatisticsUtil.escapeSQL(pendingWindowFilter == null
-                ? "" : pendingWindowFilter.getIncludePatternText()));
-        params.put("excludePattern", StatisticsUtil.escapeSQL(pendingWindowFilter == null
-                ? "" : pendingWindowFilter.getExcludePatternText()));
+                durableFilter == null ? -1L : durableFilter.getMinScanRows()));
+        params.put("includePattern", StatisticsUtil.escapeSQL(durableFilter == null
+                ? "" : durableFilter.getIncludePatternText()));
+        params.put("excludePattern", StatisticsUtil.escapeSQL(durableFilter == null
+                ? "" : durableFilter.getExcludePatternText()));
         try {
             // Single UPSERT: the new row is durable BEFORE the old one stops being read
             // (the table is UNIQUE-key(id) + merge-on-write), so no crash / timeout can
@@ -1623,6 +1651,7 @@ public class PlanCaptureManager extends MasterDaemon {
         pageStartCursorTime = "";
         pageStartCursorQueryId = "";
         pageStartCursorTail = "";
+        pageStartFilter = null;
         processedQueryIds.clear();
         failedCaptureAttempts.clear();
         failedCaptureQueue.clear();
@@ -1902,7 +1931,8 @@ public class PlanCaptureManager extends MasterDaemon {
             // OLDEST queued entry's anchor instead of blindly the current page start
             failedCaptureAnchors.putIfAbsent("seed-failed-" + i, new RetryAnchor(
                     lastScanTimestamp - 1, windowStart, windowEnd, pageStartCursorQueryTime,
-                    pageStartCursorTime, pageStartCursorQueryId, pageStartCursorTail));
+                    pageStartCursorTime, pageStartCursorQueryId, pageStartCursorTail,
+                    pageStartFilter));
         }
         this.pageStartLastScanTimestamp = lastScanTimestamp - 1;
         this.pageStartWindowStart = windowStart;
