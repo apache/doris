@@ -421,6 +421,35 @@ TEST_F(PrefixQueryV2Test, ExpandedTermsOfABatchingSourceOpenTogether) {
     }
 }
 
+// More expansions than one wave read a wave at a time after one dictionary pass, each wave's
+// cursors released before the next opens.
+TEST_F(PrefixQueryV2Test, ManyExpandedTermsOfABatchingSourceReadAWaveAtATime) {
+    auto ctx = std::make_shared<IndexQueryContext>();
+    std::wstring field = StringHelper::to_wstring("content");
+    auto source = std::make_shared<index_query::testing::FakeIndexSource>();
+    source->batches = true;
+    source->set_doc_count(64);
+    std::vector<std::string> terms;
+    std::vector<uint32_t> expected;
+    for (uint32_t i = 0; i < 40; ++i) {
+        terms.push_back((i < 10 ? "app0" : "app") + std::to_string(i));
+        source->add(terms.back(), {i});
+        expected.push_back(i);
+    }
+    QueryExecutionContext exec_ctx;
+    exec_ctx.segment_num_rows = 64;
+    exec_ctx.field_sources.emplace(field, source);
+    ExpandWeight w(ctx, field, index_query::TermPatternKind::kPrefix, "app");
+    EXPECT_EQ(collect_docs(w.scorer(exec_ctx, "")), expected);
+    EXPECT_EQ(source->prepared, (std::vector<std::vector<std::string>> {terms}));
+    EXPECT_EQ(source->opened_together,
+              (std::vector<std::vector<std::string>> {{terms.begin(), terms.begin() + 32},
+                                                      {terms.begin() + 32, terms.end()}}));
+    EXPECT_EQ(source->fetches, 2U);
+    EXPECT_EQ(source->live.peak, 32U);
+    EXPECT_EQ(source->live.now, 0U);
+}
+
 TEST_F(PrefixQueryV2Test, end_to_end) {
     auto ctx = std::make_shared<IndexQueryContext>();
     auto* dir = FSDirectory::getDirectory(kTestDir.c_str());

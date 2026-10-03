@@ -18,6 +18,7 @@
 #include "storage/index/inverted/query_v2/boolean_query/listed_terms.h"
 
 #include <algorithm>
+#include <span>
 #include <utility>
 
 #include "common/check.h"
@@ -27,6 +28,7 @@
 #include "storage/index/query/exec/block_doc_set.h"
 #include "storage/index/query/exec/collect_postings.h"
 #include "storage/index/query/exec/cursor_chained_postings.h"
+#include "storage/index/query/exec/term_waves.h"
 #include "storage/index/query/phrase/position_span.h"
 #include "storage/index/query/roaring_docid_sink.h"
 
@@ -48,20 +50,20 @@ bool ListedTerms::holds(size_t clause) const {
 }
 
 void ListedTerms::open(bool conjunctive, bool scoring) {
-    if (conjunctive) {
-        for (const std::string& term : _terms) {
-            bool held = false;
-            THROW_IF_ERROR(_source->may_hold(term, &held));
-            if (!held) {
-                _cursors.resize(_terms.size());
-                return;
-            }
+    if (!conjunctive) {
+        return;
+    }
+    for (const std::string& term : _terms) {
+        bool held = false;
+        THROW_IF_ERROR(_source->may_hold(term, &held));
+        if (!held) {
+            _cursors.resize(_terms.size());
+            return;
         }
     }
-    // A scored conjunction reads the positions of the rows it lists; a scored disjunction reads
-    // every term's frequencies and norms with its posting.
-    THROW_IF_ERROR(_source->open_terms(_terms, /*positions=*/scoring && conjunctive,
-                                       /*scoring=*/scoring && !conjunctive, &_cursors));
+    // A scored conjunction reads the positions of the rows it lists.
+    THROW_IF_ERROR(
+            _source->open_terms(_terms, /*positions=*/scoring, /*scoring=*/false, &_cursors));
 }
 
 bool ListedTerms::has_absent_term() const {
@@ -104,26 +106,19 @@ index_query::TruthSet ListedTerms::conjunction(const std::vector<uint32_t>* cand
 index_query::TruthSet ListedTerms::disjunction() {
     index_query::TruthSet result;
     bool any_present = false;
-    for (const auto& cursor : _cursors) {
-        if (cursor != nullptr) {
-            THROW_IF_ERROR(cursor->prefetch(nullptr, /*positions=*/false));
-            any_present = true;
-        }
-    }
-    if (!any_present) {
-        return result;
-    }
-    THROW_IF_ERROR(_source->fetch_pending());
     index_query::RoaringDocIdSink sink(result.true_rows);
-    for (const auto& cursor : _cursors) {
-        if (cursor == nullptr) {
-            continue;
-        }
-        index_query::BlockDocSet docs(*cursor);
-        THROW_IF_ERROR(index_query::collect_postings<false>(docs, nullptr, sink,
-                                                            [](uint32_t, uint32_t, uint32_t) {}));
-    }
-    if (_nulls != nullptr) {
+    THROW_IF_ERROR(index_query::visit_term_postings(
+            *_source, _terms, /*scoring=*/false,
+            [&](size_t, index_query::PostingsCursor* cursor) -> Status {
+                if (cursor == nullptr) {
+                    return Status::OK();
+                }
+                any_present = true;
+                index_query::BlockDocSet docs(*cursor);
+                return index_query::collect_postings<false>(docs, nullptr, sink,
+                                                            [](uint32_t, uint32_t, uint32_t) {});
+            }));
+    if (any_present && _nulls != nullptr) {
         result.null_rows = *_nulls;
     }
     return result;
@@ -135,37 +130,41 @@ namespace {
 // the scores, a row either holds alone keeps its own.
 void merge_term(index_query::BlockDocSet& docs, index_query::ScoringContext<float>& similarity,
                 std::vector<uint32_t>* rows, std::vector<float>* scores) {
+    // Reading the rows so far through spans lets the loop keep their bounds in registers, which
+    // it cannot do through vectors a caller may hold by reference.
+    const std::span<const uint32_t> old_rows(*rows);
+    const std::span<const float> old_scores(*scores);
     std::vector<uint32_t> merged_rows;
     std::vector<float> merged_scores;
-    merged_rows.reserve(rows->size() + docs.size_hint());
-    merged_scores.reserve(rows->size() + docs.size_hint());
+    merged_rows.reserve(old_rows.size() + docs.size_hint());
+    merged_scores.reserve(old_rows.size() + docs.size_hint());
     size_t i = 0;
     for (; !docs.exhausted(); docs.advance()) {
         const uint32_t doc = docs.doc();
-        for (; i < rows->size() && (*rows)[i] < doc; ++i) {
-            merged_rows.push_back((*rows)[i]);
-            merged_scores.push_back((*scores)[i]);
+        for (; i < old_rows.size() && old_rows[i] < doc; ++i) {
+            merged_rows.push_back(old_rows[i]);
+            merged_scores.push_back(old_scores[i]);
         }
         float score = similarity.score(static_cast<float>(docs.freq()), docs.norm());
-        if (i < rows->size() && (*rows)[i] == doc) {
-            score += (*scores)[i];
+        if (i < old_rows.size() && old_rows[i] == doc) {
+            score += old_scores[i];
             ++i;
         }
         merged_rows.push_back(doc);
         merged_scores.push_back(score);
     }
-    merged_rows.insert(merged_rows.end(), rows->begin() + static_cast<std::ptrdiff_t>(i),
-                       rows->end());
-    merged_scores.insert(merged_scores.end(), scores->begin() + static_cast<std::ptrdiff_t>(i),
-                         scores->end());
+    merged_rows.insert(merged_rows.end(), old_rows.begin() + static_cast<std::ptrdiff_t>(i),
+                       old_rows.end());
+    merged_scores.insert(merged_scores.end(), old_scores.begin() + static_cast<std::ptrdiff_t>(i),
+                         old_scores.end());
     rows->swap(merged_rows);
     scores->swap(merged_scores);
 }
 
 } // namespace
 
-// The chain lists the rows, then every term reads their positions in one round and scores each
-// row on the positions it holds there and the source's norm.
+// The chain lists the rows, then the terms read their positions a wave at a time, one round
+// each, and score each row on the positions it holds there and the source's norm.
 ScorerPtr ListedTerms::scored_conjunction() {
     if (has_absent_term()) {
         return std::make_shared<EmptyScorer>();
@@ -175,50 +174,51 @@ ScorerPtr ListedTerms::scored_conjunction() {
     if (rows.empty()) {
         return std::make_shared<EmptyScorer>();
     }
-    for (const auto& cursor : _cursors) {
-        THROW_IF_ERROR(cursor->prefetch(&rows, /*positions=*/true));
-    }
-    THROW_IF_ERROR(_source->fetch_pending());
     std::vector<uint32_t> norms;
     THROW_IF_ERROR(_source->encoded_norms(rows, &norms));
     std::vector<float> scores(rows.size(), 0.0F);
-    for (size_t i = 0; i < _cursors.size(); ++i) {
-        _similarities[i]->bind_norms(_source->norm_lengths());
-        THROW_IF_ERROR(_cursors[i]->rewind());
-        TermWalk walk(*_cursors[i], rows);
-        for (size_t row = 0; row < rows.size(); ++row) {
-            index_query::PhrasePositionSpan positions;
-            THROW_IF_ERROR(walk.positions_of(row, rows[row], &positions));
-            const auto frequency = static_cast<float>(positions.second - positions.first);
-            scores[row] += _similarities[i]->score(frequency, norms[row]);
+    for (size_t begin = 0; begin < _cursors.size(); begin += index_query::kTermsPerWave) {
+        const size_t end = std::min(_cursors.size(), begin + index_query::kTermsPerWave);
+        for (size_t i = begin; i < end; ++i) {
+            THROW_IF_ERROR(_cursors[i]->prefetch(&rows, /*positions=*/true));
+        }
+        THROW_IF_ERROR(_source->fetch_pending());
+        for (size_t i = begin; i < end; ++i) {
+            _similarities[i]->bind_norms(_source->norm_lengths());
+            THROW_IF_ERROR(_cursors[i]->rewind());
+            TermWalk walk(*_cursors[i], rows);
+            for (size_t row = 0; row < rows.size(); ++row) {
+                index_query::PhrasePositionSpan positions;
+                THROW_IF_ERROR(walk.positions_of(row, rows[row], &positions));
+                const auto frequency = static_cast<float>(positions.second - positions.first);
+                scores[row] += _similarities[i]->score(frequency, norms[row]);
+            }
+            _cursors[i].reset();
         }
     }
     return std::make_shared<ScoredRowsScorer>(std::move(rows), std::move(scores), _nulls);
 }
 
-// Every term reads its whole posting, with its frequencies and norms, in one round; a row's
-// score sums the scores of the terms holding it, in clause order.
+// Every term reads its whole posting, with its frequencies and norms, a wave of terms per round;
+// a row's score sums the scores of the terms holding it, in clause order.
 ScorerPtr ListedTerms::scored_disjunction() {
     bool any_present = false;
-    for (const auto& cursor : _cursors) {
-        if (cursor != nullptr) {
-            THROW_IF_ERROR(cursor->prefetch(nullptr, /*positions=*/false));
-            any_present = true;
-        }
-    }
-    if (!any_present) {
-        return std::make_shared<EmptyScorer>();
-    }
-    THROW_IF_ERROR(_source->fetch_pending());
     std::vector<uint32_t> rows;
     std::vector<float> scores;
-    for (size_t i = 0; i < _cursors.size(); ++i) {
-        if (_cursors[i] == nullptr) {
-            continue;
-        }
-        _similarities[i]->bind_norms(_source->norm_lengths());
-        index_query::BlockDocSet docs(*_cursors[i]);
-        merge_term(docs, *_similarities[i], &rows, &scores);
+    THROW_IF_ERROR(index_query::visit_term_postings(
+            *_source, _terms, /*scoring=*/true,
+            [&](size_t i, index_query::PostingsCursor* cursor) -> Status {
+                if (cursor == nullptr) {
+                    return Status::OK();
+                }
+                any_present = true;
+                _similarities[i]->bind_norms(_source->norm_lengths());
+                index_query::BlockDocSet docs(*cursor);
+                merge_term(docs, *_similarities[i], &rows, &scores);
+                return Status::OK();
+            }));
+    if (!any_present) {
+        return std::make_shared<EmptyScorer>();
     }
     return std::make_shared<ScoredRowsScorer>(std::move(rows), std::move(scores), _nulls);
 }

@@ -37,10 +37,9 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 // The term clauses of one boolean that read one source batching its reads, or of an unscored
 // conjunction on any source. They are listed together instead of one document at a time: the
 // conjunction as a chain narrowing the cheapest term's rows block by block, the disjunction as
-// one round of reads over every term. Scored, the
-// conjunction scores its listed rows on the positions read in one more round and the source's
-// norms, and the disjunction merges the terms' scores from the frequencies and norms read with
-// their postings.
+// one round of reads a wave of terms at a time. Scored, the conjunction scores its listed rows
+// on the positions its terms read a wave at a time and the source's norms, and the disjunction
+// merges the terms' scores from the frequencies and norms read with their postings.
 class ListedTerms {
 public:
     // `nulls` are the rows the terms' field leaves UNKNOWN, null when there are none.
@@ -54,8 +53,8 @@ public:
     // Whether the boolean's clause `clause` is listed here.
     bool holds(size_t clause) const;
 
-    // Opens every term together; the listings and the costs below need it. A conjunction opens
-    // none when the source surely lacks one of its terms.
+    // Opens a conjunction's terms together, for its chain and its costs, and none when the
+    // source surely lacks one of them; a disjunction opens its terms as it reads them.
     void open(bool conjunctive, bool scoring = false);
     // Whether the dictionary lacks a term, so the conjunction is FALSE everywhere.
     bool has_absent_term() const;

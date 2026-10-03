@@ -102,6 +102,23 @@ FakeIndexSource::Posting posting(uint32_t doc, std::vector<uint32_t> positions) 
     return {.doc = doc, .positions = std::move(positions)};
 }
 
+// More terms than a source batching its reads reads in one round, and their names in the waves
+// the engine reads them in.
+constexpr size_t kManyTerms = 40;
+constexpr size_t kWaveTerms = 32;
+
+std::string many_term(size_t i) {
+    return (i < 10 ? "t0" : "t") + std::to_string(i);
+}
+
+std::vector<std::vector<std::string>> many_term_waves() {
+    std::vector<std::vector<std::string>> waves(2);
+    for (size_t i = 0; i < kManyTerms; ++i) {
+        waves[i < kWaveTerms ? 0 : 1].push_back(many_term(i));
+    }
+    return waves;
+}
+
 // The corpus: "a" holds 1 2 3 5 8, "b" 2 3 8 9 and "c" 3 8 20, with one to three positions
 // each; the norm of a row is its number modulo 5, plus one; rows 40 and 41 are NULL.
 class ListedTermsTest : public ::testing::Test {
@@ -161,6 +178,40 @@ protected:
 
     QueryPtr term(const std::string& text) const {
         return std::make_shared<TermQuery>(_context, kField, text);
+    }
+
+    // A source of 64 rows holding the terms "t00" to "t39": term i holds row i, and every term
+    // holds rows 50 and 51.
+    std::shared_ptr<FakeIndexSource> many_terms(bool batches) const {
+        auto source = std::make_shared<FakeIndexSource>();
+        source->batches = batches;
+        source->set_doc_count(64);
+        for (size_t i = 0; i < kManyTerms; ++i) {
+            source->add(many_term(i), {posting(static_cast<uint32_t>(i), {0}), posting(50, {1}),
+                                       posting(51, {0, 2})});
+        }
+        for (uint32_t doc = 0; doc < 64; ++doc) {
+            source->norms[doc] = doc % 5 + 1;
+        }
+        return source;
+    }
+
+    QueryPtr many_boolean(OperatorType op) const {
+        std::vector<QueryPtr> clauses;
+        for (size_t i = 0; i < kManyTerms; ++i) {
+            clauses.push_back(term(many_term(i)));
+        }
+        return boolean(op, clauses);
+    }
+
+    // The rows of both maps are equal, and their scores within float rounding of a sum taken in
+    // another order.
+    static void expect_scores_near(const std::map<uint32_t, float>& actual,
+                                   const std::map<uint32_t, float>& expected) {
+        ASSERT_EQ(keys(actual), keys(expected));
+        for (const auto& [doc, score] : expected) {
+            EXPECT_NEAR(actual.at(doc), score, 1e-5 * score) << doc;
+        }
     }
 
     QueryPtr boolean(OperatorType op, const std::vector<QueryPtr>& clauses) const {
@@ -416,6 +467,53 @@ TEST_F(ListedTermsTest, AScoredDisjunctionSumsTheScoresOfEachTerm) {
     EXPECT_TRUE(listed->prefetches["c"][0].whole);
     EXPECT_FALSE(listed->prefetches["c"][0].positions);
     EXPECT_EQ(listed->fetches, 1U);
+}
+
+// A disjunction of more terms than one wave reads them a wave at a time, after one dictionary
+// pass, each wave's cursors released before the next opens.
+TEST_F(ListedTermsTest, ADisjunctionOfManyTermsReadsThemAWaveAtATime) {
+    const auto make = [&] { return many_boolean(OperatorType::OP_OR); };
+    roaring::Roaring expected;
+    expected.addRange(0, kManyTerms);
+    expected.add(50);
+    expected.add(51);
+    EXPECT_EQ(evaluate(make, many_terms(false)).true_rows, expected);
+    auto listed = many_terms(true);
+    EXPECT_EQ(evaluate(make, listed).true_rows, expected);
+    EXPECT_EQ(listed->opened_together, many_term_waves());
+    EXPECT_EQ(listed->fetches, 2U);
+    EXPECT_EQ(listed->live.peak, kWaveTerms);
+    EXPECT_EQ(listed->live.now, 0U);
+}
+
+// A scored disjunction of more terms than one wave reads and merges them a wave at a time.
+TEST_F(ListedTermsTest, AScoredDisjunctionOfManyTermsScoresAWaveAtATime) {
+    const auto make = [&] { return many_boolean(OperatorType::OP_OR); };
+    const auto expected = scored(make, many_terms(false));
+    EXPECT_EQ(expected.size(), kManyTerms + 2);
+    auto listed = many_terms(true);
+    expect_scores_near(scored(make, listed), expected);
+    EXPECT_EQ(listed->opened_together, many_term_waves());
+    EXPECT_EQ(listed->fetches, 2U);
+    EXPECT_EQ(listed->live.peak, kWaveTerms);
+}
+
+// A scored conjunction of more terms than one wave chains them, then reads the listed rows'
+// positions a wave of terms at a time.
+TEST_F(ListedTermsTest, AScoredConjunctionOfManyTermsReadsPositionsAWaveAtATime) {
+    const auto make = [&] { return many_boolean(OperatorType::OP_AND); };
+    const auto expected = scored(make, many_terms(false));
+    EXPECT_EQ(keys(expected), (std::vector<uint32_t> {50, 51}));
+    auto listed = many_terms(true);
+    expect_scores_near(scored(make, listed), expected);
+    for (size_t i = 0; i < kManyTerms; ++i) {
+        const auto& prefetches = listed->prefetches[many_term(i)];
+        ASSERT_EQ(prefetches.size(), 2U) << i;
+        EXPECT_TRUE(prefetches[1].positions) << i;
+        EXPECT_EQ(prefetches[1].candidates, (std::vector<uint32_t> {50, 51})) << i;
+    }
+    EXPECT_EQ(listed->fetches, 2U);
+    EXPECT_EQ(listed->live.now, 0U);
 }
 
 // A scored conjunction with a term the source surely lacks opens nothing and matches nothing.

@@ -27,6 +27,7 @@
 #include "storage/index/inverted/query_v2/nullable_scorer.h"
 #include "storage/index/query/exec/block_doc_set.h"
 #include "storage/index/query/exec/collect_postings.h"
+#include "storage/index/query/exec/term_waves.h"
 #include "storage/index/query/roaring_docid_sink.h"
 #include "storage/index/query/spi/postings_cursor.h"
 
@@ -34,36 +35,19 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 
 namespace {
 
-// The rows holding any of the expanded terms. A source batching its reads opens every term at
-// once and reads them in one round; another opens them one at a time, keeping one open.
+// The rows holding any of the expanded terms, read a wave of terms at a time.
 Status collect_expanded_rows(index_query::IndexSource& source,
                              const std::vector<std::string>& terms, roaring::Roaring* rows) {
     index_query::RoaringDocIdSink sink(*rows);
-    const bool batched = source.batches_reads();
-    std::vector<std::unique_ptr<index_query::PostingsCursor>> cursors;
-    if (batched) {
-        RETURN_IF_ERROR(source.open_terms(terms, /*positions=*/false, /*scoring=*/false, &cursors));
-        for (const auto& cursor : cursors) {
-            // The dictionary just listed the term, so its postings open.
-            DORIS_CHECK(cursor != nullptr);
-            RETURN_IF_ERROR(cursor->prefetch(nullptr, /*positions=*/false));
-        }
-        RETURN_IF_ERROR(source.fetch_pending());
-    }
-    for (size_t i = 0; i < terms.size(); ++i) {
-        std::unique_ptr<index_query::PostingsCursor> cursor;
-        if (batched) {
-            cursor = std::move(cursors[i]);
-        } else {
-            RETURN_IF_ERROR(
-                    source.open_term(terms[i], /*positions=*/false, /*scoring=*/false, &cursor));
-            DORIS_CHECK(cursor != nullptr);
-        }
-        index_query::BlockDocSet postings(*cursor);
-        RETURN_IF_ERROR(index_query::collect_postings<false>(postings, nullptr, sink,
-                                                             [](uint32_t, uint32_t, uint32_t) {}));
-    }
-    return Status::OK();
+    return index_query::visit_term_postings(
+            source, terms, /*scoring=*/false,
+            [&sink](size_t, index_query::PostingsCursor* cursor) -> Status {
+                // The dictionary just listed the term, so its postings open.
+                DORIS_CHECK(cursor != nullptr);
+                index_query::BlockDocSet postings(*cursor);
+                return index_query::collect_postings<false>(postings, nullptr, sink,
+                                                            [](uint32_t, uint32_t, uint32_t) {});
+            });
 }
 
 } // namespace

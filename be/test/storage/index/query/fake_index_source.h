@@ -35,6 +35,12 @@
 
 namespace doris::index_query::testing {
 
+// The cursors a source has open, and the most it had open at once.
+struct LiveCursors {
+    size_t now = 0;
+    size_t peak = 0;
+};
+
 // A one-block posting held in memory, recording the prefetches and the streamed ordinals it is
 // asked for, and reporting `position_work` as its positions' decode work per document.
 class FakePostingsCursor final : public PostingsCursor, public PositionCursor {
@@ -52,17 +58,28 @@ public:
     FakePostingsCursor(std::vector<Posting> postings, bool positions, bool scoring,
                        std::vector<Prefetch>* prefetches = nullptr,
                        std::vector<uint32_t> norms = {}, uint64_t position_work = 0,
-                       std::vector<std::vector<uint32_t>>* streams = nullptr)
+                       std::vector<std::vector<uint32_t>>* streams = nullptr,
+                       LiveCursors* live = nullptr)
             : _postings(std::move(postings)),
               _norms(std::move(norms)),
               _positions(positions),
               _scoring(scoring),
               _prefetches(prefetches),
               _position_work(position_work),
-              _streams(streams) {
+              _streams(streams),
+              _live(live) {
         for (const Posting& posting : _postings) {
             _docs.push_back(posting.doc);
             _freqs.push_back(std::max<uint32_t>(1, posting.positions.size()));
+        }
+        if (_live != nullptr) {
+            _live->peak = std::max(_live->peak, ++_live->now);
+        }
+    }
+
+    ~FakePostingsCursor() override {
+        if (_live != nullptr) {
+            --_live->now;
         }
     }
 
@@ -164,6 +181,7 @@ private:
     std::vector<Prefetch>* _prefetches;
     uint64_t _position_work;
     std::vector<std::vector<uint32_t>>* _streams;
+    LiveCursors* _live;
     bool _read = false;
     size_t _current = 0;
     size_t _next_position = 0;
@@ -280,6 +298,7 @@ public:
     // The ordinals each term's cursor was asked to stream, block by block.
     std::map<std::string, std::vector<std::vector<uint32_t>>> streams;
     size_t fetches = 0;
+    LiveCursors live;
 
 private:
     std::unique_ptr<PostingsCursor> _cursor(std::string_view term, bool positions, bool scoring) {
@@ -293,7 +312,7 @@ private:
         }
         return std::make_unique<FakePostingsCursor>(
                 it->second, positions, scoring, &prefetches[std::string(term)],
-                std::move(posting_norms), position_work, &streams[std::string(term)]);
+                std::move(posting_norms), position_work, &streams[std::string(term)], &live);
     }
 
     std::map<std::string, std::vector<Posting>> _terms;

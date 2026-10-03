@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "storage/index/query/exec/block_doc_set.h"
+#include "storage/index/query/exec/term_waves.h"
 #include "storage/index/query/term_pattern.h"
 #include "storage/index/snii/format/phrase_bigram.h"
 #include "storage/index/snii/io/metered_file_reader.h"
@@ -500,6 +501,75 @@ TEST_F(SniiIndexSourceRoundsTest, ExpandedTermsOpenWithoutALookup) {
     EXPECT_EQ(rounds(), expanded);
     EXPECT_EQ(list(*cursors[0]), oracle("sparse_left"));
     EXPECT_EQ(list(*cursors[1]), oracle("sparse_right"));
+}
+
+// Forty terms of six hundred documents each, read through a metered reader: listing them all
+// takes two waves, and the source holds one wave's reads at a time.
+constexpr uint32_t kWaveTestTerms = 40;
+constexpr uint32_t kWaveTestDocsPerTerm = 600;
+
+// Writes terms "w00" to "w39" into `file`, term i holding every 40th row from row i, and returns
+// their names.
+std::vector<std::string> write_wave_test_index(MemoryFile* file) {
+    writer::SniiIndexInput input;
+    input.index_id = 5;
+    input.index_suffix = "body";
+    input.config = format::IndexConfig::kDocsPositions;
+    input.doc_count = kWaveTestTerms * kWaveTestDocsPerTerm;
+    std::vector<std::string> names;
+    for (uint32_t term = 0; term < kWaveTestTerms; ++term) {
+        names.push_back((term < 10 ? "w0" : "w") + std::to_string(term));
+        std::vector<snii_test::PostingDoc> docs;
+        for (uint32_t i = 0; i < kWaveTestDocsPerTerm; ++i) {
+            docs.push_back({.docid = term + kWaveTestTerms * i, .positions = {0}});
+        }
+        input.terms.push_back(make_term(names.back(), std::move(docs)));
+    }
+    writer::SniiCompoundWriter writer(file);
+    EXPECT_TRUE(writer.add_logical_index(input).ok());
+    EXPECT_TRUE(writer.finish().ok());
+    return names;
+}
+
+TEST(SniiIndexSourceWavesTest, TermsVisitedInWavesHoldOneWaveAtATime) {
+    constexpr uint32_t kTerms = kWaveTestTerms;
+    constexpr uint32_t kDocsPerTerm = kWaveTestDocsPerTerm;
+    MemoryFile file;
+    const std::vector<std::string> names = write_wave_test_index(&file);
+    io::MeteredFileReader metered(&file, /*block_size=*/256);
+    SniiSegmentReader segment;
+    LogicalIndexReader index;
+    assert_ok(SniiSegmentReader::open(&metered, &segment));
+    assert_ok(segment.open_index(5, "body", &index));
+    SniiIndexSource source(index);
+    metered.reset_metrics();
+
+    std::vector<uint64_t> held_at_wave;
+    size_t visited = 0;
+    assert_ok(index_query::visit_term_postings(
+            source, names, /*scoring=*/false,
+            [&](size_t i, index_query::PostingsCursor* cursor) -> Status {
+                if (i % index_query::kTermsPerWave == 0) {
+                    held_at_wave.push_back(source.held_bytes());
+                }
+                EXPECT_NE(cursor, nullptr);
+                index_query::BlockDocSet docs(*cursor);
+                EXPECT_EQ(docs.doc(), i);
+                size_t count = 0;
+                for (; !docs.exhausted(); docs.advance()) {
+                    ++count;
+                }
+                EXPECT_EQ(count, kDocsPerTerm);
+                ++visited;
+                return Status::OK();
+            }));
+    EXPECT_EQ(visited, kTerms);
+    ASSERT_EQ(held_at_wave.size(), 2U);
+    // The dictionary is resident, so each wave reads its preludes and postings in one round.
+    EXPECT_EQ(metered.metrics().serial_rounds, 2U);
+    EXPECT_EQ(source.peak_held_bytes(), std::max(held_at_wave[0], held_at_wave[1]));
+    EXPECT_LT(source.peak_held_bytes(), held_at_wave[0] + held_at_wave[1]);
+    EXPECT_EQ(source.held_bytes(), 0U);
 }
 
 } // namespace
