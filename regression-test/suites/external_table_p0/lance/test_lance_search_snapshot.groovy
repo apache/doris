@@ -30,7 +30,9 @@ suite("test_lance_search_snapshot", "p0,external") {
      *   version 7  vec_idx rebuilt over 0, 1, 2    committed 2026-09-29 14:52:00.565680 UTC
      * Tag rel points at version 5. Branch dev forks from version 4; its version 5 appends
      * row_id 101..108 as fragment 2, and its version 6 rebuilds body_idx over all fragments.
-     * Tag dev_rel points at dev version 5. vec is [row_id, row_id + 1, row_id + 2, row_id + 3],
+     * Tag dev_rel points at dev version 5. Dev versions 4, 5 and 6 were committed at
+     * 14:52:16.005995, 14:52:17.762386 and 14:52:19.576617 UTC, after every main version.
+     * vec is [row_id, row_id + 1, row_id + 2, row_id + 3],
      * so the squared L2 distance between rows r and n is 4 * (n - r)^2, and nprobes=2 makes
      * the two-partition IVF_FLAT index exact. body is "doc <row_id> lance" for even row_ids and
      * "doc <row_id> doris" for odd ones.
@@ -229,6 +231,26 @@ suite("test_lance_search_snapshot", "p0,external") {
             SELECT row_id, _distance FROM ${vectorSearch(', "branch"="dev", "version"="4"', "[100,101,102,103]")}
             ORDER BY _distance, row_id
         """
+        // Historical branch versions past the fork differ from main's versions of the same number:
+        // dev version 5 has row_id 101..108 where main version 5 has 17..24, and dev version 6
+        // rebuilt body_idx over fragment 2, which main version 6 does not cover.
+        qt_branch_version_5 """
+            SELECT row_id, _distance FROM ${vectorSearch(', "branch"="dev", "version"="5"', "[100,101,102,103]")}
+            ORDER BY _distance, row_id
+        """
+        explain {
+            sql("SELECT row_id FROM ${vectorSearch(', "branch"="dev", "version"="5"')}")
+            contains "lanceVersion=5"
+            contains "lanceBranch=dev"
+            contains "lanceSearchUnindexedFragments=1"
+        }
+        order_qt_branch_version_6_fts_strict """
+            SELECT row_id FROM ${fullTextSearch(', "branch"="dev", "version"="6"', "strict")}
+        """
+        test {
+            sql """SELECT row_id FROM ${fullTextSearch(', "version"="6"', "strict")}"""
+            exception "requires every fragment at dataset version 6 to be indexed"
+        }
         // dev_rel points at dev version 5, not the branch's latest; its FTS index covers only
         // the fork's fragments, and the error names the branch.
         order_qt_branch_tag_fts """SELECT row_id FROM ${fullTextSearch(', "tag"="dev_rel"')}"""
@@ -252,6 +274,17 @@ suite("test_lance_search_snapshot", "p0,external") {
             sql("SELECT row_id FROM ${vectorSearch(', "branch"="dev", "timestamp"="2999-01-01 00:00:00"')}")
             contains "lanceVersion=6"
             contains "lanceBranch=dev"
+        }
+        // Between dev versions 5 and 6: ignoring the time would select dev version 6, and resolving
+        // it on main would select main version 7.
+        explain {
+            sql("SELECT row_id FROM ${vectorSearch(', "branch"="dev", "timestamp"="2026-09-29 14:52:18"')}")
+            contains "lanceVersion=5"
+            contains "lanceBranch=dev"
+        }
+        test {
+            sql """SELECT row_id FROM ${fullTextSearch(', "branch"="dev", "timestamp"="2026-09-29 14:52:18"', "strict")}"""
+            exception "dataset version 5 of branch 'dev' to be indexed"
         }
         test {
             sql """SELECT row_id FROM ${vectorSearch(', "timestamp"="2026-09-29 14:51:51"')}"""
