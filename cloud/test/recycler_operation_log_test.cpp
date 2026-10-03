@@ -3309,12 +3309,6 @@ TEST(RecycleOperationLogTest, OplogRecycleStatsPerTypeCounters) {
 // Test recycle_operation_logs with stats enabled: drop partition + drop index logs
 // Verifies per-type recycled counts and bvar reporting
 TEST(RecycleOperationLogTest, RecycleOperationLogsWithStatsEnabled) {
-    auto old_flag = config::enable_recycler_stats_metrics;
-    config::enable_recycler_stats_metrics = true;
-    DORIS_CLOUD_DEFER {
-        config::enable_recycler_stats_metrics = old_flag;
-    };
-
     auto txn_kv = std::make_shared<MemTxnKv>();
     txn_kv->update_commit_version(1000);
     ASSERT_EQ(txn_kv->init(), 0);
@@ -3455,12 +3449,6 @@ TEST(RecycleOperationLogTest, RecycleOperationLogsWithStatsEnabled) {
 
 // Test recycle_operation_logs with snapshot protection: some logs skipped
 TEST(RecycleOperationLogTest, RecycleOperationLogsSkippedBySnapshot) {
-    auto old_flag = config::enable_recycler_stats_metrics;
-    config::enable_recycler_stats_metrics = true;
-    DORIS_CLOUD_DEFER {
-        config::enable_recycler_stats_metrics = old_flag;
-    };
-
     auto txn_kv = std::make_shared<MemTxnKv>();
     txn_kv->update_commit_version(1000);
     ASSERT_EQ(txn_kv->init(), 0);
@@ -3565,12 +3553,6 @@ TEST(RecycleOperationLogTest, RecycleOperationLogsSkippedBySnapshot) {
 
 // Test recycle_operation_logs with stats disabled (default)
 TEST(RecycleOperationLogTest, RecycleOperationLogsStatsDisabled) {
-    auto old_flag = config::enable_recycler_stats_metrics;
-    config::enable_recycler_stats_metrics = false;
-    DORIS_CLOUD_DEFER {
-        config::enable_recycler_stats_metrics = old_flag;
-    };
-
     auto txn_kv = std::make_shared<MemTxnKv>();
     txn_kv->update_commit_version(1000);
     ASSERT_EQ(txn_kv->init(), 0);
@@ -3615,12 +3597,6 @@ TEST(RecycleOperationLogTest, RecycleOperationLogsStatsDisabled) {
 
 // Test recycle_operation_logs compaction log with stats: recycled_compaction tracking
 TEST(RecycleOperationLogTest, RecycleCompactionLogWithStats) {
-    auto old_flag = config::enable_recycler_stats_metrics;
-    config::enable_recycler_stats_metrics = true;
-    DORIS_CLOUD_DEFER {
-        config::enable_recycler_stats_metrics = old_flag;
-    };
-
     auto txn_kv = std::make_shared<MemTxnKv>();
     txn_kv->update_commit_version(1000);
     ASSERT_EQ(txn_kv->init(), 0);

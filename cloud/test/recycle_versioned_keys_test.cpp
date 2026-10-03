@@ -1235,7 +1235,7 @@ TEST(RecycleVersionedKeysTest, RecycleTabletWithRowsetRefCount) {
     InstanceInfoPB instance_info;
     ASSERT_NO_FATAL_FAILURE(get_instance(meta_service.get(), cloud_unique_id, instance_info));
     auto recycler = get_instance_recycler(meta_service.get(), instance_info, accessor);
-    RecyclerMetricsContext ctx;
+    RecyclerMetricsContext ctx(instance_id, "test");
     ASSERT_EQ(0, recycler->recycle_tablet(tablet_id, ctx));
 
     {
@@ -1475,7 +1475,7 @@ void recycle_tablet_with_rowset_ref_count_concurrent() {
         recycler_threads.emplace_back([&, i]() {
             InstanceInfoPB instance_info = instance_infos[i];
             auto recycler = get_instance_recycler(meta_service.get(), instance_info, accessor);
-            RecyclerMetricsContext ctx;
+            RecyclerMetricsContext ctx(instance_id, "test");
             recycler_results[i] = recycler->recycle_tablet(tablet_id, ctx);
             completed_recyclers.fetch_add(1);
         });
@@ -1963,7 +1963,7 @@ TEST(RecycleVersionedKeysTest, BatchDeleteRefCountOne) {
     InstanceInfoPB instance_info;
     ASSERT_NO_FATAL_FAILURE(get_instance(meta_service.get(), cloud_unique_id, instance_info));
     auto recycler = get_instance_recycler(meta_service.get(), instance_info, accessor);
-    RecyclerMetricsContext ctx;
+    RecyclerMetricsContext ctx(instance_id, "test");
     ASSERT_EQ(0, recycler->recycle_tablet(tablet_id, ctx));
 
     {
@@ -2060,7 +2060,7 @@ TEST(RecycleVersionedKeysTest, BatchDeleteRefCountGreaterThanOne) {
     InstanceInfoPB instance_info;
     ASSERT_NO_FATAL_FAILURE(get_instance(meta_service.get(), cloud_unique_id, instance_info));
     auto recycler = get_instance_recycler(meta_service.get(), instance_info, accessor);
-    RecyclerMetricsContext ctx;
+    RecyclerMetricsContext ctx(instance_id, "test");
     ASSERT_EQ(0, recycler->recycle_tablet(tablet_id, ctx));
 
     {
@@ -2164,7 +2164,7 @@ TEST(RecycleVersionedKeysTest, BatchDeleteMixedRefCount) {
     InstanceInfoPB instance_info;
     ASSERT_NO_FATAL_FAILURE(get_instance(meta_service.get(), cloud_unique_id, instance_info));
     auto recycler = get_instance_recycler(meta_service.get(), instance_info, accessor);
-    RecyclerMetricsContext ctx;
+    RecyclerMetricsContext ctx(instance_id, "test");
     ASSERT_EQ(0, recycler->recycle_tablet(tablet_id, ctx));
 
     {
@@ -2266,7 +2266,7 @@ TEST(RecycleVersionedKeysTest, BatchDeleteMultipleVaults) {
     recycler->TEST_add_accessor(resource_id_1, accessor_1);
     recycler->TEST_add_accessor(resource_id_2, accessor_2);
 
-    RecyclerMetricsContext ctx;
+    RecyclerMetricsContext ctx(instance_id, "test");
     ASSERT_EQ(0, recycler->recycle_tablet(tablet_id, ctx));
 
     {
@@ -2336,7 +2336,7 @@ TEST(RecycleVersionedKeysTest, BatchDeleteExceedsMaxBatchSize) {
     InstanceInfoPB instance_info;
     ASSERT_NO_FATAL_FAILURE(get_instance(meta_service.get(), cloud_unique_id, instance_info));
     auto recycler = get_instance_recycler(meta_service.get(), instance_info, accessor);
-    RecyclerMetricsContext ctx;
+    RecyclerMetricsContext ctx(instance_id, "test");
     ASSERT_EQ(0, recycler->recycle_tablet(tablet_id, ctx));
 
     {

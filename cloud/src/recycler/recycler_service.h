@@ -46,8 +46,6 @@ public:
               ::doris::cloud::MetaServiceHttpResponse* response,
               ::google::protobuf::Closure* done) override;
 
-    void statistics_recycle(StatisticsRecycleRequest& req, MetaServiceCode& code, std::string& msg);
-
     void check_instance(const std::string& instance_id, MetaServiceCode& code, std::string& msg);
 
     std::pair<MetaServiceCode, std::string> skip_instance_data_cleanup(
