@@ -155,7 +155,7 @@ public class CloudComputeGroupMeta {
 
     @Getter
     @Setter
-    private Map<String, String> properties = new LinkedHashMap<>(ALL_PROPERTIES_DEFAULT_VALUE_MAP);
+    private volatile Map<String, String> properties = new LinkedHashMap<>(ALL_PROPERTIES_DEFAULT_VALUE_MAP);
 
     public CloudComputeGroupMeta(String id, String name, ComputeTypeEnum type) {
         this.id = id;
@@ -245,7 +245,11 @@ public class CloudComputeGroupMeta {
     }
 
     public void modifyProperties(Map<String, String> inputProperties) throws DdlException {
-        String balanceType = inputProperties.get(BALANCE_TYPE);
+        applyBalanceTypeRule(properties, inputProperties.get(BALANCE_TYPE));
+    }
+
+    // only async_warmup carries a timeout: drop it for other types, fill the default when missing
+    private static void applyBalanceTypeRule(Map<String, String> target, String balanceType) {
         if (balanceType == null) {
             return;
         }
@@ -253,20 +257,20 @@ public class CloudComputeGroupMeta {
                 || BalanceTypeEnum.SYNC_WARMUP.getValue().equals(balanceType)
                 || BalanceTypeEnum.PEER_READ_ASYNC_WARMUP.getValue().equals(balanceType)) {
             // delete BALANCE_WARM_UP_TASK_TIMEOUT if exists
-            properties.remove(BALANCE_WARM_UP_TASK_TIMEOUT);
+            target.remove(BALANCE_WARM_UP_TASK_TIMEOUT);
         } else if (BalanceTypeEnum.ASYNC_WARMUP.getValue().equals(balanceType)) {
             // if BALANCE_WARM_UP_TASK_TIMEOUT exists, it has been validated in validateProperty
-            if (!properties.containsKey(BALANCE_WARM_UP_TASK_TIMEOUT)) {
-                properties.put(BALANCE_WARM_UP_TASK_TIMEOUT, String.valueOf(DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT));
+            if (!target.containsKey(BALANCE_WARM_UP_TASK_TIMEOUT)) {
+                target.put(BALANCE_WARM_UP_TASK_TIMEOUT, String.valueOf(DEFAULT_BALANCE_WARM_UP_TASK_TIMEOUT));
             }
         }
     }
 
-    // set properties, just set in periodic instance status checker
+    // set properties, just set in periodic instance status checker.
+    // MS is the source of truth and stores only what was explicitly set, so FE properties =
+    // FE config defaults overlaid by the MS snapshot: keys removed in MS fall back to defaults.
     public void setProperties(Map<String, String> propertiesInMs) {
-        if (propertiesInMs == null || propertiesInMs.isEmpty()) {
-            return;
-        }
+        Map<String, String> newProperties = new LinkedHashMap<>(ALL_PROPERTIES_DEFAULT_VALUE_MAP);
 
         for (Map.Entry<String, String> entry : propertiesInMs.entrySet()) {
             String key = entry.getKey();
@@ -281,8 +285,14 @@ public class CloudComputeGroupMeta {
             }
 
             if (value != null && !value.isEmpty()) {
-                properties.put(key, value);
+                newProperties.put(key, value);
             }
+        }
+        applyBalanceTypeRule(newProperties, newProperties.get(BALANCE_TYPE));
+
+        if (!newProperties.equals(properties)) {
+            LOG.info("compute group {} properties changed: {} -> {}", name, properties, newProperties);
+            properties = newProperties;
         }
     }
 
