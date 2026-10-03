@@ -92,7 +92,10 @@ Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool
     const auto& row_descriptor = _local_state->_parent->operator_row_desc_before_projection();
     if (_has_projection) {
         _origin_block.clear_column_data(row_descriptor.num_materialized_slots());
-        if (!_can_merge_padding_blocks(_padding_block, _origin_block)) {
+        // get_block() charges the shared LIMIT as soon as rows pass the filters. Once peer scanners
+        // exhaust it, the context may finish without running this scanner again, so rows held in
+        // _padding_block would be charged but never returned. Do not pad under a shared LIMIT.
+        if (_shared_scan_limit || !_can_merge_padding_blocks(_padding_block, _origin_block)) {
             DORIS_CHECK(_padding_block.empty())
                     << "padding policy must remain stable for one scanner";
             // Some physical columns carry file-local state that an upper projection must consume

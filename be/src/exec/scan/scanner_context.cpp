@@ -603,6 +603,14 @@ bool ScannerContext::can_admit_scan_task(const std::unique_lock<std::mutex>& tra
     if (done() || _pending_tasks.empty()) {
         return false;
     }
+    // Same rule as _pull_next_scan_task() on the TaskExecutor path: once the shared LIMIT is
+    // exhausted, pending scanners would only open and immediately report EOS, so do not admit
+    // them while a completed or in-flight task can still wake the operator. If neither exists,
+    // admit one so it can report EOS and wake the pipeline task.
+    if (_is_shared_scan_limit_exhausted() &&
+        (_in_flight_tasks_num != 0 || !_completed_tasks.empty())) {
+        return false;
+    }
 
     int32_t effective_max_concurrency = _max_scan_concurrency;
     if (_enable_adaptive_scanners) {
