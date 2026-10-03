@@ -1268,15 +1268,6 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
     int num_rowsets = 0;
 
     auto handle_compaction_input_rowset_meta = [&](doris::RowsetMetaCloudPB rs) {
-        // remove delete bitmap of input rowset for MoW table
-        if (compaction.has_delete_bitmap_lock_initiator()) {
-            auto delete_bitmap_start =
-                    meta_delete_bitmap_key({instance_id, tablet_id, rs.rowset_id_v2(), 0, 0});
-            auto delete_bitmap_end = meta_delete_bitmap_key(
-                    {instance_id, tablet_id, rs.rowset_id_v2(), INT64_MAX, INT64_MAX});
-            txn->remove(delete_bitmap_start, delete_bitmap_end);
-        }
-
         auto recycle_key = recycle_rowset_key({instance_id, tablet_id, rs.rowset_id_v2()});
         RecycleRowsetPB recycle_rowset;
         recycle_rowset.set_creation_time(now);
