@@ -80,16 +80,10 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
 
     @Override
     public String toString() {
-        return Utils.toSqlString("PhysicalFilter[" + id.asInt() + "]" + getGroupIdWithPrefix(),
+        return Utils.toSqlString("PhysicalFilter[" + id.asInt() + "]"
+                + getGroupIdWithPrefix(),
                 "stats", statistics,
                 "predicates", getPredicate()
-        );
-    }
-
-    @Override
-    public String getFingerprint() {
-        return Utils.toSqlString("Filter[" + getGroupIdWithPrefix() + "]",
-                "predicates", getPredicate().getFingerprint()
         );
     }
 

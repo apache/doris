@@ -29,6 +29,25 @@ public interface MutableState {
     String KEY_PARENT = "parent";
     String KEY_RF_JUMP = "rf-jump";
     String KEY_PUSH_TOPN_TO_AGG = "pushTopnToAgg";
+    /** hbo fingerprint attached at planning time for explain printing */
+    String KEY_HBO_FP = "hbo-fingerprint";
+    /**
+     * hbo constant agnostic fingerprint attached at planning time for explain printing; only filter
+     * nodes carry both forms (exact + shape), join / aggregation carry the constant agnostic one
+     */
+    String KEY_HBO_FP_NO_LITERAL = "hbo-fingerprint-no-literal";
+    /** hbo simplified struct info canonical string attached at planning time for explain printing */
+    String KEY_HBO_STRUCT = "hbo-struct";
+    /** marks that the node statistics actually came from hbo (learned or pinned) */
+    String KEY_HBO_USED = "hbo-used";
+    /** canonical string of the join equality conditions (join nodes, for HBO SET EXPANSION) */
+    String KEY_HBO_COND = "hbo-cond";
+    /** fingerprint of the join equality conditions (join nodes, the expansion injection key) */
+    String KEY_HBO_COND_FP = "hbo-cond-fp";
+    /** type of the pinned entry that matched this node (exact / filter_small) */
+    String KEY_HBO_TYPE = "hbo-type";
+    /** applied injected join expansion, e.g. {@code exp=200x} */
+    String KEY_HBO_EXPANSION = "hbo-expansion";
 
     <T> Optional<T> get(String key);
 

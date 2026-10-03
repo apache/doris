@@ -39,6 +39,7 @@ import javax.annotation.Nullable;
  * Abstract class for all concrete physical plan.
  */
 public abstract class AbstractPhysicalPlan extends AbstractPlan implements PhysicalPlan, Explainable {
+
     protected final PhysicalProperties physicalProperties;
     protected final List<RuntimeFilter> runtimeFilters = Lists.newArrayList();
     private final List<RuntimeFilter> appliedRuntimeFilters = Lists.newArrayList();
@@ -97,4 +98,5 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
     public void removeAppliedRuntimeFilter(org.apache.doris.nereids.trees.plans.physical.RuntimeFilter filter) {
         appliedRuntimeFilters.remove(filter);
     }
+
 }

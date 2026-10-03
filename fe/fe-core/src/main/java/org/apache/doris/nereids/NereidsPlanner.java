@@ -51,6 +51,10 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.rules.exploration.mv.PreMaterializedViewRewriter;
+import org.apache.doris.nereids.stats.GroupStructInfo;
+import org.apache.doris.nereids.stats.HboJoinConditions;
+import org.apache.doris.nereids.stats.HboPlanInfoProvider;
+import org.apache.doris.nereids.stats.HboScanDescriptor;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -58,6 +62,7 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
+import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.distribute.DistributePlanner;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
@@ -66,13 +71,20 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDictionarySink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
+import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.planner.AddLocalExchange;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNodeId;
@@ -86,6 +98,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.TimeBasedChangeVisibleWaiter;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.qe.cache.CacheAnalyzer;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.query.QueryStatsRecorder;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TQueryCacheParam;
@@ -100,6 +113,7 @@ import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -334,6 +348,16 @@ public class NereidsPlanner extends Planner {
         }
 
         physicalPlan = postProcess(physicalPlan);
+        if (cascadesContext != null
+                && cascadesContext.getMemo() != null
+                && ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().isShowHboFingerprint()) {
+            Map<Integer, Group> hboGroupsById = new HashMap<>();
+            for (Group group : cascadesContext.getMemo().getGroups()) {
+                hboGroupsById.put(group.getGroupId().asInt(), group);
+            }
+            attachHboExplainInfoToTree(physicalPlan, hboGroupsById);
+        }
         if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
             String tree = physicalPlan.treeString();
             LOG.info("{}\n{}", ConnectContext.get().getQueryIdentifier(), tree);
@@ -614,8 +638,23 @@ public class NereidsPlanner extends Planner {
      * @param context PlanTranslatorContext
      */
     private void collectHboPlanInfo(String queryId, PhysicalPlan root, PlanTranslatorContext context) {
+        // map of memo group id -> group, built lazily for the KEY_GROUP fallback of nodes that
+        // lost their group-expression back reference during post process (only needed when the
+        // struct-info fingerprint is in use)
+        Map<Integer, Group> groupsById = null;
+        if (cascadesContext != null && cascadesContext.getMemo() != null) {
+            groupsById = new HashMap<>();
+            for (Group group : cascadesContext.getMemo().getGroups()) {
+                groupsById.put(group.getGroupId().asInt(), group);
+            }
+        }
+        collectHboPlanInfo(queryId, root, context, groupsById);
+    }
+
+    private void collectHboPlanInfo(String queryId, PhysicalPlan root, PlanTranslatorContext context,
+            Map<Integer, Group> groupsById) {
         for (Object child : root.children()) {
-            collectHboPlanInfo(queryId, (PhysicalPlan) child, context);
+            collectHboPlanInfo(queryId, (PhysicalPlan) child, context, groupsById);
         }
         if (root instanceof AbstractPlan) {
             int nodeId = ((AbstractPlan) root).getId();
@@ -635,7 +674,148 @@ public class NereidsPlanner extends Planner {
                             .getHboPlanInfoProvider().putPlanToIdMap(queryId, planToIdMap);
                 }
                 planToIdMap.put(root, planId.asInt());
+                // snapshot the hbo fingerprint (simplified group struct info) per plan node id;
+                // consumed by the profile publish path after the memo has been released
+                // publish keys are constant agnostic: join / aggregation fingerprints never
+                // carry literals, and scan tokens contain none by construction
+                Optional<String> fingerprint = GroupStructInfo.fingerprintOfPlanNode(
+                        (AbstractPlan) root, groupsById, GroupStructInfo.LiteralMode.NO_LITERAL);
+                if (fingerprint.isPresent()) {
+                    HboPlanInfoProvider planInfoProvider = Env.getCurrentEnv()
+                            .getHboPlanStatisticsManager().getHboPlanInfoProvider();
+                    Map<Integer, String> nodeFingerprints = planInfoProvider
+                            .getNodeIdToFingerprintMap(queryId);
+                    if (nodeFingerprints.isEmpty()) {
+                        planInfoProvider.putNodeIdToFingerprintMap(queryId, nodeFingerprints);
+                    }
+                    // keyed by the real PlanNodeId (the same id used by the profile publish
+                    // path via runtime stats item.node_id), not by the nereids plan id
+                    nodeFingerprints.put(planId.asInt(), fingerprint.get());
+                }
             }
+        }
+    }
+
+    /**
+     * Attach the hbo fingerprint and the simplified struct info to the mutable state of a plan
+     * node, so that the physical-plan node {@code toString()} can print them inline when the
+     * session variable {@code show_hbo_fingerprint} is enabled (no dependency on the memo or on
+     * {@code enable_hbo_info_collection} afterwards).
+     * <p>For join / aggregation / filter nodes only: a filter that sits above an olap scan
+     * (filter-on-scan) carries the fingerprint of the scan group, which is the read-side lookup
+     * key constraining the filter output row count.
+     */
+    private void attachHboExplainInfoToTree(Plan plan, Map<Integer, Group> groupsById) {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null || !connectContext.getSessionVariable().isShowHboFingerprint()) {
+            return;
+        }
+        for (Plan child : plan.children()) {
+            attachHboExplainInfoToTree(child, groupsById);
+        }
+        if (plan instanceof AbstractPlan) {
+            attachHboExplainInfo((AbstractPlan) plan, groupsById);
+        }
+    }
+
+    private void attachHboExplainInfo(AbstractPlan node, Map<Integer, Group> groupsById) {
+        boolean isFilter = node instanceof PhysicalFilter;
+        boolean isJoinOrAgg = node instanceof AbstractPhysicalJoin
+                || node instanceof PhysicalHashAggregate
+                || node instanceof PhysicalStorageLayerAggregate;
+        if (!isFilter && !isJoinOrAgg) {
+            return;
+        }
+        // filter roots have two fingerprints (exact with literals + constant agnostic shape);
+        // join / aggregation roots only have the constant agnostic one (their read side key)
+        GroupStructInfo.LiteralMode primaryMode = isFilter
+                ? GroupStructInfo.LiteralMode.WITH_LITERAL
+                : GroupStructInfo.LiteralMode.NO_LITERAL;
+        Optional<GroupStructInfo> structInfo = GroupStructInfo.structInfoOfPlanNode(node, groupsById, primaryMode);
+        Optional<GroupStructInfo> noLiteralStructInfo = structInfo;
+        if (isFilter) {
+            noLiteralStructInfo = GroupStructInfo.structInfoOfPlanNode(node, groupsById,
+                    GroupStructInfo.LiteralMode.NO_LITERAL);
+        }
+        if (isJoinOrAgg && node instanceof AbstractPhysicalJoin) {
+            attachHboJoinConditionInfo(node);
+        }
+        if (structInfo.isPresent()) {
+            node.setMutableState(MutableState.KEY_HBO_FP, structInfo.get().getFingerprint());
+            if (noLiteralStructInfo.isPresent()) {
+                node.setMutableState(MutableState.KEY_HBO_FP_NO_LITERAL,
+                        noLiteralStructInfo.get().getFingerprint());
+            }
+            node.setMutableState(MutableState.KEY_HBO_STRUCT, structInfo.get().getCanonicalString());
+            attachHboPinnedEntryType(node, structInfo.get().getFingerprint(),
+                    noLiteralStructInfo.map(GroupStructInfo::getFingerprint).orElse(null));
+            // mark whether the node statistics actually came from hbo (learned or pinned): the
+            // optimizer overwrites the row count with withRowCountAndHboFlag, which propagates
+            // to the group statistics (and later to the node statistics shown as stats=(hbo))
+            Group nodeGroup = node.getGroupExpression().map(GroupExpression::getOwnerGroup).orElse(null);
+            if (nodeGroup == null) {
+                Optional<Object> groupState = node.getMutableState(MutableState.KEY_GROUP);
+                if (groupState.isPresent()) {
+                    try {
+                        nodeGroup = groupsById.get(Integer.valueOf(groupState.get().toString()));
+                    } catch (NumberFormatException ignored) {
+                        nodeGroup = null;
+                    }
+                }
+            }
+            if (nodeGroup != null && nodeGroup.getStatistics() != null
+                    && nodeGroup.getStatistics().isFromHbo()) {
+                node.setMutableState(MutableState.KEY_HBO_USED, "true");
+            }
+        }
+    }
+
+    /**
+     * Attach the type of the pinned entry that matched this node this query (exact / filter_small),
+     * so the explain output shows which kind of injected entry is in effect; for a FILTER_SMALL
+     * entry that was rejected by the extreme-small guard the skip reason is shown next to it.
+     */
+    private void attachHboPinnedEntryType(AbstractPlan node, String fingerprint, String noLiteralFingerprint) {
+        if (ConnectContext.get() == null) {
+            return;
+        }
+        HboPlanInfoProvider provider = Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider();
+        Map<String, String> entryTypes = provider.getPinnedEntryType(DebugUtil.printId(ConnectContext.get().queryId()));
+        String type = entryTypes.get(fingerprint);
+        if (type == null && noLiteralFingerprint != null) {
+            type = entryTypes.get(noLiteralFingerprint);
+        }
+        if (type != null) {
+            node.setMutableState(MutableState.KEY_HBO_TYPE, type);
+        }
+    }
+
+    /**
+     * Attach the join equality-condition fingerprint (the {@code HBO SET EXPANSION} key) and the
+     * applied / skipped expansion state of this query, so that the physical plan and the explain
+     * annotation can show what to inject and whether it took effect.
+     */
+    private void attachHboJoinConditionInfo(AbstractPlan node) {
+        AbstractPhysicalJoin<?, ?> join = (AbstractPhysicalJoin<?, ?>) node;
+        Optional<String> condFingerprint = HboJoinConditions.fingerprintOf(join);
+        if (!condFingerprint.isPresent()) {
+            return;
+        }
+        node.setMutableState(MutableState.KEY_HBO_COND_FP, condFingerprint.get());
+        HboJoinConditions.canonicalOf(join)
+                .ifPresent(canonical -> node.setMutableState(MutableState.KEY_HBO_COND, canonical));
+        if (ConnectContext.get() == null) {
+            return;
+        }
+        String queryId = DebugUtil.printId(ConnectContext.get().queryId());
+        HboPlanInfoProvider provider = Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider();
+        String applied = provider.getExpansionApplied(queryId).get(condFingerprint.get());
+        if (applied != null) {
+            node.setMutableState(MutableState.KEY_HBO_EXPANSION, applied);
+        }
+        String skipped = provider.getPinnedGuardSkip(queryId).get(condFingerprint.get());
+        if (skipped != null && applied == null) {
+            node.setMutableState(MutableState.KEY_HBO_EXPANSION, "skipped=" + skipped);
         }
     }
 
@@ -654,7 +834,11 @@ public class NereidsPlanner extends Planner {
                     .setNereidsTranslateTime(TimeUtils.getStartTimeMs());
         }
         String queryId = DebugUtil.printId(cascadesContext.getConnectContext().queryId());
-        if (StatisticsUtil.isEnableHboInfoCollection()) {
+        boolean showHboFingerprint = ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().isShowHboFingerprint();
+        // plan-info registration runs for learned collection, and also whenever the hbo
+        // fingerprint/struct info must be printed inline in the physical plan
+        if (StatisticsUtil.isEnableHboInfoCollection() || showHboFingerprint) {
             collectHboPlanInfo(queryId, physicalPlan, planTranslatorContext);
         }
 
@@ -1138,13 +1322,219 @@ public class NereidsPlanner extends Planner {
             plan += "\n\n\n group expression count exceeds memo_max_group_expression_size("
                     + ConnectContext.get().getSessionVariable().memoMaxGroupExpressionSize + ")\n";
         }
-        if (statementContext != null) {
-            if (!statementContext.getHints().isEmpty()) {
-                String hint = getHintExplainString(statementContext.getHints());
-                return plan + hint;
+        String hint = "";
+        if (statementContext != null && !statementContext.getHints().isEmpty()) {
+            hint = getHintExplainString(statementContext.getHints());
+        }
+        // the annotation block is meaningful only once a physical plan exists (fragment-form
+        // explain); parsed/analyzed/rewritten tree output must not carry the misleading
+        // "(no hbo fingerprint attached ...)" fallback
+        if (explainLevel != ExplainLevel.PARSED_PLAN
+                && explainLevel != ExplainLevel.ANALYZED_PLAN
+                && explainLevel != ExplainLevel.REWRITTEN_PLAN
+                && ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().isShowHboFingerprint()
+                && physicalPlan != null && cascadesContext != null) {
+            plan += appendHboFingerprintAnnotations();
+        }
+        return plan + hint;
+    }
+
+    /**
+     * Append per-node hbo fingerprint annotations (join / aggregation / filter) to the explain
+     * string. Controlled by session variable {@code show_hbo_fingerprint} (default off) so that
+     * the default explain output is unchanged. For a filter that sits above an olap scan
+     * (filter-on-scan) the annotation shows the fingerprint of the scan group, which is the key
+     * used by the hbo read side to override the filter row count — users copy the quoted
+     * {@code fingerprint=} / {@code struct=} (or {@code condFingerprint=} / {@code cond=} for a
+     * join expansion) straight into the {@code HBO SET STATISTICS} statement.
+     */
+    private String appendHboFingerprintAnnotations() {
+        StringBuilder sb = new StringBuilder("\n\nHBO fingerprint annotations (join/aggregation/filter):\n");
+        if (ConnectContext.get() != null && !ConnectContext.get().getSessionVariable().isEnableHboOptimization()) {
+            sb.append("  note: enable_hbo_optimization is off; injected hbo statistics will not take "
+                    + "effect until it is enabled\n");
+        }
+        List<AbstractPlan> nodes = new ArrayList<>();
+        collectPlanNodes(physicalPlan, nodes);
+        nodes.sort((a, b) -> Integer.compare(a.getId(), b.getId()));
+        Map<String, String> guardSkips = Collections.emptyMap();
+        Map<String, String> applyStates = Collections.emptyMap();
+        if (ConnectContext.get() != null) {
+            HboPlanInfoProvider provider = Env.getCurrentEnv().getHboPlanStatisticsManager()
+                    .getHboPlanInfoProvider();
+            String queryId = DebugUtil.printId(ConnectContext.get().queryId());
+            guardSkips = provider.getPinnedGuardSkip(queryId);
+            applyStates = provider.getPinnedApplyState(queryId);
+        }
+        for (AbstractPlan node : nodes) {
+            String kind;
+            if (node instanceof AbstractPhysicalJoin) {
+                kind = "join";
+            } else if (node instanceof PhysicalHashAggregate || node instanceof PhysicalStorageLayerAggregate) {
+                kind = "aggregation";
+            } else if (node instanceof PhysicalFilter) {
+                // a filter root is injectable: its primary fingerprint carries the literals, and
+                // the constant agnostic shape fingerprint is printed next to it; filters directly
+                // above a scan additionally have a learned read-side key derived from the scan
+                AbstractPlan scan = findScanUnder((PhysicalFilter<?>) node);
+                kind = scan == null ? "filter" : "filter-on-scan(table=" + scanName(scan) + ")";
+            } else {
+                continue;
+            }
+            Object fingerprint = node.getMutableState(MutableState.KEY_HBO_FP).orElse(null);
+            Object struct = node.getMutableState(MutableState.KEY_HBO_STRUCT).orElse(null);
+            if (fingerprint == null || struct == null) {
+                continue;
+            }
+            Object appliedType = node.getMutableState(MutableState.KEY_HBO_TYPE).orElse(null);
+            Object expansion = node.getMutableState(MutableState.KEY_HBO_EXPANSION).orElse(null);
+            Object condFingerprint = node.getMutableState(MutableState.KEY_HBO_COND_FP).orElse(null);
+            Object cond = node.getMutableState(MutableState.KEY_HBO_COND).orElse(null);
+            Map<String, String> appliedModes = ConnectContext.get() == null ? Collections.emptyMap()
+                    : Env.getCurrentEnv().getHboPlanStatisticsManager().getHboPlanInfoProvider()
+                            .getPinnedLiteralMode(DebugUtil.printId(ConnectContext.get().queryId()));
+            // the type of the row count entry, as the read side saw it (exact unless a guarded entry
+            // was considered for this node)
+            String rowCountType = appliedType == null ? "exact" : String.valueOf(appliedType);
+            if (node instanceof PhysicalFilter) {
+                // a filter root can be keyed in both literal modes: the literal carrying form (only
+                // that constant matches) and the constant agnostic form (every constant of the
+                // predicate shape matches), so both are printed as separate injectable entries
+                appendHboEntryLine(sb, node.getId(), kind, "with_literal", rowCountType, fingerprint, struct,
+                        guardSkips, applyStates, appliedModes, expansion, false);
+                Object noLiteralFingerprint = node.getMutableState(MutableState.KEY_HBO_FP_NO_LITERAL).orElse(null);
+                if (noLiteralFingerprint != null && !noLiteralFingerprint.equals(fingerprint)) {
+                    appendHboEntryLine(sb, node.getId(), kind, "no_literal", rowCountType, noLiteralFingerprint,
+                            GroupStructInfo.toNoLiteral(String.valueOf(struct)), guardSkips, applyStates,
+                            appliedModes, expansion, false);
+                }
+            } else {
+                // a join / aggregation entry only has the constant agnostic form
+                appendHboEntryLine(sb, node.getId(), kind, "no_literal", rowCountType, fingerprint, struct,
+                        guardSkips, applyStates, appliedModes, expansion, false);
+            }
+            if (condFingerprint != null && cond != null) {
+                // the join condition key of this node: an expansion entry, kept in the same table and
+                // listed like any other entry of this node
+                appendHboEntryLine(sb, node.getId(), kind, "no_literal", "join_expansion", condFingerprint,
+                        cond, guardSkips, applyStates, appliedModes, expansion, true);
             }
         }
-        return plan;
+        if (sb.toString().indexOf("fingerprint=") < 0) {
+            sb.append("  (no hbo fingerprint attached; check that the plan went through the "
+                    + "planner attach step)\n");
+        }
+        appendHboScanBaselines(sb);
+        return sb.toString();
+    }
+
+    /**
+     * Append the data state of every olap scan of the plan which just got its hbo annotations: the
+     * numbers a hbo entry is judged by (see {@link HboScanDescriptor}). They are what the read side
+     * compares with the baseline an entry records, so they explain here why an entry applied
+     * ({@code used=live} / {@code used=drifted(...)}) or was rejected ({@code skipped=stale(...)}),
+     * and what a new injection would be measured on.
+     */
+    private void appendHboScanBaselines(StringBuilder sb) {
+        List<AbstractPlan> nodes = new ArrayList<>();
+        collectPlanNodes(physicalPlan, nodes);
+        List<AbstractPlan> scans = new ArrayList<>();
+        for (AbstractPlan node : nodes) {
+            if (node instanceof PhysicalOlapScan) {
+                scans.add(node);
+            }
+        }
+        if (scans.isEmpty()) {
+            return;
+        }
+        scans.sort((a, b) -> Integer.compare(a.getId(), b.getId()));
+        sb.append("\nHBO table baselines (data state of this query, one line per scan):\n");
+        for (AbstractPlan scan : scans) {
+            sb.append("  [").append(scan.getId()).append("] ").append(scanName(scan));
+            try {
+                HboScanDescriptor descriptor = HboScanDescriptor.of((OlapScan) scan);
+                sb.append(" rows=").append(descriptor.hasScanRows()
+                                ? String.valueOf(descriptor.getScanRows()) : "-")
+                        .append(" version=").append(descriptor.hasVisibleVersion()
+                                ? String.valueOf(descriptor.getVisibleVersion()) : "-")
+                        .append(" partitions=").append(descriptor.getSelectedPartitions())
+                        .append('/').append(descriptor.getTotalPartitions());
+            } catch (RpcException e) {
+                // the data state of a scan whose version is not readable is reported as unknown
+                // instead of failing the explain statement
+                sb.append(" rows=- version=- partitions=-");
+            }
+            sb.append("\n");
+        }
+    }
+
+    /**
+     * Append one injectable hbo entry of a node. The parameters are printed with the spelling
+     * {@code HBO SET STATISTICS} uses (quoted values), so the line can be copied as it is, and the
+     * line of the entry which was actually used (or skipped by its guard) is marked.
+     */
+    private void appendHboEntryLine(StringBuilder sb, int nodeId, String kind, String literalMode,
+            String type, Object fingerprint, Object struct, Map<String, String> guardSkips,
+            Map<String, String> applyStates, Map<String, String> appliedModes, Object expansion,
+            boolean expansionLine) {
+        String key = String.valueOf(fingerprint);
+        sb.append("  [").append(nodeId).append("] ").append(kind)
+                .append(" type=").append(type)
+                .append(" literal_mode=").append(literalMode)
+                .append(" fingerprint='").append(key).append("'")
+                .append(" struct='").append(struct).append("'");
+        // the entry was rejected (its data moved too far, or its guard failed), or it was applied
+        // with the data state the read side saw (live / drifted / unknown); a learned entry has no
+        // state of its own and is only reported as used
+        String skipReason = guardSkips.get(key);
+        String applyState = applyStates.get(key);
+        if (skipReason != null) {
+            sb.append(" skipped=").append(skipReason);
+        } else if (applyState != null) {
+            sb.append(" used=").append(applyState);
+        } else if (literalMode.equals(appliedModes.get(key))) {
+            sb.append(" used=true");
+        }
+        if (expansion != null && expansionLine) {
+            sb.append(" expansion=").append(expansion);
+        }
+        sb.append("\n");
+    }
+
+    private static void collectPlanNodes(Plan plan, List<AbstractPlan> nodes) {
+        for (Plan child : plan.children()) {
+            collectPlanNodes(child, nodes);
+        }
+        if (plan instanceof AbstractPlan) {
+            nodes.add((AbstractPlan) plan);
+        }
+    }
+
+    /**
+     * Find the olap scan directly below a filter, only through a chain of projects. A filter
+     * that is not directly on a scan (e.g. above a join) is not a "filter-on-scan" and must not
+     * borrow the fingerprint of an inner scan.
+     */
+    private static AbstractPlan findScanUnder(PhysicalFilter<?> filter) {
+        return scanBelowProjects(filter.child());
+    }
+
+    private static AbstractPlan scanBelowProjects(Plan plan) {
+        if (plan instanceof PhysicalOlapScan) {
+            return (AbstractPlan) plan;
+        }
+        if (plan instanceof PhysicalProject && plan.arity() == 1) {
+            return scanBelowProjects(plan.child(0));
+        }
+        return null;
+    }
+
+    private static String scanName(AbstractPlan scan) {
+        if (scan instanceof PhysicalOlapScan) {
+            return ((PhysicalOlapScan) scan).getTable().getNameWithFullQualifiers();
+        }
+        return String.valueOf(scan);
     }
 
     @Override
