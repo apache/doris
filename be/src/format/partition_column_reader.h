@@ -26,28 +26,29 @@
 
 namespace doris {
 
-// Decorates an initialized Hive reader after its footer proves the range cardinality.
-// Partition-only duplicate-insensitive aggregates need one row from a nonempty range,
-// but a valid empty file must contribute no partition value.
+// Decorates an initialized Hive/Hudi reader so a partition-only duplicate-insensitive aggregate is
+// answered from partition metadata instead of file data.
+//
+// One row of partition values is emitted per scan range, unconditionally. A range whose file turns
+// out to hold zero rows still contributes its partition value, so MAX/GROUP BY/DISTINCT can name a
+// partition that a full scan would not return. A partition with no file at all contributes nothing,
+// because it produces no scan range.
 class PartitionColumnReader final : public CountReader {
 public:
-    // V1 keeps the whole-file requirement on purpose. Splitting is planned without knowing whether
-    // this reader will accept the pushdown (a retained filter or a pending runtime filter can both
-    // refuse it), so a file may arrive split; the row count of a partial range is only dependable
-    // when the Parquet reader actually filters row groups by range, and ORC's count is 0 until its
-    // row reader exists. Requiring the whole range keeps the count authoritative; the cost is that
-    // V1 skips the shortcut on files the connector split (FileScannerV2 has no such requirement).
+    // The reader must be initialized (footer parsed) before it can fill the typed partition values,
+    // but its row count is irrelevant now, so V1 no longer requires the whole file: the whole-range
+    // rule existed only because a partial range's count was unreliable (Parquet row groups are not
+    // filtered by range when counting, and ORC's count reads 0 until its row reader exists).
     static bool supports_range(const TFileRangeDesc& range, TFileFormatType::type format_type) {
         return range.__isset.table_format_params &&
-               range.table_format_params.table_format_type == "hive" &&
+               (range.table_format_params.table_format_type == "hive" ||
+                range.table_format_params.table_format_type == "hudi") &&
                (format_type == TFileFormatType::FORMAT_PARQUET ||
-                format_type == TFileFormatType::FORMAT_ORC) &&
-               range.start_offset == 0 && range.file_size >= 0 && range.size == range.file_size;
+                format_type == TFileFormatType::FORMAT_ORC);
     }
 
-    PartitionColumnReader(int64_t total_rows, std::unique_ptr<TableFormatReader> inner_reader)
-            : CountReader(total_rows > 0 ? 1 : 0, 1, std::move(inner_reader)) {
-        DORIS_CHECK(total_rows >= 0);
+    explicit PartitionColumnReader(std::unique_ptr<TableFormatReader> inner_reader)
+            : CountReader(1, 1, std::move(inner_reader)) {
         DORIS_CHECK(this->inner_reader() != nullptr);
         set_push_down_agg_type(TPushAggOp::type::PARTITION_VALUE);
     }

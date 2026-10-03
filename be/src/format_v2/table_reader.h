@@ -1058,6 +1058,22 @@ protected:
             return Status::OK();
         }
 
+        // PARTITION_VALUE needs no file data at all: every projected column is a partition column,
+        // so one row of partition values is a faithful row of this range's output. Emitting it
+        // unconditionally also means the optimization no longer depends on the reader being able to
+        // prove a row count (Hudi and other formats do not all support count pushdown).
+        //
+        // The trade-off is deliberate: a range whose file turns out to hold zero rows still
+        // contributes its partition value, so MAX/GROUP BY/DISTINCT can name a partition that a full
+        // scan would not return. A partition with no file at all still produces nothing, because it
+        // produces no scan range.
+        if (_push_down_agg_type == TPushAggOp::type::PARTITION_VALUE) {
+            RETURN_IF_ERROR(finalize_chunk(block, 1));
+            *pushed_down = true;
+            RETURN_IF_ERROR(close_current_reader());
+            return Status::OK();
+        }
+
         FileAggregateRequest file_request;
         RETURN_IF_ERROR(_build_file_aggregate_request(_push_down_agg_type, &file_request));
         FileAggregateResult file_result;
@@ -1080,11 +1096,6 @@ protected:
             _current_split_uses_metadata_count = true;
             if (_remaining_file_level_count > 0) {
                 RETURN_IF_ERROR(_materialize_next_count_batch(&_remaining_file_level_count, block));
-            }
-        } else if (_push_down_agg_type == TPushAggOp::type::PARTITION_VALUE) {
-            DORIS_CHECK(file_result.count >= 0);
-            if (file_result.count > 0) {
-                RETURN_IF_ERROR(finalize_chunk(block, 1));
             }
         } else {
             RETURN_IF_ERROR(
@@ -1126,10 +1137,11 @@ protected:
         }
         if (agg_type == TPushAggOp::type::PARTITION_VALUE) {
             DORIS_CHECK(_file_scan_request != nullptr);
-            if (!_current_file_range_desc.__isset.table_format_params ||
-                _current_file_range_desc.table_format_params.table_format_type != "hive" ||
-                (_format != FileFormat::PARQUET && _format != FileFormat::ORC) ||
-                _projected_columns.empty() || !_file_scan_request->delete_conjuncts.empty()) {
+            if (!_current_file_range_desc.__isset.table_format_params
+                || (_current_file_range_desc.table_format_params.table_format_type != "hive"
+                    && _current_file_range_desc.table_format_params.table_format_type != "hudi")
+                || (_format != FileFormat::PARQUET && _format != FileFormat::ORC)
+                || _projected_columns.empty() || !_file_scan_request->delete_conjuncts.empty()) {
                 return false;
             }
             return std::ranges::all_of(_projected_columns, [this](const auto& column) {
@@ -2108,10 +2120,8 @@ protected:
         DORIS_CHECK(_supports_aggregate_pushdown(agg_type));
         request->agg_type = agg_type;
         request->columns.clear();
-        if (agg_type == TPushAggOp::type::PARTITION_VALUE) {
-            request->agg_type = TPushAggOp::type::COUNT;
-            return Status::OK();
-        }
+        // PARTITION_VALUE never reaches here: _try_materialize_aggregate_pushdown_rows emits the
+        // partition row without asking the reader for a count.
         if (agg_type == TPushAggOp::type::COUNT) {
             DORIS_CHECK(_push_down_count_columns.has_value());
             // An empty explicit list is the semantic signal for COUNT(*). Do not inspect the

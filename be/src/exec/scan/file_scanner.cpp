@@ -1311,25 +1311,22 @@ Status FileScanner::_get_next_reader() {
             }
         }
 
-        // A partition value is an input row only when the real footer proves nonemptiness.
-        // Restrict V1 to whole ordinary Hive files: other table formats can hide physical rows
-        // through deletes, and the actual partition format can differ from the table default.
+        // A partition value is an input row for every range the partition has. This no longer needs
+        // the footer to prove nonemptiness, so it also no longer needs a reader that can report a
+        // row count; has_delete_operations() still keeps formats with row-level deletes out, and
+        // supports_range() keeps non Hive/Hudi formats and non Parquet/ORC files out.
         if (_get_push_down_agg_type() == TPushAggOp::type::PARTITION_VALUE &&
             PartitionColumnReader::supports_range(range, format_type) &&
             !_partition_col_descs.empty() && _file_slot_descs.empty() && _conjuncts.empty() &&
             _applied_rf_num == _total_rf_num && !_cur_reader->has_delete_operations() &&
-            _cur_reader->supports_count_pushdown() &&
             std::all_of(_column_descs.begin(), _column_descs.end(),
                         [this](const ColumnDescriptor& col_desc) {
                             return col_desc.category == ColumnCategory::PARTITION_KEY &&
                                    _partition_col_descs.contains(col_desc.name);
                         })) {
-            const auto total_rows = _cur_reader->get_total_rows();
-            if (total_rows >= 0) {
-                auto* table_reader = assert_cast<TableFormatReader*>(_cur_reader.release());
-                _cur_reader = std::make_unique<PartitionColumnReader>(
-                        total_rows, std::unique_ptr<TableFormatReader>(table_reader));
-            }
+            auto* table_reader = assert_cast<TableFormatReader*>(_cur_reader.release());
+            _cur_reader = std::make_unique<PartitionColumnReader>(
+                    std::unique_ptr<TableFormatReader>(table_reader));
         }
 
         // Unified COUNT(*) pushdown: replace the real reader with CountReader

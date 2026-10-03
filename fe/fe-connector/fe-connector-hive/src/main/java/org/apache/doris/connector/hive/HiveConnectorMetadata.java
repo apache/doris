@@ -2364,8 +2364,26 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
 
     /** Only nontransactional native columnar files can prove row existence from their footer. */
     private boolean supportsPartitionValueOnly(HmsTableInfo tableInfo) {
-        return supportsHiveOrcOrParquetScan(tableInfo)
-                && !HiveTableHandle.isTransactionalTable(tableInfo.getParameters());
+        return (supportsHiveOrcOrParquetScan(tableInfo)
+                && !HiveTableHandle.isTransactionalTable(tableInfo.getParameters()))
+                || supportsHudiPartitionValueOnly(tableInfo);
+    }
+
+    /**
+     * Hudi tables: a Hudi partition's directory name is its partition value, so a min/max over only
+     * partition columns can be answered from the split metadata alone. Limited to a Parquet or ORC
+     * base file format, which is what the BE-side check accepts anyway (a range whose actual format
+     * is not native Parquet/ORC is rejected there). MOR realtime ranges can arrive as JNI and are
+     * then rejected by the same BE check, so MOR needs no separate exclusion here.
+     */
+    private boolean supportsHudiPartitionValueOnly(HmsTableInfo tableInfo) {
+        if (HiveTableFormatDetector.detect(tableInfo) != HiveTableType.HUDI) {
+            return false;
+        }
+        String inputFormat = tableInfo.getInputFormat();
+        return inputFormat != null
+                && (inputFormat.contains("Parquet") || inputFormat.contains("Orc")
+                    || inputFormat.contains("ORC"));
     }
 
     /** Whether the HMS table is a view (tableType VIRTUAL_VIEW), mirroring legacy {@code HMSExternalTable.isView}. */
