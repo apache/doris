@@ -34,6 +34,7 @@
 #include "exec/runtime_filter/runtime_filter_consumer_helper.h"
 #include "exec/scan/olap_scanner.h"
 #include "exec/scan/parallel_scanner_builder.h"
+#include "exec/scan/scan_key_bucket_pruner.h"
 #include "exprs/function/in.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/score_runtime.h"
@@ -745,6 +746,37 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
         }
     }
 
+    // Keep the full-scan placeholder in the fallback list. An empty routed list
+    // means this tablet has no matching keys and must not create a scanner.
+    std::vector<OlapScanRange*> key_ranges;
+    for (auto& range : _cond_ranges) {
+        key_ranges.push_back(range.get());
+    }
+    std::vector<const std::vector<OlapScanRange*>*> tablet_key_ranges(_tablets.size(), &key_ranges);
+    ScanKeyBucketPruner bucket_pruner;
+    if (p._olap_scan_node.__isset.enable_scan_key_bucket_prune &&
+        p._olap_scan_node.enable_scan_key_bucket_prune) {
+        const int32_t bucket_num = _scan_ranges.front()->bucket_num;
+        DORIS_CHECK_GT(bucket_num, 0);
+        if (bucket_pruner.init(_cond_ranges, bucket_num)) {
+            int64_t routed_ranges = 0;
+            for (size_t i = 0; i < _scan_ranges.size(); ++i) {
+                const auto& range = *_scan_ranges[i];
+                DORIS_CHECK(range.__isset.bucket_seq && range.__isset.bucket_num);
+                DORIS_CHECK_EQ(range.bucket_num, bucket_num);
+                DORIS_CHECK_GE(range.bucket_seq, 0);
+                DORIS_CHECK_LT(range.bucket_seq, bucket_num);
+                tablet_key_ranges[i] = &bucket_pruner.ranges_for_bucket(range.bucket_seq);
+                routed_ranges += tablet_key_ranges[i]->size();
+            }
+            COUNTER_SET(
+                    ADD_COUNTER(custom_profile(), "ScanKeyRangesBeforeBucketPrune", TUnit::UNIT),
+                    static_cast<int64_t>(key_ranges.size() * _tablets.size()));
+            COUNTER_SET(ADD_COUNTER(custom_profile(), "ScanKeyRangesAfterBucketPrune", TUnit::UNIT),
+                        routed_ranges);
+        }
+    }
+
     bool enable_parallel_scan = state()->enable_parallel_scan();
     auto resolve_binlog_scan_type = [](const TPaloScanRange& scan_range) {
         if (scan_range.__isset.binlog_scan_type) {
@@ -776,19 +808,9 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
         (_storage_no_merge() || p._olap_scan_node.is_preaggregation)
         // binlog<row> need to be read in order
         && !read_row_binlog && !has_tso_predicate) {
-        // Filter out the "full scan" placeholder range (has_lower_bound == false)
-        // so that only ranges with real key bounds are forwarded to the parallel scanner.
-        std::vector<OlapScanRange*> key_ranges;
-        for (auto& range : _cond_ranges) {
-            if (!range->has_lower_bound) {
-                continue;
-            }
-            key_ranges.emplace_back(range.get());
-        }
-
         ParallelScannerBuilder scanner_builder(this, _tablets, _read_sources, _scan_ranges,
-                                               _scanner_profile, key_ranges, state(), p._limit,
-                                               true, p._olap_scan_node.is_preaggregation);
+                                               _scanner_profile, tablet_key_ranges, state(),
+                                               p._limit, true, p._olap_scan_node.is_preaggregation);
 
         int max_scanners_count = state()->parallel_scan_max_scanners_count();
 
@@ -833,6 +855,9 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
 
     int scanners_per_tablet = std::max(1, 64 / (int)_scan_ranges.size());
     for (size_t scan_range_idx = 0; scan_range_idx < _scan_ranges.size(); scan_range_idx++) {
+        if (tablet_key_ranges[scan_range_idx]->empty()) {
+            continue;
+        }
         const auto& palo_scan_range = *_scan_ranges[scan_range_idx];
         if (read_row_binlog &&
             (palo_scan_range.__isset.start_tso || palo_scan_range.__isset.end_tso)) {
@@ -853,7 +878,7 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
         int64_t version = 0;
         std::from_chars(palo_scan_range.version.data(),
                         palo_scan_range.version.data() + palo_scan_range.version.size(), version);
-        std::vector<std::unique_ptr<doris::OlapScanRange>>* ranges = &_cond_ranges;
+        const auto* ranges = tablet_key_ranges[scan_range_idx];
         int size_based_scanners_per_tablet = 1;
 
         if (config::doris_scan_range_max_mb > 0) {
@@ -867,12 +892,12 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
         int64_t num_ranges = ranges->size();
         for (int64_t i = 0; i < num_ranges;) {
             std::vector<doris::OlapScanRange*> scanner_ranges;
-            scanner_ranges.push_back((*ranges)[i].get());
+            scanner_ranges.push_back((*ranges)[i]);
             ++i;
             for (int64_t j = 1; i < num_ranges && j < ranges_per_scanner &&
                                 (*ranges)[i]->end_include == (*ranges)[i - 1]->end_include;
                  ++j, ++i) {
-                scanner_ranges.push_back((*ranges)[i].get());
+                scanner_ranges.push_back((*ranges)[i]);
             }
 
             COUNTER_UPDATE(_key_range_counter, scanner_ranges.size());
