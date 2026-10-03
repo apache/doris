@@ -319,6 +319,37 @@ public class FlussSplitPlanTest {
         assertPkRange(ranges.get(1), 1, 3L, 30L, 44L);
     }
 
+    /**
+     * A statement that sets enable_jni_heap_admission has every primary-key range declare the heap BE's
+     * reader of it will hold, by the records it replays; any other statement declares nothing, and BE's
+     * readers then open without waiting. The statement reads (id INT, v STRING): a row is
+     * 16 + 24 + 16 + (88 + 80) = 224 bytes, and a PK_FULL entry 112 more.
+     */
+    @Test
+    public void primaryKeyRangesDeclareTheirHeapOnlyForAStatementThatAsks() {
+        registerPkTable(PK_TABLE, 2);
+        kvSnapshots(null, new long[] {NO_SNAPSHOT, 3L}, new long[] {0L, 30L});
+        latestOffsets(null, 12L, 44L);
+        ConnectorScanRequest request = ConnectorScanRequest.builder(handle(PK_TABLE),
+                        Arrays.asList(new FlussColumnHandle("id", 0), new FlussColumnHandle("v", 1)))
+                .requiredPartitions(Collections.emptyList())
+                .build();
+        FlussScanPlanProvider provider = new FlussScanPlanProvider(
+                adminOps, FlussCatalogProperties.of(catalog()), this::lakeSibling);
+
+        for (ConnectorScanRange range : provider.planScan(session, request)) {
+            Assertions.assertEquals(0L, ((FlussScanRange) range).getJniHeapBytes());
+        }
+
+        ConnectorSession asking = new FlussTestSession(1L, "q2")
+                .set(FlussScanPlanProvider.SESSION_JNI_HEAP_ADMISSION, "true");
+        List<ConnectorScanRange> declared = provider.planScan(asking, request);
+        // Bucket 0 was never snapshotted: all 12 records of its log are replayed.
+        Assertions.assertEquals(12L * (224 + 112), ((FlussScanRange) declared.get(0)).getJniHeapBytes());
+        // Bucket 1: the 14 records after the offset its snapshot was taken at.
+        Assertions.assertEquals(14L * (224 + 112), ((FlussScanRange) declared.get(1)).getJniHeapBytes());
+    }
+
     /** Neither snapshotted nor written to: nothing to read, so nothing for BE to open a scanner for. */
     @Test
     public void neverWrittenPrimaryKeyBucketsAreSkipped() {
