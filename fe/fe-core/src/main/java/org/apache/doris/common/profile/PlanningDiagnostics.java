@@ -44,6 +44,8 @@ import java.util.function.Supplier;
 public final class PlanningDiagnostics {
     private static final Logger LOG = LogManager.getLogger(PlanningDiagnostics.class);
     private static final int MAX_SLOW_OPERATIONS = 16;
+    // Internal MV planning can replace ConnectContext while the calling planner still holds table locks.
+    private static final ThreadLocal<PlanningDiagnostics> ACTIVE = new ThreadLocal<>();
 
     public enum Phase {
         PREPROCESS, COLLECT_TABLES, PRELOAD_METADATA, WAIT_CHANGE_VISIBLE, LOCK_TABLES,
@@ -58,7 +60,9 @@ public final class PlanningDiagnostics {
     private final ConnectContext context;
     private final SummaryProfile summary;
     private final long passId;
-    private PlanningDiagnostics parent;
+    private final PlanningDiagnostics parent;
+    private final PlanningDiagnostics root;
+    private final boolean inheritsQueryIdentity;
     private final TUniqueId queryId;
     private final long statementId;
     private final String threadName;
@@ -67,11 +71,13 @@ public final class PlanningDiagnostics {
     private final long started;
     private final EnumMap<Phase, Timing> timings = new EnumMap<>(Phase.class);
     private final List<Event> slowOperations = new ArrayList<>();
-    private final AtomicLong lastReport = new AtomicLong(Long.MIN_VALUE);
+    private final AtomicLong lastReport;
     private volatile Step current;
     private volatile Class<?> currentJob;
     private volatile HeldLocks heldLocks = new HeldLocks(0, 0, "");
     private volatile boolean finished;
+    // Only the root publishes this pointer, so its registered connection can inspect an internal pass.
+    private volatile PlanningDiagnostics activePass;
     private String failedStep = "";
     private Throwable stepFailure;
     private long omittedOperations;
@@ -83,17 +89,24 @@ public final class PlanningDiagnostics {
     @VisibleForTesting
     PlanningDiagnostics(ConnectContext context, LongSupplier clock) {
         this.context = context;
-        this.summary = SummaryProfile.getSummaryProfile(context);
+        this.parent = ACTIVE.get();
+        this.root = parent == null ? this : parent.root;
+        this.lastReport = parent == null ? new AtomicLong(Long.MIN_VALUE) : parent.lastReport;
+        SummaryProfile contextSummary = SummaryProfile.getSummaryProfile(context);
+        this.summary = contextSummary != null ? contextSummary : parent == null ? null : parent.summary;
         this.passId = summary == null ? 0 : summary.nextPlanningPassId();
-        this.queryId = context.queryId() == null ? null : context.queryId().deepCopy();
-        this.statementId = context.getStmtId();
+        TUniqueId contextQueryId = context.queryId();
+        this.inheritsQueryIdentity = contextQueryId == null && parent != null;
+        this.queryId = inheritsQueryIdentity ? parent.queryId
+                : contextQueryId == null ? null : contextQueryId.deepCopy();
+        this.statementId = inheritsQueryIdentity ? parent.statementId : context.getStmtId();
         this.threadName = Thread.currentThread().getName();
-        this.timeoutMs = context.getExecTimeoutS() * 1000L;
+        this.timeoutMs = inheritsQueryIdentity ? parent.timeoutMs : context.getExecTimeoutS() * 1000L;
         this.clock = clock;
         this.started = clock.getAsLong();
     }
 
-    /** Includes cleanup and restores an outer pass when MV planning nests on the same connection. */
+    /** Includes cleanup and restores an outer pass even when internal planning uses another connection. */
     public static <T> T plan(ConnectContext context, Supplier<T> action) {
         return execute(new PlanningDiagnostics(context), action);
     }
@@ -102,10 +115,11 @@ public final class PlanningDiagnostics {
     static <T> T execute(PlanningDiagnostics diagnostics, Supplier<T> action) {
         ConnectContext context = diagnostics.context;
         PlanningDiagnostics previous = context.getPlanningDiagnostics();
-        diagnostics.parent = previous;
+        ACTIVE.set(diagnostics);
         context.setPlanningDiagnostics(diagnostics);
+        diagnostics.root.activePass = diagnostics;
         boolean success = false;
-        try {
+        try (QueryLogContext ignored = QueryLogContext.open(diagnostics.queryId)) {
             T result = action.get();
             success = true;
             return result;
@@ -117,6 +131,12 @@ public final class PlanningDiagnostics {
         } finally {
             diagnostics.finished = true;
             context.setPlanningDiagnostics(previous);
+            diagnostics.root.activePass = diagnostics.parent;
+            if (diagnostics.parent == null) {
+                ACTIVE.remove();
+            } else {
+                ACTIVE.set(diagnostics.parent);
+            }
             diagnostics.finish(success);
         }
     }
@@ -175,7 +195,7 @@ public final class PlanningDiagnostics {
                 timing.failures += success ? 0 : 1;
                 if (phase == Phase.PREPROCESS && success) {
                     // SET_VAR hints are applied by preprocessing, after this pass was created.
-                    timeoutMs = context.getExecTimeoutS() * 1000L;
+                    timeoutMs = inheritsQueryIdentity ? parent.timeoutMs : context.getExecTimeoutS() * 1000L;
                 }
             } else {
                 recordOperation(step, elapsed, success);
@@ -236,39 +256,47 @@ public final class PlanningDiagnostics {
     /** Invoked by the existing connection timeout checker, including while a planner job is blocked. */
     public void reportIfSlow() {
         long threshold = Config.nereids_planning_log_threshold_ms;
-        long now = clock.getAsLong();
-        Step step = current;
-        if (finished || threshold <= 0 || millis(now - started) < threshold) {
+        PlanningDiagnostics active = root.activePass;
+        if (root.finished || active == null || threshold <= 0) {
             return;
         }
-        long previous = lastReport.get();
-        // A minimum interval protects the checker from an accidentally zero/negative dynamic setting.
-        long interval = Math.max(1000, Config.nereids_planning_log_interval_ms);
-        if ((previous != Long.MIN_VALUE && millis(now - previous) < interval)
-                || !lastReport.compareAndSet(previous, now)) {
-            return;
-        }
-        JsonObject event = step == null ? new JsonObject() : step.toJson();
-        event.addProperty("status", "running");
-        event.addProperty("elapsed_ms", millis(now - started));
-        event.addProperty("phase_elapsed_ms", step == null ? 0 : millis(now - step.phaseStarted));
-        event.addProperty("operation_elapsed_ms", step == null || step.operation.isEmpty()
-                ? 0 : millis(now - step.started));
-        Class<?> job = currentJob;
-        event.addProperty("job", job == null ? "" : job.getSimpleName());
-        HeldLocks oldest = heldLocks;
+        // Snapshot published starts before reading the clock. A newer step/lock sampled after the clock
+        // could otherwise appear to have started in the future when the checker was descheduled.
+        Step step = active.current;
+        Class<?> job = active.currentJob;
+        HeldLocks oldest = active.heldLocks;
         int lockCount = oldest.count;
-        for (PlanningDiagnostics outer = parent; outer != null; outer = outer.parent) {
+        for (PlanningDiagnostics outer = active.parent; outer != null; outer = outer.parent) {
             HeldLocks locks = outer.heldLocks;
             lockCount += locks.count;
             if (locks.count > 0 && (oldest.count == 0 || locks.started < oldest.started)) {
                 oldest = locks;
             }
         }
+        long now = root.clock.getAsLong();
+        if (millis(now - root.started) < threshold) {
+            return;
+        }
+        long previous = root.lastReport.get();
+        // A minimum interval protects the checker from an accidentally zero/negative dynamic setting.
+        long interval = Math.max(1000, Config.nereids_planning_log_interval_ms);
+        if ((previous != Long.MIN_VALUE && millis(now - previous) < interval)
+                || !root.lastReport.compareAndSet(previous, now)) {
+            return;
+        }
+        JsonObject event = step == null ? new JsonObject() : step.toJson();
+        event.addProperty("status", "running");
+        event.addProperty("elapsed_ms", millis(now - active.started));
+        event.addProperty("root_pass_id", root.passId);
+        event.addProperty("root_elapsed_ms", millis(now - root.started));
+        event.addProperty("phase_elapsed_ms", step == null ? 0 : millis(now - step.phaseStarted));
+        event.addProperty("operation_elapsed_ms", step == null || step.operation.isEmpty()
+                ? 0 : millis(now - step.started));
+        event.addProperty("job", job == null ? "" : job.getSimpleName());
         event.addProperty("held_locks", lockCount);
         event.addProperty("oldest_lock", lockCount == 0 ? "" : bounded(oldest.oldestTable));
         event.addProperty("oldest_lock_hold_ms", lockCount == 0 ? 0 : millis(now - oldest.started));
-        log("Slow planning", event);
+        active.log("Slow planning", event);
     }
 
     private void finish(boolean success) {

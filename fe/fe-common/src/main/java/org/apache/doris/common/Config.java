@@ -113,7 +113,8 @@ public class Config extends ConfigBase {
     public static volatile long nereids_planning_log_threshold_ms = 5000;
 
     @ConfField(mutable = true, description = "Minimum interval in milliseconds between running-planner reports "
-            + "from the connection checker. Values below 1000 use 1000.")
+            + "from the connection checker. Nested passes share the outermost pass's interval. "
+            + "Values below 1000 use 1000.")
     public static volatile long nereids_planning_log_interval_ms = 30000;
 
     @ConfField(mutable = true, description = "Slow planning lock wait/hold and external metadata operation threshold "

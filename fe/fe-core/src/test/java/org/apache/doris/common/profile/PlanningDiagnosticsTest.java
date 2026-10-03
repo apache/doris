@@ -243,6 +243,150 @@ public class PlanningDiagnosticsTest {
     }
 
     @Test
+    public void testInternalConnectionPlanningDefersLogsAndKeepsQueryIdentity() {
+        StatementContext outerStatement = new StatementContext(context, new OriginStatement("select 1", 0));
+        TableIf table = table(1, "catalog.db.outer");
+        outerStatement.getTables().put(ImmutableList.of("outer"), table);
+        Mockito.when(table.tryReadLock(1, TimeUnit.MINUTES)).thenReturn(true);
+        // MV cache construction installs a separate connection without an executor or query ID.
+        ConnectContext internal = new ConnectContext();
+        StatementContext internalStatement = new StatementContext(internal, new OriginStatement("select 1", 0));
+        NereidsPlanner planner = new NereidsPlanner(internalStatement) {
+            @Override
+            protected LogicalPlan preprocess(LogicalPlan plan) {
+                Assertions.assertEquals("1-2", ThreadContext.get(QueryLogContext.QUERY_ID));
+                throw new IllegalArgumentException("internal planning failure");
+            }
+        };
+        try (TestLogAppender appender = TestLogAppender.attach(PlanningDiagnostics.class, Level.WARN)) {
+            PlanningDiagnostics.plan(context, () -> {
+                outerStatement.lock();
+                try {
+                    internal.setThreadLocalInfo();
+                    Assertions.assertThrows(IllegalArgumentException.class, () -> planner.planWithLock(
+                            Mockito.mock(LogicalPlan.class), org.apache.doris.nereids.properties.PhysicalProperties.ANY,
+                            ExplainLevel.NONE, false));
+                    Assertions.assertTrue(events(appender).isEmpty(), "Outer table locks are still held");
+                    Assertions.assertNull(internal.getPlanningDiagnostics());
+                } finally {
+                    context.setThreadLocalInfo();
+                    outerStatement.releasePlannerResources();
+                }
+                return null;
+            });
+            Mockito.verify(table).readUnlock();
+            Assertions.assertTrue(appender.contains(Level.WARN, "\"failed_step\":\"preprocess\""));
+            Assertions.assertEquals(2, summary.getPlanningDetails().get("passes").getAsInt());
+            Assertions.assertEquals(1, summary.getPlanningDetails().get("failed_passes").getAsInt());
+            events(appender).forEach(event -> Assertions.assertEquals("1-2",
+                    event.getContextData().getValue(QueryLogContext.QUERY_ID)));
+        }
+        Assertions.assertNull(context.getPlanningDiagnostics());
+        // Reusing the same planner thread must not retain the preceding root or its summary/ID.
+        internal.setThreadLocalInfo();
+        Assertions.assertThrows(IllegalArgumentException.class, () -> PlanningDiagnostics.plan(internal, () -> {
+            Assertions.assertNull(ThreadContext.get(QueryLogContext.QUERY_ID));
+            throw new IllegalArgumentException("independent planning failure");
+        }));
+        Assertions.assertEquals(2, summary.getPlanningDetails().get("passes").getAsInt());
+    }
+
+    @Test
+    public void testRunningReportFollowsInternalPassAndSharesRootRateLimit() {
+        ConnectContext internal = new ConnectContext();
+        try (TestLogAppender appender = TestLogAppender.attach(PlanningDiagnostics.class, Level.WARN)) {
+            run(() -> PlanningDiagnostics.runPhase(context, Phase.REWRITE, () -> {
+                PlanningDiagnostics.LockHold hold = context.getPlanningDiagnostics().acquiredLock("catalog.db.outer");
+                try {
+                    advance(5000);
+                    for (int i = 0; i < 2; i++) {
+                        PlanningDiagnostics.execute(new PlanningDiagnostics(internal, clock::get), () ->
+                                PlanningDiagnostics.operation(internal, "load_schema", "catalog.db.inner", -1, () -> {
+                                    advance(1);
+                                    context.checkTimeout(0);
+                                    return null;
+                                }));
+                    }
+                    Assertions.assertEquals(1, events(appender).size(), "Nested passes share the root interval");
+                    JsonObject event = JsonParser.parseString(events(appender).get(0).getMessage().getFormattedMessage()
+                            .split(": ", 2)[1]).getAsJsonObject();
+                    Assertions.assertEquals("catalog.db.inner", event.get("target").getAsString());
+                    Assertions.assertEquals(1, event.get("held_locks").getAsInt());
+                    Assertions.assertEquals("catalog.db.outer", event.get("oldest_lock").getAsString());
+                    Assertions.assertEquals(5001, event.get("root_elapsed_ms").getAsLong());
+                    Assertions.assertEquals(1, event.get("operation_elapsed_ms").getAsLong());
+                    advance(30000);
+                    context.checkTimeout(0);
+                    Assertions.assertEquals(2, events(appender).size());
+                } finally {
+                    hold.close();
+                }
+            }));
+        }
+    }
+
+    @Test
+    public void testRunningReportDoesNotUseStartsPublishedAfterItsTimestamp() throws Exception {
+        Thread plannerThread = Thread.currentThread();
+        CountDownLatch clockRead = new CountDownLatch(1);
+        CountDownLatch resumeChecker = new CountDownLatch(1);
+        PlanningDiagnostics diagnostics = new PlanningDiagnostics(context, () -> {
+            long now = clock.get();
+            if (Thread.currentThread() != plannerThread) {
+                clockRead.countDown();
+                try {
+                    Assertions.assertTrue(resumeChecker.await(10, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(e);
+                }
+            }
+            return now;
+        });
+        ExecutorService checker = Executors.newSingleThreadExecutor();
+        try (TestLogAppender appender = TestLogAppender.attach(PlanningDiagnostics.class, Level.WARN)) {
+            PlanningDiagnostics.execute(diagnostics, () -> {
+                advance(5000);
+                PlanningDiagnostics.runPhase(context, Phase.REWRITE, () -> {
+                    CompletableFuture<Void> report = CompletableFuture.runAsync(diagnostics::reportIfSlow, checker);
+                    try {
+                        Assertions.assertTrue(clockRead.await(10, TimeUnit.SECONDS));
+                        advance(10);
+                        PlanningDiagnostics.operation(context, "load_schema", "catalog.db.next", -1, () -> {
+                            PlanningDiagnostics.LockHold hold = diagnostics.acquiredLock("catalog.db.next");
+                            try {
+                                resumeChecker.countDown();
+                                report.get(10, TimeUnit.SECONDS);
+                                JsonObject event = JsonParser.parseString(events(appender).get(0).getMessage()
+                                        .getFormattedMessage().split(": ", 2)[1]).getAsJsonObject();
+                                for (String key : new String[] {"phase_elapsed_ms", "operation_elapsed_ms",
+                                        "oldest_lock_hold_ms"}) {
+                                    Assertions.assertTrue(event.get(key).getAsLong() >= 0, key);
+                                }
+                            } catch (Exception e) {
+                                throw new AssertionError(e);
+                            } finally {
+                                hold.close();
+                            }
+                            return null;
+                        });
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new AssertionError(e);
+                    } finally {
+                        resumeChecker.countDown();
+                    }
+                });
+                return null;
+            });
+        } finally {
+            resumeChecker.countDown();
+            checker.shutdownNow();
+            Assertions.assertTrue(checker.awaitTermination(10, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
     public void testRecoveredOperationDoesNotReplaceLaterFailure() {
         Assertions.assertThrows(IllegalStateException.class, () -> run(() -> {
             try {
