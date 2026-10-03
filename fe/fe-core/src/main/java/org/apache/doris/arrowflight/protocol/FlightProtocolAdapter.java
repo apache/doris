@@ -541,10 +541,14 @@ public class FlightProtocolAdapter implements ProtocolAdapter {
      */
     public static void finalizeDeferredExecutors(List<StmtExecutor> takenExecutors) {
         for (StmtExecutor deferredExecutor : takenExecutors) {
-            try {
-                deferredExecutor.finalizeArrowFlightQuery();
-            } catch (Throwable t) {
-                LOG.warn("failed to finalize deferred arrow flight executor", t);
+            // Teardown may run on another query's thread, after the session has moved on.
+            // Keep the retained identity through profile updates, finish callbacks and failures.
+            try (QueryLogContext ignored = QueryLogContext.open(deferredExecutor.getDeferredQueryId())) {
+                try {
+                    deferredExecutor.finalizeArrowFlightQuery();
+                } catch (Throwable t) {
+                    LOG.warn("failed to finalize deferred arrow flight executor", t);
+                }
             }
         }
     }

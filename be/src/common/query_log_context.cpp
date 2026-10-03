@@ -111,7 +111,7 @@ std::string query_id_log_suffix(const TUniqueId& query_id) {
         return {};
     }
     const auto current = current_query_log_identity();
-    if (config::sys_log_enable_query_id && current.query_hi == query.query_hi &&
+    if (config::sys_log_enable_query_id && FLAGS_log_prefix && current.query_hi == query.query_hi &&
         current.query_lo == query.query_lo) {
         return {};
     }

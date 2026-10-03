@@ -29,6 +29,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/logging.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/types.pb.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -84,16 +85,22 @@ class QueryLogContextTest : public testing::Test {
 protected:
     void SetUp() override {
         _saved_enabled = config::sys_log_enable_query_id;
+        _saved_log_prefix = FLAGS_log_prefix;
         config::sys_log_enable_query_id = true;
+        FLAGS_log_prefix = true;
         // The key has process lifetime, just as it does after enabled logging initialization.
         init_query_log_context();
         _scope.reset(QueryLogIdentity {});
     }
 
-    void TearDown() override { config::sys_log_enable_query_id = _saved_enabled; }
+    void TearDown() override {
+        config::sys_log_enable_query_id = _saved_enabled;
+        FLAGS_log_prefix = _saved_log_prefix;
+    }
 
 private:
     bool _saved_enabled = false;
+    bool _saved_log_prefix = false;
     ScopedQueryLogContext _scope;
 };
 
@@ -131,6 +138,16 @@ TEST_F(QueryLogContextTest, MessageSuffixDeduplicatesOnlyTheCurrentQuery) {
 TEST_F(QueryLogContextTest, DisabledPrefixKeepsTheMessageId) {
     config::sys_log_enable_query_id = false;
     EXPECT_EQ(" [1-2]", query_id_log_suffix(log_test_id(1, 2)));
+}
+
+TEST_F(QueryLogContextTest, DisabledGlogPrefixKeepsQueryIdInLogMessage) {
+    // GLOG_log_prefix=0 skips glog's custom prefix callback even when query logging is enabled.
+    FLAGS_log_prefix = false;
+    const auto query = log_test_id(1, 2);
+    ScopedQueryLogContext scope {QueryLogIdentity(query)};
+    std::string message;
+    LOG_TO_STRING(INFO, &message) << "Query" << query_id_log_suffix(query) << " start execution";
+    EXPECT_EQ("Query [1-2] start execution", message);
 }
 
 TEST_F(QueryLogContextTest, ReusedWorkerDoesNotDeduplicateAnotherQuery) {
