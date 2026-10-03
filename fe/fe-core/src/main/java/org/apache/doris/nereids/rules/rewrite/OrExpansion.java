@@ -75,6 +75,7 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
             .add(JoinType.INNER_JOIN)
             .add(JoinType.LEFT_ANTI_JOIN)
             .add(JoinType.LEFT_OUTER_JOIN)
+            .add(JoinType.RIGHT_OUTER_JOIN)
             .add(JoinType.FULL_OUTER_JOIN)
             .build();
 
@@ -159,6 +160,14 @@ public class OrExpansion extends DefaultPlanRewriter<OrExpandsionContext> implem
         if (join.getJoinType().isInnerJoin()) {
             joins.addAll(expandInnerJoin(ctx.cascadesContext, hashOtherConditions,
                     join, leftProducer, rightProducer, leftCloneToLeft, rightCloneToRight));
+        } else if (join.getJoinType().isRightOuterJoin()) {
+            // right outer join = inner join union right anti join
+            // right anti join is built as left anti join with swapped producers,
+            // so that unmatched rows of the right child are kept and left side is padded with null
+            joins.addAll(expandInnerJoin(ctx.cascadesContext, hashOtherConditions,
+                    join, leftProducer, rightProducer, leftCloneToLeft, rightCloneToRight));
+            joins.add(expandLeftAntiJoin(ctx.cascadesContext, hashOtherConditions,
+                    join, rightProducer, leftProducer, rightCloneToRight, leftCloneToLeft));
         } else if (join.getJoinType().isOuterJoin()) {
             // left outer join = inner join union left anti join
             joins.addAll(expandInnerJoin(ctx.cascadesContext, hashOtherConditions,
