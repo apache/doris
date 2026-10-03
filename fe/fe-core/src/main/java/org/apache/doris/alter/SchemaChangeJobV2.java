@@ -403,6 +403,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
         tbl.writeLockOrAlterCancelException();
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
+            // Load planning reads all indexes under the table read lock. Reserve the transaction boundary while
+            // holding the write lock so no transaction can observe the shadow indexes before the boundary exists.
+            reserveWatershedTxnId();
             addShadowIndexToCatalog(tbl);
         } finally {
             tbl.writeUnlock();
@@ -412,9 +415,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
     /**
      * runPendingJob():
      * 1. Create all replicas of all shadow indexes and wait them finished.
-     * 2. After creating done, add the shadow indexes to catalog, user can not see this
-     *    shadow index, but internal load process will generate data for these indexes.
-     * 3. Get a new transaction id, then set job's state to WAITING_TXN
+     * 2. Reserve the watershed transaction id while holding the table write lock.
+     * 3. Add the shadow indexes to catalog so later transactions see them consistently.
+     * 4. Set job's state to WAITING_TXN.
      */
     @Override
     protected void runPendingJob() throws Exception {
@@ -428,8 +431,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
         }
 
         createShadowIndexReplica();
-
-        this.watershedTxnId = Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
+        // createShadowIndexReplica() can return without publishing when the table becomes unstable after the
+        // first stability check. Keep the job pending and retry instead of entering WAITING_TXN without a boundary.
+        if (watershedTxnId == -1) {
+            return;
+        }
         setJobState(JobState.WAITING_TXN);
 
         // write edit log

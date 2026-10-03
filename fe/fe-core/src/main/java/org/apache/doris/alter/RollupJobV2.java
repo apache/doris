@@ -321,6 +321,9 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         tbl.writeLockOrAlterCancelException();
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
+            // Load planning reads all indexes under the table read lock. Reserve the transaction boundary while
+            // holding the write lock so no transaction can observe the rollup index before the boundary exists.
+            reserveWatershedTxnId();
             addRollupIndexToCatalog(tbl);
         } finally {
             tbl.writeUnlock();
@@ -330,9 +333,9 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     /**
      * runPendingJob():
      * 1. Create all rollup replicas and wait them finished.
-     * 2. After creating done, add this shadow rollup index to catalog, user can not see this
-     *    rollup, but internal load process will generate data for this rollup index.
-     * 3. Get a new transaction id, then set job's state to WAITING_TXN
+     * 2. Reserve the watershed transaction id while holding the table write lock.
+     * 3. Add the shadow rollup index to catalog so later transactions see it consistently.
+     * 4. Set job's state to WAITING_TXN.
      */
     @Override
     protected void runPendingJob() throws Exception {
@@ -345,8 +348,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             return;
         }
         createRollupReplica();
-
-        this.watershedTxnId = Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
         setJobState(JobState.WAITING_TXN);
 
         // write edit log
