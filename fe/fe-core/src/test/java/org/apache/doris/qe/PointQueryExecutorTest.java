@@ -31,13 +31,21 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.LocalTablet;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Status;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.planner.HashDistributionPruner;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PartitionColumnFilter;
+import org.apache.doris.proto.InternalService;
+import org.apache.doris.rpc.BackendServiceProxy;
+import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.util.concurrent.Futures;
 import org.apache.thrift.TException;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.nio.ByteBuffer;
@@ -46,6 +54,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.zip.CRC32;
 
 public class PointQueryExecutorTest {
@@ -58,6 +67,33 @@ public class PointQueryExecutorTest {
 
         Mockito.when(scanNode.isScanBackendOrderBySelection()).thenReturn(true);
         Assertions.assertFalse(PointQueryExecutor.shouldShuffleCandidateBackends(scanNode));
+    }
+
+    @Test
+    public void testLocalFailuresDoNotBlacklistBackend() throws Exception {
+        Backend backend = new Backend(1, "127.0.0.1", 9060);
+        BackendServiceProxy proxy = Mockito.mock(BackendServiceProxy.class);
+        ShortCircuitQueryContext context = Mockito.mock(ShortCircuitQueryContext.class);
+        PointQueryExecutor executor = new PointQueryExecutor(context, Integer.MAX_VALUE);
+        InternalService.PTabletKeyLookupRequest request = InternalService.PTabletKeyLookupRequest.newBuilder()
+                .setTabletId(1).build();
+        try (MockedStatic<BackendServiceProxy> proxies = Mockito.mockStatic(BackendServiceProxy.class);
+                MockedStatic<SimpleScheduler> scheduler = Mockito.mockStatic(SimpleScheduler.class)) {
+            proxies.when(BackendServiceProxy::getInstance).thenReturn(proxy);
+            Throwable[] errors = {io.grpc.Status.DEADLINE_EXCEEDED.asRuntimeException(),
+                    io.grpc.Status.CANCELLED.asRuntimeException(),
+                    new RejectedExecutionException("fallback pool full")};
+            TStatusCode[] codes = {TStatusCode.TIMEOUT, TStatusCode.CANCELLED, TStatusCode.INTERNAL_ERROR};
+            for (int i = 0; i < errors.length; i++) {
+                Mockito.when(proxy.fetchTabletDataAsync(Mockito.any(), Mockito.any(), Mockito.anyLong()))
+                        .thenReturn(Futures.immediateFailedFuture(errors[i]));
+                Status status = new Status();
+                Assertions.assertNull(Deencapsulation.invoke(executor, "fetchTabletData", status,
+                        backend, request, System.currentTimeMillis() + 10000));
+                Assertions.assertEquals(codes[i], status.getErrorCode());
+            }
+            scheduler.verifyNoInteractions();
+        }
     }
 
     @Test
