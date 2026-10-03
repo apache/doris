@@ -171,6 +171,16 @@ public class AnalysisInfo implements Writable {
     @SerializedName("chv")
     public final Boolean collectHotValue;
 
+    // Copied from session at ANALYZE submit time.
+    @SerializedName("collectMcvHistogram")
+    public final boolean collectMcvHistogram;
+
+    // hot_value_collect_count of the session that submitted the ANALYZE statement. The task runs
+    // on a pool of its own, where that session is out of reach. 0 in a job written before this
+    // field existed.
+    @SerializedName("hotValueCollectCount")
+    public final int hotValueCollectCount;
+
     @SerializedName("createTime")
     public final long createTime = System.currentTimeMillis();
 
@@ -222,7 +232,8 @@ public class AnalysisInfo implements Writable {
             boolean isAllPartition, long partitionCount, CronExpression cronExpression, boolean forceFull,
             boolean usingSqlForExternalTable, Boolean collectHotValue, long tblUpdateTime, long rowCount,
             boolean userInject, long updateRows, long tableVersion, JobPriority priority,
-            Map<Long, Long> partitionUpdateRows, boolean enablePartition) {
+            Map<Long, Long> partitionUpdateRows, boolean enablePartition, boolean collectMcvHistogram,
+            int hotValueCollectCount) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.taskIds = taskIds;
@@ -256,6 +267,8 @@ public class AnalysisInfo implements Writable {
         this.forceFull = forceFull;
         this.usingSqlForExternalTable = usingSqlForExternalTable;
         this.collectHotValue = collectHotValue;
+        this.collectMcvHistogram = collectMcvHistogram;
+        this.hotValueCollectCount = hotValueCollectCount;
         this.tblUpdateTime = tblUpdateTime;
         this.rowCount = rowCount;
         this.userInject = userInject;

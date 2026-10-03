@@ -34,6 +34,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.analysis.AnalysisInfo.AnalysisMethod;
@@ -665,6 +666,13 @@ public abstract class BaseAnalysisTask {
         } else {
             return colName;
         }
+    }
+
+    // The count the ANALYZE statement was submitted with; the default for a job written before the
+    // count was kept, whose value is out of reach on this thread.
+    protected static int getHotValueCollectCount(AnalysisInfo info) {
+        return info.hotValueCollectCount > 0 ? info.hotValueCollectCount
+                : SessionVariable.getHotValueCollectCount();
     }
 
     protected void runQuery(String sql) {
