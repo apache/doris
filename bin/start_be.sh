@@ -473,8 +473,14 @@ if [[ "${java_version}" -eq 17 ]]; then
         JAVA_OPTS_FOR_JDK_17="-Xmx1024m ${LOG_PATH} -Xlog:gc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS} --add-opens=java.base/java.net=ALL-UNNAMED"
     fi
     final_java_opt="${JAVA_OPTS_FOR_JDK_17}"
+elif [[ "${java_version}" -eq 21 ]]; then
+    # JDK 21 falls back to the JDK 17 options when no dedicated line is configured
+    if [[ -z ${JAVA_OPTS_FOR_JDK_21} ]]; then
+        JAVA_OPTS_FOR_JDK_21="${JAVA_OPTS_FOR_JDK_17:--Xmx1024m ${LOG_PATH} -Xlog:gc:${DORIS_HOME}/log/be.gc.log.${CUR_DATE} ${COMMON_OPTS} --add-opens=java.base/java.net=ALL-UNNAMED}"
+    fi
+    final_java_opt="${JAVA_OPTS_FOR_JDK_21}"
 else
-    echo "ERROR: The jdk_version is ${java_version}, it must be 17." >>"${LOG_DIR}/be.out"
+    echo "ERROR: The jdk_version is ${java_version}, it must be 17 or 21." >>"${LOG_DIR}/be.out"
     exit 1
 fi
 
@@ -613,6 +619,10 @@ add_java_opt_if_missing "--add-opens=java.security.jgss/sun.security.krb5=ALL-UN
 add_java_opt_if_missing "--add-opens=java.management/sun.management=ALL-UNNAMED"
 add_java_opt_if_missing "--add-opens=java.base/jdk.internal.ref=ALL-UNNAMED"
 add_java_opt_if_missing "--add-opens=java.xml/com.sun.org.apache.xerces.internal.jaxp=ALL-UNNAMED"
+if [[ "${java_version}" -ge 21 ]]; then
+    # Same as start_fe.sh: Gson reaches jdk.internal.vm.Continuation through java.lang.Thread on JDK 21.
+    add_java_opt_if_missing "--add-opens=java.base/jdk.internal.vm=ALL-UNNAMED"
+fi
 
 # Where the hadoop on this class path - the one C++ libhdfs uses - sends its logging.
 #
