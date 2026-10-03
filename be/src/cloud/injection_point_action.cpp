@@ -364,7 +364,7 @@ void handle_disable(HttpRequest* req) {
 
 } // namespace
 
-InjectionPointAction::InjectionPointAction() = default;
+InjectionPointAction::InjectionPointAction(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
 
 //
 // enable/disable injection point
