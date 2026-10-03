@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_array.h"
@@ -1808,6 +1809,124 @@ TEST(ArrayMapFunctionTest, NestedArraySortComparatorCapturingOuterArgumentReturn
             status.to_string().find("array_sort comparator only supports its own lambda arguments"),
             std::string::npos);
     EXPECT_NE(status.to_string().find("captured column ref 'i'"), std::string::npos);
+}
+
+// Builds array_sort((x, y) -> body, arr).
+static VExprSPtr make_array_sort_call(const DataTypePtr& comparator_type, const VExprSPtr& body,
+                                      ColumnPtr array_column) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto array_int_type = std::make_shared<DataTypeArray>(int_type);
+    auto root = VLambdaFunctionCallExpr::create_shared(
+            make_lambda_call_node(array_int_type, 2, "array_sort"));
+    auto comparator =
+            VLambdaFunctionExpr::create_shared(make_lambda_expr_node(comparator_type, {"x", "y"}));
+    comparator->add_child(body);
+    root->add_child(comparator);
+    root->add_child(
+            std::make_shared<MockColumnExpr>(std::move(array_column), array_int_type, "arr"));
+    return root;
+}
+
+TEST(ArrayMapFunctionTest, ArraySortComparatorReturningIntSorts) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+
+    // This mirrors array_sort((x, y) -> x - y, [1, 0]). The comparator returns -1 or 1 in an INT
+    // column, so the INT result must be read instead of a TINYINT one.
+    auto subtract = std::make_shared<MockSubtractExpr>(int_type);
+    subtract->add_child(VColumnRef::create_shared(make_column_ref_node(0, "x", int_type)));
+    subtract->add_child(VColumnRef::create_shared(make_column_ref_node(1, "y", int_type)));
+    auto root = make_array_sort_call(int_type, subtract, make_int_array_column({{1, 0}}));
+
+    VExprContext context(root);
+    open_expr(root, &context);
+
+    Block block;
+    block.insert({make_int_column({0}), int_type, "ordinary_input"});
+
+    ColumnPtr result;
+    auto status = root->execute_column(&context, &block, nullptr, block.rows(), result);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto& values = get_int_array_values(result);
+    ASSERT_EQ(values.size(), 2);
+    EXPECT_EQ(values.get_element(0), 0);
+    EXPECT_EQ(values.get_element(1), 1);
+}
+
+TEST(ArrayMapFunctionTest, ArraySortComparatorReturningOutOfRangeReturnsError) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+
+    // The comparator always returns 2, like array_sort((x, y) -> 2, arr). Only -1, 0 and 1 are
+    // allowed.
+    auto body = std::make_shared<MockColumnExpr>(ColumnInt32::create(1, 2), int_type, "two");
+    auto root = make_array_sort_call(int_type, body, make_int_array_column({{2, 1}}));
+
+    VExprContext context(root);
+    open_expr(root, &context);
+
+    Block block;
+    block.insert({make_int_column({0}), int_type, "ordinary_input"});
+
+    ColumnPtr result;
+    try {
+        auto status = root->execute_column(&context, &block, nullptr, block.rows(), result);
+        FAIL() << "array_sort should fail, but it returns " << status.to_string();
+    } catch (const Exception& e) {
+        EXPECT_NE(std::string(e.what()).find(
+                          "array_sort comparator returns 2, but it must return -1, 0 or 1"),
+                  std::string::npos)
+                << e.what();
+    }
+}
+
+TEST(ArrayMapFunctionTest, ArraySortComparatorReturningNullReturnsError) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto nullable_int_type = make_nullable(int_type);
+
+    // The comparator always returns NULL, like array_sort((x, y) -> x - y, [2, NULL]).
+    auto null_result = ColumnNullable::create(ColumnInt32::create(1, 0), ColumnUInt8::create(1, 1));
+    auto body = std::make_shared<MockColumnExpr>(std::move(null_result), nullable_int_type,
+                                                 "null_result");
+    auto root = make_array_sort_call(nullable_int_type, body, make_int_array_column({{2, 1}}));
+
+    VExprContext context(root);
+    open_expr(root, &context);
+
+    Block block;
+    block.insert({make_int_column({0}), int_type, "ordinary_input"});
+
+    ColumnPtr result;
+    try {
+        auto status = root->execute_column(&context, &block, nullptr, block.rows(), result);
+        FAIL() << "array_sort should fail, but it returns " << status.to_string();
+    } catch (const Exception& e) {
+        EXPECT_NE(std::string(e.what()).find("array_sort comparator returns NULL"),
+                  std::string::npos)
+                << e.what();
+    }
+}
+
+TEST(ArrayMapFunctionTest, ArraySortComparatorReturningBooleanReturnsError) {
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto bool_type = std::make_shared<DataTypeUInt8>();
+
+    // An older FE may send array_sort((x, y) -> x < y, arr), whose comparator returns BOOLEAN.
+    auto body =
+            std::make_shared<MockColumnExpr>(ColumnUInt8::create(1, 1), bool_type, "bool_result");
+    auto root = make_array_sort_call(bool_type, body, make_int_array_column({{2, 1}}));
+
+    VExprContext context(root);
+    open_expr(root, &context);
+
+    Block block;
+    block.insert({make_int_column({0}), int_type, "ordinary_input"});
+
+    ColumnPtr result;
+    auto status = root->execute_column(&context, &block, nullptr, block.rows(), result);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("array_sort comparator must return -1, 0 or 1"),
+              std::string::npos)
+            << status.to_string();
 }
 
 TEST(ArrayMapFunctionTest,

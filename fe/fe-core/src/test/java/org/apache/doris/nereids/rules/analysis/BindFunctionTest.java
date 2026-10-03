@@ -139,6 +139,19 @@ public class BindFunctionTest extends TestWithFeService implements MemoPatternMa
                 exception.getMessage());
     }
 
+    @Test
+    void testArraySortComparatorMustReturnInteger() {
+        // The comparator returns -1, 0 or 1 for less than, equal to or greater than.
+        String sql = "SELECT array_sort((x, y) -> x < y, arr2) FROM t_arr";
+        AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                () -> PlanChecker.from(connectContext).analyze(sql));
+        Assertions.assertTrue(exception.getMessage().contains("the lambda must return -1, 0 or 1 for less than,"
+                + " equal to or greater than, but it returns BOOLEAN"), exception.getMessage());
+
+        // Any integer type passes analysis. BE checks that the value is -1, 0 or 1.
+        PlanChecker.from(connectContext).analyze("SELECT array_sort((x, y) -> x - y, arr2) FROM t_arr");
+    }
+
     private static Lambda innermostLambda(Plan plan) {
         List<Lambda> innermostLambdas = plan.<Plan>collect(node -> true).stream()
                 .flatMap(node -> node.getExpressions().stream())

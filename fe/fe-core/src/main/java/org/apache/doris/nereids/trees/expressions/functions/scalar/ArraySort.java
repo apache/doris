@@ -79,6 +79,12 @@ public class ArraySort extends ScalarFunction
             if (!ArrayFunctionUtils.isSupportedByArraySortLambdaFunction(sourceType.getItemType())) {
                 throw new AnalysisException("array_sort does not support types: " + sourceType.toSql());
             }
+            // The comparator returns -1, 0 or 1 for less than, equal to or greater than.
+            if (!lambda.getRetType().isIntegralType()) {
+                throw new AnalysisException("When using lambda as the parameter of array_sort, the lambda must"
+                        + " return -1, 0 or 1 for less than, equal to or greater than, but it returns "
+                        + lambda.getRetType().toSql());
+            }
         }
     }
 
