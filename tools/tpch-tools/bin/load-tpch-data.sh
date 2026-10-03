@@ -274,7 +274,7 @@ for file in "${TPCH_DATA_DIR}"/lineitem.tbl*; do
         echo >&3
     } &
 done
-
+wait
 date
 for file in "${TPCH_DATA_DIR}"/orders.tbl*; do
     read -r -u3
@@ -285,7 +285,7 @@ for file in "${TPCH_DATA_DIR}"/orders.tbl*; do
         echo >&3
     } &
 done
-
+wait
 date
 for file in "${TPCH_DATA_DIR}"/partsupp.tbl*; do
     read -r -u3
