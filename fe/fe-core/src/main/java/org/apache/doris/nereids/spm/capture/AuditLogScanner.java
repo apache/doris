@@ -32,6 +32,7 @@ import org.apache.logging.log4j.Logger;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -435,18 +436,21 @@ public class AuditLogScanner {
         // and skip the whole unconsumed range. Only a NEW window follows a changed
         // global zone.
         ZoneId auditZone = scanZoneFor(cursorTail);
-        String start = formatTimestamp(startTimeMs, auditZone);
-        String end = formatTimestamp(endTimeMs, auditZone);
+        // window bounds as MONOTONE wall-clock ranges: a UTC window crossing a DST
+        // transition renders as several local ranges (see localTimeRanges), never as one
+        // inverted range that matches nothing
+        List<String[]> windowRanges = localTimeRanges(startTimeMs, endTimeMs, auditZone);
         // defense in depth: a non-positive batch size can no longer be written through
-        // SQL SET (see SessionVariable), but LIMIT 0 here would mark the window exhausted
-        // on an empty page and advance the watermark over every eligible row
+        // SQL SET (see SessionVariable), but LIMIT 0 here would mark the window
+        // exhausted on an empty page and advance the watermark over every eligible row
         int limit = Math.max(1, maxBatchSize);
 
         SessionVariable global = VariableMgr.getDefaultSessionVariable();
         long minQueryTimeMs = global.getPlanCaptureMinQueryTimeMs();
         long minScanRows = global.getPlanCaptureMinScanRows();
-        String sql = buildScanSql(start, end, limit, minQueryTimeMs, minScanRows,
-                cursorPredicate(cursorQueryTime, cursorTime, cursorQueryId, cursorTail));
+        String sql = buildScanSql(windowRanges, limit, minQueryTimeMs, minScanRows,
+                cursorPredicate(cursorQueryTime, cursorTime, cursorQueryId, cursorTail),
+                zoneOffsetSwingSeconds(auditZone));
 
         // bounded statement timeout: see AUDIT_SCAN_TIMEOUT_SECONDS (the no-timeout
         // overload would inherit the 12h analyze timeout)
@@ -704,6 +708,49 @@ public class AuditLogScanner {
      */
     public static String buildScanSql(String start, String end, int maxBatchSize,
             long minQueryTimeMs, long minScanRows, String cursorPredicate) {
+        return buildScanSql(List.<String[]>of(new String[] {start, end}), maxBatchSize,
+                minQueryTimeMs, minScanRows, cursorPredicate, 0L);
+    }
+
+    /**
+     * As {@link #buildScanSql(String, String, int, long, long, String)} with an explicit
+     * offset swing for the completion-aware lower bound (see
+     * {@link #buildScanSql(List, int, long, long, String, long)}): the single-range form a
+     * fixed-offset zone produces.
+     *
+     * @param start               window start timestamp (formatted)
+     * @param end                 window end timestamp (formatted)
+     * @param maxBatchSize        LIMIT for the scan
+     * @param minQueryTimeMs      query-time threshold
+     * @param minScanRows         scan-rows threshold
+     * @param cursorPredicate     resume-cursor predicate (empty when starting at the top)
+     * @param offsetSwingSeconds  max offset swing of the window's zone (0 = none)
+     * @return the scan SQL
+     */
+    static String buildScanSql(String start, String end, int maxBatchSize,
+            long minQueryTimeMs, long minScanRows, String cursorPredicate,
+            long offsetSwingSeconds) {
+        return buildScanSql(List.<String[]>of(new String[] {start, end}), maxBatchSize,
+                minQueryTimeMs, minScanRows, cursorPredicate, offsetSwingSeconds);
+    }
+
+    /**
+     * Builds the audit_log scan SQL for a window rendered as one or MORE monotone
+     * wall-clock ranges (see {@link #localTimeRanges}) and with the zone's offset swing
+     * applied to the completion-aware lower bound (see
+     * {@link #zoneOffsetSwingSeconds}).
+     *
+     * @param windowRanges        (start, end) wall-clock pairs of the window
+     * @param maxBatchSize        LIMIT for the scan
+     * @param minQueryTimeMs      query-time threshold
+     * @param minScanRows         scan-rows threshold
+     * @param cursorPredicate     resume-cursor predicate (empty when starting at the top)
+     * @param offsetSwingSeconds  max offset swing of the window's zone (0 = none)
+     * @return the scan SQL
+     */
+    static String buildScanSql(List<String[]> windowRanges, int maxBatchSize,
+            long minQueryTimeMs, long minScanRows, String cursorPredicate,
+            long offsetSwingSeconds) {
         // The window lower bound is COMPLETION-aware: audit_log.time is the query's START
         // time, but its row is published only when the query FINISHES. A long-running
         // query started at 11:50 is absent from the 12:00 scan; without the
@@ -718,12 +765,23 @@ public class AuditLogScanner {
         // (start - LATE_COMPLETION_LOOKBACK_MILLIS) keeps the pruning intact for a
         // three-hour window while still admitting every query whose completion reaches
         // into it; a query LONGER than the lookback is the documented miss.
+        //
+        // The completion is civil arithmetic on the writer's LOCAL rendering, so it must
+        // be widened by the zone's offset swing: a query started 01:30 PST (09:30Z) that
+        // finishes 03:10:01 PDT computes as 02:10:01 without the swing, and a window
+        // starting 03:05 would exclude the row on EVERY later scan (no overlap reaches it
+        // again). Adding the swing seconds makes the bound conservative in the admitting
+        // direction, which is the safe side for a late-completion lookback.
+        String start = windowRanges.get(0)[0];
         String floor = completeWindowFloor(start);
+        String completionBound = "timestampadd(SECOND, CAST(`query_time` / 1000 AS BIGINT)"
+                + (offsetSwingSeconds == 0 ? "" : " + " + offsetSwingSeconds)
+                + ", `time`)";
         return "SELECT " + SELECT_COLUMNS + " FROM __internal_schema.audit_log "
                 + "WHERE `time` >= '" + floor + "' "
                 + "AND (`time` >= '" + start + "'"
-                + " OR timestampadd(SECOND, CAST(`query_time` / 1000 AS BIGINT), `time`)"
-                + " >= '" + start + "') AND `time` < '" + end + "' "
+                + " OR " + completionBound + " >= '" + start + "') "
+                + "AND " + windowPredicate(windowRanges) + " "
                 + "AND `is_query` = true "
                 + "AND `is_nereids` = true "
                 + "AND (`query_time` >= " + minQueryTimeMs
@@ -732,6 +790,27 @@ public class AuditLogScanner {
                 + (cursorPredicate == null ? "" : cursorPredicate)
                 + ORDER_BY
                 + "LIMIT " + maxBatchSize;
+    }
+
+    /**
+     * The window membership predicate: one range as-is, several ranges OR'd (the order
+     * matters only for readability - the union is what the scan stores).
+     */
+    private static String windowPredicate(List<String[]> windowRanges) {
+        if (windowRanges.size() == 1) {
+            String[] range = windowRanges.get(0);
+            return "`time` >= '" + range[0] + "' AND `time` < '" + range[1] + "'";
+        }
+        StringBuilder predicate = new StringBuilder("(");
+        for (int i = 0; i < windowRanges.size(); i++) {
+            String[] range = windowRanges.get(i);
+            if (i > 0) {
+                predicate.append(" OR ");
+            }
+            predicate.append("(`time` >= '").append(range[0])
+                    .append("' AND `time` < '").append(range[1]).append("')");
+        }
+        return predicate.append(')').toString();
     }
 
     /**
@@ -855,6 +934,95 @@ public class AuditLogScanner {
     static String formatTimestamp(long epochMillis, ZoneId zone) {
         LocalDateTime time = LocalDateTime.ofInstant(Instant.ofEpochMilli(epochMillis), zone);
         return time.format(DATETIME_FORMAT);
+    }
+
+    /** Formats an instant with an EXPLICIT offset (see {@link #localTimeRanges}). */
+    private static String formatTimestampWithOffset(long epochMillis, ZoneOffset offset) {
+        LocalDateTime time = LocalDateTime.ofInstant(Instant.ofEpochMilli(epochMillis), offset);
+        return time.format(DATETIME_FORMAT);
+    }
+
+    /**
+     * Renders a UTC window as the list of (start, end) wall-clock ranges the stored
+     * audit timestamps are compared against, splitting at every zone offset transition
+     * inside the window.
+     *
+     * <p>audit_log.time is the audit WRITER's local rendering, so the scan compares
+     * strings - which is only sound while the offset stays constant inside the window.
+     * With {@code time_zone = America/Los_Angeles} the window [2026-11-01 08:45Z, 09:15Z)
+     * renders as [01:45, 01:15): start > end, so the SQL matched NO row, the empty page
+     * looked exhausted and the capture advanced its watermark past rows written in the
+     * repeated hour (a row at 09:05Z / 01:05 PST stayed invisible even when its
+     * five-minute overlap window was scanned later). Each segment below is rendered with
+     * the offset in effect INSIDE it - the upper bound with the offset just BEFORE the
+     * segment end, which is what keeps a fall-back segment [01:45, 02:00) monotone
+     * instead of ending at the repeated 01:00 - so every pair is a valid range and the
+     * union covers the whole window.
+     *
+     * @param startMs window start (epoch millis, inclusive)
+     * @param endMs   window end (epoch millis, exclusive)
+     * @param zone    the zone the stored timestamps were rendered in
+     * @return one or more (start, end) wall-clock ranges, in window order
+     */
+    static List<String[]> localTimeRanges(long startMs, long endMs, ZoneId zone) {
+        List<String[]> ranges = new ArrayList<>();
+        if (endMs <= startMs) {
+            ranges.add(new String[] {formatTimestamp(startMs, zone), formatTimestamp(endMs, zone)});
+            return ranges;
+        }
+        long segmentStart = startMs;
+        while (segmentStart < endMs) {
+            long segmentEnd = nextOffsetTransition(segmentStart, endMs, zone);
+            ranges.add(new String[] {
+                    formatTimestamp(segmentStart, zone),
+                    // the offset BEFORE the segment end: at a fall-back transition the
+                    // instant itself already renders with the NEW offset, which would
+                    // invert the range
+                    formatTimestampWithOffset(segmentEnd,
+                            zone.getRules().getOffset(Instant.ofEpochMilli(segmentEnd - 1)))});
+            segmentStart = segmentEnd;
+        }
+        return ranges;
+    }
+
+    /**
+     * The instant of the next zone offset transition strictly after {@code fromMs}, or
+     * {@code endMs} when none falls inside the window.
+     */
+    private static long nextOffsetTransition(long fromMs, long endMs, ZoneId zone) {
+        java.time.zone.ZoneOffsetTransition transition =
+                zone.getRules().nextTransition(Instant.ofEpochMilli(fromMs));
+        if (transition == null) {
+            return endMs;
+        }
+        long transitionMs = transition.getInstant().toEpochMilli();
+        return transitionMs > fromMs && transitionMs < endMs ? transitionMs : endMs;
+    }
+
+    /**
+     * The maximum offset swing of a zone (max offset - min offset over its whole history),
+     * in seconds; 0 for a fixed-offset zone.
+     *
+     * <p>Bounds {@code |offset(completion) - offset(start)|} for any two instants of the
+     * zone, which is exactly the error of the civil-time completion arithmetic below (the
+     * stored start is a local rendering, adding the ELAPSED seconds to it ignores a DST
+     * transition in between). The scan uses it to widen the completion-aware lower bound,
+     * so a query spanning a transition can no longer be excluded from every later window.
+     *
+     * @param zone the zone the stored timestamps were rendered in
+     * @return the swing in seconds
+     */
+    static long zoneOffsetSwingSeconds(ZoneId zone) {
+        java.time.zone.ZoneRules rules = zone.getRules();
+        int max = Integer.MIN_VALUE;
+        int min = Integer.MAX_VALUE;
+        for (java.time.zone.ZoneOffsetTransition transition : rules.getTransitions()) {
+            max = Math.max(max, Math.max(transition.getOffsetBefore().getTotalSeconds(),
+                    transition.getOffsetAfter().getTotalSeconds()));
+            min = Math.min(min, Math.min(transition.getOffsetBefore().getTotalSeconds(),
+                    transition.getOffsetAfter().getTotalSeconds()));
+        }
+        return max == Integer.MIN_VALUE || min == Integer.MAX_VALUE ? 0L : max - min;
     }
 
     /**

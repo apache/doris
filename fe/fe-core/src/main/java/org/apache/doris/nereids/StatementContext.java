@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
@@ -73,6 +74,7 @@ import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.ShortCircuitQueryContext;
+import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.statistics.model.Statistics;
 import org.apache.doris.system.Backend;
@@ -549,7 +551,7 @@ public class StatementContext implements Closeable {
      * statement is analyzed / planned like a fresh execution: the hint flag returns to
      * its default and every resolved-table cache is dropped.
      *
-     * Two further pass-owned states are reset:
+     * Four further pass-owned states are reset:
      *
      * - isShortCircuitQuery: an independent frozen plan can be a point lookup even when
      *   the original statement is a join / external scan
@@ -562,7 +564,23 @@ public class StatementContext implements Closeable {
      *   the shared SessionVariable would otherwise leak it into the fallback - whose
      *   own configRuntimeFilterWaitTime skips recomputation because the value no
      *   longer equals the default. The pre-pass value (including an explicit user SET)
-     *   is restored.
+     *   is restored;
+     * - the SPM replay rule mask ({@link #setSpmExcludedRules}, installed by
+     *   SPMOptimizer#installSpmReplayRuleMask): it forbids the whole MATERIALIZED_VIEW
+     *   family for the REPLAY only. Clearing it (together with the cached
+     *   {@code disableRules} that already merged it) lets the fallback plan the
+     *   ORIGINAL statement under the session's own rules - otherwise an original
+     *   aggregate with an eligible refreshed MTMV would scan base tables instead of
+     *   using ordinary MV planning;
+     * - the session variables the abandoned pass changed for "this statement" (a
+     *   plan-side ORDERED hint sets {@code disable_join_reorder}, the planner assigns
+     *   runtime_filter_wait_time_ms, a plan-side SET_VAR sets its own key): they are
+     *   recorded on the shared SessionVariable as single-set-var originals and are only
+     *   reverted at statement END, so the fallback would run with the abandoned values -
+     *   a leaked {@code disable_join_reorder} marks the CALLER's own
+     *   {@code LEADING(a b)} hint UNUSED and the "ordinary" fallback picks another join
+     *   order. Reverting here restores the pre-statement values; the fallback pass
+     *   re-applies whatever ITS OWN hints ask for.
      */
     public void resetPlannerStateForReplan() {
         hintForcePreAggOn = false;
@@ -573,6 +591,32 @@ public class StatementContext implements Closeable {
         isShortCircuitQuery = false;
         shortCircuitQueryContext = null;
         restoreRuntimeFilterWaitTime();
+        spmExcludedRules = null;
+        disableRules = null;
+        restoreAbandonedSessionChanges();
+    }
+
+    /**
+     * Reverts the session-variable changes a statement applied through the hint / planner
+     * "single set var" mechanism (see {@link #resetPlannerStateForReplan}).
+     */
+    private void restoreAbandonedSessionChanges() {
+        if (connectContext == null || connectContext.getSessionVariable() == null) {
+            return;
+        }
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+        if (sessionVariable.getSessionOriginValue() == null
+                || sessionVariable.getSessionOriginValue().isEmpty()) {
+            return;
+        }
+        try {
+            VariableMgr.revertSessionValue(sessionVariable);
+            sessionVariable.setIsSingleSetVar(false);
+            sessionVariable.clearSessionOriginValue();
+        } catch (DdlException e) {
+            LOG.warn("failed to revert the abandoned pass's session variable changes: {}",
+                    e.getMessage());
+        }
     }
 
     /**
