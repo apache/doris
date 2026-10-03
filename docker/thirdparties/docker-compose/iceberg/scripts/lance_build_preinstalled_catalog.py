@@ -32,6 +32,17 @@ The generated catalog contains:
   - time_travel.lance     Three uncompacted versions for FOR VERSION / TIME AS OF; carried
                           over as-is because the suites hard-code its commit times
                           (see lance_build_time_travel.py).
+  - search_snapshot.lance, search_snapshot_pruned.lance
+                          Index history, tags and a branch for the search TVFs' snapshot
+                          selectors; carried over as-is for the same reason
+                          (see lance_build_search_snapshot.py).
+  - search_snapshot_evolved.lance
+                          A column added and renamed after the vector index; rebuilt, since
+                          no suite depends on its commit times.
+  - legacy_vector_index.lance
+                          A vector index written by pylance 0.18.2, without index details;
+                          carried over as-is because this writer cannot rebuild it
+                          (see lance_build_legacy_vector_index.py).
   - The `doris` namespace with two full-text-search fixtures, one indexed vector table per cell of the
     algorithm x element type x metric matrix (hash-prefixed directories), listed in
     VECTOR_TABLES below; BREADTH_TABLE, one table carrying the remaining cells at plan
@@ -89,8 +100,17 @@ import lance
 import lance_namespace
 import pyarrow as pa
 import pyarrow.ipc as ipc
+from lance_build_legacy_vector_index import LEGACY_DIR as LEGACY_VECTOR_INDEX_DIR
+from lance_build_legacy_vector_index import check as check_legacy_vector_index
 from lance_build_multivector import build as build_multivector, check as check_multivector
 from lance_build_nested_null import build as build_nested_null, check as check_nested_null
+from lance_build_search_snapshot import (
+    EVOLVED_DIR as SEARCH_SNAPSHOT_EVOLVED_DIR,
+    MAIN_DIR as SEARCH_SNAPSHOT_DIR,
+    PRUNED_DIR as SEARCH_SNAPSHOT_PRUNED_DIR,
+    build_evolved as build_search_snapshot_evolved,
+    check as check_search_snapshot,
+)
 from lance_build_time_travel import check as check_time_travel
 from lance_namespace_urllib3_client.models import (
     CreateNamespaceRequest,
@@ -936,10 +956,13 @@ def build_multi_frag(root: Path) -> None:
     lance.dataset(location).delete(f"row_id in ({deleted})")
 
 
-def build(root: Path, all_types_source: Path, time_travel_source: Path) -> None:
+def build(root: Path, all_types_source: Path, time_travel_source: Path, carried_root: Path) -> None:
     shutil.copytree(all_types_source, root / ALL_TYPES_DIR)
-    # Not rebuilt: its commit times are hard-coded in the time-travel suites.
+    # Not rebuilt: their commit times are hard-coded in the time-travel and search-snapshot suites.
     shutil.copytree(time_travel_source, root / TIME_TRAVEL_DIR)
+    for name in (SEARCH_SNAPSHOT_DIR, SEARCH_SNAPSHOT_PRUNED_DIR, LEGACY_VECTOR_INDEX_DIR):
+        shutil.copytree(carried_root / name, root / name)
+    build_search_snapshot_evolved(root / SEARCH_SNAPSHOT_EVOLVED_DIR)
     build_multi_frag(root)
     # Recreate this fixture in staging because promotion replaces the entire catalog tree.
     build_nested_null(root / NESTED_NULL_DIR)
@@ -1734,6 +1757,8 @@ def check_catalog(root: Path) -> None:
     check_multi_frag(root)
     check_nested_null(root / NESTED_NULL_DIR)
     check_time_travel(root / TIME_TRAVEL_DIR)
+    check_search_snapshot(root)
+    check_legacy_vector_index(root / LEGACY_VECTOR_INDEX_DIR)
     check_multivector(root / "multivector.lance")
 
     full_fts = namespace.describe_table(DescribeTableRequest(id=[NAMESPACE, FTS_TABLE]))
@@ -1805,11 +1830,15 @@ def main() -> int:
     if not time_travel_source.is_dir():
         print(f"missing time_travel source: {time_travel_source}", file=sys.stderr)
         return 1
+    for name in (SEARCH_SNAPSHOT_DIR, SEARCH_SNAPSHOT_PRUNED_DIR, LEGACY_VECTOR_INDEX_DIR):
+        if not (output / name).is_dir():
+            print(f"missing carried-over source: {output / name}", file=sys.stderr)
+            return 1
 
     with tempfile.TemporaryDirectory(prefix="lance_fixture_") as staging_name:
         staging = Path(staging_name) / "lance"
         staging.mkdir()
-        build(staging, all_types_source, time_travel_source)
+        build(staging, all_types_source, time_travel_source, output)
         check_catalog(staging)
         backup = output.with_name(output.name + ".old")
         if backup.exists():

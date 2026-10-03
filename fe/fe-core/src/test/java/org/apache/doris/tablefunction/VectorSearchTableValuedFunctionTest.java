@@ -58,7 +58,8 @@ public class VectorSearchTableValuedFunctionTest {
             AnalysisException exception = Assert.assertThrows(AnalysisException.class,
                     () -> VectorSearchTableValuedFunction.parseTableName(table));
             Assert.assertTrue(exception.getMessage(),
-                    exception.getMessage().contains("cannot select a version, tag or branch"));
+                    exception.getMessage().contains("cannot select a version, tag or branch;"
+                            + " use the 'version', 'timestamp', 'tag' or 'branch' property"));
         }
     }
 

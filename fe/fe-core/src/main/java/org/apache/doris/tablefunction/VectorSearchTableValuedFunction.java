@@ -66,7 +66,7 @@ public class VectorSearchTableValuedFunction extends LanceExternalSearchTableVal
     private static final String USE_INDEX = "use_index";
     private static final Set<String> PROPERTIES = ImmutableSet.of(
             TABLE, COLUMN, QUERY_VECTOR, TOP_K, OFFSET, METRIC, FILTER,
-            NPROBES, REFINE_FACTOR, EF, USE_INDEX);
+            NPROBES, REFINE_FACTOR, EF, USE_INDEX, VERSION, TIMESTAMP, TAG, BRANCH);
 
     public VectorSearchTableValuedFunction(Map<String, String> properties)
             throws AnalysisException {

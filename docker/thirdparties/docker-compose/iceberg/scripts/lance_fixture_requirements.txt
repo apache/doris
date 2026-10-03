@@ -38,6 +38,10 @@
 # it: the Spark and REST catalog suites read and register into the same __manifest this
 # writer produces, and they must pass for a fixture rebuild to be acceptable.
 #
+# One fixture is the exception: legacy_vector_index.lance must carry a vector index without
+# index details, which only writers before 0.20 produce, so lance_build_legacy_vector_index.py
+# builds it with pylance 0.18.2 and the catalog build carries it over as-is.
+#
 # The pylance and lance-namespace pins are enforced rather than advisory:
 # check_pinned_writer() refuses to build or verify the fixture unless the installed versions
 # match them exactly. That check has to exist because the generator's own self-check cannot
