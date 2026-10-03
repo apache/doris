@@ -29,7 +29,6 @@ import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
-import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeStampNsType;
 
 import org.junit.jupiter.api.Assertions;
