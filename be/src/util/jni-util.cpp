@@ -17,6 +17,7 @@
 
 #include "util/jni-util.h"
 
+#include <fmt/format.h>
 #include <glog/logging.h>
 #include <jni.h>
 #include <jni_md.h>
@@ -127,7 +128,7 @@ Status Env::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& prefix
         env->ExceptionClear();
         string oom_msg = absl::Substitute(oom_msg_template, "throwableToString");
         LOG(WARNING) << oom_msg;
-        return Status::JniError(oom_msg);
+        return Status::JniError("{} {}", oom_msg, Util::jvm_heap_exhausted_hint());
     }
 
     std::string return_msg;
@@ -142,7 +143,7 @@ Status Env::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& prefix
             env->ExceptionClear();
             string oom_msg = absl::Substitute(oom_msg_template, "throwableToStackTrace");
             LOG(WARNING) << oom_msg;
-            return Status::JniError(oom_msg);
+            return Status::JniError("{} {}", oom_msg, Util::jvm_heap_exhausted_hint());
         }
 
         auto* stask_str = env->GetStringUTFChars(stack, nullptr);
@@ -150,6 +151,9 @@ Status Env::GetJniExceptionMsg(JNIEnv* env, bool log_stack, const string& prefix
         env->ReleaseStringUTFChars(stack, stask_str);
     }
 
+    if (Util::_reports_heap_exhausted(return_msg)) {
+        return Status::JniError("{}{}. {}", prefix, return_msg, Util::jvm_heap_exhausted_hint());
+    }
     return Status::JniError("{}{}", prefix, return_msg);
 }
 
@@ -245,6 +249,25 @@ void Util::_parse_max_heap_memory_size_from_jvm() {
                         "this exact.";
     }
     LOG(INFO) << "the max_jvm_heap_memory_size_ is " << max_jvm_heap_memory_size_;
+}
+
+bool Util::_reports_heap_exhausted(const std::string& rendered) {
+    // throwableToString renders a cause after " | CAUSED BY: ", so a wrapped one is found too. Only a
+    // full heap counts: -Xmx does nothing for an OutOfMemoryError over direct memory, the metaspace or
+    // native threads.
+    return rendered.find("OutOfMemoryError: Java heap space") != std::string::npos;
+}
+
+std::string Util::jvm_heap_exhausted_hint() {
+    return fmt::format(
+            "BE's JVM is out of heap. Its maximum is {} MB, the -Xmx in JAVA_OPTS_FOR_JDK_17 of "
+            "be.conf: raise it and restart the BE, or have the statement hold less of the heap at "
+            "once - read with fewer scanners by setting max_file_scanners_concurrency below its "
+            "default of 16, or set enable_jni_heap_admission = true to have JNI readers wait for "
+            "room "
+            "by the heap they declare. A statement that ran out of heap frees it only once its "
+            "scanners have exited",
+            get_max_jni_heap_memory_size() / 1024 / 1024);
 }
 
 size_t Util::get_max_jni_heap_memory_size() {
