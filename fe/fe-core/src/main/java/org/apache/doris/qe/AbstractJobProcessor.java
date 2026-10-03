@@ -28,6 +28,7 @@ import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.CommitDataSerializer;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -108,8 +109,7 @@ public abstract class AbstractJobProcessor implements JobProcessor {
         SingleFragmentPipelineTask fragmentTask = backendFragmentTasks.get().get(
                 new BackendFragmentId(params.getBackendId(), params.getFragmentId()));
         if (fragmentTask == null) {
-            if (params.isSetHivePartitionUpdates() || params.isSetIcebergCommitDatas()
-                    || params.isSetMcCommitDatas()) {
+            if (CommitDataSerializer.hasCommitData(params)) {
                 throw new IllegalStateException("Missing fragment handler for external-file report");
             }
             return false;
@@ -138,8 +138,7 @@ public abstract class AbstractJobProcessor implements JobProcessor {
             }
         }
         doProcessReportExecStatus(params, fragmentTask);
-        return !params.isSetHivePartitionUpdates() && !params.isSetIcebergCommitDatas()
-                && !params.isSetMcCommitDatas() || fragmentTask.isDone();
+        return !CommitDataSerializer.hasCommitData(params) || fragmentTask.isDone();
     }
 
     private Map<BackendFragmentId, SingleFragmentPipelineTask> buildBackendFragmentTasks(

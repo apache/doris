@@ -14714,7 +14714,10 @@ TEST(MetaServiceTest, OrdinaryOperationsDoNotFanOutTableStreamOffsets) {
             TableStreamOffsetKeyInfo key_info {instance_id,  db_id,     table_id,
                                                stream_db_id, stream_id, existing_partition_id};
             txn->put(table_stream_offset_key(key_info), value);
-            versioned_put(txn.get(), versioned::table_stream_offset_key(key_info), version, value);
+            versioned_put(txn.get(),
+                          versioned::table_stream_offset_key(
+                                  versioned::TableStreamOffsetKeyInfo(key_info)),
+                          version, value);
             expected_offsets.push_back({stream_id, std::move(value), version});
         }
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
@@ -14750,10 +14753,11 @@ TEST(MetaServiceTest, OrdinaryOperationsDoNotFanOutTableStreamOffsets) {
             EXPECT_EQ(value, expected.value);
 
             Versionstamp actual_version;
-            ASSERT_EQ(
-                    versioned_get(txn.get(), versioned::table_stream_offset_key(existing_key_info),
-                                  &actual_version, &value),
-                    TxnErrorCode::TXN_OK);
+            ASSERT_EQ(versioned_get(txn.get(),
+                                    versioned::table_stream_offset_key(
+                                            versioned::TableStreamOffsetKeyInfo(existing_key_info)),
+                                    &actual_version, &value),
+                      TxnErrorCode::TXN_OK);
             EXPECT_EQ(value, expected.value);
             EXPECT_EQ(actual_version, expected.version);
 
@@ -14762,7 +14766,9 @@ TEST(MetaServiceTest, OrdinaryOperationsDoNotFanOutTableStreamOffsets) {
                                                    expected.stream_id, new_partition_id};
             EXPECT_EQ(txn->get(table_stream_offset_key(new_key_info), &value),
                       TxnErrorCode::TXN_KEY_NOT_FOUND);
-            EXPECT_EQ(versioned_get(txn.get(), versioned::table_stream_offset_key(new_key_info),
+            EXPECT_EQ(versioned_get(txn.get(),
+                                    versioned::table_stream_offset_key(
+                                            versioned::TableStreamOffsetKeyInfo(new_key_info)),
                                     &actual_version, &value),
                       TxnErrorCode::TXN_KEY_NOT_FOUND);
         }
@@ -15023,8 +15029,10 @@ TEST(MetaServiceTest, TableStreamCreateDisabled) {
         EXPECT_EQ(actual_offset.SerializeAsString(), expected_offset.SerializeAsString());
 
         Versionstamp version;
-        EXPECT_EQ(versioned_get(txn.get(), versioned::table_stream_offset_key(key_info), &version,
-                                &value),
+        EXPECT_EQ(versioned_get(txn.get(),
+                                versioned::table_stream_offset_key(
+                                        versioned::TableStreamOffsetKeyInfo(key_info)),
+                                &version, &value),
                   TxnErrorCode::TXN_KEY_NOT_FOUND);
         EXPECT_EQ(versioned_get(txn.get(),
                                 versioned::meta_partition_key(
@@ -15212,7 +15220,9 @@ TEST(MetaServiceTest, TableStreamOffsetInitializationConflictsWithDropPartition)
         EXPECT_EQ(txn->get(table_stream_offset_key(key_info), &value),
                   TxnErrorCode::TXN_KEY_NOT_FOUND);
         Versionstamp versionstamp;
-        EXPECT_EQ(versioned_get(txn.get(), versioned::table_stream_offset_key(key_info),
+        EXPECT_EQ(versioned_get(txn.get(),
+                                versioned::table_stream_offset_key(
+                                        versioned::TableStreamOffsetKeyInfo(key_info)),
                                 &versionstamp, &value),
                   TxnErrorCode::TXN_KEY_NOT_FOUND);
     }
@@ -15291,7 +15301,9 @@ TEST(MetaServiceTest, TableStreamCreateVersionedModes) {
         std::string value;
         ASSERT_EQ(txn->get(table_stream_offset_key(offset_key_info), &value), TxnErrorCode::TXN_OK);
         Versionstamp offset_version;
-        ASSERT_EQ(versioned_get(txn.get(), versioned::table_stream_offset_key(offset_key_info),
+        ASSERT_EQ(versioned_get(txn.get(),
+                                versioned::table_stream_offset_key(
+                                        versioned::TableStreamOffsetKeyInfo(offset_key_info)),
                                 &offset_version, &value),
                   TxnErrorCode::TXN_OK);
         TableStreamOffsetPB versioned_offset;

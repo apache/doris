@@ -997,7 +997,14 @@ public class StringArithmetic {
     }
 
     private static String parseUrlAuthority(String protocolEnd) {
-        return substringEnd(protocolEnd, protocolEnd.indexOf('/'));
+        // The authority component runs from the end of "://" up to the first '/', '?' or '#',
+        // whichever comes first.
+        int endPos = firstIndexOf(protocolEnd, '?', '#');
+        int slashPos = protocolEnd.indexOf('/');
+        if (slashPos >= 0 && (endPos < 0 || slashPos < endPos)) {
+            endPos = slashPos;
+        }
+        return substringEnd(protocolEnd, endPos);
     }
 
     private static String parseUrlPath(String protocolEnd) {
@@ -1019,18 +1026,11 @@ public class StringArithmetic {
     }
 
     private static String parseUrlHost(String protocolEnd) {
-        int startPos = protocolEnd.indexOf('@');
+        String authority = parseUrlAuthority(protocolEnd);
+        int startPos = authority.indexOf('@');
         startPos = startPos < 0 ? 0 : startPos + 1;
-        String hostStart = protocolEnd.substring(startPos);
-        int queryStartPos = hostStart.indexOf('?');
-        if (queryStartPos > 0) {
-            hostStart = hostStart.substring(0, queryStartPos);
-        }
-        int endPos = hostStart.indexOf(':');
-        if (endPos < 0) {
-            endPos = hostStart.indexOf('/');
-        }
-        return substringEnd(hostStart, endPos);
+        String hostStart = authority.substring(startPos);
+        return substringEnd(hostStart, hostStart.indexOf(':'));
     }
 
     private static String parseUrlQuery(String protocolEnd) {
@@ -1057,27 +1057,24 @@ public class StringArithmetic {
     }
 
     private static String parseUrlUserInfo(String protocolEnd) {
-        int endPos = protocolEnd.indexOf('@');
+        String authority = parseUrlAuthority(protocolEnd);
+        int endPos = authority.indexOf('@');
         if (endPos < 0) {
             return null;
         }
-        return protocolEnd.substring(0, endPos);
+        return authority.substring(0, endPos);
     }
 
     private static String parseUrlPort(String protocolEnd) {
-        int startPos = protocolEnd.indexOf('@');
+        String authority = parseUrlAuthority(protocolEnd);
+        int startPos = authority.indexOf('@');
         startPos = startPos < 0 ? 0 : startPos + 1;
-        String hostStart = protocolEnd.substring(startPos);
+        String hostStart = authority.substring(startPos);
         int endPos = hostStart.indexOf(':');
         if (endPos < 0) {
             return null;
         }
-        String portStart = hostStart.substring(endPos + 1);
-        int portEndPos = portStart.indexOf('/');
-        if (portEndPos < 0) {
-            portEndPos = portStart.indexOf('?');
-        }
-        return substringEnd(portStart, portEndPos);
+        return hostStart.substring(endPos + 1);
     }
 
     /**

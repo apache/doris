@@ -26,10 +26,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DateTimeType;
-import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DateType;
-import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
@@ -128,37 +124,9 @@ public class PredicateInferUtils {
         Expression child = cast.child();
         DataType dataType = cast.getDataType();
         DataType childType = child.getDataType();
-        if (inferType == InferType.INTEGRAL) {
-            if (dataType instanceof IntegralType) {
-                IntegralType integralType = (IntegralType) dataType;
-                if (childType instanceof IntegralType && integralType.widerThan((IntegralType) childType)) {
-                    return validForInfer(((Cast) expression).child(), inferType);
-                }
-            }
-        } else if (inferType == InferType.DATE) {
-            // avoid lost precision
-            if (dataType instanceof DateType) {
-                if (childType instanceof DateV2Type || childType instanceof DateType) {
-                    return validForInfer(child, inferType);
-                }
-            } else if (dataType instanceof DateV2Type) {
-                if (childType instanceof DateType || childType instanceof DateV2Type) {
-                    return validForInfer(child, inferType);
-                }
-            } else if (dataType instanceof DateTimeType) {
-                if (childType.isTimeStampNsType()) {
-                    return Optional.empty();
-                }
-                if (!(childType instanceof DateTimeV2Type)) {
-                    return validForInfer(child, inferType);
-                }
-            } else if (dataType instanceof DateTimeV2Type) {
-                if (childType.isTimeStampNsType()) {
-                    return Optional.empty();
-                }
-                if (!(childType instanceof DateTimeV2Type) || childType.isInjectiveCastTo(dataType)) {
-                    return validForInfer(child, inferType);
-                }
+        if (inferType == InferType.INTEGRAL || inferType == InferType.DATE) {
+            if (childType.isInjectiveCastTo(dataType)) {
+                return validForInfer(child, inferType);
             }
         } else if (inferType == InferType.STRING) {
             // avoid substring cast such as cast(char(3) as char(2))

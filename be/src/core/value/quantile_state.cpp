@@ -19,7 +19,9 @@
 #include <string.h>
 
 #include <cmath>
+#include <mutex>
 #include <ostream>
+#include <shared_mutex>
 #include <utility>
 
 #include "common/logging.h"
@@ -28,7 +30,68 @@
 #include "util/tdigest.h"
 #include "util/unaligned.h"
 
+#ifdef BE_TEST
+#include "cpp/sync_point.h"
+#endif
+
 namespace doris {
+
+// Shares a digest across QuantileState copies and detaches it before sample
+// writes. Readers use shared locks; compression uses an exclusive lock.
+struct QuantileState::TDigestHolder {
+    explicit TDigestHolder(float compression) : digest(compression) {}
+    TDigestHolder(const TDigestHolder& other) : digest(other.digest) {}
+
+    std::shared_lock<std::shared_mutex> lock_processed_digest() {
+        std::shared_lock read_lock(mutex);
+        if (digest.have_unprocessed()) {
+            read_lock.unlock();
+            {
+                std::unique_lock write_lock(mutex);
+                if (digest.have_unprocessed()) {
+                    digest.compress();
+                }
+            }
+            read_lock.lock();
+        }
+        return read_lock;
+    }
+
+    TDigest digest;
+    std::shared_mutex mutex;
+};
+
+QuantileState QuantileState::copy_for_result() const {
+    if (_type != TDIGEST) {
+        return *this;
+    }
+    QuantileState result(_compression);
+    result._type = TDIGEST;
+    {
+        // Reuse processed centroids on the next row instead of sorting the prefix again.
+        auto lock = _tdigest_ptr->lock_processed_digest();
+        // Vector copies retain the elements, not the accumulator's spare write capacity.
+        result._tdigest_ptr = std::make_shared<TDigestHolder>(*_tdigest_ptr);
+    }
+    return result;
+}
+
+TDigest& QuantileState::_mutable_tdigest() {
+    if (_tdigest_ptr.use_count() == 1) {
+        return _tdigest_ptr->digest;
+    }
+    std::shared_ptr<TDigestHolder> detached;
+    {
+        std::shared_lock lock(_tdigest_ptr->mutex);
+#ifdef BE_TEST
+        TEST_SYNC_POINT("QuantileState::detach:source_locked");
+#endif
+        detached = std::make_shared<TDigestHolder>(*_tdigest_ptr);
+    }
+    _tdigest_ptr = std::move(detached);
+    return _tdigest_ptr->digest;
+}
+
 QuantileState::QuantileState() : _type(EMPTY), _compression(QUANTILE_STATE_COMPRESSION_MIN) {}
 
 QuantileState::QuantileState(float compression) : _type(EMPTY), _compression(compression) {}
@@ -50,9 +113,13 @@ size_t QuantileState::get_serialized_size() const {
     case EXPLICIT:
         size += sizeof(uint16_t) + sizeof(double) * _explicit_data.size();
         break;
-    case TDIGEST:
-        size += _tdigest_ptr->serialized_size();
+    case TDIGEST: {
+        // Compress before sizing so concurrent queries cannot change the size
+        // before serialize(); writes through shared copies detach via COW.
+        auto lock = _tdigest_ptr->lock_processed_digest();
+        size += _tdigest_ptr->digest.serialized_size();
         break;
+    }
     }
     return size;
 }
@@ -137,7 +204,8 @@ double QuantileState::get_value_by_percentile(float percentile) const {
         return get_explicit_value_by_percentile(percentile);
     }
     case TDIGEST: {
-        return _tdigest_ptr->quantile(percentile);
+        auto lock = _tdigest_ptr->lock_processed_digest();
+        return _tdigest_ptr->digest.quantile_processed(percentile);
     }
     default:
         break;
@@ -186,8 +254,8 @@ bool QuantileState::deserialize(const Slice& slice) {
     }
     case TDIGEST: {
         // 4: Tdigest object value
-        _tdigest_ptr = std::make_shared<TDigest>(0);
-        _tdigest_ptr->unserialize(ptr);
+        _tdigest_ptr = std::make_shared<TDigestHolder>(0);
+        _tdigest_ptr->digest.unserialize(ptr);
         break;
     }
     default:
@@ -224,7 +292,8 @@ size_t QuantileState::serialize(uint8_t* dst) const {
     }
     case TDIGEST: {
         *ptr++ = TDIGEST;
-        size_t tdigest_size = _tdigest_ptr->serialize(ptr);
+        auto lock = _tdigest_ptr->lock_processed_digest();
+        size_t tdigest_size = _tdigest_ptr->digest.serialize(ptr);
         ptr += tdigest_size;
         break;
     }
@@ -235,6 +304,11 @@ size_t QuantileState::serialize(uint8_t* dst) const {
 }
 
 void QuantileState::merge(const QuantileState& other) {
+    if (this == &other) {
+        const QuantileState source(other);
+        merge(source);
+        return;
+    }
     switch (other._type) {
     case EMPTY:
         break;
@@ -256,23 +330,25 @@ void QuantileState::merge(const QuantileState& other) {
         case EXPLICIT:
             if (_explicit_data.size() + other._explicit_data.size() > QUANTILE_STATE_EXPLICIT_NUM) {
                 _type = TDIGEST;
-                _tdigest_ptr = std::make_shared<TDigest>(_compression);
+                _tdigest_ptr = std::make_shared<TDigestHolder>(_compression);
                 for (int i = 0; i < _explicit_data.size(); i++) {
-                    _tdigest_ptr->add((float)_explicit_data[i]);
+                    _tdigest_ptr->digest.add((float)_explicit_data[i]);
                 }
                 for (int i = 0; i < other._explicit_data.size(); i++) {
-                    _tdigest_ptr->add((float)other._explicit_data[i]);
+                    _tdigest_ptr->digest.add((float)other._explicit_data[i]);
                 }
             } else {
                 _explicit_data.insert(_explicit_data.end(), other._explicit_data.begin(),
                                       other._explicit_data.end());
             }
             break;
-        case TDIGEST:
+        case TDIGEST: {
+            auto& digest = _mutable_tdigest();
             for (int i = 0; i < other._explicit_data.size(); i++) {
-                _tdigest_ptr->add((float)other._explicit_data[i]);
+                digest.add((float)other._explicit_data[i]);
             }
             break;
+        }
         default:
             break;
         }
@@ -287,18 +363,26 @@ void QuantileState::merge(const QuantileState& other) {
         case SINGLE:
             _type = TDIGEST;
             _tdigest_ptr = other._tdigest_ptr;
-            _tdigest_ptr->add((float)_single_data);
+            _mutable_tdigest().add((float)_single_data);
             break;
-        case EXPLICIT:
+        case EXPLICIT: {
             _type = TDIGEST;
             _tdigest_ptr = other._tdigest_ptr;
+            auto& digest = _mutable_tdigest();
             for (int i = 0; i < _explicit_data.size(); i++) {
-                _tdigest_ptr->add((float)_explicit_data[i]);
+                digest.add((float)_explicit_data[i]);
             }
             break;
-        case TDIGEST:
-            _tdigest_ptr->merge(other._tdigest_ptr.get());
+        }
+        case TDIGEST: {
+            auto& digest = _mutable_tdigest();
+            std::shared_lock lock(other._tdigest_ptr->mutex);
+#ifdef BE_TEST
+            TEST_SYNC_POINT("QuantileState::merge:source_locked");
+#endif
+            digest.merge(&other._tdigest_ptr->digest);
             break;
+        }
         default:
             break;
         }
@@ -322,9 +406,9 @@ void QuantileState::add_value(const double& value) {
         break;
     case EXPLICIT:
         if (_explicit_data.size() == QUANTILE_STATE_EXPLICIT_NUM) {
-            _tdigest_ptr = std::make_shared<TDigest>(_compression);
+            _tdigest_ptr = std::make_shared<TDigestHolder>(_compression);
             for (int i = 0; i < _explicit_data.size(); i++) {
-                _tdigest_ptr->add((float)_explicit_data[i]);
+                _tdigest_ptr->digest.add((float)_explicit_data[i]);
             }
             _explicit_data.clear();
             _explicit_data.shrink_to_fit();
@@ -335,7 +419,7 @@ void QuantileState::add_value(const double& value) {
         }
         break;
     case TDIGEST:
-        _tdigest_ptr->add((float)value);
+        _mutable_tdigest().add((float)value);
         break;
     }
 }

@@ -59,7 +59,8 @@ struct AggregateFunctionTopNData {
     using DataType = typename PrimitiveTypeTraits<T>::CppType;
     void set_paramenters(int input_top_num, int space_expand_rate = 50) {
         top_num = input_top_num;
-        capacity = (uint64_t)top_num * space_expand_rate;
+        // Non-positive expansion rates retain all candidates during serialization and merging.
+        capacity = space_expand_rate <= 0 ? UINT64_MAX : (uint64_t)top_num * space_expand_rate;
     }
 
     void add(const StringRef& value, const UInt64& increment = 1) {
