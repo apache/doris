@@ -25,6 +25,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
@@ -241,19 +242,21 @@ void SpillFileManager::_retry_pending_query_spill_directories() {
 }
 
 void SpillFileManager::gc(int32_t max_work_time_ms) {
-    bool exists = true;
     bool has_work = false;
     int64_t max_work_time_ns = max_work_time_ms * 1000L * 1000L;
     MonotonicStopWatch watch;
     watch.start();
+    // One summary line per spill store, printed together with the inode usage of each store so
+    // that an inode leak or a growing gc backlog can be diagnosed from the BE log alone.
+    std::vector<std::string> store_summaries;
     Defer defer {[&]() {
         if (has_work) {
             std::string msg(
                     fmt::format("spill gc time: {}",
                                 PrettyPrinter::print(watch.elapsed_time(), TUnit::TIME_NS)));
             msg += ", spill storage:\n";
-            for (const auto& [path, store_dir] : _spill_store_map) {
-                msg += "    " + store_dir->debug_string();
+            for (const auto& summary : store_summaries) {
+                msg += "    " + summary;
                 msg += "\n";
             }
             LOG(INFO) << msg;
@@ -261,48 +264,74 @@ void SpillFileManager::gc(int32_t max_work_time_ms) {
     }};
     _retry_pending_query_spill_directories();
     for (const auto& [path, store_dir] : _spill_store_map) {
-        std::string gc_root_dir = store_dir->get_spill_data_gc_path();
+        SpillGcStats stats;
+        _gc_spill_store(store_dir.get(), watch, max_work_time_ns, &stats);
+        has_work |= stats.has_work;
+        store_summaries.emplace_back(fmt::format(
+                "{}, gc backlog: {} query dirs, deleted this round: {} dirs, {} files, failed: {}",
+                store_dir->debug_string(), stats.backlog_dirs, stats.deleted_dirs,
+                stats.deleted_files, stats.failed_deletes));
+    }
+}
 
-        std::error_code ec;
-        exists = std::filesystem::exists(gc_root_dir, ec);
-        if (ec || !exists) {
+void SpillFileManager::_gc_spill_store(SpillDataDir* store_dir, const MonotonicStopWatch& watch,
+                                       int64_t max_work_time_ns, SpillGcStats* stats) {
+    std::string gc_root_dir = store_dir->get_spill_data_gc_path();
+
+    std::error_code ec;
+    bool exists = std::filesystem::exists(gc_root_dir, ec);
+    if (ec || !exists) {
+        return;
+    }
+    // dirs of queries
+    std::vector<io::FileInfo> dirs;
+    auto st = io::global_local_filesystem()->list(gc_root_dir, false, &dirs, &exists);
+    if (!st.ok()) {
+        return;
+    }
+
+    auto delete_entry = [&](const std::string& abs_path, bool is_file) {
+        Status delete_st = is_file ? io::global_local_filesystem()->delete_file(abs_path)
+                                   : io::global_local_filesystem()->delete_directory(abs_path);
+        if (!delete_st.ok()) {
+            ++stats->failed_deletes;
+            LOG_EVERY_T(WARNING, 60) << fmt::format("failed to delete spill gc entry {}: {}",
+                                                    abs_path, delete_st.to_string());
+            return false;
+        }
+        if (is_file) {
+            ++stats->deleted_files;
+        } else {
+            ++stats->deleted_dirs;
+        }
+        return true;
+    };
+
+    for (const auto& dir : dirs) {
+        stats->has_work = true;
+        if (dir.is_file) {
             continue;
         }
-        // dirs of queries
-        std::vector<io::FileInfo> dirs;
-        auto st = io::global_local_filesystem()->list(gc_root_dir, false, &dirs, &exists);
+        ++stats->backlog_dirs;
+        std::string abs_dir = fmt::format("{}/{}", gc_root_dir, dir.file_name);
+        // operator spill sub dirs of a query
+        std::vector<io::FileInfo> files;
+        st = io::global_local_filesystem()->list(abs_dir, false, &files, &exists);
         if (!st.ok()) {
             continue;
         }
+        if (files.empty()) {
+            if (delete_entry(abs_dir, false)) {
+                --stats->backlog_dirs;
+            }
+            continue;
+        }
 
-        for (const auto& dir : dirs) {
-            has_work = true;
-            if (dir.is_file) {
-                continue;
-            }
-            std::string abs_dir = fmt::format("{}/{}", gc_root_dir, dir.file_name);
-            // operator spill sub dirs of a query
-            std::vector<io::FileInfo> files;
-            st = io::global_local_filesystem()->list(abs_dir, false, &files, &exists);
-            if (!st.ok()) {
-                continue;
-            }
-            if (files.empty()) {
-                static_cast<void>(io::global_local_filesystem()->delete_directory(abs_dir));
-                continue;
-            }
-
-            for (const auto& file : files) {
-                auto abs_file_path = fmt::format("{}/{}", abs_dir, file.file_name);
-                if (file.is_file) {
-                    static_cast<void>(io::global_local_filesystem()->delete_file(abs_file_path));
-                } else {
-                    static_cast<void>(
-                            io::global_local_filesystem()->delete_directory(abs_file_path));
-                }
-                if (watch.elapsed_time() > max_work_time_ns) {
-                    break;
-                }
+        for (const auto& file : files) {
+            auto abs_file_path = fmt::format("{}/{}", abs_dir, file.file_name);
+            delete_entry(abs_file_path, file.is_file);
+            if (watch.elapsed_time() > max_work_time_ns) {
+                break;
             }
         }
     }
@@ -312,6 +341,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_limit, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_avail_capacity, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_data_size, MetricUnit::BYTES);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_inode_total, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_inode_available, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_has_spill_data, MetricUnit::BYTES);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(spill_disk_has_spill_gc_data, MetricUnit::BYTES);
 
@@ -326,9 +357,26 @@ SpillDataDir::SpillDataDir(std::string path, int64_t capacity_bytes,
     INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_limit);
     INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_avail_capacity);
     INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_data_size);
+    INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_inode_total);
+    INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_inode_available);
     INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_has_spill_data);
     INT_GAUGE_METRIC_REGISTER(spill_data_dir_metric_entity, spill_disk_has_spill_gc_data);
 }
+
+namespace {
+// Fraction of inodes in use, 0 when the file system does not report a fixed inode count.
+double inode_usage(size_t total, size_t available) {
+    return total == 0 ? 0 : (double)(total - available) / (double)total;
+}
+
+std::string inode_debug_string(size_t total, size_t available) {
+    if (total == 0) {
+        return "inodes: unknown";
+    }
+    return fmt::format("inodes: total: {}, used: {}, available: {}, used pct: {:.2f}%", total,
+                       total - available, available, inode_usage(total, available) * 100);
+}
+} // namespace
 
 bool is_directory_empty(const std::filesystem::path& dir) {
     // Spill cleanup may delete the directory while the iterator is constructed or advanced. Treat
@@ -381,6 +429,7 @@ Status SpillDataDir::update_capacity() {
                                                                   &_available_bytes));
     spill_disk_capacity->set_value(_disk_capacity_bytes);
     spill_disk_avail_capacity->set_value(_available_bytes);
+    _update_inode_usage();
     auto disk_use_max_bytes =
             (int64_t)(_disk_capacity_bytes * config::storage_flood_stage_usage_percent / 100);
     bool is_percent = true;
@@ -406,6 +455,32 @@ Status SpillDataDir::update_capacity() {
     spill_disk_has_spill_gc_data->set_value(is_directory_empty(spill_gc_root_dir) ? 0 : 1);
 
     return Status::OK();
+}
+
+// Inode statistics are for monitoring only, so a failure to read them never fails
+// update_capacity(); the previous gauge values are kept and a throttled warning is logged.
+void SpillDataDir::_update_inode_usage() {
+    size_t inode_total = 0;
+    size_t inode_available = 0;
+    auto st = io::global_local_filesystem()->get_inode_info(_path, &inode_total, &inode_available);
+    if (!st.ok()) {
+        LOG_EVERY_T(WARNING, 60) << fmt::format("failed to get inode info of spill path {}: {}",
+                                                _path, st.to_string());
+        return;
+    }
+    spill_disk_inode_total->set_value(inode_total);
+    spill_disk_inode_available->set_value(inode_available);
+
+    if (inode_total == 0) {
+        return;
+    }
+    if (inode_usage(inode_total, inode_available) >=
+        config::storage_flood_stage_usage_percent / 100.0) {
+        LOG_EVERY_T(WARNING, 60) << fmt::format(
+                "spill disk inode usage is high, path: {}, {}. Too many spill files or a "
+                "large spill gc backlog may exhaust inodes before disk space runs out",
+                _path, inode_debug_string(inode_total, inode_available));
+    }
 }
 
 bool SpillDataDir::_reach_disk_capacity_limit(int64_t incoming_data_size) {
@@ -441,12 +516,14 @@ bool SpillDataDir::reach_capacity_limit(int64_t incoming_data_size) {
     return false;
 }
 std::string SpillDataDir::debug_string() {
+    std::lock_guard<std::mutex> l(_mutex);
     return fmt::format(
-            "path: {}, capacity: {}, limit: {}, used: {}, available: "
-            "{}",
-            _path, PrettyPrinter::print_bytes(_disk_capacity_bytes),
+            "path: {}, capacity: {}, limit: {}, used: {}, available: {}, {}", _path,
+            PrettyPrinter::print_bytes(_disk_capacity_bytes),
             PrettyPrinter::print_bytes(_spill_data_limit_bytes),
             PrettyPrinter::print_bytes(_spill_data_bytes),
-            PrettyPrinter::print_bytes(_available_bytes));
+            PrettyPrinter::print_bytes(_available_bytes),
+            inode_debug_string(static_cast<size_t>(spill_disk_inode_total->value()),
+                               static_cast<size_t>(spill_disk_inode_available->value())));
 }
 } // namespace doris
