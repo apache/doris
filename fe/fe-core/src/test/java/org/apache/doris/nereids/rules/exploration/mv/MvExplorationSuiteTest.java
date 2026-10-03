@@ -30,6 +30,7 @@ import org.apache.doris.nereids.sqltest.SqlTestBase;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -42,6 +43,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Merged suite: these tests only need the shared fixture provided by the base class, so they are
@@ -415,6 +417,10 @@ public class MvExplorationSuiteTest extends SqlTestBase {
         }
     }
 
+    /**
+     * Verify that removing the MV's primary-key join records a separate non-null requirement
+     * for its nullable foreign-key slot, which later predicate compensation must prove.
+     */
     @Test
     void testLOJWithPKFK() throws Exception {
         connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES,PRUNE_EMPTY_PARTITION");
@@ -454,6 +460,10 @@ public class MvExplorationSuiteTest extends SqlTestBase {
         ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2, c1));
         Assertions.assertTrue(!res.isInvalid());
         Assertions.assertTrue(res.getViewExpressions().isEmpty());
+        Assertions.assertEquals(1, res.getViewNoNullableSlot().size());
+        Set<Slot> requiredSlots = res.getViewNoNullableSlot().iterator().next();
+        Assertions.assertEquals(1, requiredSlots.size());
+        Assertions.assertTrue(requiredSlots.iterator().next().nullable());
         Assertions.assertTrue(!HyperGraphComparator.isLogicCompatible(h1, h3, constructContext(p1, p2, c1)).isInvalid());
         dropConstraint("alter table T2 drop constraint pk");
     }
