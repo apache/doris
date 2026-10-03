@@ -25,10 +25,12 @@
 
 #include "core/column/column.h"
 #include "core/column/column_map.h"
+#include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type/primitive_type.h"
 #include "core/field.h"
 #include "exprs/function/cast/cast_base.h"
@@ -177,6 +179,54 @@ TEST_F(FunctionCastTest, test_from_string_to_map_string_string) {
     check_cast(ColumnWithTypeAndName(ColumnHelper::create_column<DataTypeString>(from_str),
                                      std::make_shared<DataTypeString>(), "from"),
                builder.build(), false);
+}
+
+// A duplicated key keeps its last value in every map of the result, also in the maps inside
+// arrays, structs, map values and map keys, as it does in the top level map.
+TEST_F(FunctionCastTest, test_from_string_deduplicates_nested_map_keys) {
+    auto map_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeMap>(
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()),
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>())));
+    auto string_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+    auto int_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+    auto array_of_map_type =
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeArray>(map_type));
+
+    struct Case {
+        DataTypePtr to_type;
+        std::string from;
+        std::string expected;
+    };
+    std::vector<Case> cases = {
+            {map_type, R"({"a":1,"a":2})", R"({"a":2})"},
+            {array_of_map_type, R"([{"a":1,"a":2}])", R"([{"a":2}])"},
+            {std::make_shared<DataTypeNullable>(
+                     std::make_shared<DataTypeStruct>(DataTypes {map_type}, Strings {"m"})),
+             R"({"m":{"a":1,"a":2}})", R"({"m":{"a":2}})"},
+            {std::make_shared<DataTypeNullable>(
+                     std::make_shared<DataTypeMap>(string_type, array_of_map_type)),
+             R"({"outer":[{"a":1,"a":2}]})", R"({"outer":[{"a":2}]})"},
+            {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeMap>(map_type, int_type)),
+             R"({{"a":1,"a":2}:1})", R"({{"a":2}:1})"},
+    };
+
+    for (bool is_strict_mode : {false, true}) {
+        for (const auto& c : cases) {
+            auto ctx = create_context(is_strict_mode);
+            DataTypePtr from_type = std::make_shared<DataTypeString>();
+            auto fn = get_cast_wrapper(ctx.get(), from_type, c.to_type);
+            ASSERT_TRUE(fn != nullptr);
+
+            Block block = {
+                    {ColumnHelper::create_column<DataTypeString>({c.from}), from_type, "from"},
+                    {nullptr, c.to_type, "to"},
+            };
+            ASSERT_TRUE(fn(ctx.get(), block, {0}, 1, block.rows(), nullptr));
+            EXPECT_EQ(c.to_type->to_string(*block.get_by_position(1).column, 0), c.expected)
+                    << "from: " << c.from << ", to: " << c.to_type->get_name()
+                    << ", strict mode: " << is_strict_mode;
+        }
+    }
 }
 
 } // namespace doris

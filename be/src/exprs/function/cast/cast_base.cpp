@@ -19,8 +19,34 @@
 
 #include <cstdint>
 
+#include "core/column/column_array.h"
+#include "core/column/column_map.h"
+#include "core/column/column_struct.h"
 #include "util/jsonb_writer.h"
 namespace doris::CastWrapper {
+
+// Remove the duplicated keys of every map in the column, also the maps inside arrays, structs,
+// map keys and map values. The last value of a key wins, as in map().
+static Status deduplicate_map_keys(IColumn& column) {
+    if (auto* nullable = check_and_get_column<ColumnNullable>(column)) {
+        return deduplicate_map_keys(nullable->get_nested_column());
+    }
+    if (auto* array = check_and_get_column<ColumnArray>(column)) {
+        return deduplicate_map_keys(array->get_data());
+    }
+    if (auto* st = check_and_get_column<ColumnStruct>(column)) {
+        for (size_t i = 0; i < st->tuple_size(); ++i) {
+            RETURN_IF_ERROR(deduplicate_map_keys(st->get_column(i)));
+        }
+        return Status::OK();
+    }
+    if (auto* map = check_and_get_column<ColumnMap>(column)) {
+        RETURN_IF_ERROR(deduplicate_map_keys(map->get_keys()));
+        RETURN_IF_ERROR(deduplicate_map_keys(map->get_values()));
+        return map->deduplicate_keys();
+    }
+    return Status::OK();
+}
 
 Status cast_from_generic_to_jsonb(FunctionContext* context, Block& block,
                                   const ColumnNumbers& arguments, uint32_t result,
@@ -201,6 +227,7 @@ Status cast_from_string_to_complex_type(FunctionContext* context, Block& block,
         }
     }
 
+    RETURN_IF_ERROR(deduplicate_map_keys(nested_column));
     block.get_by_position(result).column = std::move(to_column);
     return Status::OK();
 }
@@ -235,6 +262,7 @@ Status cast_from_string_to_complex_type_strict_mode(FunctionContext* context, Bl
             nullable_col_to.get_null_map_data().push_back(0);
         }
     }
+    RETURN_IF_ERROR(deduplicate_map_keys(nested_column));
     block.get_by_position(result).column = std::move(to_column);
     return Status::OK();
 }
