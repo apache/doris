@@ -162,7 +162,7 @@ TEST(TableFormatReaderTest, FillMissingNullableColumnDetachesSharedBlockSlot) {
     EXPECT_EQ(null_map[2], 1);
 }
 
-TEST(TableFormatReaderTest, PartitionValueRangeRequiresOrdinaryHiveColumnarWholeFile) {
+TEST(TableFormatReaderTest, PartitionValueSupportsColumnarHiveAndHudiRanges) {
     TTableFormatFileDesc table_format;
     table_format.__set_table_format_type("hive");
     TFileRangeDesc range;
@@ -172,39 +172,48 @@ TEST(TableFormatReaderTest, PartitionValueRangeRequiresOrdinaryHiveColumnarWhole
     range.__set_file_size(1024);
     EXPECT_TRUE(PartitionColumnReader::supports_range(range, TFileFormatType::FORMAT_PARQUET));
     EXPECT_TRUE(PartitionColumnReader::supports_range(range, TFileFormatType::FORMAT_ORC));
+    // Only formats whose reader can be opened and whose metadata is readable.
     for (const auto format : {TFileFormatType::FORMAT_CSV_PLAIN, TFileFormatType::FORMAT_TEXT,
                               TFileFormatType::FORMAT_JSON, TFileFormatType::FORMAT_JNI}) {
         EXPECT_FALSE(PartitionColumnReader::supports_range(range, format));
     }
-    for (const auto* table : {"transactional_hive", "hudi", "iceberg", "paimon"}) {
+    // Formats that can hide physical rows behind deletes are excluded.
+    for (const auto* table : {"transactional_hive", "iceberg", "paimon"}) {
         range.table_format_params.__set_table_format_type(table);
         EXPECT_FALSE(PartitionColumnReader::supports_range(range, TFileFormatType::FORMAT_ORC));
     }
+    // Hudi COW carries its partition value in the partition path, exactly like Hive.
+    range.table_format_params.__set_table_format_type("hudi");
+    EXPECT_TRUE(PartitionColumnReader::supports_range(range, TFileFormatType::FORMAT_PARQUET));
+    EXPECT_TRUE(PartitionColumnReader::supports_range(range, TFileFormatType::FORMAT_ORC));
+    // A split is fine: the reader no longer needs a row count, so a partial range is no longer a
+    // correctness problem -- one row per range is the contract.
     range.table_format_params.__set_table_format_type("hive");
     range.__set_start_offset(1);
-    EXPECT_FALSE(PartitionColumnReader::supports_range(range, TFileFormatType::FORMAT_PARQUET));
+    EXPECT_TRUE(PartitionColumnReader::supports_range(range, TFileFormatType::FORMAT_PARQUET));
     range.__set_start_offset(0);
     range.__set_size(512);
-    EXPECT_FALSE(PartitionColumnReader::supports_range(range, TFileFormatType::FORMAT_PARQUET));
-    range.__set_file_size(-1);
-    range.__set_size(-1);
-    EXPECT_FALSE(PartitionColumnReader::supports_range(range, TFileFormatType::FORMAT_PARQUET));
+    EXPECT_TRUE(PartitionColumnReader::supports_range(range, TFileFormatType::FORMAT_PARQUET));
 }
 
-TEST(TableFormatReaderTest, PartitionValueRequiresNonemptyFooterAndFillsTypedNulls) {
+TEST(TableFormatReaderTest, PartitionValueEmitsOneRowPerRangeAndFillsTypedNulls) {
     auto value_slot_desc = create_slot_descriptor(0, "part", TPrimitiveType::INT);
     auto null_slot_desc = create_slot_descriptor(1, "null_part", TPrimitiveType::INT, true);
     SlotDescriptor value_slot(value_slot_desc);
     SlotDescriptor null_slot(null_slot_desc);
     std::unordered_map<std::string, uint32_t> block_index {{"part", 0}, {"null_part", 1}};
 
+    // The footer row count is irrelevant: a range emits its partition values whether or not the
+    // file turns out to hold rows. (A partition with no file at all emits nothing, simply because
+    // it produces no scan range.) Keeping the zero-row case here pins that contract down: an
+    // implementation that re-gated on "proven nonempty" would fail it.
     for (const int64_t footer_rows : {0, 1, 10000}) {
         auto inner = std::make_unique<MockTableFormatReader>();
         auto* inner_ptr = inner.get();
         inner->set_fill_col_name_to_block_idx(&block_index);
         inner->set_partition_value("part", "42", &value_slot);
         inner->set_partition_value("null_part", "", &null_slot, true);
-        PartitionColumnReader reader(footer_rows, std::move(inner));
+        PartitionColumnReader reader(std::move(inner));
         EXPECT_EQ(reader.get_push_down_agg_type(), TPushAggOp::type::PARTITION_VALUE);
 
         Block block;
@@ -215,14 +224,12 @@ TEST(TableFormatReaderTest, PartitionValueRequiresNonemptyFooterAndFillsTypedNul
         size_t read_rows = 0;
         bool eof = false;
         ASSERT_TRUE(reader.get_next_block(&block, &read_rows, &eof).ok());
-        EXPECT_EQ(read_rows, footer_rows > 0 ? 1 : 0);
-        EXPECT_EQ(block.rows(), read_rows);
+        EXPECT_EQ(read_rows, 1) << "footer_rows=" << footer_rows;
+        EXPECT_EQ(block.rows(), 1);
         EXPECT_TRUE(eof);
         ASSERT_TRUE(block.check_type_and_column().ok());
-        if (footer_rows > 0) {
-            EXPECT_EQ(block.get_by_position(0).column->get_int(0), 42);
-            EXPECT_TRUE(block.get_by_position(1).column->is_null_at(0));
-        }
+        EXPECT_EQ(block.get_by_position(0).column->get_int(0), 42);
+        EXPECT_TRUE(block.get_by_position(1).column->is_null_at(0));
 
         ASSERT_TRUE(reader.get_next_block(&block, &read_rows, &eof).ok());
         EXPECT_EQ(read_rows, 0);

@@ -2444,13 +2444,13 @@ TEST(TableReaderTest, PartitionValueReadsRealParquetFootersAndPropagatesErrors) 
             EXPECT_FALSE(status.ok());
             EXPECT_EQ(block.rows(), 0);
         } else {
+            // One row of partition values per range, whether or not the file turns out to hold
+            // rows: an empty file still contributes its partition value.
             ASSERT_TRUE(status.ok()) << status;
-            EXPECT_EQ(block.rows(), path == empty_path ? 0 : 1);
-            if (path == nonempty_path) {
-                // Table columns of an external scan are nullable, so unwrap the null map the way
-                // the other partition-value assertions in this file do before reading the value.
-                expect_int32_column_values(*block.get_by_position(0).column, {7});
-            }
+            EXPECT_EQ(block.rows(), 1);
+            // Table columns of an external scan are nullable, so unwrap the null map the way
+            // the other partition-value assertions in this file do before reading the value.
+            expect_int32_column_values(*block.get_by_position(0).column, {7});
             ASSERT_TRUE(reader.get_block(&block, &eos).ok());
             EXPECT_TRUE(eos);
             EXPECT_EQ(block.rows(), 0);
@@ -2459,7 +2459,9 @@ TEST(TableReaderTest, PartitionValueReadsRealParquetFootersAndPropagatesErrors) 
     }
 }
 
-TEST(TableReaderTest, PartitionValueUsesOnlySelectedParquetRangeRows) {
+// One row of partition values per range: the reader no longer asks the file for a row count, so the
+// selected range no longer changes how many rows come back.
+TEST(TableReaderTest, PartitionValueEmitsOneRowPerRange) {
     const doris::test::ScopedTempDirectory test_dir("doris_partition_value_range_test");
     const auto path = (test_dir.path() / "ranges.parquet").string();
     write_int_pair_parquet_file(path, {1, 2, 3, 4}, {10, 20, 30, 40},
@@ -2495,7 +2497,7 @@ TEST(TableReaderTest, PartitionValueUsesOnlySelectedParquetRangeRows) {
         Block block = build_table_block(columns);
         bool eos = false;
         ASSERT_TRUE(reader.get_block(&block, &eos).ok());
-        EXPECT_EQ(block.rows(), row_group < 0 ? 0 : 1);
+        EXPECT_EQ(block.rows(), 1);
         ASSERT_TRUE(reader.get_block(&block, &eos).ok());
         EXPECT_TRUE(eos);
         EXPECT_EQ(block.rows(), 0);
@@ -2503,7 +2505,7 @@ TEST(TableReaderTest, PartitionValueUsesOnlySelectedParquetRangeRows) {
     ASSERT_TRUE(reader.close().ok());
 }
 
-TEST(TableReaderTest, PartitionValueUsesFooterAndPreservesNullPartition) {
+TEST(TableReaderTest, PartitionValuePreservesNullPartitionWithoutCountRequest) {
     const auto int_type = std::make_shared<DataTypeInt32>();
     const auto nullable_int_type = make_nullable(int_type);
     std::vector<ColumnDefinition> projected_columns {
@@ -2544,19 +2546,16 @@ TEST(TableReaderTest, PartitionValueUsesFooterAndPreservesNullPartition) {
             Block block = build_table_block(projected_columns);
             bool eos = false;
             ASSERT_TRUE(reader.get_block(&block, &eos).ok());
-            EXPECT_EQ(block.rows(), footer_rows > 0 ? 1 : 0);
+            // One row per range regardless of the footer row count.
+            EXPECT_EQ(block.rows(), 1);
             ASSERT_TRUE(block.check_type_and_column().ok());
-            if (footer_rows > 0) {
-                // Table columns of an external scan are nullable, so unwrap the null map the way
-                // the other partition-value assertions in this file do before reading the value.
-                expect_int32_column_values(*block.get_by_position(0).column, {7});
-                EXPECT_TRUE(block.get_by_position(1)
-                                    .column->convert_to_full_column_if_const()
-                                    ->is_null_at(0));
-            }
-            ASSERT_TRUE(fake_state->last_aggregate_request.has_value());
-            EXPECT_EQ(fake_state->last_aggregate_request->agg_type, TPushAggOp::type::COUNT);
-            EXPECT_TRUE(fake_state->last_aggregate_request->columns.empty());
+            // Table columns of an external scan are nullable, so unwrap the null map the way
+            // the other partition-value assertions in this file do before reading the value.
+            expect_int32_column_values(*block.get_by_position(0).column, {7});
+            EXPECT_TRUE(
+                    block.get_by_position(1).column->convert_to_full_column_if_const()->is_null_at(0));
+            // No metadata count request: the optimization does not need to prove nonemptiness.
+            EXPECT_FALSE(fake_state->last_aggregate_request.has_value());
             EXPECT_EQ(fake_state->init_count, 1);
             EXPECT_EQ(fake_state->open_count, 1);
             EXPECT_EQ(fake_state->read_count, 0);
@@ -2581,13 +2580,13 @@ TEST(TableReaderTest, PartitionValueFallsBackWithoutSafeFooterProof) {
         bool delete_conjunct = false;
         bool physical_projection = false;
     };
+    // Hudi is supported (its partition value lives in the partition path) and a reader that cannot
+    // report a row count is no longer a reason to decline, so neither appears here.
     const std::vector<Scenario> scenarios {{FileFormat::CSV, "hive", 17},
                                            {FileFormat::TEXT, "hive", 17},
                                            {FileFormat::JSON, "hive", 17},
                                            {FileFormat::ORC, "transactional_hive", 17},
-                                           {FileFormat::PARQUET, "hudi", 17},
                                            {FileFormat::PARQUET, "iceberg", 17},
-                                           {FileFormat::PARQUET, "hive", -1},
                                            {FileFormat::PARQUET, "hive", 17, true},
                                            {FileFormat::ORC, "hive", 17, false, true},
                                            {FileFormat::PARQUET, "hive", 17, false, false, true}};

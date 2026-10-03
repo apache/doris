@@ -417,8 +417,14 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
             return false;
         }
         String inputFormat = hudiHandle.getInputFormat();
-        return inputFormat != null && (inputFormat.contains("Parquet") || inputFormat.contains("Orc")
-                || inputFormat.contains("ORC"));
+        if (inputFormat == null || inputFormat.toLowerCase(Locale.ROOT).contains("realtime")) {
+            // The merge-on-read realtime format folds log files into the row set, so the set of
+            // files a partition has no longer describes what the scan returns. Those ranges also
+            // usually arrive as JNI, which the BE rejects. Excluding it buys nothing.
+            return false;
+        }
+        return inputFormat.contains("Parquet") || inputFormat.contains("Orc")
+                || inputFormat.contains("ORC");
     }
 
     // ========== Read-only write-reject safety net ==========

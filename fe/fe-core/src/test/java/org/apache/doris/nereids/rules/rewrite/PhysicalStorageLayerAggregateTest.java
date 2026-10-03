@@ -226,14 +226,33 @@ public class PhysicalStorageLayerAggregateTest implements MemoPatternMatchSuppor
                 LogicalFileScan scan = newPartitionFileScan(Optional.empty());
                 Slot partition = scan.getOutput().get(1);
                 Plan child = partitionScanChild(scan, projected, filtered);
+                // Count(distinct) is deliberately absent here: it is duplicate-insensitive and is
+                // covered by testPartitionValueSupportsCountDistinct.
                 for (Expression function : ImmutableList.of(new Count(), new Count(partition),
-                        new Count(true, partition), new Sum(partition))) {
+                        new Sum(partition))) {
                     checkPartitionValue(new LogicalAggregate<>(ImmutableList.of(),
                             ImmutableList.of(new Alias(function)), true, Optional.empty(), child), false, true);
                 }
                 checkPartitionValue(new LogicalAggregate<>(ImmutableList.of(),
                         ImmutableList.of(new Alias(new Max(partition)), new Alias(new Count())),
                         true, Optional.empty(), child), false, true);
+            }
+        }
+    }
+
+    @Test
+    public void testPartitionValueSupportsCountDistinct() {
+        // COUNT(DISTINCT p) over a partition column is duplicate-insensitive: the scan emits one
+        // row of partition values per file and every row of a file carries the same values, so
+        // deduplicating that stream yields the same value set as deduplicating every row.
+        for (boolean projected : new boolean[] {false, true}) {
+            for (boolean filtered : new boolean[] {false, true}) {
+                LogicalFileScan scan = newPartitionFileScan(Optional.empty());
+                Slot partition = scan.getOutput().get(1);
+                Plan child = partitionScanChild(scan, projected, filtered);
+                checkPartitionValue(new LogicalAggregate<>(ImmutableList.of(),
+                        ImmutableList.of(new Alias(new Count(true, partition))), true, Optional.empty(),
+                        child), true, true);
             }
         }
     }
