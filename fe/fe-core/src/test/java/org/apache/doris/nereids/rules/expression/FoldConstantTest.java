@@ -1708,6 +1708,26 @@ class FoldConstantTest extends ExpressionRewriteTestHelper {
         assertRewriteAfterTypeCoercion("explode([1, 2, 3])", "explode([1, 2, 3])");
     }
 
+    @Test
+    void testHumanReadableSecondsFold() {
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(FoldConstantRule.INSTANCE)
+        ));
+        assertRewriteAfterTypeCoercion("human_readable_seconds(0)", "'0 seconds'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(1)", "'1 second'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(60)", "'1 minute'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(-60)", "'1 minute'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(61)", "'1 minute, 1 second'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(-61)", "'1 minute, 1 second'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(3601)", "'1 hour, 1 second'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(3660)", "'1 hour, 1 minute'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(8003)", "'2 hours, 13 minutes, 23 seconds'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(56363463)", "'93 weeks, 1 day, 8 hours, 31 minutes, 3 seconds'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(535333.9513888889)", "'6 days, 4 hours, 42 minutes, 14 seconds'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(535333.2513888889)", "'6 days, 4 hours, 42 minutes, 13 seconds'");
+        assertRewriteAfterTypeCoercion("human_readable_seconds(null)", "null");
+    }
+
     private void assertRewriteExpression(String actualExpression, String expectedExpression) {
         ExpressionRewriteContext context = new ExpressionRewriteContext(
                 MemoTestUtils.createCascadesContext(new UnboundRelation(new RelationId(1), ImmutableList.of("test_table"))));

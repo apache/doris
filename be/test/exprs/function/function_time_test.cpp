@@ -2825,4 +2825,41 @@ TEST(VTimestampFunctionsTest, add_union_functions_cover_all) {
     }
 }
 
+TEST(VTimestampFunctionsTest, test_human_readable_seconds_double) {
+    std::string func_name = "human_readable_seconds";
+    InputTypeSet input_types = {PrimitiveType::TYPE_DOUBLE};
+    DataSet data_set = {
+            {{double(0.0)}, std::string("0 seconds")},
+            {{double(1.0)}, std::string("1 second")},
+            {{double(60.0)}, std::string("1 minute")},
+            {{double(-60.0)}, std::string("1 minute")},
+            {{double(61.0)}, std::string("1 minute, 1 second")},
+            {{double(-61.0)}, std::string("1 minute, 1 second")},
+            {{double(3601.0)}, std::string("1 hour, 1 second")},
+            {{double(3660.0)}, std::string("1 hour, 1 minute")},
+            {{double(8003.0)}, std::string("2 hours, 13 minutes, 23 seconds")},
+            {{double(56363463.0)}, std::string("93 weeks, 1 day, 8 hours, 31 minutes, 3 seconds")},
+            {{double(535333.9513888889)}, std::string("6 days, 4 hours, 42 minutes, 14 seconds")},
+            {{double(535333.2513888889)}, std::string("6 days, 4 hours, 42 minutes, 13 seconds")},
+            {{Null()}, Null()},
+            {{std::numeric_limits<double>::quiet_NaN()}, Null()},
+            {{std::numeric_limits<double>::infinity()}, Null()},
+            {{-std::numeric_limits<double>::infinity()}, Null()}};
+    check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+}
+
+TEST(VTimestampFunctionsTest, test_human_readable_seconds_float) {
+    std::string func_name = "human_readable_seconds";
+    InputTypeSet input_types = {PrimitiveType::TYPE_FLOAT};
+    DataSet data_set = {{{float(0.0f)}, std::string("0 seconds")},
+                        {{float(1.0f)}, std::string("1 second")},
+                        {{float(60.0f)}, std::string("1 minute")},
+                        {{float(-60.0f)}, std::string("1 minute")},
+                        {{float(3601.0f)}, std::string("1 hour, 1 second")},
+                        {{Null()}, Null()},
+                        {{std::numeric_limits<float>::quiet_NaN()}, Null()},
+                        {{std::numeric_limits<float>::infinity()}, Null()}};
+    check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
+}
+
 } // namespace doris
