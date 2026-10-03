@@ -27,7 +27,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.datasource.plugin.PluginDrivenExternalTable;
-import org.apache.doris.persist.TableStatsDeletionLog;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.analysis.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.analysis.AnalysisInfo.JobType;
@@ -210,8 +209,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
             LOG.info("Table {} is empty, remove its old stats and skip auto analyze it.", table.getName());
             // Remove the table's old stats if exists.
             if (tableStatsStatus != null && !tableStatsStatus.isColumnsStatsEmpty()) {
-                manager.removeTableStats(table.getId());
-                Env.getCurrentEnv().getEditLog().logDeleteTableStats(new TableStatsDeletionLog(table.getId()));
+                manager.removeTableStatsAndLog(table.getId());
                 manager.dropStats(table, null);
             }
             return false;

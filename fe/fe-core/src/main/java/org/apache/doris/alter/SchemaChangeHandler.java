@@ -3555,7 +3555,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 if (!FeConstants.runningUnitTest) {
                     Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropInvertedIndices(info);
                     // Drop table column stats after light schema change finished.
-                    Env.getCurrentEnv().getAnalysisManager().removeTableStats(olapTable.getId());
+                    Env.getCurrentEnv().getAnalysisManager().removeTableStatsAndLog(olapTable.getId());
                     Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, null);
                 }
 
@@ -3588,7 +3588,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 if (!FeConstants.runningUnitTest) {
                     Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropColumns(info);
                     // Drop table column stats after light schema change finished.
-                    Env.getCurrentEnv().getAnalysisManager().removeTableStats(olapTable.getId());
+                    Env.getCurrentEnv().getAnalysisManager().removeTableStatsAndLog(olapTable.getId());
                     Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, null);
                 }
             }
