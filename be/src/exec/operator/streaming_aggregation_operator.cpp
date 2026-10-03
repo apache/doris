@@ -1127,8 +1127,7 @@ Status StreamingAggOperatorX::push(RuntimeState* state, Block* in_block, bool eo
         RETURN_IF_ERROR(
                 local_state.do_pre_agg(state, in_block, local_state._pre_aggregated_block.get()));
     }
-    in_block->clear_column_data(
-            _child->operator_row_desc_after_projection().num_materialized_slots());
+    in_block->clear_column_data(_child->operator_row_desc_after_projection().num_slots());
     return Status::OK();
 }
 
