@@ -21,13 +21,14 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 
 public class TimeV2Literal extends LiteralExpr {
-    public static final TimeV2Literal MIN_VALUE = new TimeV2Literal(838, 59, 59, 999999, 6, true);
-    public static final TimeV2Literal MAX_VALUE = new TimeV2Literal(838, 59, 59, 999999, 6, false);
+    public static final TimeV2Literal MIN_VALUE = fromNanosecond(838, 59, 59, 999999999, 9, true);
+    public static final TimeV2Literal MAX_VALUE = fromNanosecond(838, 59, 59, 999999999, 9, false);
 
     protected int hour;
     protected int minute;
     protected int second;
     protected int microsecond;
+    protected int nanosecondRemainder;
     protected boolean negative;
 
     /**
@@ -40,22 +41,40 @@ public class TimeV2Literal extends LiteralExpr {
         this.minute = 0;
         this.second = 0;
         this.microsecond = 0;
+        this.nanosecondRemainder = 0;
         this.negative = false;
     }
 
     // for -00:... so we need explicite negative
     public TimeV2Literal(int hour, int minute, int second, int microsecond, int scale, boolean negative) {
+        this(hour, minute, second, (long) microsecond * 1000, scale, negative);
+    }
+
+    private TimeV2Literal(int hour, int minute, int second, long nanosecond, int scale, boolean negative) {
         super();
         this.type = ScalarType.createTimeV2Type(scale);
         this.hour = hour;
         this.minute = minute;
         this.second = second;
-        this.microsecond = microsecond / (int) Math.pow(10, 6 - scale) * (int) Math.pow(10, 6 - scale);
+        if (scale > ScalarType.MAX_TIMEV2_SCALE || scale < 0) {
+            throw new RuntimeException("time literal scale is out of range [0, 9]");
+        }
+        int factor = (int) Math.pow(10, ScalarType.MAX_TIMEV2_SCALE - scale);
+        int truncatedNanosecond = (int) (nanosecond / factor * factor);
+        this.microsecond = truncatedNanosecond / 1000;
+        this.nanosecondRemainder = truncatedNanosecond % 1000;
         this.negative = negative;
-        if (checkRange(this.hour, this.minute, this.second, this.microsecond) || scale > 6 || scale < 0) {
-            throw new RuntimeException("time literal is out of range [-838:59:59.999999, 838:59:59.999999]");
+        if (checkRange(this.hour, this.minute, this.second, truncatedNanosecond)) {
+            throw new RuntimeException(
+                    "time literal is out of range [-838:59:59.999999999, 838:59:59.999999999]");
         }
         this.nullable = false;
+    }
+
+    /** Create a TIMEV2 literal from a full nanosecond-of-second value. */
+    public static TimeV2Literal fromNanosecond(int hour, int minute, int second, int nanosecond,
+            int scale, boolean negative) {
+        return new TimeV2Literal(hour, minute, second, (long) nanosecond, scale, negative);
     }
 
     protected TimeV2Literal(TimeV2Literal other) {
@@ -65,6 +84,7 @@ public class TimeV2Literal extends LiteralExpr {
         this.minute = other.getMinute();
         this.second = other.getSecond();
         this.microsecond = other.getMicroSecond();
+        this.nanosecondRemainder = other.nanosecondRemainder;
         this.negative = other.isNegative();
     }
 
@@ -121,14 +141,15 @@ public class TimeV2Literal extends LiteralExpr {
         }
         int scale = ((ScalarType) type).getScalarScale();
         if (scale > 0) {
-            sb.append(String.format(".%0" + scale + "d", microsecond / (int) Math.pow(10, 6 - scale)));
+            sb.append(String.format(".%0" + scale + "d",
+                    getNanoSecond() / (int) Math.pow(10, ScalarType.MAX_TIMEV2_SCALE - scale)));
         }
         return sb.toString();
     }
 
-    protected static boolean checkRange(int hour, int minute, int second, int microsecond) {
-        return hour > 838 || minute > 59 || second > 59 || microsecond > 999999 || minute < 0 || second < 0
-                || microsecond < 0;
+    protected static boolean checkRange(int hour, int minute, int second, int nanosecond) {
+        return hour > 838 || minute > 59 || second > 59 || nanosecond > 999999999
+                || minute < 0 || second < 0 || nanosecond < 0;
     }
 
     public int getHour() {
@@ -147,14 +168,20 @@ public class TimeV2Literal extends LiteralExpr {
         return microsecond;
     }
 
+    public int getNanoSecond() {
+        return microsecond * 1000 + nanosecondRemainder;
+    }
+
     public boolean isNegative() {
         return negative;
     }
 
     public double getValue() {
         if (negative) {
-            return (((double) (-hour * 60) - minute) * 60 - second) * 1000000 - microsecond;
+            return (((double) (-hour * 60) - minute) * 60 - second) * 1000000
+                    - microsecond - nanosecondRemainder / 1000.0;
         }
-        return (((double) (hour * 60) + minute) * 60 + second) * 1000000 + microsecond;
+        return (((double) (hour * 60) + minute) * 60 + second) * 1000000
+                + microsecond + nanosecondRemainder / 1000.0;
     }
 }

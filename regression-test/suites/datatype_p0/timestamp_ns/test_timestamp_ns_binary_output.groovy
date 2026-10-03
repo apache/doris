@@ -60,4 +60,15 @@ suite("test_timestamp_ns_binary_output") {
         qe_binary_protocol stmt
         stmt.close()
     }
+
+    connect(user, password, url) {
+        PreparedStatement stmt = prepareStatement("""
+            select cast('12:34:56.123456789' as time(9)) where ? = 1
+        """)
+        assertEquals(ServerPreparedStatement, stmt.class)
+        assertEquals(Types.CHAR, stmt.metaData.getColumnType(1))
+        stmt.setInt(1, 1)
+        qe_timev2_binary_protocol stmt
+        stmt.close()
+    }
 }

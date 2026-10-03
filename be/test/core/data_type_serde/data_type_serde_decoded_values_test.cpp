@@ -1103,6 +1103,15 @@ TEST(DataTypeSerDeDecodedValuesTest, ReadTimeV2FromInt64Nanos) {
     ASSERT_TRUE(result.status.ok()) << result.status;
     expect_column_strings(*type, *result.column,
                           {"00:00:00.000001", "-00:00:00.000001", "01:01:01.000001"});
+
+    auto nanosecond_type = std::make_shared<DataTypeTimeV2>(9);
+    std::vector<int64_t> exact_values = {1, -1, 3661000001001LL};
+    auto exact_view = make_fixed_view(DecodedValueKind::INT64, exact_values);
+    exact_view.time_unit = DecodedTimeUnit::NANOS;
+    auto exact_result = read_column(nanosecond_type, exact_view);
+    ASSERT_TRUE(exact_result.status.ok()) << exact_result.status;
+    expect_column_strings(*nanosecond_type, *exact_result.column,
+                          {"00:00:00.000000001", "-00:00:00.000000001", "01:01:01.000001001"});
 }
 
 TEST(DataTypeSerDeDecodedValuesTest, TimeV2HandlesNulls) {

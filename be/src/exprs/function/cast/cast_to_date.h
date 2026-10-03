@@ -165,31 +165,14 @@ public:
             } else {
                 static_assert(IsTimeV2Type<ToDataType>);
                 const auto to_scale = block.get_by_position(result).type->get_scale();
-                const int64_t seconds = source.time_part_to_seconds();
-                uint32_t hour = static_cast<uint32_t>(seconds / 3600);
-                uint32_t minute = static_cast<uint32_t>(seconds / 60 % 60);
-                uint32_t second = static_cast<uint32_t>(seconds % 60);
-                uint32_t nanoseconds = source.nanosecond();
-                const auto divisor = static_cast<uint32_t>(common::exp10_i64(9 - to_scale));
-                const uint32_t remainder = nanoseconds % divisor;
-                nanoseconds = nanoseconds / divisor * divisor;
-                if (remainder >= divisor / 2) {
+                int64_t nanoseconds = source.time_part_to_nanosecond();
+                const int64_t divisor = common::exp10_i64(9 - to_scale);
+                const int64_t remainder = nanoseconds % divisor;
+                nanoseconds -= remainder;
+                if (remainder * 2 >= divisor) {
                     nanoseconds += divisor;
                 }
-                uint32_t microseconds = nanoseconds / TimeStampNsValue::NANOS_PER_MICROSECOND;
-                if (microseconds >= TimeValue::ONE_SECOND_MICROSECONDS) {
-                    microseconds = 0;
-                    if (++second == 60) {
-                        second = 0;
-                        if (++minute == 60) {
-                            minute = 0;
-                            ++hour;
-                        }
-                    }
-                }
-                col_to->get_data()[i] =
-                        ((hour * 60 + minute) * 60 + second) * TimeValue::ONE_SECOND_MICROSECONDS +
-                        microseconds;
+                col_to->get_data()[i] = TimeValue::from_nanoseconds(nanoseconds);
             }
         }
 
@@ -309,7 +292,7 @@ public:
             } else if constexpr (IsTimeV2Type<FromDataType> && IsDateTimeV2Type<ToDataType>) {
                 const auto* type = assert_cast<const DataTypeTimeV2*>(
                         block.get_by_position(arguments[0]).type.get());
-                auto scale = type->get_scale();
+                auto scale = std::min(type->get_scale(), TimeValue::MICROS_SCALE);
 
                 DateV2Value<DateTimeV2ValueType> dtmv2;
                 dtmv2.from_unixtime(context->state()->timestamp_ms() / 1000,
@@ -385,35 +368,9 @@ public:
                     // nothing to do, just copy
                     col_to->get_data()[i] = col_from->get_data()[i];
                 } else {
-                    double time = col_from->get_data()[i];
-                    auto sign = TimeValue::sign(time);
-                    time = std::abs(time);
-                    // e.g. scale reduce to 4, means we need to round the last 2 digits
-                    // 999956: 56 > 100/2, then round up to 1000000
-                    uint32_t microseconds = TimeValue::microsecond(time);
-                    auto divisor = (uint32_t)common::exp10_i64(6 - to_scale);
-                    uint32_t remainder = microseconds % divisor;
-
-                    if (remainder >= divisor / 2) { // need to round up
-                        // do rounding up
-                        uint32_t rounded_microseconds = ((microseconds / divisor) + 1) * divisor;
-                        // need carry on
-                        if (rounded_microseconds >= TimeValue::ONE_SECOND_MICROSECONDS) {
-                            DCHECK(rounded_microseconds == TimeValue::ONE_SECOND_MICROSECONDS);
-                            time = ((int64_t)time / TimeValue::ONE_SECOND_MICROSECONDS + 1) *
-                                   TimeValue::ONE_SECOND_MICROSECONDS;
-
-                            // the input data must be valid, so max to '838:59:59.0'. this value won't carry on
-                            // to second.
-                            DCHECK(TimeValue::valid(time)) << col_from->get_data()[i];
-                        } else {
-                            time = TimeValue::reset_microsecond(time, rounded_microseconds);
-                        }
-                    } else {
-                        // truncate
-                        time = TimeValue::reset_microsecond(time, microseconds / divisor * divisor);
-                    }
-                    col_to->get_data()[i] = sign * time;
+                    const auto time = TimeValue::round_time(col_from->get_data()[i], to_scale);
+                    DCHECK(TimeValue::valid(time)) << col_from->get_data()[i];
+                    col_to->get_data()[i] = time;
                 }
             } else if constexpr (IsDateTimeV2Type<FromDataType> && IsTimeV2Type<ToDataType>) {
                 // from Datetime to Time

@@ -319,7 +319,8 @@ public:
                 datetime = col_from.get_data()[i];
             } else {
                 static_assert(IsTimeV2Type<FromDataType>);
-                const auto scale = block.get_by_position(arguments[0]).type->get_scale();
+                const auto scale = std::min(block.get_by_position(arguments[0]).type->get_scale(),
+                                            TimeValue::MICROS_SCALE);
                 datetime.from_unixtime(context->state()->timestamp_ms() / 1000,
                                        context->state()->nano_seconds(),
                                        context->state()->timezone_obj(), scale);
@@ -345,6 +346,16 @@ public:
                 }
                 col_nullmap->get_data()[i] = true;
             }
+            if constexpr (IsTimeV2Type<FromDataType>) {
+                if (!add_submicrosecond_part(col_from.get_data()[i], col_to->get_data()[i])) {
+                    if constexpr (CastMode == CastModeType::StrictMode) {
+                        return Status::InvalidArgument(
+                                "TIMESTAMP_NS overflow when casting row {} from {} to TIMESTAMP_NS",
+                                i, block.get_by_position(arguments[0]).type->get_name());
+                    }
+                    col_nullmap->get_data()[i] = true;
+                }
+            }
         }
 
         if constexpr (CastMode == CastModeType::StrictMode) {
@@ -354,6 +365,21 @@ public:
                     ColumnNullable::create(std::move(col_to), std::move(col_nullmap));
         }
         return Status::OK();
+    }
+
+private:
+    static bool add_submicrosecond_part(TimeValue::TimeType time_value,
+                                        TimeStampNsValue& timestamp) {
+        const int64_t remainder =
+                TimeValue::nanosecond(time_value) % TimeValue::NANOS_PER_MICROSECOND;
+        const __int128 epoch_nanos = static_cast<__int128>(timestamp.epoch_nanos()) +
+                                     TimeValue::sign(time_value) * remainder;
+        if (epoch_nanos < std::numeric_limits<int64_t>::min() ||
+            epoch_nanos > std::numeric_limits<int64_t>::max()) [[unlikely]] {
+            return false;
+        }
+        timestamp = TimeStampNsValue(static_cast<int64_t>(epoch_nanos));
+        return true;
     }
 };
 

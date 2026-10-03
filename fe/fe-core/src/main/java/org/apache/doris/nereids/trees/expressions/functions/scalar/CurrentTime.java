@@ -68,8 +68,9 @@ public class CurrentTime extends ScalarFunction
     public FunctionSignature computeSignature(FunctionSignature signature) {
         if (arity() == 1 && child(0) instanceof TinyIntLiteral) {
             byte precision = ((TinyIntLiteral) child(0)).getValue();
-            if (precision < 0 || precision > 6) {
-                throw new IllegalArgumentException("The precision must be between 0 and 6");
+            if (precision < 0 || precision > TimeV2Type.MAX_SCALE) {
+                throw new IllegalArgumentException("The precision must be between 0 and "
+                        + TimeV2Type.MAX_SCALE);
             }
             return FunctionSignature.ret(TimeV2Type.of(precision)).args(TinyIntType.INSTANCE);
         }

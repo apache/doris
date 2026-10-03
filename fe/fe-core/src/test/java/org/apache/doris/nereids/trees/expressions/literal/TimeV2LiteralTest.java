@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeExtractAndTransform;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TimeV2Type;
@@ -108,6 +109,32 @@ public class TimeV2LiteralTest {
         literal = new TimeV2Literal(TimeV2Type.of(0), "12:00");
         s = literal.getStringValue();
         Assertions.assertEquals(s, "12:00:00");
+    }
+
+    @Test
+    public void testNanosecondPrecision() {
+        TimeV2Literal literal = new TimeV2Literal(TimeV2Type.of(9), "12:34:56.123456789");
+        Assertions.assertEquals("12:34:56.123456789", literal.getStringValue());
+        Assertions.assertEquals(123456789, literal.getNanoSecond());
+        Assertions.assertEquals(45296123456789L, literal.getValueInNanoseconds());
+
+        TimeV2Literal negative = new TimeV2Literal(TimeV2Type.of(9), "-00:00:00.000000001");
+        Assertions.assertEquals("-00:00:00.000000001", negative.getStringValue());
+        Assertions.assertEquals(-1L, negative.getValueInNanoseconds());
+
+        TimeV2Literal rounded = new TimeV2Literal(TimeV2Type.of(6), "12:34:56.123456789");
+        Assertions.assertEquals("12:34:56.123457", rounded.getStringValue());
+
+        TimeV2Literal sum = (TimeV2Literal) literal.plusNanoSeconds(1, 9);
+        Assertions.assertEquals("12:34:56.123456790", sum.getStringValue());
+
+        TimeV2Literal seconds = (TimeV2Literal) DateTimeExtractAndTransform.secToTime(
+                new DoubleLiteral(1.123456789));
+        Assertions.assertEquals("00:00:01.123456789", seconds.getStringValue());
+        TimeV2Literal made = (TimeV2Literal) DateTimeExtractAndTransform.makeTime(
+                new BigIntLiteral(1), new BigIntLiteral(2), new DoubleLiteral(3.123456789));
+        Assertions.assertEquals("01:02:03.123456789", made.getStringValue());
+        Assertions.assertThrows(AnalysisException.class, () -> TimeV2Type.of(10));
     }
 
     @Test

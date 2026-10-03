@@ -40,7 +40,7 @@ class IColumn;
 
 class DataTypeTimeV2 final : public DataTypeNumberBase<PrimitiveType::TYPE_TIMEV2> {
 public:
-    static constexpr UInt32 MAX_SCALE = 6;
+    static constexpr UInt32 MAX_SCALE = 9;
 
     DataTypeTimeV2(int scale = 0) : _scale(scale) {
         if (UNLIKELY(scale > static_cast<int>(MAX_SCALE))) {

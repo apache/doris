@@ -164,6 +164,7 @@ class TimestampNsFunctionSignatureTest {
 
     @Test
     void testMixedDateTimeDifferenceFunctionsKeepDistinctPhysicalTypes() {
+        Assertions.assertEquals(9, TimeV2Type.MAX.getScale());
         Expression datetime = SlotReference.of("datetime", DateTimeV2Type.MAX);
         Expression timestampTz = SlotReference.of("timestamp_tz", TimeStampTzType.MAX);
         assertSignature(new DateDiff(timestampNs, datetime), IntegerType.INSTANCE,
@@ -199,7 +200,7 @@ class TimestampNsFunctionSignatureTest {
         Expression timestampTz = SlotReference.of("timestamp_tz", TimeStampTzType.MAX);
         assertSignature(new DateDiff(datetime, timestampTz), IntegerType.INSTANCE,
                 DateTimeV2Type.MAX, DateTimeV2Type.MAX);
-        assertSignature(new TimeDiff(timestampTz, datetime), TimeV2Type.MAX,
+        assertSignature(new TimeDiff(timestampTz, datetime), TimeV2Type.of(DateTimeV2Type.MAX_SCALE),
                 DateTimeV2Type.MAX, DateTimeV2Type.MAX);
         assertSignature(new SecondsDiff(datetime, timestampTz), BigIntType.INSTANCE,
                 DateTimeV2Type.MAX, DateTimeV2Type.MAX);
