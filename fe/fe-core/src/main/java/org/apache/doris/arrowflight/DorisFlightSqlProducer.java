@@ -25,6 +25,7 @@ import org.apache.doris.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.arrowflight.results.FlightSqlResultCacheEntry;
 import org.apache.doris.arrowflight.sessions.FlightSessionsManager;
 import org.apache.doris.common.IncrWindowNotReadyException;
+import org.apache.doris.common.QueryLogContext;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
@@ -166,21 +167,24 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
         // The result is streamed under the session's command lock: the next statement of the
         // session resets the channel, which would close the VectorSchemaRoot while it is being sent.
         FlightProtocolAdapter.of(connectContext).runCommand(connectContext, () -> {
-            try {
-                final FlightSqlResultCacheEntry flightSqlResultCacheEntry = Objects.requireNonNull(
-                        connectContext.getFlightSqlChannel().getResult(queryId));
-                final VectorSchemaRoot vectorSchemaRoot = flightSqlResultCacheEntry.getVectorSchemaRoot();
-                listener.start(vectorSchemaRoot);
-                listener.putNext();
-            } catch (Throwable e) {
-                String errMsg = "get stream statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(e)
-                        + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
-                        + connectContext.getState().getErrorMessage();
-                handleStreamException(e, errMsg, listener);
-            } finally {
-                listener.completed();
-                // The result has been sent or sent failed, delete it.
-                connectContext.getFlightSqlChannel().invalidate(queryId);
+            final FlightSqlResultCacheEntry result = connectContext.getFlightSqlChannel().getResult(queryId);
+            // The ticket selects the result; session options may have changed the session's query ID.
+            // A missing or expired result has no retained query identity.
+            try (QueryLogContext ignored = QueryLogContext.open(result == null ? null : result.getQueryId())) {
+                try {
+                    final VectorSchemaRoot vectorSchemaRoot = Objects.requireNonNull(result).getVectorSchemaRoot();
+                    listener.start(vectorSchemaRoot);
+                    listener.putNext();
+                } catch (Throwable e) {
+                    String errMsg = "get stream statement failed, " + e.getMessage() + ", "
+                            + Util.getRootCauseMessage(e) + ", error code: " + connectContext.getState().getErrorCode()
+                            + ", error msg: " + connectContext.getState().getErrorMessage();
+                    handleStreamException(e, errMsg, listener);
+                } finally {
+                    listener.completed();
+                    // The result has been sent or sent failed, delete it.
+                    connectContext.getFlightSqlChannel().invalidate(queryId);
+                }
             }
         });
     }
@@ -220,6 +224,8 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             final FlightDescriptor descriptor) {
         try {
             Preconditions.checkState(null != connectContext);
+            // A new request has no query identity until statement execution assigns one.
+            connectContext.resetQueryId();
             Preconditions.checkState(!query.isEmpty());
             // Drops what the previous request left on the session: its deferred coordinator (Arrow
             // Flight keeps it alive across GetFlightInfo -> DoGet so the BE can fetch external-table
@@ -237,7 +243,7 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                     if (connectContext.getFlightSqlChannel().resultNum() == 0) {
                         // a random query id and add empty results
                         String queryId = UUID.randomUUID().toString();
-                        connectContext.getFlightSqlChannel().addOKResult(queryId, query);
+                        connectContext.getFlightSqlChannel().addOKResult(queryId, query, connectContext.queryId());
 
                         final ByteString handle = ByteString.copyFromUtf8(peerIdentity + ":" + queryId);
                         TicketStatementQuery ticketStatement = TicketStatementQuery.newBuilder()
@@ -321,12 +327,15 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
             // leaking it until the next query starts or the connection is torn down. The previous
             // query's deferred coordinator was already finalized at the top of this method, so this
             // only closes this failed query. See #62259.
-            String errMsg = "get flight info statement failed, " + e.getMessage() + ", " + Util.getRootCauseMessage(e)
-                    + ", error code: " + connectContext.getState().getErrorCode() + ", error msg: "
-                    + connectContext.getState().getErrorMessage();
-            connectContext.cancelFlightSqlDeferredExecutors(new Status(TStatusCode.CANCELLED, errMsg));
-            LOG.error(errMsg, e);
-            throw queryFailure(connectContext.getState(), errMsg, e);
+            // FlightSqlConnectProcessor.close() clears the MDC before this catch runs.
+            try (QueryLogContext ignored = QueryLogContext.open(connectContext.queryId())) {
+                String errMsg = "get flight info statement failed, " + e.getMessage() + ", "
+                        + Util.getRootCauseMessage(e) + ", error code: " + connectContext.getState().getErrorCode()
+                        + ", error msg: " + connectContext.getState().getErrorMessage();
+                connectContext.cancelFlightSqlDeferredExecutors(new Status(TStatusCode.CANCELLED, errMsg));
+                LOG.error(errMsg, e);
+                throw queryFailure(connectContext.getState(), errMsg, e);
+            }
         } finally {
             connectContext.setCommand(MysqlCommand.COM_SLEEP);
         }

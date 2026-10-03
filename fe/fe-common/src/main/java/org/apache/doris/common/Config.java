@@ -77,6 +77,9 @@ public class Config extends ConfigBase {
             options = {"NORMAL", "ASYNC", "BRIEF"})
     public static String sys_log_mode = "ASYNC";
 
+    @ConfField(description = "Attach query_id to runtime log events. Requires restart.")
+    public static boolean sys_log_enable_query_id = true;
+
     @ConfField(description = "The maximum number of FE log files that can be retained within the "
             + "sys_log_roll_interval (log roll interval). The default value is 10, which means the "
             + "system will keep up to 10 log files during each log roll interval.")
@@ -104,6 +107,21 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = "The threshold of slow query, in milliseconds. If the response time of a "
             + "query exceeds this threshold, it will be recorded in audit log.")
     public static long qe_slow_log_ms = 5000;
+
+    @ConfField(mutable = true, description = "Log slow Nereids planning passes after this many milliseconds. "
+            + "Non-positive values disable slow-pass logs; failed passes are still reported.")
+    public static volatile long nereids_planning_log_threshold_ms = 5000;
+
+    @ConfField(mutable = true, description = "Minimum interval in milliseconds between running-planner reports "
+            + "from the connection checker. Nested passes share the outermost pass's interval. "
+            + "Values below 1000 use 1000.")
+    public static volatile long nereids_planning_log_interval_ms = 30000;
+
+    @ConfField(mutable = true, description = "Slow planning lock wait/hold and external metadata operation threshold "
+            + "in milliseconds. Non-positive values disable slow-operation logs. At most 16 operations are logged "
+            + "per planning pass, after releasing planner resources; failures are reported regardless of threshold.")
+    public static volatile long nereids_planning_operation_log_threshold_ms = 1000;
+
     @ConfField(mutable = true, description = "The threshold of sql_digest generation, in milliseconds. If the "
             + "response time of a query exceeds this threshold, sql_digest will be " + "generated for it.")
     public static long sql_digest_generation_threshold_ms = 5000;

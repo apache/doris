@@ -312,6 +312,8 @@ DEFINE_Int32(sys_log_verbose_level, "10");
 DEFINE_Int32(sys_log_verbose_flags_v, "-1");
 // log buffer level
 DEFINE_String(log_buffer_level, "");
+// Attach query identity to runtime log events (requires restart).
+DEFINE_Bool(sys_log_enable_query_id, "true");
 // log enable custom date time format
 DEFINE_Bool(sys_log_enable_custom_date_time_format, "false");
 // log custom date time format (https://en.cppreference.com/w/cpp/io/manip/put_time)
