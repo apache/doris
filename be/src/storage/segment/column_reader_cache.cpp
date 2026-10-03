@@ -98,10 +98,15 @@ Status ColumnReaderCache::get_column_reader(int32_t col_uid,
                                             OlapReaderStatistics* stats,
                                             const io::IOContext* source_io_ctx,
                                             std::optional<Field> const_value) {
-    // Attempt to find in cache
-    if (auto cached = _lookup({col_uid, {}})) {
-        *column_reader = cached;
-        return Status::OK();
+    // Readers backed by a read-time constant depend on StorageReadOptions rather than only the
+    // column UID. Do not let them share this UID-only cache with the physical reader: either cache
+    // order would otherwise make one read path observe the other path's value.
+    const bool cacheable = !const_value.has_value();
+    if (cacheable) {
+        if (auto cached = _lookup({col_uid, {}})) {
+            *column_reader = cached;
+            return Status::OK();
+        }
     }
     // Load footer once under cache mutex (not thread-safe otherwise)
     std::shared_ptr<SegmentFooterPB> footer_pb_shared;
@@ -140,7 +145,9 @@ Status ColumnReaderCache::get_column_reader(int32_t col_uid,
         RETURN_IF_ERROR(ColumnReader::create(opts, meta, _num_rows, _file_reader, &reader));
     }
 
-    _insert_direct({col_uid, {}}, reader);
+    if (cacheable) {
+        _insert_direct({col_uid, {}}, reader);
+    }
     *column_reader = std::move(reader);
     return Status::OK();
 }

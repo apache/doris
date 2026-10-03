@@ -17,10 +17,16 @@
 
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/Descriptors_types.h>
+#include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gtest/gtest.h>
 
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+#include "common/consts.h"
 #include "common/object_pool.h"
 #include "core/block/block.h"
 #include "exprs/vexpr.h"
@@ -29,7 +35,9 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "service/point_query_executor.h"
+#include "storage/read_time_hidden_column.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/utils.h"
 
 namespace doris {
 
@@ -199,6 +207,193 @@ std::shared_ptr<TabletSchema> ReusableTestHelper::tablet_schema = []() {
     }
     return schema;
 }();
+
+class PointQueryHiddenColumnTest : public testing::Test {
+protected:
+    static constexpr int32_t kKeyUid = 10;
+    static constexpr int32_t kValueUid = 11;
+    static constexpr int32_t kVersionUid = 12;
+    static constexpr int32_t kCommitTsoUid = 13;
+    static constexpr int32_t kBinlogTsoUid = 14;
+    static constexpr int32_t kDeleteSignUid = 15;
+    static constexpr int32_t kRowStoreUid = 16;
+
+    void SetUp() override {
+        add_column(kKeyUid, "k1");
+        add_column(kValueUid, "v1");
+        add_column(kVersionUid, VERSION_COL);
+        add_column(kCommitTsoUid, COMMIT_TSO_COL);
+        add_column(kBinlogTsoUid, BINLOG_TSO_COL);
+        add_column(kDeleteSignUid, DELETE_SIGN);
+    }
+
+    void add_column(int32_t uid, const std::string& name) {
+        TabletColumn column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                            FieldType::OLAP_FIELD_TYPE_BIGINT, false);
+        column.set_unique_id(uid);
+        column.set_name(name);
+        _schema.append_column(column);
+    }
+
+    void add_row_store(const std::vector<int32_t>& row_column_uids = {}) {
+        TabletColumn column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                            FieldType::OLAP_FIELD_TYPE_STRING, false);
+        column.set_unique_id(kRowStoreUid);
+        column.set_name(BeConsts::ROW_STORE_COL);
+        _schema.append_column(column);
+        _schema._row_store_column_unique_ids = row_column_uids;
+    }
+
+    void init_reusable(const std::vector<int32_t>& tuple_uids,
+                       const std::vector<int32_t>& output_uids) {
+        TDescriptorTableBuilder descriptor_builder;
+        TTupleDescriptorBuilder tuple_builder;
+        for (size_t i = 0; i < tuple_uids.size(); ++i) {
+            const int32_t uid = tuple_uids[i];
+            auto slot = TSlotDescriptorBuilder()
+                                .type(TYPE_BIGINT)
+                                .column_name(_schema.column_by_uid(uid).name())
+                                .column_pos(i)
+                                .nullable(false)
+                                .build();
+            slot.__set_col_unique_id(uid);
+            tuple_builder.add_slot(slot);
+        }
+        tuple_builder.build(&descriptor_builder);
+        const auto descriptor_table = descriptor_builder.desc_tbl();
+        std::vector<TExpr> output_exprs;
+        for (int32_t uid : output_uids) {
+            for (const auto& slot : descriptor_table.slotDescriptors) {
+                if (slot.col_unique_id == uid) {
+                    TExprNode node;
+                    node.__set_node_type(TExprNodeType::SLOT_REF);
+                    node.__set_type(slot.slotType);
+                    node.__set_num_children(0);
+                    TSlotRef slot_ref;
+                    slot_ref.__set_slot_id(slot.id);
+                    slot_ref.__set_tuple_id(slot.parent);
+                    node.__set_slot_ref(slot_ref);
+                    TExpr expr;
+                    expr.nodes.push_back(node);
+                    output_exprs.push_back(expr);
+                    break;
+                }
+            }
+        }
+        const auto status =
+                _reusable.init(descriptor_table, output_exprs, TQueryOptions(), _schema);
+        ASSERT_TRUE(status.ok()) << status;
+    }
+
+    TabletSchema _schema;
+    Reusable _reusable;
+};
+
+TEST_F(PointQueryHiddenColumnTest, FullRowStoreLeavesHiddenColumnsOutOfJsonb) {
+    add_row_store();
+    ASSERT_NO_FATAL_FAILURE(init_reusable({kVersionUid, kKeyUid, kCommitTsoUid, kDeleteSignUid},
+                                          {kVersionUid, kKeyUid, kCommitTsoUid, kVersionUid}));
+    EXPECT_TRUE(_reusable.missing_col_uids().empty());
+    // The JSONB decode is narrowed to the slots it still serves.
+    EXPECT_EQ((std::unordered_set<int32_t> {kKeyUid, kDeleteSignUid}),
+              _reusable.include_col_uids());
+    EXPECT_EQ((std::unordered_set<int32_t> {kVersionUid, kCommitTsoUid}),
+              _reusable.column_store_col_uids());
+    EXPECT_TRUE(_reusable.has_rowset_derived_hidden_columns());
+    EXPECT_TRUE(_reusable.decode_row_store());
+    EXPECT_EQ(kRowStoreUid, _reusable.rs_column_uid());
+    EXPECT_EQ(3, _reusable.delete_sign_idx());
+}
+
+TEST_F(PointQueryHiddenColumnTest, FullRowStoreHiddenOnlyProjectionSkipsJsonb) {
+    add_row_store();
+    ASSERT_NO_FATAL_FAILURE(
+            init_reusable({kVersionUid, kCommitTsoUid}, {kCommitTsoUid, kVersionUid}));
+    EXPECT_TRUE(_reusable.missing_col_uids().empty());
+    EXPECT_TRUE(_reusable.include_col_uids().empty());
+    EXPECT_EQ((std::unordered_set<int32_t> {kVersionUid, kCommitTsoUid}),
+              _reusable.column_store_col_uids());
+    EXPECT_TRUE(_reusable.has_rowset_derived_hidden_columns());
+    // An empty include set would decode every slot again, so the JSONB is not decoded at all.
+    EXPECT_FALSE(_reusable.decode_row_store());
+    EXPECT_EQ(kRowStoreUid, _reusable.rs_column_uid());
+}
+
+TEST_F(PointQueryHiddenColumnTest, PartialRowStoreDoesNotTrustStoredHiddenColumns) {
+    add_row_store({kKeyUid, kVersionUid, kCommitTsoUid});
+    ASSERT_NO_FATAL_FAILURE(init_reusable({kKeyUid, kVersionUid, kCommitTsoUid, kValueUid},
+                                          {kKeyUid, kVersionUid, kCommitTsoUid, kValueUid}));
+    EXPECT_EQ((std::unordered_set<int32_t> {kValueUid}), _reusable.missing_col_uids());
+    EXPECT_EQ((std::unordered_set<int32_t> {kKeyUid}), _reusable.include_col_uids());
+    EXPECT_EQ((std::unordered_set<int32_t> {kVersionUid, kCommitTsoUid, kValueUid}),
+              _reusable.column_store_col_uids());
+    EXPECT_TRUE(_reusable.decode_row_store());
+}
+
+TEST_F(PointQueryHiddenColumnTest, PartialRowStoreKeepsMissingHiddenColumnsInColumnStore) {
+    add_row_store({kKeyUid});
+    ASSERT_NO_FATAL_FAILURE(init_reusable({kKeyUid, kVersionUid}, {kKeyUid, kVersionUid}));
+    EXPECT_EQ((std::unordered_set<int32_t> {kVersionUid}), _reusable.missing_col_uids());
+    EXPECT_EQ((std::unordered_set<int32_t> {kKeyUid}), _reusable.include_col_uids());
+    EXPECT_EQ((std::unordered_set<int32_t> {kVersionUid}), _reusable.column_store_col_uids());
+}
+
+TEST_F(PointQueryHiddenColumnTest, OrdinaryProjectionKeepsFullRowStoreFastPath) {
+    add_row_store();
+    ASSERT_NO_FATAL_FAILURE(init_reusable({kKeyUid, kValueUid}, {kValueUid}));
+    EXPECT_TRUE(_reusable.missing_col_uids().empty());
+    EXPECT_TRUE(_reusable.include_col_uids().empty());
+    EXPECT_TRUE(_reusable.column_store_col_uids().empty());
+    EXPECT_FALSE(_reusable.has_rowset_derived_hidden_columns());
+    EXPECT_TRUE(_reusable.decode_row_store());
+    EXPECT_EQ(kRowStoreUid, _reusable.rs_column_uid());
+}
+
+TEST_F(PointQueryHiddenColumnTest, NoRowStoreReadsAllProjectedColumnsIndependently) {
+    ASSERT_NO_FATAL_FAILURE(init_reusable({kVersionUid, kKeyUid, kCommitTsoUid},
+                                          {kKeyUid, kCommitTsoUid, kVersionUid}));
+    EXPECT_EQ((std::unordered_set<int32_t> {kVersionUid, kKeyUid, kCommitTsoUid}),
+              _reusable.missing_col_uids());
+    EXPECT_EQ(_reusable.missing_col_uids(), _reusable.column_store_col_uids());
+    EXPECT_TRUE(_reusable.include_col_uids().empty());
+    EXPECT_TRUE(_reusable.has_rowset_derived_hidden_columns());
+    EXPECT_FALSE(_reusable.decode_row_store());
+    EXPECT_EQ(-1, _reusable.rs_column_uid());
+}
+
+TEST_F(PointQueryHiddenColumnTest, BinlogTsoStaysInJsonbAndKeepsRowCache) {
+    add_row_store();
+    ASSERT_NO_FATAL_FAILURE(init_reusable({kBinlogTsoUid, kKeyUid}, {kBinlogTsoUid, kKeyUid}));
+    EXPECT_TRUE(_reusable.missing_col_uids().empty());
+    EXPECT_TRUE(_reusable.include_col_uids().empty());
+    EXPECT_TRUE(_reusable.column_store_col_uids().empty());
+    EXPECT_FALSE(_reusable.has_rowset_derived_hidden_columns());
+    EXPECT_TRUE(_reusable.decode_row_store());
+}
+
+TEST_F(PointQueryHiddenColumnTest, RowsetDerivedValueOnlyForSingletonRowsets) {
+    // A compacted rowset keeps its materialized per-row values.
+    EXPECT_FALSE(get_read_time_hidden_column_value(ReadTimeHiddenColumnType::VERSION, Version(2, 3),
+                                                   TsoRange(2, 3), false)
+                         .has_value());
+    EXPECT_FALSE(get_read_time_hidden_column_value(ReadTimeHiddenColumnType::COMMIT_TSO,
+                                                   Version(2, 3), TsoRange(2, 3), false)
+                         .has_value());
+    // A singleton rowset answers with its own version and assigned commit TSO.
+    EXPECT_EQ(7, get_read_time_hidden_column_value(ReadTimeHiddenColumnType::VERSION, Version(7, 7),
+                                                   TsoRange(8, 8), false)
+                         ->get<TYPE_BIGINT>());
+    EXPECT_EQ(8, get_read_time_hidden_column_value(ReadTimeHiddenColumnType::COMMIT_TSO,
+                                                   Version(7, 7), TsoRange(8, 8), false)
+                         ->get<TYPE_BIGINT>());
+    // An unassigned commit TSO and BINLOG_TSO outside a row-binlog read keep the stored value.
+    EXPECT_FALSE(get_read_time_hidden_column_value(ReadTimeHiddenColumnType::COMMIT_TSO,
+                                                   Version(7, 7), TsoRange(), false)
+                         .has_value());
+    EXPECT_FALSE(get_read_time_hidden_column_value(ReadTimeHiddenColumnType::BINLOG_TSO,
+                                                   Version(7, 7), TsoRange(8, 8), false)
+                         .has_value());
+}
 
 // RowCache test class
 class RowCacheTest : public testing::Test {

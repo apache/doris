@@ -151,6 +151,9 @@ TEST_F(SnapshotManagerTest, TestConvertRowsetIdsNormal) {
     rowset_meta->set_data_disk_size(1000);
     rowset_meta->set_index_disk_size(24);
     rowset_meta->set_empty(false);
+    // Publish-time metadata that the rowset writer context does not carry.
+    rowset_meta->mutable_commit_tso()->set_start_tso(466872251335573505L);
+    rowset_meta->mutable_commit_tso()->set_end_tso(466872251335573505L);
 
     TabletSchemaPB* rowset_schema = rowset_meta->mutable_tablet_schema();
     rowset_schema->CopyFrom(*schema_pb);
@@ -255,6 +258,8 @@ TEST_F(SnapshotManagerTest, TestConvertRowsetIdsNormal) {
     EXPECT_EQ(converted_rowset_meta.num_rows(), 100);
     EXPECT_EQ(converted_rowset_meta.total_disk_size(), 1024);
     EXPECT_TRUE(converted_rowset_meta.has_tablet_schema());
+    ASSERT_TRUE(converted_rowset_meta.has_commit_tso());
+    EXPECT_EQ(converted_rowset_meta.commit_tso().end_tso(), 466872251335573505L);
 
     // verify rowset schema
     const TabletSchemaPB& converted_rowset_schema = converted_rowset_meta.tablet_schema();

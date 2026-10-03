@@ -291,6 +291,11 @@ Status CloudSnapshotMgr::_create_rowset_meta(
         DeletePredicatePB* new_delete_condition = new_rowset_meta_pb->mutable_delete_predicate();
         *new_delete_condition = source_meta_pb.delete_predicate();
     }
+    // The copied segments keep the placeholders of the read-time hidden columns, which readers
+    // resolve from the publish-time commit TSO of the owning rowset. Carry it over.
+    if (source_meta_pb.has_commit_tso()) {
+        *new_rowset_meta_pb->mutable_commit_tso() = source_meta_pb.commit_tso();
+    }
 
     return Status::OK();
 }

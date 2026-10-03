@@ -99,13 +99,15 @@ private:
                                         const TabletSchemaSPtr& output_rowset_schema,
                                         const TabletSchema& input_schema,
                                         const std::string& rowset_id,
-                                        const segment_v2::SegmentSharedPtr& seg_ptr);
+                                        const segment_v2::SegmentSharedPtr& seg_ptr,
+                                        const RowsetMeta& output_rowset_meta);
     // The build half of one segment rewrite: creates the writers of every column
     // group, scans each column once and feeds all of its writers.
     Status _build_snii_indexes_for_segment(const TabletSchemaSPtr& output_rowset_schema,
                                            const SniiIndexRewritePlan& plan,
                                            IndexFileWriter* index_file_writer,
-                                           const segment_v2::SegmentSharedPtr& seg_ptr);
+                                           const segment_v2::SegmentSharedPtr& seg_ptr,
+                                           const RowsetMeta& output_rowset_meta);
     // Feeds one converted block into the SNII build writers. group_writer_signs
     // parallels plan.build_columns: entry g holds the writer signs fed from
     // convertor ordinal g.

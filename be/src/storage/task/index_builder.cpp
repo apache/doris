@@ -29,6 +29,7 @@
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset.h"
+#include "storage/rowset/rowset_meta.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/schema.h"
 #include "storage/segment/segment_loader.h"
@@ -55,6 +56,20 @@ IndexBuilder::~IndexBuilder() {
     _olap_data_convertor.reset();
     _index_column_writers.clear();
 }
+
+namespace {
+
+// SegmentIterator synthesizes the read-time hidden columns (VERSION, COMMIT_TSO) from the read
+// options' version and commit TSO, treating default options as a version-0 singleton. An index
+// built from such a read would store zeros for every row of a multi-version rowset whose column
+// storage already holds the materialized values. Read with the owning rowset's metadata instead.
+void set_read_time_hidden_column_options(const RowsetMeta& rowset_meta,
+                                         StorageReadOptions& read_options) {
+    read_options.version = rowset_meta.version();
+    read_options.commit_tso = rowset_meta.commit_tso();
+}
+
+} // namespace
 
 Status IndexBuilder::init() {
     for (auto inverted_index : _alter_inverted_indexes) {
@@ -312,6 +327,7 @@ Status IndexBuilder::update_inverted_index_info() {
         context.segments_overlap = input_rowset->rowset_meta()->segments_overlap();
         context.tablet_schema = output_rs_tablet_schema;
         context.newest_write_timestamp = input_rs_reader->newest_write_timestamp();
+        context.compaction_level = input_rowset->rowset_meta()->compaction_level();
         auto output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
         _pending_rs_guards.push_back(_engine.add_pending_rowset(context));
         if (!_is_drop_op && output_rs_tablet_schema->get_inverted_index_storage_format() ==
@@ -421,6 +437,16 @@ Status IndexBuilder::update_inverted_index_info() {
         std::vector<uint32_t> num_segment_rows;
         input_rowset_meta->get_num_segment_rows(&num_segment_rows);
         rowset_meta->set_num_segment_rows(num_segment_rows);
+        // The linked segments still hold the load-time placeholders of the read-time hidden
+        // columns, which readers resolve from the rowset's publish-time metadata. The replacement
+        // keeps the version above; keep the commit TSO and the row-binlog mark as well, or a
+        // singleton COMMIT_TSO read would fall back to the placeholder after an index change.
+        if (input_rowset_meta->has_commit_tso()) {
+            rowset_meta->set_commit_tso(input_rowset_meta->commit_tso());
+        }
+        if (input_rowset_meta->is_row_binlog()) {
+            rowset_meta->mark_row_binlog();
+        }
         auto output_rowset = output_rs_writer->manual_build(rowset_meta);
         if (input_rowset_meta->has_delete_predicate()) {
             output_rowset->rowset_meta()->set_delete_predicate(
@@ -718,6 +744,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
             StorageReadOptions read_options;
             OlapReaderStatistics stats;
             read_options.stats = &stats;
+            set_read_time_hidden_column_options(*output_rowset_meta, read_options);
             auto schema = std::make_shared<ReadSchema>(
                     project_columns_by_ordinal(output_rowset_schema->columns(), return_columns));
             std::unique_ptr<RowwiseIterator> iter;
@@ -823,9 +850,9 @@ Status IndexBuilder::_handle_single_rowset_snii(
     DORIS_CHECK(input_schema_it != _input_rowset_schemas.end());
 
     for (auto& seg_ptr : segments) {
-        RETURN_IF_ERROR(_rewrite_single_segment_snii(output_rowset_meta->fs(),
-                                                     output_rowset_meta->tablet_schema(),
-                                                     *input_schema_it->second, rowset_id, seg_ptr));
+        RETURN_IF_ERROR(_rewrite_single_segment_snii(
+                output_rowset_meta->fs(), output_rowset_meta->tablet_schema(),
+                *input_schema_it->second, rowset_id, seg_ptr, *output_rowset_meta));
     }
     size_t inverted_index_size = 0;
     for (auto&& [seg_id, index_file_writer] : _index_file_writers) {
@@ -850,7 +877,8 @@ Status IndexBuilder::_rewrite_single_segment_snii(const io::FileSystemSPtr& fs,
                                                   const TabletSchemaSPtr& output_rowset_schema,
                                                   const TabletSchema& input_schema,
                                                   const std::string& rowset_id,
-                                                  const segment_v2::SegmentSharedPtr& seg_ptr) {
+                                                  const segment_v2::SegmentSharedPtr& seg_ptr,
+                                                  const RowsetMeta& output_rowset_meta) {
     // The source reader was registered in update_inverted_index_info. A rowset
     // written before any index existed has no container file at all; everything
     // requested is then built fresh.
@@ -903,8 +931,8 @@ Status IndexBuilder::_rewrite_single_segment_snii(const io::FileSystemSPtr& fs,
         RETURN_IF_ERROR(index_file_writer->inherit_snii(snapshot, source_reader->snii_io_reader()));
     }
     if (!plan.build_columns.empty()) {
-        RETURN_IF_ERROR(_build_snii_indexes_for_segment(output_rowset_schema, plan,
-                                                        index_file_writer.get(), seg_ptr));
+        RETURN_IF_ERROR(_build_snii_indexes_for_segment(
+                output_rowset_schema, plan, index_file_writer.get(), seg_ptr, output_rowset_meta));
     }
     auto [file_writer_it, inserted] =
             _index_file_writers.emplace(seg_ptr->id(), std::move(index_file_writer));
@@ -916,7 +944,8 @@ Status IndexBuilder::_rewrite_single_segment_snii(const io::FileSystemSPtr& fs,
 Status IndexBuilder::_build_snii_indexes_for_segment(const TabletSchemaSPtr& output_rowset_schema,
                                                      const SniiIndexRewritePlan& plan,
                                                      IndexFileWriter* index_file_writer,
-                                                     const segment_v2::SegmentSharedPtr& seg_ptr) {
+                                                     const segment_v2::SegmentSharedPtr& seg_ptr,
+                                                     const RowsetMeta& output_rowset_meta) {
     // One raw column read per column group; every writer on the column is fed
     // from the same converted data.
     std::vector<std::vector<std::pair<int64_t, int64_t>>> group_writer_signs;
@@ -953,6 +982,7 @@ Status IndexBuilder::_build_snii_indexes_for_segment(const TabletSchemaSPtr& out
     StorageReadOptions read_options;
     OlapReaderStatistics stats;
     read_options.stats = &stats;
+    set_read_time_hidden_column_options(output_rowset_meta, read_options);
     auto schema = std::make_shared<ReadSchema>(
             project_columns_by_ordinal(output_rowset_schema->columns(), return_columns));
     std::unique_ptr<RowwiseIterator> iter;

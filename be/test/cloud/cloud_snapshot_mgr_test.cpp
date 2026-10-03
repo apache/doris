@@ -114,6 +114,9 @@ TEST_F(CloudSnapshotMgrTest, TestConvertRowsets) {
     rowset_meta->set_index_disk_size(2048);
     rowset_meta->set_rowset_state(RowsetStatePB::VISIBLE);
     rowset_meta->set_newest_write_timestamp(1678901234567890);
+    // Publish-time metadata that the rowset writer context does not carry.
+    rowset_meta->mutable_commit_tso()->set_start_tso(466872251335573505L);
+    rowset_meta->mutable_commit_tso()->set_end_tso(466872251335573505L);
 
     TabletSchemaPB* rowset_schema = rowset_meta->mutable_tablet_schema();
     rowset_schema->CopyFrom(*input_schema);
@@ -165,6 +168,8 @@ TEST_F(CloudSnapshotMgrTest, TestConvertRowsets) {
     EXPECT_EQ(output_meta_pb.rs_metas(0).index_disk_size(), 2048);
     EXPECT_EQ(output_meta_pb.rs_metas(0).rowset_state(), RowsetStatePB::VISIBLE);
     EXPECT_EQ(output_meta_pb.rs_metas(0).resource_id(), storage_resource.fs->id());
+    ASSERT_TRUE(output_meta_pb.rs_metas(0).has_commit_tso());
+    EXPECT_EQ(output_meta_pb.rs_metas(0).commit_tso().end_tso(), 466872251335573505L);
     EXPECT_FALSE(file_mapping.empty());
     EXPECT_TRUE(status.ok());
 }

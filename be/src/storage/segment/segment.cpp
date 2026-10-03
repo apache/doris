@@ -67,6 +67,7 @@
 #include "storage/olap_common.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/column_predicate.h"
+#include "storage/read_time_hidden_column.h"
 #include "storage/rowset/rowset_reader_context.h"
 #include "storage/schema.h"
 #include "storage/segment/column_meta_accessor.h"
@@ -89,6 +90,17 @@
 namespace doris::segment_v2 {
 
 namespace {
+
+std::optional<Field> get_read_time_constant_reader_value(const TabletColumn& column,
+                                                         const TabletSchema& tablet_schema,
+                                                         const StorageReadOptions& read_options) {
+    const auto column_type = get_read_time_hidden_column_type(tablet_schema, column.unique_id());
+    if (column_type != ReadTimeHiddenColumnType::COMMIT_TSO) {
+        return std::nullopt;
+    }
+    return get_read_time_hidden_column_value(column_type, read_options.version,
+                                             read_options.commit_tso, read_options.read_row_binlog);
+}
 
 Status build_segment_zonemap_context(Segment* segment, const ReadSchema& schema,
                                      const StorageReadOptions& read_options,
@@ -124,6 +136,16 @@ Status build_segment_zonemap_context(Segment* segment, const ReadSchema& schema,
         }
         ZoneMapEvalContext::SlotZoneMap slot_zone_map;
         slot_zone_map.data_type = data_type;
+        if (auto value = segment->get_read_time_constant_value(slot_index, schema, read_options);
+            value.has_value()) {
+            auto zone_map = std::make_shared<ZoneMap>();
+            zone_map->min_value = *value;
+            zone_map->max_value = *value;
+            zone_map->has_not_null = true;
+            slot_zone_map.zone_map = std::move(zone_map);
+            ctx->slots.emplace(slot_index, std::move(slot_zone_map));
+            continue;
+        }
         std::shared_ptr<ColumnReader> reader;
         Status st = segment->get_column_reader(*tablet_column, &reader, read_options.stats,
                                                &read_options.io_ctx);
@@ -151,13 +173,27 @@ bool pushdown_zonemap_minmax_forced(const StorageReadOptions& read_options) {
 }
 
 Status segment_zone_maps_can_answer_agg(Segment* segment, const ReadSchema& schema,
-                                        const StorageReadOptions& read_options, bool* usable) {
+                                        const StorageReadOptions& read_options, bool forced,
+                                        bool* usable) {
     *usable = true;
     for (size_t ordinal = 0; ordinal < schema.num_block_columns(); ++ordinal) {
-        // The commit-tso column is only served correctly once its reader is created with the
-        // rowset's commit_tso as a const value. Creating it here without one would cache a reader
-        // that hands every later read the on-disk placeholder instead.
-        if (static_cast<int32_t>(ordinal) == schema.commit_tso_ordinal()) {
+        // VStatisticsIterator can consume a read-time constant when new_column_iterator creates a
+        // ConstantColumnReader for it. Other read-time hidden columns still need SegmentIterator
+        // because their column readers expose physical placeholder ZoneMaps.
+        if (segment->get_read_time_constant_value(static_cast<int32_t>(ordinal), schema,
+                                                  read_options)
+                    .has_value()) {
+            if (get_read_time_constant_reader_value(*schema.column(ordinal),
+                                                    *segment->tablet_schema(), read_options)
+                        .has_value()) {
+                continue;
+            }
+            *usable = false;
+            return Status::OK();
+        }
+        // A forced MIN/MAX may accept inexact bounds, but physical placeholders are not bounds
+        // of the read-time value. Check hidden columns above even in this mode.
+        if (forced) {
             continue;
         }
         std::shared_ptr<ColumnReader> reader;
@@ -431,6 +467,20 @@ bool Segment::is_tso_placeholder_col(int cid, const ReadSchema& schema,
     return cid == schema.tso_ordinal();
 }
 
+std::optional<Field> Segment::get_read_time_constant_value(
+        int cid, const ReadSchema& schema, const StorageReadOptions& read_options) const {
+    ReadTimeHiddenColumnType column_type = ReadTimeHiddenColumnType::NONE;
+    if (cid == schema.version_ordinal()) {
+        column_type = ReadTimeHiddenColumnType::VERSION;
+    } else if (cid == schema.commit_tso_ordinal()) {
+        column_type = ReadTimeHiddenColumnType::COMMIT_TSO;
+    } else if (cid == schema.tso_ordinal()) {
+        column_type = ReadTimeHiddenColumnType::BINLOG_TSO;
+    }
+    return get_read_time_hidden_column_value(column_type, read_options.version,
+                                             read_options.commit_tso, read_options.read_row_binlog);
+}
+
 Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& read_options,
                              std::unique_ptr<RowwiseIterator>* iter) {
     if (read_options.runtime_state != nullptr) {
@@ -444,18 +494,22 @@ Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& re
         // col_id_to_predicates is keyed by read-schema ordinal.
         int32_t column_id = entry.first;
         const TabletColumn& col = *schema->column(column_id);
-        std::shared_ptr<ColumnReader> reader;
-        // __DORIS_COMMIT_TSO_COL__ on a single-version segment stores a 0 placeholder on disk
-        // (replaced with the rowset's real commit_tso at read time). Its on-disk zonemap [0,0]
-        // must not drive segment-level pruning, so build a ConstantColumnReader carrying the real
-        // commit_tso to prune against the real value instead.
-        std::optional<Field> const_value;
-        if (read_options.version.first == read_options.version.second &&
-            column_id == schema->commit_tso_ordinal() && read_options.commit_tso.end_tso() != -1) {
-            const_value = Field::create_field<TYPE_BIGINT>(read_options.commit_tso.end_tso());
+        if (auto value = get_read_time_constant_value(column_id, *schema, read_options);
+            value.has_value()) {
+            ZoneMap zone_map;
+            zone_map.min_value = *value;
+            zone_map.max_value = *value;
+            zone_map.has_not_null = true;
+            if (!entry.second->evaluate_and(zone_map)) {
+                *iter = std::make_unique<EmptySegmentIterator>(*schema);
+                read_options.stats->filtered_segment_number++;
+                read_options.stats->rows_stats_filtered += num_rows();
+                return Status::OK();
+            }
+            continue;
         }
-        Status st = get_column_reader(col, &reader, read_options.stats, &read_options.io_ctx,
-                                      std::move(const_value));
+        std::shared_ptr<ColumnReader> reader;
+        Status st = get_column_reader(col, &reader, read_options.stats, &read_options.io_ctx);
         // not found in this segment, skip
         if (st.is<ErrorCode::NOT_FOUND>()) {
             continue;
@@ -464,28 +518,6 @@ Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& re
         // should be OK
         DCHECK(reader != nullptr);
         if (!reader->has_zone_map()) {
-            continue;
-        }
-        // Placeholder tso column on a single-version binlog segment: its zonemap reflects the
-        // NULL placeholder (replaced with commit_tso at read time), so skip pruning by
-        // zonemap (min == max == commit_tso) and reuse the predicate's own zonemap matching:
-        // evaluate_and() returns false iff no value in [min, max] can satisfy the predicates,
-        // i.e. commit_tso fails them and the whole segment can be pruned. Predicates that don't
-        // support zonemap return true (conservative: not pruned, row-level eval handles them).
-        if (read_options.col_id_to_predicates.contains(column_id) &&
-            is_tso_placeholder_col(column_id, *schema, read_options)) {
-            const Int64 commit_tso =
-                    read_options.commit_tso.end_tso() == -1 ? 0 : read_options.commit_tso.end_tso();
-            ZoneMap zone_map;
-            zone_map.min_value = Field::create_field<TYPE_BIGINT>(commit_tso);
-            zone_map.max_value = Field::create_field<TYPE_BIGINT>(commit_tso);
-            zone_map.has_not_null = true;
-            if (!entry.second->evaluate_and(zone_map)) {
-                // any condition not satisfied, return.
-                *iter = std::make_unique<EmptySegmentIterator>(*schema);
-                read_options.stats->filtered_segment_number++;
-                return Status::OK();
-            }
             continue;
         }
         if (read_options.col_id_to_predicates.contains(column_id) &&
@@ -532,8 +564,8 @@ Status Segment::new_iterator(ReadSchemaSPtr schema, const StorageReadOptions& re
             agg != TPushAggOp::NONE && agg != TPushAggOp::COUNT_ON_INDEX &&
             (forced || read_options.delete_condition_predicates->num_of_column_predicate() == 0);
     // COUNT only fills defaults, every other aggregate reads min/max out of the zone maps.
-    if (use_statistics_iterator && !forced && agg != TPushAggOp::COUNT) {
-        RETURN_IF_ERROR(segment_zone_maps_can_answer_agg(this, *schema, read_options,
+    if (use_statistics_iterator && agg != TPushAggOp::COUNT) {
+        RETURN_IF_ERROR(segment_zone_maps_can_answer_agg(this, *schema, read_options, forced,
                                                          &use_statistics_iterator));
     }
     if (use_statistics_iterator) {
@@ -967,18 +999,11 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
 
     // __DORIS_COMMIT_TSO_COL__ on a single-version segment stores a 0 placeholder on disk (its
     // real value is the rowset's commit_tso, filled at read time). Pass the real commit_tso as a
-    // const value so the cache returns a ConstantColumnReader, whose iterator yields the real value
-    // on every read path (projection / predicate / MIN-MAX zone-map) instead of the placeholder 0.
+    // const value so a ConstantColumnReader yields the real value on every read path (projection /
+    // predicate / MIN-MAX zone-map) instead of the placeholder 0. Constant readers deliberately
+    // bypass the UID-only ColumnReaderCache because their value depends on these read options.
     // commit_tso == -1 means it is not assigned yet (before publish); keep the on-disk value then.
-    // The value is constant per segment (a segment belongs to a single rowset), so caching the
-    // ConstantColumnReader does not cross-pollute other queries.
-    std::optional<Field> const_value;
-    if (opt->version.first == opt->version.second && opt->commit_tso.end_tso() != -1) {
-        int32_t tso_idx = _tablet_schema->commit_tso_col_idx();
-        if (tso_idx != -1 && _tablet_schema->column(tso_idx).unique_id() == unique_id) {
-            const_value = Field::create_field<TYPE_BIGINT>(opt->commit_tso.end_tso());
-        }
-    }
+    auto const_value = get_read_time_constant_reader_value(tablet_column, *_tablet_schema, *opt);
 
     // init iterator by unique id
     std::shared_ptr<ColumnReader> reader;
