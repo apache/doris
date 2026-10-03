@@ -894,6 +894,140 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
+     * Round-28 #3: the post-forward journal synchronization is part of the FAIL-CLOSED
+     * path. A forwarded GLOBAL DROP / DISABLE can commit on the master before
+     * afterForwardToMaster reaches the refresh, so a sync timeout must not leave the
+     * published cache as it is: loaded, baselines and the hash index would keep the old
+     * ENABLED row and later default-consistency local queries would keep replaying a
+     * baseline the master already dropped. The publishing store must be invalidated and
+     * the caller must see a retryable failure.
+     */
+    @Test
+    public void testForwardedDdlRefreshInvalidatesCacheWhenTheSyncFails() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        try {
+            manager.setPersistToTableForTest(true);
+            manager.prepareLoadForTest();
+            BaselineManager.snapshotReaderForTest =
+                    () -> Map.of(7L, withId(baseline("d1", "p1"), 7L));
+            manager.loadFromInternalTable();
+            Assertions.assertEquals(1, manager.getAllBaselines().size(),
+                    "precondition: the follower replays the pre-DDL row");
+
+            BaselineManager.forwardedDdlSyncForTest = () -> {
+                throw new RuntimeException("journal sync timed out");
+            };
+            IllegalStateException failure = Assertions.assertThrows(
+                    IllegalStateException.class, manager::refreshAfterForwardedDdl,
+                    "an unconfirmable post-DDL refresh must surface as a retryable error");
+            Assertions.assertTrue(failure.getMessage().contains("journal sync timed out")
+                            || failure.getMessage().contains("invalidated"),
+                    failure.getMessage());
+
+            Assertions.assertEquals(0, manager.getAllBaselines().size(),
+                    "the published rows must be fenced out: the master completed a DDL"
+                            + " this FE could not confirm");
+            Assertions.assertFalse(manager.hasBaselines(),
+                    "the query path must not match the unconfirmed row either");
+
+            // the store recovers on the next successful refresh (fail closed, not broken)
+            BaselineManager.forwardedDdlSyncForTest = () -> { };
+            BaselineManager.snapshotReaderForTest = () -> Map.of(
+                    7L, withId(baseline("d1", "p1"), 7L),
+                    8L, withId(baseline("d2", "p2"), 8L));
+            manager.refreshAfterForwardedDdl();
+            Assertions.assertEquals(2, manager.getAllBaselines().size(),
+                    "the recovered refresh publishes the current durable rows");
+        } finally {
+            BaselineManager.forwardedDdlSyncForTest = null;
+            BaselineManager.snapshotReaderForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * Round-28 #6: the whole-table snapshot read is PAGINATED, because one SELECT * over a
+     * table without a retention cap had to return every row inside the fixed per-query
+     * timeout - once the snapshot outgrew it the read failed as a whole and never
+     * converged. The loop walks the id space with an INCLUSIVE lower bound, so an id
+     * carried by two rows (an interrupted status flip) is always read as a whole and the
+     * winner resolution sees both rows; a short page ends the snapshot.
+     */
+    @Test
+    public void testSnapshotPaginationReadsEveryPageAndKeepsIdGroupsWhole() {
+        Map<Long, List<BaselinePlan>> table = new java.util.LinkedHashMap<>();
+        table.put(1L, List.of(withId(baseline("d1", "select k from t1"), 1L)));
+        table.put(2L, List.of(withId(baseline("d2", "select k from t1"), 2L)));
+        table.put(3L, List.of(withId(baseline("d3", "select k from t1"), 3L),
+                withId(baseline("d3", "select k from t1"), 3L)));
+        table.put(4L, List.of(withId(baseline("d4", "select k from t1"), 4L)));
+        List<Long> requestedBounds = new ArrayList<>();
+        Map<Long, BaselinePlan> snapshot;
+        try {
+            snapshot = BaselineManager.collectSnapshotPages(pageStart -> {
+                requestedBounds.add(pageStart);
+                return table.entrySet().stream()
+                        .filter(entry -> pageStart == null || entry.getKey() >= pageStart)
+                        .flatMap(entry -> entry.getValue().stream())
+                        .map(BaselineManagerConcurrencyTest::rowOf)
+                        .limit(2)
+                        .collect(java.util.stream.Collectors.toList());
+            }, 2);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        Assertions.assertEquals(List.of(1L, 2L, 3L, 4L),
+                snapshot.keySet().stream().sorted().collect(java.util.stream.Collectors.toList()),
+                "every id must be read exactly once: " + snapshot.keySet());
+        Assertions.assertEquals(java.util.Arrays.asList(null, 2L, 3L, 4L), requestedBounds,
+                "the loop walks the id space with an INCLUSIVE lower bound, so the"
+                        + " boundary id group is re-read as a whole: " + requestedBounds);
+    }
+
+    /**
+     * Round-28 #6: a single id group larger than one page cannot stall the loop (only an
+     * out-of-contract writer can produce one; the create / ALTER protocols never put more
+     * than two rows under one id).
+     */
+    @Test
+    public void testSnapshotPaginationTerminatesOnAnOversizedIdGroup() {
+        List<Long> requestedBounds = new ArrayList<>();
+        Map<Long, BaselinePlan> snapshot;
+        try {
+            snapshot = BaselineManager.collectSnapshotPages(pageStart -> {
+                requestedBounds.add(pageStart);
+                if (pageStart != null && pageStart > 7L) {
+                    return List.of();
+                }
+                return List.of(
+                        rowOf(withId(baseline("d1", "select k from t1"), 7L)),
+                        rowOf(withId(baseline("d1", "select k from t1"), 7L)),
+                        rowOf(withId(baseline("d1", "select k from t1"), 7L)));
+            }, 3);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        Assertions.assertEquals(List.of(7L),
+                snapshot.keySet().stream().sorted().collect(java.util.stream.Collectors.toList()),
+                "the oversized group is still read (once) and the loop terminates");
+        Assertions.assertEquals(java.util.Arrays.asList(null, 7L, 8L), requestedBounds,
+                "the loop advances strictly past the oversized group: " + requestedBounds);
+    }
+
+    /** One internal-table row built from a BaselinePlan (column order mirrors fromRow). */
+    private static ResultRow rowOf(BaselinePlan plan) {
+        return new ResultRow(List.of(
+                Long.toString(plan.getId()), plan.getBindSql(), plan.getBindSqlDigest(),
+                Long.toString(plan.getBindSqlHash()), plan.getPlanSql(), "NaN",
+                Double.toString(plan.getCost()), Long.toString(plan.getQueryTimeMs()),
+                plan.getSource().toString(), plan.getStatus().toString(),
+                BaselineManager.toTs(plan.getCreateTime()),
+                BaselineManager.toTs(plan.getUpdateTime()),
+                "0", "0", "false", ""));
+    }
+
+    /**
      * round-25 #2: when the id-collision repair loses leadership the CREATE must FAIL. The
      * competing row is a DIFFERENT baseline another master already returned under the same
      * id, so publishing / returning the id with both rows alive would let a reload pick the

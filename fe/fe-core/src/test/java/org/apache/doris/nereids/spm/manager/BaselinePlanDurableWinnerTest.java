@@ -75,6 +75,55 @@ public class BaselinePlanDurableWinnerTest {
         Assertions.assertSame(second, BaselineManager.pickDurableWinner(second, first));
     }
 
+    /**
+     * Round-28 #2: the persisted create_time / update_time are zone-free DATETIME, so they
+     * must be written and read as ABSOLUTE (UTC) instants. Rendering them in the host zone
+     * made the stored value depend on the WRITER: an ENABLED row written at 12:00 UTC on a
+     * UTC FE and the newer DISABLED row at 12:01 UTC on a UTC-8 successor stored "12:00"
+     * and "04:01", and the reader (any zone) ranked the ENABLED row higher - an
+     * interrupted status flip was then undone by the recovery that picks the later row.
+     * A DST fall-back on one FE inverted the order of two writes the same way.
+     */
+    @Test
+    public void testUpdateTimeIsAbsoluteAcrossHostZones() {
+        java.util.TimeZone original = java.util.TimeZone.getDefault();
+        try {
+            // 2026-11-01 12:00 UTC, i.e. inside the Americas fall-back day
+            long instant = java.time.LocalDateTime.of(2026, 11, 1, 12, 0)
+                    .toInstant(java.time.ZoneOffset.UTC).toEpochMilli();
+            java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("UTC"));
+            Assertions.assertEquals("2026-11-01 12:00:00", BaselineManager.toTs(instant));
+            Assertions.assertEquals(instant, BaselineManager.fromTs("2026-11-01 12:00:00"));
+
+            java.util.TimeZone.setDefault(
+                    java.util.TimeZone.getTimeZone("America/Los_Angeles"));
+            Assertions.assertEquals("2026-11-01 12:00:00", BaselineManager.toTs(instant),
+                    "the SAME instant must render identically on a host in another zone");
+            Assertions.assertEquals(instant,
+                    BaselineManager.fromTs(BaselineManager.toTs(instant)),
+                    "and it must round-trip to the same instant");
+
+            // the recovery rule over two rows written across the fall-back: the later
+            // INSTANT (09:10Z, 01:10 PST) must beat the earlier one (08:30Z, 01:30 PDT),
+            // which a host-local rendering would have ordered the other way round
+            long beforeFallBack = java.time.LocalDateTime.of(2026, 11, 1, 8, 30)
+                    .toInstant(java.time.ZoneOffset.UTC).toEpochMilli();
+            long afterFallBack = java.time.LocalDateTime.of(2026, 11, 1, 9, 10)
+                    .toInstant(java.time.ZoneOffset.UTC).toEpochMilli();
+            BaselinePlan enabled = row(11, BaselineManager.fromTs(
+                    BaselineManager.toTs(beforeFallBack)), BaselineStatus.ENABLED);
+            BaselinePlan disabled = row(11, BaselineManager.fromTs(
+                    BaselineManager.toTs(afterFallBack)), BaselineStatus.DISABLED);
+            Assertions.assertSame(disabled,
+                    BaselineManager.pickDurableWinner(enabled, disabled),
+                    "the later status change must win regardless of the host zone");
+            Assertions.assertSame(disabled,
+                    BaselineManager.pickDurableWinner(disabled, enabled));
+        } finally {
+            java.util.TimeZone.setDefault(original);
+        }
+    }
+
     @Test
     public void testWinnerIsIdempotentAcrossRepeatedFolds() {
         // snapshot loading folds the candidate rows pairwise: folding the winner again

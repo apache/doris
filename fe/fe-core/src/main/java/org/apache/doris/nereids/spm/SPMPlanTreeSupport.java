@@ -166,6 +166,14 @@ public final class SPMPlanTreeSupport {
         return expr;
     };
 
+    /**
+     * Expression transform of {@link #stripCheckPolicy}: strips the policy markers from
+     * every plan an expression owns (IN / EXISTS / scalar subquery plans, the payloads of
+     * a {@code * REPLACE(...)}, the ASOF MATCH_CONDITION).
+     */
+    private static final ExprTransform STRIP_POLICY_IN_EXPRESSION =
+            SPMPlanTreeSupport::stripPolicyOfExpression;
+
     private SPMPlanTreeSupport() {
     }
 
@@ -3091,13 +3099,96 @@ public final class SPMPlanTreeSupport {
      *
      * @param plan the tree to strip (may be null)
      * @return the same structure without LogicalCheckPolicy nodes
+     * @throws IllegalStateException when a marker survives the strip (a carrier the
+     *                               passes do not know); the CREATE must then fail rather
+     *                               than freeze the creator's policy
      */
     public static LogicalPlan stripCheckPolicy(LogicalPlan plan) {
         if (plan == null) {
             return null;
         }
-        Plan stripped = stripCheckPolicyNodes(plan);
-        return stripped instanceof LogicalPlan ? (LogicalPlan) stripped : plan;
+        // Two passes, because the markers appear in two places:
+        //
+        // 1) a plan an EXPRESSION owns (IN / EXISTS / scalar subquery plans - including the
+        //    ones in a * REPLACE payload - and the ASOF MATCH_CONDITION): the marker of
+        //    the subquery's relation ("WHERE k IN (SELECT k FROM u)") is not reachable
+        //    through children(), so the standard expression transform walks the tree and
+        //    rebuilds each owning node around the stripped subquery plan. Without this the
+        //    nested analyzer expanded the CREATOR's policy on u into an ordinary filter
+        //    INSIDE the frozen SQL: a different user matching the same bind query then
+        //    replayed the creator's row filter / data mask, although that user has no
+        //    policy (or a different one) - and the policy applies per relation, so a
+        //    subquery relation leaked exactly like a top-level one.
+        //
+        // 2) the markers wrapped around the tree's OWN relations (children / CTE bodies).
+        Plan expressionsStripped = transform(plan, STRIP_POLICY_IN_EXPRESSION);
+        Plan stripped = stripCheckPolicyNodes(expressionsStripped == null
+                ? plan : expressionsStripped);
+        LogicalPlan strippedPlan = stripped instanceof LogicalPlan
+                ? (LogicalPlan) stripped : plan;
+        if (containsCheckPolicyMarker(strippedPlan)) {
+            // The two passes cover every carrier a PARSED tree can put a marker in
+            // (relations inside children / CTE bodies and inside expression-owned
+            // subquery plans). A survivor means a future shape is outside them, and
+            // freezing it would persist the CREATOR's row filter / data mask into the
+            // frozen SQL for every matching user: refuse the CREATE instead.
+            throw new IllegalStateException("SPM cannot strip every CHECK ROW POLICY /"
+                    + " DATA MASK marker from the plan SQL (a relation is still wrapped in"
+                    + " one); refusing to freeze a plan that may carry the creator's policy");
+        }
+        return strippedPlan;
+    }
+
+    /** Whether any relation of the tree is still wrapped in a policy marker. */
+    private static boolean containsCheckPolicyMarker(Plan plan) {
+        boolean[] found = {false};
+        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
+            if (node instanceof LogicalCheckPolicy) {
+                found[0] = true;
+            }
+        });
+        return found[0];
+    }
+
+    /** Recursive worker of {@link #STRIP_POLICY_IN_EXPRESSION}. */
+    private static Expression stripPolicyOfExpression(Expression expr) {
+        if (expr instanceof SubqueryExpr) {
+            LogicalPlan subPlan = ((SubqueryExpr) expr).getQueryPlan();
+            LogicalPlan stripped = stripCheckPolicy(subPlan);
+            return stripped != null && stripped != subPlan
+                    ? ((SubqueryExpr) expr).withSubquery(stripped) : expr;
+        }
+        if (expr instanceof UnboundStar) {
+            // SELECT * REPLACE((SELECT max(v) FROM u) AS k): the replacement payloads own
+            // their subquery plans OUTSIDE children(), so the generic recursion below never
+            // reaches them.
+            UnboundStar star = (UnboundStar) expr;
+            List<NamedExpression> replaced = star.getReplacedAlias();
+            if (replaced.isEmpty()) {
+                return expr;
+            }
+            boolean changed = false;
+            List<NamedExpression> newReplaced = new ArrayList<>(replaced.size());
+            for (NamedExpression replacement : replaced) {
+                Expression newReplacement = stripPolicyOfExpression(replacement);
+                newReplaced.add(newReplacement instanceof NamedExpression
+                        ? (NamedExpression) newReplacement : replacement);
+                changed |= newReplacement != replacement;
+            }
+            return changed ? new UnboundStar(star.getQualifier(), star.getExceptedSlots(),
+                    newReplaced, star.getIndexInSqlString()) : expr;
+        }
+        if (expr.children().isEmpty()) {
+            return expr;
+        }
+        boolean changed = false;
+        List<Expression> newChildren = new ArrayList<>(expr.children().size());
+        for (Expression child : expr.children()) {
+            Expression newChild = stripPolicyOfExpression(child);
+            newChildren.add(newChild);
+            changed |= newChild != child;
+        }
+        return changed ? expr.withChildren(newChildren) : expr;
     }
 
     /** Recursive worker of {@link #stripCheckPolicy}. */

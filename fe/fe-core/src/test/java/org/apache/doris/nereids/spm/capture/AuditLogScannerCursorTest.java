@@ -23,6 +23,8 @@ import org.apache.doris.statistics.repository.ResultRow;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -775,5 +777,122 @@ public class AuditLogScannerCursorTest {
         Assertions.assertFalse(withTail.contains("1 = 0"),
                 "with a tail the NULL query_id group continues on the tail keys: " + withTail);
         Assertions.assertTrue(withTail.contains("`query_id` IS NULL AND"), withTail);
+    }
+
+    // ==================== round-28 #4: DST-safe window bounds ====================
+
+    /**
+     * With a fall-back zone a UTC window renders as an INVERTED local range
+     * ({@code [01:45, 01:15)} in Los Angeles): the scan matched no row at all, the empty
+     * page looked exhausted and the capture advanced its watermark past rows written in
+     * the repeated hour. The window is split at the transition into monotone segments, so
+     * a row written at 09:05Z (01:05 PST, the SECOND 01:05 of that day) is still inside
+     * one of them.
+     */
+    @Test
+    public void testFallBackWindowSplitsIntoMonotoneLocalRanges() {
+        ZoneId losAngeles = ZoneId.of("America/Los_Angeles");
+        List<String[]> ranges = AuditLogScanner.localTimeRanges(
+                Instant.parse("2026-11-01T08:45:00Z").toEpochMilli(),
+                Instant.parse("2026-11-01T09:15:00Z").toEpochMilli(), losAngeles);
+        Assertions.assertEquals(2, ranges.size(), describe(ranges));
+        assertRange(ranges.get(0), "2026-11-01 01:45:00", "2026-11-01 02:00:00");
+        assertRange(ranges.get(1), "2026-11-01 01:00:00", "2026-11-01 01:15:00");
+        for (String[] range : ranges) {
+            Assertions.assertTrue(range[0].compareTo(range[1]) < 0,
+                    "every segment must be a MONOTONE range: " + describe(ranges));
+        }
+
+        // the row at 09:05Z renders as 01:05 (PST) and falls into the second segment
+        String rowRendering = AuditLogScanner.formatTimestamp(
+                Instant.parse("2026-11-01T09:05:00Z").toEpochMilli(), losAngeles);
+        Assertions.assertEquals("2026-11-01 01:05:00", rowRendering);
+        Assertions.assertTrue(rowRendering.compareTo(ranges.get(1)[0]) >= 0
+                        && rowRendering.compareTo(ranges.get(1)[1]) < 0,
+                "the late row stays inside a segment: " + describe(ranges));
+    }
+
+    /** A spring-forward window splits the same way and simply SKIPS the missing hour. */
+    @Test
+    public void testSpringForwardWindowSplitsAtTheTransition() {
+        List<String[]> ranges = AuditLogScanner.localTimeRanges(
+                Instant.parse("2026-03-08T09:45:00Z").toEpochMilli(),
+                Instant.parse("2026-03-08T10:15:00Z").toEpochMilli(),
+                ZoneId.of("America/Los_Angeles"));
+        Assertions.assertEquals(2, ranges.size(), describe(ranges));
+        assertRange(ranges.get(0), "2026-03-08 01:45:00", "2026-03-08 02:00:00");
+        assertRange(ranges.get(1), "2026-03-08 03:00:00", "2026-03-08 03:15:00");
+    }
+
+    /** A fixed-offset zone keeps the single range - the pre-existing SQL shape. */
+    @Test
+    public void testFixedOffsetZoneKeepsASingleRange() {
+        List<String[]> ranges = AuditLogScanner.localTimeRanges(
+                Instant.parse("2026-11-01T08:45:00Z").toEpochMilli(),
+                Instant.parse("2026-11-01T09:15:00Z").toEpochMilli(), ZoneId.of("UTC"));
+        Assertions.assertEquals(1, ranges.size(), describe(ranges));
+        assertRange(ranges.get(0), "2026-11-01 08:45:00", "2026-11-01 09:15:00");
+    }
+
+    /** The scan SQL carries every segment (OR'd) instead of one inverted range. */
+    @Test
+    public void testScanSqlCarriesAllWindowSegments() {
+        List<String[]> ranges = AuditLogScanner.localTimeRanges(
+                Instant.parse("2026-11-01T08:45:00Z").toEpochMilli(),
+                Instant.parse("2026-11-01T09:15:00Z").toEpochMilli(),
+                ZoneId.of("America/Los_Angeles"));
+        String sql = AuditLogScanner.buildScanSql(ranges, 500, 1000, 100000, "", 3600);
+        Assertions.assertTrue(
+                sql.contains("(`time` >= '2026-11-01 01:45:00'"
+                        + " AND `time` < '2026-11-01 02:00:00')"),
+                "the first segment must be a valid range: " + sql);
+        Assertions.assertTrue(
+                sql.contains(" OR (`time` >= '2026-11-01 01:00:00'"
+                        + " AND `time` < '2026-11-01 01:15:00')"),
+                "the repeated-hour segment must be scanned as well: " + sql);
+        Assertions.assertFalse(sql.contains("`time` >= '2026-11-01 01:45:00' AND `time` <"
+                        + " '2026-11-01 01:15:00'"),
+                "the inverted range must be gone: " + sql);
+    }
+
+    // ==================== round-28 #7: absolute completion across a transition ====================
+
+    /**
+     * The completion-aware lower bound adds the row's ELAPSED seconds to its LOCAL start
+     * rendering, which ignores a DST transition in between: a query started 01:30 PST
+     * (09:30Z) that finishes 03:10:01 PDT computes as 02:10:01, and a window starting
+     * 03:05 excluded it on every later scan. The bound is widened by the zone's maximum
+     * offset swing, so the civil arithmetic error can no longer hide an eligible row.
+     */
+    @Test
+    public void testCompletionBoundIsWidenedByTheZoneOffsetSwing() {
+        Assertions.assertEquals(0L,
+                AuditLogScanner.zoneOffsetSwingSeconds(ZoneId.of("UTC")),
+                "a fixed-offset zone needs no widening");
+        Assertions.assertEquals(3600L,
+                AuditLogScanner.zoneOffsetSwingSeconds(ZoneId.of("America/Los_Angeles")),
+                "Los Angeles swings one hour");
+
+        String sql = AuditLogScanner.buildScanSql("2026-03-08 03:05:00",
+                "2026-03-08 06:00:00", 500, 1000, 100000, "", 3600L);
+        Assertions.assertTrue(sql.contains("CAST(`query_time` / 1000 AS BIGINT) + 3600"),
+                "the completion must carry the swing: " + sql);
+        String withoutSwing = AuditLogScanner.buildScanSql("2026-03-08 03:05:00",
+                "2026-03-08 06:00:00", 500, 1000, 100000, "", 0L);
+        Assertions.assertFalse(withoutSwing.contains("BIGINT) + 3600"),
+                "a zone without transitions keeps the established SQL: " + withoutSwing);
+    }
+
+    private static void assertRange(String[] range, String start, String end) {
+        Assertions.assertEquals(start, range[0]);
+        Assertions.assertEquals(end, range[1]);
+    }
+
+    private static String describe(List<String[]> ranges) {
+        StringBuilder text = new StringBuilder();
+        for (String[] range : ranges) {
+            text.append('[').append(range[0]).append(' ').append(range[1]).append(']');
+        }
+        return text.toString();
     }
 }

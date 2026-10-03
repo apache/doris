@@ -44,7 +44,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -228,11 +228,34 @@ public class BaselineManager {
     private static final String SPM_BASELINES_TABLE =
             FeConstants.INTERNAL_DB_NAME + "." + InternalSchema.SPM_BASELINES_TBL_NAME;
 
-    /** Column order follows InternalSchema.SPM_BASELINES_SCHEMA. */
-    private static final String SELECT_ALL_SQL = "SELECT `id`, `bind_sql`, `bind_sql_digest`,"
+    /** Column order follows InternalSchema.SPM_BASELINES_SCHEMA (unpaged selection). */
+    private static final String SNAPSHOT_COLUMNS =
+            "SELECT `id`, `bind_sql`, `bind_sql_digest`,"
             + " `bind_sql_hash`, `plan_sql`, `query_id`, `cost`, `query_time_ms`, `source`,"
             + " `status`, `create_time`, `update_time`, `sql_mode`, `plan_sql_mode`,"
-            + " `plan_frozen`, `schema_fingerprint` FROM " + SPM_BASELINES_TABLE;
+            + " `plan_frozen`, `schema_fingerprint` FROM ";
+
+    /**
+     * First page of a whole-table snapshot: ordered by id so the pagination can continue
+     * with {@link #SELECT_PAGE_SQL} from the last row read (and so the duplicate-id
+     * resolution sees a stable order).
+     */
+    private static final String SELECT_ALL_ORDERED_SQL =
+            SNAPSHOT_COLUMNS + SPM_BASELINES_TABLE + " ORDER BY `id`";
+
+    /**
+     * One continuation page of a whole-table snapshot: every row with {@code id >=
+     * &#36;{lastId}} - the boundary id group is re-read as a whole - ordered by id.
+     */
+    private static final String SELECT_PAGE_SQL = SNAPSHOT_COLUMNS + SPM_BASELINES_TABLE
+            + " WHERE `id` >= ${lastId} ORDER BY `id` LIMIT ${pageSize}";
+
+    /**
+     * Rows per snapshot page (see {@link #readPersistedSnapshot}). Bounds what ONE
+     * internal query has to return, so a growing table can no longer make the whole
+     * snapshot read fail against a fixed timeout.
+     */
+    private static final int SNAPSHOT_PAGE_SIZE = 2000;
 
     /** The persistence-layer id watermark (see the class javadoc "Id source"): read
      *  before every id allocation. MAX over an aggregate is a light single-row query. */
@@ -306,7 +329,12 @@ public class BaselineManager {
     private static final String COUNT_BY_ID_AND_STATUS_SQL = "SELECT COUNT(*) FROM "
             + SPM_BASELINES_TABLE + " WHERE `id` = ${id} AND `status` = '${status}'";
 
-    /** DATETIME column format (internal table create_time / update_time). */
+    /**
+     * DATETIME column format (internal table create_time / update_time). The columns are
+     * zone-free DATETIME, so they are written and read in UTC: the stored value denotes
+     * the SAME instant on every FE, in every host zone and across DST changes (see
+     * {@link #toTs}).
+     */
     private static final DateTimeFormatter TS_FORMAT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -2000,7 +2028,22 @@ public class BaselineManager {
             // below may still see the pre-DDL visible version - after the master completed
             // a DROP / DISABLE this "confirmed" refresh would republish the removed row
             // and the command would report success while this FE kept replaying it.
-            syncJournalWithMaster(ctx);
+            //
+            // The sync is part of the FAIL-CLOSED path: a timeout exits here, BEFORE the
+            // snapshot read below - without invalidating the published cache the
+            // follower would keep the pre-DDL row (loaded / baselines / hash index all
+            // intact) and its later default-consistency queries would keep replaying a
+            // baseline the master already dropped / disabled. The existing "stale
+            // snapshot" thread (below) does not cover this branch: it only guards the
+            // read, not the synchronization that must precede it.
+            try {
+                syncJournalWithMaster(ctx);
+            } catch (Throwable t) {
+                invalidatePublishedStore();
+                throw new IllegalStateException("SPM cannot synchronize this FE with the"
+                        + " master after the forwarded GLOBAL DDL; the local baseline cache"
+                        + " was invalidated (please retry later): " + t.getMessage(), t);
+            }
             if (!loaded) {
                 // Wait (bounded) for the in-flight load to finish and discard itself,
                 // then load once against the CURRENT table content.
@@ -2207,38 +2250,126 @@ public class BaselineManager {
      * Builds the persisted snapshot from the internal table: one BaselinePlan per row with
      * the transient trees rebuilt exactly like the startup load does. Invalid rows are
      * skipped with a warning (the next cycle retries).
+     *
+     * <p>The read is PAGINATED and ordered by id: the table has no retention cap, so one
+     * {@code SELECT *} had to return every row within the fixed per-query timeout - a
+     * snapshot that outgrew it failed as a whole and never converged (the follower kept
+     * its old published cache, local baseline DDL waited behind the held writer lock, and
+     * confirmed SHOW / post-forward refreshes failed on the same path forever). Each page
+     * is bounded by {@link #SNAPSHOT_PAGE_SIZE} rows and its own timeout, and the loop
+     * walks the id space forward until a short page ends the snapshot.
      */
     private static Map<Long, BaselinePlan> readPersistedSnapshot() throws Exception {
         if (snapshotReaderForTest != null) {
             return snapshotReaderForTest.get();
         }
-        List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
-                SELECT_ALL_SQL, Collections.emptyMap(), INTERNAL_QUERY_TIMEOUT_SECONDS));
+        return collectSnapshotPages(BaselineManager::readSnapshotPage, SNAPSHOT_PAGE_SIZE);
+    }
+
+    /** One page of the whole-table snapshot, read through the internal table. */
+    private static List<ResultRow> readSnapshotPage(Long pageStart) throws Exception {
+        return inInternalIoMode(() -> StatisticsUtil.executeQuery(
+                snapshotPageSql(pageStart), Collections.emptyMap(),
+                INTERNAL_QUERY_TIMEOUT_SECONDS));
+    }
+
+    /**
+     * The pagination loop of {@link #readPersistedSnapshot}: walks the id space forward
+     * until a page comes back shorter than {@link #SNAPSHOT_PAGE_SIZE}. The boundary id
+     * group is re-read as a whole (the page reader is called with an INCLUSIVE lower
+     * bound), so a duplicate id pair of an interrupted status flip is never split across
+     * pages - the winner resolution must see BOTH rows. Package-visible with an
+     * injectable page reader so the loop (which no unit test can drive through the
+     * internal table) is covered directly.
+     *
+     * @param reader   reads one page: every row with {@code id >= pageStart}, ordered by
+     *                 id; a null pageStart reads the first page
+     * @param pageSize rows per page (the production value is
+     *                 {@link #SNAPSHOT_PAGE_SIZE})
+     * @return the accumulated snapshot
+     * @throws Exception when a page read fails (the caller retries the whole refresh)
+     */
+    @VisibleForTesting
+    static Map<Long, BaselinePlan> collectSnapshotPages(SnapshotPageReader reader, int pageSize)
+            throws Exception {
         Map<Long, BaselinePlan> snapshot = new HashMap<>();
-        for (ResultRow row : rows) {
-            try {
-                BaselinePlan p = parsePersistedRow(row);
-                BaselinePlan previous = snapshot.put(p.getId(), p);
-                if (previous != null) {
-                    // Two rows carry the same id (e.g. an ALTER status update whose
-                    // compensating delete failed, or an out-of-contract manual write):
-                    // SELECT_ALL_SQL has no ordering, so "last read wins" would make
-                    // refresh / restart decide the status NONDETERMINISTICALLY - a failed
-                    // DISABLE could be silently re-enabled. Pick a deterministic winner
-                    // (see pickDurableWinner) so every FE / restart converges on it.
-                    BaselinePlan winner = pickDurableWinner(previous, p);
-                    snapshot.put(p.getId(), winner);
-                    LOG.warn("SPM persisted baseline id {} appears in more than one row"
-                                    + " (statuses {} / {}, update times {} / {});"
-                                    + " deterministically keeping the {} row",
-                            p.getId(), previous.getStatus(), p.getStatus(),
-                            previous.getUpdateTime(), p.getUpdateTime(), winner.getStatus());
-                }
-            } catch (Throwable t) {
-                LOG.warn("SPM skip invalid persisted baseline row: {}", t.getMessage());
+        Long pageStart = null;
+        while (true) {
+            List<ResultRow> rows = reader.readPage(pageStart);
+            if (rows == null || rows.isEmpty()) {
+                return snapshot;
+            }
+            for (ResultRow row : rows) {
+                accumulateSnapshotRow(snapshot, row);
+            }
+            String lastRowId = rows.get(rows.size() - 1).getWithDefault(0, "");
+            if (rows.size() < pageSize || lastRowId.isEmpty()) {
+                return snapshot; // a short page ends the snapshot
+            }
+            long pageLastId = Long.parseLong(lastRowId.trim());
+            if (pageStart != null && pageLastId == pageStart) {
+                // The page consists of ONE id group larger than a page (only an
+                // out-of-contract writer can produce that): advance strictly past it so
+                // the loop terminates; the create / ALTER protocols never put more than
+                // two rows under one id.
+                pageStart = pageLastId + 1;
+            } else {
+                // INCLUSIVE lower bound: the boundary id group is re-read as a whole
+                // instead of being cut in the middle (a missed row of an interrupted
+                // status flip would let the winner resolution resurrect the old status).
+                pageStart = pageLastId;
             }
         }
-        return snapshot;
+    }
+
+    /** Reads one page of the snapshot (see {@link #collectSnapshotPages}). */
+    @FunctionalInterface
+    interface SnapshotPageReader {
+        List<ResultRow> readPage(Long pageStart) throws Exception;
+    }
+
+    /**
+     * The read of ONE snapshot page: every row with {@code id >= pageStart} ordered by
+     * id, or the whole table (in id order) when the snapshot has just started.
+     *
+     * @param pageStart inclusive lower bound of the page id range (null = first page)
+     * @return the page SQL
+     */
+    private static String snapshotPageSql(Long pageStart) {
+        if (pageStart == null) {
+            return SELECT_ALL_ORDERED_SQL + " LIMIT " + SNAPSHOT_PAGE_SIZE;
+        }
+        return SELECT_PAGE_SQL.replace("${lastId}", Long.toString(pageStart))
+                .replace("${pageSize}", Integer.toString(SNAPSHOT_PAGE_SIZE));
+    }
+
+    /**
+     * Merges one raw snapshot row into the accumulated snapshot, resolving an id carried
+     * by more than one row deterministically.
+     */
+    private static void accumulateSnapshotRow(Map<Long, BaselinePlan> snapshot,
+            ResultRow row) {
+        try {
+            BaselinePlan p = parsePersistedRow(row);
+            BaselinePlan previous = snapshot.put(p.getId(), p);
+            if (previous != null) {
+                // Two rows carry the same id (e.g. an ALTER status update whose
+                // compensating delete failed, or an out-of-contract manual write): the
+                // read order must not decide, so "last read wins" would make refresh /
+                // restart decide the status NONDETERMINISTICALLY - a failed DISABLE could
+                // be silently re-enabled. Pick a deterministic winner (see
+                // pickDurableWinner) so every FE / restart converges on it.
+                BaselinePlan winner = pickDurableWinner(previous, p);
+                snapshot.put(p.getId(), winner);
+                LOG.warn("SPM persisted baseline id {} appears in more than one row"
+                                + " (statuses {} / {}, update times {} / {});"
+                                + " deterministically keeping the {} row",
+                        p.getId(), previous.getStatus(), p.getStatus(),
+                        previous.getUpdateTime(), p.getUpdateTime(), winner.getStatus());
+            }
+        } catch (Throwable t) {
+            LOG.warn("SPM skip invalid persisted baseline row: {}", t.getMessage());
+        }
     }
 
     /**
@@ -3072,15 +3203,29 @@ public class BaselineManager {
         confirmStatusRowGoneOrThrow(id, status);
     }
 
-    /** Epoch millis -> internal-table DATETIME literal ('yyyy-MM-dd HH:mm:ss'). */
-    private static String toTs(long epochMillis) {
-        return LocalDateTime.ofInstant(Instant.ofEpochMilli(epochMillis), ZoneId.systemDefault())
+    /**
+     * Epoch millis -> internal-table DATETIME literal ('yyyy-MM-dd HH:mm:ss'), rendered
+     * in UTC.
+     *
+     * <p>The columns are zone-free, and the FEs of one cluster do not share a host zone:
+     * rendering in {@code ZoneId.systemDefault()} made the stored value depend on the
+     * writer's host zone, so the duplicate-row recovery ({@link #pickDurableWinner}, which
+     * keeps the row with the LATER updateTime) compared instants written by different
+     * hosts as if they were one clock - a UTC master's 12:00 ENABLED row outranked a
+     * UTC-8 successor's 12:01 DISABLED row (stored 04:01), and a DST fall-back inverted
+     * the order of two writes of the same FE. UTC makes the values absolute and totally
+     * ordered.
+     */
+    @VisibleForTesting
+    static String toTs(long epochMillis) {
+        return LocalDateTime.ofInstant(Instant.ofEpochMilli(epochMillis), ZoneOffset.UTC)
                 .format(TS_FORMAT);
     }
 
-    /** Internal-table DATETIME literal -> epoch millis. */
-    private static long fromTs(String ts) {
+    /** Internal-table DATETIME literal (UTC, see {@link #toTs}) -> epoch millis. */
+    @VisibleForTesting
+    static long fromTs(String ts) {
         return LocalDateTime.parse(ts, TS_FORMAT)
-                .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+                .toInstant(ZoneOffset.UTC).toEpochMilli();
     }
 }
