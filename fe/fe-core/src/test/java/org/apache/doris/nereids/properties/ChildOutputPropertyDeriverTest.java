@@ -26,14 +26,19 @@ import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
+import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow.WindowFrameGroup;
+import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.AggMode;
@@ -42,26 +47,33 @@ import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
+import org.apache.doris.nereids.trees.plans.PartitionTopnPhase;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.SortPhase;
+import org.apache.doris.nereids.trees.plans.WindowFuncType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -600,14 +612,17 @@ class ChildOutputPropertyDeriverTest {
         Map<ExprId, Integer> leftMap = Maps.newHashMap();
         leftMap.put(new ExprId(0), 0);
         leftMap.put(new ExprId(1), 0);
-        PhysicalProperties left = new PhysicalProperties(new DistributionSpecHash(
+        DistributionSpecHash leftHash = new DistributionSpecHash(
                 Lists.newArrayList(new ExprId(0)),
                 ShuffleType.NATURAL,
                 0,
+                -1L,
                 Sets.newHashSet(0L),
                 ImmutableList.of(Sets.newHashSet(new ExprId(0), new ExprId(1))),
-                leftMap
-        ));
+                leftMap,
+                ImmutableList.of(new DistributionMapping(
+                        "mapping", ImmutableList.of(new ExprId(1)), ImmutableList.of(0))));
+        PhysicalProperties left = naturalProperties(leftHash);
 
         PhysicalProperties right = new PhysicalProperties(DistributionSpecReplicated.INSTANCE,
                 new OrderSpec(Lists.newArrayList(
@@ -623,6 +638,7 @@ class ChildOutputPropertyDeriverTest {
         Assertions.assertEquals(ShuffleType.NATURAL, actual.getShuffleType());
         // check merged
         Assertions.assertEquals(3, actual.getExprIdToEquivalenceSet().size());
+        assertMappingLocalityCleared(result);
     }
 
     @Test
@@ -682,11 +698,13 @@ class ChildOutputPropertyDeriverTest {
                 Lists.newArrayList(new ExprId(0)),
                 ShuffleType.NATURAL,
                 0,
+                -1L,
                 Sets.newHashSet(0L),
                 ImmutableList.of(Sets.newHashSet(new ExprId(0), new ExprId(1))),
-                leftMap
-        );
-        PhysicalProperties left = new PhysicalProperties(leftHash);
+                leftMap,
+                ImmutableList.of(new DistributionMapping(
+                        "mapping", ImmutableList.of(new ExprId(1)), ImmutableList.of(0))));
+        PhysicalProperties left = naturalProperties(leftHash);
         PhysicalProperties right = PhysicalProperties.REPLICATED;
         List<PhysicalProperties> childrenOutputProperties = Lists.newArrayList(left, right);
         ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(childrenOutputProperties);
@@ -695,7 +713,50 @@ class ChildOutputPropertyDeriverTest {
         Assertions.assertTrue(result.getOrderSpec().getOrderKeys().isEmpty());
         Assertions.assertInstanceOf(DistributionSpecHash.class, result.getDistributionSpec());
         DistributionSpecHash actual = (DistributionSpecHash) result.getDistributionSpec();
-        Assertions.assertEquals(leftHash, actual);
+        Assertions.assertEquals(leftHash.withoutDistributionMappings(), actual);
+        assertMappingLocalityCleared(result);
+    }
+
+    @Test
+    void testRuntimePlacementBarriersDropMappingLocality() {
+        SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
+        SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
+        DistributionSpecHash childHash = new DistributionSpecHash(
+                ImmutableList.of(k1.getExprId()), ShuffleType.NATURAL,
+                1L, 2L, ImmutableSet.of(3L),
+                ImmutableList.of(new DistributionMapping(
+                        "mapping", ImmutableList.of(d1.getExprId()), ImmutableList.of(0))));
+        PhysicalProperties childProperties = naturalProperties(childHash);
+
+        PhysicalGenerate<GroupPlan> generate = new PhysicalGenerate<>(
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), logicalProperties, groupPlan);
+        assertMappingLocalityCleared(deriveOutputProperties(generate, childProperties));
+
+        PhysicalWindow<GroupPlan> window = new PhysicalWindow<>(
+                Mockito.mock(WindowFrameGroup.class), null, ImmutableList.of(), false,
+                logicalProperties, groupPlan);
+        assertMappingLocalityCleared(deriveOutputProperties(window, childProperties));
+
+        for (PartitionTopnPhase phase : PartitionTopnPhase.values()) {
+            PhysicalPartitionTopN<GroupPlan> partitionTopN = new PhysicalPartitionTopN<>(
+                    WindowFuncType.ROW_NUMBER, ImmutableList.of(k1), ImmutableList.of(),
+                    false, 1, phase, logicalProperties, groupPlan);
+            assertMappingLocalityCleared(deriveOutputProperties(partitionTopN, childProperties));
+        }
+    }
+
+    @Test
+    void testPhysicalPropertiesDoesNotInferNaturalMappingProof() {
+        SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
+        SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
+        DistributionSpecHash hashSpec = new DistributionSpecHash(
+                ImmutableList.of(k1.getExprId()), ShuffleType.NATURAL,
+                1L, 2L, ImmutableSet.of(3L),
+                ImmutableList.of(new DistributionMapping(
+                        "mapping", ImmutableList.of(d1.getExprId()), ImmutableList.of(0))));
+
+        Assertions.assertFalse(new PhysicalProperties(hashSpec)
+                .getNaturalDistributionMappingSpec().isPresent());
     }
 
     @Test
@@ -752,6 +813,329 @@ class ChildOutputPropertyDeriverTest {
         Assertions.assertEquals(Lists.newArrayList(partition).stream()
                         .map(SlotReference::getExprId).collect(Collectors.toList()),
                 actual.getOrderedShuffledColumns());
+    }
+
+    @Test
+    void testAggregatePropagatesDistributionMappings() {
+        SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
+        SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
+        SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
+        Alias outputK1 = new Alias(k1, "output_k1");
+        Alias outputK2 = new Alias(k2, "output_k2");
+        Alias outputD1 = new Alias(d1, "output_d1");
+        AggregateParam aggregateParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
+        PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
+                ImmutableList.of(k1, k2, d1),
+                ImmutableList.of(outputK1, outputK2, outputD1, sumOutput(d1, aggregateParam)),
+                aggregateParam,
+                true,
+                logicalProperties,
+                false,
+                groupPlan);
+
+        DistributionSpecHash childHash = new DistributionSpecHash(
+                ImmutableList.of(k1.getExprId(), k2.getExprId()), ShuffleType.NATURAL,
+                1L, 2L, ImmutableSet.of(3L),
+                ImmutableList.of(new DistributionMapping(
+                        "mapping_1", ImmutableList.of(d1.getExprId()), ImmutableList.of(0))));
+        DistributionSpecHash outputHash = deriveAggregateHash(aggregate, childHash);
+
+        Assertions.assertEquals(
+                ImmutableList.of(outputK1.getExprId(), outputK2.getExprId()),
+                outputHash.getOrderedShuffledColumns());
+        Assertions.assertEquals(
+                ImmutableList.of(outputD1.getExprId()),
+                outputHash.getDistributionMappings().get(0).getDeterminantExprIds());
+    }
+
+    @Test
+    void testAggregateKeepsMappingLocalityWhenDistributionKeyIsHidden() {
+        SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
+        SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
+        SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
+        Alias outputK2 = new Alias(k2, "output_k2");
+        Alias outputD1 = new Alias(d1, "output_d1");
+        AggregateParam aggregateParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
+        PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
+                ImmutableList.of(d1, k2),
+                ImmutableList.of(outputK2, outputD1, sumOutput(d1, aggregateParam)),
+                aggregateParam,
+                true,
+                logicalProperties,
+                false,
+                groupPlan);
+
+        PhysicalProperties orderedChild = naturalProperties(
+                naturalHashWithMapping(k1, k2, d1),
+                new OrderSpec(ImmutableList.of(new OrderKey(d1, true, false))));
+        PhysicalProperties output = deriveAggregateProperties(aggregate, orderedChild);
+
+        Assertions.assertSame(DistributionSpecStorageAny.INSTANCE, output.getDistributionSpec());
+        Assertions.assertTrue(output.getOrderSpec().getOrderKeys().isEmpty());
+        Assertions.assertTrue(output.getNaturalDistributionMappingSpec().isPresent());
+        NaturalDistributionMappingSpec mappingSpec = output.getNaturalDistributionMappingSpec().get();
+        Assertions.assertEquals(
+                Integer.valueOf(1),
+                mappingSpec.getVisibleDistributionExprToIndex().get(outputK2.getExprId()));
+        Assertions.assertEquals(
+                ImmutableList.of(outputD1.getExprId()),
+                mappingSpec.getDistributionMappings().get(0).getDeterminantExprIds());
+        Assertions.assertTrue(output.satisfy(new PhysicalProperties(new DistributionSpecHash(
+                ImmutableList.of(outputD1.getExprId(), outputK2.getExprId()),
+                ShuffleType.COLOCATE_MAPPING_REQUIRE))));
+    }
+
+    @Test
+    void testAggregateClearsOrderWhenMappingProofFallsBack() {
+        SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
+        SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
+        SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
+        PhysicalProperties orderedChild = naturalProperties(
+                naturalHashWithMapping(k1, k2, d1),
+                new OrderSpec(ImmutableList.of(new OrderKey(d1, true, false))));
+        AggregateParam aggregateParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
+        PhysicalHashAggregate<GroupPlan> repeatAggregate = new PhysicalHashAggregate<>(
+                ImmutableList.of(k1, k2, d1),
+                ImmutableList.of(k1, k2, d1, sumOutput(d1, aggregateParam)),
+                aggregateParam,
+                true,
+                logicalProperties,
+                true,
+                groupPlan);
+        PhysicalHashAggregate<GroupPlan> incompleteGroupByAggregate =
+                new PhysicalHashAggregate<>(
+                        ImmutableList.of(d1),
+                        ImmutableList.of(d1, sumOutput(d1, aggregateParam)),
+                        aggregateParam,
+                        true,
+                        logicalProperties,
+                        false,
+                        groupPlan);
+
+        PhysicalProperties repeatOutput =
+                deriveAggregateProperties(repeatAggregate, orderedChild);
+        PhysicalProperties incompleteOutput =
+                deriveAggregateProperties(incompleteGroupByAggregate, orderedChild);
+
+        Assertions.assertTrue(repeatOutput.getOrderSpec().getOrderKeys().isEmpty());
+        Assertions.assertTrue(incompleteOutput.getOrderSpec().getOrderKeys().isEmpty());
+        Assertions.assertFalse(
+                repeatOutput.getNaturalDistributionMappingSpec().isPresent());
+        Assertions.assertFalse(
+                incompleteOutput.getNaturalDistributionMappingSpec().isPresent());
+    }
+
+    @Test
+    void testAggregateDropsMappingsWithoutRequiredOutputs() {
+        SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
+        SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
+        SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
+        AggregateParam aggregateParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
+        PhysicalHashAggregate<GroupPlan> missingDistributionKey = new PhysicalHashAggregate<>(
+                ImmutableList.of(k1, d1),
+                ImmutableList.of(k1, d1, sumOutput(d1, aggregateParam)),
+                aggregateParam,
+                true,
+                logicalProperties,
+                false,
+                groupPlan);
+        PhysicalHashAggregate<GroupPlan> missingDeterminant = new PhysicalHashAggregate<>(
+                ImmutableList.of(k1, k2, d1),
+                ImmutableList.of(k1, k2, sumOutput(d1, aggregateParam)),
+                aggregateParam,
+                true,
+                logicalProperties,
+                false,
+                groupPlan);
+
+        Assertions.assertTrue(deriveAggregateHash(
+                missingDistributionKey,
+                naturalHashWithMapping(k1, k2, d1)).getDistributionMappings().isEmpty());
+        Assertions.assertTrue(deriveAggregateHash(
+                missingDeterminant,
+                naturalHashWithMapping(k1, k2, d1)).getDistributionMappings().isEmpty());
+    }
+
+    @Test
+    void testAggregateDoesNotUseIncompleteMappingDeterminant() {
+        SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
+        SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
+        SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
+        SlotReference d2 = new SlotReference("d2", IntegerType.INSTANCE);
+        AggregateParam aggregateParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
+        PhysicalHashAggregate<GroupPlan> aggregate = new PhysicalHashAggregate<>(
+                ImmutableList.of(d1, k2),
+                ImmutableList.of(d1, k2, sumOutput(d1, aggregateParam)),
+                aggregateParam,
+                true,
+                logicalProperties,
+                false,
+                groupPlan);
+        DistributionSpecHash childHash = new DistributionSpecHash(
+                ImmutableList.of(k1.getExprId(), k2.getExprId()), ShuffleType.NATURAL,
+                1L, 2L, ImmutableSet.of(3L),
+                ImmutableList.of(new DistributionMapping(
+                        "mapping_1", ImmutableList.of(d1.getExprId(), d2.getExprId()), ImmutableList.of(0))));
+
+        Assertions.assertTrue(deriveAggregateHash(
+                aggregate, childHash).getDistributionMappings().isEmpty());
+    }
+
+    @Test
+    void testDistinctAggregateDropsMappingFromNaturalChild() {
+        SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
+        SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
+        SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
+        SlotReference extra = new SlotReference("extra", IntegerType.INSTANCE);
+        DistributionSpecHash childHash = naturalHashWithMapping(k1, k2, d1);
+        ConnectContext connectContext = ConnectContext.get();
+        boolean originalEnableBucketedHashAgg = connectContext.getSessionVariable().enableBucketedHashAgg;
+        try {
+            connectContext.getSessionVariable().enableBucketedHashAgg = false;
+            for (AggPhase phase : AggPhase.values()) {
+                AggregateParam aggregateParam = new AggregateParam(phase, AggMode.INPUT_TO_RESULT);
+                PhysicalHashAggregate<GroupPlan> distinctAggregate = new PhysicalHashAggregate<>(
+                        ImmutableList.of(d1, k2),
+                        ImmutableList.of(k2, d1, new Alias(
+                                new AggregateExpression(
+                                        new MultiDistinctCount(extra), aggregateParam), "distinct_count")),
+                        aggregateParam,
+                        true,
+                        logicalProperties,
+                        false,
+                        groupPlan);
+
+                PhysicalProperties output = deriveAggregateProperties(distinctAggregate, childHash);
+
+                assertMappingLocalityCleared(output);
+            }
+
+            AggregateParam distinctPhaseParam = new AggregateParam(
+                    AggPhase.DISTINCT_GLOBAL, AggMode.BUFFER_TO_RESULT);
+            PhysicalHashAggregate<GroupPlan> distinctPhaseAggregate = new PhysicalHashAggregate<>(
+                    ImmutableList.of(d1, k2),
+                    ImmutableList.of(k2, d1, sumOutput(extra, distinctPhaseParam)),
+                    distinctPhaseParam,
+                    true,
+                    logicalProperties,
+                    false,
+                    groupPlan);
+            assertMappingLocalityCleared(deriveAggregateProperties(distinctPhaseAggregate, childHash));
+
+            AggregateParam aggregateParam = new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_RESULT);
+            Alias distinctSum = new Alias(
+                    new AggregateExpression(new Sum(true, extra), aggregateParam), "distinct_sum");
+            PhysicalHashAggregate<GroupPlan> mixedDistinctAggregate = new PhysicalHashAggregate<>(
+                    ImmutableList.of(d1, k2),
+                    ImmutableList.of(k2, d1, sumOutput(extra, aggregateParam), distinctSum),
+                    aggregateParam,
+                    true,
+                    logicalProperties,
+                    false,
+                    groupPlan);
+            assertMappingLocalityCleared(deriveAggregateProperties(mixedDistinctAggregate, childHash));
+        } finally {
+            connectContext.getSessionVariable().enableBucketedHashAgg = originalEnableBucketedHashAgg;
+        }
+    }
+
+    @Test
+    void testPureDeduplicateAggregateDropsMappingFromNaturalChild() {
+        SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
+        SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
+        SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
+        PhysicalHashAggregate<GroupPlan> deduplicate = new PhysicalHashAggregate<>(
+                ImmutableList.of(d1, k2),
+                ImmutableList.of(d1, k2),
+                new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT),
+                true,
+                logicalProperties,
+                false,
+                groupPlan);
+
+        assertMappingLocalityCleared(deriveAggregateProperties(
+                deduplicate, naturalHashWithMapping(k1, k2, d1)));
+    }
+
+    @Test
+    void testDistinctAggregateDoesNotRestoreMappingAfterRedistribution() {
+        SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
+        SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
+        SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
+        AggregateParam aggregateParam = new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.INPUT_TO_RESULT);
+        PhysicalHashAggregate<GroupPlan> distinctAggregate = new PhysicalHashAggregate<>(
+                ImmutableList.of(k1, k2, d1),
+                ImmutableList.of(k1, k2, d1, new Alias(
+                        new AggregateExpression(new MultiDistinctCount(d1), aggregateParam), "distinct_count")),
+                aggregateParam,
+                true,
+                logicalProperties,
+                false,
+                groupPlan);
+        PhysicalProperties redistributedChild = new PhysicalProperties(
+                new DistributionSpecHash(ImmutableList.of(d1.getExprId()), ShuffleType.REQUIRE));
+
+        ConnectContext connectContext = ConnectContext.get();
+        boolean originalEnableBucketedHashAgg = connectContext.getSessionVariable().enableBucketedHashAgg;
+        try {
+            connectContext.getSessionVariable().enableBucketedHashAgg = false;
+            PhysicalProperties output = deriveAggregateProperties(distinctAggregate, redistributedChild);
+            Assertions.assertFalse(output.getNaturalDistributionMappingSpec().isPresent());
+        } finally {
+            connectContext.getSessionVariable().enableBucketedHashAgg = originalEnableBucketedHashAgg;
+        }
+    }
+
+    @Test
+    void testAggregateDropsMappingsForRepeat() {
+        SlotReference k1 = new SlotReference("k1", IntegerType.INSTANCE);
+        SlotReference k2 = new SlotReference("k2", IntegerType.INSTANCE);
+        SlotReference d1 = new SlotReference("d1", IntegerType.INSTANCE);
+        DistributionSpecHash childHash = naturalHashWithMapping(k1, k2, d1);
+        AggregateParam aggregateParam = new AggregateParam(AggPhase.GLOBAL, AggMode.BUFFER_TO_RESULT);
+        PhysicalHashAggregate<GroupPlan> repeatAggregate = new PhysicalHashAggregate<>(
+                ImmutableList.of(k1, k2, d1),
+                ImmutableList.of(k1, k2, d1, sumOutput(d1, aggregateParam)),
+                aggregateParam,
+                true,
+                logicalProperties,
+                true,
+                groupPlan);
+
+        Assertions.assertTrue(deriveAggregateHash(
+                repeatAggregate, childHash).getDistributionMappings().isEmpty());
+    }
+
+    private DistributionSpecHash naturalHashWithMapping(
+            SlotReference k1, SlotReference k2, SlotReference d1) {
+        return new DistributionSpecHash(
+                ImmutableList.of(k1.getExprId(), k2.getExprId()), ShuffleType.NATURAL,
+                1L, 2L, ImmutableSet.of(3L),
+                ImmutableList.of(new DistributionMapping(
+                        "mapping_1", ImmutableList.of(d1.getExprId()), ImmutableList.of(0))));
+    }
+
+    private Alias sumOutput(SlotReference input, AggregateParam aggregateParam) {
+        return new Alias(new AggregateExpression(new Sum(input), aggregateParam, input), "sum_value");
+    }
+
+    private DistributionSpecHash deriveAggregateHash(
+            PhysicalHashAggregate<GroupPlan> aggregate, DistributionSpecHash childHash) {
+        return (DistributionSpecHash) deriveAggregateProperties(aggregate, childHash).getDistributionSpec();
+    }
+
+    private PhysicalProperties deriveAggregateProperties(
+            PhysicalHashAggregate<GroupPlan> aggregate, DistributionSpecHash childHash) {
+        return deriveAggregateProperties(aggregate, naturalProperties(childHash));
+    }
+
+    private PhysicalProperties deriveAggregateProperties(
+            PhysicalHashAggregate<GroupPlan> aggregate, PhysicalProperties childProperties) {
+        GroupExpression groupExpression = new GroupExpression(aggregate);
+        new Group(null, groupExpression, null);
+        ChildOutputPropertyDeriver deriver = new ChildOutputPropertyDeriver(
+                ImmutableList.of(childProperties));
+        return deriver.getOutputProperties(null, groupExpression);
     }
 
     @Test
@@ -925,6 +1309,40 @@ class ChildOutputPropertyDeriverTest {
     }
 
     @Test
+    void testRepeatDropsNaturalMappingLocality() {
+        SlotReference k1 = new SlotReference(
+                new ExprId(1), "k1", TinyIntType.INSTANCE, true, ImmutableList.of());
+        SlotReference d1 = new SlotReference(
+                new ExprId(2), "d1", TinyIntType.INSTANCE, true, ImmutableList.of());
+        SlotReference groupingId = new SlotReference(
+                new ExprId(3), "grouping_id", BigIntType.INSTANCE, false, ImmutableList.of());
+        PhysicalRepeat<GroupPlan> repeat = new PhysicalRepeat<>(
+                ImmutableList.of(ImmutableList.of(k1, d1), ImmutableList.of(k1)),
+                ImmutableList.of(k1, d1),
+                groupingId,
+                logicalProperties,
+                groupPlan);
+        GroupExpression groupExpression = new GroupExpression(repeat);
+        new Group(null, groupExpression, null);
+        DistributionSpecHash childHash = new DistributionSpecHash(
+                ImmutableList.of(k1.getExprId()), ShuffleType.NATURAL,
+                1L, 2L, ImmutableSet.of(3L),
+                ImmutableList.of(new DistributionMapping(
+                        "mapping_1", ImmutableList.of(d1.getExprId()), ImmutableList.of(0))));
+
+        PhysicalProperties result = new ChildOutputPropertyDeriver(
+                ImmutableList.of(new PhysicalProperties(childHash)))
+                .getOutputProperties(null, groupExpression);
+
+        Assertions.assertInstanceOf(DistributionSpecHash.class, result.getDistributionSpec());
+        Assertions.assertEquals(ShuffleType.NATURAL,
+                ((DistributionSpecHash) result.getDistributionSpec()).getShuffleType());
+        Assertions.assertTrue(((DistributionSpecHash) result.getDistributionSpec())
+                .getDistributionMappings().isEmpty());
+        Assertions.assertFalse(result.getNaturalDistributionMappingSpec().isPresent());
+    }
+
+    @Test
     void testRepeatReturnChild2() {
         SlotReference c1 = new SlotReference(
                 new ExprId(1), "c1", TinyIntType.INSTANCE, true, ImmutableList.of());
@@ -971,6 +1389,62 @@ class ChildOutputPropertyDeriverTest {
         projects3.add(c1);
         PhysicalProperties phyProp3 = ChildOutputPropertyDeriver.computeProjectOutputProperties(projects3, hashC1);
         Assertions.assertEquals(hashC1, phyProp3);
+    }
+
+    @Test
+    void testProjectOnlyPropagatesMappingThroughHashValuePreservingCast() {
+        SlotReference distributionKey = new SlotReference("k1", IntegerType.INSTANCE);
+        SlotReference determinant = new SlotReference("d1", new VarcharType(8));
+        DistributionSpecHash childHash = new DistributionSpecHash(
+                ImmutableList.of(distributionKey.getExprId()), ShuffleType.NATURAL,
+                1L, 2L, ImmutableSet.of(3L),
+                ImmutableList.of(new DistributionMapping(
+                        "mapping_1", ImmutableList.of(determinant.getExprId()), ImmutableList.of(0))));
+        PhysicalProperties childProperties = naturalProperties(childHash);
+
+        Alias widened = new Alias(new Cast(determinant, new VarcharType(32)), "widened_d1");
+        PhysicalProperties widenedProperties = ChildOutputPropertyDeriver.computeProjectOutputProperties(
+                ImmutableList.of(widened), childProperties);
+        Assertions.assertEquals(DistributionSpecStorageAny.INSTANCE, widenedProperties.getDistributionSpec());
+        Assertions.assertTrue(widenedProperties.getNaturalDistributionMappingSpec().isPresent());
+        Assertions.assertEquals(
+                ImmutableList.of(widened.getExprId()),
+                widenedProperties.getNaturalDistributionMappingSpec().get()
+                        .getDistributionMappings().get(0).getDeterminantExprIds());
+
+        Alias narrowed = new Alias(new Cast(determinant, new VarcharType(4)), "narrowed_d1");
+        PhysicalProperties narrowedProperties = ChildOutputPropertyDeriver.computeProjectOutputProperties(
+                ImmutableList.of(narrowed), childProperties);
+        Assertions.assertEquals(DistributionSpecStorageAny.INSTANCE, narrowedProperties.getDistributionSpec());
+        Assertions.assertFalse(narrowedProperties.getNaturalDistributionMappingSpec().isPresent());
+    }
+
+    private PhysicalProperties naturalProperties(DistributionSpecHash hashSpec) {
+        return naturalProperties(hashSpec, new OrderSpec());
+    }
+
+    private PhysicalProperties naturalProperties(DistributionSpecHash hashSpec, OrderSpec orderSpec) {
+        NaturalDistributionMappingSpec mappingSpec = new NaturalDistributionMappingSpec(
+                hashSpec.getTableId(), hashSpec.getSelectedIndexId(), hashSpec.getPartitionIds(),
+                hashSpec.getOrderedShuffledColumns().size(), hashSpec.getExprIdToEquivalenceSet(),
+                hashSpec.getDistributionMappings());
+        return new PhysicalProperties(hashSpec, orderSpec, Optional.of(mappingSpec));
+    }
+
+    private PhysicalProperties deriveOutputProperties(
+            AbstractPhysicalPlan plan, PhysicalProperties... childProperties) {
+        GroupExpression groupExpression = new GroupExpression(plan);
+        new Group(null, groupExpression, null);
+        return new ChildOutputPropertyDeriver(ImmutableList.copyOf(childProperties))
+                .getOutputProperties(null, groupExpression);
+    }
+
+    private void assertMappingLocalityCleared(PhysicalProperties properties) {
+        Assertions.assertFalse(properties.getNaturalDistributionMappingSpec().isPresent());
+        if (properties.getDistributionSpec() instanceof DistributionSpecHash) {
+            Assertions.assertTrue(((DistributionSpecHash) properties.getDistributionSpec())
+                    .getDistributionMappings().isEmpty());
+        }
     }
 
     @Test

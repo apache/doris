@@ -21,6 +21,7 @@ import com.google.gson.annotations.SerializedName;
 
 public abstract class Constraint {
     public enum ConstraintType {
+        DISTRIBUTION_MAPPING("DISTRIBUTION MAPPING"),
         FOREIGN_KEY("FOREIGN KEY"),
         PRIMARY_KEY("PRIMARY KEY"),
         UNIQUE("UNIQUE");
