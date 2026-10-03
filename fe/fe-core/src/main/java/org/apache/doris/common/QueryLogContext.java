@@ -18,6 +18,7 @@
 package org.apache.doris.common;
 
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.thrift.TUniqueId;
 
 import org.apache.logging.log4j.ThreadContext;
@@ -57,6 +58,28 @@ public final class QueryLogContext implements AutoCloseable {
         if (Config.sys_log_enable_query_id) {
             ThreadContext.remove(QUERY_ID);
         }
+    }
+
+    /**
+     * Keep the query ID in a runtime message only when the prefix does not already contain it.
+     * This preserves attribution when logging is disabled or the caller has no query context.
+     * Audit/protocol fields and IDs relating different queries must remain explicit.
+     */
+    public static String queryIdSuffix(TUniqueId queryId) {
+        return suffix(format(queryId));
+    }
+
+    public static String queryIdSuffix(PUniqueId queryId) {
+        return suffix(queryId == null || (queryId.getHi() == 0 && queryId.getLo() == 0)
+                ? null : DebugUtil.printId(queryId));
+    }
+
+    private static String suffix(String formatted) {
+        if (formatted == null || (Config.sys_log_enable_query_id
+                && formatted.equals(ThreadContext.get(QUERY_ID)))) {
+            return "";
+        }
+        return " [" + formatted + "]";
     }
 
     /** Capture the value now, before a retry or connection reuse can change the original ID. */

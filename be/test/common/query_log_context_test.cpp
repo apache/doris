@@ -107,6 +107,52 @@ TEST_F(QueryLogContextTest, MissingAndQueryOnlyIdentity) {
               log_marker(QueryLogIdentity(log_test_id(0x1234, 0xabcd), log_test_id(0, 0))));
 }
 
+TEST_F(QueryLogContextTest, MessageSuffixDeduplicatesOnlyTheCurrentQuery) {
+    const auto query = log_test_id(0x1234, 0xabcd);
+    EXPECT_EQ(" [1234-abcd]", query_id_log_suffix(query));
+    EXPECT_EQ("", query_id_log_suffix(log_test_id(0, 0)));
+    {
+        ScopedQueryLogContext scope(QueryLogIdentity(query, log_test_id(0x1234, 0xabce)));
+        EXPECT_EQ(" [1234-abcd/1] Query finished",
+                  current_log_marker() + " Query" + query_id_log_suffix(query) + " finished");
+        EXPECT_EQ(" [5678-abcd]", query_id_log_suffix(log_test_id(0x5678, 0xabcd)));
+        EXPECT_EQ(" [1234-abce]", query_id_log_suffix(log_test_id(0x1234, 0xabce)));
+        {
+            ScopedQueryLogContext background(QueryLogIdentity {});
+            EXPECT_EQ(" [1234-abcd]", query_id_log_suffix(query));
+        }
+        EXPECT_EQ("", query_id_log_suffix(query));
+    }
+    EXPECT_EQ(" [1234-abcd]", query_id_log_suffix(query));
+    EXPECT_EQ(" [ffffffffffffffff-8000000000000000]",
+              query_id_log_suffix(log_test_id(-1, std::numeric_limits<int64_t>::min())));
+}
+
+TEST_F(QueryLogContextTest, DisabledPrefixKeepsTheMessageId) {
+    config::sys_log_enable_query_id = false;
+    EXPECT_EQ(" [1-2]", query_id_log_suffix(log_test_id(1, 2)));
+}
+
+TEST_F(QueryLogContextTest, ReusedWorkerDoesNotDeduplicateAnotherQuery) {
+    const auto first = log_test_id(1, 2);
+    const auto second = log_test_id(3, 4);
+    std::thread worker([&] {
+        {
+            ScopedQueryLogContext scope {QueryLogIdentity(first)};
+            EXPECT_EQ("", query_id_log_suffix(first));
+            EXPECT_EQ(" [3-4]", query_id_log_suffix(second));
+        }
+        EXPECT_EQ(" [1-2]", query_id_log_suffix(first));
+        {
+            ScopedQueryLogContext scope {QueryLogIdentity(second)};
+            EXPECT_EQ(" [1-2]", query_id_log_suffix(first));
+            EXPECT_EQ("", query_id_log_suffix(second));
+        }
+        EXPECT_EQ("", current_log_marker());
+    });
+    worker.join();
+}
+
 TEST_F(QueryLogContextTest, CompactInstanceOffset) {
     const auto query = log_test_id(0x1234, 0xabcd);
     EXPECT_EQ(" [1234-abcd/1]", log_marker(QueryLogIdentity(query, log_test_id(0x1234, 0xabce))));

@@ -198,14 +198,14 @@ public class NereidsCoordinator extends Coordinator {
             if (!originQueryStatus.ok()) {
                 if (LOG.isDebugEnabled()) {
                     // Print an error stack here to know why send cancel again.
-                    LOG.warn("Query {} already in abnormal status {}, but received cancel again,"
+                    LOG.warn("Query{} already in abnormal status {}, but received cancel again,"
                                     + "so that send cancel to BE again",
-                            DebugUtil.printId(queryId), originQueryStatus.toString(),
+                            QueryLogContext.queryIdSuffix(queryId), originQueryStatus.toString(),
                             new Exception("cancel failed"));
                 }
             } else {
-                LOG.warn("Cancel execution of query {}, this is a outside invoke, cancelReason {}",
-                        DebugUtil.printId(queryId), cancelReason);
+                LOG.warn("Cancel execution of query{}, this is a outside invoke, cancelReason {}",
+                        QueryLogContext.queryIdSuffix(queryId), cancelReason);
             }
         } finally {
             // Publishing the status above can itself cancel a partially initialized processor. Start the
@@ -221,8 +221,8 @@ public class NereidsCoordinator extends Coordinator {
                     try {
                         scanNode.stop();
                     } catch (Throwable t) {
-                        LOG.error("error happens when scannode stop during cancel, query id: {}",
-                                DebugUtil.printId(queryId), t);
+                        LOG.error("error happens when scannode stop during cancel, query{}",
+                                QueryLogContext.queryIdSuffix(queryId), t);
                     }
                 }
             } finally {

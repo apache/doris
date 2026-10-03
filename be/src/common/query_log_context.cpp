@@ -51,13 +51,17 @@ void set_query_log_identity(QueryLogIdentity* identity) {
     }
 }
 
-void write_log_id(std::ostream& stream, uint64_t hi, uint64_t lo) {
-    // At most 16 hex digits per half plus the separator. No formatting allocation.
-    char buffer[33];
+// The caller provides space for 16 hex digits per half plus the separator.
+char* format_log_id(char* buffer, uint64_t hi, uint64_t lo) {
     auto first = std::to_chars(buffer, buffer + 16, hi, 16);
     *first.ptr++ = '-';
-    auto last = std::to_chars(first.ptr, buffer + sizeof(buffer), lo, 16);
-    stream.write(buffer, static_cast<std::streamsize>(last.ptr - buffer));
+    return std::to_chars(first.ptr, buffer + 33, lo, 16).ptr;
+}
+
+void write_log_id(std::ostream& stream, uint64_t hi, uint64_t lo) {
+    char buffer[33];
+    const auto* end = format_log_id(buffer, hi, lo);
+    stream.write(buffer, static_cast<std::streamsize>(end - buffer));
 }
 
 } // namespace
@@ -99,6 +103,22 @@ QueryLogIdentity current_query_log_identity() {
     }
     auto* identity = get_query_log_identity();
     return identity == nullptr ? QueryLogIdentity {} : *identity;
+}
+
+std::string query_id_log_suffix(const TUniqueId& query_id) {
+    const QueryLogIdentity query(query_id);
+    if (query.query_hi == 0 && query.query_lo == 0) {
+        return {};
+    }
+    const auto current = current_query_log_identity();
+    if (config::sys_log_enable_query_id && current.query_hi == query.query_hi &&
+        current.query_lo == query.query_lo) {
+        return {};
+    }
+    char buffer[36] = {' ', '['};
+    auto* end = format_log_id(buffer + 2, query.query_hi, query.query_lo);
+    *end++ = ']';
+    return {buffer, static_cast<size_t>(end - buffer)};
 }
 
 void ScopedQueryLogContext::reset(QueryLogIdentity identity) {

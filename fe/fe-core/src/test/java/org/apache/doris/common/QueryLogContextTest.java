@@ -17,21 +17,31 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.mysql.authenticate.TestLogAppender;
+import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 
+import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.ThreadContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class QueryLogContextTest {
     private boolean savedEnabled;
@@ -102,6 +112,113 @@ public class QueryLogContextTest {
     }
 
     @Test
+    public void testMessageSuffixPreservesMissingAndDifferentQueryIds() {
+        TUniqueId queryId = new TUniqueId(1, 2);
+        Assertions.assertEquals(" [1-2]", QueryLogContext.queryIdSuffix(queryId));
+        Assertions.assertEquals("", QueryLogContext.queryIdSuffix((TUniqueId) null));
+        Assertions.assertEquals("", QueryLogContext.queryIdSuffix(new TUniqueId(0, 0)));
+        try (QueryLogContext ignored = QueryLogContext.open(queryId)) {
+            Assertions.assertEquals("", QueryLogContext.queryIdSuffix(queryId));
+            Assertions.assertEquals(" [1-3]", QueryLogContext.queryIdSuffix(new TUniqueId(1, 3)));
+            Assertions.assertEquals(" [3-2]", QueryLogContext.queryIdSuffix(new TUniqueId(3, 2)));
+            // The prefix is a snapshot; an ID changed by a retry must remain explicit.
+            queryId.setLo(4);
+            Assertions.assertEquals(" [1-4]", QueryLogContext.queryIdSuffix(queryId));
+        }
+        Assertions.assertEquals(" [1-4]", QueryLogContext.queryIdSuffix(queryId));
+        Assertions.assertEquals(" [ffffffffffffffff-8000000000000000]",
+                QueryLogContext.queryIdSuffix(new TUniqueId(-1, Long.MIN_VALUE)));
+    }
+
+    @Test
+    public void testProtobufMessageSuffixUsesTheSameQueryIdentity() {
+        PUniqueId queryId = PUniqueId.newBuilder().setHi(1).setLo(2).build();
+        Assertions.assertEquals(" [1-2]", QueryLogContext.queryIdSuffix(queryId));
+        Assertions.assertEquals("", QueryLogContext.queryIdSuffix((PUniqueId) null));
+        Assertions.assertEquals("", QueryLogContext.queryIdSuffix(PUniqueId.getDefaultInstance()));
+        try (QueryLogContext ignored = QueryLogContext.open(new TUniqueId(1, 2))) {
+            Assertions.assertEquals("", QueryLogContext.queryIdSuffix(queryId));
+            Assertions.assertEquals(" [1-3]",
+                    QueryLogContext.queryIdSuffix(queryId.toBuilder().setLo(3).build()));
+            Config.sys_log_enable_query_id = false;
+            Assertions.assertEquals(" [1-2]", QueryLogContext.queryIdSuffix(queryId));
+            Config.sys_log_enable_query_id = true;
+        }
+    }
+
+    @Test
+    public void testTimeoutCheckBindsTheTargetQueryAndRestoresTheWorker() {
+        AtomicReference<String> observed = new AtomicReference<>();
+        ConnectContext target = new ConnectContext() {
+            @Override
+            public int getExecTimeoutS() {
+                observed.set(ThreadContext.get(QueryLogContext.QUERY_ID));
+                return 1;
+            }
+        };
+        target.setCommand(MysqlCommand.COM_QUERY);
+        target.setStartTime();
+        ThreadContext.put(QueryLogContext.QUERY_ID, "worker");
+        target.setQueryId(new TUniqueId(1, 2));
+        target.checkTimeout(target.getStartTime());
+        Assertions.assertEquals("1-2", observed.get());
+        Assertions.assertEquals("worker", ThreadContext.get(QueryLogContext.QUERY_ID));
+        target.setQueryId(new TUniqueId(3, 4));
+        target.checkTimeout(target.getStartTime());
+        Assertions.assertEquals("3-4", observed.get());
+        Assertions.assertEquals("worker", ThreadContext.get(QueryLogContext.QUERY_ID));
+        for (MysqlCommand command : new MysqlCommand[] {MysqlCommand.COM_FIELD_LIST, MysqlCommand.COM_PING}) {
+            target.setCommand(command);
+            target.checkTimeout(target.getStartTime());
+            Assertions.assertNull(observed.get(), "Metadata commands do not own the retained query ID");
+            Assertions.assertEquals("worker", ThreadContext.get(QueryLogContext.QUERY_ID));
+        }
+    }
+
+    @Test
+    public void testStatementLogIdentifierKeepsTheStatementAndFallbackQuery() {
+        ConnectContext context = new ConnectContext();
+        context.setStmtId(7);
+        context.setQueryId(new TUniqueId(1, 2));
+        Assertions.assertEquals("stmt[7] [1-2]", context.getQueryLogIdentifier());
+        try (QueryLogContext ignored = QueryLogContext.open(context.queryId())) {
+            Assertions.assertEquals("stmt[7]", context.getQueryLogIdentifier());
+            // The identifier used outside runtime logging must remain self-contained.
+            Assertions.assertEquals("stmt[7, 1-2]", context.getQueryIdentifier());
+        }
+    }
+
+    @Test
+    public void testRetryLogRetainsTheRelationshipBetweenAttempts() throws Exception {
+        int savedRetries = Config.max_query_retry_time;
+        ConnectContext queryContext = new ConnectContext();
+        queryContext.setThreadLocalInfo();
+        List<TUniqueId> attempts = new ArrayList<>();
+        StmtExecutor executor = new StmtExecutor(queryContext, "select 1") {
+            @Override
+            public void execute(TUniqueId queryId) throws Exception {
+                queryContext.setQueryId(queryId);
+                attempts.add(queryId);
+                Assertions.assertEquals(DebugUtil.printId(queryId), ThreadContext.get(QueryLogContext.QUERY_ID));
+                if (attempts.size() == 1) {
+                    throw new UserException(SystemInfoService.NO_SCAN_NODE_BACKEND_AVAILABLE_MSG);
+                }
+            }
+        };
+        try (TestLogAppender appender = TestLogAppender.attach(StmtExecutor.class, Level.WARN)) {
+            Config.max_query_retry_time = 1;
+            executor.queryRetry(new TUniqueId(1, 2));
+            Assertions.assertEquals(2, attempts.size());
+            Assertions.assertNotEquals(attempts.get(0), attempts.get(1));
+            Assertions.assertTrue(appender.contains(Level.WARN,
+                    "first queryId=1-2 last queryId=1-2 new queryId=" + DebugUtil.printId(attempts.get(1))));
+            Assertions.assertEquals(DebugUtil.printId(attempts.get(1)), ThreadContext.get(QueryLogContext.QUERY_ID));
+        } finally {
+            Config.max_query_retry_time = savedRetries;
+        }
+    }
+
+    @Test
     public void testWrappedCallbackCapturesIdAtRegistration() {
         TUniqueId queryId = new TUniqueId(1, 2);
         Runnable wrapped = QueryLogContext.wrap(() -> {
@@ -136,6 +253,8 @@ public class QueryLogContextTest {
             Assertions.assertEquals("worker", worker.submit(() -> ThreadContext.get(QueryLogContext.QUERY_ID))
                     .get(10, TimeUnit.SECONDS));
             Assertions.assertEquals("caller", ThreadContext.get(QueryLogContext.QUERY_ID));
+            Assertions.assertEquals(" [1-2]", worker.submit(
+                    () -> QueryLogContext.queryIdSuffix(new TUniqueId(1, 2))).get(10, TimeUnit.SECONDS));
         } finally {
             worker.shutdownNow();
             Assertions.assertTrue(worker.awaitTermination(10, TimeUnit.SECONDS));
@@ -149,6 +268,7 @@ public class QueryLogContextTest {
         Runnable callback = () -> Assertions.assertEquals("caller", ThreadContext.get(QueryLogContext.QUERY_ID));
         Executor executor = Runnable::run;
         TUniqueId queryId = new TUniqueId(1, 2);
+        Assertions.assertEquals(" [1-2]", QueryLogContext.queryIdSuffix(queryId));
         try (QueryLogContext ignored = QueryLogContext.open(queryId)) {
             QueryLogContext.setQueryId(queryId);
             QueryLogContext.clear();

@@ -308,9 +308,9 @@ public class NereidsPlanner extends Planner {
         if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
             Memo memo = cascadesContext.getMemo();
             if (memo != null) {
-                LOG.info("{}\n{}", ConnectContext.get().getQueryIdentifier(), memo.toString());
+                LOG.info("{}\n{}", ConnectContext.get().getQueryLogIdentifier(), memo.toString());
             } else {
-                LOG.info("{}\nMemo is null", ConnectContext.get().getQueryIdentifier());
+                LOG.info("{}\nMemo is null", ConnectContext.get().getQueryLogIdentifier());
             }
         }
         Set<Integer> requiredGroupIds = cascadesContext.getConnectContext()
@@ -336,7 +336,7 @@ public class NereidsPlanner extends Planner {
         physicalPlan = postProcess(physicalPlan);
         if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
             String tree = physicalPlan.treeString();
-            LOG.info("{}\n{}", ConnectContext.get().getQueryIdentifier(), tree);
+            LOG.info("{}\n{}", ConnectContext.get().getQueryLogIdentifier(), tree);
         }
         if (explainLevel == ExplainLevel.OPTIMIZED_PLAN
                 || explainLevel == ExplainLevel.ALL_PLAN
@@ -424,13 +424,13 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             if (preloadResult.isExecuted()) {
                 LOG.debug("{} preloaded external metadata for {} of {} candidate tables in {} ms",
-                        statementContext.getConnectContext().getQueryIdentifier(),
+                        statementContext.getConnectContext().getQueryLogIdentifier(),
                         preloadResult.getPreloadedTableCount(),
                         preloadResult.getCandidateTableCount(),
                         preloadResult.getElapsedTimeMs());
             } else {
                 LOG.debug("{} skip external metadata preload before lock: {} [candidateTableCount={}]",
-                        statementContext.getConnectContext().getQueryIdentifier(), preloadResult.getSkipReason(),
+                        statementContext.getConnectContext().getQueryLogIdentifier(), preloadResult.getSkipReason(),
                         preloadResult.getCandidateTableCount());
             }
         }
@@ -551,8 +551,8 @@ public class NereidsPlanner extends Planner {
                         plansWhichContainMv.add(normalizedPlan);
                     }
                 } catch (Exception e) {
-                    LOG.error("pre mv rewrite in rbo rewrite fail, query id is {}",
-                            cascadesContext.getConnectContext().getQueryIdentifier(), e);
+                    LOG.error("pre mv rewrite in rbo rewrite fail, statement {}",
+                            cascadesContext.getConnectContext().getQueryLogIdentifier(), e);
 
                 } finally {
                     sessionVariable.nereidsTimeoutSecond = timeoutSecond;

@@ -657,8 +657,8 @@ public class StmtExecutor {
         TUniqueId queryId = UniqueIdUtils.fastUniqueId();
         if (Config.enable_print_request_before_execution) {
             try (QueryLogContext ignored = QueryLogContext.open(queryId)) {
-                LOG.info("begin to execute query {} {}",
-                        DebugUtil.printId(queryId), getStmtForLoggingBeforeParse());
+                LOG.info("begin to execute query{} {}",
+                        QueryLogContext.queryIdSuffix(queryId), getStmtForLoggingBeforeParse());
             }
         }
         queryRetry(queryId);
@@ -725,7 +725,7 @@ public class StmtExecutor {
             LOG.info("temporarily set {} from {} to 0 and {} from {} to 0 before retry. {}",
                     SessionVariable.CLOUD_PARTITION_VERSION_CACHE_TTL_MS, oldPartitionTtl,
                     SessionVariable.CLOUD_TABLE_VERSION_CACHE_TTL_MS, oldTableTtl,
-                    context.getQueryIdentifier());
+                    context.getQueryLogIdentifier());
             execute(queryId);
         } finally {
             sessionVariable.cloudPartitionVersionCacheTtlMs = oldPartitionTtl;
@@ -758,10 +758,10 @@ public class StmtExecutor {
                 // COMPUTE_GROUPS_NO_ALIVE_BE, planner can't get alive be, need retry
                 if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getMessage())) {
                     LOG.debug("planner failed with cloud compute group error, need retry. {}",
-                            context.getQueryIdentifier(), e);
+                            context.getQueryLogIdentifier(), e);
                     throw new UserException(e.getMessage());
                 }
-                LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
+                LOG.warn("Analyze failed. {}", context.getQueryLogIdentifier(), e);
                 // Planning wraps the window rejection in NereidsException/AnalysisException.
                 // NereidsException(Exception) keeps its wrapped exception outside Throwable.cause.
                 Throwable cause = e instanceof NereidsException
@@ -774,7 +774,7 @@ public class StmtExecutor {
                 }
                 return;
             } catch (Exception e) {
-                LOG.warn("Nereids execute failed. {}", context.getQueryIdentifier(), e);
+                LOG.warn("Nereids execute failed. {}", context.getQueryLogIdentifier(), e);
                 context.getState().setError(e.getMessage());
                 throw e;
             }
@@ -792,7 +792,7 @@ public class StmtExecutor {
                     changedSessionVarsForAudit = VariableMgr.dumpChangedVars(sessionVariable);
                 } catch (Throwable t) {
                     LOG.warn("failed to snapshot changed session variables for audit. {}",
-                            context.getQueryIdentifier(), t);
+                            context.getQueryLogIdentifier(), t);
                 }
             }
             // revert Session Value
@@ -802,7 +802,7 @@ public class StmtExecutor {
                 sessionVariable.setIsSingleSetVar(false);
                 sessionVariable.clearSessionOriginValue();
             } catch (DdlException e) {
-                LOG.warn("failed to revert Session value. {}", context.getQueryIdentifier(), e);
+                LOG.warn("failed to revert Session value. {}", context.getQueryLogIdentifier(), e);
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             }
         }
@@ -1247,7 +1247,7 @@ public class StmtExecutor {
                     }
                 }
                 handleQueryStmt();
-                LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
+                LOG.info("Query{} finished", QueryLogContext.queryIdSuffix(context.queryId));
                 break;
             } catch (RpcException | UserException e) {
                 if (Config.isCloudMode() && SystemInfoService.needRetryWithReplan(e.getMessage())) {
@@ -1299,9 +1299,9 @@ public class StmtExecutor {
                     // The failed attempt's cancel() stopped the scan nodes, and one of them released
                     // what the BE scans with: a remote Doris scan's session on the other frontend,
                     // whose query the scan ranges point at. The same plan cannot be dispatched again.
-                    LOG.warn("not retrying query {} with the same plan: a scan node released what the backend"
+                    LOG.warn("not retrying query{} with the same plan: a scan node released what the backend"
                             + " scans with when the failed attempt was cancelled. stmt: {}",
-                            DebugUtil.printId(context.queryId()), parsedStmt.getOrigStmt().originStmt);
+                            QueryLogContext.queryIdSuffix(context.queryId()), parsedStmt.getOrigStmt().originStmt);
                     throw e;
                 }
                 if (i != retryTime - 1 && isNeedRetry && context.getProtocolAdapter().canRetryQuery(context)) {
@@ -1313,7 +1313,7 @@ public class StmtExecutor {
                 if (context.isReturnResultFromLocal()) {
                     finalizeQuery();
                 }
-                LOG.debug("Finalize query {}", DebugUtil.printId(context.queryId()));
+                LOG.debug("Finalize query{}", QueryLogContext.queryIdSuffix(context.queryId()));
             }
         }
     }
@@ -1577,8 +1577,8 @@ public class StmtExecutor {
     // Process a select statement.
     private void handleQueryStmt() throws Exception {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("Handling query {} with query id {}",
-                    originStmt.originStmt, DebugUtil.printId(context.queryId));
+            LOG.debug("Handling query{}: {}",
+                    QueryLogContext.queryIdSuffix(context.queryId), originStmt.originStmt);
         }
 
         ResultSender sender = context.getResultSender();
@@ -2192,7 +2192,7 @@ public class StmtExecutor {
                 context.updateReturnRows(batch.getBatch().getRows().size());
                 resultRows.addAll(convertResultBatchToResultRows(batch.getBatch()));
             }
-            LOG.info("Result rows for query {} is {}", DebugUtil.printId(queryId), resultRows.size());
+            LOG.info("Result rows for query{} is {}", QueryLogContext.queryIdSuffix(queryId), resultRows.size());
             return resultRows;
         } catch (Exception e) {
             if (context.getState().getStateType() != MysqlStateType.ERR) {
@@ -2244,7 +2244,7 @@ public class StmtExecutor {
     }
 
     private HttpStreamParams generateHttpStreamNereidsPlan(TUniqueId queryId) {
-        LOG.info("TUniqueId: {} generate stream load plan", DebugUtil.printId(queryId));
+        LOG.info("generate stream load plan{}", QueryLogContext.queryIdSuffix(queryId));
         context.setQueryId(queryId);
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
 
@@ -2314,7 +2314,7 @@ public class StmtExecutor {
                             originStmt.originStmt, e.getMessage(), e);
                 }
                 if (e instanceof NereidsException) {
-                    LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
+                    LOG.warn("Analyze failed. {}", context.getQueryLogIdentifier(), e);
                 }
                 throw e;
             } catch (Exception e) {
@@ -2328,7 +2328,7 @@ public class StmtExecutor {
                 sessionVariable.setIsSingleSetVar(false);
                 sessionVariable.clearSessionOriginValue();
             } catch (DdlException e) {
-                LOG.warn("failed to revert Session value. {}", context.getQueryIdentifier(), e);
+                LOG.warn("failed to revert Session value. {}", context.getQueryLogIdentifier(), e);
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             }
         }

@@ -643,8 +643,9 @@ Status PInternalService::_exec_plan_fragment_impl(
         timer.stop();
         double cost_secs = static_cast<double>(timer.elapsed_time()) / 1000000000ULL;
         if (cost_secs > 5) {
-            LOG_WARNING("Prepare {} fragments of query {} costs {} seconds, it costs too much",
-                        fragment_list.size(), print_id(fragment_list.front().query_id), cost_secs);
+            LOG_WARNING("Prepare {} fragments of query{} costs {} seconds, it costs too much",
+                        fragment_list.size(), query_id_log_suffix(fragment_list.front().query_id),
+                        cost_secs);
         }
 
         return Status::OK();
@@ -689,7 +690,7 @@ void PInternalService::cancel_plan_fragment(google::protobuf::RpcController* /*c
         TUniqueId query_id;
         query_id.__set_hi(request->query_id().hi());
         query_id.__set_lo(request->query_id().lo());
-        LOG(INFO) << fmt::format("Cancel query {}, reason: {}", print_id(query_id),
+        LOG(INFO) << fmt::format("Cancel query{}, reason: {}", query_id_log_suffix(query_id),
                                  actual_cancel_status.to_string());
         _exec_env->fragment_mgr()->cancel_query(query_id, actual_cancel_status);
 

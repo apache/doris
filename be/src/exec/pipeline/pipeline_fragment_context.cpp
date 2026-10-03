@@ -157,8 +157,7 @@ PipelineFragmentContext::PipelineFragmentContext(
 
 PipelineFragmentContext::~PipelineFragmentContext() {
     ScopedQueryLogContext query_log_scope {QueryLogIdentity(_query_id)};
-    LOG_INFO("PipelineFragmentContext::~PipelineFragmentContext")
-            .tag("query_id", print_id(_query_id))
+    LOG_INFO("PipelineFragmentContext::~PipelineFragmentContext{}", query_id_log_suffix(_query_id))
             .tag("fragment_id", _fragment_id);
     _release_resource();
     {
@@ -210,8 +209,7 @@ bool PipelineFragmentContext::notify_close() {
 // cancellation bidirectional and allow every task closed with the query error to repeat the whole
 // fragment's timeout diagnostics and dependency-unblocking work.
 void PipelineFragmentContext::cancel(const Status reason) {
-    LOG_INFO("PipelineFragmentContext::cancel")
-            .tag("query_id", print_id(_query_id))
+    LOG_INFO("PipelineFragmentContext::cancel{}", query_id_log_suffix(_query_id))
             .tag("fragment_id", _fragment_id)
             .tag("reason", reason.to_string());
     if (notify_close()) {
@@ -680,8 +678,7 @@ void PipelineFragmentContext::trigger_report_if_necessary() {
             return;
         }
         if (VLOG_FILE_IS_ON) {
-            VLOG_FILE << "Reporting "
-                      << "profile for query_id " << print_id(_query_id)
+            VLOG_FILE << "Reporting profile for query" << query_id_log_suffix(_query_id)
                       << ", fragment id: " << _fragment_id;
 
             std::stringstream ss;
@@ -691,8 +688,8 @@ void PipelineFragmentContext::trigger_report_if_necessary() {
                 _runtime_state->load_channel_profile()->pretty_print(&ss);
             }
 
-            VLOG_FILE << "Query " << print_id(get_query_id()) << " fragment " << get_fragment_id()
-                      << " profile:\n"
+            VLOG_FILE << "Query" << query_id_log_suffix(get_query_id()) << " fragment "
+                      << get_fragment_id() << " profile:\n"
                       << ss.str();
         }
         auto st = send_report(false);
@@ -2235,7 +2232,7 @@ void PipelineFragmentContext::print_profile(const std::string& extra_info) {
         }
 
         auto profile_str =
-                fmt::format("Query {} fragment {} {}, profile, {}", print_id(this->_query_id),
+                fmt::format("Query{} fragment {} {}, profile, {}", query_id_log_suffix(_query_id),
                             this->_fragment_id, extra_info, ss.str());
         LOG_LONG_STRING(INFO, profile_str);
     }
@@ -2257,8 +2254,9 @@ bool PipelineFragmentContext::_close_fragment_instance() {
     if (!_need_notify_close) {
         auto st = send_report(true);
         if (!st) {
-            LOG(WARNING) << fmt::format("Failed to send report for query {}, fragment {}: {}",
-                                        print_id(_query_id), _fragment_id, st.to_string());
+            LOG(WARNING) << fmt::format("Failed to send report for query{}, fragment {}: {}",
+                                        query_id_log_suffix(_query_id), _fragment_id,
+                                        st.to_string());
         }
     }
     // Print profile content in info log is a tempoeray solution for stream load and external_connector.
@@ -2285,7 +2283,8 @@ bool PipelineFragmentContext::_close_fragment_instance() {
             _runtime_state->load_channel_profile()->pretty_print(&ss);
         }
 
-        LOG_INFO("Query {} fragment {} profile:\n {}", print_id(_query_id), _fragment_id, ss.str());
+        LOG_INFO("Query{} fragment {} profile:\n {}", query_id_log_suffix(_query_id), _fragment_id,
+                 ss.str());
     }
 
     if (_query_ctx->enable_profile()) {
@@ -2372,9 +2371,9 @@ void PipelineFragmentContext::_append_external_file_commit_data(
 void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& req) {
     DBUG_EXECUTE_IF("FragmentMgr::coordinator_callback.report_delay", {
         int random_seconds = req.status.is<ErrorCode::DATA_QUALITY_ERROR>() ? 8 : 2;
-        LOG_INFO("sleep : ").tag("time", random_seconds).tag("query_id", print_id(req.query_id));
+        LOG_INFO("sleep{}: ", query_id_log_suffix(req.query_id)).tag("time", random_seconds);
         std::this_thread::sleep_for(std::chrono::seconds(random_seconds));
-        LOG_INFO("sleep done").tag("query_id", print_id(req.query_id));
+        LOG_INFO("sleep done{}", query_id_log_suffix(req.query_id));
     });
 
     DCHECK(req.status.ok() || req.done); // if !status.ok() => done
@@ -2568,7 +2567,7 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
             (*coord)->reportExecStatus(res, params);
         } catch (apache::thrift::transport::TTransportException& e) {
             report_outcome_ambiguous = true;
-            LOG(WARNING) << "Retrying ReportExecStatus. query id: " << print_id(req.query_id)
+            LOG(WARNING) << "Retrying ReportExecStatus" << query_id_log_suffix(req.query_id)
                          << ", instance id: " << print_id(req.fragment_instance_id) << " to "
                          << req.coord_addr << ", err: " << e.what();
             rpc_status = coord->reopen();
@@ -2610,8 +2609,8 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
             req.runtime_state->finalize_external_file_report_cleanup(
                     ExternalFileReportOutcome::AMBIGUOUS);
         }
-        LOG_INFO("Going to cancel query {} since report exec status got rpc failed: {}",
-                 print_id(req.query_id), rpc_status.to_string());
+        LOG_INFO("Going to cancel query{} since report exec status got rpc failed: {}",
+                 query_id_log_suffix(req.query_id), rpc_status.to_string());
         req.cancel_fn(rpc_status);
     } else if (req.done && req.status.ok()) {
         // Files remain rollback-owned until the coordinator has acknowledged the final metadata report.
@@ -2693,7 +2692,7 @@ size_t PipelineFragmentContext::get_revocable_size(bool* has_running_task) const
     for (const auto& task_instances : _tasks) {
         for (const auto& task : task_instances) {
             if (task.first->is_running()) {
-                LOG_EVERY_N(INFO, 50) << "Query: " << print_id(_query_id)
+                LOG_EVERY_N(INFO, 50) << "Query" << query_id_log_suffix(_query_id)
                                       << " is running, task: " << (void*)task.first.get()
                                       << ", is_running: " << task.first->is_running();
                 *has_running_task = true;

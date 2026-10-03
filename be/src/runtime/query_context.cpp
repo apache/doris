@@ -278,8 +278,8 @@ QueryContext::~QueryContext() {
     clock_gettime(CLOCK_MONOTONIC, &now);
     int64_t elapsed_ms = (now.tv_sec - _query_arrival_timestamp.tv_sec) * 1000LL +
                          (now.tv_nsec - _query_arrival_timestamp.tv_nsec) / 1000000LL;
-    LOG_INFO("Query {} deconstructed, elapsed_ms: {}, mem_tracker: {}", print_id(this->_query_id),
-             elapsed_ms, mem_tracker_msg);
+    LOG_INFO("Query{} deconstructed, elapsed_ms: {}, mem_tracker: {}",
+             query_id_log_suffix(_query_id), elapsed_ms, mem_tracker_msg);
 }
 
 void QueryContext::set_ready_to_execute(Status reason) {
@@ -456,9 +456,8 @@ void QueryContext::add_fragment_profile(
 #endif
 
     std::lock_guard<std::mutex> l(_profile_mutex);
-    VLOG_ROW << fmt::format(
-            "Query add fragment profile, query {}, fragment {}, pipeline profile count {} ",
-            print_id(this->_query_id), fragment_id, pipeline_profiles.size());
+    VLOG_ROW << fmt::format("Query{} add fragment profile, fragment {}, pipeline profile count {} ",
+                            query_id_log_suffix(_query_id), fragment_id, pipeline_profiles.size());
 
     _profile_map.insert(std::make_pair(fragment_id, pipeline_profiles));
 

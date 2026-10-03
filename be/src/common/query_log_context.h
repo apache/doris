@@ -19,6 +19,7 @@
 
 #include <cstdint>
 #include <iosfwd>
+#include <string>
 
 namespace doris {
 
@@ -44,6 +45,11 @@ struct QueryLogIdentity {
 void init_query_log_context();
 QueryLogIdentity current_query_log_identity();
 void append_query_log_identity(std::ostream& stream);
+
+// A message suffix for an ID not already present in the runtime log prefix. Keeps
+// query attribution when prefix logging is disabled or the caller has no context.
+// Do not use for audit/protocol fields or IDs describing relationships between queries.
+std::string query_id_log_suffix(const TUniqueId& query_id);
 
 // The installed pointer refers to this stack object and is restored before it dies.
 // bthreads use their own key, so yielding or migrating cannot expose a pthread's ID.

@@ -98,13 +98,13 @@ public class InitMaterializationContextHook implements PlannerHook {
      */
     protected void doInitMaterializationContext(CascadesContext cascadesContext) {
         if (cascadesContext.getConnectContext().getSessionVariable().isInDebugMode()) {
-            LOG.info("MaterializationContext init return because is in debug mode, current queryId is {}",
-                    cascadesContext.getConnectContext().getQueryIdentifier());
+            LOG.info("MaterializationContext init return because is in debug mode, statement {}",
+                    cascadesContext.getConnectContext().getQueryLogIdentifier());
             return;
         }
         if (cascadesContext.getStatementContext().isShortCircuitQuery()) {
-            LOG.debug("MaterializationContext init return because isShortCircuitQuery, current queryId is {}",
-                    cascadesContext.getConnectContext().getQueryIdentifier());
+            LOG.debug("MaterializationContext init return because isShortCircuitQuery, statement {}",
+                    cascadesContext.getConnectContext().getQueryLogIdentifier());
             return;
         }
         Set<TableIf> collectedTables = Sets.newHashSet(cascadesContext.getStatementContext().getTables().values());
@@ -196,13 +196,13 @@ public class InitMaterializationContextHook implements PlannerHook {
         try {
             availableMTMVs = getAvailableMTMVs(usedTables, cascadesContext);
         } catch (Exception e) {
-            LOG.warn(String.format("MaterializationContext getAvailableMTMVs generate fail, current queryId is %s",
-                    cascadesContext.getConnectContext().getQueryIdentifier()), e);
+            LOG.warn(String.format("MaterializationContext getAvailableMTMVs generate fail, statement %s",
+                    cascadesContext.getConnectContext().getQueryLogIdentifier()), e);
             return ImmutableList.of();
         }
         if (CollectionUtils.isEmpty(availableMTMVs)) {
-            LOG.info("Enable materialized view rewrite but availableMTMVs is empty, query id "
-                    + "is {}", cascadesContext.getConnectContext().getQueryIdentifier());
+            LOG.info("Enable materialized view rewrite but availableMTMVs is empty, statement "
+                    + "{}", cascadesContext.getConnectContext().getQueryLogIdentifier());
             return ImmutableList.of();
         }
         List<MaterializationContext> asyncMaterializationContext = new ArrayList<>();
@@ -229,8 +229,8 @@ public class InitMaterializationContextHook implements PlannerHook {
                     }
                 }
             } catch (Exception e) {
-                LOG.warn(String.format("MaterializationContext init mv cache generate fail, current queryId is %s",
-                        cascadesContext.getConnectContext().getQueryIdentifier()), e);
+                LOG.warn(String.format("MaterializationContext init mv cache generate fail, statement %s",
+                        cascadesContext.getConnectContext().getQueryLogIdentifier()), e);
             }
         }
         return getMaterializationContextByHint(asyncMaterializationContext);
