@@ -61,8 +61,20 @@ external_regression_stage_timer__handle_command() {
         *"./run-regression-test.sh --teamcity --clean --run"*)
             external_regression_stage_timer__enter_if_needed "执行 Case"
             ;;
+        *"after check core"*)
+            external_regression_stage_timer__enter_if_needed "检查 Core"
+            ;;
+        *"stop_doris_grace"* | *"stop_be.sh --grace"* | *"stop_fe.sh --grace"* | *"stop_cluster_grace.sh "*)
+            external_regression_stage_timer__enter_if_needed "停止集群"
+            ;;
+        *"start restart,"* | *"start_cluster.sh "* | *"after restart fe image meta"* | *"NEW FE IMAGE CREATED AFTER FE RESTART"*)
+            external_regression_stage_timer__enter_if_needed "重启并检查 FE 元数据"
+            ;;
+        *"日志备份标记 "* | *"archive_doris_logs "* | *"upload_doris_log_to_oss "*)
+            external_regression_stage_timer__enter_if_needed "备份日志"
+            ;;
         *"COLLECT DOCKER LOGS"* | *"collect_docker_logs "*)
-            external_regression_stage_timer__enter_if_needed "收尾归档"
+            external_regression_stage_timer__enter_if_needed "收集 Docker 日志"
             ;;
     esac
 }
@@ -104,7 +116,7 @@ external_regression_stage_timer_enter_run_cases() {
 }
 
 external_regression_stage_timer_enter_cleanup() {
-    stage_timer_enter "收尾归档"
+    stage_timer_enter "收集 Docker 日志"
 }
 
 external_regression_stage_timer_enable_auto_hooks() {
