@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.check.CheckCast;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.ExpressionEvaluator;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.executable.UuidArithmetic;
@@ -26,10 +29,14 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.UuidLiteral;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.NullType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.UuidType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -123,7 +130,7 @@ class UuidFunctionsTest {
 
     @Test
     void rejectsImplicitNumericFunctions() {
-        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+        Assertions.assertThrows(AnalysisException.class,
                 () -> new Abs(NORMAL).getSignature());
     }
 
@@ -151,8 +158,42 @@ class UuidFunctionsTest {
     }
 
     @Test
+    void arraysOverlapRejectsIncompatibleUuidArrays() {
+        boolean originalBehavior = GlobalVariable.enableNewTypeCoercionBehavior;
+        try {
+            GlobalVariable.enableNewTypeCoercionBehavior = true;
+            SlotReference uuids = new SlotReference("uuids", ArrayType.of(UuidType.INSTANCE));
+            SlotReference integers = new SlotReference("integers", ArrayType.of(IntegerType.INSTANCE));
+            for (ArraysOverlap function : List.of(new ArraysOverlap(uuids, integers),
+                    new ArraysOverlap(integers, uuids))) {
+                AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
+                        () -> ExpressionRewriteTestHelper.typeCoercion(function));
+                Assertions.assertTrue(exception.getMessage().contains(
+                        "Cannot find a common type for indexed ANY arguments"), exception::getMessage);
+            }
+        } finally {
+            GlobalVariable.enableNewTypeCoercionBehavior = originalBehavior;
+        }
+    }
+
+    @Test
+    void arraysOverlapCoercesCompatibleUuidArrays() {
+        SlotReference uuids = new SlotReference("uuids", ArrayType.of(UuidType.INSTANCE));
+        for (DataType itemType : List.of(UuidType.INSTANCE, NullType.INSTANCE, StringType.INSTANCE)) {
+            SlotReference other = new SlotReference("other", ArrayType.of(itemType));
+            DataType commonType = itemType.isStringLikeType() ? other.getDataType() : uuids.getDataType();
+            for (ArraysOverlap function : List.of(new ArraysOverlap(uuids, other), new ArraysOverlap(other, uuids))) {
+                Expression coerced = ExpressionRewriteTestHelper.typeCoercion(function);
+                Assertions.assertEquals(commonType, coerced.child(0).getDataType());
+                Assertions.assertEquals(commonType, coerced.child(1).getDataType());
+                Assertions.assertDoesNotThrow(coerced::checkLegalityAfterRewrite);
+            }
+        }
+    }
+
+    @Test
     void decoderRequiresConstantTimezone() {
-        Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
+        Assertions.assertThrows(AnalysisException.class,
                 () -> new UuidV7ToDateTime(NORMAL, new SlotReference("tz", StringType.INSTANCE))
                         .checkLegalityBeforeTypeCoercion());
     }

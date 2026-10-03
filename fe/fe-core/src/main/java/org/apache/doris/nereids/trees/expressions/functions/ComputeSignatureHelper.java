@@ -378,6 +378,10 @@ public class ComputeSignatureHelper {
             } else {
                 dataType = TypeCoercionUtils.findWiderCommonTypeForComparison(dataTypes.getValue());
             }
+            if (!dataType.isPresent()) {
+                throw new AnalysisException("Cannot find a common type for indexed ANY arguments: "
+                        + dataTypes.getValue());
+            }
             // TODO: should we use tinyint when all any data type's expression is null type?
             // if (dataType.isPresent() && dataType.get() instanceof NullType) {
             //     dataType = Optional.of(TinyIntType.INSTANCE);
