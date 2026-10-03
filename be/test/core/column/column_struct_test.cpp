@@ -23,12 +23,15 @@
 
 #include <cstdint>
 #include <iostream>
+#include <limits>
+#include <vector>
 
 #include "core/block/block.h"
 #include "core/column/column_array.h"
 #include "core/column/column_const.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_date.h"
@@ -39,6 +42,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/field.h"
 #include "core/types.h"
 
 namespace doris {
@@ -49,6 +53,173 @@ protected:
 
     void TearDown() override {}
 };
+
+namespace {
+
+// Nullable(Struct<x: Nullable(Int32)>) with 4 rows. Rows 1 and 3 are NULL at the outer level
+// but keep different hidden payloads in the field column, which is what IF/CASE produce when
+// only one branch is a NULL literal. Rows 0 and 3 share the same payload but differ in nullness;
+// NULL is hashed as the field's default value, so only the NULL/NULL equality is asserted.
+struct NullableStructFixture {
+    ColumnPtr nullable;
+    const ColumnStruct* plain_struct = nullptr;
+    std::vector<uint8_t> null_map = {0, 1, 0, 1};
+
+    NullableStructFixture() {
+        auto field = ColumnNullable::create(ColumnInt32::create(), ColumnUInt8::create());
+        for (int32_t v : {0, std::numeric_limits<int32_t>::min(), 1, 0}) {
+            field->insert(Field::create_field<TYPE_INT>(v));
+        }
+        Columns fields;
+        fields.push_back(std::move(field));
+        ColumnPtr struct_column = ColumnStruct::create(std::move(fields));
+        plain_struct = assert_cast<const ColumnStruct*>(struct_column.get());
+
+        auto null_map_column = ColumnUInt8::create();
+        for (auto v : null_map) {
+            null_map_column->insert_value(v);
+        }
+        nullable = ColumnNullable::create(struct_column, std::move(null_map_column));
+    }
+};
+
+} // namespace
+
+TEST_F(ColumnStructTest, Crc32cBatchRespectsOuterNullMap) {
+    NullableStructFixture fixture;
+    std::vector<uint32_t> hashes(4, 0);
+    fixture.nullable->update_crc32c_batch(hashes.data(), nullptr);
+    std::vector<uint32_t> plain_hashes(4, 0);
+    fixture.plain_struct->update_crc32c_batch(plain_hashes.data(), nullptr);
+
+    // Two logical NULLs must hash identically regardless of hidden payload.
+    EXPECT_EQ(hashes[1], hashes[3]);
+    // Non-NULL rows hash exactly like the plain struct column.
+    EXPECT_EQ(hashes[0], plain_hashes[0]);
+    EXPECT_EQ(hashes[2], plain_hashes[2]);
+
+    // Calling the struct directly with a null map skips the NULL rows.
+    std::vector<uint32_t> masked_hashes(4, 0);
+    fixture.plain_struct->update_crc32c_batch(masked_hashes.data(), fixture.null_map.data());
+    EXPECT_EQ(masked_hashes[0], plain_hashes[0]);
+    EXPECT_EQ(masked_hashes[1], 0);
+    EXPECT_EQ(masked_hashes[2], plain_hashes[2]);
+    EXPECT_EQ(masked_hashes[3], 0);
+}
+
+TEST_F(ColumnStructTest, Crc32cSingleRespectsOuterNullMap) {
+    NullableStructFixture fixture;
+    auto hash_row = [&](const IColumn& column, size_t row) {
+        uint32_t hash = 0;
+        column.update_crc32c_single(row, row + 1, hash, nullptr);
+        return hash;
+    };
+    EXPECT_EQ(hash_row(*fixture.nullable, 1), hash_row(*fixture.nullable, 3));
+    EXPECT_EQ(hash_row(*fixture.nullable, 0), hash_row(*fixture.plain_struct, 0));
+    EXPECT_EQ(hash_row(*fixture.nullable, 2), hash_row(*fixture.plain_struct, 2));
+
+    // A multi-row range with a null map only hashes the non-NULL rows.
+    uint32_t masked = 0;
+    fixture.plain_struct->update_crc32c_single(0, 4, masked, fixture.null_map.data());
+    uint32_t expected = 0;
+    fixture.plain_struct->update_crc32c_single(0, 1, expected, nullptr);
+    fixture.plain_struct->update_crc32c_single(2, 3, expected, nullptr);
+    EXPECT_EQ(masked, expected);
+}
+
+TEST_F(ColumnStructTest, XxHashRespectsOuterNullMap) {
+    NullableStructFixture fixture;
+    std::vector<uint64_t> hashes(4, 0);
+    fixture.nullable->update_hashes_with_value(hashes.data(), nullptr);
+    std::vector<uint64_t> plain_hashes(4, 0);
+    fixture.plain_struct->update_hashes_with_value(plain_hashes.data(), nullptr);
+    EXPECT_EQ(hashes[1], hashes[3]);
+    EXPECT_EQ(hashes[0], plain_hashes[0]);
+    EXPECT_EQ(hashes[2], plain_hashes[2]);
+
+    auto hash_row = [&](const IColumn& column, size_t row) {
+        uint64_t hash = 0;
+        column.update_xxHash_with_value(row, row + 1, hash, nullptr);
+        return hash;
+    };
+    EXPECT_EQ(hash_row(*fixture.nullable, 1), hash_row(*fixture.nullable, 3));
+    EXPECT_EQ(hash_row(*fixture.nullable, 0), hash_row(*fixture.plain_struct, 0));
+    EXPECT_EQ(hash_row(*fixture.nullable, 2), hash_row(*fixture.plain_struct, 2));
+}
+
+TEST_F(ColumnStructTest, CrcRangeRespectsOuterNullMap) {
+    NullableStructFixture fixture;
+    auto hash_row = [&](const IColumn& column, size_t row) {
+        uint32_t hash = 0;
+        column.update_crc_with_value(row, row + 1, hash, nullptr);
+        return hash;
+    };
+    EXPECT_EQ(hash_row(*fixture.nullable, 1), hash_row(*fixture.nullable, 3));
+    EXPECT_EQ(hash_row(*fixture.nullable, 0), hash_row(*fixture.plain_struct, 0));
+    EXPECT_EQ(hash_row(*fixture.nullable, 2), hash_row(*fixture.plain_struct, 2));
+}
+
+// Struct<x: Nullable(BIGINT)> whose row 0 has a NULL field and row 1 a non-NULL field, wrapped
+// once with an outer NULL on row 1 and once without. Row 0 is the same logical value in both
+// blocks and must hash identically: the batch path keeps the field's batch NULL encoding even
+// when an unrelated outer NULL forces the masked path.
+TEST_F(ColumnStructTest, BatchHashKeepsChildBatchContractWithUnrelatedOuterNull) {
+    auto make_block = [](const std::vector<uint8_t>& outer_null_map) {
+        auto field = ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
+        field->insert_default();
+        field->insert(Field::create_field<TYPE_BIGINT>(int64_t(5)));
+        Columns fields;
+        fields.push_back(std::move(field));
+        ColumnPtr struct_column = ColumnStruct::create(std::move(fields));
+        auto null_map_column = ColumnUInt8::create();
+        for (auto v : outer_null_map) {
+            null_map_column->insert_value(v);
+        }
+        return ColumnNullable::create(struct_column, std::move(null_map_column));
+    };
+    ColumnPtr with_outer_null = make_block({0, 1});
+    ColumnPtr without_outer_null = make_block({0, 0});
+
+    constexpr uint32_t seed32 = 0x12345678;
+    std::vector<uint32_t> crc_a(2, seed32);
+    std::vector<uint32_t> crc_b(2, seed32);
+    with_outer_null->update_crc32c_batch(crc_a.data(), nullptr);
+    without_outer_null->update_crc32c_batch(crc_b.data(), nullptr);
+    EXPECT_EQ(crc_a[0], crc_b[0]);
+
+    constexpr uint64_t seed64 = 0x123456789abcdefULL;
+    std::vector<uint64_t> xx_a(2, seed64);
+    std::vector<uint64_t> xx_b(2, seed64);
+    with_outer_null->update_hashes_with_value(xx_a.data(), nullptr);
+    without_outer_null->update_hashes_with_value(xx_b.data(), nullptr);
+    EXPECT_EQ(xx_a[0], xx_b[0]);
+}
+
+TEST_F(ColumnStructTest, RangeHashWithAllZeroMaskMatchesUnmasked) {
+    NullableStructFixture fixture;
+    std::vector<uint8_t> zeros(4, 0);
+    {
+        uint32_t masked = 7;
+        uint32_t plain = 7;
+        fixture.plain_struct->update_crc32c_single(0, 4, masked, zeros.data());
+        fixture.plain_struct->update_crc32c_single(0, 4, plain, nullptr);
+        EXPECT_EQ(masked, plain);
+    }
+    {
+        uint64_t masked = 7;
+        uint64_t plain = 7;
+        fixture.plain_struct->update_xxHash_with_value(0, 4, masked, zeros.data());
+        fixture.plain_struct->update_xxHash_with_value(0, 4, plain, nullptr);
+        EXPECT_EQ(masked, plain);
+    }
+    {
+        uint32_t masked = 7;
+        uint32_t plain = 7;
+        fixture.plain_struct->update_crc_with_value(0, 4, masked, zeros.data());
+        fixture.plain_struct->update_crc_with_value(0, 4, plain, nullptr);
+        EXPECT_EQ(masked, plain);
+    }
+}
 
 TEST_F(ColumnStructTest, StructTypeTesterase) {
     DataTypePtr key_type = (std::make_shared<DataTypeString>());
