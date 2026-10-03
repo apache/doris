@@ -375,6 +375,10 @@ public interface TableIf {
         return null;
     }
 
+    default Partition getMaxVisiblePartition() {
+        return null;
+    }
+
     default List<String> getFullQualifiers() {
         return ImmutableList.of(getDatabase().getCatalog().getName(),
                 getDatabase().getFullName(),
