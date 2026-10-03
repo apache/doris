@@ -100,7 +100,6 @@ list(REMOVE_ITEM UT_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/frame_of_reference_page_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/plain_page_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/rle_page_test.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/segment_iterator_apply_index_expr_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/runtime/decimal_value_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/util/decompress_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/io/fs/remote_file_system_test.cpp
