@@ -103,8 +103,39 @@ public class SQLRelation {
      */
     private boolean fromCarriesAlias = false;
 
+    /**
+     * The underlying CATALOG relation (a scan's table) this relation reads, or null when
+     * the relation is not a plain table scan. Two scan relations of the same table are a
+     * self join even when their FROM texts differ (a scan carries its own PARTITION /
+     * TABLESAMPLE / snapshot modifiers), which the FROM-text comparison cannot see: the
+     * join must wrap both sides, otherwise the two identical table references sit in one
+     * FROM without aliases ("Not unique table/alias" on replay).
+     */
+    private String relationIdentity = null;
+
     /** All column names of the table (to avoid JOIN column-name conflicts; reserved in Phase 1). */
     private List<String> reserveNames = null;
+
+    /**
+     * Marks which catalog relation (table) this relation reads (see
+     * {@link #isSameRelation}).
+     *
+     * @param relationIdentity the rendered qualified table name of the scan
+     */
+    public void setRelationIdentity(String relationIdentity) {
+        this.relationIdentity = relationIdentity;
+    }
+
+    /**
+     * Whether this relation and the other read the SAME catalog relation (two
+     * occurrences of one table under different scan modifiers).
+     *
+     * @param other the other relation of a join
+     * @return whether both sides scan the same table
+     */
+    public boolean isSameRelation(SQLRelation other) {
+        return relationIdentity != null && relationIdentity.equals(other.relationIdentity);
+    }
 
     /**
      * Registers an explicit reference name (e.g. a local aggregate registers

@@ -5830,12 +5830,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             }
                             filterColumn = columnName;
                             filterValue = stripQuotes(right.toSql());
-                        } else {
-                            // Simplified Phase 1 filter: extract the literal from a
-                            // `WHERE source = 'CAPTURE'` / `WHERE status = 'DISABLED'`
-                            // style clause
-                            pattern = stripQuotes(((Literal) right).toSql());
                         }
+                        // NO fallback to a text pattern here: a RIGHT literal whose LEFT
+                        // operand is not a column (`WHERE 1 = 1`, `WHERE id + 0 = 1`) used
+                        // to become pattern = '1', which bypassed the unsupported-predicate
+                        // error below and searched the SQL / status / source text for '1'.
+                        // Leaving both filters unset surfaces the advertised analysis error
+                        // instead.
                     }
                 }
             }

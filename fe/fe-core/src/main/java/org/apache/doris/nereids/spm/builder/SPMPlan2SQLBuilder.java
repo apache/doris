@@ -1083,6 +1083,10 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                 ? quoteIdentifier(catalogRelation.getTable().getName())
                 : quoteQualifiedTableName(catalogRelation.getTable());
         sqlRelation.setFrom(table + renderScanModifiers(relation));
+        // Remember WHICH table this scan reads: two occurrences of one table are a self
+        // join even when their FROM texts differ (each occurrence may carry its own
+        // PARTITION / TABLESAMPLE pin), and the join must wrap both sides then.
+        sqlRelation.setRelationIdentity(table);
         // Register output columns: ExprId -> real column name. Internal system columns
         // (e.g. rowid columns a join may request from the scan) are execution details
         // and are never registered so they cannot leak into projections / ON clauses.
@@ -1838,10 +1842,28 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         String hintStr = hints.isEmpty() ? "" : "[" + hints + "]";
 
         // ===== column-name collision handling =====
-        // same relation alias on both sides (e.g. self join) -> force subquery wrap
-        if (StringUtils.equalsIgnoreCase(left.getRelationAlias(), right.getRelationAlias())) {
+        // Computed BEFORE the FROM fragments are materialized: when the columns collide,
+        // EVERY column of both sides is referenced QUALIFIED below, and that qualifier can
+        // require a wrapper (a composite FROM such as a scan carrying scan modifiers).
+        // Allocating the wrapper only while the references were built left the FROM
+        // fragment inline while the references used the freshly allocated t_N alias - a
+        // frozen text that cannot bind on replay.
+        boolean columnConflicts = intersectsIgnoreCase(
+                left.getColumnNames().values(), right.getColumnNames().values());
+        // same relation alias on both sides (e.g. self join) -> force subquery wrap. The
+        // SCAN identity covers the self join whose FROM texts differ (different scan
+        // selectors): the older FROM-text comparison missed it and emitted the same table
+        // twice without aliases ("Not unique table/alias" on replay).
+        if (left.isSameRelation(right)
+                || StringUtils.equalsIgnoreCase(left.getRelationAlias(), right.getRelationAlias())) {
             left.newAlias();
             right.newAlias();
+        } else if (columnConflicts) {
+            // allocate the wrapper aliases NOW: ensureQualifierAlias() wraps a composite
+            // FROM (scan modifiers, a TVF call) so the references below and the FROM
+            // fragment agree
+            left.ensureQualifierAlias();
+            right.ensureQualifierAlias();
         }
         String leftSql = left.toRelationSQL();
         String rightSql = right.toRelationSQL();
@@ -1875,8 +1897,6 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             droppedSideIds.addAll(right.getColumnNames().keySet());
         }
 
-        boolean columnConflicts = intersectsIgnoreCase(
-                left.getColumnNames().values(), right.getColumnNames().values());
         if (columnConflicts) {
             // qualify every column with its side's alias (needed by the ON clause AND by
             // the explicit projection below)

@@ -267,6 +267,52 @@ public class SPMPlan2SQLBuilderTest {
                 "conflicting column references must be qualified: " + sql);
     }
 
+    /**
+     * Round-27: two occurrences of one table whose FROM texts DIFFER (each carries its
+     * own scan pin) are still a SELF join. The FROM-text comparison missed them, so the
+     * frozen text carried the same table twice WITHOUT aliases - the analyzer rejects it
+     * on replay ("Not unique table/alias: 't1'"), i.e. a pinned self-join baseline could
+     * never be replayed. Both sides are now wrapped like any other self join.
+     */
+    @Test
+    public void testPinnedSelfJoinForcesWrap() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference b = new SlotReference("b", IntegerType.INSTANCE);
+
+        PhysicalOlapScan left = mockPinnedScan("t1", List.of(a), "p1");
+        PhysicalOlapScan right = mockPinnedScan("t1", List.of(b), "p2");
+        PhysicalHashJoin join = mockJoin(left, right, new EqualTo(a, b));
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(join);
+        Assertions.assertFalse(sql.contains("t1 PARTITION(p1) INNER JOIN t1 PARTITION(p2)"),
+                "the pinned self join must not inline both occurrences: " + sql);
+        Assertions.assertTrue(sql.contains("(SELECT * FROM t1 PARTITION(p1)) t_0"), sql);
+        Assertions.assertTrue(sql.contains("(SELECT * FROM t1 PARTITION(p2)) t_1"), sql);
+    }
+
+    /**
+     * Round-27: when the column names collide, EVERY column is referenced through its
+     * side's qualifier - which a composite FROM (a scan carrying a pin) cannot provide.
+     * The wrapper alias is now allocated BEFORE the FROM fragments are materialized; the
+     * old order emitted the pinned scans inline while the references used the alias
+     * ensureQualifierAlias() allocated afterwards ("Unknown table 't_0'" on replay).
+     */
+    @Test
+    public void testPinnedConflictJoinWrapsBothSides() {
+        SlotReference a1 = new SlotReference("a", IntegerType.INSTANCE);
+        SlotReference a2 = new SlotReference("a", IntegerType.INSTANCE);
+
+        PhysicalOlapScan left = mockPinnedScan("t1", List.of(a1), "p1");
+        PhysicalOlapScan right = mockPinnedScan("t2", List.of(a2), "p1");
+        PhysicalHashJoin join = mockJoin(left, right, new EqualTo(a1, a2));
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(join);
+        Assertions.assertTrue(sql.contains("(SELECT * FROM t1 PARTITION(p1)) t_0"), sql);
+        Assertions.assertTrue(sql.contains("(SELECT * FROM t2 PARTITION(p1)) t_1"), sql);
+        Assertions.assertTrue(sql.contains("t_0.a") && sql.contains("t_1.a"),
+                "the conflicting references must use the wrapper aliases of the FROM: " + sql);
+    }
+
     // ==================== MARK / NULL_AWARE join decompile ====================
     // 2-valued EXISTS / NOT EXISTS MARK joins (empty mark conjuncts) decompile to the
     // native SEMI/ANTI MARK JOIN keyword so the shape is pinned and replayed; the
@@ -768,6 +814,31 @@ public class SPMPlan2SQLBuilderTest {
         Mockito.when(scan.getTableSample()).thenReturn(Optional.empty());
         Mockito.when(scan.getManuallySpecifiedPartitions()).thenReturn(List.of());
         Mockito.when(scan.getManuallySpecifiedTabletIds()).thenReturn(List.of());
+        stubAccept(scan);
+        return scan;
+    }
+
+    /**
+     * Builds a PhysicalOlapScan mock carrying ONE user-pinned partition: its FROM
+     * fragment becomes "t1 PARTITION(pN)" instead of the bare table name (a composite
+     * FROM fragment that is not usable as a column qualifier).
+     */
+    private PhysicalOlapScan mockPinnedScan(String tableName, List<SlotReference> outputs,
+            String partitionName) {
+        PhysicalOlapScan scan = Mockito.mock(PhysicalOlapScan.class);
+        OlapTable table = Mockito.mock(OlapTable.class);
+        Mockito.when(table.getName()).thenReturn(tableName);
+        Mockito.when(scan.getTable()).thenReturn(table);
+        Mockito.when(scan.getOutput()).thenReturn(List.copyOf(outputs));
+        Mockito.when(scan.getScanParams()).thenReturn(Optional.empty());
+        Mockito.when(scan.getSelectedPartitionIds()).thenReturn(List.of(7L));
+        Mockito.when(scan.getTableSample()).thenReturn(Optional.empty());
+        Mockito.when(scan.getManuallySpecifiedPartitions()).thenReturn(List.of(7L));
+        Mockito.when(scan.getManuallySpecifiedTabletIds()).thenReturn(List.of());
+        Partition partition = Mockito.mock(Partition.class);
+        Mockito.when(partition.getName()).thenReturn(partitionName);
+        Mockito.when(table.getPartition(7L)).thenReturn(partition);
+        Mockito.when(table.isTemporaryPartition(7L)).thenReturn(false);
         stubAccept(scan);
         return scan;
     }

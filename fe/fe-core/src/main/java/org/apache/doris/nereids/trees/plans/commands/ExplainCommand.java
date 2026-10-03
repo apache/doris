@@ -23,6 +23,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
+import org.apache.doris.nereids.spm.SPMOptimizer;
 import org.apache.doris.nereids.spm.SPMPlanner;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -136,6 +137,11 @@ public class ExplainCommand extends Command implements NoForward {
                                 spmPlanner.getUsedBaselineId());
                         explainCtx.getStatementContext().setSpmUsedBaseline(
                                 spmPlanner.getUsedBaseline());
+                        // Same as the query path: the frozen plan's source tables must stay
+                        // the ones a replay reads, so the MATERIALIZED_VIEW rewrites are
+                        // forbidden while it is re-planned (SPMOptimizer
+                        // #installSpmReplayRuleMask).
+                        SPMOptimizer.installSpmReplayRuleMask(explainCtx.getStatementContext());
                     }
                 } catch (Throwable e) {
                     LOG.warn("SPM rewrite failed for EXPLAIN, fallback to normal planning", e);
