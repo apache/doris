@@ -836,6 +836,15 @@ public class AuditLogScanner {
         // 12:00 - overlap, so its 11:50 row - now visible - would be excluded
         // FOREVER. Rows are therefore also eligible while their completion
         // (time + query_time) reaches into the window.
+        //
+        // The window predicate may therefore only bound the START time from ABOVE and
+        // split the ranges for the LOWER bound: conjoining the start-time membership
+        // (`time >= window start`, which windowPredicate implies for the first range)
+        // nullified the completion branch entirely - the earlier-start row the branch
+        // exists for failed the conjunct on every later scan. Only the upper bound and
+        // the partitionable floor are top-level conjuncts; the lower bound is the OR of
+        // (start-time membership in one of the ranges, completion reaching the window
+        // start).
         // The completion branch is BOUNDED by a floor: an unbounded
         // "time >= start OR completion >= start" cannot prune ANY old partition of the
         // range-partitioned audit table (query_time is only known per row), so every
@@ -851,15 +860,16 @@ public class AuditLogScanner {
         // again). Adding the swing seconds makes the bound conservative in the admitting
         // direction, which is the safe side for a late-completion lookback.
         String start = windowRanges.get(0)[0];
+        String lastEnd = windowRanges.get(windowRanges.size() - 1)[1];
         String floor = completeWindowFloor(start);
         String completionBound = "timestampadd(SECOND, CAST(`query_time` / 1000 AS BIGINT)"
                 + (offsetSwingSeconds == 0 ? "" : " + " + offsetSwingSeconds)
                 + ", `time`)";
         return "SELECT " + SELECT_COLUMNS + " FROM __internal_schema.audit_log "
                 + "WHERE `time` >= '" + floor + "' "
-                + "AND (`time` >= '" + start + "'"
+                + "AND `time` < '" + lastEnd + "' "
+                + "AND (" + windowPredicate(windowRanges)
                 + " OR " + completionBound + " >= '" + start + "') "
-                + "AND " + windowPredicate(windowRanges) + " "
                 + "AND `is_query` = true "
                 + "AND `is_nereids` = true "
                 + "AND (`query_time` >= " + minQueryTimeMs

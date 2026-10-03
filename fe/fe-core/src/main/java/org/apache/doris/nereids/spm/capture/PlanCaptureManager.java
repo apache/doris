@@ -132,6 +132,34 @@ public class PlanCaptureManager extends MasterDaemon {
     private static final long PENDING_WINDOW_RESUME_INTERVAL_MS = 5_000L;
 
     /**
+     * In-memory budget of the queued retry candidates, in statement characters (the
+     * dominant part of a queued entry; the statement text is what the leader FE holds).
+     * One drain of {@link #MAX_PAGES_PER_CYCLE} pages can enqueue up to a page budget of
+     * failures per page, so a transient external-metadata outage (every capture fails
+     * with "table metadata unavailable") would otherwise retain tens of thousands of full
+     * statements - hundreds of megabytes - before the first cohort reaches its third
+     * attempt. When the budget is reached the DRAIN pauses: the pending window keeps its
+     * bounds and its cursor (the unconsumed rows stay reachable by the keyset scan) while
+     * the replay burns the queue down, and the daemon resumes promptly (see
+     * pendingWindowNeedsPromptResume).
+     */
+    private static final long MAX_QUEUED_FAILURE_CHARS = 64L * 1024 * 1024;
+
+    /**
+     * Test seam overriding {@link #MAX_QUEUED_FAILURE_CHARS} (null = the production
+     * budget): a unit test cannot queue tens of megabytes of statements just to reach it.
+     * Written through {@link #setQueuedFailureBudgetForTest}.
+     */
+    private static volatile Long queuedFailureBudgetForTest;
+
+    /**
+     * Queued failures replayed in ONE cycle (see {@link #replayQueuedFailures}): replanning
+     * a whole outage-sized queue every wakeup would keep the FE busy for the length of the
+     * outage itself.
+     */
+    private static final int MAX_RETRY_REPLAY_PER_CYCLE = 1000;
+
+    /**
      * Bounded retries for a FAILED capture: the query id stays retryable for later
      * overlapping scans until it either succeeds or reaches this attempt count. Marking
      * the id before processing would make a transient failure permanent - the
@@ -154,7 +182,8 @@ public class PlanCaptureManager extends MasterDaemon {
             "SELECT `last_scan_timestamp`, `pending_window_start`, `pending_window_end`,"
                     + " `cursor_query_time`, `cursor_time`, `cursor_query_id`,"
                     + " `failed_attempts`, `retry_queue`, `cursor_tail`,"
-                    + " `min_query_time_ms`, `min_scan_rows` FROM " + CHECKPOINT_TABLE
+                    + " `min_query_time_ms`, `min_scan_rows`, `include_pattern`,"
+                    + " `exclude_pattern` FROM " + CHECKPOINT_TABLE
                     + " WHERE `id` = " + CHECKPOINT_ID + " ORDER BY `update_time` DESC LIMIT 1";
 
     /**
@@ -181,11 +210,11 @@ public class PlanCaptureManager extends MasterDaemon {
                     + " (`id`, `last_scan_timestamp`, `pending_window_start`, `pending_window_end`,"
                     + " `cursor_query_time`, `cursor_time`, `cursor_query_id`, `cursor_tail`,"
                     + " `failed_attempts`, `retry_queue`, `min_query_time_ms`, `min_scan_rows`,"
-                    + " `update_time`)"
+                    + " `include_pattern`, `exclude_pattern`, `update_time`)"
                     + " VALUES (" + CHECKPOINT_ID + ", ${lastScan}, ${pendingStart}, ${pendingEnd},"
                     + " ${cursorQueryTime}, '${cursorTime}', '${cursorQueryId}', '${cursorTail}',"
                     + " '${failedAttempts}', '${retryQueue}', ${minQueryTimeMs}, ${minScanRows},"
-                    + " NOW())";
+                    + " '${includePattern}', '${excludePattern}', NOW())";
 
     private AuditLogScanner scanner = new AuditLogScanner();
 
@@ -243,6 +272,13 @@ public class PlanCaptureManager extends MasterDaemon {
      * terminal elsewhere.
      */
     private final Map<String, CapturedQuery> failedCaptureQueue = new LinkedHashMap<>();
+
+    /**
+     * Statement characters currently retained by {@link #failedCaptureQueue} (see
+     * {@link #MAX_QUEUED_FAILURE_CHARS}). Guarded by the capture daemon thread (all
+     * mutations happen inside a cycle) plus the test seams.
+     */
+    private long queuedFailureChars = 0;
 
     /**
      * Pre-page checkpoint state of the page a queued retry was FIRST seen on: the durable
@@ -530,6 +566,14 @@ public class PlanCaptureManager extends MasterDaemon {
             AuditLogScanner.ScanBatch batch = null;
             int pages = 0;
             for (int page = 0; page < MAX_PAGES_PER_CYCLE; page++) {
+                if (queuedFailureChars > queuedFailureBudget()) {
+                    // The retry queue holds more un-replayed failures than the leader FE
+                    // should retain: PAUSE the drain (no page is consumed, so the window
+                    // stays pending with its cursor and every unconsumed row remains
+                    // reachable) and let the bounded replay below burn the queue down.
+                    pendingWindowNeedsPromptResume = true;
+                    break;
+                }
                 // Snapshot the PRE-PAGE state: when this page ends up with more retries
                 // than the durable checkpoint can carry, persistCheckpoint falls back to
                 // THIS state so the next leader re-scans the page instead of stepping
@@ -586,7 +630,12 @@ public class PlanCaptureManager extends MasterDaemon {
             // replaying per page would burn one attempt per page for a failure the page
             // loop kept failing.
             replayQueuedFailures(scannedQueryIds);
-            if (batch.isWindowExhausted()) {
+            if (batch == null) {
+                // The queue budget paused the drain before a single page: the window (a
+                // resumed one, or the one just reserved above) stays pending with the
+                // cursor it has, and the next cycle - scheduled promptly - retries.
+                pendingWindowNeedsPromptResume = true;
+            } else if (batch.isWindowExhausted()) {
                 // The whole window was scanned: advance the watermark to the CONSUMED
                 // window end (not to `now` - rows that arrived between a resumed pending
                 // window's end and now would be skipped), keep the overlap so
@@ -598,16 +647,19 @@ public class PlanCaptureManager extends MasterDaemon {
                 cursorQueryId = "";
                 cursorTail = "";
             } else {
-                // The window is still not consumed (page budget reached or the last
-                // checkpoint write failed): keep the bounds, the cursor and the pinned
-                // filter, and resume promptly instead of after a full interval.
+                // The window is still not consumed (page budget reached, the last
+                // checkpoint write failed, or the queue budget paused the drain): keep the
+                // bounds, the cursor and the pinned filter, and resume promptly instead of
+                // after a full interval.
                 pendingWindowStart = scanStart;
                 pendingWindowEnd = scanEnd;
                 pendingWindowFilter = cycleFilter;
-                cursorQueryTime = batch.getCursorQueryTime();
-                cursorTime = batch.getCursorTime();
-                cursorQueryId = batch.getCursorQueryId();
-                cursorTail = batch.getCursorTail();
+                if (batch != null) {
+                    cursorQueryTime = batch.getCursorQueryTime();
+                    cursorTime = batch.getCursorTime();
+                    cursorQueryId = batch.getCursorQueryId();
+                    cursorTail = batch.getCursorTail();
+                }
                 pendingWindowNeedsPromptResume = true;
             }
             // Make the progress durable for the NEXT process (leader handoff / restart).
@@ -633,14 +685,34 @@ public class PlanCaptureManager extends MasterDaemon {
      */
     @VisibleForTesting
     void handleCandidate(CapturedQuery candidate) {
+        handleCandidate(candidate, false);
+    }
+
+    /**
+     * Handles one candidate with query-id tracking (see MAX_CAPTURE_ATTEMPTS).
+     *
+     * @param candidate              the audit candidate
+     * @param eligibilityAlreadyDecided whether the capture FILTER already admitted this
+     *                                 candidate when it was first handled (the replay of
+     *                                 a queued failure): the retry must complete the
+     *                                 WINDOW's decision, not re-judge the row against a
+     *                                 configuration that changed in between - a candidate
+     *                                 that became ineligible (a RAISED threshold, a new
+     *                                 table-name pattern) would otherwise be marked
+     *                                 TERMINAL, and its audit row is behind the cursor
+     *                                 (possibly older than the next window's overlap), so
+     *                                 nothing would ever capture it.
+     */
+    @VisibleForTesting
+    void handleCandidate(CapturedQuery candidate, boolean eligibilityAlreadyDecided) {
         String retryKey = retryKeyOf(candidate);
         if (processedQueryIds.containsKey(retryKey)) {
             return; // already handled in an earlier overlapping window
         }
-        boolean terminal = processCandidate(candidate);
+        boolean terminal = processCandidate(candidate, eligibilityAlreadyDecided);
         if (terminal) {
             failedCaptureAttempts.remove(retryKey);
-            failedCaptureQueue.remove(retryKey);
+            removeQueuedFailure(retryKey);
             failedCaptureAnchors.remove(retryKey);
             markQueryIdProcessed(retryKey);
             return;
@@ -651,13 +723,13 @@ public class PlanCaptureManager extends MasterDaemon {
             LOG.warn("Plan capture gave up on query key {} after {} failed attempts",
                     retryKey, attempts);
             failedCaptureAttempts.remove(retryKey);
-            failedCaptureQueue.remove(retryKey);
+            removeQueuedFailure(retryKey);
             failedCaptureAnchors.remove(retryKey);
             markQueryIdProcessed(retryKey);
         } else {
             LOG.info("Plan capture failed for query key {} (attempt {}/{}), queued for retry",
                     retryKey, attempts, MAX_CAPTURE_ATTEMPTS);
-            failedCaptureQueue.put(retryKey, candidate);
+            queueFailure(retryKey, candidate);
             // first-wins: the entry must stay reachable from the page it was FIRST
             // queued on even after later pages advance the scan cursor past its row
             failedCaptureAnchors.putIfAbsent(retryKey, currentPageAnchor());
@@ -667,9 +739,52 @@ public class PlanCaptureManager extends MasterDaemon {
             // than the overlap window), so nothing would ever retry them even without
             // handoff / checkpoint truncation. Retention is bounded by construction:
             // every entry leaves after MAX_CAPTURE_ATTEMPTS attempts or on a terminal
-            // result, and one cycle can add at most one page, so both maps never exceed
-            // ~MAX_CAPTURE_ATTEMPTS pages and their entries are removed together.
+            // result, and the DRAIN pauses (see MAX_QUEUED_FAILURE_CHARS) before the
+            // queue can grow past a per-cycle page budget, so both maps stay bounded by
+            // the queue budget instead of by the cycle count.
         }
+    }
+
+    /**
+     * The in-memory budget of the retry queue (see {@link #MAX_QUEUED_FAILURE_CHARS}).
+     *
+     * @return the budget in statement characters
+     */
+    private static long queuedFailureBudget() {
+        return queuedFailureBudgetForTest == null
+                ? MAX_QUEUED_FAILURE_CHARS : queuedFailureBudgetForTest;
+    }
+
+    /**
+     * Queues a failed capture and accounts its statement size against the in-memory
+     * budget (see {@link #MAX_QUEUED_FAILURE_CHARS}).
+     *
+     * @param retryKey  the tracking key
+     * @param candidate the failed candidate
+     */
+    private void queueFailure(String retryKey, CapturedQuery candidate) {
+        if (!failedCaptureQueue.containsKey(retryKey)) {
+            queuedFailureChars += candidateChars(candidate);
+        }
+        failedCaptureQueue.put(retryKey, candidate);
+    }
+
+    /**
+     * Removes a queued failure and gives its statement size back to the budget.
+     *
+     * @param retryKey the tracking key
+     */
+    private void removeQueuedFailure(String retryKey) {
+        CapturedQuery queued = failedCaptureQueue.remove(retryKey);
+        if (queued != null) {
+            queuedFailureChars -= candidateChars(queued);
+        }
+    }
+
+    /** Approximate in-memory size of one queued statement (chars, see {@link #MAX_QUEUED_FAILURE_CHARS}). */
+    private static long candidateChars(CapturedQuery candidate) {
+        String stmt = candidate.getStmt();
+        return stmt == null ? 0L : stmt.length();
     }
 
     /**
@@ -713,6 +828,14 @@ public class PlanCaptureManager extends MasterDaemon {
      * stays queued when it failed again); every other queued key is retried here, so a
      * failure stays reachable regardless of where the keyset cursor has moved.
      *
+     * <p>The WORK is bounded by {@link #MAX_RETRY_REPLAY_PER_CYCLE}: a metadata outage can
+     * queue a whole drain's worth of failures (see MAX_QUEUED_FAILURE_CHARS), and walking
+     * - let alone replanning - every one of them in each wakeup would turn one outage into
+     * a sustained planning load. A queue larger than the budget is walked over the
+     * following cycles; every entry leaves after MAX_CAPTURE_ATTEMPTS attempts, so the
+     * queue's head keeps draining and the tail is reached within a bounded number of
+     * cycles.
+     *
      * @param scannedQueryIds the tracking keys ({@link #retryKeyOf}) this cycle's page
      *                        already processed
      */
@@ -721,22 +844,30 @@ public class PlanCaptureManager extends MasterDaemon {
         if (failedCaptureQueue.isEmpty()) {
             return;
         }
+        int replayed = 0;
         for (Map.Entry<String, CapturedQuery> entry
                 : new ArrayList<>(failedCaptureQueue.entrySet())) {
             String retryKey = entry.getKey();
             if (scannedQueryIds.contains(retryKey)) {
                 continue; // already retried by this cycle's page
             }
+            if (replayed >= MAX_RETRY_REPLAY_PER_CYCLE) {
+                break; // the remainder waits for the next cycle (see the javadoc)
+            }
+            replayed++;
             // NO remove-before-retry: LinkedHashMap#put on an EXISTING key keeps its
             // original position, while remove+re-add moved the retried entry BEHIND
             // entries queued by newer pages. persistCheckpoint assumes the FIRST queue
             // entry carries the EARLIEST anchor, so reordering made a later page's
             // pre-page cursor get persisted while encodeRetryQueue dropped the older
             // entries that anchor belonged to - unrecoverable on handoff.
-            handleCandidate(entry.getValue());
+            // The ELIGIBILITY of the queued row was already decided by the page that
+            // queued it: re-judging it against the CURRENT thresholds / table patterns
+            // made a configuration change turn the retry into a terminal rejection.
+            handleCandidate(entry.getValue(), true);
             if (processedQueryIds.containsKey(retryKey)) {
                 // consumed elsewhere (e.g. by the page): never replay it again
-                failedCaptureQueue.remove(retryKey);
+                removeQueuedFailure(retryKey);
                 failedCaptureAttempts.remove(retryKey);
                 failedCaptureAnchors.remove(retryKey);
             }
@@ -769,6 +900,24 @@ public class PlanCaptureManager extends MasterDaemon {
      *         false when the capture FAILED and should be retried
      */
     private boolean processCandidate(CapturedQuery candidate) {
+        return processCandidate(candidate, false);
+    }
+
+    /**
+     * One capture attempt.
+     *
+     * @param candidate              the audit candidate
+     * @param eligibilityAlreadyDecided skip the FILTER stage: the candidate was already
+     *                                 admitted when it was queued (see
+     *                                 {@link #handleCandidate(CapturedQuery, boolean)}),
+     *                                 so a configuration change in between must not turn
+     *                                 the retry into a terminal rejection. The
+     *                                 catalog-existence stage below still runs: it is not
+     *                                 a configuration question, and a definitive MISSING
+     *                                 stays terminal.
+     * @return whether the candidate is TERMINAL (filtered out, persisted, deduplicated)
+     */
+    private boolean processCandidate(CapturedQuery candidate, boolean eligibilityAlreadyDecided) {
         try {
             // Level 3/5 filter: multi-table + table-name regex (pure logic). The
             // extraction PARSES the statement, so it must run under the audit row's
@@ -778,7 +927,8 @@ public class PlanCaptureManager extends MasterDaemon {
             // drops the row as terminal while the cursor advances past it.
             List<String> tables = SqlModeHelper.withSqlMode(candidate.getSqlMode(),
                     () -> PlanCaptureFilter.extractTableNames(candidate.getStmt()));
-            if (!filter.shouldCapture(candidate.toAuditEvent(), tables)) {
+            if (!eligibilityAlreadyDecided
+                    && !filter.shouldCapture(candidate.toAuditEvent(), tables)) {
                 if (tables.size() < 2) {
                     skipSingleTableCount.incrementAndGet();
                 } else {
@@ -964,25 +1114,27 @@ public class PlanCaptureManager extends MasterDaemon {
         failedCaptureQueue.clear();
         failedCaptureQueue.putAll(decodeRetryQueue(row.get(7)));
         failedCaptureAnchors.clear();
-        // The threshold columns are APPENDED as well (same reason as the cursor tail).
-        // They describe the PENDING window: the scan of this window continues with the
-        // values its already-consumed rows were judged by, not with the takeover's
+        queuedFailureChars = 0;
+        for (CapturedQuery queued : failedCaptureQueue.values()) {
+            queuedFailureChars += candidateChars(queued);
+        }
+        // The threshold / pattern columns are APPENDED as well (same reason as the cursor
+        // tail). They describe the PENDING window: the scan of this window continues with
+        // the values its already-consumed rows were judged by, not with the takeover's
         // current globals - a row behind the cursor cannot be re-judged, so a changed
-        // threshold (especially a RAISED minimum) must not re-filter the window halfway.
-        // An absent / NULL pair (a row written before the columns existed, or
-        // fabricated by tests) leaves the window unpinned: the cycle then uses the
-        // filter it refreshed from the globals.
+        // threshold or table-name pattern must not re-filter the window halfway. An
+        // absent / NULL triple (a row written before the columns existed, or fabricated
+        // by tests) leaves the window unpinned: the cycle then uses the filter it
+        // refreshed from the globals.
         pendingWindowFilter = null;
-        if (pendingWindowStart < pendingWindowEnd
-                && row.getValues().size() > 10
+        if (pendingWindowStart < pendingWindowEnd && row.getValues().size() > 10
                 && row.get(9) != null && row.get(10) != null) {
             long restoredMinQueryTimeMs = parseLongValue(row.get(9));
             long restoredMinScanRows = parseLongValue(row.get(10));
             if (restoredMinQueryTimeMs >= 0 && restoredMinScanRows >= 0) {
-                SessionVariable global = VariableMgr.getDefaultSessionVariable();
                 pendingWindowFilter = new PlanCaptureFilter(
-                        global.getPlanCaptureIncludePattern(),
-                        global.getPlanCaptureExcludePattern(),
+                        row.getValues().size() > 11 && row.get(11) != null ? row.get(11) : "",
+                        row.getValues().size() > 12 && row.get(12) != null ? row.get(12) : "",
                         restoredMinQueryTimeMs, restoredMinScanRows);
             }
         }
@@ -1113,13 +1265,17 @@ public class PlanCaptureManager extends MasterDaemon {
                 StatisticsUtil.escapeSQL(encodeFailedAttempts(failedCaptureAttempts)));
         params.put("retryQueue",
                 StatisticsUtil.escapeSQL(encodeRetryQueue(failedCaptureQueue)));
-        // The thresholds of the PENDING window (its filter snapshot), or the -1 sentinel
-        // when none is pending: the takeover must continue the window with the values the
-        // rows behind its cursor were judged by (see applyCheckpointRow).
+        // The thresholds AND the table-name patterns of the PENDING window (its filter
+        // snapshot), or the -1 / empty sentinels when none is pending: the takeover must
+        // continue the window exactly as it was opened (see applyCheckpointRow).
         params.put("minQueryTimeMs", String.valueOf(
                 pendingWindowFilter == null ? -1L : pendingWindowFilter.getMinQueryTimeMs()));
         params.put("minScanRows", String.valueOf(
                 pendingWindowFilter == null ? -1L : pendingWindowFilter.getMinScanRows()));
+        params.put("includePattern", StatisticsUtil.escapeSQL(pendingWindowFilter == null
+                ? "" : pendingWindowFilter.getIncludePatternText()));
+        params.put("excludePattern", StatisticsUtil.escapeSQL(pendingWindowFilter == null
+                ? "" : pendingWindowFilter.getExcludePatternText()));
         try {
             // Single UPSERT: the new row is durable BEFORE the old one stops being read
             // (the table is UNIQUE-key(id) + merge-on-write), so no crash / timeout can
@@ -1436,6 +1592,9 @@ public class PlanCaptureManager extends MasterDaemon {
      */
     public void resetForTest() {
         clearProgressState();
+        // restore the filter from the CURRENT globals: a test that installed its own filter
+        // (setFilterForTest) must not leak it into the next test's candidates
+        this.filter = buildFilterFromGlobal();
         // restore the production read / write seams (tests replace them)
         checkpointReader = () -> StatisticsUtil.executeQuery(
                 CHECKPOINT_SELECT_SQL, Collections.emptyMap(), CHECKPOINT_IO_TIMEOUT_SECONDS);
@@ -1468,6 +1627,7 @@ public class PlanCaptureManager extends MasterDaemon {
         failedCaptureAttempts.clear();
         failedCaptureQueue.clear();
         failedCaptureAnchors.clear();
+        queuedFailureChars = 0;
         checkpointLoaded = false;
         durableCheckpointObserved = false;
     }
@@ -1555,14 +1715,16 @@ public class PlanCaptureManager extends MasterDaemon {
     /**
      * For tests: the live checkpoint fields (lastScan, pendingStart, pendingEnd,
      * cursorQueryTime, cursorTime, cursorQueryId, cursorTail, minQueryTimeMs,
-     * minScanRows).
+     * minScanRows, includePattern, excludePattern).
      */
     @VisibleForTesting
     public Object[] checkpointFieldsForTest() {
         return new Object[] {lastScanTimestamp, pendingWindowStart, pendingWindowEnd,
                 cursorQueryTime, cursorTime, cursorQueryId, cursorTail,
                 pendingWindowFilter == null ? -1L : pendingWindowFilter.getMinQueryTimeMs(),
-                pendingWindowFilter == null ? -1L : pendingWindowFilter.getMinScanRows()};
+                pendingWindowFilter == null ? -1L : pendingWindowFilter.getMinScanRows(),
+                pendingWindowFilter == null ? "" : pendingWindowFilter.getIncludePatternText(),
+                pendingWindowFilter == null ? "" : pendingWindowFilter.getExcludePatternText()};
     }
 
     /**
@@ -1585,6 +1747,16 @@ public class PlanCaptureManager extends MasterDaemon {
     @VisibleForTesting
     public static int maxPagesPerCycleForTest() {
         return MAX_PAGES_PER_CYCLE;
+    }
+
+    /**
+     * For tests: overrides the queued-failure budget (see {@link #MAX_QUEUED_FAILURE_CHARS}).
+     *
+     * @param budget statement characters the queue may retain, null for the production value
+     */
+    @VisibleForTesting
+    public static void setQueuedFailureBudgetForTest(Long budget) {
+        queuedFailureBudgetForTest = budget;
     }
 
     /**
@@ -1636,6 +1808,17 @@ public class PlanCaptureManager extends MasterDaemon {
      */
     public PlanCaptureFilter getFilter() {
         return filter;
+    }
+
+    /**
+     * For tests: installs the filter the next candidate handling uses (a capture cycle
+     * refreshes it from the globals itself).
+     *
+     * @param testFilter the filter to use
+     */
+    @VisibleForTesting
+    public void setFilterForTest(PlanCaptureFilter testFilter) {
+        this.filter = testFilter;
     }
 
     @VisibleForTesting

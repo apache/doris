@@ -70,6 +70,17 @@ public class PlanCaptureFilter {
     /** Table exclude regex; null means no exclusion. */
     private final Pattern excludePattern;
 
+    /**
+     * The include / exclude patterns as the TEXT they were configured with (empty =
+     * none). The compiled form cannot be persisted: a pending capture window pins its
+     * whole filter snapshot - including these two - so a restored window keeps routing
+     * candidates through the patterns it was opened with (a later
+     * {@code SET GLOBAL plan_capture_include_pattern} would otherwise terminally filter
+     * away rows the window's already-consumed pages had admitted).
+     */
+    private final String includePatternText;
+    private final String excludePatternText;
+
     /** Minimum query time (ms) threshold (session variable plan_capture_min_query_time_ms). */
     private final long minQueryTimeMs;
 
@@ -102,6 +113,8 @@ public class PlanCaptureFilter {
             long minQueryTimeMs, long minScanRows) {
         this.includePattern = compile(includePattern);
         this.excludePattern = compile(excludePattern);
+        this.includePatternText = includePattern == null ? "" : includePattern;
+        this.excludePatternText = excludePattern == null ? "" : excludePattern;
         this.minQueryTimeMs = minQueryTimeMs;
         this.minScanRows = minScanRows;
     }
@@ -132,6 +145,25 @@ public class PlanCaptureFilter {
      */
     public long getMinScanRows() {
         return minScanRows;
+    }
+
+    /**
+     * The table include regex this filter was built with (empty = all tables), i.e. the
+     * pattern text a pending window must keep even after a {@code SET GLOBAL} change.
+     *
+     * @return the configured include pattern text
+     */
+    public String getIncludePatternText() {
+        return includePatternText;
+    }
+
+    /**
+     * The table exclude regex this filter was built with (empty = no exclusion).
+     *
+     * @return the configured exclude pattern text
+     */
+    public String getExcludePatternText() {
+        return excludePatternText;
     }
 
     /**

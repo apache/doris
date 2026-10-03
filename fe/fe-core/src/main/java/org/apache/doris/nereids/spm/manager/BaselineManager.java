@@ -50,6 +50,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -380,6 +381,14 @@ public class BaselineManager {
      */
     private static final int MAX_ID_COLLISION_RETRIES = 8;
 
+    /**
+     * Bound of {@link #pendingCreates}: an unconfirmed create is a rare (and manually
+     * retried) event, so a small registry is enough. The OLDEST entry is dropped when the
+     * bound is reached, which re-exposes that single write to a duplicate id (the state
+     * before this registry existed) - the log line names the baseline.
+     */
+    private static final int MAX_PENDING_CREATES = 64;
+
     // ==================== priority ordering ====================
 
     /**
@@ -476,6 +485,18 @@ public class BaselineManager {
      */
     private volatile long maxPersistedIdSeen = 0;
 
+    /**
+     * Creates whose INSERT reported SUCCESS but whose row was not READABLE yet (see
+     * {@link #createBaseline}): the id is consumed but invisible, so neither MAX(id) nor
+     * the durable-key read can see it. A RETRY of the same CREATE must not allocate a
+     * SECOND id for the same baseline - both rows would later publish under different ids
+     * and dropping the id the client was told about would leave the other ACTIVE. The
+     * retry ADOPTS the remembered row once it becomes readable and is DEFERRED until then.
+     * Guarded by writerLock (every access runs inside it). Bounded by
+     * {@link #MAX_PENDING_CREATES}.
+     */
+    private final List<BaselinePlan> pendingCreates = new ArrayList<>();
+
     /** id -> BaselinePlan (Phase 1 in-memory storage). */
     private final Map<Long, BaselinePlan> baselines = new HashMap<>();
 
@@ -536,6 +557,17 @@ public class BaselineManager {
             // watermark read fails fails visibly and allocates nothing, instead of silently
             // colliding with a row written by a newer master.
             final long watermark = readPersistedWatermark();
+            // An earlier CREATE of the SAME baseline may have reported a retryable failure
+            // AFTER its INSERT reported success (the row was committed but not readable).
+            // That id is consumed and INVISIBLE, so neither MAX(id) nor the durable-key read
+            // below can see it: allocating a second id here would publish both rows later
+            // (different ids) and dropping the id the client was told about would leave the
+            // other one ACTIVE. Resolve the remembered write first - adopt it once it is
+            // readable, otherwise DEFER the retry until it is.
+            Long adoptedId = resolvePendingCreate(plan);
+            if (adoptedId != null) {
+                return adoptedId;
+            }
             // Phase 1: duplicate validation against the in-memory index (read lock). A
             // duplicate must agree on the SCHEMA FINGERPRINT as well: after
             // ALTER TABLE t ADD COLUMN extra the stored fingerprint goes stale and
@@ -684,7 +716,12 @@ public class BaselineManager {
                 // and fails the DDL visibly; no same-key row can exist here (the
                 // durable-key check above returned any), so the INSERT cannot overwrite an
                 // existing baseline
-                persistInsert(plan);
+                try {
+                    persistInsert(plan);
+                } catch (UnconfirmedInsertException unconfirmed) {
+                    rememberPendingCreate(plan);
+                    throw unconfirmed;
+                }
                 if (idAllocatorStoreForTest == null && !persistenceEnabled()) {
                     // Phase 2: publish (the only state-lock section of a create).
                     publishBaseline(plan);
@@ -785,6 +822,113 @@ public class BaselineManager {
     private static boolean sameIdentity(BaselinePlan a, BaselinePlan b) {
         return Objects.equals(a.getBindSqlDigest(), b.getBindSqlDigest())
                 && Objects.equals(a.getPlanSql(), b.getPlanSql());
+    }
+
+    /**
+     * For tests: the number of creates whose committed row is still awaiting publication
+     * (see {@link #pendingCreates}).
+     *
+     * @return the size of the pending-create registry
+     */
+    @VisibleForTesting
+    public int pendingCreateCountForTest() {
+        synchronized (writerLock) {
+            return pendingCreates.size();
+        }
+    }
+
+    /**
+     * Applies {@link #pendingCreates} to a CREATE of the same baseline (see the call site
+     * in {@link #createBaseline}): a remembered write that has become READABLE is ADOPTED
+     * (its id is published and returned) while a still-invisible write DEFERS the create
+     * with a retryable error instead of consuming a second id.
+     *
+     * <p>The adoption reads the row back by id instead of relying on the durable-key dedup:
+     * a failed create never published into this FE's in-memory key index, so the indexed
+     * dedup would not see the committed row and would allocate a second id for the same
+     * baseline.
+     *
+     * @param plan the CREATE's baseline
+     * @return the adopted id, or null when no remembered write of this baseline exists
+     */
+    private Long resolvePendingCreate(BaselinePlan plan) {
+        if (pendingCreates.isEmpty()) {
+            return null;
+        }
+        Iterator<BaselinePlan> iterator = pendingCreates.iterator();
+        while (iterator.hasNext()) {
+            BaselinePlan pending = iterator.next();
+            if (!sameIdentity(pending, plan)) {
+                continue;
+            }
+            if (!durableRowReadable(pending)) {
+                throw new IllegalStateException("SPM cannot create baseline " + pending.getId()
+                        + ": a previously COMMITTED write of the same baseline is still"
+                        + " awaiting publication (its id is consumed); retry the statement");
+            }
+            iterator.remove();
+            BaselinePlan winner = null;
+            for (BaselinePlan row : readPersistedParsedById(pending.getId())) {
+                if (!sameIdentity(row, plan)) {
+                    continue; // the id carries a DIFFERENT baseline: never adopt it
+                }
+                winner = winner == null ? row : pickDurableWinner(winner, row);
+            }
+            if (winner == null) {
+                LOG.warn("SPM pending create of baseline {}: the id no longer carries this"
+                        + " baseline; allocating a fresh id", pending.getId());
+                continue;
+            }
+            publishBaseline(winner);
+            LOG.info("SPM pending create of baseline {} adopted from the durable table",
+                    winner.getId());
+            return winner.getId();
+        }
+        return null;
+    }
+
+    /**
+     * Remembers a create whose INSERT reported success but is not readable yet (see
+     * {@link #confirmInsertVisible}): the next CREATE of the same baseline must not
+     * allocate a second id for it.
+     *
+     * @param plan the row that was written
+     */
+    private void rememberPendingCreate(BaselinePlan plan) {
+        for (BaselinePlan pending : pendingCreates) {
+            if (sameIdentity(pending, plan)) {
+                return; // already remembered by an earlier attempt
+            }
+        }
+        if (pendingCreates.size() >= MAX_PENDING_CREATES) {
+            BaselinePlan evicted = pendingCreates.remove(0);
+            LOG.warn("SPM dropped the pending-create record of baseline {} (registry bound {});"
+                            + " a retry may allocate a second id for it",
+                    evicted.getId(), MAX_PENDING_CREATES);
+        }
+        pendingCreates.add(plan);
+        LOG.warn("SPM baseline create of id {} is committed but not readable yet; a retry will"
+                + " adopt it instead of allocating a second id", plan.getId());
+    }
+
+    /**
+     * Whether the durable row of a pending create is READABLE right now. The probe is
+     * IDENTITY-scoped without a status constraint: the row carries the status the create
+     * wrote, and an unreadable / unconfirmable answer must defer (never adopt).
+     *
+     * @param p the pending row
+     * @return true when a read sees the row
+     */
+    private static boolean durableRowReadable(BaselinePlan p) {
+        if (durableVisibilityProbeForTest != null) {
+            return durableVisibilityProbeForTest.isReadable(p.getId(), p.getStatus());
+        }
+        if (!persistenceEnabled() && idAllocatorStoreForTest == null
+                && statusProtocolStoreForTest == null) {
+            return true;
+        }
+        return probeDurableRow(p.getId(), p.getBindSqlDigest(), p.getPlanSql())
+                == DurablePresence.PRESENT;
     }
 
     /**
@@ -1183,30 +1327,31 @@ public class BaselineManager {
                 persistDeleteByIdAndStatus(durablePlan, previousStatus);
             } catch (RuntimeException e) {
                 // The INSERT(new) / DELETE(old) pair spans two statements whose outcomes
-                // can be AMBIGUOUS: a delete may commit but report KV_TXN_MAYBE_COMMITTED.
-                // Reconcile against the durable table before compensating - blindly
-                // deleting the NEW row erases the only durable version when the old-row
-                // delete actually committed. At least one version must survive:
-                //  - the old row is gone and the new row is durable -> the delete
+                // can be AMBIGUOUS: a delete may commit but report KV_TXN_MAYBE_COMMITTED,
+                // or report SQL OK while its publication lags past every confirmation
+                // probe. Reconcile against the durable table before deciding:
+                //  - the old row is GONE and the new row is readable -> the delete
                 //    committed; PUBLISH the flip and report success;
-                //  - the old row is still durable -> the delete did not commit; delete
-                //    the freshly inserted row again and keep memory untouched (the live
-                //    object was never flipped, so there is nothing to revert). A
-                //    rollback that also fails leaves both rows behind, and the load path
-                //    resolves the duplicate deterministically (pickDurableWinner) -
-                //    never nothing.
+                //  - anything else (the old row still readable, or an unconfirmable read)
+                //    is an UNKNOWN outcome: KEEP the new-status row and report the
+                //    original failure. A compensating DELETE of the new row is UNSAFE
+                //    here: when the old-row delete actually committed and only its
+                //    PUBLICATION lagged, the compensation removes the new row and the
+                //    committed old-row delete then removes the old one - the GLOBAL
+                //    baseline disappears entirely. Both rows carry DIFFERENT statuses, so
+                //    the load path resolves the duplicate deterministically
+                //    ({@link #pickDurableWinner}: the later updateTime wins) and the next
+                //    refresh / ALTER retry reconciles the cache with the winner - at least
+                //    one version ALWAYS survives.
                 if (oldRowDeletedDurably(id, previousStatus, status)) {
                     publishStatus(plan, status, newUpdateTime);
                     LOG.warn("SPM status update of baseline {} committed despite an ambiguous"
                             + " persist error; keeping the new-status row", id, e);
                     return true;
                 }
-                try {
-                    persistDeleteByIdAndStatus(durablePlan, status);
-                } catch (RuntimeException repairFailure) {
-                    LOG.error("SPM failed to roll back baseline {} after a failed status update",
-                            id, repairFailure);
-                }
+                LOG.warn("SPM status update of baseline {} has an UNKNOWN durable outcome ({});"
+                        + " keeping the new-status row and reconciling on the next refresh",
+                        id, e.getMessage());
                 throw e;
             }
             publishStatus(plan, status, newUpdateTime);
@@ -1673,6 +1818,7 @@ public class BaselineManager {
         try {
             loaded = true; // tests manage the in-memory storage directly; never touch the table
             persistToTable = false; // and never write the table from a unit test
+            pendingCreates.clear(); // pending-create records belong to the dropped state
             statusProtocolStoreForTest = null; // and never route through a leaked test seam
             idAllocatorStoreForTest = null; // (the create-time collision seam, same reason)
             leaderProbeForTest = null; // (the leadership seam, same reason)
@@ -2195,6 +2341,12 @@ public class BaselineManager {
                 baselines.put(row.getId(), row);
                 addToHashIndex(row);
                 updated++;
+            } else if (copyPersistedTimestamps(current, row)) {
+                // Same replay-relevant content, but the row was REWRITTEN in between (a
+                // status round trip). Keeping the stale timestamps reported the T0 values
+                // forever; REPLACING the object would drop the transient parameterized
+                // trees, so only the persisted timestamps are adopted.
+                updated++;
             }
         }
         List<Long> vanished = new ArrayList<>();
@@ -2665,6 +2817,10 @@ public class BaselineManager {
                 loaded = false;
                 baselines.clear();
                 hashIndex.clear();
+                // the pending-create records describe writes of the INVALIDATED state: a
+                // reload sees a committed row once it publishes, and a create that still
+                // cannot see it re-remembers the identity itself
+                pendingCreates.clear();
                 stateVersion++;
             } finally {
                 stateLock.writeLock().unlock();
@@ -2682,14 +2838,22 @@ public class BaselineManager {
     }
 
     /**
-     * Whether a persisted row differs from the in-memory baseline. Timestamps are
-     * intentionally ignored: the internal table stores DATETIME (second precision) while
-     * memory keeps epoch millis, so comparing them would always differ and needlessly
-     * replace locally created objects every cycle. Every REPLAY-RELEVANT persisted field
-     * takes part though: a dropped highest-id baseline can be recreated under that id
-     * after a referenced table's unused column changed, and a follower that keeps its old
-     * object (same SQL / measured fields) would then reject the newly valid baseline with
-     * the stale fingerprint on every later refresh.
+     * Whether a persisted row differs from the in-memory baseline in a REPLAY-RELEVANT
+     * way. A dropped highest-id baseline can be recreated under that id after a referenced
+     * table's unused column changed, and a follower that keeps its old object (same SQL /
+     * measured fields) would then reject the newly valid baseline with the stale
+     * fingerprint on every later refresh - so every persisted field that takes part in
+     * planning / matching / replay is compared here.
+     *
+     * <p>The TIMESTAMPS are NOT part of this comparison: they are adopted by
+     * {@link #copyPersistedTimestamps} instead, which keeps the object identity (and with
+     * it the transient parameterized trees) while still reporting the persisted values.
+     * Comparing them here would REPLACE the object on every rewrite - and IGNORING them
+     * completely (the previous behavior) lost a status ROUND TRIP: a follower caches
+     * ENABLED at T0, the master completes DISABLE at T1 and ENABLE at T2 before the
+     * follower's next refresh, and every compared field is back to its T0 value, so the
+     * fresh T2 row was discarded and the follower reported the stale T0 object forever
+     * (SHOW included, since the authoritative read merges through here).
      */
     private static boolean persistedContentChanged(BaselinePlan memory, BaselinePlan row) {
         return !Objects.equals(memory.getBindSql(), row.getBindSql())
@@ -2705,6 +2869,39 @@ public class BaselineManager {
                 || !Objects.equals(memory.getPlanFrozen(), row.getPlanFrozen())
                 || !Objects.equals(memory.getSchemaFingerprint(), row.getSchemaFingerprint())
                 || memory.getStatus() != row.getStatus();
+    }
+
+    /**
+     * Adopts the persisted create / update timestamps into an UNCHANGED cached object (see
+     * {@link #persistedContentChanged}).
+     *
+     * <p>The comparison is at the internal table's DATETIME (SECOND) precision: memory
+     * keeps millis while the row is written / read back truncated, so a raw comparison
+     * would report EVERY row as rewritten every cycle.
+     *
+     * @param memory the cached object (mutated in place)
+     * @param row    the persisted row
+     * @return whether a timestamp was adopted (i.e. the row had been rewritten)
+     */
+    private static boolean copyPersistedTimestamps(BaselinePlan memory, BaselinePlan row) {
+        boolean copied = false;
+        if (!sameStoredSecond(memory.getUpdateTime(), row.getUpdateTime())) {
+            memory.setUpdateTime(row.getUpdateTime());
+            copied = true;
+        }
+        if (!sameStoredSecond(memory.getCreateTime(), row.getCreateTime())) {
+            memory.setCreateTime(row.getCreateTime());
+            copied = true;
+        }
+        return copied;
+    }
+
+    /**
+     * Whether two epoch-millis values are the same at the internal table's DATETIME
+     * (SECOND) precision (see {@link #copyPersistedTimestamps}).
+     */
+    private static boolean sameStoredSecond(long memoryMillis, long rowMillis) {
+        return memoryMillis / 1000L == rowMillis / 1000L;
     }
 
     private void addToHashIndex(BaselinePlan p) {
@@ -2931,6 +3128,18 @@ public class BaselineManager {
     }
 
     /**
+     * A reported-successful INSERT whose row is not READABLE yet (see
+     * {@link #confirmInsertVisible}). The write IS committed - the id it consumed must not
+     * be handed out, and a retry of the SAME CREATE must defer instead of allocating a
+     * second id (see {@link #pendingCreates}).
+     */
+    private static final class UnconfirmedInsertException extends IllegalStateException {
+        UnconfirmedInsertException(String message) {
+            super(message);
+        }
+    }
+
+    /**
      * Confirms a reported-successful INSERT (or the insert half of a status flip) is
      * READABLE before its id may be published / returned. Bounded retries cover a short
      * publication lag; a row that never becomes readable fails the write RETRYABLY while
@@ -2940,6 +3149,7 @@ public class BaselineManager {
      * simulates the committed-but-invisible window).
      *
      * @param p the row that was just written
+     * @throws UnconfirmedInsertException the write reported success but no read sees it
      */
     private static void confirmInsertVisible(BaselinePlan p) {
         if (durableVisibilityProbeForTest == null
@@ -2956,16 +3166,22 @@ public class BaselineManager {
             }
             sleepBeforeVisibilityRetry();
         }
-        throw new IllegalStateException("SPM persist (insert) reported success but baseline "
+        throw new UnconfirmedInsertException("SPM persist (insert) reported success but baseline "
                 + p.getId() + " is not readable yet; an id no read can see could be"
                 + " re-allocated after a leadership change - retry the statement");
     }
 
     /**
      * Confirms a reported-successful identity DELETE left no READABLE row behind (the
-     * caller removes its cache entry only afterwards): a delete that returned OK with the
-     * transaction merely COMMITTED is not yet a delete, and reporting success early would
-     * let a refresh / restart resurrect the baseline.
+     * caller removes its cache entry only afterwards).
+     *
+     * <p>An elapsed probe budget is NOT a failed delete: the statement reported SQL OK
+     * with the transaction COMMITTED (the default return mode), so the row is durably
+     * GONE and only its publication lags behind the probes. Failing the DROP here was the
+     * worse choice in both directions: the master kept an ACTIVE cache entry that
+     * ordinary queries kept replaying until the next refresh (the DROP had already
+     * landed), and the retried DROP tried to delete a row that no longer existed. Treat
+     * the reported success as the durable outcome - fail CLOSED - and log the lag.
      *
      * @param p the deleted row
      */
@@ -2984,8 +3200,9 @@ public class BaselineManager {
             }
             sleepBeforeVisibilityRetry();
         }
-        throw new IllegalStateException("SPM persist (delete) reported success but baseline "
-                + p.getId() + " is still readable; retry the statement");
+        LOG.warn("SPM persist (delete) reported success and baseline {} is still readable"
+                + " after {} probes; the committed delete is the durable outcome, removing"
+                + " the row from the cache", p.getId(), BASELINE_VISIBILITY_ATTEMPTS);
     }
 
     /**
@@ -2993,10 +3210,17 @@ public class BaselineManager {
      * (the caller then publishes the flip). Real-store only: the status seam simulators
      * are synchronous.
      *
+     * <p>Like {@link #confirmIdentityGone}, an elapsed probe budget is NOT a failure: the
+     * delete reported SQL OK with the transaction COMMITTED, so the row is durably gone
+     * and only its publication lags. Failing here instead bounced the caller into the
+     * ambiguous-outcome reconciliation (which kept both rows and reported a spurious
+     * failure) although the flip had already landed - the durable winner is the
+     * freshly inserted new-status row.
+     *
      * @param id     the baseline id
      * @param status the status whose row must be gone
      */
-    private static void confirmStatusRowGoneOrThrow(long id, BaselineStatus status) {
+    private static void confirmStatusRowGone(long id, BaselineStatus status) {
         if (durableVisibilityProbeForTest == null
                 && (idAllocatorStoreForTest != null || statusProtocolStoreForTest != null)) {
             return;
@@ -3008,16 +3232,16 @@ public class BaselineManager {
                         ? !durableVisibilityProbeForTest.isReadable(id, status)
                         : durableRowCount(id, status) == 0;
             } catch (RuntimeException e) {
-                gone = false; // unconfirmable: retry, never report success blind
+                gone = false; // unconfirmable: retry, then treat the reported success as final
             }
             if (gone) {
                 return;
             }
             sleepBeforeVisibilityRetry();
         }
-        throw new IllegalStateException("SPM persist (delete by status) reported success but"
-                + " baseline " + id + " still carries status " + status
-                + "; retry the statement");
+        LOG.warn("SPM persist (delete by status) reported success and baseline {} still carries"
+                + " status {} after {} probes; the committed delete is the durable outcome",
+                id, status, BASELINE_VISIBILITY_ATTEMPTS);
     }
 
     private static void sleepBeforeVisibilityRetry() {
@@ -3199,8 +3423,9 @@ public class BaselineManager {
             throw new RuntimeException("SPM persist (delete by status) failed: " + e.getMessage(), e);
         }
         // Success is confirmed like the insert half: the flip may only be published once
-        // the old-status row is provably gone from every read.
-        confirmStatusRowGoneOrThrow(id, status);
+        // the old-status row is provably gone from every read - and a lagging publication
+        // is treated as the committed delete it is (see confirmStatusRowGone).
+        confirmStatusRowGone(id, status);
     }
 
     /**

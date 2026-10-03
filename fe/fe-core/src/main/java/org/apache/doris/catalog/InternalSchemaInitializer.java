@@ -612,6 +612,11 @@ public class InternalSchemaInitializer extends Thread {
      *   values, otherwise rows the cursor has already passed are judged again under a
      *   changed threshold and either become unreachable or get consumed while failing the
      *   stale in-memory filter.
+     * - include_pattern / exclude_pattern: the table-name regexes of the same snapshot
+     *   (empty = none). Restoring thresholds but not the patterns let a `SET GLOBAL
+     *   plan_capture_include_pattern` applied mid-window terminally filter away rows the
+     *   window's earlier pages had admitted: they are then neither captured nor inside
+     *   the next window's overlap.
      */
     @VisibleForTesting
     static final Map<String, ScalarType> SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS = new LinkedHashMap<>();
@@ -622,6 +627,10 @@ public class InternalSchemaInitializer extends Thread {
                 ScalarType.createType(PrimitiveType.BIGINT));
         SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS.put("min_scan_rows",
                 ScalarType.createType(PrimitiveType.BIGINT));
+        SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS.put("include_pattern",
+                ScalarType.createVarchar(4096));
+        SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS.put("exclude_pattern",
+                ScalarType.createVarchar(4096));
     }
 
     /**
@@ -639,9 +648,12 @@ public class InternalSchemaInitializer extends Thread {
 
     static {
         SPM_CAPTURE_CHECKPOINT_UPGRADE_POSITIONS.put("cursor_tail", "cursor_query_id");
-        // both thresholds sit between retry_queue and update_time in the canonical schema
+        // the thresholds plus their patterns sit between retry_queue and update_time in
+        // the canonical schema
         SPM_CAPTURE_CHECKPOINT_UPGRADE_POSITIONS.put("min_query_time_ms", "retry_queue");
         SPM_CAPTURE_CHECKPOINT_UPGRADE_POSITIONS.put("min_scan_rows", "min_query_time_ms");
+        SPM_CAPTURE_CHECKPOINT_UPGRADE_POSITIONS.put("include_pattern", "min_scan_rows");
+        SPM_CAPTURE_CHECKPOINT_UPGRADE_POSITIONS.put("exclude_pattern", "include_pattern");
     }
 
     /**

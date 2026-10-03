@@ -159,6 +159,42 @@ public class SPMRound15SafetyTest {
     }
 
     /**
+     * round-30 #8: CLOCK FUNCTIONS are the same creator-time class of value. FE constant
+     * folding evaluates now() / current_timestamp() from the CREATE statement's start time
+     * (DateTimeAcquire#currentDateTime uses ConnectContext#getStartTimeInstant), and the
+     * decompiler stores that literal in the frozen planFrozen SQL: a baseline for
+     * {@code SELECT now() AS ts FROM t1} returned the CREATE timestamp on every later
+     * matching query, and {@code WHERE event_time < now()} replayed with a stale cutoff.
+     */
+    @Test
+    public void testCreatorTimeClockFunctionsAreDetected() {
+        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+                parse("SELECT now() AS ts FROM t1")),
+                "now() freezes the CREATE statement's start time");
+        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+                parse("SELECT current_timestamp() AS ts FROM t1")));
+        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+                parse("SELECT current_date() AS d FROM t1")));
+        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+                parse("SELECT utc_timestamp() AS ts FROM t1")));
+        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+                parse("SELECT localtime() AS ts FROM t1")));
+        Assertions.assertTrue(SPMPlanTreeSupport.containsReplayContextExpression(
+                parse("SELECT k FROM t1 WHERE k < unix_timestamp()")),
+                "the argument-less unix_timestamp() is the statement clock as well");
+        Assertions.assertFalse(SPMPlanTreeSupport.containsReplayContextExpression(
+                parse("SELECT unix_timestamp(k) AS ts FROM t1")),
+                "unix_timestamp(expr) is a pure function of its argument");
+
+        SPMPlanner planner = new SPMPlanner();
+        RuntimeException failure = Assertions.assertThrows(RuntimeException.class,
+                () -> planner.buildBaseline("SELECT now() AS ts FROM t1",
+                        "SELECT now() AS ts FROM t1"));
+        Assertions.assertTrue(failure.getMessage().contains("replay-time context"),
+                failure.getMessage());
+    }
+
+    /**
      * round-23 #11: NULLABILITY is part of the schema fingerprint - SPM leaves
      * ELIMINATE_NOT_NULL enabled, so a NOT NULL column's "v IS NOT NULL" filter freezes
      * away, and ALTER TABLE ... MODIFY COLUMN v INT NULL (no name / type change) must

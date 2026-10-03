@@ -820,4 +820,62 @@ public class PlanCaptureTest {
             manager.resetForTest();
         }
     }
+
+    /**
+     * round-30 #6: a QUEUED failure must be retried with the eligibility decision of the
+     * window that queued it. A transient failure (unavailable external metadata) leaves
+     * the row behind the keyset cursor, so re-judging it against a configuration that
+     * changed in between (raised thresholds, a new include pattern) would mark it
+     * TERMINAL and drop its retry - the row is then neither captured nor inside the next
+     * window's overlap.
+     */
+    @Test
+    public void testQueuedFailureKeepsItsEligibilityAcrossAConfigChange() throws Exception {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+            org.apache.doris.datasource.ExternalCatalog external =
+                    Mockito.mock(org.apache.doris.datasource.ExternalCatalog.class);
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+            Mockito.when(catalogMgr.getCatalog("ext_cat")).thenReturn(external);
+            Mockito.when(external.isInitialized()).thenReturn(false);
+            Mockito.when(external.getDbNullable("ext_db")).thenReturn(null);
+
+            CapturedQuery queued = new CapturedQuery(
+                    "SELECT t1.a FROM ext_cat.ext_db.t1 t1 JOIN ext_cat.ext_db.t2 t2"
+                            + " ON t1.a = t2.a",
+                    5000, 100000, 0, "digest-keep", "hash", "ext_db", "ext_cat",
+                    "qid-keep");
+            Assertions.assertFalse(manager.processCandidateForTest(queued),
+                    "precondition: unavailable metadata is a retryable failure");
+            manager.handleCandidateForTest(queued);
+            Assertions.assertTrue(manager.isQueuedForTest("qid-keep"),
+                    "precondition: the failure is queued for a later cycle");
+
+            // the admin raises the thresholds and adds an include pattern while the failure
+            // waits: the retry completes the WINDOW's decision instead of re-judging the row
+            manager.setFilterForTest(new PlanCaptureFilter("only_this_table", "",
+                    10_000_000L, 10_000_000L));
+            manager.replayQueuedFailuresForTest(Set.of());
+            Assertions.assertTrue(manager.isQueuedForTest("qid-keep"),
+                    "the queued failure must stay retryable despite the new thresholds -"
+                            + " its audit row is behind the keyset cursor");
+            Assertions.assertFalse(manager.isQueryIdTrackedForTest("qid-keep"),
+                    "and it must not be marked as terminally processed");
+
+            // a candidate of the CURRENT window is still judged by the current config
+            CapturedQuery fresh = new CapturedQuery(queued.getStmt(), 5000, 100000, 0,
+                    "digest-fresh", "hash", "ext_db", "ext_cat", "qid-fresh");
+            manager.handleCandidateForTest(fresh);
+            Assertions.assertFalse(manager.isQueuedForTest("qid-fresh"),
+                    "a page candidate is filtered by the CURRENT configuration");
+            Assertions.assertTrue(manager.isQueryIdTrackedForTest("qid-fresh"),
+                    "a filtered-out page candidate is terminal: the cursor consumed its row");
+        } finally {
+            manager.resetForTest();
+        }
+    }
 }

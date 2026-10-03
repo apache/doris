@@ -992,6 +992,27 @@ public final class SPMPlanTreeSupport {
                         // creator / environment values: freezing them served every other
                         // session the creator's identity or an id that never repeats.
                         return true;
+                    case "now":
+                    case "current_timestamp":
+                    case "utc_timestamp":
+                    case "localtime":
+                    case "localtimestamp":
+                    case "current_date":
+                    case "curdate":
+                    case "current_time":
+                    case "curtime":
+                        // Every clock function is evaluated from the STATEMENT start time
+                        // (see DateTimeAcquire: ConnectContext#getStartTimeInstant) and the
+                        // optimizer folds it into a literal, which the decompiler stores in
+                        // planFrozen SQL: a baseline for `SELECT now() AS ts FROM t` returned
+                        // the CREATE timestamp on every later matching query, and
+                        // `WHERE event_time < now()` replayed with a stale cutoff.
+                        return true;
+                    case "unix_timestamp":
+                        // unix_timestamp() without arguments is the same statement clock;
+                        // WITH an argument it is a pure function of that argument and stays
+                        // freezable.
+                        return expr.arity() == 0;
                     default:
                         break;
                 }
