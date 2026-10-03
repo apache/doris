@@ -108,19 +108,24 @@ public class CloudSystemInfoService extends SystemInfoService {
     private InstanceInfoPB.Status instanceStatus;
 
     public long getCloudColocateHrwBeId(GroupId groupId, String clusterId, List<Long> availableBeIds, long idx) {
-        return getCloudColocateHrwBeIdInternal(groupId, clusterId, availableBeIds, idx, -1);
+        return getCloudColocateHrwBeIdInternal(groupId, clusterId, availableBeIds, idx, -1, false);
+    }
+
+    public long getCloudColocateHrwBeIdForDeadGrace(GroupId groupId, String clusterId,
+            List<Long> availableBeIds, long idx) {
+        return getCloudColocateHrwBeIdInternal(groupId, clusterId, availableBeIds, idx, -1, true);
     }
 
     @VisibleForTesting
     public long getCloudColocateHrwBeIdForTest(GroupId groupId, String clusterId, List<Long> availableBeIds,
             long idx, int bucketNumForTest) {
-        return getCloudColocateHrwBeIdInternal(groupId, clusterId, availableBeIds, idx, bucketNumForTest);
+        return getCloudColocateHrwBeIdInternal(groupId, clusterId, availableBeIds, idx, bucketNumForTest, false);
     }
 
     private long getCloudColocateHrwBeIdInternal(GroupId groupId, String clusterId, List<Long> availableBeIds,
-            long idx, int bucketNumForTest) {
+            long idx, int bucketNumForTest, boolean deadGrace) {
         long[] candidateBeIds = availableBeIds.stream().mapToLong(Long::longValue).toArray();
-        ColocatePlacementKey key = new ColocatePlacementKey(groupId, clusterId);
+        ColocatePlacementKey key = new ColocatePlacementKey(groupId, clusterId, deadGrace);
         long fingerprint = fingerprintBackendIds(candidateBeIds);
         ColocatePlacementCache cache = colocatePlacementCache.get(key);
         if (cache != null && cache.same(fingerprint)) {
@@ -132,7 +137,7 @@ public class CloudSystemInfoService extends SystemInfoService {
         // read lock, while removeTable() evicts this cache holding the colocate-index write lock.
         // Acquiring the colocate lock inside the ConcurrentHashMap compute() bin lock would invert
         // that order and risk an ABBA deadlock, so the locked fetch must stay outside compute().
-        int bucketNum = bucketNumForTest > 0 ? bucketNumForTest : getColocateBucketsNum(groupId);
+        int bucketNum = bucketNumForTest > 0 ? bucketNumForTest : getCloudColocateBucketsNum(groupId);
         cache = colocatePlacementCache.compute(key, (ignored, oldCache) -> {
             if (oldCache != null && oldCache.same(fingerprint, bucketNum)) {
                 return oldCache;
@@ -190,10 +195,12 @@ public class CloudSystemInfoService extends SystemInfoService {
     private static class ColocatePlacementKey {
         private final GroupId groupId;
         private final String clusterId;
+        private final boolean deadGrace;
 
-        private ColocatePlacementKey(GroupId groupId, String clusterId) {
+        private ColocatePlacementKey(GroupId groupId, String clusterId, boolean deadGrace) {
             this.groupId = groupId;
             this.clusterId = clusterId;
+            this.deadGrace = deadGrace;
         }
 
         @Override
@@ -202,12 +209,14 @@ public class CloudSystemInfoService extends SystemInfoService {
                 return false;
             }
             ColocatePlacementKey other = (ColocatePlacementKey) obj;
-            return groupId.equals(other.groupId) && clusterId.equals(other.clusterId);
+            return groupId.equals(other.groupId)
+                    && clusterId.equals(other.clusterId)
+                    && deadGrace == other.deadGrace;
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(groupId, clusterId);
+            return Objects.hash(groupId, clusterId, deadGrace);
         }
     }
 
@@ -224,10 +233,7 @@ public class CloudSystemInfoService extends SystemInfoService {
 
         private static ColocatePlacementCache build(long fingerprint, long[] candidateBeIds, long grpId,
                 int bucketNum) {
-            long[] beIdByBucket = new long[bucketNum];
-            for (int i = 0; i < bucketNum; i++) {
-                beIdByBucket[i] = CloudColocatePlacement.pickBackendId(grpId, i, candidateBeIds);
-            }
+            long[] beIdByBucket = CloudColocatePlacement.buildPlacement(grpId, candidateBeIds, bucketNum);
             return new ColocatePlacementCache(fingerprint, bucketNum, beIdByBucket);
         }
 

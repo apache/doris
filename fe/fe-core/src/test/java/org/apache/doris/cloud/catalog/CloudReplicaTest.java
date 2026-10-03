@@ -36,6 +36,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
+import org.mockito.stubbing.Answer;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -86,14 +87,17 @@ public class CloudReplicaTest {
         envMockedStatic.when(Env::getCurrentSystemInfo).thenReturn(mockInfoService);
 
         Mockito.when(mockInfoService.getCloudColocateBucketsNum(Mockito.any(GroupId.class))).thenReturn(BUCKET_NUM);
+        Answer<Long> placementAnswer = invocation -> {
+            GroupId groupId = invocation.getArgument(0);
+            List<Long> candidateBeIds = invocation.getArgument(2);
+            long bucketIdx = invocation.getArgument(3);
+            return CloudColocatePlacement.buildPlacement(groupId.grpId,
+                    candidateBeIds.stream().mapToLong(Long::longValue).toArray(), BUCKET_NUM)[(int) bucketIdx];
+        };
         Mockito.when(mockInfoService.getCloudColocateHrwBeId(Mockito.any(GroupId.class), Mockito.anyString(),
-                Mockito.anyList(), Mockito.anyLong())).thenAnswer(invocation -> {
-                    GroupId groupId = invocation.getArgument(0);
-                    List<Long> candidateBeIds = invocation.getArgument(2);
-                    long bucketIdx = invocation.getArgument(3);
-                    return CloudColocatePlacement.pickBackendId(groupId.grpId, bucketIdx,
-                            candidateBeIds.stream().mapToLong(Long::longValue).toArray());
-                });
+                Mockito.anyList(), Mockito.anyLong())).thenAnswer(placementAnswer);
+        Mockito.when(mockInfoService.getCloudColocateHrwBeIdForDeadGrace(Mockito.any(GroupId.class),
+                Mockito.anyString(), Mockito.anyList(), Mockito.anyLong())).thenAnswer(placementAnswer);
     }
 
     @AfterEach
