@@ -304,12 +304,19 @@ suite("test_lance_search_snapshot", "p0,external") {
             contains "VMaterializeNode"
         }
         qt_branch_two_phase "${twoPhase}"
-        qt_tag_two_phase """
+        // rel is version 5, where row 3 still exists; version 6 deleted it, so a second phase
+        // that reopened a later version would fetch fewer rows than it asked for.
+        String tagTwoPhase = """
             SELECT row_id, body, _distance
-            FROM ${vectorSearch(', "tag"="rel"', "[100,101,102,103]")}
+            FROM ${vectorSearch(', "tag"="rel"', "[3.25,4.25,5.25,6.25]")}
             ORDER BY _distance
             LIMIT 3
         """
+        explain {
+            sql "verbose ${tagTwoPhase}"
+            contains "VMaterializeNode"
+        }
+        qt_tag_two_phase "${tagTwoPhase}"
         // The second phase fetches the payload by the column names of the planned version: vec
         // exists only up to version 3, note only from version 3 and embedding only from version 4,
         // so fetching from any other version fails.
