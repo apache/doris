@@ -36,4 +36,6 @@ public class WriteRecordRequest extends JobBaseRecordRequest {
     private boolean rebuildReader;
     // off by default: an old FE omits it, so a new cdc_client falls back to per-round reader close
     private boolean reuseReader;
+    // Manual RESUME accepts unsupported schema changes for this recovery round; absent means false.
+    private boolean tolerateSchemaChange;
 }
