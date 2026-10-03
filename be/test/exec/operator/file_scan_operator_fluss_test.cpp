@@ -17,11 +17,21 @@
 
 #include <gtest/gtest.h>
 
+#include <list>
+#include <map>
+#include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
+#include "common/object_pool.h"
 #include "exec/operator/file_scan_operator.h"
+#include "exec/pipeline/dependency.h"
 #include "exec/scan/file_scanner_v2.h"
+#include "exec/scan/scanner.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "runtime/descriptors.h"
+#include "testutil/mock/mock_runtime_state.h"
 
 namespace doris::pipeline {
 namespace {
@@ -113,6 +123,68 @@ TEST(FileScanOperatorFlussTest, ScannerV2SupportsEveryRangeKindOfAForcedNode) {
     lake_native.table_format_params.__set_fluss_params({{"fluss.range_type", "LAKE"}});
     lake_native.__set_format_type(TFileFormatType::FORMAT_PARQUET);
     EXPECT_TRUE(FileScannerV2::is_supported(params, lake_native));
+}
+
+// Every instance of a file scan node on a backend reads through the node's one cache. A primary-key
+// union read keeps the keys of each bucket's log tail there, as iceberg keeps its parsed delete
+// files, and splits are dealt to instances with no regard for the bucket or delete file they share.
+// With a cache per instance, each instance holding a split of a bucket read that bucket's tail again
+// over JNI: 69 reads where 16 would do on a 16-bucket table spread over 9 instances.
+TEST(FileScanOperatorFlussTest, EveryInstanceOfTheNodeReadsThroughTheNodesCache) {
+    ObjectPool pool;
+    TDescriptorTable thrift_descriptors;
+    TTupleDescriptor tuple_descriptor;
+    tuple_descriptor.id = 0;
+    tuple_descriptor.byteSize = 0;
+    tuple_descriptor.numNullBytes = 0;
+    thrift_descriptors.tupleDescriptors.push_back(tuple_descriptor);
+    DescriptorTbl* descriptors = nullptr;
+    ASSERT_TRUE(DescriptorTbl::create(&pool, thrift_descriptors, &descriptors).ok());
+    MockRuntimeState state;
+    state.set_desc_tbl(descriptors);
+
+    TPlanNode plan_node;
+    plan_node.node_id = 0;
+    plan_node.node_type = TPlanNodeType::FILE_SCAN_NODE;
+    plan_node.num_children = 0;
+    plan_node.limit = -1;
+    plan_node.row_tuples.push_back(0);
+    plan_node.file_scan_node.tuple_id = 0;
+    plan_node.__isset.file_scan_node = true;
+    FileScanOperatorX node(&pool, plan_node, 0, *descriptors, /*parallel_tasks=*/1);
+    ASSERT_TRUE(node.init(plan_node, &state).ok());
+    ASSERT_TRUE(node.prepare(&state).ok());
+    ASSERT_NE(node._kv_cache, nullptr);
+
+    TFileRangeDesc log_range = jni_range("fluss");
+    log_range.table_format_params.__set_fluss_params({{"fluss.range_type", "LOG"}});
+    TFileScanRange file_scan_range;
+    file_scan_range.__set_params(scan_level_format("fluss"));
+    // A query reads no source tuple; tuple 0 there would make this scan a load.
+    file_scan_range.params.__set_src_tuple_id(1);
+    file_scan_range.ranges.push_back(log_range);
+    TScanRangeParams scan_range;
+    scan_range.scan_range.ext_scan_range.__set_file_scan_range(file_scan_range);
+    scan_range.scan_range.__isset.ext_scan_range = true;
+    const std::vector<TScanRangeParams> scan_ranges {scan_range};
+
+    RuntimeProfile profile("EveryInstanceOfTheNodeReadsThroughTheNodesCache");
+    const std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
+                                  std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
+    for (int instance = 0; instance < 2; ++instance) {
+        auto local_state = FileScanLocalState::create_unique(&state, &node);
+        LocalStateInfo info {&profile, scan_ranges, nullptr, shared_state_map, instance};
+        ASSERT_TRUE(local_state->init(&state, info).ok());
+        std::list<ScannerSPtr> scanners;
+        ASSERT_TRUE(local_state->_init_scanners(&scanners).ok());
+        ASSERT_FALSE(scanners.empty());
+        for (const auto& scanner : scanners) {
+            const auto* file_scanner = dynamic_cast<FileScannerV2*>(scanner.get());
+            ASSERT_NE(file_scanner, nullptr);
+            EXPECT_EQ(file_scanner->_kv_cache, node._kv_cache.get()) << "instance " << instance;
+        }
+    }
 }
 
 } // namespace doris::pipeline

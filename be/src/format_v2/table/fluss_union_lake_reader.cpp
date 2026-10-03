@@ -133,6 +133,8 @@ Status FlussUnionLakeReader::parse_tail(const std::string& spec, Tail* tail) {
     return Status::OK();
 }
 
+// Deliberately without jni_heap_bytes, whatever the lake split declared: see the JNI heap gate in
+// _read_tail_keys().
 TFileRangeDesc FlussUnionLakeReader::tail_scan_range(const Tail& tail) {
     std::map<std::string, std::string> params {
             {PROP_RANGE_TYPE, RANGE_TYPE_LOG},
@@ -455,6 +457,12 @@ Status FlussUnionLakeReader::_read_tail_keys(const Tail& tail, SuppressionKeys* 
     // just as surely as one it updated, and what the tail ended up saying is contributed by its own
     // range, not by this read.
     FlussJniReader reader;
+    // tail_scan_range() declares no JVM heap, so this read never waits at the JNI heap gate - and it
+    // must not: the lake split this tail suppresses is already prepared, and when the lake half is
+    // read through JNI (a merge read of an uncompacted primary-key table) its reader may hold a gate
+    // permit on this very thread. Waiting here would be waiting for that reader, which cannot go on
+    // before this read is done. The read streams the keys into C++ and is bounded by
+    // fluss.union_read.max_tail_rows.
     // On the scan's own profile, deliberately: this read therefore also lands in the FlussJniScanner
     // node beside the log-side ranges, so the Java-side breakdown there - how much of it was fluss's
     // own scan against how much was moving the rows across JNI - covers the tail read as well. The

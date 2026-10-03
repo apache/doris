@@ -31,6 +31,7 @@
 #include "format/table/partition_column_filler.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
+#include "util/defer_op.h"
 #include "util/jni-util.h"
 
 namespace doris {
@@ -51,7 +52,8 @@ const std::vector<SlotDescriptor*> JniReader::_s_empty_slot_descs;
 JniReader::JniReader(const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
                      RuntimeProfile* profile, Jni::PluginRef plugin_ref,
                      std::map<std::string, std::string> scanner_params,
-                     std::vector<std::string> column_names, int64_t self_split_weight)
+                     std::vector<std::string> column_names, int64_t self_split_weight,
+                     int64_t jni_heap_bytes)
         : _file_slot_descs(file_slot_descs),
           _state(state),
           _profile(profile),
@@ -59,7 +61,8 @@ JniReader::JniReader(const std::vector<SlotDescriptor*>& file_slot_descs, Runtim
           _connector_name(plugin_ref.plugin),
           _scanner_params(std::move(scanner_params)),
           _column_names(std::move(column_names)),
-          _self_split_weight(static_cast<int32_t>(self_split_weight)) {}
+          _self_split_weight(static_cast<int32_t>(self_split_weight)),
+          _jni_heap_bytes(jni_heap_bytes) {}
 
 JniReader::JniReader(Jni::PluginRef plugin_ref, std::map<std::string, std::string> scanner_params)
         : _file_slot_descs(_s_empty_slot_descs),
@@ -131,6 +134,9 @@ Status JniReader::open(RuntimeState* state, RuntimeProfile* profile) {
         _java_create_vector_table_time =
                 ADD_CHILD_TIMER(_profile, "JavaCreateVectorTableTime", _connector_name.c_str());
         _fill_block_time = ADD_CHILD_TIMER(_profile, "FillBlockTime", _connector_name.c_str());
+        _jvm_heap_wait_time = ADD_CHILD_TIMER(_profile, "JvmHeapWaitTime", _connector_name.c_str());
+        _jvm_heap_declared_bytes = ADD_CHILD_COUNTER(_profile, "JvmHeapDeclaredBytes", TUnit::BYTES,
+                                                     _connector_name.c_str());
         _max_time_split_weight_counter = _profile->add_conditition_counter(
                 "MaxTimeSplitWeight", TUnit::UNIT, [](int64_t _c, int64_t c) { return c > _c; },
                 _connector_name.c_str());
@@ -144,6 +150,26 @@ Status JniReader::open(RuntimeState* state, RuntimeProfile* profile) {
     }
     _batch_size = batch_size;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
+    // Only a reader whose range declared the heap it will hold waits for it; see the constructor.
+    if (_jni_heap_bytes > 0) {
+        int64_t heap_wait_ns = 0;
+        JniScanHeapGate::instance()->acquire(
+                _jni_heap_bytes,
+                // A cancelled query opens without waiting for heap and stops at its next block.
+                [this]() { return _state != nullptr && _state->is_cancelled(); }, &_heap_permit,
+                &heap_wait_ns);
+        if (_profile != nullptr) {
+            COUNTER_UPDATE(_jvm_heap_wait_time, heap_wait_ns);
+            COUNTER_UPDATE(_jvm_heap_declared_bytes, _jni_heap_bytes);
+        }
+    }
+    // The permit covers the Java scanner: close() releases it, and here it goes if the scanner
+    // did not open.
+    Defer release_unless_opened {[this]() {
+        if (!_scanner_opened) {
+            _heap_permit.release();
+        }
+    }};
     SCOPED_RAW_TIMER(&_jni_scanner_open_watcher);
     if (_state) {
         _scanner_params.emplace("time_zone", _state->timezone());
@@ -215,6 +241,7 @@ Status JniReader::close() {
         close_status = std::move(java_close_status);
     }
     if (close_status.ok()) {
+        _heap_permit.release();
         _scanner_opened = false;
         _closed = true;
     }
