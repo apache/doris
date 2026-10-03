@@ -86,15 +86,8 @@ final class FlussConnectionPool {
             thread.setContextClassLoader(FlussConnectionPool.class.getClassLoader());
             return thread;
         });
-        reaper.scheduleWithFixedDelay(() -> {
-            try {
-                INSTANCE.closeIdleLongerThan(IDLE_TIMEOUT_NANOS);
-            } catch (Exception e) {
-                // A scheduled task that throws is never run again, and idle connections would then
-                // keep their threads for the life of the process.
-                LOG.warn("Failed to close idle fluss connections", e);
-            }
-        }, REAP_INTERVAL_SECONDS, REAP_INTERVAL_SECONDS, TimeUnit.SECONDS);
+        reaper.scheduleWithFixedDelay(() -> sweep(INSTANCE), REAP_INTERVAL_SECONDS, REAP_INTERVAL_SECONDS,
+                TimeUnit.SECONDS);
     }
 
     private final Function<Configuration, Connection> factory;
@@ -177,6 +170,26 @@ final class FlussConnectionPool {
         // Outside the lock: a close the closer hands back to this thread takes two seconds.
         for (Connection connection : expired) {
             FlussConnectionCloser.close(connection);
+        }
+    }
+
+    /**
+     * One run of the reaper. Nothing may escape it: a scheduled task that throws is never run again, and
+     * idle connections would then keep their threads for the life of the process. That holds for an
+     * {@code Error} as much as for an exception - above all the {@code OutOfMemoryError} of a scan that
+     * filled BE's JVM heap, which strikes whatever allocates while the heap is full. Caught as an
+     * exception only, one such error ended the sweeps of a BE for good, and the 128 connections idle at
+     * that moment stayed open, threads and sockets, until the BE restarted.
+     */
+    static void sweep(FlussConnectionPool pool) {
+        try {
+            pool.closeIdleLongerThan(IDLE_TIMEOUT_NANOS);
+        } catch (Throwable t) {
+            try {
+                LOG.warn("Failed to close idle fluss connections", t);
+            } catch (Throwable logFailure) {
+                // Logging allocates too, and the heap may still be full; the next sweep comes regardless.
+            }
         }
     }
 

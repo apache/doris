@@ -32,7 +32,9 @@ import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -180,6 +182,32 @@ public class FlussConnectionPoolTest {
         pool.closeIdleLongerThan(FlussConnectionPool.IDLE_TIMEOUT_NANOS);
         Assertions.assertEquals(1, pool.idleCount(), "closed while it had been idle for less than the timeout");
         Assertions.assertEquals(1, closes.get(0).getCount());
+    }
+
+    /**
+     * The reaper runs each sweep through {@link FlussConnectionPool#sweep} on a scheduled executor, which
+     * never runs a periodic task again once it has thrown. A scan that fills BE's JVM heap makes
+     * whatever allocates throw {@code OutOfMemoryError}, a sweep included: that must cost the one sweep,
+     * not every sweep after it.
+     */
+    @Test
+    public void sweepThatRunsIntoAnErrorLeavesTheNextSweepsComing() throws Exception {
+        AtomicInteger sweeps = new AtomicInteger();
+        FlussConnectionPool failing = new FlussConnectionPool(config -> open(), () -> {
+            sweeps.incrementAndGet();
+            throw new OutOfMemoryError("simulated: Java heap space");
+        });
+        ScheduledExecutorService reaper = Executors.newSingleThreadScheduledExecutor();
+        try {
+            reaper.scheduleWithFixedDelay(() -> FlussConnectionPool.sweep(failing), 0, 1, TimeUnit.MILLISECONDS);
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(PATIENCE_SECONDS);
+            while (sweeps.get() < 3 && System.nanoTime() < deadline) {
+                Thread.sleep(1);
+            }
+        } finally {
+            reaper.shutdownNow();
+        }
+        Assertions.assertTrue(sweeps.get() >= 3, "sweeps after the first error: " + (sweeps.get() - 1));
     }
 
     private Connection open() {
