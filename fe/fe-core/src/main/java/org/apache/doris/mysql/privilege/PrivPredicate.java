@@ -53,6 +53,9 @@ public class PrivPredicate {
     // admin user privs
     public static final PrivPredicate ADMIN = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV),
             Operator.OR);
+    // switch the session to another user (SU): PROXY_PRIV, which ADMIN_PRIV implies
+    public static final PrivPredicate PROXY = PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
+            Privilege.PROXY_PRIV), Operator.OR);
 
     public static final PrivPredicate ADMIN_OR_NODE = PrivPredicate.of(
             PrivBitSet.of(Privilege.ADMIN_PRIV, Privilege.NODE_PRIV),

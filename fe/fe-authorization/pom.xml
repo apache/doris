@@ -43,7 +43,7 @@ under the License.
           branch into a refusal, which is a behaviour change for a plugin nobody rebuilt. A change to
           fe-extension-spi means bumping all five families.
         -->
-        <authorization.plugin.api.version>1.0</authorization.plugin.api.version>
+        <authorization.plugin.api.version>2.0</authorization.plugin.api.version>
     </properties>
 
     <build>

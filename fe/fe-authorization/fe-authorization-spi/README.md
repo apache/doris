@@ -164,7 +164,7 @@ Every plugin jar must declare, in its MANIFEST, the authorization plugin API it 
   <configuration>
     <archive>
       <manifestEntries>
-        <Doris-Authorization-Plugin-Api-Version>1.0</Doris-Authorization-Plugin-Api-Version>
+        <Doris-Authorization-Plugin-Api-Version>2.0</Doris-Authorization-Plugin-Api-Version>
       </manifestEntries>
     </archive>
   </configuration>

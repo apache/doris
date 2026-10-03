@@ -30,7 +30,7 @@ Status MetaScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     for (auto& scan_range : _scan_ranges) {
         std::shared_ptr<MetaScanner> scanner =
                 MetaScanner::create_shared(state(), this, p._tuple_id, scan_range, p._limit,
-                                           custom_profile(), p._user_identity);
+                                           custom_profile(), p._user_identity, p._current_roles);
         RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
         scanners->push_back(scanner);
     }
@@ -54,6 +54,9 @@ MetaScanOperatorX::MetaScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, i
     _output_tuple_id = _tuple_id;
     if (tnode.meta_scan_node.__isset.current_user_ident) {
         _user_identity = tnode.meta_scan_node.current_user_ident;
+    }
+    if (tnode.meta_scan_node.__isset.current_roles) {
+        _current_roles = tnode.meta_scan_node.current_roles;
     }
 }
 
