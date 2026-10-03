@@ -448,9 +448,12 @@ public class StructInfo {
     }
 
     /**
-     * Judge the source graph logical is whether the same as target
-     * For inner join should judge only the join tables,
-     * for other join type should also judge the join direction, it's input filter that can not be pulled up etc.
+     * Compare the query and view hypergraphs under the relation and slot mapping in {@code compatibilityContext}.
+     *
+     * <p>This is a semantic compatibility check rather than plan-tree equality. It compares nodes, join/filter
+     * edges, join directions and join types, and records residual expressions that can be pulled above the matched
+     * graph. When a compatible join-type conversion needs null rejection, the returned {@link ComparisonResult}
+     * also identifies the required view-side slots for predicate compensation.
      */
     public static ComparisonResult isGraphLogicalEquals(StructInfo queryStructInfo, StructInfo viewStructInfo,
             LogicalCompatibilityContext compatibilityContext) {
