@@ -1123,6 +1123,10 @@ class Util {
 public:
     static size_t get_max_jni_heap_memory_size();
 
+    // What to tell a user whose statement failed because BE's JVM ran out of heap: which heap that is
+    // and how to make room in it. Errors made of a Java OutOfMemoryError for want of heap carry it.
+    static std::string jvm_heap_exhausted_hint();
+
     template <RefType Ref>
     static Status find_class(JNIEnv* env, const char* class_str, Class<Ref>* result) {
         return Class<Ref>::find_class(env, class_str, result);
@@ -1264,6 +1268,11 @@ private:
     // Bytes named by the last -Xmx in `options`, or 0 when none of them says. Split out from the
     // above so that the parsing can be tested without a JVM; see jni_util_test.cpp.
     static jlong _parse_xmx(const std::string& options);
+
+    // Whether a Java exception as throwableToString renders it is an OutOfMemoryError for want of
+    // heap, thrown itself or the cause of the one thrown. Split out from Env::GetJniExceptionMsg()
+    // so that it can be tested without a JVM; see jni_util_test.cpp.
+    static bool _reports_heap_exhausted(const std::string& rendered);
 
     static Status _init_jni_base() WARN_UNUSED_RESULT;
     static Status _init_collect_class() WARN_UNUSED_RESULT;
