@@ -22,6 +22,7 @@
 #include <array>
 #include <map>
 #include <memory>
+#include <numeric>
 #include <roaring/roaring.hh>
 #include <set>
 #include <string>
@@ -995,6 +996,173 @@ TEST_F(PhraseQueryV2Test, AListedPhrasePrefixListsRareExpansionsFirst) {
     EXPECT_EQ(source->prefetches["common"][0].candidates, (std::vector<uint32_t> {3, 7}));
 }
 
+// More expansions than one wave reads. "quick" holds rows 0 to 47 at position 0; "br00" to
+// "br39" each hold their own row, right after "quick" when its number is a multiple of 3 and a
+// position later otherwise, and row 47 far from it; row 45 holds "br05" late and "br36" right
+// after "quick", and row 46 "br06" right after it and "br37" late, so their matches come from
+// different waves.
+static constexpr size_t kManyExpansions = 40;
+
+static std::string many_expansion(const std::string& stem, size_t i) {
+    return stem + (i < 10 ? "0" : "") + std::to_string(i);
+}
+
+static std::vector<std::vector<std::string>> expansion_waves(const std::string& stem) {
+    std::vector<std::vector<std::string>> waves(2);
+    for (size_t i = 0; i < kManyExpansions; ++i) {
+        waves[i < 32 ? 0 : 1].push_back(many_expansion(stem, i));
+    }
+    return waves;
+}
+
+static std::shared_ptr<index_query::testing::FakeIndexSource> many_prefix_source(bool batches) {
+    auto source = std::make_shared<index_query::testing::FakeIndexSource>();
+    source->batches = batches;
+    source->set_doc_count(64);
+    std::vector<index_query::testing::FakeIndexSource::Posting> quick;
+    for (uint32_t doc = 0; doc < 48; ++doc) {
+        quick.push_back(posting(doc, {0}));
+    }
+    source->add("quick", std::move(quick));
+    for (size_t i = 0; i < kManyExpansions; ++i) {
+        std::vector<index_query::testing::FakeIndexSource::Posting> postings {
+                posting(static_cast<uint32_t>(i), {i % 3 == 0 ? 1U : 2U}), posting(47, {4})};
+        if (i == 5 || i == 37) {
+            postings.push_back(posting(i == 5 ? 45 : 46, {3}));
+        }
+        if (i == 6 || i == 36) {
+            postings.push_back(posting(i == 6 ? 46 : 45, {1}));
+        }
+        source->add(many_expansion("br", i), std::move(postings));
+    }
+    for (uint32_t doc = 0; doc < 64; ++doc) {
+        source->norms[doc] = doc % 6 + 1;
+    }
+    return source;
+}
+
+// The rows "quick br*" matches in the source above.
+static std::set<uint32_t> many_prefix_matches() {
+    std::set<uint32_t> matches {45, 46};
+    for (uint32_t doc = 0; doc < kManyExpansions; doc += 3) {
+        matches.insert(doc);
+    }
+    return matches;
+}
+
+// Every expansion listed on the rows "quick" holds, then read the positions of the rows it held.
+static void expect_tail_gathered_on_quick_rows(index_query::testing::FakeIndexSource& source) {
+    std::vector<uint32_t> quick_rows(48);
+    std::iota(quick_rows.begin(), quick_rows.end(), 0);
+    for (size_t i = 0; i < kManyExpansions; ++i) {
+        const auto& prefetches = source.prefetches[many_expansion("br", i)];
+        ASSERT_EQ(prefetches.size(), 2U) << i;
+        EXPECT_EQ(prefetches[0].candidates, quick_rows) << i;
+        EXPECT_FALSE(prefetches[0].positions) << i;
+        EXPECT_TRUE(prefetches[1].positions) << i;
+    }
+}
+
+// A phrase prefix whose tail expands to more terms than one wave reads gathers the tail's
+// positions a wave at a time on the rows "quick" kept, each wave released before the next, and
+// answers as the streamed phrase does.
+TEST_F(PhraseQueryV2Test, AListedPhrasePrefixOfManyExpansionsGathersThemAWaveAtATime) {
+    const auto make_query = [] {
+        return query_v2::PhrasePrefixQuery(std::make_shared<IndexQueryContext>(), L"content",
+                                           phrase_terms({"quick", "br"}));
+    };
+    auto streamed = make_query();
+    EXPECT_EQ(fake_docs(streamed, many_prefix_source(false)), many_prefix_matches());
+    auto source = many_prefix_source(true);
+    auto listed = make_query();
+    EXPECT_EQ(fake_docs(listed, source), many_prefix_matches());
+    auto waves = expansion_waves("br");
+    waves.insert(waves.begin(), {"quick"});
+    EXPECT_EQ(source->opened_together, waves);
+    expect_tail_gathered_on_quick_rows(*source);
+    EXPECT_EQ(source->prefetches["br05"][1].candidates, (std::vector<uint32_t> {5, 45, 47}));
+    // A round of positions a wave, then the positions of "quick" at the rows kept.
+    EXPECT_EQ(source->fetches, 3U);
+    EXPECT_LE(source->live.peak, 33U);
+    EXPECT_EQ(source->live.now, 0U);
+}
+
+// Expansions far rarer than the exact term list their rows first, docids only, and seed the
+// exact term's listing; they read positions only at the rows both hold.
+TEST_F(PhraseQueryV2Test, AListedPhrasePrefixOfManyRareExpansionsListsThemFirst) {
+    auto source = std::make_shared<index_query::testing::FakeIndexSource>();
+    source->batches = true;
+    source->set_doc_count(512);
+    std::vector<index_query::testing::FakeIndexSource::Posting> common;
+    for (uint32_t doc = 0; doc < 512; ++doc) {
+        common.push_back(posting(doc, {0}));
+    }
+    source->add("common", std::move(common));
+    std::vector<uint32_t> rare_rows;
+    for (size_t i = 0; i < kManyExpansions; ++i) {
+        const auto doc = static_cast<uint32_t>(i * 10);
+        source->add(many_expansion("ra", i), {posting(doc, {i % 2 == 0 ? 1U : 2U})});
+        rare_rows.push_back(doc);
+    }
+    query_v2::PhrasePrefixQuery query(std::make_shared<IndexQueryContext>(), L"content",
+                                      phrase_terms({"common", "ra"}));
+    std::set<uint32_t> expected;
+    for (size_t i = 0; i < kManyExpansions; i += 2) {
+        expected.insert(static_cast<uint32_t>(i * 10));
+    }
+    EXPECT_EQ(fake_docs(query, source), expected);
+    // Each expansion reads the positions of its own row only, without listing again.
+    for (const size_t i : {size_t {0}, size_t {39}}) {
+        const auto& prefetches = source->prefetches[many_expansion("ra", i)];
+        ASSERT_EQ(prefetches.size(), 2U) << i;
+        EXPECT_TRUE(prefetches[0].whole) << i;
+        EXPECT_FALSE(prefetches[0].positions) << i;
+        EXPECT_EQ(prefetches[1].candidates, (std::vector<uint32_t> {rare_rows[i]})) << i;
+        EXPECT_TRUE(prefetches[1].positions) << i;
+    }
+    EXPECT_EQ(source->prefetches["common"][0].candidates, rare_rows);
+    EXPECT_LE(source->live.peak, 33U);
+}
+
+// "a00x" to "a39x" each hold their own row at position 0 and the next row at 5, and "y00" to
+// "y39" their own row right after the "x" term when even and later otherwise.
+static std::shared_ptr<index_query::testing::FakeIndexSource> only_expansions_source(bool batches) {
+    auto source = std::make_shared<index_query::testing::FakeIndexSource>();
+    source->batches = batches;
+    source->set_doc_count(64);
+    for (size_t i = 0; i < kManyExpansions; ++i) {
+        const auto doc = static_cast<uint32_t>(i);
+        source->add(many_expansion("a", i) + "x", {posting(doc, {0}), posting(doc + 1, {5})});
+        source->add(many_expansion("y", i), {posting(doc, {i % 2 == 0 ? 1U : 3U})});
+    }
+    return source;
+}
+
+// A phrase whose every slot expands to more terms than one wave reads, with no candidates,
+// first lists its slots' rows, docids only, then gathers positions at the rows both hold.
+TEST_F(PhraseQueryV2Test, AListedPhraseOfOnlyManyExpansionsListsRowsBeforeGathering) {
+    std::set<uint32_t> streamed;
+    for (const bool batches : {false, true}) {
+        auto source = only_expansions_source(batches);
+        query_v2::PhrasePrefixQuery query(std::make_shared<IndexQueryContext>(), L"content",
+                                          phrase_terms({"x", "y"}), nullptr, /*suffix=*/true);
+        const auto docs = fake_docs(query, source);
+        if (!batches) {
+            streamed = docs;
+            EXPECT_EQ(streamed.size(), kManyExpansions / 2);
+            continue;
+        }
+        EXPECT_EQ(docs, streamed);
+        // Each slot lists its rows a wave at a time, the one holding fewer documents first, then
+        // gathers its positions a wave at a time.
+        EXPECT_EQ(source->opened_together.size(), 8U);
+        EXPECT_TRUE(source->prefetches["y00"][0].whole);
+        EXPECT_FALSE(source->prefetches["y00"][0].positions);
+        EXPECT_FALSE(source->prefetches["a00x"][0].whole);
+        EXPECT_LE(source->live.peak, 32U);
+    }
+}
+
 TEST_F(PhraseQueryV2Test, AListedMultiPhraseMatchesTheStreamedOne) {
     std::vector<TermInfo> term_infos = phrase_terms({"quick", "brown"});
     term_infos[1].term = std::vector<std::string> {"brown", "bronze"};
@@ -1197,6 +1365,27 @@ TEST_F(PhraseQueryV2Test, AListedScoredPhrasePrefixScoresLikeTheStreamedOne) {
         expect_scored_alike(docs, streamed);
         EXPECT_EQ(source->opened_together,
                   (std::vector<std::vector<std::string>> {{"quick"}, {"bronze", "brown"}}));
+    }
+}
+
+// Scored, the gathered tail's positions give each row the phrase frequency the streamed phrase
+// counts there.
+TEST_F(PhraseQueryV2Test, AListedScoredPhrasePrefixOfManyExpansionsScoresLikeTheStreamedOne) {
+    std::map<uint32_t, float> streamed;
+    for (const bool batches : {false, true}) {
+        auto source = many_prefix_source(batches);
+        query_v2::PhrasePrefixWeight weight(L"content", {{0, "quick"}}, {1, "br"},
+                                            std::make_shared<BM25Similarity>(2.0F, 8.0F),
+                                            /*enable_scoring=*/true, /*max_expansions=*/50, nullptr,
+                                            /*suffix=*/false, /*nullable=*/false);
+        const auto docs = scored_docs(weight, source);
+        if (!batches) {
+            streamed = docs;
+            EXPECT_EQ(streamed.size(), 16U);
+            continue;
+        }
+        expect_scored_alike(docs, streamed);
+        EXPECT_EQ(source->opened_together.size(), 3U);
     }
 }
 

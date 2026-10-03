@@ -150,6 +150,15 @@ Status SniiIndexSource::open_terms(std::span<const std::string> terms, bool posi
     return Status::OK();
 }
 
+// The dictionary entry gives the documents; a term the source resolved before reads nothing.
+Status SniiIndexSource::doc_freq(std::string_view term, uint64_t* out) {
+    RETURN_IF_ERROR(check_user_term(term));
+    Term* resolved = nullptr;
+    RETURN_IF_ERROR(_resolve(term, &resolved));
+    *out = resolved->hit.found ? resolved->hit.entry.df : 0;
+    return Status::OK();
+}
+
 // The norms section is read once, when a document's norm is first asked.
 Status SniiIndexSource::encoded_norms(std::span<const uint32_t> docs, std::vector<uint32_t>* out) {
     out->assign(docs.size(), 1);

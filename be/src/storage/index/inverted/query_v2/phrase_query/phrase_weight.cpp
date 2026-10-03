@@ -38,6 +38,7 @@
 #include "storage/index/inverted/query_v2/segment_postings.h"
 #include "storage/index/inverted/util/string_helper.h"
 #include "storage/index/query/exec/cursor_chained_postings.h"
+#include "storage/index/query/exec/term_waves.h"
 #include "storage/index/query/phrase/exact_phrase_matcher.h"
 #include "storage/index/query/phrase/exact_phrase_stream_matcher.h"
 #include "storage/index/query/phrase/phrase_verifier.h"
@@ -155,12 +156,27 @@ using SlotCursors = std::vector<std::unique_ptr<index_query::PostingsCursor>>;
 // For each slot of several terms, the listed rows each of its terms holds.
 using HeldRows = std::vector<std::vector<std::vector<uint32_t>>>;
 
-// The phrase's shape: which distinct slot each clause reads, where it sits and what it costs.
+// The phrase's shape: which distinct slot each clause reads, where it sits and what it costs,
+// and the documents each distinct slot's terms hold.
 struct PhraseClauses {
     std::vector<size_t> slots;
     std::vector<uint32_t> offsets;
     std::vector<uint64_t> costs;
+    std::vector<uint64_t> slot_docs;
 };
+
+// A slot's positions, merged across its terms, at the rows it holds among those it was given:
+// rows ascending, the positions of rows[i] from offsets[i] up to offsets[i + 1].
+struct GatheredSlot {
+    std::vector<uint32_t> rows;
+    std::vector<uint32_t> offsets;
+    std::vector<uint32_t> positions;
+};
+
+// Whether a slot of `terms` reads them a wave at a time instead of opening them together.
+bool is_waved(const std::vector<std::string>& terms) {
+    return terms.size() > index_query::kTermsPerWave;
+}
 
 // The distinct slots of `phrase`; clauses matching the same terms read one slot.
 std::vector<PhraseSlot> distinct_slots(std::vector<PhraseSlot> phrase, PhraseClauses* clauses) {
@@ -222,10 +238,12 @@ Status open_slot_terms(index_query::IndexSource& source,
 }
 
 // Opens the phrase's slots: the exact ones first, so a missing term ends the phrase before any
-// expansion runs, then the terms the others expand to. `slots` stays empty when a slot holds
-// no term.
+// expansion runs, then the terms the others expand to. A slot of more terms than one wave reads
+// opens none and keeps its terms in `waved`, for its rows to gather a wave at a time. `slots`
+// stays empty when a slot holds no term.
 Status open_slots(index_query::IndexSource& source, std::vector<PhraseSlot> phrase,
-                  PhraseClauses* clauses, std::vector<SlotCursors>* slots) {
+                  PhraseClauses* clauses, std::vector<SlotCursors>* slots,
+                  std::vector<std::vector<std::string>>* waved) {
     std::vector<PhraseSlot> distinct = distinct_slots(std::move(phrase), clauses);
     std::vector<std::vector<std::string>> terms_of(distinct.size());
     std::vector<size_t> exact;
@@ -246,9 +264,15 @@ Status open_slots(index_query::IndexSource& source, std::vector<PhraseSlot> phra
             return Status::OK();
         }
     }
+    const auto together = [&terms_of](std::span<const size_t> which) {
+        std::vector<size_t> opened;
+        std::ranges::copy_if(which, std::back_inserter(opened),
+                             [&terms_of](size_t slot) { return !is_waved(terms_of[slot]); });
+        return opened;
+    };
     std::vector<SlotCursors> opened(distinct.size());
     bool found = false;
-    RETURN_IF_ERROR(open_slot_terms(source, terms_of, exact, &opened, &found));
+    RETURN_IF_ERROR(open_slot_terms(source, terms_of, together(exact), &opened, &found));
     if (!found) {
         return Status::OK();
     }
@@ -262,17 +286,31 @@ Status open_slots(index_query::IndexSource& source, std::vector<PhraseSlot> phra
             return Status::OK();
         }
     }
-    RETURN_IF_ERROR(open_slot_terms(source, terms_of, expanded, &opened, &found));
+    RETURN_IF_ERROR(open_slot_terms(source, terms_of, together(expanded), &opened, &found));
     if (!found) {
         return Status::OK();
     }
-    for (const size_t slot : clauses->slots) {
-        uint64_t cost = 0;
-        for (const auto& slot_cursor : opened[slot]) {
-            cost += slot_cursor->doc_freq();
+    std::vector<uint64_t> docs(distinct.size(), 0);
+    waved->assign(distinct.size(), {});
+    for (size_t slot = 0; slot < distinct.size(); ++slot) {
+        if (!is_waved(terms_of[slot])) {
+            for (const auto& slot_cursor : opened[slot]) {
+                docs[slot] += slot_cursor->doc_freq();
+            }
+            continue;
         }
-        clauses->costs.push_back(cost);
+        RETURN_IF_ERROR(source.prepare_terms(terms_of[slot]));
+        for (const std::string& term : terms_of[slot]) {
+            uint64_t term_docs = 0;
+            RETURN_IF_ERROR(source.doc_freq(term, &term_docs));
+            docs[slot] += term_docs;
+        }
+        (*waved)[slot] = std::move(terms_of[slot]);
     }
+    for (const size_t slot : clauses->slots) {
+        clauses->costs.push_back(docs[slot]);
+    }
+    clauses->slot_docs = std::move(docs);
     *slots = std::move(opened);
     return Status::OK();
 }
@@ -352,9 +390,10 @@ Status seed_chain(std::vector<index_query::ChainedPostings*>* first,
 // when its terms hold this many times fewer documents than the rarest of them.
 constexpr uint64_t kSeveralTermsListingRatio = 8;
 
-// The rows holding a term of every slot, among `candidates` when given, listed as a chain, and
-// for a slot of several terms the rows each of its terms holds. A slot of several terms that is
-// not far rarer than every exact slot lists last, on the rows the others kept.
+// The rows holding a term of every opened slot, among `candidates` when given, listed as a
+// chain, and for a slot of several terms the rows each of its terms holds. A slot of several
+// terms that is not far rarer than every exact slot lists last, on the rows the others kept. A
+// slot read in waves, which opened no cursor, is left to its own gathering.
 Status chain_rows(std::span<const SlotCursors> slots, const roaring::Roaring* candidates,
                   std::vector<uint32_t>* rows, HeldRows* held) {
     std::vector<index_query::CursorChainedPostings> singles;
@@ -364,6 +403,9 @@ Status chain_rows(std::span<const SlotCursors> slots, const roaring::Roaring* ca
     std::vector<index_query::ChainedPostings*> first;
     uint64_t rarest_exact = std::numeric_limits<uint64_t>::max();
     for (const SlotCursors& cursors : slots) {
+        if (cursors.empty()) {
+            continue;
+        }
         if (cursors.size() == 1) {
             first.push_back(&singles.emplace_back(*cursors.front()));
             rarest_exact = std::min<uint64_t>(rarest_exact, cursors.front()->doc_freq());
@@ -391,7 +433,7 @@ Status chain_rows(std::span<const SlotCursors> slots, const roaring::Roaring* ca
     held->assign(slots.size(), {});
     auto listed = unions.begin();
     for (size_t slot = 0; slot < slots.size(); ++slot) {
-        if (slots[slot].size() == 1) {
+        if (slots[slot].size() <= 1) {
             continue;
         }
         for (size_t member = 0; member < slots[slot].size(); ++member) {
@@ -401,6 +443,269 @@ Status chain_rows(std::span<const SlotCursors> slots, const roaring::Roaring* ca
         }
         ++listed;
     }
+    return Status::OK();
+}
+
+// Reads, in one round, the positions each cursor's term holds at its rows in `held`, and
+// appends them to `out` with their rows.
+Status append_held_positions(index_query::IndexSource& source, const SlotCursors& cursors,
+                             const std::vector<std::vector<uint32_t>>& held,
+                             std::vector<std::pair<uint32_t, uint32_t>>* out) {
+    bool reads = false;
+    for (size_t member = 0; member < cursors.size(); ++member) {
+        if (!held[member].empty()) {
+            RETURN_IF_ERROR(cursors[member]->prefetch(&held[member], /*positions=*/true));
+            reads = true;
+        }
+    }
+    if (!reads) {
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(source.fetch_pending());
+    for (size_t member = 0; member < cursors.size(); ++member) {
+        const std::vector<uint32_t>& rows = held[member];
+        if (rows.empty()) {
+            continue;
+        }
+        RETURN_IF_ERROR(cursors[member]->rewind());
+        TermWalk walk(*cursors[member], rows);
+        for (size_t row = 0; row < rows.size(); ++row) {
+            index_query::PhrasePositionSpan positions;
+            RETURN_IF_ERROR(walk.positions_of(row, rows[row], &positions));
+            for (const uint32_t* position = positions.first; position != positions.second;
+                 ++position) {
+                out->emplace_back(rows[row], *position);
+            }
+        }
+    }
+    return Status::OK();
+}
+
+// The positions of a slot's terms, merged per row: rows ascending, each with its positions.
+void build_gathered(std::vector<std::vector<uint32_t>> term_rows,
+                    std::vector<std::pair<uint32_t, uint32_t>> held_positions, GatheredSlot* out) {
+    std::vector<uint32_t> rows;
+    for (const auto& held : term_rows) {
+        rows.insert(rows.end(), held.begin(), held.end());
+    }
+    std::ranges::sort(rows);
+    rows.erase(std::ranges::unique(rows).begin(), rows.end());
+    out->rows = std::move(rows);
+    std::ranges::sort(held_positions);
+    held_positions.erase(std::ranges::unique(held_positions).begin(), held_positions.end());
+    out->positions.clear();
+    out->positions.reserve(held_positions.size());
+    out->offsets.assign(out->rows.size() + 1, 0);
+    size_t next = 0;
+    for (size_t row = 0; row < out->rows.size(); ++row) {
+        for (; next < held_positions.size() && held_positions[next].first == out->rows[row];
+             ++next) {
+            out->positions.push_back(held_positions[next].second);
+        }
+        out->offsets[row + 1] = static_cast<uint32_t>(out->positions.size());
+    }
+    DCHECK_EQ(next, held_positions.size());
+}
+
+// Lists, a wave of terms at a time, the rows among `domain` (every row when null) each of
+// `terms` holds, into `term_rows` by term. With `held_positions`, each wave also reads its
+// terms' positions at those rows, one round more, before it is released.
+Status list_term_rows(index_query::IndexSource& source, std::span<const std::string> terms,
+                      const std::vector<uint32_t>* domain,
+                      std::vector<std::vector<uint32_t>>* term_rows,
+                      std::vector<std::pair<uint32_t, uint32_t>>* held_positions) {
+    term_rows->assign(terms.size(), {});
+    SlotCursors cursors;
+    for (size_t begin = 0; begin < terms.size(); begin += index_query::kTermsPerWave) {
+        const auto wave =
+                terms.subspan(begin, std::min(index_query::kTermsPerWave, terms.size() - begin));
+        RETURN_IF_ERROR(
+                source.open_terms(wave, held_positions != nullptr, /*scoring=*/false, &cursors));
+        std::vector<index_query::CursorChainedPostings> members;
+        members.reserve(cursors.size());
+        for (const auto& cursor : cursors) {
+            if (cursor != nullptr) {
+                RETURN_IF_ERROR(members.emplace_back(*cursor).start(domain));
+            }
+        }
+        std::vector<std::vector<uint32_t>> held;
+        SlotCursors present;
+        for (size_t i = 0, member = 0; i < cursors.size(); ++i) {
+            if (cursors[i] == nullptr) {
+                continue;
+            }
+            auto& rows = (*term_rows)[begin + i];
+            RETURN_IF_ERROR(members[member++].collect(&rows));
+            held.push_back(rows);
+            present.push_back(std::move(cursors[i]));
+        }
+        if (held_positions != nullptr) {
+            RETURN_IF_ERROR(append_held_positions(source, present, held, held_positions));
+        }
+        cursors.clear();
+    }
+    return Status::OK();
+}
+
+// Reads, a wave of terms at a time, the positions each of `terms` holds at its rows in
+// `term_rows`, opening only the terms holding one.
+Status read_term_positions(index_query::IndexSource& source, std::span<const std::string> terms,
+                           const std::vector<std::vector<uint32_t>>& term_rows,
+                           std::vector<std::pair<uint32_t, uint32_t>>* held_positions) {
+    std::vector<std::string> holding;
+    std::vector<std::vector<uint32_t>> held;
+    for (size_t i = 0; i < terms.size(); ++i) {
+        if (!term_rows[i].empty()) {
+            holding.push_back(terms[i]);
+            held.push_back(term_rows[i]);
+        }
+    }
+    SlotCursors cursors;
+    for (size_t begin = 0; begin < holding.size(); begin += index_query::kTermsPerWave) {
+        const size_t count = std::min(index_query::kTermsPerWave, holding.size() - begin);
+        RETURN_IF_ERROR(source.open_terms(std::span(holding).subspan(begin, count),
+                                          /*positions=*/true, /*scoring=*/false, &cursors));
+        const std::vector<std::vector<uint32_t>> wave_held(
+                held.begin() + static_cast<std::ptrdiff_t>(begin),
+                held.begin() + static_cast<std::ptrdiff_t>(begin + count));
+        // The dictionary listed every one of these terms a moment ago.
+        DORIS_CHECK(std::ranges::none_of(cursors, [](const auto& cursor) { return !cursor; }));
+        RETURN_IF_ERROR(append_held_positions(source, cursors, wave_held, held_positions));
+        cursors.clear();
+    }
+    return Status::OK();
+}
+
+// Keeps, of the rows each opened slot's term holds, those still listed.
+void keep_listed(const std::vector<uint32_t>& rows, HeldRows* held) {
+    for (auto& slot : *held) {
+        for (auto& member : slot) {
+            std::vector<uint32_t> kept;
+            std::ranges::set_intersection(member, rows, std::back_inserter(kept));
+            member.swap(kept);
+        }
+    }
+}
+
+// The rows among `domain` (or `candidates` while it is unset, or every row) that each of `terms`
+// holds, docids only, by term, and their union into `domain`. Rows given in numbers far above
+// the slot's documents are not listed on: the slot lists whole and keeps those among them.
+Status list_rare_slot(index_query::IndexSource& source, std::span<const std::string> terms,
+                      uint64_t slot_docs, const roaring::Roaring* candidates,
+                      std::optional<std::vector<uint32_t>>* domain,
+                      std::vector<std::vector<uint32_t>>* term_rows) {
+    const uint64_t few = slot_docs * kCandidateFilterRatio;
+    if (!domain->has_value() && candidates != nullptr && candidates->cardinality() <= few) {
+        domain->emplace(candidates->cardinality());
+        candidates->toUint32Array((*domain)->data());
+    }
+    const bool on_domain = domain->has_value() && (*domain)->size() <= few;
+    RETURN_IF_ERROR(list_term_rows(source, terms, on_domain ? &domain->value() : nullptr, term_rows,
+                                   nullptr));
+    roaring::BulkContext context;
+    for (auto& rows : *term_rows) {
+        if (domain->has_value() && !on_domain) {
+            std::erase_if(rows, [&domain](uint32_t row) {
+                return !std::ranges::binary_search(**domain, row);
+            });
+        } else if (!domain->has_value() && candidates != nullptr) {
+            std::erase_if(rows, [candidates, &context](uint32_t row) {
+                return !candidates->containsBulk(context, row);
+            });
+        }
+    }
+    GatheredSlot listed;
+    build_gathered(*term_rows, {}, &listed);
+    *domain = std::move(listed.rows);
+    return Status::OK();
+}
+
+// Gathers the positions of the slots read in waves, in `order`, at the rows of `rows`, narrowing
+// them to the rows each slot holds: a slot listed earlier reads only its terms holding a row,
+// and another lists on the rows and reads their positions a wave at a time.
+Status gather_slots(index_query::IndexSource& source,
+                    std::span<const std::vector<std::string>> waved, std::span<const size_t> order,
+                    std::vector<std::vector<std::vector<uint32_t>>>& listed,
+                    std::vector<uint32_t>* rows, std::vector<GatheredSlot>* gathered) {
+    for (const size_t slot : order) {
+        if (rows->empty()) {
+            break;
+        }
+        std::vector<std::vector<uint32_t>> term_rows;
+        std::vector<std::pair<uint32_t, uint32_t>> held_positions;
+        if (listed[slot].empty()) {
+            RETURN_IF_ERROR(list_term_rows(source, waved[slot], rows, &term_rows, &held_positions));
+        } else {
+            term_rows = std::move(listed[slot]);
+            for (auto& term : term_rows) {
+                std::vector<uint32_t> kept;
+                std::ranges::set_intersection(term, *rows, std::back_inserter(kept));
+                term.swap(kept);
+            }
+            RETURN_IF_ERROR(read_term_positions(source, waved[slot], term_rows, &held_positions));
+        }
+        build_gathered(std::move(term_rows), std::move(held_positions), &(*gathered)[slot]);
+        *rows = (*gathered)[slot].rows;
+    }
+    return Status::OK();
+}
+
+// The rows holding a term of every slot, among `candidates` when given, with the rows each term
+// of an opened slot of several terms holds and, for a slot read in waves, its positions gathered
+// at those rows. A slot read in waves that holds 8 times fewer documents than the rarest
+// single-term slot, and every one of them when the phrase has no single-term slot, first lists
+// its rows by term, docids only, and those rows seed the chain of the opened slots. Every slot
+// read in waves then gathers its positions at the rows the chain kept, so positions are read
+// only where every slot holds a term.
+Status list_rows(index_query::IndexSource& source, std::span<const SlotCursors> slots,
+                 std::span<const std::vector<std::string>> waved,
+                 std::span<const uint64_t> slot_docs, const roaring::Roaring* candidates,
+                 std::vector<uint32_t>* rows, HeldRows* held, std::vector<GatheredSlot>* gathered) {
+    std::vector<size_t> order;
+    uint64_t rarest_single = std::numeric_limits<uint64_t>::max();
+    bool any_opened = false;
+    for (size_t slot = 0; slot < slots.size(); ++slot) {
+        if (!waved[slot].empty()) {
+            order.push_back(slot);
+            continue;
+        }
+        any_opened = true;
+        if (slots[slot].size() == 1) {
+            rarest_single = std::min(rarest_single, slot_docs[slot]);
+        }
+    }
+    if (order.empty()) {
+        return chain_rows(slots, candidates, rows, held);
+    }
+    std::ranges::stable_sort(order, {}, [slot_docs](size_t slot) { return slot_docs[slot]; });
+    gathered->assign(slots.size(), {});
+    rows->clear();
+    held->assign(slots.size(), {});
+    std::vector<std::vector<std::vector<uint32_t>>> listed(slots.size());
+    std::optional<std::vector<uint32_t>> domain;
+    for (const size_t slot : order) {
+        if (slot_docs[slot] * kSeveralTermsListingRatio > rarest_single) {
+            continue;
+        }
+        RETURN_IF_ERROR(list_rare_slot(source, waved[slot], slot_docs[slot], candidates, &domain,
+                                       &listed[slot]));
+        if (domain->empty()) {
+            return Status::OK();
+        }
+    }
+    if (any_opened) {
+        roaring::Roaring narrowed;
+        const roaring::Roaring* chain_candidates = candidates;
+        if (domain.has_value()) {
+            narrowed.addMany(domain->size(), domain->data());
+            chain_candidates = &narrowed;
+        }
+        RETURN_IF_ERROR(chain_rows(slots, chain_candidates, rows, held));
+    } else {
+        *rows = std::move(*domain);
+    }
+    RETURN_IF_ERROR(gather_slots(source, waved, order, listed, rows, gathered));
+    keep_listed(*rows, held);
     return Status::OK();
 }
 
@@ -437,7 +742,13 @@ public:
         }
     }
 
+    // A slot whose positions were gathered at every listed row.
+    explicit SlotWalk(const GatheredSlot& gathered) : _gathered(&gathered) {}
+
     Status positions_of(size_t row, uint32_t doc, index_query::PhrasePositionSpan* span) {
+        if (_gathered != nullptr) {
+            return _gathered_positions(doc, span);
+        }
         if (_held.empty()) {
             return _walks.front().positions_of(row, doc, span);
         }
@@ -447,6 +758,21 @@ public:
 private:
     Status _merged_positions(uint32_t doc, index_query::PhrasePositionSpan* span);
 
+    // The listed rows come in ascending order, and the gathered slot holds each of them.
+    Status _gathered_positions(uint32_t doc, index_query::PhrasePositionSpan* span) {
+        const std::vector<uint32_t>& rows = _gathered->rows;
+        while (rows[_next_gathered] < doc) {
+            ++_next_gathered;
+        }
+        DCHECK_EQ(rows[_next_gathered], doc);
+        const uint32_t* positions = _gathered->positions.data();
+        *span = {positions + _gathered->offsets[_next_gathered],
+                 positions + _gathered->offsets[_next_gathered + 1]};
+        return Status::OK();
+    }
+
+    const GatheredSlot* _gathered = nullptr;
+    size_t _next_gathered = 0;
     std::span<const std::vector<uint32_t>> _held;
     std::vector<size_t> _next;
     std::vector<TermWalk> _walks;
@@ -596,11 +922,11 @@ Status verify_streamed(std::span<const SlotCursors> slots, std::span<const uint3
 // Verifies the phrase on the listed rows, the slots' cursors rewound after the chain, and
 // counts the phrase's frequency per row into `frequencies` when given. Slots of one term each
 // are walked directly, and a phrase with a slot of several terms merges their positions per
-// row.
-Status verify_slots(std::span<const SlotCursors> slots, std::span<const uint32_t> rows,
-                    const HeldRows& held, const PhraseClauses& clauses,
-                    const index_query::PhraseQueryOptions& options, std::vector<uint32_t>* matched,
-                    std::vector<float>* frequencies) {
+// row; a slot read in waves gives the positions it gathered.
+Status verify_slots(std::span<const SlotCursors> slots, std::span<const GatheredSlot> gathered,
+                    std::span<const uint32_t> rows, const HeldRows& held,
+                    const PhraseClauses& clauses, const index_query::PhraseQueryOptions& options,
+                    std::vector<uint32_t>* matched, std::vector<float>* frequencies) {
     for (const SlotCursors& cursors : slots) {
         for (const auto& cursor : cursors) {
             RETURN_IF_ERROR(cursor->rewind());
@@ -625,7 +951,9 @@ Status verify_slots(std::span<const SlotCursors> slots, std::span<const uint32_t
     std::vector<SlotWalk> walks;
     walks.reserve(slots.size());
     for (size_t slot = 0; slot < slots.size(); ++slot) {
-        if (slots[slot].size() == 1) {
+        if (slots[slot].empty()) {
+            walks.emplace_back(gathered[slot]);
+        } else if (slots[slot].size() == 1) {
             walks.emplace_back(*slots[slot].front(), rows);
         } else {
             walks.emplace_back(slots[slot], held[slot]);
@@ -640,22 +968,26 @@ ScorerPtr SlotPhraseWeight::_listed_scorer(index_query::IndexSource& source,
                                            const roaring::Roaring* candidates) {
     PhraseClauses clauses;
     std::vector<SlotCursors> slots;
-    THROW_IF_ERROR(open_slots(source, _slots(), &clauses, &slots));
+    std::vector<std::vector<std::string>> waved;
+    THROW_IF_ERROR(open_slots(source, _slots(), &clauses, &slots, &waved));
     if (slots.empty()) {
         return std::make_shared<EmptyScorer>();
     }
     std::vector<uint32_t> rows;
     HeldRows held;
-    THROW_IF_ERROR(chain_rows(slots, candidates, &rows, &held));
+    std::vector<GatheredSlot> gathered;
+    THROW_IF_ERROR(list_rows(source, slots, waved, clauses.slot_docs, candidates, &rows, &held,
+                             &gathered));
     if (rows.empty()) {
         return std::make_shared<EmptyScorer>();
     }
-    // The rows' positions, read in one round, then every row verified as the slots are walked.
+    // The opened slots' positions at the rows, read in one round, then every row verified as the
+    // slots are walked.
     THROW_IF_ERROR(prefetch_positions(slots, rows, held));
     THROW_IF_ERROR(source.fetch_pending());
     std::vector<uint32_t> matched;
     std::vector<float> frequencies;
-    THROW_IF_ERROR(verify_slots(slots, rows, held, clauses, _options, &matched,
+    THROW_IF_ERROR(verify_slots(slots, gathered, rows, held, clauses, _options, &matched,
                                 _enable_scoring ? &frequencies : nullptr));
     if (!_enable_scoring) {
         auto matched_rows = std::make_shared<roaring::Roaring>();

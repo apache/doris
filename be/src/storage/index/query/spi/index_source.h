@@ -72,6 +72,15 @@ public:
     virtual Status open_term(std::string_view term, bool positions, bool scoring,
                              std::unique_ptr<PostingsCursor>* out) = 0;
 
+    // The documents holding a UTF-8 term, 0 when the dictionary lacks it, without reading its
+    // postings.
+    virtual Status doc_freq(std::string_view term, uint64_t* out) {
+        std::unique_ptr<PostingsCursor> cursor;
+        RETURN_IF_ERROR(open_term(term, /*positions=*/false, /*scoring=*/false, &cursor));
+        *out = cursor == nullptr ? 0 : cursor->doc_freq();
+        return Status::OK();
+    }
+
     // The terms `pattern` matches, in dictionary order, at most `max_expansions` of them when
     // that is positive.
     virtual Status expand_terms(TermPattern& pattern, int32_t max_expansions,

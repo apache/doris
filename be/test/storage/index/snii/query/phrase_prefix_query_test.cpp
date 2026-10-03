@@ -31,6 +31,7 @@
 #include "storage/index/snii/io/local_file.h"
 #include "storage/index/snii/io/metered_file_reader.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
+#include "storage/index/snii/reader/snii_index_source.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
 #include "storage/index/snii/snii_query_oracle.h"
 #include "storage/index/snii/writer/snii_compound_writer.h"
@@ -612,6 +613,48 @@ TEST(SniiPhrasePrefixMerge, ManyExpansionGroupsMatchOracle) {
     ASSERT_TRUE(query::phrase_prefix_query(idx, terms, &got).ok());
     EXPECT_TRUE(std::ranges::is_sorted(got));
     EXPECT_EQ(got, corpus.phrase_prefix_docs(terms));
+
+    std::remove(path.c_str());
+}
+
+// Ninety-six tails, each right after "lead" and repeated, so they read far more than "lead": they
+// gather in three waves, and the phrase holds "lead" and one wave's reads at a time.
+TEST(SniiPhrasePrefixMerge, ManyTailWavesHoldOneWaveAtATime) {
+    Corpus corpus;
+    corpus.docs.resize(96 * 520);
+    for (uint32_t d = 0; d < corpus.docs.size(); ++d) {
+        char term[16];
+        std::snprintf(term, sizeof(term), "bb_%02u", d % 96);
+        corpus.docs[d] = {"lead"};
+        corpus.docs[d].insert(corpus.docs[d].end(), 8, term);
+    }
+    const std::string path = TempPath();
+    WriteCorpus(corpus, path);
+
+    io::LocalFileReader local;
+    ASSERT_TRUE(local.open(path).ok());
+    io::MeteredFileReader metered(&local, /*block_size=*/4096);
+    SniiSegmentReader segment;
+    LogicalIndexReader idx = OpenMeteredIndex(&metered, &segment);
+    metered.reset_metrics();
+
+    namespace query_v2 = doris::segment_v2::inverted_index::query_v2;
+    auto source = std::make_shared<SniiIndexSource>(idx);
+    query_v2::PhrasePrefixWeight weight(L"content", {{0, "lead"}}, {1, "bb_"}, nullptr,
+                                        /*enable_scoring=*/false, /*max_expansions=*/0, nullptr,
+                                        /*suffix=*/false, /*nullable=*/false);
+    query_v2::QueryExecutionContext execution;
+    execution.segment_num_rows = source->doc_count();
+    execution.field_sources.emplace(L"content", source);
+    auto scorer = weight.scorer(execution, "");
+    std::vector<uint32_t> got;
+    for (uint32_t doc = scorer->doc(); doc != query_v2::TERMINATED; doc = scorer->advance()) {
+        got.push_back(doc);
+    }
+    EXPECT_EQ(got, corpus.phrase_prefix_docs({"lead", "bb_"}));
+    EXPECT_EQ(source->held_bytes(), 0U);
+    EXPECT_GT(source->peak_held_bytes(), 0U);
+    EXPECT_LT(source->peak_held_bytes() * 3, metered.metrics().total_request_bytes * 2);
 
     std::remove(path.c_str());
 }

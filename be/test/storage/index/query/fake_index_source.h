@@ -235,6 +235,12 @@ public:
         return Status::OK();
     }
 
+    Status doc_freq(std::string_view term, uint64_t* out) override {
+        const auto it = _terms.find(std::string(term));
+        *out = it == _terms.end() ? 0 : it->second.size();
+        return Status::OK();
+    }
+
     Status may_hold(std::string_view term, bool* held) override {
         *held = _terms.contains(std::string(term));
         return Status::OK();
