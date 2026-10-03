@@ -94,13 +94,19 @@ public class FlussScanRange implements ConnectorScanRange {
     private final Partition partition;
     private final int bucketId;
     private final Map<String, String> properties;
+    /**
+     * The JVM heap BE's JNI reader of this range will hold, declared to BE's JNI heap gate; 0 when the
+     * statement did not ask for that (see {@link FlussJniHeapEstimate}).
+     */
+    private final long jniHeapBytes;
 
     private FlussScanRange(RangeType rangeType, Partition partition, int bucketId,
-            Map<String, String> properties) {
+            Map<String, String> properties, long jniHeapBytes) {
         this.rangeType = rangeType;
         this.partition = partition;
         this.bucketId = bucketId;
         this.properties = Collections.unmodifiableMap(properties);
+        this.jniHeapBytes = jniHeapBytes;
     }
 
     /**
@@ -112,7 +118,7 @@ public class FlussScanRange implements ConnectorScanRange {
             long logStartOffset, long logStopOffset) {
         Map<String, String> props = baseProps(RangeType.LOG, partition, bucketId,
                 logStartOffset, logStopOffset);
-        return new FlussScanRange(RangeType.LOG, partition, bucketId, props);
+        return new FlussScanRange(RangeType.LOG, partition, bucketId, props, 0L);
     }
 
     /**
@@ -126,7 +132,7 @@ public class FlussScanRange implements ConnectorScanRange {
         Map<String, String> props = baseProps(RangeType.PK_FULL, partition, bucketId,
                 logStartOffset, logStopOffset);
         props.put(PROP_KV_SNAPSHOT_ID, String.valueOf(kvSnapshotId));
-        return new FlussScanRange(RangeType.PK_FULL, partition, bucketId, props);
+        return new FlussScanRange(RangeType.PK_FULL, partition, bucketId, props, 0L);
     }
 
     /**
@@ -147,7 +153,7 @@ public class FlussScanRange implements ConnectorScanRange {
         }
         Map<String, String> props = baseProps(RangeType.PK_TAIL, partition, bucketId,
                 logStartOffset, logStopOffset);
-        return new FlussScanRange(RangeType.PK_TAIL, partition, bucketId, props);
+        return new FlussScanRange(RangeType.PK_TAIL, partition, bucketId, props, 0L);
     }
 
     private static Map<String, String> baseProps(RangeType rangeType, Partition partition,
@@ -162,6 +168,15 @@ public class FlussScanRange implements ConnectorScanRange {
         props.put(PROP_LOG_START_OFFSET, String.valueOf(logStartOffset));
         props.put(PROP_LOG_STOP_OFFSET, String.valueOf(logStopOffset));
         return props;
+    }
+
+    /** This range declaring that its JNI reader will hold {@code bytes} of BE's JVM heap. */
+    public FlussScanRange withJniHeapBytes(long bytes) {
+        return new FlussScanRange(rangeType, partition, bucketId, properties, bytes);
+    }
+
+    public long getJniHeapBytes() {
+        return jniHeapBytes;
     }
 
     public RangeType getRangeType() {
@@ -200,6 +215,9 @@ public class FlussScanRange implements ConnectorScanRange {
     @Override
     public void populateRangeParams(TTableFormatFileDesc formatDesc, TFileRangeDesc rangeDesc) {
         formatDesc.setFlussParams(new LinkedHashMap<>(properties));
+        if (jniHeapBytes > 0) {
+            rangeDesc.setJniHeapBytes(jniHeapBytes);
+        }
         Map<String, String> partitionValues = partition.values;
         if (!partitionValues.isEmpty()) {
             List<String> keys = new ArrayList<>(partitionValues.size());
