@@ -64,6 +64,7 @@ public:
     static constexpr size_t number_of_arguments = FunctionAIFilter::number_of_arguments;
 
     using AIFunction<FunctionAIFilterBatchTestHelper>::execute_batch_request;
+    using AIFunction<FunctionAIFilterBatchTestHelper>::execute_batches;
 
     DataTypePtr get_nested_return_type_impl(const DataTypes& /*arguments*/) const {
         return std::make_shared<DataTypeBool>();
@@ -1667,6 +1668,73 @@ TEST(AIFunctionTest, ExecuteBatchRequestSuccess) {
             request.find(
                     R"([{\"idx\":0,\"input\":\"first row\"},{\"idx\":1,\"input\":\"second row\"}])"),
             std::string::npos);
+}
+
+TEST(AIFunctionTest, ExecuteBatchesConcurrentKeepsBatchOrder) {
+    TQueryOptions query_options = create_fake_query_options();
+    auto query_ctx = MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), query_options);
+    TQueryGlobals query_globals;
+    RuntimeState runtime_state(TUniqueId(), 0, query_options, query_globals, nullptr,
+                               query_ctx.get());
+    auto ctx = FunctionContext::create_context(&runtime_state, {}, {});
+
+    // MOCK echoes each prompt, so a batch answered out of place is visible in the results.
+    TAIResource config;
+    config.provider_type = "MOCK";
+    config.model_name = "mock_model";
+    config.endpoint = "http://localhost";
+    config.max_retries = 1;
+    config.__set_max_concurrency(3);
+    std::shared_ptr<AIAdapter> adapter = AIAdapterFactory::create_adapter("MOCK");
+
+    const std::vector<std::vector<std::string>> batches = {
+            {"a"}, {"b", "c"}, {"d"}, {"e", "f", "g"}, {"h"}, {"i", "j"}, {"k"}};
+
+    FunctionAIFilterBatchTestHelper helper;
+    std::vector<std::vector<std::string>> results;
+    Status st = helper.execute_batches(batches, results, config, adapter, ctx.get());
+
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_EQ(results.size(), batches.size());
+    for (size_t i = 0; i < batches.size(); ++i) {
+        ASSERT_EQ(results[i].size(), batches[i].size()) << "batch " << i;
+        for (size_t j = 0; j < batches[i].size(); ++j) {
+            EXPECT_EQ(results[i][j], "this is a mock response. " + batches[i][j]);
+        }
+    }
+}
+
+TEST(AIFunctionTest, ExecuteBatchesConcurrentPropagatesBatchError) {
+    TQueryOptions query_options = create_fake_query_options();
+    auto query_ctx = MockQueryContext::create(TUniqueId(), ExecEnv::GetInstance(), query_options);
+    TQueryGlobals query_globals;
+    RuntimeState runtime_state(TUniqueId(), 0, query_options, query_globals, nullptr,
+                               query_ctx.get());
+    auto ctx = FunctionContext::create_context(&runtime_state, {}, {});
+
+    // Every batch is answered with one item, so the two-prompt batch in the middle of a wave
+    // must fail the whole call, not just its own thread.
+    setenv("AI_TEST_RESULT", R"(["1"])", 1);
+
+    TAIResource config;
+    config.provider_type = "MOCK";
+    config.model_name = "mock_model";
+    config.endpoint = "http://localhost";
+    config.max_retries = 1;
+    config.__set_max_concurrency(3);
+    std::shared_ptr<AIAdapter> adapter = AIAdapterFactory::create_adapter("MOCK");
+
+    FunctionAIFilterBatchTestHelper helper;
+    std::vector<std::vector<std::string>> results;
+    Status st = helper.execute_batches({{"a"}, {"b", "c"}, {"d"}}, results, config, adapter,
+                                       ctx.get());
+
+    unsetenv("AI_TEST_RESULT");
+
+    ASSERT_FALSE(st.ok());
+    ASSERT_NE(st.to_string().find(
+                      "Failed to parse ai_filter batch result, expected 2 items but got 1"),
+              std::string::npos);
 }
 
 TEST(AIFunctionTest, ExecuteBatchRequestResultSizeMismatch) {

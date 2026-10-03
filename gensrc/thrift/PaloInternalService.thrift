@@ -703,6 +703,7 @@ struct TAIResource {
   17: optional string embed_mm_provider_type
   18: optional string embed_mm_model_name
   19: optional string embed_mm_api_key
+  20: optional i32 max_concurrency
 }
 
 struct TCondition {
