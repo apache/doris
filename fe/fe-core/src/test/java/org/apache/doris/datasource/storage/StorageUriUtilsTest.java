@@ -17,8 +17,12 @@
 
 package org.apache.doris.datasource.storage;
 
+import org.apache.doris.filesystem.spi.ObjectStorageUri;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Frozen expectations for the provider-gated OSS bucket-domain rewrite in
@@ -27,6 +31,21 @@ import org.junit.jupiter.api.Test;
  * shape-based gate silently re-bucketed dotted bucket names under non-OSS bindings.
  */
 public class StorageUriUtilsTest {
+
+    @ParameterizedTest
+    @ValueSource(strings = {"dir//file.csv", "dir/./file.csv", "dir/sub/../file.csv",
+            "./file.csv", "dir/file.csv/", "dir/.../file.csv", "dir/.", "dir/.."})
+    public void testHttpConversionPreservesObjectKey(String key) {
+        String virtualHosted = normalize("https://bucket.s3.us-west-1.amazonaws.com/" + key, false);
+        String pathStyle = StorageUriUtils.validateAndNormalizeS3Uri(
+                "https://s3.us-west-1.amazonaws.com/bucket/" + key, "true", "false", false);
+        for (String converted : new String[] {virtualHosted, pathStyle}) {
+            Assertions.assertEquals("s3://bucket/" + key, converted);
+            ObjectStorageUri object = ObjectStorageUri.parse(converted, false);
+            Assertions.assertEquals("bucket", object.bucket());
+            Assertions.assertEquals(key, object.key());
+        }
+    }
 
     private static String normalize(String uri, boolean ossBinding) {
         return StorageUriUtils.validateAndNormalizeS3Uri(uri, "false", "false", ossBinding);
