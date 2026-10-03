@@ -280,7 +280,7 @@ under the License.
         <commons-lang.version>2.6</commons-lang.version>
         <commons-lang3.version>3.19.0</commons-lang3.version>
         <commons-net.version>3.13.0</commons-net.version>
-        <commons-pool2.version>2.2</commons-pool2.version>
+        <commons-pool2.version>2.11.0</commons-pool2.version>
         <commons-pool.version>1.5.1</commons-pool.version>
         <commons-text.version>1.15.0</commons-text.version>
         <commons-math3.version>3.6.1</commons-math3.version>
