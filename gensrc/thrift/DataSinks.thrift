@@ -572,6 +572,7 @@ struct TIcebergMergeSink {
 enum TDictLayoutType {
     HASH_MAP = 0,
     IP_TRIE = 1,
+    FLAT = 2,
 }
 
 struct TDictionarySink {
