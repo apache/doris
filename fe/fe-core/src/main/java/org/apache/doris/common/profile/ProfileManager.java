@@ -820,9 +820,9 @@ public class ProfileManager extends MasterDaemon {
             try {
                 for (ProfileElement profileElement : profilesToBeRemoved) {
                     profileIdToProfileMap.remove(profileElement.profile.getSummaryProfile().getProfileId());
-                    TUniqueId thriftQueryId = DebugUtil.parseTUniqueIdFromString(
-                            profileElement.profile.getSummaryProfile().getProfileId());
-                    queryIdToExecutionProfiles.remove(thriftQueryId);
+                    for (ExecutionProfile executionProfile : profileElement.profile.getExecutionProfiles()) {
+                        queryIdToExecutionProfiles.remove(executionProfile.getQueryId());
+                    }
                 }
             } finally {
                 writeLock.unlock();
