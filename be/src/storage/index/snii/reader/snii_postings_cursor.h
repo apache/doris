@@ -38,18 +38,19 @@
 
 namespace doris::snii::reader {
 
-// The reads several cursors register between two fetches, issued as one round. Every fetched
-// round keeps its buffers while the cursors' slices borrow them.
+// The reads several cursors register between two fetches, issued as one round. A fetched round
+// belongs to the cursors whose slices borrow it and is freed with the last of them.
 class SniiReadWave {
 public:
+    using Round = std::shared_ptr<const io::BatchRangeFetcher>;
+
     explicit SniiReadWave(io::FileReader* reader) : _reader(reader) {}
 
     // The batch the next round fetches; ranges added to it are fetched by fetch().
     io::BatchRangeFetcher& batch();
     // Runs `completion` for `owner` after the next fetch, in registration order, with the
-    // batch it registered into.
-    void after_fetch(const void* owner,
-                     std::function<Status(const io::BatchRangeFetcher&)> completion);
+    // round it registered into; a completion keeps the round if it slices it.
+    void after_fetch(const void* owner, std::function<Status(const Round&)> completion);
     // Forgets the completions of `owner`. Its ranges are still read with the others', and the
     // open round is forgotten once no completion waits for it.
     void drop(const void* owner);
@@ -57,18 +58,24 @@ public:
     // Issues the registered reads in one round and runs the completions.
     Status fetch();
     // The rounds fetched so far.
-    size_t rounds() const { return _rounds.size(); }
+    size_t rounds() const { return _fetched_rounds; }
+    // The bytes of the fetched rounds still held, and the most they held at once.
+    uint64_t held_bytes() const;
+    uint64_t peak_held_bytes() const { return _peak_held_bytes; }
 
 private:
     struct Completion {
         const void* owner;
-        std::function<Status(const io::BatchRangeFetcher&)> run;
+        std::function<Status(const Round&)> run;
     };
 
     io::FileReader* _reader;
     std::unique_ptr<io::BatchRangeFetcher> _open;
     std::vector<Completion> _completions;
-    std::vector<std::unique_ptr<io::BatchRangeFetcher>> _rounds;
+    // The fetched rounds, alive while a cursor keeps them.
+    std::vector<std::weak_ptr<const io::BatchRangeFetcher>> _fetched;
+    size_t _fetched_rounds = 0;
+    uint64_t _peak_held_bytes = 0;
 };
 
 // The postings of one term as the shared engine reads them: one block per window (the whole
@@ -162,6 +169,8 @@ private:
     Status _open_slim();
     Status _read_prelude();
     Status _read_span(bool prx);
+    // Keeps `round` while this cursor's slices borrow it.
+    void _keep(const SniiReadWave::Round& round);
     // Reads the dd-block, and the PRX region when asked, whole before the prelude arrives: the
     // entry gives their extent, and the windows are sliced out once the prelude is parsed.
     Status _read_regions(bool dd, bool prx);
@@ -194,8 +203,10 @@ private:
     SniiReadWave* _wave;
     format::PrxDecodeStats* _prx_stats;
     Kind _kind;
-    // The wave of a cursor given none; its rounds back the window slices.
+    // The wave of a cursor given none.
     std::unique_ptr<SniiReadWave> _own_wave;
+    // The rounds the window slices borrow.
+    std::vector<SniiReadWave::Round> _rounds;
 
     std::shared_ptr<const format::FrqPreludeReader> _prelude;
     std::vector<std::vector<uint8_t>> _on_demand;

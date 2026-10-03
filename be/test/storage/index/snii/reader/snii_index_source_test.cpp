@@ -414,6 +414,30 @@ TEST_F(SniiIndexSourceRoundsTest, TermsOpenedTogetherReadInSharedRounds) {
     EXPECT_EQ(_source->wave_rounds(), 1U);
 }
 
+// A round belongs to the cursors whose windows it backs: it is held while one of them lives
+// and freed with the last.
+TEST_F(SniiIndexSourceRoundsTest, ARoundIsFreedWithTheLastCursorItBacks) {
+    const std::vector<std::string> terms = {"sparse_left", "failed"};
+    std::vector<std::unique_ptr<index_query::PostingsCursor>> cursors;
+    assert_ok(_source->open_terms(terms, /*positions=*/false, /*scoring=*/false, &cursors));
+    for (const auto& cursor : cursors) {
+        assert_ok(cursor->prefetch(nullptr, /*positions=*/false));
+    }
+    EXPECT_EQ(_source->held_bytes(), 0U);
+    assert_ok(_source->fetch_pending());
+    EXPECT_EQ(list(*cursors[0]), oracle("sparse_left"));
+    EXPECT_EQ(list(*cursors[1]), oracle("failed"));
+    const uint64_t held = _source->held_bytes();
+    EXPECT_GT(held, 0U);
+    EXPECT_EQ(_source->peak_held_bytes(), held);
+    // Both postings came in one round, which the other cursor still reads.
+    cursors[0].reset();
+    EXPECT_EQ(_source->held_bytes(), held);
+    cursors[1].reset();
+    EXPECT_EQ(_source->held_bytes(), 0U);
+    EXPECT_EQ(_source->peak_held_bytes(), held);
+}
+
 // Opening terms reads no prelude, so a caller that finds one of them missing and gives up reads
 // nothing past the dictionary, even when a later fetch serves another caller.
 TEST_F(SniiIndexSourceRoundsTest, OpeningTermsReadsNoPrelude) {

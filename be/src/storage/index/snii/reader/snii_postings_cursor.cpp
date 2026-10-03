@@ -50,8 +50,7 @@ io::BatchRangeFetcher& SniiReadWave::batch() {
     return *_open;
 }
 
-void SniiReadWave::after_fetch(const void* owner,
-                               std::function<Status(const io::BatchRangeFetcher&)> completion) {
+void SniiReadWave::after_fetch(const void* owner, std::function<Status(const Round&)> completion) {
     _completions.push_back({.owner = owner, .run = std::move(completion)});
 }
 
@@ -69,17 +68,31 @@ Status SniiReadWave::fetch() {
         DORIS_CHECK(_completions.empty());
         return Status::OK();
     }
-    std::unique_ptr<io::BatchRangeFetcher> round(_open.release());
+    std::unique_ptr<io::BatchRangeFetcher> open = std::move(_open);
     std::vector<Completion> completions;
     completions.swap(_completions);
-    if (round->pending() > 0) {
-        RETURN_IF_ERROR(round->fetch());
+    if (open->pending() > 0) {
+        RETURN_IF_ERROR(open->fetch());
     }
+    const Round round(std::move(open));
+    ++_fetched_rounds;
+    std::erase_if(_fetched, [](const auto& fetched) { return fetched.expired(); });
+    _fetched.push_back(round);
+    _peak_held_bytes = std::max(_peak_held_bytes, held_bytes());
     for (const Completion& completion : completions) {
-        RETURN_IF_ERROR(completion.run(*round));
+        RETURN_IF_ERROR(completion.run(round));
     }
-    _rounds.push_back(std::move(round));
     return Status::OK();
+}
+
+uint64_t SniiReadWave::held_bytes() const {
+    uint64_t bytes = 0;
+    for (const auto& fetched : _fetched) {
+        if (const Round round = fetched.lock()) {
+            bytes += round->fetched_bytes();
+        }
+    }
+    return bytes;
 }
 
 SniiPostingsCursor::SniiPostingsCursor(const LogicalIndexReader& idx, format::DictEntry entry,
@@ -283,9 +296,9 @@ Status SniiPostingsCursor::_read_prelude() {
     RETURN_IF_ERROR(prelude_abs_offset(_idx, _entry, _frq_base, &prelude_abs));
     const size_t handle = _wave->batch().add(prelude_abs, _entry.prelude_len);
     _prelude_pending = true;
-    _wave->after_fetch(this, [adopt, handle](const io::BatchRangeFetcher& batch) {
+    _wave->after_fetch(this, [adopt, handle](const SniiReadWave::Round& round) {
         auto prelude = std::make_shared<FrqPreludeReader>();
-        RETURN_IF_ERROR(FrqPreludeReader::open(batch.get(handle), prelude.get()));
+        RETURN_IF_ERROR(FrqPreludeReader::open(round->get(handle), prelude.get()));
         return adopt(std::move(prelude));
     });
     return Status::OK();
@@ -334,7 +347,9 @@ Status SniiPostingsCursor::_read_regions(bool dd, bool prx) {
     const size_t prx_handle = prx ? batch.add(prx_off, prx_len) : 0;
     // The prelude's completion, registered before this one, has parsed it by now.
     const auto slice = [this, dd, prx, dd_handle, prx_handle, dd_off,
-                        prx_off](const io::BatchRangeFetcher& fetched) -> Status {
+                        prx_off](const SniiReadWave::Round& round) -> Status {
+        _keep(round);
+        const io::BatchRangeFetcher& fetched = *round;
         for (uint32_t w = 0; w < _window_count; ++w) {
             WindowAbsRange range;
             RETURN_IF_ERROR(windowed_window_range(_idx, _entry, _frq_base, _prx_base, *_prelude, w,
@@ -357,6 +372,12 @@ Status SniiPostingsCursor::_read_regions(bool dd, bool prx) {
     };
     _wave->after_fetch(this, slice);
     return Status::OK();
+}
+
+void SniiPostingsCursor::_keep(const SniiReadWave::Round& round) {
+    if (_rounds.empty() || _rounds.back() != round) {
+        _rounds.push_back(round);
+    }
 }
 
 // Reads the docids of `windows` not yet read, and their PRX frames when `prx`, in one round.
@@ -418,7 +439,9 @@ Status SniiPostingsCursor::_read_pieces(std::vector<Piece> pieces) {
         run.handle = batch.add(run.offset, run.end - run.offset);
     }
     const auto slice = [this, pieces = std::move(pieces), runs = std::move(runs),
-                        run_of = std::move(run_of)](const io::BatchRangeFetcher& fetched) {
+                        run_of = std::move(run_of)](const SniiReadWave::Round& round) {
+        _keep(round);
+        const io::BatchRangeFetcher& fetched = *round;
         for (size_t i = 0; i < pieces.size(); ++i) {
             const Piece& piece = pieces[i];
             const Run& run = runs[run_of[i]];

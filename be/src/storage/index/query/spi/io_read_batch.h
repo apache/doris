@@ -53,6 +53,8 @@ public:
     std::span<const uint8_t> get(size_t h) const;
 
     IoReader* reader() const { return reader_; }
+    // The bytes the last fetch read, held until the next fetch or clear.
+    uint64_t fetched_bytes() const;
     size_t pending() const { return reqs_.size(); }
     void clear();
 

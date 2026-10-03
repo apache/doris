@@ -61,7 +61,7 @@ Status SniiIndexSource::prepare_terms(std::span<const std::string> terms) {
     std::vector<LogicalIndexReader::BatchLookupResult> results;
     RETURN_IF_ERROR(_idx.lookup_batch(sorted, &results));
     for (size_t i = 0; i < sorted.size(); ++i) {
-        _terms[std::move(sorted[i])] = {.hit = std::move(results[i]), .prelude = nullptr};
+        _terms[std::move(sorted[i])] = {.hit = std::move(results[i]), .prelude = {}};
     }
     return Status::OK();
 }
@@ -96,8 +96,8 @@ Status SniiIndexSource::_cursor(Term& term, bool positions, bool scoring, SniiRe
     *out = std::make_unique<SniiPostingsCursor>(_idx, term.hit.entry, term.hit.frq_base,
                                                 term.hit.prx_base, positions, scoring, norms, wave,
                                                 _prx_stats);
-    if (term.prelude != nullptr) {
-        (*out)->set_prelude(term.prelude);
+    if (auto prelude = term.prelude.lock()) {
+        (*out)->set_prelude(std::move(prelude));
     }
     return Status::OK();
 }
@@ -137,8 +137,8 @@ Status SniiIndexSource::open_terms(std::span<const std::string> terms, bool posi
             if (cursor->prelude_pending()) {
                 // Later cursors of the term start from the prelude this one reads.
                 _wave.after_fetch(cursor.get(),
-                                  [resolved, opened = cursor.get()](const io::BatchRangeFetcher&) {
-                                      if (resolved->prelude == nullptr) {
+                                  [resolved, opened = cursor.get()](const SniiReadWave::Round&) {
+                                      if (resolved->prelude.expired()) {
                                           resolved->prelude = opened->prelude();
                                       }
                                       return Status::OK();
@@ -194,7 +194,7 @@ Status SniiIndexSource::expand_terms(index_query::TermPattern& pattern, int32_t 
                                             .entry = std::move(hit.entry),
                                             .frq_base = hit.frq_base,
                                             .prx_base = hit.prx_base},
-                                    .prelude = nullptr};
+                                    .prelude = {}};
                 out->push_back(std::move(hit.term));
                 *stop = max_expansions > 0 && out->size() == static_cast<size_t>(max_expansions);
                 return Status::OK();

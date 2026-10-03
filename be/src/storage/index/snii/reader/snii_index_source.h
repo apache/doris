@@ -64,12 +64,15 @@ public:
     const LogicalIndexReader& index() const { return _idx; }
     // The rounds the shared wave fetched so far.
     size_t wave_rounds() const { return _wave.rounds(); }
+    // The bytes the shared wave's rounds still hold, and the most they held at once.
+    uint64_t held_bytes() const { return _wave.held_bytes(); }
+    uint64_t peak_held_bytes() const { return _wave.peak_held_bytes(); }
 
 private:
-    // A term the dictionary answered, and its prelude once a cursor read it.
+    // A term the dictionary answered, and its prelude while a cursor holds it.
     struct Term {
         LogicalIndexReader::BatchLookupResult hit;
-        std::shared_ptr<const format::FrqPreludeReader> prelude;
+        std::weak_ptr<const format::FrqPreludeReader> prelude;
     };
 
     Status _resolve(std::string_view term, Term** out);

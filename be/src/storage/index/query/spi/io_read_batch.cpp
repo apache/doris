@@ -184,6 +184,14 @@ Status IoReadBatch::fetch() {
     return status;
 }
 
+uint64_t IoReadBatch::fetched_bytes() const {
+    uint64_t bytes = 0;
+    for (const std::vector<uint8_t>& buffer : phys_) {
+        bytes += buffer.size();
+    }
+    return bytes;
+}
+
 std::span<const uint8_t> IoReadBatch::get(size_t h) const {
     const Req& r = reqs_[h];
     const std::vector<uint8_t>& buf = phys_[r.phys_idx];
