@@ -34,6 +34,7 @@ TEST(StorageResourceTest, RemotePath) {
                             .ak = "ak",
                             .sk = "sk",
                             .token = "",
+                            .azure_credentials = {},
                             .bucket = "",
                             .role_arn = "",
                             .external_id = "",
