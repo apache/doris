@@ -24,10 +24,10 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.gson.JsonParseException;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
-import com.google.gson.JsonParseException;
 import org.junit.jupiter.api.Assertions;
 
 import java.io.ByteArrayInputStream;

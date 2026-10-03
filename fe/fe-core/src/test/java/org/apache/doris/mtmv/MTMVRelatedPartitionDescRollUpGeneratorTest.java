@@ -23,8 +23,8 @@ import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 
