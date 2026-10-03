@@ -442,15 +442,22 @@ public class LeadingHint extends Hint {
                 matchedJoinConstraint = joinConstraint;
                 reversed = true;
             } else if (joinConstraint.getJoinType().isSemiJoin()
-                    && joinConstraint.getRightHand().equals(rightTableBitmap)) {
+                    && joinConstraint.getRightHand().equals(rightTableBitmap)
+                    && LongBitmap.isSubset(joinConstraint.getMinLeftHand(), leftTableBitmap)) {
+                // The semi join can only be built when the whole preserved side (minLeftHand) is already
+                // present in the opposite child. Otherwise the child which models the matched side
+                // (rightHand) may absorb unrelated tables before the preserved side arrives, e.g. for
+                // `(a LEFT SEMI JOIN b ON a.k = b.k) CROSS JOIN c` with leading(b c a) the join of
+                // {b, c} would be rebuilt as `b RIGHT SEMI JOIN c` and `a.k = b.k` would be lost.
                 if (matchedJoinConstraint != null) {
                     return Pair.of(null, false);
                 }
                 matchedJoinConstraint = joinConstraint;
                 reversed = false;
             } else if (joinConstraint.getJoinType().isSemiJoin()
-                    && joinConstraint.getRightHand().equals(leftTableBitmap)) {
-                /* Reversed semijoin case */
+                    && joinConstraint.getRightHand().equals(leftTableBitmap)
+                    && LongBitmap.isSubset(joinConstraint.getMinLeftHand(), rightTableBitmap)) {
+                /* Reversed semijoin case, the preserved side has to be present in the right child */
                 if (matchedJoinConstraint != null) {
                     return Pair.of(null, false);
                 }
