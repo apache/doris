@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <type_traits>
 #include <typeinfo>
@@ -68,6 +69,19 @@ using DataTypes = std::vector<DataTypePtr>;
 
 using AggregateDataPtr = char*;
 using ConstAggregateDataPtr = const char*;
+
+enum class WindowSpillStrategy : uint8_t {
+    UNSUPPORTED,
+    PARTITION_REDUCE,
+    PARTITION_CARDINALITY,
+    PEER_GROUP,
+};
+
+enum class WindowSpillPeerFunction : uint8_t {
+    NONE,
+    PERCENT_RANK,
+    CUME_DIST,
+};
 
 #define SAFE_CREATE(create, destroy) \
     do {                             \
@@ -277,6 +291,17 @@ public:
     /// eg sum(col) over (rows between 3 preceding and 3 following), could resue the previous result
     /// sum[i] = sum[i-1] - col[x] + col[y]
     virtual bool supported_incremental_mode() const { return false; }
+
+    /// Describes how this function can be evaluated from a spilled window partition.
+    /// Capability alone is not sufficient to enable spill: the analytic operator must also
+    /// validate that the window frame matches the strategy.
+    virtual WindowSpillStrategy window_spill_strategy() const {
+        return WindowSpillStrategy::UNSUPPORTED;
+    }
+
+    virtual WindowSpillPeerFunction window_spill_peer_function() const {
+        return WindowSpillPeerFunction::NONE;
+    }
 
     virtual void set_query_context(QueryContext* context) {
         throw Exception(ErrorCode::FATAL_ERROR,
