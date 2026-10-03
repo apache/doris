@@ -448,6 +448,15 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     /**
+     * Whether partition-only aggregation may use path values after the reader proves a visible row exists.
+     * Resolved per-table via {@link #hasCapability}; currently only nontransactional native Hive Parquet/ORC
+     * tables opt in. Delegated Hudi, Iceberg and Paimon tables do not.
+     */
+    public boolean supportsPartitionValueOnly() {
+        return hasCapability(ConnectorCapability.SUPPORTS_PARTITION_VALUE_ONLY);
+    }
+
+    /**
      * Whether this table supports a table-scoped capability, resolved connector-wide OR per-table. A
      * uniform-format connector (iceberg — every table orc/parquet) declares the capability for all its tables
      * via {@link Connector#getCapabilities()}; a heterogeneous connector (hive) whose eligibility is per-table

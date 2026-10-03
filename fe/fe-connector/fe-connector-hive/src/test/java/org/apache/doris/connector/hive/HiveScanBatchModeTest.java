@@ -126,6 +126,56 @@ public class HiveScanBatchModeTest {
     // ==================== planScanForPartitionBatch: scoped to the batch, no duplication ====================
 
     @Test
+    public void partitionValueModeKeepsWholeFilesInEachBatch() {
+        long fileSize = 3 * 256 * 1024 * 1024L;
+        CountingLister lister = new CountingLister(fileSize);
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), lister);
+        List<String> partitions = Arrays.asList("year=2024/month=01", "year=2024/month=02");
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .partitionKeyNames(PART_KEYS)
+                .prunedPartitions(Arrays.asList(part(partitions.get(0)), part(partitions.get(1))))
+                .build();
+        // Batch planning uses ordinary split sizing: unlike the single-shot path it never collapses a
+        // file, so an unreadable-by-metadata range still arrives as the split count a normal scan uses.
+        ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList()).build();
+        FakeSession session = new FakeSession();
+
+        for (String partition : partitions) {
+            List<String> batch = Collections.singletonList(partition);
+            List<ConnectorScanRange> ranges = provider.planScanForPartitionBatch(session, request, batch);
+            Assertions.assertEquals(3, ranges.size());
+            for (int i = 0; i < ranges.size(); i++) {
+                HiveScanRange range = (HiveScanRange) ranges.get(i);
+                Assertions.assertEquals(partition + "/000000_0", range.getPath().get());
+                Assertions.assertEquals(i * fileSize / 3, range.getStart());
+                Assertions.assertEquals(fileSize / 3, range.getLength());
+            }
+        }
+        Assertions.assertEquals(2, lister.callsPerLocation.size());
+    }
+
+    @Test
+    public void identicalRequestsReuseTheSameSplitList() {
+        long fileSize = 3 * 256 * 1024 * 1024L;
+        CountingLister lister = new CountingLister(fileSize);
+        HiveScanPlanProvider provider = provider(new FakeHmsClient(), lister);
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .inputFormat(PARQUET_INPUT_FORMAT)
+                .serializationLib(PARQUET_SERDE)
+                .partitionKeyNames(PART_KEYS)
+                .prunedPartitions(Collections.singletonList(part("year=2024/month=01")))
+                .build();
+        ConnectorSession session = new ScopeSession(7L, "same-statement", new TestStatementScope());
+        ConnectorScanRequest request = ConnectorScanRequest.builder(handle, Collections.emptyList()).build();
+
+        List<ConnectorScanRange> planned = provider.planScan(session, request);
+        Assertions.assertEquals(3, planned.size());
+        Assertions.assertSame(planned, provider.planScan(session, request));
+    }
+
+    @Test
     public void planScanForPartitionBatchResolvesOnlyTheBatch() {
         CountingLister lister = new CountingLister();
         // getPartitions echoes each requested name back as a partition whose location IS the name, so the counting
@@ -665,13 +715,22 @@ public class HiveScanBatchModeTest {
      */
     private static final class CountingLister implements HiveFileListingCache.DirectoryLister {
         final Map<String, Integer> callsPerLocation = new HashMap<>();
+        private final long fileSize;
         int totalCalls;
+
+        private CountingLister() {
+            this(10L);
+        }
+
+        private CountingLister(long fileSize) {
+            this.fileSize = fileSize;
+        }
 
         @Override
         public List<HiveFileStatus> list(String location, FileSystem fs) {
             totalCalls++;
             callsPerLocation.merge(location, 1, Integer::sum);
-            return new ArrayList<>(Collections.singletonList(new HiveFileStatus(location + "/000000_0", 10L, 1L)));
+            return new ArrayList<>(Collections.singletonList(new HiveFileStatus(location + "/000000_0", fileSize, 1L)));
         }
     }
 

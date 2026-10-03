@@ -127,6 +127,8 @@ std::string push_down_agg_to_string(TPushAggOp::type op) {
         return "MIX";
     case TPushAggOp::COUNT_ON_INDEX:
         return "COUNT_ON_INDEX";
+    case TPushAggOp::PARTITION_VALUE:
+        return "PARTITION_VALUE";
     }
     return "UNKNOWN";
 }
@@ -1597,6 +1599,33 @@ Status TableReader::_evaluate_partition_prune_conjuncts(const VExprContextSPtrs&
     IColumn::Filter result_filter(block.rows(), 1);
     return VExprContext::execute_conjuncts(partition_conjuncts, nullptr, &block, &result_filter,
                                            can_filter_all);
+}
+
+bool TableReader::_conjuncts_reference_only_partition_columns() const {
+    for (const auto& conjunct : _conjuncts) {
+        if (conjunct == nullptr || conjunct->root() == nullptr) {
+            return false;
+        }
+        std::set<GlobalIndex> global_indices;
+        collect_global_indices(conjunct->root(), &global_indices);
+        // A slotless predicate is deliberately excluded: it would be evaluated once against the
+        // synthesized row instead of once per source row, which changes its row-level semantics.
+        if (global_indices.empty()) {
+            return false;
+        }
+        const bool partition_only = std::ranges::all_of(global_indices, [this](GlobalIndex index) {
+            if (index.value() >= _projected_columns.size()) {
+                return false;
+            }
+            const auto& column = _projected_columns[index.value()];
+            return column.is_partition_key &&
+                   find_partition_value(column, _partition_values) != nullptr;
+        });
+        if (!partition_only) {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool TableReader::_is_safe_to_pre_execute(const VExprContextSPtr& conjunct) {

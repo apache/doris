@@ -20,6 +20,7 @@ package org.apache.doris.connector.hudi;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientException;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.connector.spi.ConnectorCapability;
 import org.apache.doris.connector.spi.ConnectorColumn;
 import org.apache.doris.connector.spi.ConnectorMetadata;
 import org.apache.doris.connector.spi.ConnectorPartitionInfo;
@@ -59,6 +60,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -396,8 +398,33 @@ public class HudiConnectorMetadata implements ConnectorMetadata {
         if (partitionKeyNames != null && !partitionKeyNames.isEmpty()) {
             tableProperties.put(PARTITION_COLUMNS_PROPERTY, String.join(",", partitionKeyNames));
         }
+        Set<ConnectorCapability> tableCapabilities = EnumSet.noneOf(ConnectorCapability.class);
+        if (supportsPartitionValueOnly(hudiHandle)) {
+            tableCapabilities.add(ConnectorCapability.SUPPORTS_PARTITION_VALUE_ONLY);
+        }
         return new ConnectorTableSchema(
-                hudiHandle.getTableName(), columns, "HUDI", tableProperties);
+                hudiHandle.getTableName(), columns, "HUDI", tableProperties, tableCapabilities);
+    }
+
+    /**
+     * Whether a min/max over only this table's partition columns may be answered from partition
+     * metadata. Limited to a Parquet or ORC base file format, which is what the BE-side check
+     * accepts anyway: a range whose actual format is not native Parquet/ORC (a MOR realtime range
+     * arrives as JNI) is rejected there, so MOR needs no separate exclusion here.
+     */
+    private boolean supportsPartitionValueOnly(HudiTableHandle hudiHandle) {
+        if (hudiHandle.getPartitionKeyNames() == null || hudiHandle.getPartitionKeyNames().isEmpty()) {
+            return false;
+        }
+        String inputFormat = hudiHandle.getInputFormat();
+        if (inputFormat == null || inputFormat.toLowerCase(Locale.ROOT).contains("realtime")) {
+            // The merge-on-read realtime format folds log files into the row set, so the set of
+            // files a partition has no longer describes what the scan returns. Those ranges also
+            // usually arrive as JNI, which the BE rejects. Excluding it buys nothing.
+            return false;
+        }
+        return inputFormat.contains("Parquet") || inputFormat.contains("Orc")
+                || inputFormat.contains("ORC");
     }
 
     // ========== Read-only write-reject safety net ==========

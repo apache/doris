@@ -582,6 +582,9 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             perTableCapabilities.add(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE);
             perTableCapabilities.add(ConnectorCapability.SUPPORTS_STORAGE_PREDICATE_PRUNING);
         }
+        if (supportsPartitionValueOnly(tableInfo)) {
+            perTableCapabilities.add(ConnectorCapability.SUPPORTS_PARTITION_VALUE_ONLY);
+        }
 
         // Distribution (bucketing) columns for the flipped table's getDistributionColumnNames() — legacy
         // HMSExternalTable read getSd().getBucketCols(). Emitted RAW (fe-core lowercases, mirroring the legacy
@@ -2357,6 +2360,35 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
      */
     private boolean supportsHiveSampleAnalyze(HmsTableInfo tableInfo) {
         return !isView(tableInfo) && HiveTableFormatDetector.detect(tableInfo) == HiveTableType.HIVE;
+    }
+
+    /** Only nontransactional native columnar files can prove row existence from their footer. */
+    private boolean supportsPartitionValueOnly(HmsTableInfo tableInfo) {
+        return (supportsHiveOrcOrParquetScan(tableInfo)
+                && !HiveTableHandle.isTransactionalTable(tableInfo.getParameters()))
+                || supportsHudiPartitionValueOnly(tableInfo);
+    }
+
+    /**
+     * Hudi tables: a Hudi partition's directory name is its partition value, so a min/max over only
+     * partition columns can be answered from the split metadata alone. Limited to a Parquet or ORC
+     * base file format, which is what the BE-side check accepts anyway (a range whose actual format
+     * is not native Parquet/ORC is rejected there). MOR realtime ranges can arrive as JNI and are
+     * then rejected by the same BE check, so MOR needs no separate exclusion here.
+     */
+    private boolean supportsHudiPartitionValueOnly(HmsTableInfo tableInfo) {
+        if (HiveTableFormatDetector.detect(tableInfo) != HiveTableType.HUDI) {
+            return false;
+        }
+        String inputFormat = tableInfo.getInputFormat();
+        if (inputFormat == null || inputFormat.toLowerCase(Locale.ROOT).contains("realtime")) {
+            // The merge-on-read realtime format folds log files into the row set, so the set of
+            // files a partition has no longer describes what the scan returns. Those ranges also
+            // usually arrive as JNI, which the BE rejects. Excluding it buys nothing.
+            return false;
+        }
+        return inputFormat.contains("Parquet") || inputFormat.contains("Orc")
+                || inputFormat.contains("ORC");
     }
 
     /** Whether the HMS table is a view (tableType VIRTUAL_VIEW), mirroring legacy {@code HMSExternalTable.isView}. */

@@ -262,6 +262,55 @@ public class HiveConnectorMetadataSchemaTest {
     }
 
     @Test
+    public void testPartitionValueOnlyForNontransactionalNativeColumnarTables() {
+        // A Hudi COW table carries its partition value in the partition directory name just like
+        // Hive, so its Parquet/ORC base format qualifies too.
+        for (String format : Arrays.asList(PARQUET_INPUT_FORMAT, ORC_INPUT_FORMAT,
+                "org.apache.hudi.hadoop.HoodieParquetInputFormat")) {
+            Assertions.assertTrue(hasCapability(schemaOf(partitionedTable().inputFormat(format).build()),
+                    ConnectorCapability.SUPPORTS_PARTITION_VALUE_ONLY), format);
+            Assertions.assertTrue(hasCapability(schemaOf(partitionedTable().inputFormat(format)
+                    .parameters(Collections.singletonMap("transactional", "false")).build()),
+                    ConnectorCapability.SUPPORTS_PARTITION_VALUE_ONLY), format);
+        }
+    }
+
+    @Test
+    public void testPartitionValueOnlyExcludesTransactionalTables() {
+        for (String format : Arrays.asList(PARQUET_INPUT_FORMAT, ORC_INPUT_FORMAT)) {
+            for (String key : Arrays.asList("transactional", "TRANSACTIONAL")) {
+                for (String mode : Arrays.asList("default", "insert_only")) {
+                    Map<String, String> parameters = new HashMap<>();
+                    parameters.put(key, "TrUe");
+                    parameters.put("transactional_properties", mode);
+                    Assertions.assertFalse(hasCapability(schemaOf(partitionedTable().inputFormat(format)
+                            .parameters(parameters).build()), ConnectorCapability.SUPPORTS_PARTITION_VALUE_ONLY),
+                            format + ": " + key + "/" + mode);
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testPartitionValueOnlyExcludesViewsTextAndMergeOnRead() {
+        Assertions.assertFalse(hasCapability(schemaOf(partitionedTable().tableType("VIRTUAL_VIEW").build()),
+                ConnectorCapability.SUPPORTS_PARTITION_VALUE_ONLY));
+        for (String format : Arrays.asList(TEXT_INPUT_FORMAT,
+                "org.apache.hudi.hadoop.realtime.HoodieParquetRealtimeInputFormat",
+                "com.uber.hoodie.hadoop.realtime.HoodieRealtimeInputFormat")) {
+            Assertions.assertFalse(hasCapability(schemaOf(partitionedTable().inputFormat(format).build()),
+                    ConnectorCapability.SUPPORTS_PARTITION_VALUE_ONLY), format);
+        }
+        // A flink.connector=hudi marker alone is not enough: the base format must still be columnar.
+        Assertions.assertFalse(hasCapability(schemaOf(partitionedTable().inputFormat(TEXT_INPUT_FORMAT)
+                .parameters(Collections.singletonMap("flink.connector", "hudi")).build()),
+                ConnectorCapability.SUPPORTS_PARTITION_VALUE_ONLY));
+        Assertions.assertFalse(hasCapability(schemaOf(partitionedTable()
+                .parameters(Collections.singletonMap("table_type", "ICEBERG")).build()),
+                ConnectorCapability.SUPPORTS_PARTITION_VALUE_ONLY));
+    }
+
+    @Test
     public void testTopNLazyCapabilityMarkerEmittedForParquetAndOrc() {
         // WHY: Top-N lazy materialize is orc/parquet-only in legacy hive (HMSExternalTable.supportedHiveTopNLazyTable).
         // The connector-wide SUPPORTS_TOPN_LAZY_MATERIALIZE cannot express that for a heterogeneous hive catalog, so

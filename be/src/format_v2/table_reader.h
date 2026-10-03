@@ -551,6 +551,10 @@ protected:
     Status _evaluate_partition_prune_conjuncts(const VExprContextSPtrs& conjuncts,
                                                bool* can_filter_all);
     static bool _is_safe_to_pre_execute(const VExprContextSPtr& conjunct);
+    // Whether every conjunct the scanner will evaluate reads nothing but partition columns.
+    // Only then may PARTITION_VALUE hand it the one-row block it synthesizes: see
+    // _supports_aggregate_pushdown(TPushAggOp::type::PARTITION_VALUE).
+    bool _conjuncts_reference_only_partition_columns() const;
     Status _build_partition_prune_block(Block* block) const;
     Status _open_local_filter_exprs(const FileScanRequest& file_request);
     Status _init_reader_condition_cache(const FileScanRequest& file_request);
@@ -1058,6 +1062,22 @@ protected:
             return Status::OK();
         }
 
+        // PARTITION_VALUE needs no file data at all: every projected column is a partition column,
+        // so one row of partition values is a faithful row of this range's output. Emitting it
+        // unconditionally also means the optimization no longer depends on the reader being able to
+        // prove a row count (Hudi and other formats do not all support count pushdown).
+        //
+        // The trade-off is deliberate: a range whose file turns out to hold zero rows still
+        // contributes its partition value, so MAX/GROUP BY/DISTINCT can name a partition that a full
+        // scan would not return. A partition with no file at all still produces nothing, because it
+        // produces no scan range.
+        if (_push_down_agg_type == TPushAggOp::type::PARTITION_VALUE) {
+            RETURN_IF_ERROR(finalize_chunk(block, 1));
+            *pushed_down = true;
+            RETURN_IF_ERROR(close_current_reader());
+            return Status::OK();
+        }
+
         FileAggregateRequest file_request;
         RETURN_IF_ERROR(_build_file_aggregate_request(_push_down_agg_type, &file_request));
         FileAggregateResult file_result;
@@ -1091,8 +1111,8 @@ protected:
     }
 
     virtual bool _supports_aggregate_pushdown(TPushAggOp::type agg_type) const {
-        // Only COUNT and MIN/MAX can be push down.
-        if (agg_type != TPushAggOp::type::COUNT && agg_type != TPushAggOp::type::MINMAX) {
+        if (agg_type != TPushAggOp::type::COUNT && agg_type != TPushAggOp::type::MINMAX &&
+            agg_type != TPushAggOp::type::PARTITION_VALUE) {
             return false;
         }
         // Aggregate pushdown returns reduced synthetic rows and may close the physical reader
@@ -1103,17 +1123,42 @@ protected:
         if (!_all_runtime_filters_applied_for_split) {
             return false;
         }
-        // Scanner owns the original conjunct list and evaluates it after TableReader finalizes
-        // rows. Even a slotless conjunct that cannot become a TableFilter must see every source
-        // row before an aggregate reduces the stream to synthetic COUNT/MINMAX rows.
-        if (!_conjuncts.empty()) {
-            return false;
-        }
-        // Only support aggregate pushdown when there is no delete or filter, so
+        // Only support aggregate pushdown when there is no delete, so
         // the reduced rows consumed by the upper aggregate remain semantically equivalent to a
         // normal scan.
         if ((_delete_rows != nullptr && !_delete_rows->empty()) ||
             (_deletion_vector != nullptr && !_deletion_vector->isEmpty())) {
+            return false;
+        }
+        if (agg_type == TPushAggOp::type::PARTITION_VALUE) {
+            DORIS_CHECK(_file_scan_request != nullptr);
+            if (!_current_file_range_desc.__isset.table_format_params ||
+                (_current_file_range_desc.table_format_params.table_format_type != "hive" &&
+                 _current_file_range_desc.table_format_params.table_format_type != "hudi") ||
+                (_format != FileFormat::PARQUET && _format != FileFormat::ORC) ||
+                _projected_columns.empty() || !_file_scan_request->delete_conjuncts.empty()) {
+                return false;
+            }
+            if (!std::ranges::all_of(_projected_columns, [this](const auto& column) {
+                    return column.is_partition_key &&
+                           find_partition_value(column, _partition_values) != nullptr;
+                })) {
+                return false;
+            }
+            // A retained predicate is NOT a reason to decline. Scanner::_filter_output_block()
+            // evaluates the scanner's conjuncts on whatever block this reader returns, so the
+            // one-row block synthesized for PARTITION_VALUE is filtered exactly like a real row.
+            // That is sound only while the conjuncts read nothing but partition columns: the
+            // synthesized row carries partition values and nothing else, so a predicate on a
+            // data column, or on a slot outside the projection, would be evaluated against
+            // unrelated values. Requiring at least one referenced slot also keeps a slotless
+            // predicate from being evaluated once here instead of once per source row.
+            return _conjuncts_reference_only_partition_columns();
+        }
+        // Scanner owns the original conjunct list and evaluates it after TableReader finalizes
+        // rows. Even a slotless conjunct that cannot become a TableFilter must see every source
+        // row before an aggregate reduces the stream to synthetic COUNT/MINMAX rows.
+        if (!_conjuncts.empty()) {
             return false;
         }
         if (!_table_filters.empty()) {
@@ -2090,6 +2135,8 @@ protected:
         DORIS_CHECK(_supports_aggregate_pushdown(agg_type));
         request->agg_type = agg_type;
         request->columns.clear();
+        // PARTITION_VALUE never reaches here: _try_materialize_aggregate_pushdown_rows emits the
+        // partition row without asking the reader for a count.
         if (agg_type == TPushAggOp::type::COUNT) {
             DORIS_CHECK(_push_down_count_columns.has_value());
             // An empty explicit list is the semantic signal for COUNT(*). Do not inspect the
