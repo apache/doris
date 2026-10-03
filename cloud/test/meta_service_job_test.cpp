@@ -1781,6 +1781,140 @@ TEST(MetaServiceJobTest, StopTokenSkipsStaleTabletCacheCheck) {
     }
 }
 
+// A STOP_TOKEN left behind by a schema change run whose BE
+// died before unregistering it stays valid until its lease expires. The re-sent ALTER task
+// registers a new STOP_TOKEN with a fresh delete_bitmap_lock_initiator; it must replace the
+// stale token and release the schema change delete bitmap lock the dead run still holds,
+// instead of being rejected with JOB_TABLET_BUSY (which makes FE cancel the whole job).
+TEST(MetaServiceJobTest, StopTokenReplacesStaleStopToken) {
+    auto meta_service = get_meta_service();
+
+    auto sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    int64_t table_id = 1, index_id = 2, partition_id = 3, tablet_id = 102;
+    constexpr int64_t stale_initiator = 111;
+    constexpr int64_t new_initiator = 222;
+
+    {
+        auto index_key = meta_tablet_idx_key({instance_id, tablet_id});
+        TabletIndexPB idx_pb;
+        idx_pb.set_table_id(table_id);
+        idx_pb.set_index_id(index_id);
+        idx_pb.set_partition_id(partition_id);
+        idx_pb.set_tablet_id(tablet_id);
+        std::string stats_key =
+                stats_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id});
+        TabletStatsPB stats;
+        stats.set_base_compaction_cnt(0);
+        stats.set_cumulative_compaction_cnt(0);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(index_key, idx_pb.SerializeAsString());
+        txn->put(stats_key, stats.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    auto register_stop_token = [&](const std::string& job_id, int64_t initiator,
+                                   StartTabletJobResponse& res) {
+        brpc::Controller cntl;
+        StartTabletJobRequest req;
+        req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+        auto* compaction = req.mutable_job()->add_compaction();
+        compaction->set_id(job_id);
+        compaction->set_initiator("ip:port");
+        compaction->set_type(TabletCompactionJobPB::STOP_TOKEN);
+        compaction->set_base_compaction_cnt(0);
+        compaction->set_cumulative_compaction_cnt(0);
+        long now = time(nullptr);
+        compaction->set_expiration(now + 12);
+        compaction->set_lease(now + 80);
+        compaction->set_delete_bitmap_lock_initiator(initiator);
+        meta_service->start_tablet_job(&cntl, &req, &res, nullptr);
+    };
+    auto read_tablet_job = [&]() {
+        TabletJobInfoPB job_pb;
+        std::unique_ptr<Transaction> txn;
+        EXPECT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string job_val;
+        EXPECT_EQ(
+                txn->get(job_tablet_key({instance_id, table_id, index_id, partition_id, tablet_id}),
+                         &job_val),
+                TxnErrorCode::TXN_OK);
+        EXPECT_TRUE(job_pb.ParseFromString(job_val));
+        return job_pb;
+    };
+
+    // The dead run registered its STOP_TOKEN and still holds the schema change lock.
+    {
+        StartTabletJobResponse res;
+        register_stop_token("stale_stop_token", stale_initiator, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+    }
+    {
+        DeleteBitmapUpdateLockPB lock_info;
+        lock_info.set_lock_id(SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID);
+        lock_info.set_expiration(time(nullptr) + 60);
+        lock_info.add_initiators(stale_initiator);
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put(meta_delete_bitmap_update_lock_key({instance_id, table_id, -1}),
+                 lock_info.SerializeAsString());
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // A regular compaction is still blocked by the unexpired STOP_TOKEN.
+    {
+        StartTabletJobResponse res;
+        start_compaction_job(meta_service.get(), tablet_id, "cumu_job_1", "ip:port",
+                             /*base_cnt=*/0, /*cumu_cnt=*/0, TabletCompactionJobPB::CUMULATIVE,
+                             res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::JOB_TABLET_BUSY);
+    }
+
+    // The re-sent ALTER task registers a new STOP_TOKEN: it replaces the stale one and the
+    // dead run's schema change lock is released.
+    {
+        StartTabletJobResponse res;
+        register_stop_token("new_stop_token", new_initiator, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK)
+                << "new STOP_TOKEN must replace the stale one; got: " << res.status().msg();
+        auto job_pb = read_tablet_job();
+        ASSERT_EQ(job_pb.compaction_size(), 1);
+        EXPECT_EQ(job_pb.compaction(0).id(), "new_stop_token");
+        EXPECT_EQ(job_pb.compaction(0).delete_bitmap_lock_initiator(), new_initiator);
+        check_delete_bitmap_lock(meta_service.get(), instance_id, table_id,
+                                 SCHEMA_CHANGE_DELETE_BITMAP_LOCK_ID, /*exist=*/false);
+    }
+
+    // Re-registering the same STOP_TOKEN (RPC retry) is idempotent.
+    {
+        StartTabletJobResponse res;
+        register_stop_token("new_stop_token", new_initiator, res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        auto job_pb = read_tablet_job();
+        ASSERT_EQ(job_pb.compaction_size(), 1);
+        EXPECT_EQ(job_pb.compaction(0).id(), "new_stop_token");
+    }
+
+    // The live token keeps blocking regular compactions.
+    {
+        StartTabletJobResponse res;
+        start_compaction_job(meta_service.get(), tablet_id, "cumu_job_2", "ip:port",
+                             /*base_cnt=*/0, /*cumu_cnt=*/0, TabletCompactionJobPB::CUMULATIVE,
+                             res);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::JOB_TABLET_BUSY);
+    }
+}
+
 TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
     auto meta_service = get_meta_service();
     auto sp = SyncPoint::get_instance();
