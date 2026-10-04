@@ -57,18 +57,21 @@ suite("test_uuid_point_query", "p0") {
     String database = sql("SELECT DATABASE()")[0][0]
     String url = getServerPrepareJdbcUrl(context.config.jdbcUrl, database)
     for (boolean enabled : [false, true]) {
+        // EXPLAIN returns text metadata; keep it on the ordinary JDBC connection.
+        // The SELECT statements below still use server-side prepare and binary results.
+        sql "SET enable_short_circuit_query = ${enabled}"
+        explain {
+            sql """SELECT k,v FROM uuid_prepared_point_query
+                   WHERE k = '00000000-0000-0000-0000-000000000001' ORDER BY k"""
+            if (enabled) {
+                contains "SHORT-CIRCUIT"
+            } else {
+                notContains "SHORT-CIRCUIT"
+            }
+        }
         connect(context.config.jdbcUser, context.config.jdbcPassword, url) {
             sql "SET enable_short_circuit_query = ${enabled}"
             sql "SET enable_sql_cache = false"
-            explain {
-                sql """SELECT k,v FROM uuid_prepared_point_query
-                       WHERE k = '00000000-0000-0000-0000-000000000001' ORDER BY k"""
-                if (enabled) {
-                    contains "SHORT-CIRCUIT"
-                } else {
-                    notContains "SHORT-CIRCUIT"
-                }
-            }
             for (String predicate : ["k = ?", "? = k"]) {
                 def stmt = prepareStatement "SELECT k,v FROM uuid_prepared_point_query WHERE ${predicate} ORDER BY k"
                 try {

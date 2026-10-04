@@ -17,10 +17,13 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
+import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.nereids.rules.expression.check.CheckCast;
 import org.apache.doris.nereids.trees.expressions.ExpressionEvaluator;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.executable.UuidArithmetic;
+import org.apache.doris.nereids.trees.expressions.functions.window.Lag;
+import org.apache.doris.nereids.trees.expressions.functions.window.Lead;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -76,6 +79,15 @@ class UuidFunctionsTest {
                 new StringLiteral("00112233445566778899AABBCCDDEEFF"), NULL_UUID));
         Assertions.assertFalse(new ToUuidOrDefault(input, NORMAL).nullable());
         Assertions.assertTrue(new ToUuidOrDefault(input, NULL_UUID).nullable());
+    }
+
+    @Test
+    void registersUuidValidationAndKeepsNativeWindowSignatures() {
+        FunctionRegistry registry = new FunctionRegistry();
+        Assertions.assertInstanceOf(IsUuid.class, registry.findFunctionBuilder("is_uuid", NORMAL)
+                .build("is_uuid", NORMAL).first);
+        Assertions.assertEquals(UuidType.INSTANCE, new Lag(NORMAL).getSignature().returnType);
+        Assertions.assertEquals(UuidType.INSTANCE, new Lead(NORMAL).getSignature().returnType);
     }
 
     @Test

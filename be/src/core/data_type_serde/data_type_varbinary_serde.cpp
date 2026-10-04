@@ -17,6 +17,9 @@
 
 #include "core/data_type_serde/data_type_varbinary_serde.h"
 
+#include <arrow/util/key_value_metadata.h>
+
+#include <array>
 #include <cstring>
 #include <limits>
 
@@ -28,6 +31,7 @@
 #include "core/data_type_serde/orc_serde_utils.h"
 #include "core/data_type_serde/parquet_decode_source.h"
 #include "exprs/function/string_hex_util.h"
+#include "format/arrow/arrow_block_convertor.h"
 #include "util/url_coding.h"
 
 namespace doris {
@@ -205,6 +209,26 @@ Status DataTypeVarbinarySerDe::write_column_to_iceberg_arrow(
     }
     // Fixed-width bindings describe bytes, including the declared width of nested fields.
     const auto& fixed = assert_cast<const arrow::FixedSizeBinaryType&>(*field->type());
+    const auto& metadata = field->metadata();
+    if (metadata != nullptr && metadata->Contains("originalType") &&
+        metadata->Get("originalType").ValueOrDie() == "uuid") {
+        if (fixed.byte_width() != 16) {
+            return Status::InvalidArgument("Iceberg UUID expects 16 bytes, got {}",
+                                           fixed.byte_width());
+        }
+        auto& builder = assert_cast<arrow::FixedSizeBinaryBuilder&>(*array_builder);
+        const auto& values = assert_cast<const ColumnVarbinary&>(column);
+        for (int64_t row = start; row < end; ++row) {
+            if (null_map != nullptr && (*null_map)[row]) {
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
+                continue;
+            }
+            std::array<uint8_t, 16> bytes;
+            RETURN_IF_ERROR(parse_iceberg_uuid_to_bytes(values.get_data_at(row), &bytes));
+            RETURN_IF_ERROR(checkArrowStatus(builder.Append(bytes.data()), column, builder));
+        }
+        return Status::OK();
+    }
     const auto& varbinary = assert_cast<const DataTypeVarbinary&>(*type);
     if (varbinary.len() != fixed.byte_width()) {
         return Status::InvalidArgument(

@@ -17,6 +17,10 @@
 
 // Checklist: B08 B09 C08 E11.
 suite("test_uuid_runtime_bucket_pruning", "p0") {
+    if (sql("SHOW VARIABLES LIKE 'enable_runtime_filter_bucket_prune'").isEmpty()) {
+        logger.info("Runtime filter bucket pruning is not available on branch-4.2")
+        return
+    }
 
     sql "SET enable_runtime_filter_prune = false"
     sql "SET enable_runtime_filter_partition_prune = false"

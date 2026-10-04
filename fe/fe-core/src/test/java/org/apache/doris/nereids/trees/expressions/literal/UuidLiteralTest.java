@@ -20,6 +20,8 @@ package org.apache.doris.nereids.trees.expressions.literal;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.UuidType;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TUUIDLiteral;
@@ -40,6 +42,17 @@ import java.util.List;
 import java.util.UUID;
 
 class UuidLiteralTest {
+    @Test
+    void complexStringCastMatchesBackendFormatting() {
+        UuidLiteral uuid = new UuidLiteral("00112233445566778899aabbccddeeff");
+        ArrayLiteral array = new ArrayLiteral(ImmutableList.of(uuid, new NullLiteral(UuidType.INSTANCE)),
+                ArrayType.of(UuidType.INSTANCE));
+        Literal text = (Literal) array.checkedCastTo(StringType.INSTANCE);
+        Assertions.assertEquals("[\"00112233-4455-6677-8899-aabbccddeeff\", null]", text.getStringValue());
+        ArrayLiteral nulls = new ArrayLiteral(ImmutableList.of(new NullLiteral(UuidType.INSTANCE)),
+                ArrayType.of(UuidType.INSTANCE));
+        Assertions.assertEquals("[null]", ((Literal) nulls.checkedCastTo(StringType.INSTANCE)).getStringValue());
+    }
 
     @Test
     void parseCanonicalAndCompactForms() {

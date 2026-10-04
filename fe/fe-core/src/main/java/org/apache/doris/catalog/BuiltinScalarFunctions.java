@@ -280,6 +280,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4Mapped;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv4String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsIpv6String;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsNan;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.IsUuid;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.IsValidUtf8;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
@@ -1157,6 +1158,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Uuid.class, "uuid"),
             scalar(UuidV4.class, "uuid_v4", "generate_uuid_v4", "generateuuidv4"),
             scalar(UuidV7.class, "uuid_v7", "generate_uuid_v7", "generateuuidv7"),
+            scalar(IsUuid.class, "is_uuid"),
             scalar(UuidVersion.class, "uuid_version"),
             scalar(ToUuidOrZero.class, "to_uuid_or_zero", "touuidorzero"),
             scalar(ToUuidOrNull.class, "to_uuid_or_null", "touuidornull"),

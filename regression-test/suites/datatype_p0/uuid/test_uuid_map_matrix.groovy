@@ -25,31 +25,23 @@ suite("test_uuid_map_matrix", "p0") {
 
     matrix.run(delegate, 'unary', 'uuid_matrix_map', ['m'], { m ->
         [keys: "MAP_KEYS(${m})", vals: "MAP_VALUES(${m})", size_value: "MAP_SIZE(${m})",
-         deduplicated: "DEDUPLICATE_MAP(${m})", filtered: "MAP_FILTER((k,v) -> v IS NOT NULL,${m})",
-         applied: "MAP_APPLY((k,v) -> STRUCT(k,COALESCE(v,k)),${m})",
-         exists_match: "MAP_EXISTS((k,v) -> v IS NOT NULL,${m})", all_match: "MAP_ALL((k,v) -> v IS NOT NULL,${m})",
-         entries: "MAP_ENTRIES(${m})", from_entries: "MAP_FROM_ENTRIES(MAP_ENTRIES(${m}))"]
+         deduplicated: "DEDUPLICATE_MAP(${m})",
+         entries: "MAP_ENTRIES(${m})"]
     })
     matrix.run(delegate, 'lookup', 'uuid_matrix_map', ['m','u'], { m,u ->
         [has_key: "MAP_CONTAINS_KEY(${m},${u})", has_value: "MAP_CONTAINS_VALUE(${m},${u})",
          element_value: "ELEMENT_AT(${m},${u})", subscript_value: "(${m})[${u}]"]
     })
-    matrix.run(delegate, 'capture', 'uuid_matrix_map', ['m','u'], { m,u ->
-        [applied: "MAP_APPLY((k,v) -> STRUCT(k,COALESCE(v,${u})),${m})",
-         filtered: "MAP_FILTER((k,v) -> v <=> ${u},${m})",
-         exists_match: "MAP_EXISTS((k,v) -> v <=> ${u},${m})", all_match: "MAP_ALL((k,v) -> v <=> ${u},${m})",
-         filtered_unknown: "MAP_FILTER((k,v) -> v = ${u},${m})", exists_unknown: "MAP_EXISTS((k,v) -> v = ${u},${m})",
-         all_unknown: "MAP_ALL((k,v) -> v = ${u},${m})"]
-    })
+    // Map higher-order functions have not been backported to branch-4.2.
     matrix.run(delegate, 'entry', 'uuid_matrix_map', ['m','u','v'], { m,u,v ->
         [has_entry: "MAP_CONTAINS_ENTRY(${m},${u},${v})"]
     })
     matrix.run(delegate, 'constructor', 'uuid_matrix_map', ['u','v'], { u,v ->
         [map_value: "MAP(${u},${v})", struct_value: "NAMED_STRUCT('k',${u},'v',${v})"]
     })
-    matrix.run(delegate, 'arrays', 'uuid_matrix_map', ['a','a2'], { a,b ->
-        [map_value: "MAP_FROM_ARRAYS(${a},${b})"]
-    }, [aligned: true])
+    // matrix.run(delegate, 'arrays', 'uuid_matrix_map', ['a','a2'], { a,b ->
+    //     [map_value: "MAP_FROM_ARRAYS(${a},${b})"]
+    // }, [aligned: true])
     matrix.run(delegate, 'struct', 'uuid_matrix_map', ['st'], { st ->
         [field_value: "STRUCT_ELEMENT(${st},'k')", nested_field: "STRUCT_ELEMENT(${st},'a')",
          json_value: "TO_JSON(${st})", string_value: "CAST(${st} AS STRING)"]

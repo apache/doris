@@ -42,7 +42,12 @@ suite("test_uuid_window_matrix", "p0") {
     for (String mode : ['fe','be','runtime']) {
         sql "SET debug_skip_fold_constant=${mode == 'runtime'}"
         sql "SET enable_fold_constant_by_be=${mode == 'be'}"
-        for (String query : ['LAG(u,-1)', 'LEAD(u,-1)', 'LAG(u,NULL)', 'LEAD(u,NULL)',
+        // In 4.2, a NULL LAG/LEAD offset is converted to zero.
+        for (String function : ['LAG', 'LEAD']) {
+            assertEquals(sql("SELECT ${function}(u,0) OVER (ORDER BY id) FROM uuid_matrix_window"),
+                         sql("SELECT ${function}(u,NULL) OVER (ORDER BY id) FROM uuid_matrix_window"))
+        }
+        for (String query : ['LAG(u,-1)', 'LEAD(u,-1)',
                              'NTH_VALUE(u,0)', 'NTH_VALUE(u,-1)', 'NTH_VALUE(u,NULL)',
                              'NTILE(0)', 'NTILE(-1)', 'NTILE(NULL)']) {
             test {

@@ -19,7 +19,6 @@
 suite("test_uuid_runtime_filter_merge", "p0") {
     sql "SET enable_runtime_filter_prune = false"
     sql "SET enable_runtime_filter_partition_prune = false"
-    sql "SET enable_runtime_filter_bucket_prune = false"
     sql "SET runtime_filter_wait_infinitely = true"
     sql "SET runtime_filter_max_in_num = 1024"
     sql "SET disable_join_reorder = true"

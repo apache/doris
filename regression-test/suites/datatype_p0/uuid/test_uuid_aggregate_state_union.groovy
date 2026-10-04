@@ -24,7 +24,7 @@ suite("test_uuid_aggregate_state_union", "p0,nonConcurrent") {
     sql "SET parallel_pipeline_task_num=1"
     sql "SET disable_streaming_preaggregations=true"
     sql "SET batch_size=4064"
-    sql "SET bucketed_agg_min_input_rows=0"
+    // sql "SET bucketed_agg_min_input_rows=0"
     sql "DROP TABLE IF EXISTS uuid_aggregate_state_union"
     sql """CREATE TABLE uuid_aggregate_state_union (id INT, u UUID)
            DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 1

@@ -588,6 +588,23 @@ Status PointQueryExecutor::_lookup_row_data() {
                     auto& column = result_columns[pos];
                     std::unique_ptr<ColumnIterator> iter;
                     SlotDescriptor* slot = _reusable->tuple_desc()->slots()[pos];
+                    if (slot->col_unique_id() >= 0 &&
+                        _tablet->tablet_schema()->field_index(slot->col_unique_id()) < 0) {
+                        // Light schema change can reach FE before a load updates the BE schema.
+                        // Use the same FE defaults as the row-store decoder for new columns.
+                        const auto& default_value = _reusable->get_col_default_values()[pos];
+                        if (default_value.empty()) {
+                            column->insert_default();
+                        } else {
+                            Slice input(default_value.data(), default_value.size());
+                            DataTypeSerDe::FormatOptions options;
+                            options.converted_from_string = true;
+                            RETURN_IF_ERROR(_reusable->get_data_type_serdes()[pos]
+                                                    ->deserialize_one_cell_from_json(*column, input,
+                                                                                     options));
+                        }
+                        continue;
+                    }
                     StorageReadOptions storage_read_options;
                     storage_read_options.stats = &_read_stats;
                     storage_read_options.io_ctx = io_ctx;

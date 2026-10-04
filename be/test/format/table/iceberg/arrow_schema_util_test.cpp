@@ -33,9 +33,11 @@
 #include "core/column/column_array.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/column/column_varbinary.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "format/table/iceberg/schema.h"
 #include "format/table/iceberg/schema_parser.h"
 #include "format/transformer/viceberg_parquet_writer.h"
@@ -70,8 +72,9 @@ TEST(ArrowSchemaUtilTest, IcebergParquetWriterPreservesUuidLogicalAnnotations) {
     auto string_type = std::make_shared<DataTypeString>();
     auto nullable_string = make_nullable(string_type);
     auto array_type = std::make_shared<DataTypeArray>(nullable_string);
+    auto fixed_type = std::make_shared<DataTypeVarbinary>(16);
     auto contexts =
-            MockSlotRef::create_mock_contexts(DataTypes {nullable_string, array_type, string_type});
+            MockSlotRef::create_mock_contexts(DataTypes {nullable_string, array_type, fixed_type});
     const auto path = "./uuid_parquet_writer_" + UniqueId::gen_uid().to_string() + ".parquet";
     const auto fs = io::global_local_filesystem();
     Defer cleanup([&] { static_cast<void>(fs->delete_file(path)); });
@@ -95,14 +98,15 @@ TEST(ArrowSchemaUtilTest, IcebergParquetWriterPreservesUuidLogicalAnnotations) {
     offsets->insert_value(2);
     offsets->insert_value(2);
     auto a = ColumnArray::create(u->clone_resized(2), std::move(offsets));
-    auto fixed = ColumnString::create();
+    auto fixed = ColumnVarbinary::create();
     fixed->insert_data("abcdefghijklmnop", 16);
     fixed->insert_data("ABCDEFGHIJKLMNOP", 16);
     Block block;
     block.insert({std::move(u), nullable_string, "u"});
     block.insert({std::move(a), array_type, "a"});
-    block.insert({std::move(fixed), string_type, "f"});
-    ASSERT_TRUE(writer.write(block).ok());
+    block.insert({std::move(fixed), fixed_type, "f"});
+    const auto write_status = writer.write(block);
+    ASSERT_TRUE(write_status.ok()) << write_status;
     ASSERT_TRUE(writer.close().ok());
     auto reader = ::parquet::ParquetFileReader::OpenFile(path, false);
     const auto metadata = reader->metadata();

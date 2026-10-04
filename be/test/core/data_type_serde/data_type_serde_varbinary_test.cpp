@@ -36,6 +36,7 @@
 #include "core/column/column_string.h"
 #include "core/column/column_varbinary.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_varbinary.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_varbinary_serde.h"
 #include "core/string_buffer.hpp"
@@ -59,6 +60,38 @@ static std::string make_bytes(size_t n, uint8_t seed = 0x31) {
 }
 
 class DataTypeVarbinarySerDeTest : public ::testing::Test {};
+
+TEST_F(DataTypeVarbinarySerDeTest, IcebergUuidParsesTextCarriedAsVarbinary) {
+    DataTypeVarbinarySerDe serde;
+    auto type = std::make_shared<DataTypeVarbinary>(16);
+    auto column = ColumnVarbinary::create();
+    const std::string bytes("\x00\x11\x22\x33\x44\x55\x66\x77\x88\x99\xaa\xbb\xcc\xdd\xee\xff", 16);
+    column->insert_data("00112233-4455-6677-8899-AABBCCDDEEFF", 36);
+    column->insert_data("00112233445566778899aabbccddeeff", 32);
+    column->insert_data(bytes.data(), bytes.size());
+    column->insert_data("ignored null payload", 20);
+    NullMap nulls {0, 0, 0, 1};
+    auto field = arrow::field("u", arrow::fixed_size_binary(16), true,
+                              arrow::KeyValueMetadata::Make({"originalType"}, {"uuid"}));
+    arrow::FixedSizeBinaryBuilder builder(field->type(), arrow::default_memory_pool());
+    ASSERT_TRUE(
+            serde.write_column_to_iceberg_arrow(type, *column, &nulls, field, &builder, 0, 4, {})
+                    .ok());
+    std::shared_ptr<arrow::Array> result;
+    ASSERT_TRUE(builder.Finish(&result).ok());
+    const auto& values = static_cast<const arrow::FixedSizeBinaryArray&>(*result);
+    for (int row = 0; row < 3; ++row) {
+        EXPECT_EQ(std::string(reinterpret_cast<const char*>(values.GetValue(row)), 16), bytes);
+    }
+    EXPECT_TRUE(values.IsNull(3));
+
+    // Ordinary Iceberg fixed(16) fields must retain strict byte-length validation.
+    auto fixed = arrow::field("f", arrow::fixed_size_binary(16));
+    arrow::FixedSizeBinaryBuilder fixed_builder(fixed->type(), arrow::default_memory_pool());
+    EXPECT_FALSE(serde.write_column_to_iceberg_arrow(type, *column, nullptr, fixed, &fixed_builder,
+                                                     0, 1, {})
+                         .ok());
+}
 
 TEST_F(DataTypeVarbinarySerDeTest, HiveTextBinaryUsesBase64InsteadOfJsonBytes) {
     DataTypeVarbinarySerDe serde;

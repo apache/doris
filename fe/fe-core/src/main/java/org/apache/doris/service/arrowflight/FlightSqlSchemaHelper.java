@@ -207,6 +207,7 @@ public class FlightSqlSchemaHelper {
             case LARGEINT:
             case IPV4:
             case IPV6:
+            case UUID:
             case VARIANT:
                 marker = type.getPrimitiveType().name();
                 break;

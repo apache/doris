@@ -16,11 +16,14 @@
 // under the License.
 
 suite("test_uuid_variant_identity") {
-    qt_native_uuid_variant_type """
+    def parseVariant = getFeConfig("enable_variant_v2").toBoolean() ? 'parse_to_variant' : ''
+    // Legacy Variant reports a root-path type map; Variant V2 reports the scalar type.
+    def normalizeUuidType = { row -> row.collect { it == '{"":"uuid"}' ? 'uuid' : it } }
+    quickRunTest('native_uuid_variant_type', """
         SELECT variant_type(CAST(CAST('00112233-4455-6677-8899-aabbccddeeff' AS UUID) AS VARIANT)),
                CAST(CAST(CAST('00112233-4455-6677-8899-aabbccddeeff' AS UUID) AS VARIANT) AS UUID),
                variant_type(CAST(CAST(NULL AS UUID) AS VARIANT))
-    """
+    """, false, normalizeUuidType)
     sql "DROP TABLE IF EXISTS uuid_variant_identity"
     sql """
         CREATE TABLE uuid_variant_identity (
@@ -31,11 +34,11 @@ suite("test_uuid_variant_identity") {
     """
     sql """
         INSERT INTO uuid_variant_identity VALUES
-        (1, parse_to_variant('{"u":"00112233-4455-6677-8899-aabbccddeeff"}')),
-        (2, parse_to_variant('{"u":null}'))
+        (1, ${parseVariant}('{"u":"00112233-4455-6677-8899-aabbccddeeff"}')),
+        (2, ${parseVariant}('{"u":null}'))
     """
-    order_qt_persisted_uuid_variant_type """
+    quickRunTest('persisted_uuid_variant_type', """
         SELECT id, variant_type(v['u']), CAST(v['u'] AS UUID)
         FROM uuid_variant_identity ORDER BY id
-    """
+    """, true, normalizeUuidType)
 }

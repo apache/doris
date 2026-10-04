@@ -302,7 +302,7 @@ TEST(RuntimePredicateTest, TopNPredicateAdvertisesDirectCapabilityForEverySuppor
         int scale = 0;
         bool binary = false;
     };
-    const std::array<TypeSpec, 24> supported_types {{
+    const TypeSpec supported_types[] {
             {TYPE_BOOLEAN},
             {TYPE_TINYINT},
             {TYPE_SMALLINT},
@@ -328,7 +328,7 @@ TEST(RuntimePredicateTest, TopNPredicateAdvertisesDirectCapabilityForEverySuppor
             {TYPE_STRING, 0, 0, true},
             {TYPE_VARCHAR, 0, 0, true},
             {TYPE_VARBINARY, 0, 0, true},
-    }};
+    };
 
     for (const auto& spec : supported_types) {
         SCOPED_TRACE(type_to_string(spec.type));

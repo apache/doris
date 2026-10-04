@@ -34,7 +34,7 @@ suite("test_uuid_spill", "p0,nonConcurrent") {
     sql "SET enable_sql_cache = false"
     sql "SET enable_query_cache = false"
     // Bucketed aggregation on a single BE does not use the aggregation spill operators.
-    sql "SET enable_bucketed_hash_agg = false"
+    // sql "SET enable_bucketed_hash_agg = false"
     sql "SET profile_level = 2"
     sql "SET topn_opt_limit_threshold = 0"
     // Keep enough groups to exceed the BE's 1 MiB minimum spill threshold across three buckets.

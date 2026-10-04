@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.types;
 
+import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -25,13 +28,25 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.util.StatisticsUtil;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
+
 class UuidTypeTest {
     private final NereidsParser parser = new NereidsParser();
+
+    @Test
+    void legacyIndexValidationAcceptsUuidAndUuidArrays() throws Exception {
+        IndexDef index = new IndexDef("uuid_idx", false, ImmutableList.of("u"), IndexDef.IndexType.INVERTED,
+                Collections.emptyMap(), "");
+        for (Type type : ImmutableList.of(Type.UUID, new org.apache.doris.catalog.ArrayType(Type.UUID, true))) {
+            index.checkColumn(new Column("u", type), KeysType.DUP_KEYS, false, TInvertedIndexFileStorageFormat.V2);
+        }
+    }
 
     @Test
     void rejectParametersInEveryTypePosition() {

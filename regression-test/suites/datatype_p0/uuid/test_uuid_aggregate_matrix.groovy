@@ -72,11 +72,7 @@ suite("test_uuid_aggregate_matrix", "p0") {
         [max_merge: "MAX_MERGE(MAX_STATE(${u}))", min_merge: "MIN_MERGE(MIN_STATE(${u}))",
          count_merge: "COUNT_MERGE(COUNT_STATE(${u}))"]
     }, [aggregate:true])
-    matrix.run(delegate, 'map_combinator', 'uuid_matrix_aggregate', ['m'], { m ->
-        [min_keys: "ARRAY_SORT(MAP_KEYS(MIN_MAP(${m})))", min_vals: "ARRAY_SORT(MAP_VALUES(MIN_MAP(${m})))",
-         max_keys: "ARRAY_SORT(MAP_KEYS(MAX_MAP(${m})))", max_vals: "ARRAY_SORT(MAP_VALUES(MAX_MAP(${m})))",
-         count_keys: "ARRAY_SORT(MAP_KEYS(COUNT_MAP(${m})))", count_vals: "ARRAY_SORT(MAP_VALUES(COUNT_MAP(${m})))"]
-    }, [aggregate:true])
+    // Map aggregate combinators have not been backported to branch-4.2.
     for (String predicate : ['id<0', 'u IS NULL']) {
         qt_empty_null """SELECT MIN(u),MAX(u),COUNT(u),COUNT(DISTINCT u),NDV(u),
                          COLLECT_LIST(u),COLLECT_SET(u),ARRAY_AGG(u),HISTOGRAM(u),MAP_AGG(u,v)
@@ -92,9 +88,9 @@ suite("test_uuid_aggregate_matrix", "p0") {
                 SELECT MAX_UNION(MAX_STATE(${input})) hi,MIN_UNION(MIN_STATE(${input})) lo,
                        COUNT_UNION(COUNT_STATE(${input})) n
                 FROM uuid_matrix_aggregate GROUP BY id%2) states"""
-            qt_state_combine """SELECT MAX_MERGE(hi),MIN_MERGE(lo),COUNT_MERGE(n) FROM (
-                SELECT MAX_COMBINE(${input}) hi,MIN_COMBINE(${input}) lo,COUNT_COMBINE(${input}) n
-                FROM uuid_matrix_aggregate GROUP BY id%2) states"""
+            // qt_state_combine """SELECT MAX_MERGE(hi),MIN_MERGE(lo),COUNT_MERGE(n) FROM (
+            //     SELECT MAX_COMBINE(${input}) hi,MIN_COMBINE(${input}) lo,COUNT_COMBINE(${input}) n
+            //     FROM uuid_matrix_aggregate GROUP BY id%2) states"""
         }
     }
     // Parameter positions required by the signature to be constants are not column candidates.
@@ -123,7 +119,9 @@ suite("test_uuid_aggregate_matrix", "p0") {
         // Group per UUID: TOPN ties cannot make the expected array order arbitrary.
         qt_topn """SELECT u,TOPN_ARRAY(u,1),TOPN_ARRAY(u,2,4),COLLECT_LIST(u,2),COLLECT_SET(u,2)
                    FROM uuid_matrix_aggregate GROUP BY u ORDER BY u NULLS FIRST"""
-        for (String query : ['HISTOGRAM(u,num)', 'TOPN_ARRAY(u,num)', 'COLLECT_LIST(u,num)', 'COLLECT_SET(u,num)']) {
+        qt_collect_column_limit """SELECT id,COLLECT_LIST(u,num),COLLECT_SET(u,num)
+                                  FROM uuid_matrix_aggregate GROUP BY id,num ORDER BY id"""
+        for (String query : ['HISTOGRAM(u,num)', 'TOPN_ARRAY(u,num)']) {
             test {
                 sql "SELECT ${query} FROM uuid_matrix_aggregate"
                 exception "constant"

@@ -245,7 +245,7 @@ public class IndexDef {
         return primitiveType.isDateLikeType() || primitiveType.isDecimalV2Type() || primitiveType.isDecimalV3Type()
                 || primitiveType.isFixedPointType() || primitiveType.isStringType()
                 || primitiveType == PrimitiveType.BOOLEAN
-                || primitiveType.isVariantType() || primitiveType.isIPType();
+                || primitiveType.isVariantType() || primitiveType.isIPType() || primitiveType.isUuidType();
     }
 
     private boolean isSupportSniiIdxType(Type colType) {

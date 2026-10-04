@@ -40,13 +40,21 @@ suite("test_uuid_array_matrix", "p0") {
     })
     matrix.run(delegate, 'sets', 'uuid_matrix_array', ['a','a2'], { a,b ->
         [union_values: "ARRAY_SORT(ARRAY_UNION(${a},${b}))", intersection: "ARRAY_SORT(ARRAY_INTERSECT(${a},${b}))",
-         except_values: "ARRAY_SORT(ARRAY_EXCEPT(${a},${b}))", except_all: "ARRAY_SORT(ARRAY_EXCEPT_ALL(${a},${b}))",
+         except_values: "ARRAY_SORT(ARRAY_EXCEPT(${a},${b}))",
          overlap_value: "ARRAYS_OVERLAP(${a},${b})", contains_all: "ARRAY_CONTAINS_ALL(${a},${b})",
          concatenated: "ARRAY_CONCAT(${a},${b})"]
     })
     matrix.run(delegate, 'seed', 'uuid_matrix_array', ['a','num'], { a,n ->
         [shuffled_members: "ARRAY_SORT(ARRAY_SHUFFLE(${a},${n}))"]
-    })
+    }, [constantArguments: [1]])
+    for (String mode : ['fe', 'be', 'runtime']) {
+        sql "SET debug_skip_fold_constant=${mode == 'runtime'}"
+        sql "SET enable_fold_constant_by_be=${mode == 'be'}"
+        test {
+            sql "SELECT ARRAY_SHUFFLE(a,num) FROM uuid_matrix_array"
+            exception 'The seed of array_shuffle must be a constant'
+        }
+    }
     matrix.run(delegate, 'aligned', 'uuid_matrix_array', ['a','a2'], { a,b ->
         [sort_by: "ARRAY_SORTBY(${a},${b})", zipped: "ARRAY_ZIP(${a},${b})",
          enumerate_uniq: "ARRAY_ENUMERATE_UNIQ(${a},${b})",

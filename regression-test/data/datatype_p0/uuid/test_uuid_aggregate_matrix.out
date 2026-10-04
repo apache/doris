@@ -1610,105 +1610,6 @@ ffffffff-ffff-ffff-ffff-ffffffffffff	ffffffff-ffff-ffff-ffff-ffffffffffff	10
 -- !state_runtime_v_0 --
 ffffffff-ffff-ffff-ffff-ffffffffffff	00000000-0000-0000-0000-000000000000	9
 
--- !map_combinator_fe_c_0 --
-[]	[]	[]	[]	[]	[]
-
--- !map_combinator_fe_c_1 --
-[]	[]	[]	[]	[]	[]
-
--- !map_combinator_fe_c_2 --
-["00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000001"]	[null, "00000000-0000-0000-0000-000000000000"]	["00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000001"]	[null, "00000000-0000-0000-0000-000000000000"]	["00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000001"]	[0, 10]
-
--- !map_combinator_fe_c_3 --
-["550e8400-e29b-41d4-a716-446655440000"]	[null]	["550e8400-e29b-41d4-a716-446655440000"]	[null]	["550e8400-e29b-41d4-a716-446655440000"]	[0]
-
--- !map_combinator_fe_c_4 --
-["018f0f59-1010-7abc-9234-001122334455"]	[null]	["018f0f59-1010-7abc-9234-001122334455"]	[null]	["018f0f59-1010-7abc-9234-001122334455"]	[0]
-
--- !map_combinator_fe_c_5 --
-["7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000"]	[null, "80000000-0000-0000-0000-000000000000"]	["7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000"]	[null, "80000000-0000-0000-0000-000000000000"]	["7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000"]	[0, 10]
-
--- !map_combinator_fe_c_6 --
-["7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000"]	[null, "7fffffff-ffff-ffff-ffff-ffffffffffff"]	["7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000"]	[null, "7fffffff-ffff-ffff-ffff-ffffffffffff"]	["7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000"]	[0, 10]
-
--- !map_combinator_fe_c_7 --
-["00000000-0000-0000-ffff-ffffffffffff", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[null, "00000000-0000-0000-ffff-ffffffffffff"]	["00000000-0000-0000-ffff-ffffffffffff", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[null, "00000000-0000-0000-ffff-ffffffffffff"]	["00000000-0000-0000-ffff-ffffffffffff", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[0, 10]
-
--- !map_combinator_fe_c_8 --
-["00000000-0000-0000-ffff-ffffffffffff", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[null, "ffffffff-ffff-ffff-ffff-ffffffffffff"]	["00000000-0000-0000-ffff-ffffffffffff", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[null, "ffffffff-ffff-ffff-ffff-ffffffffffff"]	["00000000-0000-0000-ffff-ffffffffffff", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[0, 10]
-
--- !map_combinator_fe_c_9 --
-["00000000-0000-0001-0000-000000000000"]	[null]	["00000000-0000-0001-0000-000000000000"]	[null]	["00000000-0000-0001-0000-000000000000"]	[0]
-
--- !map_combinator_fe_v_0 --
-["00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-ffff-ffffffffffff", "00000000-0000-0001-0000-000000000000", "018f0f59-1010-7abc-9234-001122334455", "550e8400-e29b-41d4-a716-446655440000", "7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[null, null, null, null, "00000000-0000-0000-0000-000000000000", "00000000-0000-0000-ffff-ffffffffffff", "7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	["00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-ffff-ffffffffffff", "00000000-0000-0001-0000-000000000000", "018f0f59-1010-7abc-9234-001122334455", "550e8400-e29b-41d4-a716-446655440000", "7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[null, null, null, null, "00000000-0000-0000-0000-000000000000", "00000000-0000-0000-ffff-ffffffffffff", "7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	["00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-ffff-ffffffffffff", "00000000-0000-0001-0000-000000000000", "018f0f59-1010-7abc-9234-001122334455", "550e8400-e29b-41d4-a716-446655440000", "7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[0, 0, 0, 0, 1, 1, 1, 1, 1]
-
--- !map_combinator_be_c_0 --
-[]	[]	[]	[]	[]	[]
-
--- !map_combinator_be_c_1 --
-[]	[]	[]	[]	[]	[]
-
--- !map_combinator_be_c_2 --
-["00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000001"]	[null, "00000000-0000-0000-0000-000000000000"]	["00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000001"]	[null, "00000000-0000-0000-0000-000000000000"]	["00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000001"]	[0, 10]
-
--- !map_combinator_be_c_3 --
-["550e8400-e29b-41d4-a716-446655440000"]	[null]	["550e8400-e29b-41d4-a716-446655440000"]	[null]	["550e8400-e29b-41d4-a716-446655440000"]	[0]
-
--- !map_combinator_be_c_4 --
-["018f0f59-1010-7abc-9234-001122334455"]	[null]	["018f0f59-1010-7abc-9234-001122334455"]	[null]	["018f0f59-1010-7abc-9234-001122334455"]	[0]
-
--- !map_combinator_be_c_5 --
-["7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000"]	[null, "80000000-0000-0000-0000-000000000000"]	["7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000"]	[null, "80000000-0000-0000-0000-000000000000"]	["7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000"]	[0, 10]
-
--- !map_combinator_be_c_6 --
-["7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000"]	[null, "7fffffff-ffff-ffff-ffff-ffffffffffff"]	["7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000"]	[null, "7fffffff-ffff-ffff-ffff-ffffffffffff"]	["7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000"]	[0, 10]
-
--- !map_combinator_be_c_7 --
-["00000000-0000-0000-ffff-ffffffffffff", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[null, "00000000-0000-0000-ffff-ffffffffffff"]	["00000000-0000-0000-ffff-ffffffffffff", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[null, "00000000-0000-0000-ffff-ffffffffffff"]	["00000000-0000-0000-ffff-ffffffffffff", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[0, 10]
-
--- !map_combinator_be_c_8 --
-["00000000-0000-0000-ffff-ffffffffffff", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[null, "ffffffff-ffff-ffff-ffff-ffffffffffff"]	["00000000-0000-0000-ffff-ffffffffffff", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[null, "ffffffff-ffff-ffff-ffff-ffffffffffff"]	["00000000-0000-0000-ffff-ffffffffffff", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[0, 10]
-
--- !map_combinator_be_c_9 --
-["00000000-0000-0001-0000-000000000000"]	[null]	["00000000-0000-0001-0000-000000000000"]	[null]	["00000000-0000-0001-0000-000000000000"]	[0]
-
--- !map_combinator_be_v_0 --
-["00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-ffff-ffffffffffff", "00000000-0000-0001-0000-000000000000", "018f0f59-1010-7abc-9234-001122334455", "550e8400-e29b-41d4-a716-446655440000", "7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[null, null, null, null, "00000000-0000-0000-0000-000000000000", "00000000-0000-0000-ffff-ffffffffffff", "7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	["00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-ffff-ffffffffffff", "00000000-0000-0001-0000-000000000000", "018f0f59-1010-7abc-9234-001122334455", "550e8400-e29b-41d4-a716-446655440000", "7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[null, null, null, null, "00000000-0000-0000-0000-000000000000", "00000000-0000-0000-ffff-ffffffffffff", "7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	["00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-ffff-ffffffffffff", "00000000-0000-0001-0000-000000000000", "018f0f59-1010-7abc-9234-001122334455", "550e8400-e29b-41d4-a716-446655440000", "7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[0, 0, 0, 0, 1, 1, 1, 1, 1]
-
--- !map_combinator_runtime_c_0 --
-[]	[]	[]	[]	[]	[]
-
--- !map_combinator_runtime_c_1 --
-[]	[]	[]	[]	[]	[]
-
--- !map_combinator_runtime_c_2 --
-["00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000001"]	[null, "00000000-0000-0000-0000-000000000000"]	["00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000001"]	[null, "00000000-0000-0000-0000-000000000000"]	["00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000001"]	[0, 10]
-
--- !map_combinator_runtime_c_3 --
-["550e8400-e29b-41d4-a716-446655440000"]	[null]	["550e8400-e29b-41d4-a716-446655440000"]	[null]	["550e8400-e29b-41d4-a716-446655440000"]	[0]
-
--- !map_combinator_runtime_c_4 --
-["018f0f59-1010-7abc-9234-001122334455"]	[null]	["018f0f59-1010-7abc-9234-001122334455"]	[null]	["018f0f59-1010-7abc-9234-001122334455"]	[0]
-
--- !map_combinator_runtime_c_5 --
-["7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000"]	[null, "80000000-0000-0000-0000-000000000000"]	["7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000"]	[null, "80000000-0000-0000-0000-000000000000"]	["7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000"]	[0, 10]
-
--- !map_combinator_runtime_c_6 --
-["7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000"]	[null, "7fffffff-ffff-ffff-ffff-ffffffffffff"]	["7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000"]	[null, "7fffffff-ffff-ffff-ffff-ffffffffffff"]	["7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000"]	[0, 10]
-
--- !map_combinator_runtime_c_7 --
-["00000000-0000-0000-ffff-ffffffffffff", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[null, "00000000-0000-0000-ffff-ffffffffffff"]	["00000000-0000-0000-ffff-ffffffffffff", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[null, "00000000-0000-0000-ffff-ffffffffffff"]	["00000000-0000-0000-ffff-ffffffffffff", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[0, 10]
-
--- !map_combinator_runtime_c_8 --
-["00000000-0000-0000-ffff-ffffffffffff", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[null, "ffffffff-ffff-ffff-ffff-ffffffffffff"]	["00000000-0000-0000-ffff-ffffffffffff", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[null, "ffffffff-ffff-ffff-ffff-ffffffffffff"]	["00000000-0000-0000-ffff-ffffffffffff", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[0, 10]
-
--- !map_combinator_runtime_c_9 --
-["00000000-0000-0001-0000-000000000000"]	[null]	["00000000-0000-0001-0000-000000000000"]	[null]	["00000000-0000-0001-0000-000000000000"]	[0]
-
--- !map_combinator_runtime_v_0 --
-["00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-ffff-ffffffffffff", "00000000-0000-0001-0000-000000000000", "018f0f59-1010-7abc-9234-001122334455", "550e8400-e29b-41d4-a716-446655440000", "7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[null, null, null, null, "00000000-0000-0000-0000-000000000000", "00000000-0000-0000-ffff-ffffffffffff", "7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	["00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-ffff-ffffffffffff", "00000000-0000-0001-0000-000000000000", "018f0f59-1010-7abc-9234-001122334455", "550e8400-e29b-41d4-a716-446655440000", "7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[null, null, null, null, "00000000-0000-0000-0000-000000000000", "00000000-0000-0000-ffff-ffffffffffff", "7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	["00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-ffff-ffffffffffff", "00000000-0000-0001-0000-000000000000", "018f0f59-1010-7abc-9234-001122334455", "550e8400-e29b-41d4-a716-446655440000", "7fffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000", "ffffffff-ffff-ffff-ffff-ffffffffffff"]	[0, 0, 0, 0, 1, 1, 1, 1, 1]
-
 -- !empty_null --
 \N	\N	0	0	0	[]	[]	[]	{"num_buckets":0,"buckets":[]}	{}
 
@@ -1934,26 +1835,17 @@ ffffffff-ffff-ffff-ffff-ffffffffffff	00000000-0000-0000-0000-000000000000	9
 80000000-0000-0000-0000-000000000000	["80000000-0000-0000-0000-000000000000"]	["80000000-0000-0000-0000-000000000000"]	["80000000-0000-0000-0000-000000000000"]	["80000000-0000-0000-0000-000000000000"]
 ffffffff-ffff-ffff-ffff-ffffffffffff	["ffffffff-ffff-ffff-ffff-ffffffffffff"]	["ffffffff-ffff-ffff-ffff-ffffffffffff"]	["ffffffff-ffff-ffff-ffff-ffffffffffff"]	["ffffffff-ffff-ffff-ffff-ffffffffffff"]
 
--- !histogram --
-{"num_buckets":1,"buckets":[{"lower":"00000000-0000-0000-0000-000000000000","upper":"ffffffff-ffff-ffff-ffff-ffffffffffff","ndv":9,"count":9,"pre_sum":0}]}	{"num_buckets":1,"buckets":[{"lower":"00000000-0000-0000-0000-000000000000","upper":"ffffffff-ffff-ffff-ffff-ffffffffffff","ndv":9,"count":9,"pre_sum":0}]}
-
--- !histogram --
-{"num_buckets":3,"buckets":[{"lower":"00000000-0000-0000-0000-000000000000","upper":"00000000-0000-0000-ffff-ffffffffffff","ndv":3,"count":3,"pre_sum":0},{"lower":"00000000-0000-0001-0000-000000000000","upper":"550e8400-e29b-41d4-a716-446655440000","ndv":3,"count":3,"pre_sum":3},{"lower":"7fffffff-ffff-ffff-ffff-ffffffffffff","upper":"ffffffff-ffff-ffff-ffff-ffffffffffff","ndv":3,"count":3,"pre_sum":6}]}	{"num_buckets":3,"buckets":[{"lower":"00000000-0000-0000-0000-000000000000","upper":"00000000-0000-0000-ffff-ffffffffffff","ndv":3,"count":3,"pre_sum":0},{"lower":"00000000-0000-0001-0000-000000000000","upper":"550e8400-e29b-41d4-a716-446655440000","ndv":3,"count":3,"pre_sum":3},{"lower":"7fffffff-ffff-ffff-ffff-ffffffffffff","upper":"ffffffff-ffff-ffff-ffff-ffffffffffff","ndv":3,"count":3,"pre_sum":6}]}
-
--- !foreach --
-["00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000000", "7fffffff-ffff-ffff-ffff-ffffffffffff", "550e8400-e29b-41d4-a716-446655440000", "00000000-0000-0000-0000-000000000000"]	["ffffffff-ffff-ffff-ffff-ffffffffffff", "ffffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000", "550e8400-e29b-41d4-a716-446655440000", "00000000-0000-0000-0000-000000000000"]	[7, 5, 2, 2, 1]
-
--- !topn --
-\N	\N	\N	[]	[]
-00000000-0000-0000-0000-000000000000	["00000000-0000-0000-0000-000000000000"]	["00000000-0000-0000-0000-000000000000"]	["00000000-0000-0000-0000-000000000000"]	["00000000-0000-0000-0000-000000000000"]
-00000000-0000-0000-0000-000000000001	["00000000-0000-0000-0000-000000000001"]	["00000000-0000-0000-0000-000000000001"]	["00000000-0000-0000-0000-000000000001"]	["00000000-0000-0000-0000-000000000001"]
-00000000-0000-0000-ffff-ffffffffffff	["00000000-0000-0000-ffff-ffffffffffff"]	["00000000-0000-0000-ffff-ffffffffffff"]	["00000000-0000-0000-ffff-ffffffffffff"]	["00000000-0000-0000-ffff-ffffffffffff"]
-00000000-0000-0001-0000-000000000000	["00000000-0000-0001-0000-000000000000"]	["00000000-0000-0001-0000-000000000000"]	["00000000-0000-0001-0000-000000000000"]	["00000000-0000-0001-0000-000000000000"]
-018f0f59-1010-7abc-9234-001122334455	["018f0f59-1010-7abc-9234-001122334455"]	["018f0f59-1010-7abc-9234-001122334455"]	["018f0f59-1010-7abc-9234-001122334455"]	["018f0f59-1010-7abc-9234-001122334455"]
-550e8400-e29b-41d4-a716-446655440000	["550e8400-e29b-41d4-a716-446655440000"]	["550e8400-e29b-41d4-a716-446655440000"]	["550e8400-e29b-41d4-a716-446655440000"]	["550e8400-e29b-41d4-a716-446655440000"]
-7fffffff-ffff-ffff-ffff-ffffffffffff	["7fffffff-ffff-ffff-ffff-ffffffffffff"]	["7fffffff-ffff-ffff-ffff-ffffffffffff"]	["7fffffff-ffff-ffff-ffff-ffffffffffff"]	["7fffffff-ffff-ffff-ffff-ffffffffffff"]
-80000000-0000-0000-0000-000000000000	["80000000-0000-0000-0000-000000000000"]	["80000000-0000-0000-0000-000000000000"]	["80000000-0000-0000-0000-000000000000"]	["80000000-0000-0000-0000-000000000000"]
-ffffffff-ffff-ffff-ffff-ffffffffffff	["ffffffff-ffff-ffff-ffff-ffffffffffff"]	["ffffffff-ffff-ffff-ffff-ffffffffffff"]	["ffffffff-ffff-ffff-ffff-ffffffffffff"]	["ffffffff-ffff-ffff-ffff-ffffffffffff"]
+-- !collect_column_limit --
+0	[]	[]
+1	["00000000-0000-0000-0000-000000000000"]	["00000000-0000-0000-0000-000000000000"]
+2	["00000000-0000-0000-0000-000000000001"]	["00000000-0000-0000-0000-000000000001"]
+3	[]	[]
+4	[]	[]
+5	["7fffffff-ffff-ffff-ffff-ffffffffffff"]	["7fffffff-ffff-ffff-ffff-ffffffffffff"]
+6	["80000000-0000-0000-0000-000000000000"]	["80000000-0000-0000-0000-000000000000"]
+7	[]	[]
+8	[]	[]
+9	["00000000-0000-0001-0000-000000000000"]	["00000000-0000-0001-0000-000000000000"]
 
 -- !histogram --
 {"num_buckets":1,"buckets":[{"lower":"00000000-0000-0000-0000-000000000000","upper":"ffffffff-ffff-ffff-ffff-ffffffffffff","ndv":9,"count":9,"pre_sum":0}]}	{"num_buckets":1,"buckets":[{"lower":"00000000-0000-0000-0000-000000000000","upper":"ffffffff-ffff-ffff-ffff-ffffffffffff","ndv":9,"count":9,"pre_sum":0}]}
@@ -1975,4 +1867,49 @@ ffffffff-ffff-ffff-ffff-ffffffffffff	["ffffffff-ffff-ffff-ffff-ffffffffffff"]	["
 7fffffff-ffff-ffff-ffff-ffffffffffff	["7fffffff-ffff-ffff-ffff-ffffffffffff"]	["7fffffff-ffff-ffff-ffff-ffffffffffff"]	["7fffffff-ffff-ffff-ffff-ffffffffffff"]	["7fffffff-ffff-ffff-ffff-ffffffffffff"]
 80000000-0000-0000-0000-000000000000	["80000000-0000-0000-0000-000000000000"]	["80000000-0000-0000-0000-000000000000"]	["80000000-0000-0000-0000-000000000000"]	["80000000-0000-0000-0000-000000000000"]
 ffffffff-ffff-ffff-ffff-ffffffffffff	["ffffffff-ffff-ffff-ffff-ffffffffffff"]	["ffffffff-ffff-ffff-ffff-ffffffffffff"]	["ffffffff-ffff-ffff-ffff-ffffffffffff"]	["ffffffff-ffff-ffff-ffff-ffffffffffff"]
+
+-- !collect_column_limit --
+0	[]	[]
+1	["00000000-0000-0000-0000-000000000000"]	["00000000-0000-0000-0000-000000000000"]
+2	["00000000-0000-0000-0000-000000000001"]	["00000000-0000-0000-0000-000000000001"]
+3	[]	[]
+4	[]	[]
+5	["7fffffff-ffff-ffff-ffff-ffffffffffff"]	["7fffffff-ffff-ffff-ffff-ffffffffffff"]
+6	["80000000-0000-0000-0000-000000000000"]	["80000000-0000-0000-0000-000000000000"]
+7	[]	[]
+8	[]	[]
+9	["00000000-0000-0001-0000-000000000000"]	["00000000-0000-0001-0000-000000000000"]
+
+-- !histogram --
+{"num_buckets":1,"buckets":[{"lower":"00000000-0000-0000-0000-000000000000","upper":"ffffffff-ffff-ffff-ffff-ffffffffffff","ndv":9,"count":9,"pre_sum":0}]}	{"num_buckets":1,"buckets":[{"lower":"00000000-0000-0000-0000-000000000000","upper":"ffffffff-ffff-ffff-ffff-ffffffffffff","ndv":9,"count":9,"pre_sum":0}]}
+
+-- !histogram --
+{"num_buckets":3,"buckets":[{"lower":"00000000-0000-0000-0000-000000000000","upper":"00000000-0000-0000-ffff-ffffffffffff","ndv":3,"count":3,"pre_sum":0},{"lower":"00000000-0000-0001-0000-000000000000","upper":"550e8400-e29b-41d4-a716-446655440000","ndv":3,"count":3,"pre_sum":3},{"lower":"7fffffff-ffff-ffff-ffff-ffffffffffff","upper":"ffffffff-ffff-ffff-ffff-ffffffffffff","ndv":3,"count":3,"pre_sum":6}]}	{"num_buckets":3,"buckets":[{"lower":"00000000-0000-0000-0000-000000000000","upper":"00000000-0000-0000-ffff-ffffffffffff","ndv":3,"count":3,"pre_sum":0},{"lower":"00000000-0000-0001-0000-000000000000","upper":"550e8400-e29b-41d4-a716-446655440000","ndv":3,"count":3,"pre_sum":3},{"lower":"7fffffff-ffff-ffff-ffff-ffffffffffff","upper":"ffffffff-ffff-ffff-ffff-ffffffffffff","ndv":3,"count":3,"pre_sum":6}]}
+
+-- !foreach --
+["00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000000", "7fffffff-ffff-ffff-ffff-ffffffffffff", "550e8400-e29b-41d4-a716-446655440000", "00000000-0000-0000-0000-000000000000"]	["ffffffff-ffff-ffff-ffff-ffffffffffff", "ffffffff-ffff-ffff-ffff-ffffffffffff", "80000000-0000-0000-0000-000000000000", "550e8400-e29b-41d4-a716-446655440000", "00000000-0000-0000-0000-000000000000"]	[7, 5, 2, 2, 1]
+
+-- !topn --
+\N	\N	\N	[]	[]
+00000000-0000-0000-0000-000000000000	["00000000-0000-0000-0000-000000000000"]	["00000000-0000-0000-0000-000000000000"]	["00000000-0000-0000-0000-000000000000"]	["00000000-0000-0000-0000-000000000000"]
+00000000-0000-0000-0000-000000000001	["00000000-0000-0000-0000-000000000001"]	["00000000-0000-0000-0000-000000000001"]	["00000000-0000-0000-0000-000000000001"]	["00000000-0000-0000-0000-000000000001"]
+00000000-0000-0000-ffff-ffffffffffff	["00000000-0000-0000-ffff-ffffffffffff"]	["00000000-0000-0000-ffff-ffffffffffff"]	["00000000-0000-0000-ffff-ffffffffffff"]	["00000000-0000-0000-ffff-ffffffffffff"]
+00000000-0000-0001-0000-000000000000	["00000000-0000-0001-0000-000000000000"]	["00000000-0000-0001-0000-000000000000"]	["00000000-0000-0001-0000-000000000000"]	["00000000-0000-0001-0000-000000000000"]
+018f0f59-1010-7abc-9234-001122334455	["018f0f59-1010-7abc-9234-001122334455"]	["018f0f59-1010-7abc-9234-001122334455"]	["018f0f59-1010-7abc-9234-001122334455"]	["018f0f59-1010-7abc-9234-001122334455"]
+550e8400-e29b-41d4-a716-446655440000	["550e8400-e29b-41d4-a716-446655440000"]	["550e8400-e29b-41d4-a716-446655440000"]	["550e8400-e29b-41d4-a716-446655440000"]	["550e8400-e29b-41d4-a716-446655440000"]
+7fffffff-ffff-ffff-ffff-ffffffffffff	["7fffffff-ffff-ffff-ffff-ffffffffffff"]	["7fffffff-ffff-ffff-ffff-ffffffffffff"]	["7fffffff-ffff-ffff-ffff-ffffffffffff"]	["7fffffff-ffff-ffff-ffff-ffffffffffff"]
+80000000-0000-0000-0000-000000000000	["80000000-0000-0000-0000-000000000000"]	["80000000-0000-0000-0000-000000000000"]	["80000000-0000-0000-0000-000000000000"]	["80000000-0000-0000-0000-000000000000"]
+ffffffff-ffff-ffff-ffff-ffffffffffff	["ffffffff-ffff-ffff-ffff-ffffffffffff"]	["ffffffff-ffff-ffff-ffff-ffffffffffff"]	["ffffffff-ffff-ffff-ffff-ffffffffffff"]	["ffffffff-ffff-ffff-ffff-ffffffffffff"]
+
+-- !collect_column_limit --
+0	[]	[]
+1	["00000000-0000-0000-0000-000000000000"]	["00000000-0000-0000-0000-000000000000"]
+2	["00000000-0000-0000-0000-000000000001"]	["00000000-0000-0000-0000-000000000001"]
+3	[]	[]
+4	[]	[]
+5	["7fffffff-ffff-ffff-ffff-ffffffffffff"]	["7fffffff-ffff-ffff-ffff-ffffffffffff"]
+6	["80000000-0000-0000-0000-000000000000"]	["80000000-0000-0000-0000-000000000000"]
+7	[]	[]
+8	[]	[]
+9	["00000000-0000-0001-0000-000000000000"]	["00000000-0000-0001-0000-000000000000"]
 

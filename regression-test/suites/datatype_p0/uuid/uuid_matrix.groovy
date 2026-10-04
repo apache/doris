@@ -60,6 +60,7 @@ class UuidMatrix {
     }
 
     // Enumerate every legal argument-position mask, not only column/constant in one direction.
+    // constantArguments lists zero-based positions that cannot accept stored columns.
     // aligned=true is for operators requiring equal-length arrays; each row is still tested.
     // Aggregate/window operators retain their own execution semantics under folding modes.
     static void run(Suite suite, String group, String table, List<String> columns,
@@ -73,6 +74,9 @@ class UuidMatrix {
             suite.sql "SET debug_skip_fold_constant = ${mode == 'runtime'}"
             suite.sql "SET enable_fold_constant_by_be = ${mode == 'be'}"
             for (int mask = 0; mask <= allColumns; ++mask) {
+                if (options.constantArguments?.any { (mask & (1 << it)) != 0 }) {
+                    continue
+                }
                 List<Integer> samples = mask == allColumns ? [0] : (0..<inputRows.size()).toList()
                 for (int sample : samples) {
                     List<String> args = columns.withIndex().collect { column, i ->
