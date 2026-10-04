@@ -101,7 +101,8 @@ private:
     void _prepare_jni_scanner_schema();
     void _apply_common_scanner_params();
     // Waits at the JVM heap gate for the heap this split's range declares, if it declares any.
-    void _admit_by_declared_heap();
+    // False when the scan stopped meanwhile: then the split opens no Java scanner.
+    [[nodiscard]] bool _admit_by_declared_heap();
     Status _create_jni_scanner(JNIEnv* env, int batch_size);
     // get_next
     Status _fill_jni_block(JniDataBridge::TableMetaAddress& table_meta, size_t num_rows);
