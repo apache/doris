@@ -201,35 +201,60 @@ public class SPMRound32SafetyTest {
     // ==================== #1: the forwarded session baseline payload ====================
 
     /**
-     * The SESSION baselines of a forwarding connection ride in one session variable, part of
-     * a Thrift request whose default message limit is 100 MiB: an unbounded serialization
-     * of enough baselines (each with BOTH SQL texts) made every forwarded statement of the
-     * connection fail with a transport error. Rows are carried in id order until the
-     * budget is spent, so the statement still runs.
+     * round-32 #1 / round-34 #3: the SESSION baselines of a forwarding connection ride in
+     * one session variable, part of a Thrift request whose default message limit is
+     * 100 MiB. The budget is now enforced where the rows are CREATED - the store rejects a
+     * baseline that would not fit - instead of letting serialize drop rows: a dropped row
+     * still participated in LOCAL matching, so the same connection rewrote a statement
+     * with its SESSION baseline yet planned the FORWARDED statement without it (falling
+     * through to a GLOBAL baseline or to none). Every accepted row is therefore always
+     * carried.
      */
     @Test
-    public void testForwardedSessionPayloadIsBounded() {
+    public void testForwardedSessionPayloadBudgetIsEnforcedAtCreation() {
         SessionBaselineStore store = new SessionBaselineStore();
         String filler = "x".repeat(2 * 1024 * 1024);
-        int rows = 8;
-        for (int i = 0; i < rows; i++) {
+        int accepted = 0;
+        String rejection = null;
+        for (int i = 0; i < 8; i++) {
             BaselinePlan plan = new BaselinePlan();
             plan.setBindSql("select " + i + " /* " + filler + " */");
             plan.setPlanSql("select " + i + " /* " + filler + " */");
             plan.setBindSqlDigest("digest-" + i);
             plan.setBindSqlHash(i + 1);
             plan.setStatus(BaselineStatus.ENABLED);
-            store.createBaseline(plan);
+            try {
+                store.createBaseline(plan);
+                accepted++;
+            } catch (IllegalStateException e) {
+                rejection = e.getMessage();
+                break;
+            }
         }
+        Assertions.assertTrue(accepted >= 1, "the budget must accept the first rows");
+        Assertions.assertTrue(accepted < 8, "the budget must reject the rows over it");
+        Assertions.assertNotNull(rejection, "over-budget creations must be rejected");
+        Assertions.assertTrue(rejection.contains("payload"), rejection);
+
         String payload = SPMForwardedSession.serialize(store);
-        Assertions.assertFalse(payload.isEmpty(), "the budget must carry the first rows");
-        Assertions.assertTrue(payload.length() <= 8 * 1024 * 1024 + 64 * 1024,
-                "the payload must stay far below the 100 MiB transport limit, got "
-                        + payload.length());
-        Assertions.assertTrue(payload.contains("select 0"),
-                "the first (oldest id) rows are carried");
-        Assertions.assertFalse(payload.contains("select " + (rows - 1) + " "),
-                "the rows over the budget are skipped: " + payload.length());
+        Assertions.assertTrue(payload.length() <= SPMForwardedSession.MAX_PAYLOAD_CHARS,
+                "the payload stays inside the transport budget: " + payload.length());
+        for (int i = 0; i < accepted; i++) {
+            Assertions.assertTrue(payload.contains("select " + i + " "),
+                    "EVERY accepted row must be carried - a silently skipped row changed the"
+                            + " rewrite context of the forwarded statement: row " + i);
+        }
+
+        // dropping a row frees its share of the budget for a new creation
+        store.dropBaseline(store.getAllBaselines().get(0).getId());
+        BaselinePlan replacement = new BaselinePlan();
+        replacement.setBindSql("select 99 /* " + filler + " */");
+        replacement.setPlanSql("select 99 /* " + filler + " */");
+        replacement.setBindSqlDigest("digest-99");
+        replacement.setBindSqlHash(99);
+        store.createBaseline(replacement);
+        Assertions.assertTrue(SPMForwardedSession.serialize(store).contains("select 99 "),
+                "the freed budget must be usable again");
     }
 
     /** An empty / disabled store carries nothing at all. */

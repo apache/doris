@@ -399,6 +399,23 @@ public class PlanCaptureFilter {
      *         cannot be parsed / contains no table
      */
     public static List<String> extractTableNames(String sql) {
+        return extractTableNames(sql, "", "");
+    }
+
+    /**
+     * As {@link #extractTableNames(String)}, resolving every reference that omits its
+     * catalog / database against the AUDITED session's namespace. Without that the SAME
+     * physical table appears under two identities - `SELECT a.k FROM t a JOIN db.t b` in
+     * a session using db yields both `t` and `db.t` - and the Level 3
+     * {@code >= 2 distinct tables} gate admitted a single-table (self-join) workload,
+     * which then got a GLOBAL baseline.
+     *
+     * @param sql     the query text
+     * @param catalog the audited query's catalog (may be empty)
+     * @param db      the audited query's database (may be empty)
+     * @return the distinct resolved table names (sorted)
+     */
+    public static List<String> extractTableNames(String sql, String catalog, String db) {
         try {
             Plan parsed = new NereidsParser().parseSingle(sql);
             if (parsed instanceof LogicalPlan) {
@@ -414,12 +431,58 @@ public class PlanCaptureFilter {
                         .distinct()
                         .sorted()
                         .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
-                return dedupeUnderNameCaseRule(names);
+                return dedupeUnderNameCaseRule(dedupeByResolvedIdentity(names, catalog, db));
             }
         } catch (RuntimeException e) {
             // parse failure: cannot extract tables, treat as not capturable
         }
         return List.of();
+    }
+
+    /**
+     * Deduplicates references that RESOLVE to the same physical table (see
+     * {@link #extractTableNames(String, String, String)}): {@code t} and {@code db.t} in a
+     * session using db are ONE table, and counting them separately admitted a
+     * single-table self-join through the Level 3 gate. The FIRST spelling in sorted order
+     * is kept, so the Level 4 / 5 checks still see the reference AS WRITTEN -
+     * {@link #tableExists} deliberately treats an unverifiable (one-part) name as
+     * existing, and returning a fully resolved name would turn a transient metadata gap
+     * into a definitive MISSING verdict.
+     */
+    private static List<String> dedupeByResolvedIdentity(List<String> names, String catalog,
+            String db) {
+        LinkedHashMap<String, String> byIdentity = new LinkedHashMap<>();
+        for (String name : names) {
+            byIdentity.putIfAbsent(normalizeCteName(resolveTableName(name, catalog, db)), name);
+        }
+        return new ArrayList<>(byIdentity.values());
+    }
+
+    /**
+     * Normalizes ONE table reference against the audited namespace: a name missing its
+     * catalog (db.table) or both (table) gets the audited qualifiers, so `t` and `db.t`
+     * become the same identity. A reference that cannot be completed (a bare name with no
+     * audited database) is left as written.
+     */
+    private static String resolveTableName(String fullName, String catalog, String db) {
+        List<String> parts = splitQualifiedName(fullName);
+        if (parts.isEmpty() || parts.size() >= 3) {
+            return fullName; // already fully qualified (nothing to complete)
+        }
+        boolean hasDb = db != null && !db.isEmpty();
+        List<String> resolved = new ArrayList<>();
+        if (catalog != null && !catalog.isEmpty()) {
+            resolved.add(catalog);
+        }
+        if (parts.size() == 2) {
+            resolved.add(parts.get(0)); // db.table: the db comes from the reference
+        } else if (hasDb) {
+            resolved.add(db);           // bare table: the db comes from the session
+        } else {
+            return fullName;
+        }
+        resolved.add(parts.get(parts.size() - 1));
+        return joinNameParts(resolved);
     }
 
     /**

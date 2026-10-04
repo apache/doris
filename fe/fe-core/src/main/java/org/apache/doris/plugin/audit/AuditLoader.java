@@ -36,7 +36,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.TimeUnit;
 
 /*
  * This plugin will load audit log to specified doris table at specified interval
@@ -200,21 +199,32 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         if (queue == null) {
             return 0L;
         }
-        long oldest = batchOldestEventTime;
-        // the queue is drained FIFO, but the ENQUEUE order is not the event-time order (the
-        // upstream hold releases events by completion, not by start), so every queued event
-        // is examined. The queue is a weak-consistency view and the scan is cheap next to a
-        // capture cycle; a concurrently dequeued event is simply no longer outstanding.
-        for (AuditEvent event : queue) {
-            if (event == null) {
-                continue;
+        // The batch value and the queue are ONE state (an event moves from the queue into
+        // the batch, see transferNextEvent): the read takes the same monitor as the
+        // transfer and the batch reset, so it can never observe an event in NEITHER
+        // structure. The previous unsynchronized read could: the worker polled an event
+        // (gone from the queue) and the reader - between that poll and assembleAudit -
+        // read the STALE batch value and an empty queue, reporting "nothing outstanding"
+        // while an accepted event was still unpublished; the capture then advanced its
+        // watermark past the row the loader eventually wrote.
+        synchronized (this) {
+            long oldest = batchOldestEventTime;
+            // the queue is drained FIFO, but the ENQUEUE order is not the event-time order
+            // (the upstream hold releases events by completion, not by start), so every
+            // queued event is examined. The queue is a weak-consistency view and the scan
+            // is cheap next to a capture cycle; a concurrently dequeued event is simply no
+            // longer outstanding.
+            for (AuditEvent event : queue) {
+                if (event == null) {
+                    continue;
+                }
+                long eventTime = event.timestamp;
+                if (eventTime > 0 && (oldest == 0 || eventTime < oldest)) {
+                    oldest = eventTime;
+                }
             }
-            long eventTime = event.timestamp;
-            if (eventTime > 0 && (oldest == 0 || eventTime < oldest)) {
-                oldest = eventTime;
-            }
+            return oldest;
         }
-        return oldest;
     }
 
     private void fillLogBuffer(AuditEvent event, StringBuilder logBuffer) {
@@ -372,11 +382,14 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     }
 
     private void resetBatch(long currentTime) {
-        this.auditLogBuffer = new StringBuilder();
-        this.lastLoadTimeAuditLog = currentTime;
-        this.auditLogNum = 0;
-        // the batch is published now (its load has returned), so it no longer fences progress
-        this.batchOldestEventTime = 0;
+        synchronized (this) {
+            this.auditLogBuffer = new StringBuilder();
+            this.lastLoadTimeAuditLog = currentTime;
+            this.auditLogNum = 0;
+            // the batch is published now (its load has returned), so it no longer fences
+            // progress
+            this.batchOldestEventTime = 0;
+        }
     }
 
     private class LoadWorker implements Runnable {
@@ -387,10 +400,14 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         public void run() {
             while (!isClosed) {
                 try {
-                    AuditEvent event = auditEventQueue.poll(QUEUE_POLL_INTERVAL_MILLIS,
-                            TimeUnit.MILLISECONDS);
-                    if (event != null) {
-                        assembleAudit(event);
+                    // the poll and the assembly are ONE atomic step (see
+                    // transferNextEvent): a reader of the publication horizon must never
+                    // see the event in neither the queue nor the batch
+                    AuditEvent event = transferNextEvent();
+                    if (event == null) {
+                        // idle: wait OUTSIDE the monitor so the horizon read / another
+                        // transfer is never blocked by an empty queue
+                        Thread.sleep(QUEUE_POLL_INTERVAL_MILLIS);
                     }
                     // process all audit logs
                     loadIfNecessary(false);
@@ -402,6 +419,26 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                     LOG.error("run audit logger error:", e);
                 }
             }
+        }
+    }
+
+    /**
+     * Moves ONE queued event into the current batch, ATOMICALLY with the horizon read
+     * (see {@link #oldestOutstandingEventTime}): the poll and the assembly happen under
+     * the loader monitor, so an accepted event is always visible - in the queue before
+     * the poll, in the batch after the assembly, never in neither. The previous
+     * {@code poll()} outside the monitor left exactly that window open, and a capture
+     * cycle reading the horizon during it concluded that nothing was outstanding.
+     *
+     * @return the transferred event, or null when the queue is empty
+     */
+    private AuditEvent transferNextEvent() throws InterruptedException {
+        synchronized (this) {
+            AuditEvent event = auditEventQueue.poll();
+            if (event != null) {
+                assembleAudit(event);
+            }
+            return event;
         }
     }
 }

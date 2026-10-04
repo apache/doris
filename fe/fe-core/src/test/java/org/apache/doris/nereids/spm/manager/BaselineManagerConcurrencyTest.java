@@ -817,8 +817,9 @@ public class BaselineManagerConcurrencyTest {
             Assertions.assertTrue(
                     store.operations.stream().noneMatch(op -> op.startsWith("delete:")),
                     "the delayed DELETE must never reach the table: " + store.operations);
-            Assertions.assertEquals(BaselineStatus.ENABLED, manager.getBaseline(id).getStatus(),
-                    "a fenced flip must not be published");
+            Assertions.assertEquals(BaselineStatus.DISABLED, manager.getBaseline(id).getStatus(),
+                    "the fenced ALTER still published the CONFIRMED new-status row: the old"
+                            + " status must not stay replayable (round-34 #2)");
         } finally {
             BaselineManager.leaderProbeForTest = null;
             BaselineManager.statusProtocolStoreForTest = null;
@@ -850,7 +851,7 @@ public class BaselineManagerConcurrencyTest {
 
             IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
                     () -> manager.updateStatus(id, BaselineStatus.ENABLED));
-            Assertions.assertTrue(failure.getMessage().contains("row is gone"),
+            Assertions.assertTrue(failure.getMessage().contains("row was gone"),
                     failure.getMessage());
             Assertions.assertTrue(
                     store.operations.stream().noneMatch(op -> op.startsWith("insert:")),
@@ -1732,6 +1733,22 @@ public class BaselineManagerConcurrencyTest {
         private boolean failReconcileReadAfterFailedDelete;
         /** Set by the failed delete: no read can tell what happened. */
         private boolean unconfirmableReads;
+        /**
+         * The conditional INSERT reports SQL OK but wrote NOTHING (its SELECT matched no
+         * previous-status row): the previous-status row is NOT removed, so a store that
+         * only counted "is the previous row still there" cannot see the zero write - the
+         * affected-row count can.
+         */
+        private boolean failInsertWithoutWriting;
+
+        @Override
+        public boolean insertIfPreviousPresent(BaselinePlan plan, BaselineStatus previousStatus) {
+            if (failInsertWithoutWriting) {
+                return false; // matched no row -> wrote nothing (affected rows = 0)
+            }
+            insert(plan);
+            return true;
+        }
 
         @Override
         public void insert(BaselinePlan plan) {
@@ -1800,7 +1817,7 @@ public class BaselineManagerConcurrencyTest {
      * and the next refresh / ALTER retry reconciles the cache with the winner.
      */
     @Test
-    public void testUncommittedStatusDeleteKeepsBothRows() {
+    public void testFailedStatusDeleteKeepsTheNewStatusAndReportsSuccess() {
         BaselineManager manager = BaselineManager.getInstance();
         manager.clearForTest();
         StatusProtocolSimulator store = new StatusProtocolSimulator();
@@ -1810,10 +1827,12 @@ public class BaselineManagerConcurrencyTest {
             store.rows.put(BaselineStatus.ENABLED, 1);
             store.failOldDeleteWithoutCommit = true;
 
-            Assertions.assertThrows(RuntimeException.class,
-                    () -> manager.updateStatus(id, BaselineStatus.DISABLED));
-            Assertions.assertEquals(BaselineStatus.ENABLED, manager.getBaseline(id).getStatus(),
-                    "the failed ALTER must not flip the live object");
+            Assertions.assertTrue(manager.updateStatus(id, BaselineStatus.DISABLED),
+                    "the CONFIRMED new-status row is the durable winner: the ALTER reports"
+                            + " success");
+            Assertions.assertEquals(BaselineStatus.DISABLED, manager.getBaseline(id).getStatus(),
+                    "the cache must follow the durable winner - keeping the OLD status let"
+                            + " queries replay a baseline the durable table already disabled");
             Assertions.assertEquals(1, store.rows.getOrDefault(BaselineStatus.ENABLED, 0),
                     "the old version must survive: " + store.rows);
             Assertions.assertEquals(1, store.rows.getOrDefault(BaselineStatus.DISABLED, 0),
@@ -1827,10 +1846,109 @@ public class BaselineManagerConcurrencyTest {
     }
 
     /**
-     * round-30 #2: the reconciliation read itself can fail. Treating that "no" as "the old
-     * row survived, safe to roll back" deleted the ONLY other durable version - and the
-     * committed old-row delete then removed the old one as well. An unconfirmable outcome
-     * must keep BOTH rows and report the failure.
+     * round-34 #1: SQL OK does NOT prove the conditional INSERT wrote a row. Across a
+     * handoff the old leader can precheck ENABLED, pause, and then run its
+     * {@code INSERT ... SELECT ... WHERE status = 'ENABLED'} AFTER the new master disabled
+     * the baseline: the statement matches nothing, and if the new master re-ENABLEs before
+     * the old leader checks, the previous row is present AGAIN - the old "previous row is
+     * gone" conflict check stays silent while every new-status probe fails, so treating the
+     * result as a committed flip published a status the durable table never had. The
+     * zero-write signal (affected rows / the seam's insert result) must win: report the
+     * conflict and publish NOTHING.
+     */
+    @Test
+    public void testZeroRowConditionalInsertIsNeverPublishedAsAFlip() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        StatusProtocolSimulator store = new StatusProtocolSimulator();
+        try {
+            long id = manager.createBaseline(baseline("d-zerowrite", "p-zerowrite"));
+            BaselineManager.statusProtocolStoreForTest = store;
+            // durable state: ENABLED (the old leader prechecked exactly this)
+            store.rows.put(BaselineStatus.ENABLED, 1);
+            // the conditional INSERT wrote NOTHING, yet the previous-status row is present
+            // again (the concurrent flip landed and was flipped back)
+            store.failInsertWithoutWriting = true;
+
+            IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
+                    () -> manager.updateStatus(id, BaselineStatus.DISABLED));
+            Assertions.assertTrue(failure.getMessage().contains("row was gone"),
+                    failure.getMessage());
+            Assertions.assertEquals(BaselineStatus.ENABLED, manager.getBaseline(id).getStatus(),
+                    "an unobserved status must never be published");
+            Assertions.assertEquals(0, store.rows.getOrDefault(BaselineStatus.DISABLED, 0),
+                    "the failed flip must leave the durable state alone: " + store.rows);
+        } finally {
+            BaselineManager.statusProtocolStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-34 #5: the internal DATETIME stores only SECONDS. A DISABLE followed by an
+     * ENABLE inside one second left EQUAL durable timestamps, and {@code pickDurableWinner}
+     * prefers DISABLED on a tie - the refresh / restart silently reversed the later ENABLE
+     * while this FE served it. A flip therefore advances its row past the newest existing
+     * stored SECOND.
+     */
+    @Test
+    public void testStatusFlipIsDurablyLaterThanTheRowItSupersedes() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            BaselinePlan disabled = baseline("d-tie", "p-tie");
+            disabled.setStatus(BaselineStatus.DISABLED);
+            long id = manager.createBaseline(disabled);
+            // the existing row was written inside the SAME second as the flip below
+            long now = System.currentTimeMillis();
+            BaselinePlan existing = store.rowsOf(id).get(0);
+            existing.setUpdateTime(now);
+
+            Assertions.assertTrue(manager.updateStatus(id, BaselineStatus.ENABLED));
+            BaselinePlan enabled = store.rowsOf(id).stream()
+                    .filter(row -> row.getStatus() == BaselineStatus.ENABLED)
+                    .findFirst().orElseThrow();
+            Assertions.assertTrue(
+                    BaselineManager.toTs(enabled.getUpdateTime())
+                            .compareTo(BaselineManager.toTs(now)) > 0,
+                    "the flip must be stored LATER than the row it supersedes, even inside"
+                            + " one second: " + enabled.getUpdateTime() + " vs " + now);
+            BaselinePlan winner = store.rowsOf(id).get(0);
+            for (BaselinePlan row : store.rowsOf(id)) {
+                winner = BaselineManager.pickDurableWinner(winner, row);
+            }
+            Assertions.assertEquals(BaselineStatus.ENABLED, winner.getStatus(),
+                    "the later ENABLE must win the durable pair instead of being reversed"
+                            + " by the DISABLED tie-break");
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * The affected-row signal of the conditional status INSERT (see
+     * {@code BaselineManager#insertWroteRows}): 0 means the statement matched no
+     * previous-status row and wrote NOTHING, anything else (including "unknown") counts as
+     * written and is then subject to the visibility confirmation.
+     */
+    @Test
+    public void testConditionalInsertAffectedRowsDistinguishAZeroWrite() {
+        Assertions.assertFalse(BaselineManager.insertWroteRows(0L),
+                "a conditional INSERT that matched no row reported SQL OK with 0 affected"
+                        + " rows: nothing was written");
+        Assertions.assertTrue(BaselineManager.insertWroteRows(1L));
+        Assertions.assertTrue(BaselineManager.insertWroteRows(5L));
+        Assertions.assertTrue(BaselineManager.insertWroteRows(-1L),
+                "an unknown count is NOT proof of a zero write");
+    }
+
+    /**
+     * round-30 #2 / round-34 #2: an UNCONFIRMABLE old-row delete can no longer lose the
+     * only other durable version - the confirmed INSERT alone decides the winner, so both
+     * rows stay and the cache follows the new status.
      */
     @Test
     public void testFailedReconciliationReadKeepsBothStatusRows() {
@@ -1844,10 +1962,11 @@ public class BaselineManagerConcurrencyTest {
             store.failOldDeleteWithoutCommit = true;
             store.failReconcileReadAfterFailedDelete = true;
 
-            Assertions.assertThrows(RuntimeException.class,
-                    () -> manager.updateStatus(id, BaselineStatus.DISABLED));
-            Assertions.assertEquals(BaselineStatus.ENABLED, manager.getBaseline(id).getStatus(),
-                    "the failed ALTER must not flip the live object");
+            Assertions.assertTrue(manager.updateStatus(id, BaselineStatus.DISABLED),
+                    "the confirmed INSERT alone decides the outcome: the failing old-row"
+                            + " delete cannot turn it back into a failure");
+            Assertions.assertEquals(BaselineStatus.DISABLED, manager.getBaseline(id).getStatus(),
+                    "the durable winner decides, not the (unreadable) old row");
             Assertions.assertEquals(1, store.rows.getOrDefault(BaselineStatus.ENABLED, 0),
                     "the old version must survive: " + store.rows);
             Assertions.assertEquals(1, store.rows.getOrDefault(BaselineStatus.DISABLED, 0),

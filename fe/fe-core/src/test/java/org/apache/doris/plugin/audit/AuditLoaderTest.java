@@ -71,6 +71,54 @@ public class AuditLoaderTest {
         Assertions.assertTrue(getAuditLogBuffer(auditLoader).contains(auditEvent.queryId));
     }
 
+    /**
+     * round-34 #7: the queue -> batch transfer must be ATOMIC with the horizon read. The
+     * old worker polled the event (it left the queue) and only then assembled it into the
+     * batch (still unaccounted): a reader running in between saw it in NEITHER structure
+     * and reported "nothing outstanding" while an accepted event was unpublished - the SPM
+     * capture could then advance its watermark past the row the loader eventually wrote.
+     * The transfer takes the loader monitor, exactly like the horizon read.
+     */
+    @Test
+    public void testHorizonCoversAnInFlightQueueToBatchTransfer() throws Exception {
+        AuditLoader loader = new AuditLoader();
+        BlockingQueue<AuditEvent> queue = Queues.newLinkedBlockingDeque();
+        setPrivateField(loader, "auditEventQueue", queue);
+        setRunningLoader(loader);
+        AtomicReference<Throwable> error = new AtomicReference<>();
+        try {
+            queue.add(event(4000L));
+            Thread transfer = new Thread(() -> {
+                try {
+                    Deencapsulation.invoke(loader, "transferNextEvent");
+                } catch (Throwable t) {
+                    error.set(t);
+                }
+            });
+            synchronized (loader) {
+                transfer.start();
+                Assertions.assertTrue(waitForBlocked(transfer),
+                        "the transfer must wait for the monitor the reader is holding");
+                // the transfer CANNOT be half-done: the event is still in the queue ...
+                Assertions.assertEquals(1, queue.size(),
+                        "the poll must happen under the monitor, not before it");
+                // ... and the horizon (same monitor) sees it
+                Assertions.assertEquals(4000L, AuditLoader.oldestUnpublishedEventTime(),
+                        "an accepted event is always visible to the horizon");
+            }
+            transfer.join(5000);
+            Assertions.assertFalse(transfer.isAlive());
+            if (error.get() != null) {
+                throw new AssertionError("transferNextEvent failed", error.get());
+            }
+            Assertions.assertEquals(0, queue.size());
+            Assertions.assertEquals(4000L, AuditLoader.oldestUnpublishedEventTime(),
+                    "after the transfer the event is in the BATCH, still unpublished");
+        } finally {
+            setRunningLoader(null);
+        }
+    }
+
     private boolean waitForBlocked(Thread thread) throws InterruptedException {
         long deadline = System.currentTimeMillis() + 5000;
         while (System.currentTimeMillis() < deadline) {

@@ -235,12 +235,16 @@ suite("test_spm_baseline_ddl", "spm") {
     // back to the deterministic empty state (scoped to this suite's bind)
     order_qt_show_after_drop """SHOW BASELINE PLANS WHERE bind_sql = 'select * from spm_t1 where k1 = 1'"""
 
-    // drop a missing baseline without IF EXISTS -> error
+    // drop a missing baseline without IF EXISTS -> error. Id 0 is in the GLOBAL scope
+    // (BaselineScope.ofId: [1, 2^62) is GLOBAL) but BELOW the generator's first id (1),
+    // so the allocator can never hand it out: a long-lived / parallel cluster may have
+    // allocated 999999 to another suite's real baseline and this DROP would have deleted
+    // it.
     test {
-        sql """DROP BASELINE PLAN 999999"""
+        sql """DROP BASELINE PLAN 0"""
         exception "does not exist"
     }
 
     // drop a missing baseline with IF EXISTS -> ok
-    qt_drop_if_exists """DROP BASELINE PLAN IF EXISTS 999999"""
+    qt_drop_if_exists """DROP BASELINE PLAN IF EXISTS 0"""
 }

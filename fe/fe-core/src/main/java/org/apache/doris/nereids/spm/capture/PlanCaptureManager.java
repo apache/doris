@@ -1060,7 +1060,8 @@ public class PlanCaptureManager extends MasterDaemon {
             // audited session used the default), and a parse failure here silently
             // drops the row as terminal while the cursor advances past it.
             List<String> tables = SqlModeHelper.withSqlMode(candidate.getSqlMode(),
-                    () -> PlanCaptureFilter.extractTableNames(candidate.getStmt()));
+                    () -> PlanCaptureFilter.extractTableNames(candidate.getStmt(),
+                            candidate.getCatalog(), candidate.getDb()));
             if (!eligibilityAlreadyDecided
                     && !filter.shouldCapture(candidate.toAuditEvent(), tables)) {
                 if (tables.size() < 2) {

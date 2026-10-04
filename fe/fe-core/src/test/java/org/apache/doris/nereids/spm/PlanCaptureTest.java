@@ -104,6 +104,27 @@ public class PlanCaptureTest {
         Assertions.assertTrue(tables.stream().anyMatch(t -> t.endsWith("t2")), tables.toString());
     }
 
+    /**
+     * round-34 #8: the Level 3 gate counts RESOLVED physical tables. In a session using
+     * {@code db}, {@code SELECT a.k FROM t a JOIN db.t b ON a.k = b.k} produced the strings
+     * {@code t} and {@code db.t} - the SAME physical table under two identities - so the
+     * self-join passed the {@code >= 2} table gate and was captured although the documented
+     * filter excludes single-table workloads. Resolving the missing qualifiers against the
+     * audited namespace collapses the pair.
+     */
+    @Test
+    public void testExtractTableNamesResolvesTheAuditedNamespace() {
+        List<String> tables = PlanCaptureFilter.extractTableNames(
+                "SELECT a.k FROM t a JOIN db.t b ON a.k = b.k", "internal", "db");
+        Assertions.assertEquals(1, tables.size(),
+                "`t` and `db.t` are the SAME physical table in a session using db: " + tables);
+
+        List<String> distinct = PlanCaptureFilter.extractTableNames(
+                "SELECT a.k FROM t a JOIN other.t b ON a.k = b.k", "internal", "db");
+        Assertions.assertEquals(2, distinct.size(),
+                "db.t and other.t are two physical tables: " + distinct);
+    }
+
     @Test
     public void testExtractTableNamesInvalidSql() {
         // unparseable SQL -> empty list (not an exception)

@@ -137,4 +137,20 @@ public class ShowBaselinePlansCommandTest {
         Assertions.assertFalse(escapedPercent.matcher("SELECT 100x").matches(),
                 "\\% must not act as a wildcard");
     }
+
+    /**
+     * round-34 #6: the internal DATETIME columns are stored and parsed in UTC
+     * (BaselineManager.toTs / fromTs), so SHOW must render them in UTC as well - with the
+     * host zone a row stored as 12:00:00 showed 20:00:00 on an Asia/Shanghai FE and
+     * 12:00:00 on a UTC one, i.e. the SAME baseline had two different create / update
+     * times depending on which FE answered.
+     */
+    @Test
+    public void testBaselineTimesAreRenderedInThePersistedZone() {
+        long noonUtc = java.time.LocalDateTime.of(2026, 1, 1, 12, 0, 0)
+                .toInstant(java.time.ZoneOffset.UTC).toEpochMilli();
+        Assertions.assertEquals("2026-01-01 12:00:00",
+                ShowBaselinePlansCommand.formatTime(noonUtc),
+                "the stored DATETIME is UTC: SHOW must not apply the FE host zone");
+    }
 }

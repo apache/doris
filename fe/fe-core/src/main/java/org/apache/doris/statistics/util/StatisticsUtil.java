@@ -131,10 +131,17 @@ public class StatisticsUtil {
         return execStatisticQuery(sql, true, timeoutSeconds);
     }
 
-    public static void execUpdate(String template, Map<String, String> params) throws Exception {
+    /**
+     * Runs one parameterized internal write; the returned state carries the AFFECTED ROW
+     * count - a conditional {@code INSERT ... SELECT ... WHERE ...} that matches no row
+     * reports SQL OK with 0 affected rows, which is the only way a caller can tell "the
+     * statement wrote nothing" from "the row is written but not yet readable" (see
+     * BaselineManager's status flip).
+     */
+    public static QueryState execUpdate(String template, Map<String, String> params) throws Exception {
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(template);
-        execUpdate(sql);
+        return execUpdate(sql);
     }
 
     /**
@@ -146,11 +153,11 @@ public class StatisticsUtil {
      *
      * @param timeoutSeconds the statement timeout in seconds
      */
-    public static void execUpdate(String template, Map<String, String> params,
+    public static QueryState execUpdate(String template, Map<String, String> params,
             int timeoutSeconds) throws Exception {
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(template);
-        execUpdate(sql, timeoutSeconds);
+        return execUpdate(sql, timeoutSeconds);
     }
 
     public static List<ResultRow> execStatisticQuery(String sql) {

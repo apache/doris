@@ -20,6 +20,7 @@ package org.apache.doris.nereids.spm.manager;
 import org.apache.doris.nereids.spm.BaselinePlan;
 import org.apache.doris.nereids.spm.BaselineScope;
 import org.apache.doris.nereids.spm.BaselineStatus;
+import org.apache.doris.nereids.spm.SPMForwardedSession;
 
 import com.google.common.base.Preconditions;
 
@@ -71,6 +72,17 @@ public class SessionBaselineStore {
 
     /** bindSqlHash -> baseline id list (Level 1 coarse filter index). */
     private final Map<Long, List<Long>> hashIndex = new HashMap<>();
+
+    /**
+     * Payload characters the CURRENT rows take when this connection's baselines are
+     * forwarded (see {@link SPMForwardedSession#payloadRowChars}). The bound is enforced at
+     * CREATION - a store that accepts more than the forwarded payload can carry forced
+     * {@code serialize} to drop rows, and a dropped row still participates in LOCAL
+     * matching: the same statement was rewritten here but planned without that baseline on
+     * the master (a silently different rewrite context). Every accepted row (ENABLED or
+     * not: a later ALTER ENABLE must stay forwardable) therefore always fits.
+     */
+    private long forwardedPayloadChars = 0;
 
     /**
      * Creates a session baseline.
@@ -156,10 +168,22 @@ public class SessionBaselineStore {
         Preconditions.checkState(id >= BaselineScope.SESSION_ID_BASE,
                 "SPM session baseline id %s escaped the session id range", id);
         plan.setId(id);
+        int rowChars = SPMForwardedSession.payloadRowChars(plan);
+        BaselinePlan replaced = baselines.get(id);
+        long usedChars = forwardedPayloadChars
+                - (replaced == null ? 0 : SPMForwardedSession.payloadRowChars(replaced));
+        if (usedChars + rowChars > SPMForwardedSession.MAX_PAYLOAD_CHARS) {
+            // reject the CREATION instead of dropping rows while forwarding (see
+            // forwardedPayloadChars): the statement that fails here is an explicit user
+            // action, while a dropped row would silently change a later statement's plan
+            throw new IllegalStateException("SPM SESSION baseline rejected: this connection's"
+                    + " forwarded baseline payload already uses " + usedChars + " of "
+                    + SPMForwardedSession.MAX_PAYLOAD_CHARS + " characters; drop some SESSION"
+                    + " baselines (DROP SESSION BASELINE PLAN <id>) first");
+        }
         long now = System.currentTimeMillis();
         plan.setCreateTime(now);
         plan.setUpdateTime(now);
-        BaselinePlan replaced = baselines.put(id, plan);
         if (replaced != null) {
             // an import reusing an existing id: drop the previous row's index entry (no
             // id may be indexed twice)
@@ -171,6 +195,8 @@ public class SessionBaselineStore {
                 }
             }
         }
+        baselines.put(id, plan);
+        forwardedPayloadChars = usedChars + rowChars;
         hashIndex.computeIfAbsent(plan.getBindSqlHash(), k -> new ArrayList<>()).add(id);
         return id;
     }
@@ -186,6 +212,7 @@ public class SessionBaselineStore {
         if (removed == null) {
             return false;
         }
+        forwardedPayloadChars -= SPMForwardedSession.payloadRowChars(removed);
         List<Long> ids = hashIndex.get(removed.getBindSqlHash());
         if (ids != null) {
             ids.remove(id);
@@ -237,6 +264,7 @@ public class SessionBaselineStore {
     public synchronized void clear() {
         baselines.clear();
         hashIndex.clear();
+        forwardedPayloadChars = 0;
     }
 
     /**

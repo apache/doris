@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterOpExecutor;
+import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.statistics.repository.ResultRow;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -1336,15 +1337,17 @@ public class BaselineManager {
             BaselineStatus previousStatus = plan.getStatus();
             boolean durableReconcile = persistenceEnabled()
                     || statusProtocolStoreForTest != null || idAllocatorStoreForTest != null;
+            DurableStatus probe = null;
             if (durableReconcile) {
                 // Reconcile against the durable incarnation BEFORE touching anything: a
                 // promoted FE can serve a snapshot that predates the previous master's
                 // DROP, and an opposite-status ALTER over that stale cache would INSERT
                 // the requested status back - resurrecting a baseline the previous
                 // master dropped. The probe also decides the REAL previous status (the
-                // cache may have missed an earlier flip).
-                DurableStatusProbe probe = probeDurableStatus(id, status);
-                if (probe == DurableStatusProbe.UNKNOWN) {
+                // cache may have missed an earlier flip) and hands out the winning row,
+                // whose update time bounds the new row's (see the second bump below).
+                probe = probeDurableStatus(id, status);
+                if (probe.outcome == DurableStatusProbe.UNKNOWN) {
                     // The durable state cannot be CONFIRMED: reporting a no-op success
                     // could leave a durably DISABLED / DROPPED row while this FE serves
                     // its stale snapshot, and the next refresh restores the opposite
@@ -1352,7 +1355,7 @@ public class BaselineManager {
                     throw new IllegalStateException("SPM cannot confirm the durable status of"
                             + " baseline " + id + "; retry the ALTER");
                 }
-                if (probe == DurableStatusProbe.ABSENT) {
+                if (probe.outcome == DurableStatusProbe.ABSENT) {
                     // the row is gone durably (the previous master dropped it): never
                     // report a successful ALTER for a baseline that does not exist
                     LOG.warn("SPM status update of baseline {}: the row is gone durably;"
@@ -1360,7 +1363,7 @@ public class BaselineManager {
                     retireStaleInMemory(List.of(plan));
                     return false;
                 }
-                if (probe == DurableStatusProbe.MATCHES) {
+                if (probe.outcome == DurableStatusProbe.MATCHES) {
                     // the durable row already carries the requested status (the cache
                     // missed an earlier flip): repair the live object and report success
                     // without rewriting the row
@@ -1391,6 +1394,19 @@ public class BaselineManager {
             // baseline). Deleting by the PREVIOUS status can never touch the freshly inserted
             // row (the statuses differ).
             long newUpdateTime = System.currentTimeMillis();
+            // DATETIME stores only SECONDS: two committed flips inside one second keep
+            // EQUAL durable timestamps, and pickDurableWinner prefers DISABLED on such a
+            // tie - a later ENABLE would then be reversed by the next refresh / restart
+            // while this FE temporarily served ENABLED. Advancing the new row past the
+            // newest EXISTING stored second keeps the durable order ("the later intent
+            // wins") exact at the stored precision, so the row this statement writes is
+            // always the durable winner once it is written.
+            if (probe != null && probe.winner != null && probe.winner.getUpdateTime() > 0) {
+                long newestSecond = probe.winner.getUpdateTime() / 1000L;
+                if (newUpdateTime / 1000L <= newestSecond) {
+                    newUpdateTime = (newestSecond + 1) * 1000L;
+                }
+            }
             // Persist a DETACHED snapshot carrying the new status: the live object keeps
             // the old status until the durable write (or the confirmed reconciliation)
             // succeeded - matching readers do not take the writer lock, so publishing
@@ -1400,55 +1416,72 @@ public class BaselineManager {
             BaselinePlan durablePlan = plan.copyPersistedScalars();
             durablePlan.setStatus(status);
             durablePlan.setUpdateTime(newUpdateTime);
+            boolean insertWritten;
             try {
                 assertLeaderForWrite();
-                persistTransitionInsert(durablePlan, previousStatus);
+                insertWritten = persistTransitionInsert(durablePlan, previousStatus);
+            } catch (UnconfirmedInsertException e) {
+                // The conditional INSERT WROTE the new-status row (the affected-row count /
+                // the committed-write probe is the evidence) - only its PUBLICATION lags
+                // past every probe. The row is durable, and its stored second is strictly
+                // later than every row the write met (see the bump above), so it IS the
+                // durable winner (pickDurableWinner). Keeping the OLD cached status here
+                // let ordinary queries keep replaying a baseline whose durable winner is
+                // already the requested status. Publish the proven flip.
+                publishStatus(plan, status, newUpdateTime);
+                LOG.warn("SPM status update of baseline {} reported success but its row is"
+                        + " not READABLE yet; the committed flip is the durable winner -"
+                        + " publishing it", id);
+                return true;
+            } catch (RuntimeException e) {
+                // The INSERT outcome cannot be PROVEN (it may have written nothing, or may
+                // have committed without any read seeing it): never publish an unobserved
+                // status. Reconcile the cache with a winner that IS readable, then report
+                // the failure.
+                reconcileCacheToDurableWinner(id, plan);
+                throw e;
+            }
+            if (!insertWritten) {
+                // The conditional statement matched no previous-status row, so it reported
+                // SQL OK while writing NOTHING (a concurrent DROP or status flip won the
+                // race - the reviewer's handoff example). The requested status may still
+                // be durable now: ANOTHER writer can have completed the very SAME flip
+                // between our probe and our INSERT, in which case the ALTER is a no-op
+                // success. Re-resolve before reporting the conflict.
+                if (probeDurableStatus(id, status).outcome == DurableStatusProbe.MATCHES) {
+                    if (plan.getStatus() != status) {
+                        publishStatus(plan, status, newUpdateTime);
+                    }
+                    LOG.warn("SPM status update of baseline {}: the requested status is already"
+                            + " durable (a concurrent flip won the race); reporting success", id);
+                    return true;
+                }
+                reconcileCacheToDurableWinner(id, plan);
+                throw statusConflict(id, previousStatus);
+            }
+            try {
                 persistDeleteByIdAndStatus(durablePlan, previousStatus);
             } catch (RuntimeException e) {
-                if (e instanceof UnconfirmedInsertException) {
-                    // The conditional INSERT reported SQL OK with its transaction
-                    // COMMITTED (only the PUBLICATION lags): the requested status IS
-                    // durable, its updateTime is LATER than the old row's, so the load
-                    // path resolves the duplicate pair in its favour (pickDurableWinner).
-                    // The DELETE below never ran, so the old-status row is still readable
-                    // - keeping the OLD cached status here let ordinary queries keep
-                    // replaying a baseline that is durably DISABLED (or keep hiding one
-                    // that is durably ENABLED) until the next refresh. Reconcile the
-                    // cache with the COMMITTED write instead (fail closed against the
-                    // stale cache): publish the flip and report the landed ALTER.
-                    publishStatus(plan, status, newUpdateTime);
-                    LOG.warn("SPM status update of baseline {} reported success but its row"
-                            + " is not READABLE yet; the flip is committed - publishing it",
-                            id);
-                    return true;
+                // The INSERT half is CONFIRMED (its row is READABLE) and carries a strictly
+                // later stored second than every row it met, so the new-status row IS the
+                // durable winner whether the old-row delete committed, failed, or merely
+                // lags its publication. The cache MUST follow that winner: leaving the OLD
+                // status let this FE keep replaying a baseline the durable table has
+                // already flipped until the next refresh.
+                publishStatus(plan, status, newUpdateTime);
+                if (NO_LONGER_MASTER.equals(e.getMessage())) {
+                    // a fenced write is reported to the client (retrying converges: the
+                    // retry's probe sees the requested status durably), but the cache still
+                    // follows the CONFIRMED durable winner
+                    LOG.warn("SPM status update of baseline {}: the old-row delete was fenced"
+                            + " ({}); the cache follows the confirmed new-status row", id,
+                            e.getMessage());
+                    throw e;
                 }
-                // The INSERT(new) / DELETE(old) pair spans two statements whose outcomes
-                // can be AMBIGUOUS: a delete may commit but report KV_TXN_MAYBE_COMMITTED,
-                // or report SQL OK while its publication lags past every confirmation
-                // probe. Reconcile against the durable table before deciding:
-                //  - the old row is GONE and the new row is readable -> the delete
-                //    committed; PUBLISH the flip and report success;
-                //  - anything else (the old row still readable, or an unconfirmable read)
-                //    is an UNKNOWN outcome: KEEP the new-status row and report the
-                //    original failure. A compensating DELETE of the new row is UNSAFE
-                //    here: when the old-row delete actually committed and only its
-                //    PUBLICATION lagged, the compensation removes the new row and the
-                //    committed old-row delete then removes the old one - the GLOBAL
-                //    baseline disappears entirely. Both rows carry DIFFERENT statuses, so
-                //    the load path resolves the duplicate deterministically
-                //    ({@link #pickDurableWinner}: the later updateTime wins) and the next
-                //    refresh / ALTER retry reconciles the cache with the winner - at least
-                //    one version ALWAYS survives.
-                if (oldRowDeletedDurably(id, previousStatus, status)) {
-                    publishStatus(plan, status, newUpdateTime);
-                    LOG.warn("SPM status update of baseline {} committed despite an ambiguous"
-                            + " persist error; keeping the new-status row", id, e);
-                    return true;
-                }
-                LOG.warn("SPM status update of baseline {} has an UNKNOWN durable outcome ({});"
-                        + " keeping the new-status row and reconciling on the next refresh",
-                        id, e.getMessage());
-                throw e;
+                LOG.warn("SPM status update of baseline {} kept the new-status row after its"
+                        + " old-row delete failed ({}); the stale row is cleaned up by the"
+                        + " next flip", id, e.getMessage());
+                return true;
             }
             publishStatus(plan, status, newUpdateTime);
             return true;
@@ -1471,6 +1504,25 @@ public class BaselineManager {
     private enum DurableStatusProbe { MATCHES, DIFFERS, ABSENT, UNKNOWN }
 
     /**
+     * The durable status of one baseline (see {@link #probeDurableStatus}): the outcome plus
+     * the WINNING row when it could be read. The winner's update time is what a status flip
+     * must stay strictly later than (see the DATETIME second bump in {@link #updateStatus}).
+     */
+    private static final class DurableStatus {
+        final DurableStatusProbe outcome;
+        final BaselinePlan winner;
+
+        DurableStatus(DurableStatusProbe outcome, BaselinePlan winner) {
+            this.outcome = outcome;
+            this.winner = winner;
+        }
+
+        static DurableStatus of(DurableStatusProbe outcome) {
+            return new DurableStatus(outcome, null);
+        }
+    }
+
+    /**
      * Compares the EFFECTIVE durable status of one baseline with the expected one. A
      * failed status flip can leave BOTH rows behind (the old-row delete AND the
      * compensating delete failed): the load path resolves such duplicates with
@@ -1483,11 +1535,11 @@ public class BaselineManager {
      * The count-only status seam cannot decide between two rows (it has no update
      * times): both-present is UNKNOWN (fail closed). A read failure is UNKNOWN as well.
      */
-    private static DurableStatusProbe probeDurableStatus(long id, BaselineStatus expected) {
+    private static DurableStatus probeDurableStatus(long id, BaselineStatus expected) {
         try {
             if (idAllocatorStoreForTest == null && !persistenceEnabled()
                     && statusProtocolStoreForTest == null) {
-                return DurableStatusProbe.ABSENT;
+                return DurableStatus.of(DurableStatusProbe.ABSENT);
             }
             if (statusProtocolStoreForTest != null && idAllocatorStoreForTest == null) {
                 boolean expectedRows =
@@ -1495,30 +1547,70 @@ public class BaselineManager {
                 boolean otherRows = statusProtocolStoreForTest
                         .countByIdAndStatus(id, otherStatus(expected)) > 0;
                 if (!expectedRows && !otherRows) {
-                    return DurableStatusProbe.ABSENT;
+                    return DurableStatus.of(DurableStatusProbe.ABSENT);
                 }
                 if (expectedRows && !otherRows) {
-                    return DurableStatusProbe.MATCHES;
+                    return DurableStatus.of(DurableStatusProbe.MATCHES);
                 }
                 if (otherRows && !expectedRows) {
-                    return DurableStatusProbe.DIFFERS;
+                    return DurableStatus.of(DurableStatusProbe.DIFFERS);
                 }
                 throw new IllegalStateException(
                         "two durable rows of baseline " + id + " and no update times");
             }
             List<BaselinePlan> rows = readPersistedById(id);
             if (rows.isEmpty()) {
-                return DurableStatusProbe.ABSENT;
+                return DurableStatus.of(DurableStatusProbe.ABSENT);
             }
             BaselinePlan winner = rows.get(0);
             for (int i = 1; i < rows.size(); i++) {
                 winner = pickDurableWinner(winner, rows.get(i));
             }
-            return winner.getStatus() == expected
-                    ? DurableStatusProbe.MATCHES : DurableStatusProbe.DIFFERS;
+            return new DurableStatus(winner.getStatus() == expected
+                    ? DurableStatusProbe.MATCHES : DurableStatusProbe.DIFFERS, winner);
         } catch (Throwable t) {
             LOG.warn("SPM cannot probe the durable status of baseline {}: {}", id, t.getMessage());
-            return DurableStatusProbe.UNKNOWN;
+            return DurableStatus.of(DurableStatusProbe.UNKNOWN);
+        }
+    }
+
+    /**
+     * Aligns the live object with the DURABLE winner (see {@link pickDurableWinner}) before
+     * a status update reports its failure: the cache may have missed an earlier flip, or
+     * the failed statement may have left a NEWER row behind - leaving the stale status
+     * served queries a rewrite context the durable table no longer has, which is exactly
+     * what the next refresh repairs. A winner that cannot be read leaves the cache
+     * untouched (the failure is reported either way, and a refresh or the next retry
+     * resolves it).
+     */
+    private void reconcileCacheToDurableWinner(long id, BaselinePlan plan) {
+        BaselinePlan winner = readDurableWinnerOrNull(id);
+        if (winner == null || winner.getStatus() == plan.getStatus()) {
+            return;
+        }
+        publishStatus(plan, winner.getStatus(), winner.getUpdateTime());
+        LOG.warn("SPM status update of baseline {} failed; reconciled the cache with the"
+                + " durable winner ({})", id, winner.getStatus());
+    }
+
+    /**
+     * The durable winner row of one id (see {@link pickDurableWinner}), or null when the
+     * durable rows cannot be read (the count-only status seam / a metadata failure).
+     */
+    private static BaselinePlan readDurableWinnerOrNull(long id) {
+        try {
+            List<BaselinePlan> rows = readPersistedById(id);
+            if (rows.isEmpty()) {
+                return null;
+            }
+            BaselinePlan winner = rows.get(0);
+            for (int i = 1; i < rows.size(); i++) {
+                winner = pickDurableWinner(winner, rows.get(i));
+            }
+            return winner;
+        } catch (Throwable t) {
+            LOG.warn("SPM cannot read the durable winner of baseline {}: {}", id, t.getMessage());
+            return null;
         }
     }
 
@@ -1550,27 +1642,6 @@ public class BaselineManager {
             }
         } finally {
             stateLock.writeLock().unlock();
-        }
-    }
-
-    /**
-     * Reconciles an ambiguous status-update failure: whether the OLD-row delete actually
-     * committed although it reported an error (e.g. KV_TXN_MAYBE_COMMITTED). Reads the
-     * durable rows back: the old row missing while the new one is present means the
-     * delete committed and the update succeeded. When the durable state cannot be read
-     * the answer is "no" and the caller keeps BOTH rows instead of a blind compensating
-     * delete - the load path resolves duplicate rows deterministically
-     * (pickDurableWinner), so at least one version survives.
-     */
-    private static boolean oldRowDeletedDurably(long id, BaselineStatus previousStatus,
-            BaselineStatus newStatus) {
-        try {
-            return durableRowCount(id, previousStatus) == 0
-                    && durableRowCount(id, newStatus) > 0;
-        } catch (Throwable t) {
-            LOG.warn("SPM cannot reconcile the status update of baseline {}, keeping both rows:"
-                    + " {}", id, t.getMessage());
-            return false;
         }
     }
 
@@ -3281,43 +3352,68 @@ public class BaselineManager {
      * a vanished previous row writes nothing; the conflict is then reported as a
      * retryable failure instead of a silent success.
      */
-    private static void persistTransitionInsert(BaselinePlan p, BaselineStatus previousStatus) {
+    private static boolean persistTransitionInsert(BaselinePlan p, BaselineStatus previousStatus) {
         if (!persistenceEnabled() && idAllocatorStoreForTest == null
                 && statusProtocolStoreForTest == null) {
-            return; // in-memory only (no durable status rows exist)
+            return true; // in-memory only (no durable status rows exist)
         }
         if (idAllocatorStoreForTest != null) {
             idAllocatorStoreForTest.insert(p);
         } else if (statusProtocolStoreForTest != null) {
             if (!statusProtocolStoreForTest.insertIfPreviousPresent(p, previousStatus)) {
-                throw statusConflict(p.getId(), previousStatus);
+                return false; // nothing written: the previous-status row was gone
             }
         } else {
-            writeConditionalStatusInsert(p, previousStatus);
-            // A conditional insert whose WHERE matched no row writes NOTHING: the plain
-            // visibility confirmation would report it as a publication lag. Check while
-            // the absence is still unambiguous - the previous row is gone AND the new row
-            // is absent (a still-present previous row means the insert simply has not
-            // become readable yet).
-            if (probeDurableRow(p.getId(), p.getBindSqlDigest(), p.getPlanSql(), p.getStatus())
-                    == DurablePresence.ABSENT
-                    && durableRowCount(p.getId(), previousStatus) == 0) {
-                throw statusConflict(p.getId(), previousStatus);
+            if (!writeConditionalStatusInsert(p, previousStatus)) {
+                return false; // nothing written: the conditional SELECT matched no row
             }
         }
         confirmInsertVisible(p);
+        return true;
     }
 
-    /** Runs the conditional status INSERT and hides an ambiguous commit behind a read. */
-    private static void writeConditionalStatusInsert(BaselinePlan p, BaselineStatus previousStatus) {
+    /**
+     * Whether the conditional status INSERT actually WROTE a row: a conditional
+     * {@code INSERT ... SELECT ... WHERE ...} that matches no row reports SQL OK with ZERO
+     * affected rows, and that count is the only durable signal that separates "wrote
+     * nothing" from "written but not yet readable" (see {@link #updateStatus}). An
+     * unknown count (-1) is NOT proof of a zero write, so it counts as written and is then
+     * subject to the visibility confirmation.
+     */
+    @VisibleForTesting
+    static boolean insertWroteRows(long affectedRows) {
+        return affectedRows != 0;
+    }
+
+    /**
+     * Runs the conditional status INSERT and reports whether a row was actually WRITTEN.
+     *
+     * <p>{@code INSERT ... SELECT ... WHERE status = previousStatus} reports SQL OK with
+     * ZERO affected rows when the previous-status row is gone (a concurrent DROP, or a
+     * handoff flip that already moved the status away and back): the requested status was
+     * NOT written and a plain visibility confirmation would misread the no-op as a
+     * publication lag (the reviewer's old-leader example). The affected-row count is the
+     * only durable signal that separates the two, so the caller can refuse to publish an
+     * unobserved status.
+     *
+     * @return true when the new-status row was written; false when the statement matched no
+     *         previous-status row and wrote nothing
+     */
+    private static boolean writeConditionalStatusInsert(BaselinePlan p,
+            BaselineStatus previousStatus) {
         Map<String, String> params = insertParams(p);
         params.put("previousStatus", previousStatus.name());
         try {
-            inInternalIoMode(() -> {
-                StatisticsUtil.execUpdate(INSERT_IF_PREVIOUS_STATUS_SQL, params,
-                        BASELINE_WRITE_TIMEOUT_SECONDS);
-                return null;
-            });
+            QueryState state = inInternalIoMode(() -> StatisticsUtil.execUpdate(
+                    INSERT_IF_PREVIOUS_STATUS_SQL, params, BASELINE_WRITE_TIMEOUT_SECONDS));
+            long affectedRows = state == null ? -1 : state.getAffectedRows();
+            if (!insertWroteRows(affectedRows)) {
+                LOG.warn("SPM persist (status insert) wrote no row for baseline {}: no durable"
+                        + " {} row was left to flip (a concurrent DROP / status flip won)",
+                        p.getId(), previousStatus);
+                return false;
+            }
+            return true;
         } catch (Exception e) {
             // An INSERT that reports an error (typically a statement timeout) may still
             // have COMMITTED: the row carrying this id + key + the REQUESTED status is the
@@ -3327,17 +3423,17 @@ public class BaselineManager {
                     == DurablePresence.PRESENT) {
                 LOG.warn("SPM persist (status insert) reported {} but the row is durable"
                         + " (id={}); keeping it", e.getMessage(), p.getId());
-                return;
+                return true;
             }
             throw new RuntimeException("SPM persist (status insert) failed: " + e.getMessage(), e);
         }
     }
 
-    /** The retryable conflict of a status flip whose previous-status row disappeared. */
+    /** The retryable conflict of a status flip whose conditional INSERT matched no row. */
     private static IllegalStateException statusConflict(long id, BaselineStatus previousStatus) {
         return new IllegalStateException("SPM cannot change the status of baseline " + id
-                + ": its " + previousStatus + " row is gone (a concurrent DROP or status"
-                + " flip won); retry the statement");
+                + ": its " + previousStatus + " row was gone when the conditional flip"
+                + " wrote (a concurrent DROP or status flip won); retry the statement");
     }
 
     private static void persistInsert(BaselinePlan p) {
@@ -3415,9 +3511,11 @@ public class BaselineManager {
 
     /**
      * A reported-successful INSERT whose row is not READABLE yet (see
-     * {@link #confirmInsertVisible}). The write IS committed - the id it consumed must not
-     * be handed out, and a retry of the SAME CREATE must defer instead of allocating a
-     * second id (see {@link #pendingCreates}).
+     * {@link #confirmInsertVisible}). The write itself carries EVIDENCE - the affected-row
+     * count of the conditional status INSERT, or the committed-write probe - so the caller
+     * may treat it as durable: a CREATE must not hand the id out again (its retry defers
+     * instead of allocating a second id, see {@link #pendingCreates}), and a status flip
+     * may publish the row it proves (see {@link #updateStatus}).
      */
     private static final class UnconfirmedInsertException extends IllegalStateException {
         UnconfirmedInsertException(String message) {

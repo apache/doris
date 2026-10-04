@@ -53,33 +53,53 @@ import java.util.Map;
  */
 public final class SPMForwardedSession {
 
-    private static final Logger LOG = LogManager.getLogger(SPMForwardedSession.class);
-
     /**
      * The forward payload's CHARACTER budget (the JSON text carried in the session variable
      * of the forwarded statement). The payload is part of a Thrift
      * {@code TMasterOpRequest} whose default message limit is 100 MiB - an unbounded
      * serialization of a session holding enough ADMIN-created baselines (each with BOTH SQL
      * texts) made EVERY forwarded statement on that connection fail with a transport error.
-     * Rows are carried in id order until the budget is exhausted; the rest is skipped (with
-     * a warning) rather than breaking the statement, and the matching is pointwise - a
-     * skipped row simply does not participate in the master's rewrite. 8 MiB is generous for
-     * any realistic session (thousands of multi-KB baselines) yet far below the transport
-     * limit even after JSON escaping doubles the text.
+     *
+     * <p>The budget is enforced where the rows are CREATED
+     * ({@link SessionBaselineStore#createBaseline} rejects a row that would exceed it), not
+     * while serializing: a row that was silently DROPPED here still participates in local
+     * matching, so the same connection rewrote the statement locally with its SESSION
+     * baseline yet planned the FORWARDED statement without it (falling through to a GLOBAL
+     * baseline or to none) - the rewrite context silently changed with the forwarding
+     * decision. 8 MiB is generous for any realistic session (thousands of multi-KB
+     * baselines) yet far below the transport limit even after JSON escaping doubles the
+     * text.
      */
-    private static final int MAX_PAYLOAD_CHARS = 8 * 1024 * 1024;
+    public static final int MAX_PAYLOAD_CHARS = 8 * 1024 * 1024;
+
+    private static final Logger LOG = LogManager.getLogger(SPMForwardedSession.class);
 
     private SPMForwardedSession() {
     }
 
     /**
-     * Serializes the ENABLED rows of the session store, bounded by
-     * {@link #MAX_PAYLOAD_CHARS}: rows are carried in id order until the budget is spent
-     * (see the constant for why an unbounded payload is a correctness bug, not just a
-     * size concern - it made every forwarded statement of the connection fail).
+     * The exact number of payload characters ONE row contributes (see {@link #serialize}):
+     * the JSON of {@link #toPayloadRow} plus the array separator. Used by the session
+     * store to bound what it accepts, so serialization can always carry every row.
+     *
+     * @param plan the baseline
+     * @return the row's payload size in characters
+     */
+    public static int payloadRowChars(BaselinePlan plan) {
+        return new Gson().toJson(toPayloadRow(plan)).length() + 1;
+    }
+
+    /**
+     * Serializes the ENABLED rows of the session store. The store rejects a creation that
+     * would exceed {@link #MAX_PAYLOAD_CHARS} (see {@link SessionBaselineStore}), so every
+     * enabled row is carried and the rewrite context is IDENTICAL on this FE and on the
+     * master that receives the forwarded statement. Reaching the budget here means the
+     * store invariant broke (a row was registered without the check): fail the statement
+     * loudly instead of silently planning it without a baseline the session owns.
      *
      * @param store the connection's session store (may be null)
      * @return the JSON payload, or "" when there is nothing to carry
+     * @throws IllegalStateException when the enabled rows exceed the payload budget
      */
     public static String serialize(SessionBaselineStore store) {
         if (store == null || store.isEmpty()) {
@@ -88,26 +108,20 @@ public final class SPMForwardedSession {
         Gson gson = new Gson();
         List<Map<String, String>> rows = new ArrayList<>();
         long payloadChars = 2; // the enclosing []
-        int skipped = 0;
         for (BaselinePlan plan : store.getAllBaselines()) {
             if (plan.getStatus() != BaselineStatus.ENABLED) {
                 continue;
             }
             Map<String, String> row = toPayloadRow(plan);
-            // measure the row EXACTLY as the array serializes it (same Gson encoding)
-            long rowChars = gson.toJson(row).length() + 1;
-            if (payloadChars + rowChars > MAX_PAYLOAD_CHARS) {
-                skipped++;
-                continue;
-            }
+            payloadChars += gson.toJson(row).length() + 1;
             rows.add(row);
-            payloadChars += rowChars;
         }
-        if (skipped > 0) {
-            LOG.warn("The session holds more SPM baselines than the forwarded payload can"
-                    + " carry ({} enabled rows, {} of them over the {} character budget): the"
-                    + " skipped baselines cannot apply on a FORWARDED statement",
-                    rows.size() + skipped, skipped, MAX_PAYLOAD_CHARS);
+        if (payloadChars > MAX_PAYLOAD_CHARS) {
+            LOG.error("The session holds SPM baselines whose forwarded payload needs {} of"
+                            + " {} characters; the store must have rejected that creation",
+                    payloadChars, MAX_PAYLOAD_CHARS);
+            throw new IllegalStateException("SPM cannot forward this connection's SESSION"
+                    + " baselines: the payload exceeds " + MAX_PAYLOAD_CHARS + " characters");
         }
         return rows.isEmpty() ? "" : gson.toJson(rows);
     }

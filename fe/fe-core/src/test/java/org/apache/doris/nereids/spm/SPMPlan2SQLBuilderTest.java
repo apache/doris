@@ -492,6 +492,47 @@ public class SPMPlan2SQLBuilderTest {
         Assertions.assertFalse(sql.contains("NULL_AWARE"), sql);
     }
 
+    /**
+     * round-34 #4: a residual LEFT NULL_AWARE ANTI JOIN whose LEFT side is a
+     * pinned-partition scan (a COMPOSITE FROM that needs a wrapper) and whose sides share a
+     * column NAME. The probe must be qualified with the alias of the WRAPPED left relation,
+     * and the outer FROM must expose that same alias: leftSql used to be captured BEFORE
+     * ensureQualifierAlias() wrapped the relation, so the frozen SQL referenced t_N.id
+     * without any t_N in the FROM and could not analyze on replay.
+     */
+    @Test
+    public void testDecompileNullAwareAntiWrapsThePinnedLeftScanWithTheProbeAlias() {
+        SlotReference id = new SlotReference("id", IntegerType.INSTANCE);
+        SlotReference rightId = new SlotReference("id", IntegerType.INSTANCE);
+        SlotReference k = new SlotReference("k", IntegerType.INSTANCE);
+
+        PhysicalOlapScan left = mockPinnedScan("t1", List.of(id), "p1");
+        PhysicalOlapScan right = mockScan("t2", List.of(rightId, k));
+        PhysicalHashJoin<?, ?> join = Mockito.mock(PhysicalHashJoin.class);
+        Mockito.when(join.getHashJoinConjuncts()).thenReturn(List.of(new EqualTo(id, rightId)));
+        Mockito.when(join.getOtherJoinConjuncts())
+                .thenReturn(List.of(new GreaterThan(k, new IntegerLiteral(1))));
+        Mockito.when(join.getMarkJoinConjuncts()).thenReturn(List.of());
+        Mockito.when(join.getMarkJoinSlotReference()).thenReturn(java.util.Optional.empty());
+        Mockito.when(join.getJoinType()).thenReturn(JoinType.NULL_AWARE_LEFT_ANTI_JOIN);
+        Mockito.when(join.isMarkJoin()).thenReturn(false);
+        Mockito.when(join.left()).thenReturn(left);
+        Mockito.when(join.right()).thenReturn(right);
+        stubAccept(join);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(join);
+        Assertions.assertTrue(sql.contains("NOT IN (SELECT"),
+                "the residual conjunct forces the NOT IN subquery rewrite: " + sql);
+        java.util.regex.Matcher wrapped = java.util.regex.Pattern
+                .compile("FROM \\(SELECT \\* FROM t1 PARTITION\\(p1\\)\\) (t_\\d+)")
+                .matcher(sql);
+        Assertions.assertTrue(wrapped.find(),
+                "the outer FROM must be the WRAPPED pinned scan: " + sql);
+        Assertions.assertTrue(sql.contains("(" + wrapped.group(1) + ".id) NOT IN (SELECT"),
+                "the probe must use the alias visible in the outer FROM ("
+                        + wrapped.group(1) + "): " + sql);
+    }
+
     @Test
     public void testDecompileNullAwareTypedMarkJoinUnsupported() {
         // The optimizer never produces a NULL_AWARE-typed MARK join (SELECT-list IN /

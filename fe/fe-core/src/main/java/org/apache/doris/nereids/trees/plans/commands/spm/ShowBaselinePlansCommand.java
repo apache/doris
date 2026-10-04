@@ -43,7 +43,7 @@ import com.google.common.collect.Lists;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.List;
@@ -306,12 +306,18 @@ public class ShowBaselinePlansCommand extends ShowCommand {
         );
     }
 
-    private static String formatTime(long epochMillis) {
+    @VisibleForTesting
+    static String formatTime(long epochMillis) {
         if (epochMillis <= 0) {
             return "";
         }
+        // UTC, the zone the internal-table DATETIME columns are stored / parsed in (see
+        // BaselineManager.toTs / fromTs): every FE of a cluster must render the SAME row
+        // identically. Formatting with ZoneId.systemDefault() turned a stored
+        // "2026-01-01 12:00:00" into 20:00:00 on an Asia/Shanghai host and 12:00:00 on a
+        // UTC host - SHOW reported a different create / update time per FE host zone.
         LocalDateTime time = LocalDateTime.ofInstant(
-                Instant.ofEpochMilli(epochMillis), ZoneId.systemDefault());
+                Instant.ofEpochMilli(epochMillis), ZoneOffset.UTC);
         return time.format(DATETIME_FORMAT);
     }
 

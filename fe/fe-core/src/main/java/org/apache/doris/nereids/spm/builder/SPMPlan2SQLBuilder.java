@@ -2116,11 +2116,11 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     "SPM decompile NULL_AWARE anti: cannot split the IN key sides");
         }
 
-        // Materialize BOTH fragments BEFORE building any qualified reference: a left /
-        // right relation carrying its own ORDER BY / LIMIT block over a set operation is
-        // wrapped under a FRESH alias by toRelationSQL(), and a qualifier allocated
-        // earlier would name the INNER set alias (hidden inside the FROM text) - the
-        // frozen SQL then cannot bind after reload (mirrors visitPhysicalJoin).
+        // Materialize BOTH fragments BEFORE the qualifier below is taken: toRelationSQL()
+        // allocates the FINAL wrapper alias when the relation needs one (a left / right
+        // relation carrying its own ORDER BY / LIMIT block, a FROM-less relation), and the
+        // qualifier must be the alias that is VISIBLE in these fragments (mirrors
+        // visitPhysicalJoin).
         String leftSql = left.toRelationSQL();
         String rightSql = right.toRelationSQL();
 
@@ -2150,10 +2150,25 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         // relation alias to stay resolvable in the outer scope
         boolean nameConflict = intersectsIgnoreCase(
                 left.getColumnNames().values(), right.getColumnNames().values());
-        String leftQualifier = nameConflict ? left.ensureQualifierAlias() : null;
-        if (nameConflict && (leftQualifier == null || leftQualifier.isEmpty())) {
-            throw new UnsupportedOperationException(
-                    "SPM decompile NULL_AWARE anti: cannot qualify the left side columns");
+        String leftQualifier = null;
+        if (nameConflict) {
+            // The qualifier must be the alias VISIBLE in leftSql. Materialization above
+            // already allocated the FINAL wrapper alias for a relation carrying its own
+            // ORDER BY / LIMIT block or an aliased set relation, so that alias is read
+            // back here. A COMPOSITE FROM that materialized INLINE - a scan carrying
+            // PARTITION / TABLESAMPLE (the row form of a pinned left scan), a TVF call -
+            // still has to be WRAPPED, and that allocation CHANGES leftSql: the emitted
+            // NOT IN probe would reference the fresh t_N while the outer FROM kept the
+            // bare scan, so the frozen SQL could not analyze. Re-render it.
+            String visibleBefore = left.getRelationAlias();
+            leftQualifier = left.ensureQualifierAlias();
+            if (leftQualifier == null || leftQualifier.isEmpty()) {
+                throw new UnsupportedOperationException(
+                        "SPM decompile NULL_AWARE anti: cannot qualify the left side columns");
+            }
+            if (!leftQualifier.equals(visibleBefore)) {
+                leftSql = left.toRelationSQL();
+            }
         }
 
         // mapping used only to print the probe, the build value and the WHERE clause

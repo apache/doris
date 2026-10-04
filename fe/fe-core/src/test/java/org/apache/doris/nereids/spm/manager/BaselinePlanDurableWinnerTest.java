@@ -197,12 +197,14 @@ public class BaselinePlanDurableWinnerTest {
     }
 
     /**
-     * A delete failure that did NOT commit keeps BOTH versions (round-30 #2): the failed
-     * ALTER reports its error and memory stays on the old status, but the freshly inserted
-     * row must not be compensated away - when that delete actually committed and only its
-     * PUBLICATION lagged, deleting the new row would leave the baseline with no durable
-     * version at all once the committed delete became visible. Duplicate rows are resolved
-     * deterministically by the load path (pickDurableWinner: the later updateTime wins).
+     * A delete failure that did NOT commit keeps BOTH versions, and the CONFIRMED new row
+     * decides the outcome (round-30 #2 semantics, refined by round-34 #2): the failed
+     * ALTER must not compensate the freshly inserted row away (when the delete had
+     * actually committed and only its PUBLICATION lagged, deleting the new row would
+     * leave the baseline with no durable version at all), and because the new row carries
+     * a strictly later updateTime it IS the durable winner - the cache follows it instead
+     * of keeping the OLD status replayable until the next refresh. Duplicate rows are
+     * resolved deterministically by every load path (pickDurableWinner).
      */
     @Test
     public void testStatusUpdateKeepsBothRowsWhenTheDeleteOutcomeIsUnknown() {
@@ -232,11 +234,12 @@ public class BaselinePlanDurableWinnerTest {
             }
         };
         try {
-            Assertions.assertThrows(RuntimeException.class,
-                    () -> manager.updateStatus(id, BaselineStatus.DISABLED));
-            Assertions.assertEquals(BaselineStatus.ENABLED,
+            Assertions.assertTrue(manager.updateStatus(id, BaselineStatus.DISABLED),
+                    "the confirmed new-status row is the durable winner: the ALTER landed");
+            Assertions.assertEquals(BaselineStatus.DISABLED,
                     manager.getBaseline(id).getStatus(),
-                    "the failed ALTER must not flip the live object");
+                    "the cache must follow the durable winner - keeping the OLD status let"
+                            + " queries replay a baseline the durable table already flipped");
             Assertions.assertTrue(durable.contains(BaselineStatus.ENABLED),
                     "the old-status row must stay durable");
             Assertions.assertTrue(durable.contains(BaselineStatus.DISABLED),
