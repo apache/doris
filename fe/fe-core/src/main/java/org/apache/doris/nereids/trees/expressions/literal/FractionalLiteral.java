@@ -53,7 +53,11 @@ public abstract class FractionalLiteral extends NumericLiteral {
             if (!isFinite) {
                 throw new CastException(String.format("%s can't cast to %s in strict mode.", getValue(), targetType));
             }
-            BigDecimal decimal = new BigDecimal(value.toString());
+            // BE converts the binary value, not the shortest decimal representation of
+            // the float/double, so a magnitude such as 1e38 must keep the double's exact value
+            BigDecimal decimal = value instanceof Double || value instanceof Float
+                    ? new BigDecimal(((Number) value).doubleValue())
+                    : new BigDecimal(value.toString());
             if (numericOverflow(decimal, targetType)) {
                 throw new CastException(String.format("%s can't cast to %s in strict mode.", getValue(), targetType));
             }
