@@ -461,9 +461,15 @@ Status JniTableReader::_open_jni_scanner() {
     }
     _apply_common_scanner_params();
 
+    // Before attaching to the JVM, which a split whose scan stops while it waits never does.
+    if (!_admit_by_declared_heap()) {
+        // The scan stopped while this split waited for its share of the JVM heap. It opens no Java
+        // scanner and reads nothing: it ends the way get_block() ends a split whose scan stopped.
+        _eof = true;
+        return _close_jni_scanner();
+    }
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(Jni::Env::Get(&env));
-    _admit_by_declared_heap();
     // The permit covers the Java scanner: _reset_split_state() releases it along with the scanner,
     // and here it goes if no scanner was created.
     Defer release_without_scanner {[this]() {
@@ -488,18 +494,17 @@ Status JniTableReader::_open_jni_scanner() {
     return Status::OK();
 }
 
-void JniTableReader::_admit_by_declared_heap() {
+bool JniTableReader::_admit_by_declared_heap() {
     // Only the connector of a statement that set enable_jni_heap_admission declares the heap a
     // reader will hold, and only for the readers that hold much; every other reader opens at once.
     if (!_current_range.__isset.jni_heap_bytes || _current_range.jni_heap_bytes <= 0) {
-        return;
+        return true;
     }
     int64_t wait_ns = 0;
-    JniScanHeapGate::instance()->acquire(
+    const bool admitted = JniScanHeapGate::instance()->acquire(
             _current_range.jni_heap_bytes,
             [this]() {
-                // Stopped or cancelled: open without waiting for heap, and see the stop at the
-                // first get_block(), the way a reader that was already open does.
+                // Stopped or cancelled: this split will not be read.
                 return (_io_ctx != nullptr && _io_ctx->should_stop) ||
                        (_runtime_state != nullptr && _runtime_state->is_cancelled());
             },
@@ -508,6 +513,7 @@ void JniTableReader::_admit_by_declared_heap() {
         COUNTER_UPDATE(_jvm_heap_wait_time, wait_ns);
         COUNTER_UPDATE(_jvm_heap_declared_bytes, _current_range.jni_heap_bytes);
     }
+    return admitted;
 }
 
 void JniTableReader::_apply_common_scanner_params() {

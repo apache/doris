@@ -44,6 +44,7 @@
 #include "format_v2/jni/hudi_jni_reader.h"
 #include "io/io_common.h"
 #include "runtime/runtime_state.h"
+#include "util/jni_scan_heap_gate.h"
 
 namespace doris::format {
 namespace {
@@ -112,7 +113,20 @@ protected:
     }
 };
 
-Status init_reader(FakeJniTableReader* reader, const std::shared_ptr<io::IOContext>& io_ctx,
+// Opens its splits with JniTableReader's own _open_jni_scanner(). Creating a Java scanner fails in
+// BE UT - no Java plugin named "test" exists - so a split gets through prepare_split() only if it
+// never creates one.
+class RealOpenJniTableReader final : public JniTableReader {
+protected:
+    Jni::PluginRef plugin_ref() const override { return {"test", "fake"}; }
+
+    Status build_scanner_params(std::map<std::string, std::string>* params) const override {
+        params->clear();
+        return Status::OK();
+    }
+};
+
+Status init_reader(JniTableReader* reader, const std::shared_ptr<io::IOContext>& io_ctx,
                    RuntimeProfile* scanner_profile = nullptr) {
     return reader->init({
             .projected_columns = {},
@@ -330,6 +344,41 @@ TEST(JniTableReaderTest, CancellationStopsBeforeFetchingAnotherJavaBatch) {
     EXPECT_TRUE(eos);
     EXPECT_EQ(reader.get_next_calls, 0);
     EXPECT_EQ(reader.close_calls, 1);
+}
+
+TEST(JniTableReaderTest, ASplitWhoseScanStoppedOpensNoJavaScannerForTheHeapItDeclared) {
+    auto io_ctx = std::make_shared<io::IOContext>();
+    RealOpenJniTableReader reader;
+    ASSERT_TRUE(init_reader(&reader, io_ctx).ok());
+    // The statement asked for admission and the range declares its heap, but the scan has stopped -
+    // a satisfied limit, or a cancelled query - before the split opens.
+    io_ctx->should_stop = true;
+    TFileRangeDesc range;
+    range.__set_jni_heap_bytes(100L * 1024 * 1024);
+    const int64_t holders = JniScanHeapGate::instance()->holders();
+
+    ASSERT_TRUE(reader.prepare_split({
+                                             .partition_values = {},
+                                             .conjuncts = std::nullopt,
+                                             .partition_prune_conjuncts = {},
+                                             .all_runtime_filters_applied = true,
+                                             .condition_cache_digest = std::nullopt,
+                                             .cache = nullptr,
+                                             .current_range = range,
+                                             .current_split_format = FileFormat::JNI,
+                                             .global_rowid_context = std::nullopt,
+                                     })
+                        .ok());
+    // No share of the heap, no Java scanner: the split ends without reading.
+    EXPECT_EQ(JniScanHeapGate::instance()->holders(), holders);
+    EXPECT_FALSE(reader.TEST_scanner_opened());
+    EXPECT_TRUE(reader.TEST_eof());
+
+    Block block;
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    EXPECT_TRUE(eos);
+    EXPECT_TRUE(reader.close().ok());
 }
 
 TEST(JniTableReaderTest, EndOfSplitRemainsIdempotentAfterScannerClose) {
