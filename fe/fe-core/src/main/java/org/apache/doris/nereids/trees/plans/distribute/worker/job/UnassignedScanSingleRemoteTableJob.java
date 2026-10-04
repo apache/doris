@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.ScanWorkerSelector
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ListMultimap;
@@ -64,6 +65,26 @@ public class UnassignedScanSingleRemoteTableJob extends AbstractUnassignedScanJo
         return scanWorkerSelector.selectReplicaAndWorkerWithoutBucket(
                 scanNodes.get(0), statementContext.getConnectContext()
         );
+    }
+
+    /**
+     * A COUNT pushdown over one file split does not benefit from creating local
+     * shuffle instances: the scanner already produces the complete scalar
+     * result.  In particular, the local-shuffle path otherwise uses the
+     * fragment parallelism and can create many empty scan instances.  Apply
+     * this restriction only after ranges have been selected, and only when this
+     * worker has one assigned range for the COUNT case. Other aggregates,
+     * multi-split scans and non-file remote scans retain the base
+     * parallelization rules.
+     */
+    @Override
+    protected int degreeOfParallelism(int maxParallel, boolean useLocalShuffleToAddParallel) {
+        int instanceNum = super.degreeOfParallelism(maxParallel, useLocalShuffleToAddParallel);
+        ScanNode scanNode = scanNodes.get(0);
+        if (scanNode.getPushDownAggNoGroupingOp() == TPushAggOp.COUNT && maxParallel == 1) {
+            return 1;
+        }
+        return instanceNum;
     }
 
     /**

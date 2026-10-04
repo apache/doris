@@ -98,6 +98,7 @@ import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
@@ -218,6 +219,11 @@ import org.apache.doris.planner.UnionNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticConstants;
+import org.apache.doris.tablefunction.FileTableValuedFunction;
+import org.apache.doris.tablefunction.HdfsTableValuedFunction;
+import org.apache.doris.tablefunction.HttpTableValuedFunction;
+import org.apache.doris.tablefunction.LocalTableValuedFunction;
+import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TBinlogScanType;
 import org.apache.doris.thrift.TExternalTableSinkWriterAssignment;
@@ -1155,6 +1161,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TableValuedFunctionIf catalogFunction = tvfRelation.getFunction().getCatalogFunction();
         SessionVariable sv = ConnectContext.get().getSessionVariable();
         ScanNode scanNode = catalogFunction.getScanNode(context.nextPlanNodeId(), tupleDescriptor, sv);
+        if (context.getRelationPushAggOp(tvfRelation.getRelationId()) == TPushAggOp.COUNT) {
+            scanNode.setPushDownAggNoGrouping(TPushAggOp.COUNT);
+            scanNode.setPushDownCountSlotIds(ImmutableList.of());
+        }
         scanNode.setDistributeExprLists(getDistributeExpr(tvfRelation));
         scanNode.setNereidsId(tvfRelation.getId());
         context.getNereidsIdToPlanNodeIdMap().put(tvfRelation.getId(), scanNode.getId());
@@ -1199,6 +1209,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return visitBucketedFusion(aggregate, context);
         }
 
+        countPushDownFileTvf(aggregate, ConnectContext.get().getSessionVariable()).ifPresent(tvf -> {
+            context.setRelationPushAggOp(tvf.getRelationId(), TPushAggOp.COUNT);
+            context.setRelationPushCountArgumentExprIds(tvf.getRelationId(), ImmutableList.of());
+        });
         PlanFragment inputPlanFragment = aggregate.child(0).accept(this, context);
         List<List<Expr>> distributeExprLists = getDistributeExprs(aggregate.child(0));
 
@@ -1265,7 +1279,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // agg(update serialize) <- child, also set colocate = true
             if (aggregate.getAggregateParam().aggMode.consumeAggregateBuffer
                     && child instanceof PhysicalHashAggregate
-                    && !((PhysicalHashAggregate<Plan>) child).getAggregateParam().aggMode.consumeAggregateBuffer
+                    && !((PhysicalHashAggregate<Plan>) child).getAggregateParam().aggMode
+                            .consumeAggregateBuffer
                     && inputPlanFragment.getPlanRoot() instanceof AggregationNode) {
                 AggregationNode childAgg = (AggregationNode) inputPlanFragment.getPlanRoot();
                 childAgg.setColocate(true);
@@ -1299,6 +1314,37 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         return inputPlanFragment;
+    }
+
+    /** Match only row-count aggregates over an unfiltered external file TVF. */
+    static Optional<PhysicalTVFRelation> countPushDownFileTvf(
+            PhysicalHashAggregate<? extends Plan> aggregate, SessionVariable sessionVariable) {
+        Plan child = aggregate.child(0);
+        Plan tvfChild = child instanceof PhysicalProject && child.child(0) instanceof PhysicalTVFRelation
+                ? child.child(0) : child;
+        Set<AggregateFunction> aggregateFunctions = aggregate.getAggregateFunctions();
+        AggregateFunction aggregateFunction = aggregateFunctions.size() == 1
+                ? aggregateFunctions.iterator().next() : null;
+        if (tvfChild instanceof PhysicalTVFRelation
+                && isCountPushDownFileTvf(((PhysicalTVFRelation) tvfChild).getFunction().getCatalogFunction())
+                && aggregate.getGroupByExpressions().isEmpty()
+                && aggregateFunction instanceof Count
+                && ((Count) aggregateFunction).isCountStar()
+                && !aggregateFunction.isDistinct()
+                && !aggregate.getAggregateParam().aggMode.consumeAggregateBuffer
+                && sessionVariable.enablePushDownNoGroupAgg()
+                && sessionVariable.isEnableCountPushDownForExternalTable()) {
+            return Optional.of((PhysicalTVFRelation) tvfChild);
+        }
+        return Optional.empty();
+    }
+
+    private static boolean isCountPushDownFileTvf(TableValuedFunctionIf catalogFunction) {
+        return catalogFunction instanceof FileTableValuedFunction
+                || catalogFunction instanceof HdfsTableValuedFunction
+                || catalogFunction instanceof HttpTableValuedFunction
+                || catalogFunction instanceof LocalTableValuedFunction
+                || catalogFunction instanceof S3TableValuedFunction;
     }
 
     @Override

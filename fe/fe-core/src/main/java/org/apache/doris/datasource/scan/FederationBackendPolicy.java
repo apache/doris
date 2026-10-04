@@ -75,7 +75,6 @@ public class FederationBackendPolicy {
     private static final long FIXED_SHUFFLE_SEED = 123456789L;
 
     protected final List<Backend> backends = Lists.newArrayList();
-    private final Map<String, List<Backend>> backendMap = Maps.newHashMap();
 
     public Map<Backend, Long> getAssignedWeightPerBackend() {
         return assignedWeightPerBackend;
@@ -195,7 +194,6 @@ public class FederationBackendPolicy {
             assignedWeightPerBackend.put(backend, 0L);
         }
 
-        backendMap.putAll(backends.stream().collect(Collectors.groupingBy(Backend::getHost)));
         try {
             consistentHash = consistentHashCache.get(new HashCacheKey(backends));
         } catch (ExecutionException e) {
@@ -209,11 +207,24 @@ public class FederationBackendPolicy {
         return selectedBackend;
     }
 
-    /** Replace only the round-robin order; candidate membership and backend metadata remain unchanged. */
+    /**
+     * Replace the round-robin order with a non-empty subset of the initialized candidates.
+     * Load backend selection may intentionally retain only preferred candidates.
+     */
     public void replaceBackendOrder(List<Backend> orderedBackends) {
+        Preconditions.checkState(nodeSelectionStrategy == NodeSelectionStrategy.ROUND_ROBIN,
+                "backend order can only be replaced for round-robin selection");
+        Preconditions.checkArgument(!orderedBackends.isEmpty()
+                        && new LinkedHashSet<>(orderedBackends).size() == orderedBackends.size()
+                        && new LinkedHashSet<>(backends).containsAll(orderedBackends),
+                "ordered backends must be a non-empty subset of the initialized candidates");
         backends.clear();
         backends.addAll(orderedBackends);
         nextBe = 0;
+    }
+
+    private Map<String, List<Backend>> activeBackendMap() {
+        return backends.stream().collect(Collectors.groupingBy(Backend::getHost));
     }
 
     @VisibleForTesting
@@ -234,11 +245,8 @@ public class FederationBackendPolicy {
 
         Collections.shuffle(splits, new Random(FIXED_SHUFFLE_SEED));
         List<Split> remainingSplits;
+        Map<String, List<Backend>> activeBackendMap = activeBackendMap();
 
-        List<Backend> backends = new ArrayList<>();
-        for (List<Backend> backendList : backendMap.values()) {
-            backends.addAll(backendList);
-        }
         ResettableRandomizedIterator<Backend> randomCandidates = new ResettableRandomizedIterator<>(backends);
 
         // optimizedLocalScheduling enables prioritized assignment of splits to local nodes when splits contain
@@ -247,7 +255,7 @@ public class FederationBackendPolicy {
             remainingSplits = new ArrayList<>(splits.size());
             for (Split split : splits) {
                 if (split.isRemotelyAccessible() && (split.getHosts() != null && split.getHosts().length > 0)) {
-                    List<Backend> candidateNodes = selectExactNodes(backendMap, split.getHosts());
+                    List<Backend> candidateNodes = selectExactNodes(activeBackendMap, split.getHosts());
 
                     Optional<Backend> chosenNode = candidateNodes.stream()
                             .min(Comparator.comparingLong(ownerNode -> assignedWeightPerBackend.get(ownerNode)));
@@ -269,7 +277,7 @@ public class FederationBackendPolicy {
         for (Split split : remainingSplits) {
             List<Backend> candidateNodes;
             if (!split.isRemotelyAccessible()) {
-                candidateNodes = selectExactNodes(backendMap, split.getHosts());
+                candidateNodes = selectExactNodes(activeBackendMap, split.getHosts());
             } else {
                 switch (nodeSelectionStrategy) {
                     case ROUND_ROBIN: {
@@ -330,9 +338,7 @@ public class FederationBackendPolicy {
         }
 
         List<Backend> allNodes = new ArrayList<>();
-        for (List<Backend> backendList : backendMap.values()) {
-            allNodes.addAll(backendList);
-        }
+        allNodes.addAll(backends);
         Collections.sort(allNodes, Comparator.comparing(Backend::getId));
 
         if (allNodes.size() < 2) {
