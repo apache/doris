@@ -28,6 +28,7 @@
 #include "runtime/runtime_profile.h"
 #include "util/jni-util.h"
 #include "util/jni_plugin_registry.h"
+#include "util/jni_scan_heap_gate.h"
 
 namespace doris::format {
 
@@ -99,6 +100,8 @@ private:
     void _reset_split_state(JNIEnv* env);
     void _prepare_jni_scanner_schema();
     void _apply_common_scanner_params();
+    // Waits at the JVM heap gate for the heap this split's range declares, if it declares any.
+    void _admit_by_declared_heap();
     Status _create_jni_scanner(JNIEnv* env, int batch_size);
     // get_next
     Status _fill_jni_block(JniDataBridge::TableMetaAddress& table_meta, size_t num_rows);
@@ -121,7 +124,13 @@ private:
     RuntimeProfile::Counter* _java_append_data_time = nullptr;
     RuntimeProfile::Counter* _java_create_vector_table_time = nullptr;
     RuntimeProfile::Counter* _fill_block_time = nullptr;
+    RuntimeProfile::Counter* _jvm_heap_wait_time = nullptr;
+    RuntimeProfile::Counter* _jvm_heap_declared_bytes = nullptr;
     RuntimeProfile::ConditionCounter* _max_time_split_weight_counter = nullptr;
+
+    // Admits this reader's Java scanner by the JVM heap its range declares
+    // (util/jni_scan_heap_gate.h). Held while the scanner is open.
+    JniScanHeapGate::Permit _heap_permit;
 
     int64_t _jni_scanner_open_watcher = 0;
     int64_t _java_scan_watcher = 0;
