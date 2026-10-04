@@ -29,6 +29,17 @@ enable_jni_heap_admission	false	false	0
 -- !union_count --
 9
 
+-- !union_rows_jni --
+1	m1
+10	m10-hot
+2	m2-hot
+3	m3
+4	m4
+5	m5-lake
+6	m6
+8	m8
+9	m9
+
 -- !log_rows --
 1	alice	10.10
 2	bob	20.20
