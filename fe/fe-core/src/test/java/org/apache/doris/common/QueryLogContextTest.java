@@ -119,6 +119,36 @@ public class QueryLogContextTest {
     }
 
     @Test
+    public void testPlanningIdentitySnapshotsTheIdAndIgnoresUnrelatedMdc() {
+        ThreadContext.put(QueryLogContext.QUERY_ID, "caller");
+        TUniqueId queryId = new TUniqueId(1, 2);
+        String inherited = QueryLogContext.withPlanningContext(queryId, () -> {
+            queryId.setLo(3);
+            ThreadContext.put(QueryLogContext.QUERY_ID, "unrelated");
+            return QueryLogContext.withPlanningContext(null, () -> ThreadContext.get(QueryLogContext.QUERY_ID));
+        });
+        Assertions.assertEquals("1-2", inherited);
+        Assertions.assertEquals("caller", ThreadContext.get(QueryLogContext.QUERY_ID));
+        Assertions.assertNull(QueryLogContext.withPlanningContext(null,
+                () -> ThreadContext.get(QueryLogContext.QUERY_ID)));
+        Assertions.assertEquals("caller", ThreadContext.get(QueryLogContext.QUERY_ID));
+    }
+
+    @Test
+    public void testZeroPlanningIdDoesNotInheritTheOuterIdentity() {
+        ThreadContext.put(QueryLogContext.QUERY_ID, "caller");
+        String restored = QueryLogContext.withPlanningContext(new TUniqueId(1, 2), () -> {
+            String inherited = QueryLogContext.withPlanningContext(new TUniqueId(0, 0),
+                    () -> QueryLogContext.withPlanningContext(null,
+                            () -> ThreadContext.get(QueryLogContext.QUERY_ID)));
+            Assertions.assertNull(inherited);
+            return ThreadContext.get(QueryLogContext.QUERY_ID);
+        });
+        Assertions.assertEquals("1-2", restored);
+        Assertions.assertEquals("caller", ThreadContext.get(QueryLogContext.QUERY_ID));
+    }
+
+    @Test
     public void testMessageSuffixPreservesMissingAndDifferentQueryIds() {
         TUniqueId queryId = new TUniqueId(1, 2);
         Assertions.assertEquals(" [1-2]", QueryLogContext.queryIdSuffix(queryId));

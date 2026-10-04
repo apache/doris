@@ -27,9 +27,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.QueryLogContext;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.profile.PlanningDiagnostics;
-import org.apache.doris.common.profile.PlanningDiagnostics.Phase;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
@@ -220,7 +219,7 @@ public class NereidsPlanner extends Planner {
      */
     private Plan planWithLock(LogicalPlan plan, PhysicalProperties requireProperties,
             ExplainLevel explainLevel, boolean showPlanProcess, Consumer<Plan> lockCallback) {
-        return PlanningDiagnostics.plan(statementContext.getConnectContext(),
+        return QueryLogContext.withPlanningContext(statementContext.getConnectContext().queryId(),
                 () -> planWithLockInternal(plan, requireProperties, explainLevel, showPlanProcess, lockCallback));
     }
 
@@ -265,9 +264,7 @@ public class NereidsPlanner extends Planner {
             }
 
             // pre-process logical plan out of memo, e.g. process SET_VAR hint
-            LogicalPlan inputPlan = plan;
-            plan = PlanningDiagnostics.phase(statementContext.getConnectContext(), Phase.PREPROCESS,
-                    () -> preprocess(inputPlan));
+            plan = preprocess(plan);
 
             initCascadesContext(plan, requireProperties);
             // collect table and lock them in the order of table id
@@ -282,8 +279,7 @@ public class NereidsPlanner extends Planner {
             }
             return resultPlan;
         } finally {
-            PlanningDiagnostics.runPhase(statementContext.getConnectContext(), Phase.RELEASE_RESOURCES,
-                    statementContext::releasePlannerResources);
+            statementContext.releasePlannerResources();
         }
     }
 
@@ -294,8 +290,7 @@ public class NereidsPlanner extends Planner {
             LogicalPlan plan, PhysicalProperties requireProperties, ExplainLevel explainLevel,
             boolean showPlanProcess) {
         // analyze this query, resolve column, table and function
-        PlanningDiagnostics.runPhase(statementContext.getConnectContext(), Phase.ANALYZE,
-                () -> analyze(showAnalyzeProcess(explainLevel, showPlanProcess)));
+        analyze(showAnalyzeProcess(explainLevel, showPlanProcess));
         if (explainLevel == ExplainLevel.ANALYZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
             analyzedPlan = cascadesContext.getRewritePlan();
             if (explainLevel == ExplainLevel.ANALYZED_PLAN) {
@@ -304,8 +299,7 @@ public class NereidsPlanner extends Planner {
         }
 
         // rule-based optimize
-        PlanningDiagnostics.runPhase(statementContext.getConnectContext(), Phase.REWRITE,
-                () -> rewrite(showRewriteProcess(explainLevel, showPlanProcess)));
+        rewrite(showRewriteProcess(explainLevel, showPlanProcess));
         // try to pre mv rewrite
         preMaterializedViewRewrite();
         if (explainLevel == ExplainLevel.REWRITTEN_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
@@ -315,8 +309,7 @@ public class NereidsPlanner extends Planner {
             }
         }
 
-        PlanningDiagnostics.runPhase(statementContext.getConnectContext(), Phase.OPTIMIZE,
-                () -> optimize(showPlanProcess));
+        optimize(showPlanProcess);
         // print memo before choose plan.
         // if chooseNthPlan failed, we could get memo to debug
         if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
@@ -327,23 +320,6 @@ public class NereidsPlanner extends Planner {
                 LOG.info("{}\nMemo is null", ConnectContext.get().getQueryLogIdentifier());
             }
         }
-        PhysicalPlan chosenPlan = PlanningDiagnostics.phase(statementContext.getConnectContext(), Phase.CHOOSE_PLAN,
-                () -> choosePlan(requireProperties));
-        PhysicalPlan physicalPlan = PlanningDiagnostics.phase(statementContext.getConnectContext(), Phase.POST_PROCESS,
-                () -> postProcess(chosenPlan));
-        if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
-            String tree = physicalPlan.treeString();
-            LOG.info("{}\n{}", ConnectContext.get().getQueryLogIdentifier(), tree);
-        }
-        if (explainLevel == ExplainLevel.OPTIMIZED_PLAN
-                || explainLevel == ExplainLevel.ALL_PLAN
-                || explainLevel == ExplainLevel.SHAPE_PLAN) {
-            optimizedPlan = physicalPlan;
-        }
-        return physicalPlan;
-    }
-
-    private PhysicalPlan choosePlan(PhysicalProperties requireProperties) {
         Set<Integer> requiredGroupIds = cascadesContext.getConnectContext()
                 .getSessionVariable().getRequiredGroupIds();
         PhysicalPlan physicalPlan;
@@ -364,6 +340,16 @@ public class NereidsPlanner extends Planner {
             physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
         }
 
+        physicalPlan = postProcess(physicalPlan);
+        if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
+            String tree = physicalPlan.treeString();
+            LOG.info("{}\n{}", ConnectContext.get().getQueryLogIdentifier(), tree);
+        }
+        if (explainLevel == ExplainLevel.OPTIMIZED_PLAN
+                || explainLevel == ExplainLevel.ALL_PLAN
+                || explainLevel == ExplainLevel.SHAPE_PLAN) {
+            optimizedPlan = physicalPlan;
+        }
         return physicalPlan;
     }
 
@@ -431,9 +417,7 @@ public class NereidsPlanner extends Planner {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Start collect and lock table");
         }
-        PlanningDiagnostics.runPhase(statementContext.getConnectContext(), Phase.COLLECT_TABLES,
-                () -> keepOrShowPlanProcess(showPlanProcess,
-                        () -> cascadesContext.newTableCollector(true, true).collect()));
+        keepOrShowPlanProcess(showPlanProcess, () -> cascadesContext.newTableCollector(true, true).collect());
         // Read the preload result produced by the collect-phase rule before taking internal table locks.
         ExternalMetadataPreloadResult preloadResult = statementContext.getExternalMetadataPreloadResult()
                 .orElse(ExternalMetadataPreloadResult.skipped(
@@ -458,15 +442,14 @@ public class NereidsPlanner extends Planner {
             }
         }
         if (waitForChangeVisible) {
-            PlanningDiagnostics.runPhase(statementContext.getConnectContext(), Phase.WAIT_CHANGE_VISIBLE,
-                    this::waitForTimeBasedChangeVisibleBeforeLock);
+            waitForTimeBasedChangeVisibleBeforeLock();
         }
         if (statementContext.getConnectContext().getExecutor() != null) {
             // Track only the actual lock() call here so the dedicated preload stage is not double counted.
             statementContext.getConnectContext().getExecutor().getSummaryProfile()
                     .setNereidsLockTableStartTime(TimeUtils.getStartTimeMs());
         }
-        PlanningDiagnostics.runPhase(statementContext.getConnectContext(), Phase.LOCK_TABLES, statementContext::lock);
+        statementContext.lock();
         cascadesContext.setCteContext(new CTEContext());
         if (LOG.isDebugEnabled()) {
             LOG.debug("End collect and lock table");
@@ -539,11 +522,6 @@ public class NereidsPlanner extends Planner {
         if (!cascadesContext.getStatementContext().isNeedPreMvRewrite()) {
             return;
         }
-        PlanningDiagnostics.runPhase(statementContext.getConnectContext(), Phase.PRE_REWRITE_MV,
-                this::preMaterializedViewRewriteInternal);
-    }
-
-    private void preMaterializedViewRewriteInternal() {
         try {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Start pre rewrite plan by mv");
@@ -771,12 +749,10 @@ public class NereidsPlanner extends Planner {
             return;
         }
 
-        PlanningDiagnostics.runPhase(statementContext.getConnectContext(), Phase.TRANSLATE,
-                () -> splitFragments(physicalPlan));
-        PlanningDiagnostics.runPhase(statementContext.getConnectContext(), Phase.DISTRIBUTE, () -> {
-            doDistribute(canUseNereidsDistributePlanner, explainLevel);
-            addLocalExchangeAfterDistribute();
-        });
+        splitFragments(physicalPlan);
+        doDistribute(canUseNereidsDistributePlanner, explainLevel);
+
+        addLocalExchangeAfterDistribute();
     }
 
     private void addLocalExchangeAfterDistribute() {

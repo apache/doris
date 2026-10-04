@@ -24,11 +24,13 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.logging.log4j.ThreadContext;
 
 import java.util.concurrent.Executor;
+import java.util.function.Supplier;
 
 /** Query identity for runtime LogEvents, independent of connection and query object lifetimes. */
 public final class QueryLogContext implements AutoCloseable {
     public static final String QUERY_ID = "query_id";
     private static final QueryLogContext NOOP = new QueryLogContext();
+    private static final ThreadLocal<String> PLANNING_QUERY_ID = new ThreadLocal<>();
 
     private final String previousQueryId;
     private final boolean installed;
@@ -46,6 +48,25 @@ public final class QueryLogContext implements AutoCloseable {
 
     public static QueryLogContext open(TUniqueId queryId) {
         return Config.sys_log_enable_query_id ? new QueryLogContext(format(queryId)) : NOOP;
+    }
+
+    /** Internal planning connections without an ID inherit the enclosing planning identity. */
+    public static <T> T withPlanningContext(TUniqueId queryId, Supplier<T> action) {
+        if (!Config.sys_log_enable_query_id) {
+            return action.get();
+        }
+        String previous = PLANNING_QUERY_ID.get();
+        String current = queryId == null ? previous : format(queryId);
+        PLANNING_QUERY_ID.set(current);
+        try (QueryLogContext ignored = new QueryLogContext(current)) {
+            return action.get();
+        } finally {
+            if (previous == null) {
+                PLANNING_QUERY_ID.remove();
+            } else {
+                PLANNING_QUERY_ID.set(previous);
+            }
+        }
     }
 
     public static void setQueryId(TUniqueId queryId) {
