@@ -66,12 +66,13 @@ public class FloatLiteral extends FractionalLiteral {
             return this;
         }
         if (targetType.isDoubleType()) {
-            return new DoubleLiteral(Double.parseDouble(String.valueOf(value)));
+            // widen in binary, exactly like the BE Float32 -> Float64 cast does
+            return new DoubleLiteral((double) value);
         } else if (targetType.isDecimalV2Type() || targetType.isDecimalV3Type()) {
             if (Float.isInfinite(value) || Float.isNaN(value)) {
                 throw new CastException(String.format("%s can't cast to %s in strict mode.", getValue(), targetType));
             }
-            BigDecimal bigDecimal = new BigDecimal(Float.toString(value));
+            BigDecimal bigDecimal = new BigDecimal((double) value);
             return getDecimalLiteral(bigDecimal, targetType);
         }
         return super.uncheckedCastTo(targetType);
