@@ -364,9 +364,10 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "round")
     public static Expression round(DoubleLiteral first) {
-        DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
-                new BigDecimal(Double.toString(first.getValue())));
-        return new DoubleLiteral(middleResult.round(0).getDouble());
+        // BE uses std::round(): half away from zero, and a zero result keeps the sign of the
+        // argument. Rounding through BigDecimal at scale 0 collapses -0.4 to positive zero.
+        double value = first.getValue();
+        return new DoubleLiteral(Math.copySign(Math.floor(Math.abs(value) + 0.5), value));
     }
 
     /**
@@ -401,9 +402,8 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "ceil")
     public static Expression ceil(DoubleLiteral first) {
-        DecimalV3Literal middleResult = DecimalV3Literal.createWithoutCheck256(
-                new BigDecimal(Double.toString(first.getValue())));
-        return new DoubleLiteral(middleResult.roundCeiling(0).getDouble());
+        // BE uses std::ceil(), which keeps the sign of a zero result.
+        return new DoubleLiteral(Math.ceil(first.getValue()));
     }
 
     /**
