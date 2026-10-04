@@ -62,4 +62,12 @@ suite("test_uuid_array_validation_and_hash", "p0") {
                    ARRAY(CAST(NULL AS UUID), CAST(NULL AS UUID))))),
                arrays_overlap(uuids, disjoint), arrays_overlap(uuids, uuids)
            FROM uuid_array_same_low_bits"""
+
+    order_qt_same_low_bits_set_functions """SELECT id,
+               size(array_union(uuids, uuids)), size(array_union(uuids, disjoint)),
+               size(array_intersect(uuids, uuids)), size(array_intersect(uuids, disjoint)),
+               size(array_except(uuids, uuids)), size(array_except(uuids, disjoint)),
+               size(array_except_all(uuids, uuids)), size(array_except_all(uuids, disjoint)),
+               size(array_except_all(array_concat(uuids, uuids), uuids))
+           FROM uuid_array_same_low_bits"""
 }

@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 
 #include "exec/common/hash_table/hash.h"
+#include "exprs/function/array/function_array_hash.h"
 #include "parallel_hashmap/phmap.h"
 
 namespace doris {
@@ -39,11 +40,11 @@ struct CountingUuidEqual {
     }
 };
 
-TEST(DefaultHashTest, UuidSameLowBitsHaveLinearProbeGrowth) {
-    constexpr size_t count = 1024;
+template <typename Hash>
+void check_uuid_set_probe_growth(size_t count) {
     size_t comparisons = 0;
-    phmap::flat_hash_set<UUIDValueType, DefaultHash<UUIDValueType>, CountingUuidEqual> set(
-            0, DefaultHash<UUIDValueType> {}, CountingUuidEqual {&comparisons});
+    phmap::flat_hash_set<UUIDValueType, Hash, CountingUuidEqual> set(
+            0, Hash {}, CountingUuidEqual {&comparisons});
     const auto key = [](size_t high) {
         return (static_cast<UUIDValueType>(high) << 64) | 0x9234001122334455ULL;
     };
@@ -58,6 +59,50 @@ TEST(DefaultHashTest, UuidSameLowBitsHaveLinearProbeGrowth) {
         ASSERT_TRUE(set.contains(key(i)));
         ASSERT_FALSE(set.contains(key(i + count)));
     }
+    EXPECT_LT(comparisons, 64 * count);
+}
+
+TEST(DefaultHashTest, UuidSameLowBitsHaveLinearProbeGrowth) {
+    for (const size_t count : {1024, 4096, 16384}) {
+        check_uuid_set_probe_growth<DefaultHash<UUIDValueType>>(count);
+    }
+}
+
+TEST(ArraySetHashTest, UuidSetHasLinearProbeGrowth) {
+    for (const size_t count : {1024, 4096, 16384}) {
+        check_uuid_set_probe_growth<ArraySetHash<UUIDValueType>>(count);
+    }
+}
+
+TEST(ArraySetHashTest, UuidMapHasLinearProbeGrowth) {
+    for (const size_t count : {1024, 4096, 16384}) {
+        size_t comparisons = 0;
+        phmap::flat_hash_map<UUIDValueType, size_t, ArraySetHash<UUIDValueType>, CountingUuidEqual>
+                map(0, ArraySetHash<UUIDValueType> {}, CountingUuidEqual {&comparisons});
+        const auto key = [](size_t high) {
+            return (static_cast<UUIDValueType>(high) << 64) | 0x9234001122334455ULL;
+        };
+        // Exercise union/intersect insertion and except_all counting, including duplicates.
+        for (size_t i = 1; i <= count; ++i) {
+            ++map[key(i)];
+            ++map[key(i)];
+        }
+        EXPECT_EQ(count, map.size());
+        for (size_t i = 1; i <= count; ++i) {
+            const auto entry = map.find(key(i));
+            ASSERT_NE(entry, map.end());
+            EXPECT_EQ(2, entry->second);
+            --entry->second;
+            EXPECT_EQ(map.end(), map.find(key(i + count)));
+        }
+        EXPECT_LT(comparisons, 64 * count);
+    }
+}
+
+TEST(ArraySetHashTest, PreserveOtherKeyHashers) {
+    static_assert(std::is_same_v<ArraySetHash<Int64>, phmap::Hash<Int64>>);
+    static_assert(std::is_same_v<ArraySetHash<Int128>, phmap::Hash<Int128>>);
+    static_assert(std::is_same_v<ArraySetHash<Float64>, phmap::Hash<Float64>>);
 }
 
 } // namespace doris

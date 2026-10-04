@@ -8,3 +8,6 @@
 -- !same_low_bits --
 1	16384	16385	false	true
 
+-- !same_low_bits_set_functions --
+1	16384	32768	16384	0	0	16384	0	16384	16384
+
