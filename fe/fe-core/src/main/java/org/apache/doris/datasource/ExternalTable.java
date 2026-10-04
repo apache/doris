@@ -31,6 +31,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.cache.NereidsSortedPartitionsCacheManager;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.profile.PlanningDiagnostics;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -41,6 +42,7 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.analysis.AnalysisInfo;
 import org.apache.doris.statistics.analysis.BaseAnalysisTask;
 import org.apache.doris.statistics.model.ColumnStatistic;
@@ -182,8 +184,8 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         // NOT getFullSchema(Optional.empty()): an empty snapshot means "this reference has no pin" (=>
         // latest), whereas the no-arg form means "I have no reference, resolve from the ambient context".
         // Collapsing the two would strip the ambient resolution from every statement-global caller.
-        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
-        return schemaCacheValue.map(SchemaCacheValue::getSchema).orElse(null);
+        return PlanningDiagnostics.operation(ConnectContext.get(), "load_schema", this::getNameWithFullQualifiers, -1,
+                () -> getSchemaCacheValue().map(SchemaCacheValue::getSchema).orElse(null));
     }
 
     /**
@@ -191,8 +193,8 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      * path must pass the reference's pin rather than relying on the ambient lookup.
      */
     public List<Column> getFullSchema(Optional<MvccSnapshot> snapshot) {
-        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue(snapshot);
-        return schemaCacheValue.map(SchemaCacheValue::getSchema).orElse(null);
+        return PlanningDiagnostics.operation(ConnectContext.get(), "load_schema", this::getNameWithFullQualifiers, -1,
+                () -> getSchemaCacheValue(snapshot).map(SchemaCacheValue::getSchema).orElse(null));
     }
 
     protected boolean needInternalHiddenColumns() {
@@ -488,6 +490,11 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      * @return
      */
     public SelectedPartitions initSelectedPartitions(Optional<MvccSnapshot> snapshot) {
+        return PlanningDiagnostics.operation(ConnectContext.get(), "load_partitions", this::getNameWithFullQualifiers,
+                -1, () -> initSelectedPartitionsInternal(snapshot));
+    }
+
+    private SelectedPartitions initSelectedPartitionsInternal(Optional<MvccSnapshot> snapshot) {
         if (!supportInternalPartitionPruned()) {
             return SelectedPartitions.NOT_PRUNED;
         }
