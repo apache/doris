@@ -668,6 +668,12 @@ struct TFileRangeDesc {
     // whether the value of columns_from_path is null
     15: optional list<bool> columns_from_path_is_null;
     16: optional bool file_cache_admission;
+    // JVM heap, in bytes, that the JNI reader of this range is estimated to hold from opening until
+    // it closes. The connector sets it only for a statement with enable_jni_heap_admission, and only
+    // for readers that hold much; BE then admits the reader at its JNI heap gate. Unset (or 0) means
+    // the reader opens without waiting. Field 17 is target_split_size on branch-4.1 and branch-4.2,
+    // so this field takes 18 instead of reusing it.
+    18: optional i64 jni_heap_bytes;
 }
 
 struct TSplitSource {
