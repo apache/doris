@@ -244,10 +244,11 @@ public class RuntimeFilterTest extends SSBTestBase {
 
     @Test
     public void cteConsumerInheritsRefProducer() {
-        // A scan that is the target of a runtime filter is REF: criterion 4 in the pruner javadoc,
-        // "the build column is reduced by another RF". That reduction holds for the relation as a
-        // whole rather than for one join key, so a CTE producer built on top of such a scan may
-        // hand REF on to its consumers.
+        // A scan that is the target of a runtime filter is REF. That is a property of one column,
+        // so an output that does not shrink can in principle borrow it -- a LEFT JOIN preserves
+        // every probe row while still inheriting REF from its build side. We keep the inheritance
+        // anyway: retaining an occasionally useless filter costs one more build/probe, whereas
+        // dropping a producer that genuinely shrank makes the outer Hive scan read everything.
         CascadesContext context = MemoTestUtils.createCascadesContext(connectContext, "select 1");
         RuntimeFilterContext rfContext = context.getRuntimeFilterContext();
         SlotReference key = new SlotReference("key", IntegerType.INSTANCE);

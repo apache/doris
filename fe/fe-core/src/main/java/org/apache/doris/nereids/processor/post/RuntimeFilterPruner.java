@@ -152,8 +152,14 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         //    NATIVE. A consumer that only keeps B.v live would then inherit a flag it cannot
         //    justify and keep a runtime filter that rejects no row. So NATIVE needs the operator
         //    test below.
-        //  - REF is criterion 4 in the class javadoc: "the build column is reduced by another RF".
-        //    That reduction applies to the relation as a whole, so it propagates unchanged.
+        //  - REF means "this relation is the target of a runtime filter". Unlike a NATIVE bound it
+        //    is a property of one column, and an output that does not shrink can borrow it: in
+        //    c = Project(A.k, B.v) -> LeftJoin(A, Join(B, D, B.v = D.v)) an RF from D marks B REF,
+        //    the inner join inherits it, and the left join inherits it again although it preserves
+        //    every A row. Tying REF to the keys it actually reduces would be exact; we keep the
+        //    inheritance anyway because the two error directions are not symmetric: retaining an
+        //    occasionally useless filter costs one more build/probe, while dropping a producer that
+        //    genuinely shrank makes the outer scan read the whole Hive table.
         if (rfCtx.isEffectiveSrcNode(cteAnchor.child(0))) {
             RuntimeFilterContext.EffectiveSrcType producerType =
                     rfCtx.getEffectiveSrcType(cteAnchor.child(0));
