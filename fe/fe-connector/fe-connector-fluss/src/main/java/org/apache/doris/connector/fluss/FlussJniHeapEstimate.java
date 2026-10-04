@@ -36,16 +36,21 @@ import java.util.List;
  * keeps its first row besides its last, because the map keeps the first key object and that points at the
  * first row. A PK_TAIL range keeps the last row of every key in its slice of the log (PkTailBatchScanner).
  * Every row is the deep copy fluss makes of a fetched record: a GenericRow of boxed fields. So a PK_FULL
- * range holds at most N x (R + 112) bytes and a PK_TAIL range N x (R + 96), N being the records between
- * its offsets - more than its keys - and R a row. A LOG range streams; a lake range is paimon's to declare.
+ * range holds N x (R + 112) bytes and a PK_TAIL range N x (R + 96), N being the records between its
+ * offsets - more than its keys - and R a row. A LOG range streams; a lake range is paimon's to declare.
  *
- * <p>R follows from the column types, but for strings and bytes, whose length nothing in fluss's metadata
- * gives: they are taken at {@link #DEFAULT_VARLEN_BYTES}.
+ * <p>R follows from the column types, but for strings, bytes and nested values, whose length nothing in
+ * fluss's metadata gives: they are taken at {@link #DEFAULT_VARLEN_BYTES}. An entry is a fixed size as
+ * well, although a PK_TAIL entry keeps its key encoded into a byte[] as long as the key. The declaration
+ * is therefore an upper bound only for a table whose variable-length values and keys are short. A table
+ * with longer ones - JSON in a string column, long string keys - is declared below what its readers hold:
+ * admission does not protect it, and a read of it that needs more heap than the JVM has fails as it does
+ * with enable_jni_heap_admission off.
  */
 final class FlussJniHeapEstimate {
 
     // A key's entry: in PK_FULL's TreeMap with the ProjectedRow standing for the key, in PK_TAIL's
-    // LinkedHashMap with the key encoded into a byte[].
+    // LinkedHashMap with a short key encoded into a byte[] - what a longer key adds is not counted.
     static final long PK_FULL_ENTRY_BYTES = 112;
     static final long PK_TAIL_ENTRY_BYTES = 96;
     static final long DEFAULT_VARLEN_BYTES = 64;
