@@ -2336,14 +2336,20 @@ public class StmtExecutor {
             while (true) {
                 batch = coord.getNext();
                 Preconditions.checkNotNull(batch, "Batch is Null.");
+                // Collect BEFORE the EOS check, exactly like the streaming path sends the
+                // batch before checking EOS: when the query's own LIMIT is reached the
+                // coordinator cancels the - already complete - query and marks THIS batch
+                // EOS, so breaking first DROPPED that final batch's rows. An internal
+                // query whose result reached its LIMIT then silently returned fewer rows
+                // (or none at all: a LIMIT 2000 page over a 2,022-row table came back
+                // empty, and the paginated SPM baseline snapshot was published truncated).
+                if (batch.getBatch() != null) {
+                    context.updateReturnRows(batch.getBatch().getRows().size());
+                    resultRows.addAll(convertResultBatchToResultRows(batch.getBatch()));
+                }
                 if (batch.isEos()) {
                     break;
                 }
-                if (batch.getBatch() == null) {
-                    continue;
-                }
-                context.updateReturnRows(batch.getBatch().getRows().size());
-                resultRows.addAll(convertResultBatchToResultRows(batch.getBatch()));
             }
             LOG.info("Result rows for query {} is {}", DebugUtil.printId(queryId), resultRows.size());
             return resultRows;

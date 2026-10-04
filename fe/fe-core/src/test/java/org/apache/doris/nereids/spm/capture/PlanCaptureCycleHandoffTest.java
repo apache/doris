@@ -20,6 +20,7 @@ package org.apache.doris.nereids.spm.capture;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.statistics.repository.ResultRow;
 
@@ -1280,6 +1281,70 @@ public class PlanCaptureCycleHandoffTest {
                     "the window is consumed by the second pass and the watermark advances");
             Assertions.assertEquals(200L, ((Number) drained[0]).longValue());
             Assertions.assertFalse(manager.isPendingWindowResumePromptForTest());
+        } finally {
+            manager.resetForTest();
+        }
+    }
+
+    /**
+     * round-33 #3: the durable checkpoint must carry the scan zone of the state it
+     * REWINDS to. With retries queued, persistCheckpoint rewinds the bounds / cursor to
+     * the OLDEST queued entry's pre-page anchor - a page of an EARLIER window. Persisting
+     * the CURRENT pass's zone beside that anchor made a takeover render the earlier
+     * window's bounds in a zone its rows were never written under: the rows of the
+     * window (and the retries the truncated queue could not carry) are invisible and
+     * unreachable.
+     */
+    @Test
+    public void testRewoundCheckpointPersistsTheAnchorsScanZone() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            String currentZone = AuditLogScanner.auditWriteZone().getId();
+            String previousZone = "UTC".equals(currentZone) ? "Asia/Tokyo" : "UTC";
+            // a restored leader state: W1's window still pending with 70 failed captures
+            // queued - its pages were rendered in the PREVIOUS zone (the global time_zone
+            // changed after W1 was scanned)
+            Map<String, CapturedQuery> queued = new java.util.LinkedHashMap<>();
+            Map<String, Integer> attempts = new java.util.LinkedHashMap<>();
+            for (int i = 0; i < 70; i++) {
+                queued.put("q:" + i, new CapturedQuery("select " + i, 1, 1, 1, "d", "h",
+                        "db", "cat", "q:" + i, false, SqlModeHelper.MODE_DEFAULT));
+                attempts.put("q:" + i, 1);
+            }
+            AtomicInteger reads = new AtomicInteger();
+            manager.setCheckpointReaderForTest(() -> {
+                if (reads.getAndIncrement() == 0) {
+                    return List.of(new ResultRow(List.of(
+                            "0", "100", "200",
+                            String.valueOf(AuditLogScanner.CURSOR_ABSENT), "", "",
+                            PlanCaptureManager.encodeFailedAttempts(attempts),
+                            PlanCaptureManager.encodeRetryQueue(queued),
+                            "", "-1", "-1", "", "", previousZone)));
+                }
+                return List.of();
+            });
+            RecordingScanner scanner = new RecordingScanner(List.of(), true,
+                    AuditLogScanner.CURSOR_ABSENT, "", "", "");
+            manager.setScannerForTest(scanner);
+            List<Map<String, String>> persisted = new ArrayList<>();
+            manager.setCheckpointWriterForTest(
+                    (sql, params) -> persisted.add(new HashMap<>(params)));
+
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(), manager.getFilter());
+
+            Assertions.assertEquals(1, scanner.calls.get());
+            Assertions.assertEquals(previousZone, scanner.passZones.get(0),
+                    "W1 is drained in the zone its cursor was rendered in");
+            Assertions.assertEquals(currentZone, manager.lastScanZoneForTest(),
+                    "the window is now owned by the CURRENT zone's re-scan pass");
+            Map<String, String> last = persisted.get(persisted.size() - 1);
+            Assertions.assertEquals("100", last.get("pendingStart"),
+                    "the checkpoint rewinds to the oldest queued retry's window");
+            Assertions.assertEquals(previousZone, last.get("scanZone"),
+                    "the rewound bounds / cursor must keep the ANCHOR's rendering: a"
+                            + " takeover rendering W1 in " + currentZone + " could not see"
+                            + " its " + previousZone + "-stored rows");
         } finally {
             manager.resetForTest();
         }

@@ -1018,17 +1018,12 @@ public class BaselineManagerConcurrencyTest {
         table.put(3L, List.of(withId(baseline("d3", "select k from t1"), 3L),
                 withId(baseline("d3", "select k from t1"), 3L)));
         table.put(4L, List.of(withId(baseline("d4", "select k from t1"), 4L)));
-        List<Long> requestedBounds = new ArrayList<>();
+        List<String> requests = new ArrayList<>();
         Map<Long, BaselinePlan> snapshot;
         try {
-            snapshot = BaselineManager.collectSnapshotPages(pageStart -> {
-                requestedBounds.add(pageStart);
-                return table.entrySet().stream()
-                        .filter(entry -> pageStart == null || entry.getKey() >= pageStart)
-                        .flatMap(entry -> entry.getValue().stream())
-                        .map(BaselineManagerConcurrencyTest::rowOf)
-                        .limit(2)
-                        .collect(java.util.stream.Collectors.toList());
+            snapshot = BaselineManager.collectSnapshotPages((pageStart, offset) -> {
+                requests.add((pageStart == null ? "null" : pageStart) + "@" + offset);
+                return tableReader(table, 2).readPage(pageStart, offset);
             }, 2);
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -1036,39 +1031,199 @@ public class BaselineManagerConcurrencyTest {
         Assertions.assertEquals(List.of(1L, 2L, 3L, 4L),
                 snapshot.keySet().stream().sorted().collect(java.util.stream.Collectors.toList()),
                 "every id must be read exactly once: " + snapshot.keySet());
-        Assertions.assertEquals(java.util.Arrays.asList(null, 2L, 3L, 4L), requestedBounds,
-                "the loop walks the id space with an INCLUSIVE lower bound, so the"
-                        + " boundary id group is re-read as a whole: " + requestedBounds);
+        Assertions.assertEquals(List.of("null@0", "2@1", "3@2"), requests,
+                "the loop continues from the LAST ROW READ (inclusive id bound plus the rows"
+                        + " of that id group already consumed), so every row is read exactly"
+                        + " once: " + requests);
     }
 
     /**
-     * Round-28 #6: a single id group larger than one page cannot stall the loop (only an
-     * out-of-contract writer can produce one; the create / ALTER protocols never put more
-     * than two rows under one id).
+     * A faithful page reader over an in-memory table (see
+     * {@link BaselineManager#collectSnapshotPages}): rows with {@code id >= pageStart}
+     * (every row for the first page), ordered by id, skipping {@code offset} rows and
+     * returning at most {@code pageSize} of them.
+     */
+    private static BaselineManager.SnapshotPageReader tableReader(
+            Map<Long, List<BaselinePlan>> table, int pageSize) {
+        return (pageStart, offset) -> table.entrySet().stream()
+                .filter(entry -> pageStart == null || entry.getKey() >= pageStart)
+                .flatMap(entry -> entry.getValue().stream())
+                .skip(offset)
+                .limit(pageSize)
+                .map(BaselineManagerConcurrencyTest::rowOf)
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    /**
+     * round-33 #4: an id group can hold MORE rows than one snapshot page. The ALTER
+     * protocol deliberately keeps the old-status row when its delete fails, so repeated
+     * opposite-status failures grow the group by one row per flip. The walk must read the
+     * WHOLE group (row offset within the inclusive bound): jumping past it after the first
+     * page omitted the rows behind it - possibly the NEWEST durable status - and the
+     * unchanged before/after fence then let the refresh publish the OLD one.
      */
     @Test
-    public void testSnapshotPaginationTerminatesOnAnOversizedIdGroup() {
-        List<Long> requestedBounds = new ArrayList<>();
+    public void testSnapshotPaginationReadsEveryRowOfAnOversizedIdGroup() {
+        Map<Long, List<BaselinePlan>> table = new java.util.LinkedHashMap<>();
+        table.put(7L, List.of(
+                flipRow(7L, BaselineStatus.ENABLED, 100_000L),
+                flipRow(7L, BaselineStatus.DISABLED, 150_000L),
+                flipRow(7L, BaselineStatus.ENABLED, 200_000L),
+                flipRow(7L, BaselineStatus.DISABLED, 250_000L),
+                flipRow(7L, BaselineStatus.ENABLED, 300_000L)));
+        table.put(8L, List.of(withId(baseline("d8", "select k from t8"), 8L)));
+        List<String> requests = new ArrayList<>();
         Map<Long, BaselinePlan> snapshot;
         try {
-            snapshot = BaselineManager.collectSnapshotPages(pageStart -> {
-                requestedBounds.add(pageStart);
-                if (pageStart != null && pageStart > 7L) {
-                    return List.of();
-                }
-                return List.of(
-                        rowOf(withId(baseline("d1", "select k from t1"), 7L)),
-                        rowOf(withId(baseline("d1", "select k from t1"), 7L)),
-                        rowOf(withId(baseline("d1", "select k from t1"), 7L)));
-            }, 3);
+            snapshot = BaselineManager.collectSnapshotPages((pageStart, offset) -> {
+                requests.add((pageStart == null ? "null" : pageStart) + "@" + offset);
+                return tableReader(table, 2).readPage(pageStart, offset);
+            }, 2);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
-        Assertions.assertEquals(List.of(7L),
-                snapshot.keySet().stream().sorted().collect(java.util.stream.Collectors.toList()),
-                "the oversized group is still read (once) and the loop terminates");
-        Assertions.assertEquals(java.util.Arrays.asList(null, 7L, 8L), requestedBounds,
-                "the loop advances strictly past the oversized group: " + requestedBounds);
+        Assertions.assertEquals(BaselineStatus.ENABLED, snapshot.get(7L).getStatus(),
+                "the NEWEST row of the oversized group must win (the first page alone would"
+                        + " have kept DISABLED): " + requests);
+        Assertions.assertEquals(300_000L, snapshot.get(7L).getUpdateTime());
+        Assertions.assertTrue(snapshot.containsKey(8L),
+                "the walk must continue past the group: " + snapshot.keySet());
+        Assertions.assertTrue(requests.contains("7@2"),
+                "the group is read through the row offset instead of being cut after its"
+                        + " first page: " + requests);
+        Assertions.assertEquals(List.of("null@0", "7@2", "7@4", "8@1"), requests,
+                "every row of the oversized group is read exactly once: " + requests);
+    }
+
+    /**
+     * round-33 #4 (fail-closed side): the fence alone cannot see a TRUNCATED page - a
+     * partial result looks exactly like a short, completed page. The loop reads every row
+     * exactly once, so the rows it read must equal the fence's row count; when they do not
+     * (e.g. an internal-query row limit cancelled a page and dropped its whole result),
+     * the snapshot must NOT be published.
+     */
+    @Test
+    public void testSnapshotReadFailsClosedWhenPagesAreTruncated() {
+        int[] fenceReads = {0};
+        IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
+                () -> BaselineManager.readStableSnapshot(
+                        // the first page comes back EMPTY although the fence counts rows
+                        (pageStart, offset) -> List.of(),
+                        () -> {
+                            fenceReads[0]++;
+                            // a fence that does NOT move: only the completeness check can
+                            // reject this read
+                            return new BaselineManager.SnapshotFence(2, 2, "t");
+                        }));
+        Assertions.assertTrue(failure.getMessage().contains("truncated read"),
+                "the failure must name the incomplete read: " + failure.getMessage());
+        Assertions.assertEquals(6, fenceReads[0],
+                "one fence pair per attempt, bounded to the retry budget");
+    }
+
+    /** One row of an interrupted status flip (id, status, updateTime). */
+    private static BaselinePlan flipRow(long id, BaselineStatus status, long updateTime) {
+        BaselinePlan row = baseline("d7", "select k from t7");
+        row.setId(id);
+        row.setStatus(status);
+        row.setUpdateTime(updateTime);
+        return row;
+    }
+
+    /**
+     * round-33 #1: a status flip whose INSERT reported SQL OK with the transaction
+     * COMMITTED - only the PUBLICATION lags past every probe - IS durable, and the
+     * old-status row is still readable because the DELETE half never ran. Keeping the OLD
+     * cached status (which the old-row reconciliation below does, since it cannot confirm
+     * the flip) let queries keep replaying a durably DISABLED baseline until the next
+     * refresh, while the committed DISABLED row won the durable pair. The cache must be
+     * reconciled with the COMMITTED write (fail closed against the stale cache), and the
+     * publication that follows must not flip it back.
+     */
+    @Test
+    public void testUnconfirmedStatusInsertPublishesTheCommittedFlip() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            long id = manager.createBaseline(baseline("d-flip", "p-flip"));
+            Assertions.assertEquals(BaselineStatus.ENABLED, manager.getBaseline(id).getStatus());
+
+            // the INSERT(DISABLED) commits, but no read sees it within the probe budget
+            BaselineManager.durableVisibilityProbeForTest = (rowId, status) -> false;
+            Assertions.assertTrue(manager.updateStatus(id, BaselineStatus.DISABLED),
+                    "the committed flip is the landed ALTER");
+            Assertions.assertEquals(BaselineStatus.DISABLED, manager.getBaseline(id).getStatus(),
+                    "the cache must reconcile with the COMMITTED DISABLED row instead of"
+                            + " keeping the old ENABLED status replayable");
+            Assertions.assertEquals(2, store.rowsOf(id).size(),
+                    "both rows stay durable (the old-row delete never ran): " + store.rowsOf(id));
+
+            // the committed row publishes: the durable winner must be the new status
+            BaselineManager.durableVisibilityProbeForTest = null;
+            List<BaselinePlan> published = store.rowsOf(id);
+            BaselinePlan winner = published.get(0);
+            for (int i = 1; i < published.size(); i++) {
+                winner = BaselineManager.pickDurableWinner(winner, published.get(i));
+            }
+            Assertions.assertEquals(BaselineStatus.DISABLED, winner.getStatus(),
+                    "the later updateTime of the committed DISABLED row wins the pair");
+            manager.applyRefreshedBaselines(Map.of(id, winner));
+            Assertions.assertEquals(BaselineStatus.DISABLED, manager.getBaseline(id).getStatus(),
+                    "the publication must not flip the reconciled cache back");
+        } finally {
+            BaselineManager.durableVisibilityProbeForTest = null;
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-33 #2: a CREATE whose INSERT committed but stayed unreadable is remembered as
+     * a pending create. When the referenced table changes (ALTER TABLE t ADD COLUMN x)
+     * before the client retries, the retry carries the NEW schema fingerprint. Matching
+     * the pending write by digest + planSql alone adopted the OLD-fingerprint row and
+     * reported success for a baseline that matching / replay reject as stale. The retry
+     * must retire the stale row and create the new incarnation instead.
+     */
+    @Test
+    public void testPendingCreateWithAChangedFingerprintIsReplacedNotAdopted() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            BaselineManager.durableVisibilityProbeForTest = (id, status) -> false;
+            BaselinePlan first = baseline("d-fp", "p-fp");
+            first.setSchemaFingerprint("F1");
+            RuntimeException failed = Assertions.assertThrows(RuntimeException.class,
+                    () -> manager.createBaseline(first));
+            Assertions.assertTrue(failed.getMessage().contains("not readable"),
+                    failed.getMessage());
+            long pendingId = store.rows.keySet().iterator().next();
+            Assertions.assertEquals(1, manager.pendingCreateCountForTest(),
+                    "the committed identity must be remembered");
+
+            // the schema changed while the write awaited publication; on the retry the row
+            // is readable again - but it describes the OLD schema
+            BaselineManager.durableVisibilityProbeForTest = (id, status) -> true;
+            BaselinePlan retried = baseline("d-fp", "p-fp");
+            retried.setSchemaFingerprint("F2");
+            long newId = manager.createBaseline(retried);
+
+            Assertions.assertNotEquals(pendingId, newId,
+                    "the stale incarnation must not be adopted for a changed fingerprint");
+            Assertions.assertEquals("F2", manager.getBaseline(newId).getSchemaFingerprint(),
+                    "the replacement row carries the CURRENT fingerprint");
+            Assertions.assertTrue(store.rowsOf(pendingId).isEmpty(),
+                    "the stale committed row must be retired: " + store.rowsOf(pendingId));
+            Assertions.assertEquals(0, manager.pendingCreateCountForTest());
+        } finally {
+            BaselineManager.durableVisibilityProbeForTest = null;
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
     }
 
     /**
@@ -1089,10 +1244,11 @@ public class BaselineManagerConcurrencyTest {
         List<String> fenceCalls = new ArrayList<>();
         Map<Long, BaselinePlan> snapshot;
         try {
-            snapshot = BaselineManager.readStableSnapshot(pageStart -> {
+            snapshot = BaselineManager.readStableSnapshot((pageStart, offset) -> {
                 List<ResultRow> rows = table.entrySet().stream()
                         .filter(entry -> pageStart == null || entry.getKey() >= pageStart)
                         .flatMap(entry -> entry.getValue().stream())
+                        .skip(offset)
                         .map(BaselineManagerConcurrencyTest::rowOf)
                         .collect(java.util.stream.Collectors.toList());
                 if (!rows.isEmpty() && !ddlDone[0]) {
@@ -1132,7 +1288,7 @@ public class BaselineManagerConcurrencyTest {
     public void testSnapshotReadFailsClosedWhenTheTableNeverStaysStable() {
         int[] fenceReads = {0};
         IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
-                () -> BaselineManager.readStableSnapshot(pageStart -> List.of(),
+                () -> BaselineManager.readStableSnapshot((pageStart, offset) -> List.of(),
                         () -> new BaselineManager.SnapshotFence(++fenceReads[0], 1, "t")));
         Assertions.assertTrue(failure.getMessage().contains("kept changing"),
                 "the failure must say the table moved and the operation is retryable:"

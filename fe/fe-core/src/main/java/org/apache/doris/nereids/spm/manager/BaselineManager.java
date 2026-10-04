@@ -257,10 +257,14 @@ public class BaselineManager {
 
     /**
      * One continuation page of a whole-table snapshot: every row with {@code id >=
-     * &#36;{lastId}} - the boundary id group is re-read as a whole - ordered by id.
+     * &#36;{lastId}}, ordered by id and SKIPPING the first {@code ${offset}} rows of that
+     * range. The offset is what keeps an id group larger than one page readable: a
+     * repeated opposite-status ALTER failure leaves one more row under the id every time,
+     * so the group can outgrow {@link #SNAPSHOT_PAGE_SIZE} rows - a jump past it would
+     * omit the rows behind the first page, possibly the newest durable status.
      */
     private static final String SELECT_PAGE_SQL = SNAPSHOT_COLUMNS + SPM_BASELINES_TABLE
-            + " WHERE `id` >= ${lastId} ORDER BY `id` LIMIT ${pageSize}";
+            + " WHERE `id` >= ${lastId} ORDER BY `id` LIMIT ${pageSize} OFFSET ${offset}";
 
     /**
      * Rows per snapshot page (see {@link #readPersistedSnapshot}). Bounds what ONE
@@ -921,6 +925,27 @@ public class BaselineManager {
                         + " awaiting publication (its id is consumed); retry the statement");
             }
             iterator.remove();
+            if (!Objects.equals(pending.getSchemaFingerprint(), plan.getSchemaFingerprint())) {
+                // The schema changed while the committed write awaited publication (e.g.
+                // ALTER TABLE t ADD COLUMN x turned the fingerprint F1 into F2): the
+                // pending row is STALE - matching / replay reject it - so adopting it
+                // would report success for a baseline that can never be used. Retire it
+                // (it is unreachable for matching either way) and fall through: the
+                // normal create path allocates a fresh row under the CURRENT fingerprint.
+                try {
+                    persistDeleteByIdentity(pending);
+                } catch (RuntimeException e) {
+                    // best effort: the durable-key check of the create below retires the
+                    // row as soon as a read sees it
+                    LOG.warn("SPM failed to retire the stale pending-create row (id={}): {}",
+                            pending.getId(), e.getMessage());
+                }
+                LOG.warn("SPM pending create of baseline {}: its schema fingerprint changed"
+                                + " ({} -> {}); replacing the stale committed row",
+                        pending.getId(), pending.getSchemaFingerprint(),
+                        plan.getSchemaFingerprint());
+                continue;
+            }
             BaselinePlan winner = null;
             for (BaselinePlan row : readPersistedParsedById(pending.getId())) {
                 if (!sameIdentity(row, plan)) {
@@ -1380,6 +1405,23 @@ public class BaselineManager {
                 persistTransitionInsert(durablePlan, previousStatus);
                 persistDeleteByIdAndStatus(durablePlan, previousStatus);
             } catch (RuntimeException e) {
+                if (e instanceof UnconfirmedInsertException) {
+                    // The conditional INSERT reported SQL OK with its transaction
+                    // COMMITTED (only the PUBLICATION lags): the requested status IS
+                    // durable, its updateTime is LATER than the old row's, so the load
+                    // path resolves the duplicate pair in its favour (pickDurableWinner).
+                    // The DELETE below never ran, so the old-status row is still readable
+                    // - keeping the OLD cached status here let ordinary queries keep
+                    // replaying a baseline that is durably DISABLED (or keep hiding one
+                    // that is durably ENABLED) until the next refresh. Reconcile the
+                    // cache with the COMMITTED write instead (fail closed against the
+                    // stale cache): publish the flip and report the landed ALTER.
+                    publishStatus(plan, status, newUpdateTime);
+                    LOG.warn("SPM status update of baseline {} reported success but its row"
+                            + " is not READABLE yet; the flip is committed - publishing it",
+                            id);
+                    return true;
+                }
                 // The INSERT(new) / DELETE(old) pair spans two statements whose outcomes
                 // can be AMBIGUOUS: a delete may commit but report KV_TXN_MAYBE_COMMITTED,
                 // or report SQL OK while its publication lags past every confirmation
@@ -2536,9 +2578,9 @@ public class BaselineManager {
     }
 
     /** One page of the whole-table snapshot, read through the internal table. */
-    private static List<ResultRow> readSnapshotPage(Long pageStart) throws Exception {
+    private static List<ResultRow> readSnapshotPage(Long pageStart, long offset) throws Exception {
         return inInternalIoMode(() -> StatisticsUtil.executeQuery(
-                snapshotPageSql(pageStart), Collections.emptyMap(),
+                snapshotPageSql(pageStart, offset), Collections.emptyMap(),
                 INTERNAL_QUERY_TIMEOUT_SECONDS));
     }
 
@@ -2563,18 +2605,27 @@ public class BaselineManager {
             SnapshotFenceReader fenceReader) throws Exception {
         for (int attempt = 1; ; attempt++) {
             SnapshotFence before = fenceReader.readFence();
-            Map<Long, BaselinePlan> snapshot = collectSnapshotPages(reader, SNAPSHOT_PAGE_SIZE);
+            AtomicLong rowsRead = new AtomicLong();
+            Map<Long, BaselinePlan> snapshot =
+                    collectSnapshotPages(reader, SNAPSHOT_PAGE_SIZE, rowsRead);
             SnapshotFence after = fenceReader.readFence();
-            if (before.matches(after)) {
+            // BOTH conditions are required: the fence proves the table did not change around
+            // the read, and the row count proves every row of the fenced state was actually
+            // READ. The second check is what turns a silently TRUNCATED read (e.g. an
+            // internal-query row limit cancelling a page - a partial result looks exactly
+            // like a short, completed page) into a retryable failure instead of a snapshot
+            // that drops baselines from the cache.
+            if (before.matches(after) && rowsRead.get() == before.rowCount) {
                 return snapshot;
             }
             LOG.warn("SPM baseline table changed while its paginated snapshot was read"
-                            + " ({} -> {}), attempt {}/{}",
-                    before, after, attempt, SNAPSHOT_STABILITY_ATTEMPTS);
+                            + " ({} -> {}, rows read {}/{}, attempt {}/{})",
+                    before, after, rowsRead.get(), before.rowCount, attempt,
+                    SNAPSHOT_STABILITY_ATTEMPTS);
             if (attempt >= SNAPSHOT_STABILITY_ATTEMPTS) {
                 throw new IllegalStateException("SPM baseline table kept changing while its"
-                        + " paginated snapshot was read (concurrent CREATE / ALTER / DROP);"
-                        + " retry the operation");
+                        + " paginated snapshot was read (concurrent CREATE / ALTER / DROP,"
+                        + " or a truncated read; retry the operation)");
             }
         }
     }
@@ -2630,30 +2681,46 @@ public class BaselineManager {
 
     /**
      * The pagination loop of {@link #readPersistedSnapshot}: walks the id space forward
-     * until a page comes back shorter than {@link #SNAPSHOT_PAGE_SIZE}. The boundary id
-     * group is re-read as a whole (the page reader is called with an INCLUSIVE lower
-     * bound), so a duplicate id pair of an interrupted status flip is never split across
-     * pages - the winner resolution must see BOTH rows. Package-visible with an
-     * injectable page reader so the loop (which no unit test can drive through the
-     * internal table) is covered directly.
+     * until a page comes back shorter than {@link #SNAPSHOT_PAGE_SIZE}. Every row is read
+     * EXACTLY ONCE and no row is ever skipped - the two properties the before/after fence
+     * alone cannot see.
      *
-     * @param reader   reads one page: every row with {@code id >= pageStart}, ordered by
-     *                 id; a null pageStart reads the first page
-     * @param pageSize rows per page (the production value is
-     *                 {@link #SNAPSHOT_PAGE_SIZE})
+     * <p>The next page continues from the LAST ROW READ, not from the row after its id: the
+     * inclusive bound is the trailing row's id and the offset is the number of rows of
+     * that id group already consumed. An id group larger than one page (a repeated
+     * opposite-status ALTER failure leaves one more row under the id every time) is read to
+     * its end instead of being cut after the first page - the omitted rows could carry the
+     * NEWEST durable status, and the winner resolution would resurrect the old one.
+     * Reading each row once also makes the number of rows read a VALID completeness proof:
+     * {@link #readStableSnapshot} compares it with the fence's row count, so a silently
+     * truncated page (e.g. an internal-query row limit cancelling the query) fails the
+     * refresh closed instead of publishing a partial snapshot.
+     *
+     * <p>Package-visible with an injectable page reader so the loop (which no unit test can
+     * drive through the internal table) is covered directly.
+     *
+     * @param reader       reads one page: every row with {@code id >= pageStart} after
+     *                     skipping {@code offset} rows of that range, ordered by id; a null
+     *                     pageStart reads the first page (offset 0)
+     * @param pageSize     rows per page (the production value is
+     *                     {@link #SNAPSHOT_PAGE_SIZE})
+     * @param rowsReadSink counts every row the loop actually read (see the completeness
+     *                     check of {@link #readStableSnapshot})
      * @return the accumulated snapshot
      * @throws Exception when a page read fails (the caller retries the whole refresh)
      */
     @VisibleForTesting
-    static Map<Long, BaselinePlan> collectSnapshotPages(SnapshotPageReader reader, int pageSize)
-            throws Exception {
+    static Map<Long, BaselinePlan> collectSnapshotPages(SnapshotPageReader reader, int pageSize,
+            AtomicLong rowsReadSink) throws Exception {
         Map<Long, BaselinePlan> snapshot = new HashMap<>();
-        Long pageStart = null;
+        Long bound = null;
+        long skipped = 0;
         while (true) {
-            List<ResultRow> rows = reader.readPage(pageStart);
+            List<ResultRow> rows = reader.readPage(bound, skipped);
             if (rows == null || rows.isEmpty()) {
                 return snapshot;
             }
+            rowsReadSink.addAndGet(rows.size());
             for (ResultRow row : rows) {
                 accumulateSnapshotRow(snapshot, row);
             }
@@ -2662,40 +2729,56 @@ public class BaselineManager {
                 return snapshot; // a short page ends the snapshot
             }
             long pageLastId = Long.parseLong(lastRowId.trim());
-            if (pageStart != null && pageLastId == pageStart) {
-                // The page consists of ONE id group larger than a page (only an
-                // out-of-contract writer can produce that): advance strictly past it so
-                // the loop terminates; the create / ALTER protocols never put more than
-                // two rows under one id.
-                pageStart = pageLastId + 1;
+            long trailing = 0;
+            for (int i = rows.size() - 1; i >= 0; i--) {
+                String rowId = rows.get(i).getWithDefault(0, "");
+                if (rowId.isEmpty() || Long.parseLong(rowId.trim()) != pageLastId) {
+                    break;
+                }
+                trailing++;
+            }
+            if (bound != null && pageLastId == bound) {
+                skipped += trailing; // still inside the bound's id group
             } else {
-                // INCLUSIVE lower bound: the boundary id group is re-read as a whole
-                // instead of being cut in the middle (a missed row of an interrupted
-                // status flip would let the winner resolution resurrect the old status).
-                pageStart = pageLastId;
+                bound = pageLastId;
+                skipped = trailing;
             }
         }
+    }
+
+    /**
+     * {@link #collectSnapshotPages(SnapshotPageReader, int, AtomicLong)} without the row
+     * counter: for tests that only inspect the accumulated snapshot.
+     */
+    @VisibleForTesting
+    static Map<Long, BaselinePlan> collectSnapshotPages(SnapshotPageReader reader, int pageSize)
+            throws Exception {
+        return collectSnapshotPages(reader, pageSize, new AtomicLong());
     }
 
     /** Reads one page of the snapshot (see {@link #collectSnapshotPages}). */
     @FunctionalInterface
     interface SnapshotPageReader {
-        List<ResultRow> readPage(Long pageStart) throws Exception;
+        List<ResultRow> readPage(Long pageStart, long offset) throws Exception;
     }
 
     /**
-     * The read of ONE snapshot page: every row with {@code id >= pageStart} ordered by
-     * id, or the whole table (in id order) when the snapshot has just started.
+     * The read of ONE snapshot page: every row with {@code id >= pageStart}, ordered by
+     * id and skipping the first {@code offset} rows of that range, or the whole table (in
+     * id order) when the snapshot has just started.
      *
      * @param pageStart inclusive lower bound of the page id range (null = first page)
+     * @param offset    rows to skip inside the id range (the continuation within an id
+     *                  group larger than one page; 0 for a fresh bound)
      * @return the page SQL
      */
-    private static String snapshotPageSql(Long pageStart) {
+    private static String snapshotPageSql(Long pageStart, long offset) {
         if (pageStart == null) {
             return SELECT_ALL_ORDERED_SQL + " LIMIT " + SNAPSHOT_PAGE_SIZE;
         }
         return SELECT_PAGE_SQL.replace("${lastId}", Long.toString(pageStart))
-                .replace("${pageSize}", Integer.toString(SNAPSHOT_PAGE_SIZE));
+                .replace("${pageSize}", Integer.toString(SNAPSHOT_PAGE_SIZE))
+                .replace("${offset}", Long.toString(offset));
     }
 
     /**

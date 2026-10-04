@@ -313,12 +313,22 @@ public class PlanCaptureManager extends MasterDaemon {
         final String cursorQueryId;
         final String cursorTail;
 
+        /**
+         * The zone THIS page's bounds / cursor were RENDERED in. The anchor describes a
+         * position of the audit stream, and that position is only reachable when it is
+         * rendered in the same zone again (see {@link #resolveScanPassZone}): persisting
+         * the CURRENT cycle's zone beside an earlier window's bounds made a takeover
+         * scan those bounds in a zone the rows were never written under, and the omitted
+         * retries (the ones the truncated queue could not carry) stayed unreachable.
+         */
+        final String scanZone;
+
         /** The filter snapshot the page was judged by (see pageStartFilter). */
         final PlanCaptureFilter filter;
 
         RetryAnchor(long lastScanTimestamp, long windowStart, long windowEnd,
                 long cursorQueryTime, String cursorTime, String cursorQueryId,
-                String cursorTail, PlanCaptureFilter filter) {
+                String cursorTail, String scanZone, PlanCaptureFilter filter) {
             this.lastScanTimestamp = lastScanTimestamp;
             this.windowStart = windowStart;
             this.windowEnd = windowEnd;
@@ -326,6 +336,7 @@ public class PlanCaptureManager extends MasterDaemon {
             this.cursorTime = cursorTime;
             this.cursorQueryId = cursorQueryId;
             this.cursorTail = cursorTail;
+            this.scanZone = scanZone;
             this.filter = filter;
         }
     }
@@ -359,6 +370,16 @@ public class PlanCaptureManager extends MasterDaemon {
     private String pageStartCursorTime = "";
     private String pageStartCursorQueryId = "";
     private String pageStartCursorTail = "";
+
+    /**
+     * The zone the CURRENT page's bounds / cursor were rendered in (the pass zone of the
+     * cycle that opened the page, see {@link #resolveScanPassZone}). It travels with
+     * {@link #currentPageAnchor()} and is persisted whenever the retry state rewinds the
+     * durable cursor to a page anchor: a takeover must re-render those bounds in the
+     * SAME zone, otherwise the audit rows written under the anchor's rendering are
+     * invisible to the re-scan (see {@link RetryAnchor#scanZone}).
+     */
+    private String pageStartZoneId = "";
 
     /**
      * The FILTER SNAPSHOT the CURRENT page was scanned with (the same value handed to
@@ -447,7 +468,7 @@ public class PlanCaptureManager extends MasterDaemon {
     private RetryAnchor currentPageAnchor() {
         return new RetryAnchor(pageStartLastScanTimestamp, pageStartWindowStart,
                 pageStartWindowEnd, pageStartCursorQueryTime, pageStartCursorTime,
-                pageStartCursorQueryId, pageStartCursorTail, pageStartFilter);
+                pageStartCursorQueryId, pageStartCursorTail, pageStartZoneId, pageStartFilter);
     }
 
     public static PlanCaptureManager getInstance() {
@@ -661,6 +682,7 @@ public class PlanCaptureManager extends MasterDaemon {
                 pageStartCursorTime = cursorTime;
                 pageStartCursorQueryId = cursorQueryId;
                 pageStartCursorTail = cursorTail;
+                pageStartZoneId = passZoneId;
                 pageStartFilter = cycleFilter;
 
                 batch = scanner.scan(scanStart, scanEnd, batchSize, cycleFilter,
@@ -1270,7 +1292,7 @@ public class PlanCaptureManager extends MasterDaemon {
         // eligibility stable across any number of handoffs.
         RetryAnchor restoredAnchor = new RetryAnchor(lastScanTimestamp, pendingWindowStart,
                 pendingWindowEnd, cursorQueryTime, cursorTime, cursorQueryId, cursorTail,
-                pendingWindowFilter);
+                lastScanZone, pendingWindowFilter);
         for (String retryKey : failedCaptureQueue.keySet()) {
             failedCaptureAnchors.put(retryKey, restoredAnchor);
         }
@@ -1341,6 +1363,7 @@ public class PlanCaptureManager extends MasterDaemon {
         String durableCursorTime;
         String durableCursorQueryId;
         String durableCursorTail;
+        String durableScanZone;
         if (durableAnchor != null) {
             durableLastScan = durableAnchor.lastScanTimestamp;
             durablePendingStart = durableAnchor.windowStart;
@@ -1349,6 +1372,11 @@ public class PlanCaptureManager extends MasterDaemon {
             durableCursorTime = durableAnchor.cursorTime;
             durableCursorQueryId = durableAnchor.cursorQueryId;
             durableCursorTail = durableAnchor.cursorTail;
+            // the anchor's OWN zone, not this cycle's: the anchor describes an earlier
+            // page, and its rows are only reachable when re-rendered in that zone (the
+            // reviewer's W1-in-UTC example: a +08 takeover could not see the UTC-stored
+            // rows of the window this anchor rewinds to)
+            durableScanZone = durableAnchor.scanZone;
         } else if (retriesTruncated || !failedCaptureQueue.isEmpty()) {
             durableLastScan = pageStartLastScanTimestamp;
             durablePendingStart = pageStartWindowStart;
@@ -1357,6 +1385,7 @@ public class PlanCaptureManager extends MasterDaemon {
             durableCursorTime = pageStartCursorTime;
             durableCursorQueryId = pageStartCursorQueryId;
             durableCursorTail = pageStartCursorTail;
+            durableScanZone = pageStartZoneId;
         } else {
             durableLastScan = lastScanTimestamp;
             durablePendingStart = pendingWindowStart;
@@ -1365,6 +1394,7 @@ public class PlanCaptureManager extends MasterDaemon {
             durableCursorTime = cursorTime;
             durableCursorQueryId = cursorQueryId;
             durableCursorTail = cursorTail;
+            durableScanZone = lastScanZone;
         }
         if (retriesTruncated) {
             LOG.warn("SPM capture retry state (retry queue {}, failed attempts {}) exceeds the"
@@ -1407,7 +1437,8 @@ public class PlanCaptureManager extends MasterDaemon {
                 ? "" : durableFilter.getIncludePatternText()));
         params.put("excludePattern", StatisticsUtil.escapeSQL(durableFilter == null
                 ? "" : durableFilter.getExcludePatternText()));
-        params.put("scanZone", StatisticsUtil.escapeSQL(lastScanZone == null ? "" : lastScanZone));
+        params.put("scanZone", StatisticsUtil.escapeSQL(durableScanZone == null
+                ? "" : durableScanZone));
         try {
             // Single UPSERT: the new row is durable BEFORE the old one stops being read
             // (the table is UNIQUE-key(id) + merge-on-write), so no crash / timeout can
@@ -1884,6 +1915,7 @@ public class PlanCaptureManager extends MasterDaemon {
         pageStartCursorTime = "";
         pageStartCursorQueryId = "";
         pageStartCursorTail = "";
+        pageStartZoneId = "";
         pageStartFilter = null;
         processedQueryIds.clear();
         failedCaptureAttempts.clear();
@@ -2194,7 +2226,7 @@ public class PlanCaptureManager extends MasterDaemon {
             failedCaptureAnchors.putIfAbsent("seed-failed-" + i, new RetryAnchor(
                     lastScanTimestamp - 1, windowStart, windowEnd, pageStartCursorQueryTime,
                     pageStartCursorTime, pageStartCursorQueryId, pageStartCursorTail,
-                    pageStartFilter));
+                    pageStartZoneId, pageStartFilter));
         }
         this.pageStartLastScanTimestamp = lastScanTimestamp - 1;
         this.pageStartWindowStart = windowStart;
@@ -2203,6 +2235,9 @@ public class PlanCaptureManager extends MasterDaemon {
         this.pageStartCursorTime = pageStartCursorTime;
         this.pageStartCursorQueryId = pageStartCursorQueryId;
         this.pageStartCursorTail = pageStartCursorTail;
+        // the seeded page is the CURRENT one: it renders in the zone this cycle would
+        // use (the last one observed), exactly like a live page start
+        this.pageStartZoneId = this.lastScanZone;
         this.pendingWindowStart = windowStart;
         this.pendingWindowEnd = windowEnd;
         this.lastScanTimestamp = lastScanTimestamp;
