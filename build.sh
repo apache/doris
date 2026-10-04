@@ -885,6 +885,7 @@ if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     # complete enumeration.
     modules+=("be-java-extensions/plugin-toolkit")
     modules+=("be-java-extensions/fluss-client-patch")
+    modules+=("be-java-extensions/paimon-common-patch")
     modules+=("be-java-extensions/hive-udf-shade")
     modules+=("be-java-extensions/hive-apache-shade")
 

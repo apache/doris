@@ -25,6 +25,7 @@ under the License.
         <module>jni-bootstrap</module>
         <module>plugin-toolkit</module>
         <module>fluss-client-patch</module>
+        <module>paimon-common-patch</module>
         <module>iceberg-metadata-scanner</module>
         <module>hadoop-hudi-scanner</module>
         <module>hive-udf-shade</module>
