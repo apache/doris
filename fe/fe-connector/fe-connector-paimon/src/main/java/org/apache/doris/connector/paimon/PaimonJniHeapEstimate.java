@@ -35,15 +35,22 @@ import java.util.Map;
  * parquet file keeps the compressed column chunks of its current row group in the heap until it moves
  * on to the next, when the old and the new are there together for a moment. ORC keeps a stripe the
  * same way. Sixteen such splits read at once are what runs a 2 GB heap out. So a split that has to be
- * merged holds at most the sum over its files of one row group - two for a file that has more than one
+ * merged holds, steadily, the sum over its files of one row group - two for a file that has more than one
  * - plus a dictionary page for every column of every file. That takes all the files as one section,
  * which is exact for the uncompacted tables that need the gate and over the mark for files that do not
  * overlap, which are read one section after another. A split that needs no merging reads its files one
  * after another and holds one file's share.
  *
+ * <p>That steady hold is what is declared, not everything a merge ever holds: while it decodes, its column
+ * batches add brief peaks on top, measured at about three times the declaration for a split of a 126 MB
+ * file read on its own. The peaks are left to the heap outside the budget - the other half of it with
+ * jni_scanner_heap_budget_ratio at its default - which has room for some of the admitted readers to peak
+ * at once but not for all of them; a read that needs more fails as it does with enable_jni_heap_admission
+ * off.
+ *
  * <p>Every column is taken as read. A narrow projection reads less, but a merge also reads every key
- * column, the sequence number and the row kind whatever is projected, and an estimate below what the
- * reader holds is the one mistake the gate cannot absorb.
+ * column, the sequence number and the row kind whatever is projected, and declaring less than a merge
+ * holds steadily would let the gate admit more readers than its budget fits.
  */
 final class PaimonJniHeapEstimate {
 
