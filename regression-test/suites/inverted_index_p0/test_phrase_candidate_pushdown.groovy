@@ -22,6 +22,8 @@
 // pushdown again over the cached full-segment results.
 // It flips a BE config, so it must not share the cluster with other suites.
 suite("test_phrase_candidate_pushdown", "p0,nonConcurrent") {
+    sql "SET enable_sql_cache = false"
+    sql "SET enable_inverted_index_query_cache = true"
     sql "SET enable_inverted_index_query = true"
     sql "SET enable_common_expr_pushdown = true"
     sql "SET enable_match_without_inverted_index = false"

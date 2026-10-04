@@ -288,6 +288,51 @@ TEST_F(SniiPhraseCandidateTest, DenseCandidatesKeepPrefixTailPrefilter) {
     EXPECT_EQ(restricted, intersect(unrestricted, candidates));
 }
 
+TEST_F(SniiPhraseCandidateTest, SparseCandidatesKeepAffordableTailPrefilter) {
+    const std::vector<std::string> terms = {"alpha", "ec"};
+    const uint32_t tail_df = df("echo") + df("ecru");
+    const roaring::Roaring candidates = sample_candidates(0.1, 99);
+    ASSERT_LT(tail_df * 8, df("alpha"));
+    ASSERT_LT(candidates.cardinality(), tail_df * 8);
+    ASSERT_LT(tail_df, candidates.cardinality());
+
+    QueryProfile full_profile;
+    std::vector<uint32_t> unrestricted;
+    assert_ok(phrase_prefix_query(_index, terms, &unrestricted, &full_profile, kMaxExpansions));
+
+    QueryProfile restricted_profile;
+    std::vector<uint32_t> restricted;
+    assert_ok(phrase_prefix_query(_index, terms, &restricted, &restricted_profile,
+                                  {.max_expansions = kMaxExpansions, .candidates = &candidates}));
+
+    EXPECT_EQ(restricted, intersect(unrestricted, candidates));
+    EXPECT_LE(restricted_profile.prx_decode_stats.selected_docs,
+              full_profile.prx_decode_stats.selected_docs);
+}
+
+TEST_F(SniiPhraseCandidateTest, SelectiveCandidatesSkipPrefixTailUnion) {
+    const std::vector<std::string> terms = {"alpha", "ec"};
+    ASSERT_LT((df("echo") + df("ecru")) * 8, df("alpha"));
+
+    _file.clear_reads();
+    std::vector<uint32_t> unrestricted;
+    assert_ok(phrase_prefix_query(_index, terms, &unrestricted, nullptr, kMaxExpansions));
+    const size_t unrestricted_bytes = _file.read_bytes();
+    ASSERT_FALSE(unrestricted.empty());
+
+    roaring::Roaring candidates;
+    candidates.add(unrestricted.front());
+    _file.clear_reads();
+    std::vector<uint32_t> restricted;
+    assert_ok(phrase_prefix_query(_index, terms, &restricted, nullptr,
+                                  {.max_expansions = kMaxExpansions, .candidates = &candidates}));
+    const size_t restricted_bytes = _file.read_bytes();
+
+    EXPECT_EQ(restricted, intersect(unrestricted, candidates));
+    EXPECT_LT(restricted_bytes * 10, unrestricted_bytes)
+            << "restricted=" << restricted_bytes << " unrestricted=" << unrestricted_bytes;
+}
+
 // A two-term lead never builds the tail union without candidates here (min lead df is
 // below the fixed gate), but dense candidates bound the leading positions enough to make
 // the rare tail union pay off, so the leading phrase is restricted to it.

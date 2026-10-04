@@ -239,6 +239,33 @@ TEST_F(MultiSegmentCollectorTest, GlobalNullRowsAreSlicedIntoEachLocalDocIdDomai
     EXPECT_TRUE(actual_nulls.contains(2));
 }
 
+// CLucene opens an empty posting for a term its dictionary lacks, so the term matches no row and
+// leaves the field's NULL rows UNKNOWN, as a term it holds does.
+TEST_F(MultiSegmentCollectorTest, AnAbsentTermKeepsTheFieldsNullRowsUnknown) {
+    create_test_index(kTestDir + "/segment1", {"", "fleabag finale"});
+    ValueArray<lucene::index::IndexReader*> readers(2);
+    readers[0] = lucene::index::IndexReader::open((kTestDir + "/segment0").c_str());
+    readers[1] = lucene::index::IndexReader::open((kTestDir + "/segment1").c_str());
+    auto reader = make_shared_reader(_CLNEW lucene::index::MultiReader(&readers, true));
+    SegmentDomainNullResolver resolver;
+    QueryExecutionContext context;
+    context.segment_num_rows = reader->maxDoc();
+    context.sources = {clucene_index_source(reader, L"title", nullptr)};
+    context.field_sources.emplace(L"title", clucene_index_source(reader, L"title", nullptr));
+    context.null_resolver = &resolver;
+    for (const std::string term : {"fleabag", "absentterm"}) {
+        SCOPED_TRACE(term);
+        TermQuery query(std::make_shared<IndexQueryContext>(), L"title", term);
+        auto weight = query.weight(false);
+        auto rows = std::make_shared<roaring::Roaring>();
+        roaring::Roaring nulls;
+        collect_multi_segment_doc_set(weight, context, "", rows, nullptr, false, &nulls);
+        EXPECT_FALSE(rows->contains(2));
+        EXPECT_EQ(nulls.cardinality(), 1);
+        EXPECT_TRUE(nulls.contains(2));
+    }
+}
+
 TEST_F(MultiSegmentCollectorTest, LocalNullRangesPreserveCompressionAndUint32Boundary) {
     SegmentDomainNullResolver resolver;
     QueryExecutionContext context;

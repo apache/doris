@@ -930,7 +930,8 @@ TEST(SniiStreamedWriterSessionTest, TerminalDrainReleasesLookupStateWithoutUnder
             ASSERT_EQ(terms.run_count_for_test(), 0);
         }
         const uint64_t before_drain = terms.resident_bytes_for_test();
-        ASSERT_EQ(reporter.current_bytes(), static_cast<int64_t>(before_drain));
+        ASSERT_EQ(reporter.current_bytes(),
+                  static_cast<int64_t>(before_drain + reporter.postings_current_bytes()));
         ASSERT_GT(before_drain, kReporterCap);
 
         bool saw_first_term = false;
@@ -1001,11 +1002,32 @@ TEST(SniiStreamedWriterSessionTest, ReusesTransferCapacityAcrossAdjacentTerms) {
                                                            {{.docid = 0, .positions = {1}},
                                                             {.docid = 2, .positions = {3}}})));
         }
-        const uint64_t reservations_after_warmup = positive_reservations;
-        assert_ok(push_materialized(session,
-                                    make_term("term_112", {{.docid = 0, .positions = {1}},
-                                                           {.docid = 2, .positions = {3}}})));
-        EXPECT_EQ(positive_reservations, reservations_after_warmup);
+        // Encoder scratch is now reserved too. Observe only source fills so
+        // this assertion continues to measure reuse of the transfer lanes.
+        class ObservedSource : public writer::TermPostingSource {
+        public:
+            ObservedSource(writer::TermPostingSource* source, const uint64_t* reservations)
+                    : source_(source), reservations_(reservations) {}
+            Status fill(uint32_t target_docs, writer::TermPostingBuffer* buffer,
+                        bool* exhausted) override {
+                const uint64_t before = *reservations_;
+                Status status = source_->fill(target_docs, buffer, exhausted);
+                fill_reservations += *reservations_ - before;
+                return status;
+            }
+            uint64_t fill_reservations = 0;
+
+        private:
+            writer::TermPostingSource* source_;
+            const uint64_t* reservations_;
+        };
+        auto term = make_term("term_112",
+                              {{.docid = 0, .positions = {1}}, {.docid = 2, .positions = {3}}});
+        writer::SpanTermPostingSource source(term.docids, term.freqs, term.positions_flat);
+        ObservedSource observed(&source, &positive_reservations);
+        assert_ok(session->push_term(
+                {.term = term.term, .retain_positions = true, .source = &observed}));
+        EXPECT_EQ(observed.fill_reservations, 0);
 
         assert_ok(session->finish());
         assert_ok(compound.finish());

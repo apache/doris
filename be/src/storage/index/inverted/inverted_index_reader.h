@@ -95,6 +95,16 @@ class InvertedIndexResultBitmap {
 private:
     std::shared_ptr<roaring::Roaring> _data_bitmap = nullptr;
     std::shared_ptr<roaring::Roaring> _null_bitmap = nullptr;
+    // true means _data_bitmap is only a superset of candidates (from a gram index push-down, for
+    // instance), so the caller (SegmentIterator) must keep the original expression for row-level
+    // re-verification and may not consume the expression as it would for an exact index result.
+    //
+    // Every operation that produces a new value from an existing one has to carry the flag: the
+    // four special member functions copy it, and &=, |= and -= OR it in, because a combination
+    // involving one approximate operand is itself only a superset and must not be mistaken for an
+    // exact result. op_not is the exception -- see the comment there; negation cannot preserve
+    // the property at all, so it asserts instead of propagating.
+    bool _approximate = false;
 
 public:
     // Default constructor
@@ -113,12 +123,14 @@ public:
                                    : nullptr),
               _null_bitmap(other._null_bitmap
                                    ? std::make_shared<roaring::Roaring>(*other._null_bitmap)
-                                   : nullptr) {}
+                                   : nullptr),
+              _approximate(other._approximate) {}
 
     // Move constructor
     InvertedIndexResultBitmap(InvertedIndexResultBitmap&& other) noexcept
             : _data_bitmap(std::move(other._data_bitmap)),
-              _null_bitmap(std::move(other._null_bitmap)) {}
+              _null_bitmap(std::move(other._null_bitmap)),
+              _approximate(other._approximate) {}
 
     // Copy assignment operator
     InvertedIndexResultBitmap& operator=(const InvertedIndexResultBitmap& other) {
@@ -129,6 +141,7 @@ public:
             _null_bitmap = other._null_bitmap
                                    ? std::make_shared<roaring::Roaring>(*other._null_bitmap)
                                    : nullptr;
+            _approximate = other._approximate;
         }
         return *this;
     }
@@ -138,6 +151,7 @@ public:
         if (this != &other) { // Prevent self-assignment
             _data_bitmap = std::move(other._data_bitmap);
             _null_bitmap = std::move(other._null_bitmap);
+            _approximate = other._approximate;
         }
         return *this;
     }
@@ -155,6 +169,7 @@ public:
             }
             *_null_bitmap = std::move(new_null_bitmap);
         }
+        _approximate = _approximate || other._approximate;
         return *this;
     }
 
@@ -177,11 +192,20 @@ public:
             }
             *_null_bitmap = std::move(new_null_bitmap);
         }
+        _approximate = _approximate || other._approximate;
         return *this;
     }
 
     // NOT operation
+    //
+    // Negation is the one combination an approximate result cannot survive: complementing a
+    // superset of the matching rows yields a subset of the non-matching ones, so rows that do
+    // match would be dropped, and the approximate flag cannot repair that -- re-verifying the
+    // survivors never brings back a row that was already excluded. A caller holding an
+    // approximate result must keep the expression and let the scalar path evaluate the negation
+    // instead of asking for it here.
     const InvertedIndexResultBitmap& op_not(const roaring::Roaring* universe) const {
+        DCHECK(!_approximate) << "op_not on an approximate result would drop matching rows";
         if (_data_bitmap) {
             if (_null_bitmap) {
                 *_data_bitmap = *universe - *_data_bitmap - *_null_bitmap;
@@ -204,6 +228,7 @@ public:
                 *_null_bitmap -= *other._null_bitmap;
             }
         }
+        _approximate = _approximate || other._approximate;
         return *this;
     }
 
@@ -219,6 +244,11 @@ public:
 
     // Check if both bitmaps are empty
     bool is_empty() const { return (_data_bitmap == nullptr && _null_bitmap == nullptr); }
+
+    // true = superset of candidates: rows outside the bitmap certainly do not match, but rows
+    // inside it may not all match, so the expression must re-verify them.
+    void set_approximate(bool v) { _approximate = v; }
+    bool approximate() const { return _approximate; }
 
 private:
     static const roaring::Roaring& _empty_bitmap() {
@@ -307,6 +337,11 @@ public:
 
     virtual InvertedIndexReaderType type() = 0;
 
+    // Whether the index names an analyzer that cuts sparse or dense grams under the current
+    // policy -- the index LIKE / REGEXP gram queries are meant for. Decided from the index
+    // properties and in-memory policies only, never by opening the index.
+    virtual bool is_gram_family() const { return false; }
+
     [[nodiscard]] uint64_t get_index_id() const override { return _index_meta.index_id(); }
 
     [[nodiscard]] MOCK_FUNCTION const std::map<std::string, std::string>& get_index_properties()
@@ -365,9 +400,25 @@ struct LeafRequest {
     InvertedIndexQueryCache::CacheKey cache_key;
     // The longest value the STRING_TYPE ignore_above limit applies to.
     size_t longest_value_bytes = 0;
-    // The value messages quote.
+    // The value messages quote, and the pattern a gram query compiles.
     std::string_view text;
     std::function<Status(index_query::logical::Node*)> plan;
+    // The analyzer that cuts a MATCH value; null when the index's own does, and for a leaf.
+    const InvertedIndexAnalyzerCtx* analyzer_ctx = nullptr;
+};
+
+// What a format decides about a request before the result cache is read.
+struct Admission {
+    // Whether the result may enter the result cache and be shared by single flight.
+    bool cacheable = true;
+    // Whether the request is planned before the index opens, so a value its analyzer rejects
+    // fails without reading the index. A format whose analysis depends on the opened segment
+    // plans after it.
+    bool plan_before_open = true;
+    // Rewrites a failure to open the index; the failure stands when unset.
+    std::function<Status(Status)> open_failed;
+    // Rejects an opened index that cannot answer the request exactly.
+    std::function<Status(OpenedIndex&)> check_open;
 };
 
 // An index over analyzed or untokenized text. It answers MATCH values and SEARCH leaves with one
@@ -444,6 +495,13 @@ protected:
                                      OpenedIndex* /*index*/) {
         return read_null_bitmap(context, cache_handle);
     }
+    // Decides, before the result cache is read, whether the index answers `request` and what
+    // `admission` holds for it. A text index answers no gram query unless its format does.
+    virtual Status _admit(const IndexQueryContextPtr& context, const std::string& column_name,
+                          const LeafRequest& request, Admission* admission);
+    // Runs the gram query of `request` (LIKE or REGEXP over the index's grams) into `out`.
+    virtual Status _run_gram(const IndexQueryContextPtr& context, OpenedIndex& index,
+                             const LeafRequest& request, std::shared_ptr<roaring::Roaring>* out);
 };
 
 // The CLucene text readers: an analyzed (FULLTEXT) or untokenized (STRING_TYPE) index answers a

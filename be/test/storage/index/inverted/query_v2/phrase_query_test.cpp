@@ -1354,7 +1354,7 @@ TEST_F(PhraseQueryV2Test, AListedScoredPhrasePrefixScoresLikeTheStreamedOne) {
         }
         query_v2::PhrasePrefixWeight weight(L"content", {{0, "quick"}}, {1, "bro"},
                                             std::make_shared<BM25Similarity>(2.0F, 8.0F),
-                                            /*enable_scoring=*/true, /*max_expansions=*/50, nullptr,
+                                            /*enable_scoring=*/true, /*max_expansions=*/50, {},
                                             /*suffix=*/false, /*nullable=*/false);
         const auto docs = scored_docs(weight, source);
         if (!batches) {
@@ -1376,7 +1376,7 @@ TEST_F(PhraseQueryV2Test, AListedScoredPhrasePrefixOfManyExpansionsScoresLikeThe
         auto source = many_prefix_source(batches);
         query_v2::PhrasePrefixWeight weight(L"content", {{0, "quick"}}, {1, "br"},
                                             std::make_shared<BM25Similarity>(2.0F, 8.0F),
-                                            /*enable_scoring=*/true, /*max_expansions=*/50, nullptr,
+                                            /*enable_scoring=*/true, /*max_expansions=*/50, {},
                                             /*suffix=*/false, /*nullable=*/false);
         const auto docs = scored_docs(weight, source);
         if (!batches) {

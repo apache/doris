@@ -244,6 +244,9 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     _new_tablet_schema = _new_tablet->tablet_schema();
 
     ReadSchemaSPtr read_schema = std::make_shared<ReadSchema>(_base_tablet_schema->columns());
+    RETURN_IF_ERROR(read_schema->init_from_tablet_schema(*_base_tablet_schema,
+                                                         /*merge_by_sequence_mapping=*/false,
+                                                         /*map_row_binlog_columns=*/false));
 
     // delete handlers to filter out deleted rows
     DeleteHandler delete_handler;
@@ -262,7 +265,6 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     // reader_context is stack variables, it's lifetime MUST keep the same with rs_readers
     RowsetReaderContext reader_context;
     reader_context.reader_type = ReaderType::READER_ALTER_TABLE;
-    reader_context.tablet_schema = _base_tablet_schema;
     reader_context.need_ordered_result = true;
     reader_context.delete_handler = &delete_handler;
     reader_context.read_schema = read_schema;

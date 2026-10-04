@@ -85,7 +85,12 @@ private:
         return std::make_shared<PhrasePrefixWeight>(
                 std::move(_field), std::move(_phrase_terms), std::move(_prefix.value()),
                 std::move(bm25_similarity), enable_scoring, index_query::max_expansions(*_context),
-                _candidates, _suffix, _nullable);
+                index_query::PhraseQueryOptions {
+                        .candidates = _candidates,
+                        .candidate_rows_consumed = _candidates == nullptr
+                                                           ? nullptr
+                                                           : &_context->candidate_rows_consumed},
+                _suffix, _nullable);
     }
 
     IndexQueryContextPtr _context;

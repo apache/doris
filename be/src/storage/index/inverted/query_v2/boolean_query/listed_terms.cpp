@@ -26,7 +26,6 @@
 #include "storage/index/inverted/query_v2/postings/listed_walk.h"
 #include "storage/index/inverted/query_v2/scored_rows_scorer.h"
 #include "storage/index/query/exec/block_doc_set.h"
-#include "storage/index/query/exec/collect_postings.h"
 #include "storage/index/query/exec/cursor_chained_postings.h"
 #include "storage/index/query/exec/term_waves.h"
 #include "storage/index/query/phrase/position_span.h"
@@ -78,24 +77,13 @@ uint64_t ListedTerms::cheapest_doc_freq() const {
     return cheapest;
 }
 
-Status ListedTerms::_chain(const std::vector<uint32_t>* candidates, std::vector<uint32_t>* rows) {
-    std::vector<index_query::CursorChainedPostings> terms;
-    terms.reserve(_cursors.size());
-    std::vector<index_query::ChainedPostings*> chain;
-    for (const auto& cursor : _cursors) {
-        terms.emplace_back(*cursor);
-        chain.push_back(&terms.back());
-    }
-    return index_query::chained_conjunction(chain, candidates, rows);
-}
-
 index_query::TruthSet ListedTerms::conjunction(const std::vector<uint32_t>* candidates) {
     index_query::TruthSet result;
     if (has_absent_term()) {
         return result;
     }
     std::vector<uint32_t> docs;
-    THROW_IF_ERROR(_chain(candidates, &docs));
+    THROW_IF_ERROR(index_query::chain_cursors(_cursors, candidates, &docs));
     result.true_rows.addMany(docs.size(), docs.data());
     if (_nulls != nullptr) {
         result.null_rows = *_nulls;
@@ -107,17 +95,7 @@ index_query::TruthSet ListedTerms::disjunction() {
     index_query::TruthSet result;
     bool any_present = false;
     index_query::RoaringDocIdSink sink(result.true_rows);
-    THROW_IF_ERROR(index_query::visit_term_postings(
-            *_source, _terms, /*scoring=*/false,
-            [&](size_t, index_query::PostingsCursor* cursor) -> Status {
-                if (cursor == nullptr) {
-                    return Status::OK();
-                }
-                any_present = true;
-                index_query::BlockDocSet docs(*cursor);
-                return index_query::collect_postings<false>(docs, nullptr, sink,
-                                                            [](uint32_t, uint32_t, uint32_t) {});
-            }));
+    THROW_IF_ERROR(index_query::collect_term_rows(*_source, _terms, sink, &any_present));
     if (any_present && _nulls != nullptr) {
         result.null_rows = *_nulls;
     }
@@ -170,7 +148,7 @@ ScorerPtr ListedTerms::scored_conjunction() {
         return std::make_shared<EmptyScorer>();
     }
     std::vector<uint32_t> rows;
-    THROW_IF_ERROR(_chain(nullptr, &rows));
+    THROW_IF_ERROR(index_query::chain_cursors(_cursors, nullptr, &rows));
     if (rows.empty()) {
         return std::make_shared<EmptyScorer>();
     }

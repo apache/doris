@@ -481,7 +481,8 @@ inline Status phrase_prefix_query_with_frequencies(const reader::LogicalIndexRea
                 oracle::kField, std::move(phrase_terms),
                 std::make_pair(terms.size() - 1, terms.back()),
                 std::make_shared<oracle::FrequencyScoring>(), /*enable_scoring=*/true,
-                options.max_expansions, options.candidates, /*suffix=*/false,
+                options.max_expansions, PhraseQueryOptions {.candidates = options.candidates},
+                /*suffix=*/false,
                 /*nullable=*/true);
     }
     return run.scored(weight, matches);

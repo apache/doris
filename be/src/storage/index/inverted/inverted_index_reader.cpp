@@ -394,9 +394,12 @@ Status phrase_query(const IndexQueryContextPtr& context, const std::wstring& fie
                                                              candidates, phrase.suffix);
         return Status::OK();
     }
-    const index_query::PhraseQueryOptions options {.slop = static_cast<uint32_t>(phrase.slop),
-                                                   .ordered = phrase.ordered,
-                                                   .candidates = candidates};
+    const index_query::PhraseQueryOptions options {
+            .slop = static_cast<uint32_t>(phrase.slop),
+            .ordered = phrase.ordered,
+            .candidates = candidates,
+            .candidate_rows_consumed =
+                    candidates == nullptr ? nullptr : &context->candidate_rows_consumed};
     if (single_terms) {
         *out = std::make_shared<query_v2::PhraseQuery>(context, field, phrase.slots, options);
     } else {
@@ -675,17 +678,39 @@ Status TextIndexReader::_query_raw(const IndexQueryContextPtr& context,
                           .value = raw_semantic.encode()},
             .longest_value_bytes = value.size(),
             .text = value,
-            .plan = [&lowering](logical::Node* out) {
-                SCOPED_RAW_TIMER(&lowering.context->stats->inverted_index_analyzer_timer);
-                return logical::lower_match(
-                        lowering.query_type, lowering.value,
-                        [&lowering](std::string_view text, std::vector<TermInfo>* tokens) {
-                            return inverted_index::InvertedIndexAnalyzer::analyze(
-                                    text, lowering.analyzer_ctx, lowering.properties, tokens);
-                        },
-                        out);
-            }};
+            .plan =
+                    [&lowering](logical::Node* out) {
+                        SCOPED_RAW_TIMER(&lowering.context->stats->inverted_index_analyzer_timer);
+                        return logical::lower_match(
+                                lowering.query_type, lowering.value,
+                                [&lowering](std::string_view text, std::vector<TermInfo>* tokens) {
+                                    return inverted_index::InvertedIndexAnalyzer::analyze(
+                                            text, lowering.analyzer_ctx, lowering.properties,
+                                            tokens);
+                                },
+                                out);
+                    },
+            .analyzer_ctx = analyzer_ctx};
     return _execute(context, column_name, request, bit_map, null_bitmap_cache_handle);
+}
+
+Status TextIndexReader::_admit(const IndexQueryContextPtr& /*context*/,
+                               const std::string& column_name, const LeafRequest& request,
+                               Admission* /*admission*/) {
+    // CLucene indexes do not persist the gram tokenizer contract needed to compile a pattern.
+    if (is_gram_query(request.query_type)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "{} requires SNII storage format for column {}",
+                query_type_to_string(request.query_type), column_name);
+    }
+    return Status::OK();
+}
+
+Status TextIndexReader::_run_gram(const IndexQueryContextPtr& /*context*/, OpenedIndex& /*index*/,
+                                  const LeafRequest& request,
+                                  std::shared_ptr<roaring::Roaring>* /*out*/) {
+    return Status::InternalError("a text index admitted {} it cannot run",
+                                 query_type_to_string(request.query_type));
 }
 
 // Keep the cache, count-only, candidate and single-flight decisions in one linear path.
@@ -714,6 +739,8 @@ Status TextIndexReader::_execute(const IndexQueryContextPtr& context,
     // Fresh per-search reply: only the query about to run decides whether its result is
     // candidate-restricted.
     context->candidate_rows_consumed = false;
+    Admission admission;
+    RETURN_IF_ERROR(_admit(context, column_name, request, &admission));
     const auto finish_query = [&](OpenedIndex* index) -> Status {
         if (null_bitmap_cache_handle == nullptr) {
             return Status::OK();
@@ -745,7 +772,7 @@ Status TextIndexReader::_execute(const IndexQueryContextPtr& context,
     // leader's can answer it.
     const bool scoring = context->collection_similarity != nullptr &&
                          IndexReaderHelper::is_need_similarity_score(query_type, &_index_meta);
-    const bool allow_result_cache = !scoring;
+    const bool allow_result_cache = !scoring && admission.cacheable;
     const InvertedIndexQueryCache::CacheKey& cache_key = request.cache_key;
     auto* cache = InvertedIndexQueryCache::instance();
     InvertedIndexQueryCacheHandle cache_handler;
@@ -754,12 +781,24 @@ Status TextIndexReader::_execute(const IndexQueryContextPtr& context,
         return finish_query(nullptr);
     }
 
-    std::unique_ptr<OpenedIndex> index;
-    RETURN_IF_ERROR(_open_index(context, &index));
-
+    // A gram query runs over the index's grams; any other request is planned, before the index
+    // opens unless its format admits the segment first.
+    const bool gram = is_gram_query(query_type);
     logical::Node leaf;
-    RETURN_IF_ERROR(request.plan(&leaf));
-    if (leaf.as<logical::Empty>() != nullptr) {
+    if (!gram && admission.plan_before_open) {
+        RETURN_IF_ERROR(request.plan(&leaf));
+    }
+    std::unique_ptr<OpenedIndex> index;
+    if (Status status = _open_index(context, &index); !status.ok()) {
+        return admission.open_failed == nullptr ? status : admission.open_failed(std::move(status));
+    }
+    if (admission.check_open != nullptr) {
+        RETURN_IF_ERROR(admission.check_open(*index));
+    }
+    if (!gram && !admission.plan_before_open) {
+        RETURN_IF_ERROR(request.plan(&leaf));
+    }
+    if (!gram && leaf.as<logical::Empty>() != nullptr) {
         auto msg = fmt::format("token parser result is empty for query '{}'", request.text);
         if (is_match_query(query_type)) {
             LOG(WARNING) << msg;
@@ -769,6 +808,39 @@ Status TextIndexReader::_execute(const IndexQueryContextPtr& context,
             return finish_query(index.get());
         }
         return Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(msg);
+    }
+
+    // Under a cold cache, parallel scanners open and decode the same segment's index for the
+    // same query; identical concurrent queries collapse into one execution (see SingleFlight),
+    // which caches the result it computes.
+    static inverted_index::SingleFlight<std::pair<Status, std::shared_ptr<roaring::Roaring>>>
+            query_single_flight;
+    const auto run_shared = [&](const auto& run, std::shared_ptr<roaring::Roaring>* out) {
+        return run_query_single_flight(
+                query_single_flight, cache_key.encode(), out,
+#ifdef BE_TEST
+                _single_flight_follower_joined_observer, _single_flight_follower_joined_opaque,
+                _single_flight_leader_before_compute_observer,
+                _single_flight_leader_before_compute_opaque,
+#endif
+                [&](std::shared_ptr<roaring::Roaring>* shared) {
+                    Status run_status = run(shared);
+                    if (run_status.ok()) {
+                        insert_query_cache(context, cache, cache_key, *shared, &cache_handler,
+                                           allow_result_cache);
+                    }
+                    return run_status;
+                });
+    };
+    std::shared_ptr<roaring::Roaring> result;
+
+    if (gram) {
+        const auto run_gram = [&](std::shared_ptr<roaring::Roaring>* out) {
+            return _run_gram(context, *index, request, out);
+        };
+        RETURN_IF_ERROR(allow_result_cache ? run_shared(run_gram, &result) : run_gram(&result));
+        bit_map = std::move(result);
+        return finish_query(index.get());
     }
 
     // A count-only scan of one exact term is answered from the dictionary. The cache came first,
@@ -792,36 +864,24 @@ Status TextIndexReader::_execute(const IndexQueryContextPtr& context,
     }
 
     const bool consume_candidates = context->candidate_rows != nullptr && consumes_candidates(leaf);
-    context->candidate_rows_consumed = consume_candidates;
     const roaring::Roaring* candidates = consume_candidates ? context->candidate_rows : nullptr;
-
-    // Under a cold cache, parallel scanners open and decode the same segment's index for the
-    // same query; identical concurrent queries collapse into one execution (see SingleFlight).
-    static inverted_index::SingleFlight<std::pair<Status, std::shared_ptr<roaring::Roaring>>>
-            query_single_flight;
-    std::shared_ptr<roaring::Roaring> result;
-    Status status;
     if (!allow_result_cache || consume_candidates) {
-        status = _run_leaf(context, column_name, *index, leaf, candidates, scoring, &result);
+        RETURN_IF_ERROR(
+                _run_leaf(context, column_name, *index, leaf, candidates, scoring, &result));
+        // A phrase with a slot the index lacks stops before the candidates: its result is empty
+        // for the whole segment, so it may be cached.
+        if (consume_candidates && !context->candidate_rows_consumed) {
+            DORIS_CHECK(result->isEmpty());
+            insert_query_cache(context, cache, cache_key, result, &cache_handler,
+                               allow_result_cache);
+        }
     } else {
-        status = run_query_single_flight(
-                query_single_flight, cache_key.encode(), &result,
-#ifdef BE_TEST
-                _single_flight_follower_joined_observer, _single_flight_follower_joined_opaque,
-                _single_flight_leader_before_compute_observer,
-                _single_flight_leader_before_compute_opaque,
-#endif
+        RETURN_IF_ERROR(run_shared(
                 [&](std::shared_ptr<roaring::Roaring>* out) {
-                    Status leaf_status =
-                            _run_leaf(context, column_name, *index, leaf, nullptr, false, out);
-                    if (leaf_status.ok()) {
-                        insert_query_cache(context, cache, cache_key, *out, &cache_handler,
-                                           allow_result_cache);
-                    }
-                    return leaf_status;
-                });
+                    return _run_leaf(context, column_name, *index, leaf, nullptr, false, out);
+                },
+                &result));
     }
-    RETURN_IF_ERROR(status);
     DORIS_CHECK(result != nullptr);
     bit_map = std::move(result);
     return finish_query(index.get());
@@ -964,6 +1024,12 @@ Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
                                             InvertedIndexQueryType query_type,
                                             std::shared_ptr<roaring::Roaring>& bit_map,
                                             const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/) {
+    // CLucene indexes do not persist the gram tokenizer contract needed to compile a pattern.
+    if (is_gram_query(query_type)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "{} requires SNII storage format for column {}", query_type_to_string(query_type),
+                column_name);
+    }
     switch (query_type) {
     case InvertedIndexQueryType::MATCH_ANY_QUERY:
     case InvertedIndexQueryType::MATCH_ALL_QUERY:
@@ -1056,7 +1122,7 @@ Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
         // add to cache (unless a candidate-consuming query made it partial)
         result->runOptimize();
         if (!context->candidate_rows_consumed) {
-            cache->insert(cache_key, result, &cache_handler);
+            insert_query_cache(context, cache, cache_key, result, &cache_handler);
         }
 
         bit_map = result;

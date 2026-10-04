@@ -23,8 +23,11 @@ suite("test_python_raise_error_propagation") {
     def udafPath = """${suitePath}/pythonudaf_p0/udaf_scripts/pyudaf.zip"""
     def udtfPath = """${suitePath}/pythonudtf_p0/udtf_scripts/pyudtf.zip"""
     scp_udf_file_to_all_be(udfPath)
+    scp_udf_file_to_all_fe(udfPath)
     scp_udf_file_to_all_be(udafPath)
+    scp_udf_file_to_all_fe(udafPath)
     scp_udf_file_to_all_be(udtfPath)
+    scp_udf_file_to_all_fe(udtfPath)
     def runtime_version = getPythonUdfRuntimeVersion()
     log.info("Python UDF zip path: ${udfPath}".toString())
     log.info("Python UDAF zip path: ${udafPath}".toString())

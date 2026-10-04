@@ -132,6 +132,8 @@ suite("test_adbc_large_data", "p0,external") {
                 CREATE CATALOG ${flightCatalog} PROPERTIES (
                     "type" = "adbc",
                     "driver_url" = "${flightDriverPath}",
+                    -- The loopback source is Doris even when vendor detection is unavailable.
+                    "sql_dialect" = "doris",
                     "uri" = "grpc://127.0.0.1:${arrowPort}",
                     "user" = "root",
                     "password" = "",
@@ -181,11 +183,8 @@ suite("test_adbc_large_data", "p0,external") {
             conserved("count(DISTINCT flag), sum(CASE WHEN flag THEN 1 ELSE 0 END)", "")
             conserved("sum(big_id), min(big_id), max(big_id)", "")
             conserved("min(d), max(d), count(DISTINCT d)", "")
-            // ts is cast back to the source's type first: a Doris source stamps the session zone onto
-            // every DATETIMEV2 it writes to Arrow, so the column arrives as TIMESTAMPTZ and prints an
-            // offset the native read does not. The cast is a no-op on the source side, leaving the
-            // instants -- and the DISTINCT count, which is what a batch lost mid-stream would move.
-            conserved("min(CAST(ts AS DATETIME(3))), max(CAST(ts AS DATETIME(3))), count(DISTINCT ts)", "")
+            // Compare the original DATETIME values so a timezone/type change cannot be hidden by a cast.
+            conserved("min(ts), max(ts), count(DISTINCT ts)", "")
 
             // Grouped, so a lost or repeated batch lands in a few groups rather than in one total -- a
             // difference the aggregate totals above could in principle cancel out.
@@ -220,6 +219,8 @@ suite("test_adbc_large_data", "p0,external") {
                 CREATE CATALOG ${flightSingleRange} PROPERTIES (
                     "type" = "adbc",
                     "driver_url" = "${flightDriverPath}",
+                    -- The loopback source is Doris even when vendor detection is unavailable.
+                    "sql_dialect" = "doris",
                     "uri" = "grpc://127.0.0.1:${arrowPort}",
                     "user" = "root",
                     "password" = "",

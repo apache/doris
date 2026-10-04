@@ -66,6 +66,7 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/virtual_slot_ref.h"
 #include "exprs/vliteral.h"
+#include "exprs/vmatch_predicate.h"
 #include "exprs/vslot_ref.h"
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_reader.h"
@@ -76,12 +77,12 @@
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "storage/binlog.h"
-#include "storage/compaction/collection_similarity.h"
 #include "storage/id_manager.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/ann/ann_index_iterator.h"
 #include "storage/index/ann/ann_index_reader.h"
 #include "storage/index/ann/ann_topn_runtime.h"
+#include "storage/index/collection_similarity.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_iterator.h"
 #include "storage/index/index_query_context.h"
@@ -145,6 +146,14 @@ private:
 SegmentIterator::~SegmentIterator() = default;
 
 void SegmentIterator::_init_row_bitmap_by_condition_cache() {
+    // Delete bitmaps vary by read version, but the condition cache key does not.
+    auto delete_bitmap_it = _opts.delete_bitmap.find(segment_id());
+    if (delete_bitmap_it != _opts.delete_bitmap.end() && delete_bitmap_it->second != nullptr &&
+        !delete_bitmap_it->second->isEmpty()) {
+        _opts.condition_cache_digest = 0;
+        return;
+    }
+
     // Only dispose need column predicate and expr cal in condition cache
     if (!_col_predicates.empty() || !_common_expr_ctxs_push_down.empty()) {
         if (_opts.condition_cache_digest) {
@@ -438,7 +447,9 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     }
 
     _storage_name_and_type.resize(_schema->num_read_columns());
-    auto storage_format = _opts.tablet_schema->get_inverted_index_storage_format();
+    // The field names built below must match the ones this segment's index files were written
+    // with, so take the format from the schema IndexFileReader was opened with.
+    auto storage_format = _segment->_tablet_schema->get_inverted_index_storage_format();
     for (size_t i = 0; i < _schema->num_read_columns(); ++i) {
         const TabletColumn* col = _schema->column(i);
         auto storage_type = _segment->get_data_type_of(*col, _schema->data_type(i), _opts);
@@ -499,12 +510,13 @@ void SegmentIterator::_rebuild_scan_predicate_states() {
     }
 }
 
-void SegmentIterator::_mark_common_expr_states(const VExprSPtr& expr) {
+void SegmentIterator::_mark_common_expr_states(const VExprSPtr& expr, bool runtime_generated) {
     if (expr->is_slot_ref()) {
         const auto ordinal =
                 cast_set<ColumnId>(assert_cast<const VSlotRef*>(expr.get())->column_id());
         DORIS_CHECK_LT(ordinal, _schema->num_block_columns());
         _column_states[ordinal].has_common_expr = true;
+        _column_states[ordinal].has_runtime_common_expr |= runtime_generated;
         _is_need_expr_eval = true;
         return;
     }
@@ -512,11 +524,11 @@ void SegmentIterator::_mark_common_expr_states(const VExprSPtr& expr) {
         const auto& virtual_expr =
                 assert_cast<const VirtualSlotRef*>(expr.get())->get_virtual_column_expr();
         DORIS_CHECK(virtual_expr != nullptr);
-        _mark_common_expr_states(virtual_expr);
+        _mark_common_expr_states(virtual_expr, runtime_generated);
         return;
     }
     for (const auto& child : expr->children()) {
-        _mark_common_expr_states(child);
+        _mark_common_expr_states(child, runtime_generated);
     }
 }
 
@@ -701,10 +713,7 @@ Status SegmentIterator::_get_row_ranges_by_keys() {
     // groups must still apply the key range to read the same physical rows as the key group.
     if (_opts.io_ctx.reader_type != ReaderType::READER_BASE_COMPACTION &&
         std::none_of(_schema->columns().begin(), _schema->columns().end(),
-                     [&](const TabletColumnPtr& col) {
-                         return col &&
-                                _opts.tablet_schema->column_by_uid(col->unique_id()).is_key();
-                     })) {
+                     [](const TabletColumnPtr& col) { return col && col->is_key(); })) {
         return Status::OK();
     }
 
@@ -801,15 +810,28 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
     return Status::OK();
 }
 
-Status SegmentIterator::_get_row_ranges_by_column_conditions() {
-    SCOPED_RAW_TIMER(&_opts.stats->generate_row_ranges_by_column_conditions_ns);
+static bool can_consume_candidate_rows(const VExprContextSPtr& expr_ctx) {
+    const auto& root = expr_ctx->root();
+    DORIS_CHECK(root != nullptr);
+    const VExpr* effective_root = root.get();
+    if (root->is_virtual_slot_ref()) {
+        const auto& virtual_expr =
+                assert_cast<const VirtualSlotRef*>(root.get())->get_virtual_column_expr();
+        DORIS_CHECK(virtual_expr != nullptr);
+        effective_root = virtual_expr.get();
+    }
+    if (effective_root->node_type() != TExprNodeType::MATCH_PRED) {
+        return false;
+    }
+    const auto* match = dynamic_cast<const VMatchPredicate*>(effective_root);
+    return match == nullptr || match->function_name() == "match_phrase" ||
+           match->function_name() == "match_phrase_prefix";
+}
+
+Status SegmentIterator::_apply_scan_restrictions() {
     if (_row_bitmap.isEmpty()) {
         return Status::OK();
     }
-
-    // Apply stable scan restrictions before evaluating inverted-index expressions so
-    // selective restrictions can also serve as phrase-query candidates. The candidate
-    // pointer keeps referring to _row_bitmap as later predicates shrink it.
     auto delete_bitmap_it = _opts.delete_bitmap.find(segment_id());
     if (delete_bitmap_it != _opts.delete_bitmap.end() && delete_bitmap_it->second != nullptr) {
         size_t pre_size = _row_bitmap.cardinality();
@@ -834,9 +856,31 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
         _row_bitmap &= RowRanges::ranges_to_roaring(condition_row_ranges);
         _opts.stats->rows_conditions_filtered += (pre_size - _row_bitmap.cardinality());
     }
+    return Status::OK();
+}
 
+Status SegmentIterator::_get_row_ranges_by_column_conditions() {
+    SCOPED_RAW_TIMER(&_opts.stats->generate_row_ranges_by_column_conditions_ns);
     if (_row_bitmap.isEmpty()) {
         return Status::OK();
+    }
+
+    const double candidate_ratio = config::get_inverted_index_candidate_pushdown_ratio();
+    const bool prune_before_index =
+            _index_query_context != nullptr && _opts.runtime_state != nullptr &&
+            _opts.runtime_state->query_options().enable_inverted_index_query &&
+            std::isfinite(candidate_ratio) && candidate_ratio > 0 && candidate_ratio <= 1 &&
+            (std::ranges::any_of(_common_expr_ctxs_push_down, can_consume_candidate_rows) ||
+             std::ranges::any_of(_virtual_column_exprs, [](const auto& entry) {
+                 return can_consume_candidate_rows(entry.second);
+             }));
+
+    // Prune early only when an index expression can use the candidate bitmap.
+    if (prune_before_index) {
+        RETURN_IF_ERROR(_apply_scan_restrictions());
+        if (_row_bitmap.isEmpty()) {
+            return Status::OK();
+        }
     }
 
     {
@@ -906,6 +950,10 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
                 }
             }
         }
+    }
+
+    if (!prune_before_index) {
+        RETURN_IF_ERROR(_apply_scan_restrictions());
     }
 
     DBUG_EXECUTE_IF("segment_iterator.inverted_index.filtered_rows", {
@@ -1281,11 +1329,8 @@ void SegmentIterator::_refresh_candidate_pushdown() {
     if (_index_query_context == nullptr || _index_query_context->candidate_rows != nullptr) {
         return;
     }
-    // Guard the domain before the multiply: a non-finite or out-of-range
-    // configured ratio must never reach the floating-to-integer conversion
-    // (undefined behavior), even if a runtime config update transiently
-    // publishes a value the validator rejects.
-    double candidate_ratio = config::inverted_index_candidate_pushdown_ratio;
+    // Validate the snapshot before converting the row threshold to an integer.
+    double candidate_ratio = config::get_inverted_index_candidate_pushdown_ratio();
     if (!std::isfinite(candidate_ratio) || candidate_ratio <= 0 || candidate_ratio > 1) {
         return;
     }
@@ -1343,6 +1388,7 @@ Status SegmentIterator::_apply_index_expr() {
     // iterates the same list.
     std::vector<const VExprContext*> consumed_by_index;
     bool bitmap_exhausted = false;
+    bool applied_approx_index = false;
     size_t considered_conjuncts = 0;
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
         if (_row_bitmap.isEmpty()) {
@@ -1352,6 +1398,11 @@ Status SegmentIterator::_apply_index_expr() {
             break;
         }
         ++considered_conjuncts;
+        // _apply_approx_index_result below reads an approximate (superset) result back by this
+        // context's root pointer, so name that root as the consumer: a push-down that can only
+        // answer approximately then knows its work will be used. The virtual column loop
+        // further down consumes none, and deliberately names none.
+        expr_ctx->set_approx_index_result_consumer(expr_ctx->root().get());
         if (Status st = evaluate_with_candidate_policy(expr_ctx); !st.ok()) {
             if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
                 continue;
@@ -1369,6 +1420,12 @@ Status SegmentIterator::_apply_index_expr() {
             if (result != nullptr) {
                 _row_bitmap &= *result->get_data_bitmap();
                 consumed_by_index.push_back(expr_ctx.get());
+            }
+        } else {
+            // Approximate results come here: prune the candidates only, never consume the
+            // expression.
+            if (_apply_approx_index_result(expr_ctx.get())) {
+                applied_approx_index = true;
             }
         }
     }
@@ -1436,6 +1493,10 @@ Status SegmentIterator::_apply_index_expr() {
         _opts.stats->ann_index_range_cache_hits += ann_index_stats.range_cache_hits.value();
     }
 
+    if (applied_approx_index) {
+        _opts.stats->gram_index_candidate_rows += static_cast<int64_t>(_row_bitmap.cardinality());
+    }
+
     if (bitmap_exhausted) {
         // Zero surviving rows satisfy every remaining conjunct, so the whole
         // list is consumed -- mirroring the column-predicate short circuit.
@@ -1455,6 +1516,20 @@ Status SegmentIterator::_apply_index_expr() {
     return Status::OK();
 }
 
+bool SegmentIterator::_apply_approx_index_result(VExprContext* expr_ctx) {
+    // Approximate results prune candidates while their expressions remain for row evaluation.
+    const auto* approx =
+            expr_ctx->get_index_context()->get_approx_index_result_for_expr(expr_ctx->root().get());
+    if (approx == nullptr || approx->get_data_bitmap() == nullptr) {
+        return false;
+    }
+    const uint64_t before = _row_bitmap.cardinality();
+    _row_bitmap &= *approx->get_data_bitmap();
+    const uint64_t after = _row_bitmap.cardinality();
+    _opts.stats->rows_gram_index_filtered += static_cast<int64_t>(before - after);
+    return true;
+}
+
 bool SegmentIterator::_count_on_index_fastpath_safe() const {
     CountOnIndexFastpathFacts facts;
     facts.is_count_on_index_agg = _opts.push_down_agg_type_opt == TPushAggOp::COUNT_ON_INDEX;
@@ -1467,8 +1542,7 @@ bool SegmentIterator::_count_on_index_fastpath_safe() const {
     facts.has_virtual_column_exprs = !_virtual_column_exprs.empty();
     facts.has_delete_predicates = _opts.delete_condition_predicates != nullptr &&
                                   _opts.delete_condition_predicates->num_of_column_predicate() > 0;
-    // Mirror of the pre-index delete-bitmap subtraction: the fast path is only
-    // sound when there is nothing to subtract for THIS segment.
+    // A count answer cannot skip versioned deletes for this segment.
     const auto delete_bitmap_it = _opts.delete_bitmap.find(segment_id());
     facts.segment_delete_bitmap_empty = delete_bitmap_it == _opts.delete_bitmap.end() ||
                                         delete_bitmap_it->second == nullptr ||
@@ -1488,9 +1562,7 @@ bool SegmentIterator::_count_on_index_fastpath_safe() const {
     facts.no_need_read_data_opt_enabled =
             _opts.runtime_state == nullptr ||
             _opts.runtime_state->query_options().enable_no_need_read_data_opt;
-    facts.keys_type_supported = _opts.tablet_schema->keys_type() == KeysType::DUP_KEYS ||
-                                (_opts.tablet_schema->keys_type() == KeysType::UNIQUE_KEYS &&
-                                 _opts.enable_unique_key_merge_on_write);
+    facts.keys_type_supported = _keys_type_allows_skipping_data();
     return count_on_index_fastpath_safe(facts);
 }
 
@@ -1682,6 +1754,12 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
     return Status::OK();
 }
 
+bool SegmentIterator::_keys_type_allows_skipping_data() const {
+    const KeysType keys_type = _segment->_tablet_schema->keys_type();
+    return keys_type == KeysType::DUP_KEYS ||
+           (keys_type == KeysType::UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
+}
+
 bool SegmentIterator::_need_read_data(ColumnId cid) {
     if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_no_need_read_data_opt) {
         return true;
@@ -1689,10 +1767,7 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
     if (_can_skip_reading_extra_column(cid)) {
         return false;
     }
-    // only support DUP_KEYS and UNIQUE_KEYS with MOW
-    if (!((_opts.tablet_schema->keys_type() == KeysType::DUP_KEYS ||
-           (_opts.tablet_schema->keys_type() == KeysType::UNIQUE_KEYS &&
-            _opts.enable_unique_key_merge_on_write)))) {
+    if (!_keys_type_allows_skipping_data()) {
         return true;
     }
     // this is a virtual column, we always need to read data
@@ -2207,12 +2282,20 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
     // Step2: extract columns that can execute expr context
     if (!_common_expr_ctxs_push_down.empty()) {
         for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
-            _mark_common_expr_states(expr_ctx->root());
+            const auto& root = expr_ctx->root();
+            // TopN filters and runtime filters are attached to the scan on BE after the FE
+            // planner computed nested predicate access paths.
+            _mark_common_expr_states(root, root->is_topn_filter() || root->is_rf_wrapper());
         }
         if (_is_need_expr_eval) {
             for (uint32_t cid = 0; cid < _schema->num_block_columns(); ++cid) {
                 const auto field_type = _schema->column(cid)->type();
-                if (_column_states[cid].has_common_expr && _enable_prune_nested_column &&
+                // A runtime-generated common expression may read nested fields outside the
+                // FE predicate access paths, e.g. ORDER BY s.a with WHERE on s.b. Keep such
+                // a column in the NORMAL read phase so every access path is materialized
+                // before the expression is evaluated.
+                if (_column_states[cid].has_common_expr &&
+                    !_column_states[cid].has_runtime_common_expr && _enable_prune_nested_column &&
                     (field_type == FieldType::OLAP_FIELD_TYPE_STRUCT ||
                      field_type == FieldType::OLAP_FIELD_TYPE_ARRAY ||
                      field_type == FieldType::OLAP_FIELD_TYPE_MAP)) {
@@ -3625,9 +3708,7 @@ bool SegmentIterator::_no_need_read_key_data_eligible(ColumnId cid) {
         return false;
     }
 
-    if (!((_opts.tablet_schema->keys_type() == KeysType::DUP_KEYS ||
-           (_opts.tablet_schema->keys_type() == KeysType::UNIQUE_KEYS &&
-            _opts.enable_unique_key_merge_on_write)))) {
+    if (!_keys_type_allows_skipping_data()) {
         return false;
     }
 

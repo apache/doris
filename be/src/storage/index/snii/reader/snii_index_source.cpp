@@ -87,8 +87,23 @@ Status SniiIndexSource::_open_norms(const format::NormsPodReader** out) {
     return Status::OK();
 }
 
+Status SniiIndexSource::lookup(std::string_view term,
+                               const LogicalIndexReader::BatchLookupResult** out) {
+    RETURN_IF_ERROR(check_user_term(term));
+    Term* resolved = nullptr;
+    RETURN_IF_ERROR(_resolve(term, &resolved));
+    *out = &resolved->hit;
+    return Status::OK();
+}
+
 Status SniiIndexSource::_cursor(Term& term, bool positions, bool scoring, SniiReadWave* wave,
                                 std::unique_ptr<SniiPostingsCursor>* out) {
+    // A stop-gram's posting list was dropped at write time: it holds every document, and read as
+    // a posting it would hold none, so the query reads rows instead.
+    if (term.hit.entry.posting_dropped) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED, false>(
+                "snii: term '{}' has a dropped posting list (stop-gram)", term.hit.entry.term);
+    }
     const format::NormsPodReader* norms = nullptr;
     if (scoring && _idx.has_norms()) {
         RETURN_IF_ERROR(_open_norms(&norms));

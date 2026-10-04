@@ -67,7 +67,7 @@ void add_search_binding_diagnostic(const std::shared_ptr<IndexQueryContext>& con
     }
 }
 
-InvertedIndexAnalyzerCtxSPtr build_analyzer_context(
+InvertedIndexAnalyzerCtxSPtr build_analyzer_context_unsafe(
         const std::map<std::string, std::string>& properties, const std::string& analyzer_key) {
     InvertedIndexAnalyzerConfig config;
     config.analyzer_name = get_analyzer_name_from_properties(properties);
@@ -91,6 +91,20 @@ InvertedIndexAnalyzerCtxSPtr build_analyzer_context(
 }
 
 } // namespace
+
+// Replayed components can collide across policy families, so building the provider throws.
+Result<InvertedIndexAnalyzerCtxSPtr> build_search_analyzer_context(
+        const std::map<std::string, std::string>& properties, const std::string& analyzer_key) {
+    try {
+        return build_analyzer_context_unsafe(properties, analyzer_key);
+    } catch (const CLuceneError& error) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Build search analyzer failed: {}", error.what()));
+    } catch (const Exception& error) {
+        return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "Build search analyzer failed: {}", error.what()));
+    }
+}
 
 FieldReaderResolver::FieldReaderResolver(
         const std::unordered_map<std::string, IndexFieldNameAndTypePair>& data_type_with_names,
@@ -217,6 +231,17 @@ Status FieldReaderResolver::resolve(const std::string& field_name,
                 "selected reader is null for field '{}'", field_name);
     }
 
+    // A gram index only accelerates LIKE / REGEXP. SEARCH cuts its value with the current
+    // analyzer and has no row fallback, while a gram segment was cut by the scheme it recorded --
+    // for a sparse index, a density solved from its own rows -- so a gram answer to SEARCH could
+    // silently miss rows. Refuse it outright instead of returning such a bitmap.
+    if (inverted_reader->is_gram_family()) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "SEARCH cannot use gram index '{}' on field '{}': a gram index only accelerates "
+                "LIKE and REGEXP",
+                inverted_reader->get_index_meta().index_name(), field_name);
+    }
+
     FieldReaderBinding resolved;
     resolved.logical_field_name = field_name;
     resolved.stored_field_name = stored_field_name;
@@ -332,16 +357,12 @@ Status FieldReaderResolver::analyzer_context_for(const std::string& binding_key,
     }
     FieldReaderBinding& binding = it->second;
     if (binding.analyzer_context == nullptr) {
-        try {
-            binding.analyzer_context =
-                    build_analyzer_context(binding.index_properties, binding.analyzer_key);
-        } catch (const CLuceneError& e) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                    "search: building the analyzer of '{}' failed: {}", binding_key, e.what());
-        } catch (const Exception& e) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
-                    "search: building the analyzer of '{}' failed: {}", binding_key, e.what());
+        auto built_context =
+                build_search_analyzer_context(binding.index_properties, binding.analyzer_key);
+        if (!built_context.has_value()) {
+            return built_context.error();
         }
+        binding.analyzer_context = std::move(built_context.value());
     }
     *out = binding.analyzer_context;
     return Status::OK();

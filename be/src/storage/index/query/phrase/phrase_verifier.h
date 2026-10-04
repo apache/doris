@@ -44,6 +44,9 @@ struct PhraseQueryOptions {
     uint32_t slop = 0;
     bool ordered = false;
     const roaring::Roaring* candidates = nullptr;
+    // Set once the phrase reaches `candidates`: every slot holds a term, so its rows depend on
+    // them. A phrase that stops before is empty for the whole segment.
+    bool* candidate_rows_consumed = nullptr;
 };
 
 // Decides whether one document holds a phrase and how often, for every index format. Clause i

@@ -92,7 +92,6 @@ Status SegcompactionWorker::_get_segcompaction_reader(
     StorageReadOptions read_options;
     read_options.stats = stat;
     read_options.use_page_cache = false;
-    read_options.tablet_schema = ctx.tablet_schema;
     read_options.record_rowids = record_rowids;
     if (!tablet->tablet_schema()->cluster_key_uids().empty()) {
         DeleteBitmapPtr delete_bitmap = std::make_shared<DeleteBitmap>(tablet->tablet_id());

@@ -379,6 +379,16 @@ def build_ingestion_payload(args, input_text, output_text, events):
         key: value for key, value in trace_metadata.items() if value not in (None, "")
     }
 
+    # Keep the model turn's real failure/usage while exposing the independently
+    # verified delivery and blocking verdict as a separate trace outcome.
+    completion = next((event for event in reversed(events)
+                       if event.get("type") == "review.completed"), None)
+    if completion is not None:
+        trace_metadata["review_completion"] = {
+            key: value for key, value in completion.items()
+            if key not in ("type", "_line_number")
+        }
+
     completed_items = [
         event
         for event in events

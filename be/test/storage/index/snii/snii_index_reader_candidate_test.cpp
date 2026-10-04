@@ -31,7 +31,7 @@
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "storage/compaction/collection_similarity.h"
+#include "storage/index/collection_similarity.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_query_context.h"
 #include "storage/index/inverted/analyzer/custom_analyzer.h"
@@ -245,6 +245,44 @@ TEST_F(SniiIndexReaderCandidateTest, PhrasePrefixConsumesCandidate) {
     QueryExecution full_run;
     EXPECT_EQ(run(full_run, "alpha bet", InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY),
               docids_where(has_beta_prefix));
+    EXPECT_EQ(full_run.stats.inverted_index_query_cache_hit, 0);
+}
+
+TEST_F(SniiIndexReaderCandidateTest, GloballyEmptyPhraseRepliesStayCacheableWithCandidates) {
+    const std::vector<std::pair<std::string, InvertedIndexQueryType>> cases = {
+            {"alpha missing", InvertedIndexQueryType::MATCH_PHRASE_QUERY},
+            {"missing bet", InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY},
+            {"alpha zzz", InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY}};
+    for (const auto& [text, query_type] : cases) {
+        SCOPED_TRACE(text);
+        QueryExecution candidate_run;
+        candidate_run.context->candidate_rows = &_candidates;
+        EXPECT_TRUE(run(candidate_run, text, query_type).empty());
+        EXPECT_FALSE(candidate_run.context->candidate_rows_consumed);
+        EXPECT_EQ(candidate_run.stats.inverted_index_query_cache_insert, 1);
+
+        QueryExecution cached_run;
+        cached_run.context->candidate_rows = &_candidates;
+        EXPECT_TRUE(run(cached_run, text, query_type).empty());
+        EXPECT_FALSE(cached_run.context->candidate_rows_consumed);
+        EXPECT_EQ(cached_run.stats.inverted_index_query_cache_hit, 1);
+    }
+}
+
+TEST_F(SniiIndexReaderCandidateTest, EmptyCandidateRestrictedReplyStaysOutOfCache) {
+    roaring::Roaring odd_candidates;
+    odd_candidates.addMany(3, std::vector<uint32_t> {1, 5, 7}.data());
+
+    QueryExecution restricted_run;
+    restricted_run.context->candidate_rows = &odd_candidates;
+    EXPECT_TRUE(
+            run(restricted_run, "alpha beta", InvertedIndexQueryType::MATCH_PHRASE_QUERY).empty());
+    EXPECT_TRUE(restricted_run.context->candidate_rows_consumed);
+    EXPECT_EQ(restricted_run.stats.inverted_index_query_cache_insert, 0);
+
+    QueryExecution full_run;
+    EXPECT_EQ(run(full_run, "alpha beta", InvertedIndexQueryType::MATCH_PHRASE_QUERY),
+              docids_where(is_even));
     EXPECT_EQ(full_run.stats.inverted_index_query_cache_hit, 0);
 }
 

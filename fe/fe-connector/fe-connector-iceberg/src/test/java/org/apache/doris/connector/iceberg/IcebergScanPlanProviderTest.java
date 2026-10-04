@@ -22,6 +22,7 @@ import org.apache.doris.connector.spi.ConnectorStatementScope;
 import org.apache.doris.connector.spi.ConnectorType;
 import org.apache.doris.connector.spi.DorisConnectorException;
 import org.apache.doris.connector.spi.handle.ConnectorColumnHandle;
+import org.apache.doris.connector.spi.pushdown.ConnectorAnd;
 import org.apache.doris.connector.spi.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.spi.pushdown.ConnectorComparison;
 import org.apache.doris.connector.spi.pushdown.ConnectorExpression;
@@ -65,6 +66,7 @@ import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.hadoop.HadoopTables;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
@@ -98,6 +100,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.UnaryOperator;
@@ -114,6 +117,12 @@ public class IcebergScanPlanProviderTest {
 
     @TempDir
     Path tempDir;
+
+    @Test
+    public void scanReuseNamespaceUsesConnectorType() {
+        String prefix = new IcebergConnectorProvider().getType() + ".";
+        Assertions.assertTrue(IcebergScanPlanProvider.SCAN_REUSE_NAMESPACE.startsWith(prefix));
+    }
 
     private static final Schema SCHEMA = new Schema(
             Types.NestedField.required(1, "id", Types.IntegerType.get()),
@@ -551,6 +560,81 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(2, remoteLoads, "under NONE each resolver loads (no memo)");
     }
 
+    @Test
+    public void statementReusePlansAnIdenticalScanOnce() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(
+                dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
+        IcebergScanPlanProvider provider = providerOver(table);
+        ConnectorSession session = new FakeScanSession("UTC",
+                Collections.singletonMap("enable_external_scan_task_reuse", "true"))
+                .withScope(new TestStatementScope());
+        ConnectorScanRequest request = ConnectorScanRequest.builder(
+                new IcebergTableHandle("db1", "t1"), Collections.emptyList()).build();
+
+        List<ConnectorScanRange> first = provider.planScan(session, request);
+        List<ConnectorScanRange> second = provider.planScan(session, request);
+
+        Assertions.assertSame(first, second, "an identical scan must reuse the statement's planned range list");
+        Assertions.assertEquals(1, first.size());
+    }
+
+    @Test
+    public void statementReuseMatchesStructurallyEqualFilters() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(
+                dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
+        IcebergScanPlanProvider provider = providerOver(table);
+        ConnectorSession session = new FakeScanSession("UTC",
+                Collections.singletonMap("enable_external_scan_task_reuse", "true"))
+                .withScope(new TestStatementScope());
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t1");
+        ConnectorScanRequest firstRequest = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                .filter(Optional.of(equalIdFilter(1)))
+                .build();
+        ConnectorScanRequest secondRequest = ConnectorScanRequest.builder(handle, Collections.emptyList())
+                .filter(Optional.of(equalIdFilter(1)))
+                .build();
+
+        Assertions.assertNotSame(firstRequest.getFilter().get(), secondRequest.getFilter().get());
+        List<ConnectorScanRange> first = provider.planScan(session, firstRequest);
+        List<ConnectorScanRange> second = provider.planScan(session, secondRequest);
+
+        Assertions.assertSame(first, second,
+                "independently built but structurally equal filters must share one statement plan");
+        Assertions.assertEquals(1, first.size());
+    }
+
+    @Test
+    public void statementReuseStillValidatesMetadataColumnReader() {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(
+                dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
+        IcebergScanPlanProvider provider = providerOver(table);
+        ConnectorSession session = new FakeScanSession("UTC", Map.of(
+                "enable_external_scan_task_reuse", "true",
+                "force_jni_scanner", "true"))
+                .withScope(new TestStatementScope());
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t1");
+
+        provider.planScan(session, ConnectorScanRequest.builder(handle,
+                Collections.singletonList(new IcebergColumnHandle("id", 1))).build());
+
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> provider.planScan(session, ConnectorScanRequest.builder(handle,
+                        Collections.singletonList(new IcebergColumnHandle("_file", -1))).build()));
+        Assertions.assertEquals(
+                "Iceberg metadata columns are only supported by FileScannerV2 native Parquet/ORC reader; "
+                        + "actual reader is JNI",
+                ex.getMessage());
+    }
+
+    private static ConnectorExpression equalIdFilter(long value) {
+        return new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("id", ConnectorType.of("INT")),
+                new ConnectorLiteral(ConnectorType.of("INT"), value));
+    }
+
     // --- T02 split-enumeration + predicate-pushdown tests ---
 
     @Test
@@ -753,6 +837,116 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(Collections.singletonMap("p", "2"),
                 byPath(ranges, "p=2/b.parquet").getPartitionValues(),
                 "file b's slices carry p=2 (no cross-file staleness)");
+    }
+
+    @Test
+    public void planScanKeepsOldSpecIdentityValuesAfterEvolvingToUnpartitioned() {
+        // DORIS-29056 repro: a file written under identity(p) must still carry p=7 after the table's default
+        // spec evolves to unpartitioned; otherwise BE fills p with NULL when the file does not store p.
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("p").build();
+        Table table = createTable("pt", PART_SCHEMA, spec);
+        table.newAppend()
+                .appendFile(dataFile(spec, "s3://b/db/pt/p=7/old.parquet", 1024, null, "p=7"))
+                .commit();
+        table.updateSpec().removeField("p").commit();
+        Assertions.assertTrue(table.spec().isUnpartitioned());
+
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+        List<ConnectorScanRange> ranges = provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "pt"), Collections.emptyList())
+                .build());
+
+        Assertions.assertEquals(1, ranges.size());
+        ConnectorScanRange range = ranges.get(0);
+        Assertions.assertEquals(Collections.singletonMap("p", "7"), range.getPartitionValues());
+        TFileRangeDesc desc = populate(range);
+        Assertions.assertEquals(Collections.singletonList("p"), desc.getColumnsFromPathKeys());
+        Assertions.assertEquals(Collections.singletonList("7"), desc.getColumnsFromPath());
+        Assertions.assertEquals(0, desc.getTableFormatParams().getIcebergParams().getPartitionSpecId());
+        Assertions.assertEquals("[\"7\"]", desc.getTableFormatParams().getIcebergParams().getPartitionDataJson());
+        // Display parity: the table's CURRENT spec is unpartitioned, so it still reports no scanned
+        // partitions — the read fix must not change EXPLAIN partition=N/M or sql_block_rule partition_num.
+        Assertions.assertEquals(OptionalLong.empty(), provider.scannedPartitionCount(ranges));
+    }
+
+    @Test
+    public void planScanCountsScannedPartitionsWhileCurrentSpecStaysPartitioned() {
+        // The other side of the display gate: with a partitioned CURRENT spec, files of an older spec keep
+        // counting toward selectedPartitionNum exactly as before (legacy partitionMapInfos parity).
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("p").build();
+        Table table = createTable("pt", PART_SCHEMA, spec);
+        table.newAppend()
+                .appendFile(dataFile(spec, "s3://b/db/pt/p=7/a.parquet", 1024, null, "p=7"))
+                .appendFile(dataFile(spec, "s3://b/db/pt/p=8/b.parquet", 1024, null, "p=8"))
+                .commit();
+        Assertions.assertTrue(table.spec().isPartitioned());
+
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+        List<ConnectorScanRange> ranges = provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "pt"), Collections.emptyList())
+                .build());
+
+        Assertions.assertEquals(OptionalLong.of(2L), provider.scannedPartitionCount(ranges));
+    }
+
+    @Test
+    public void streamSplitsKeepsOldSpecIdentityValuesAfterEvolvingToUnpartitioned() throws IOException {
+        // The lazy (batch-mode) source computes its own partitioned flag, so the eager test above does not
+        // pin it: reverting only streamSplits' gate to the current spec would silently bring the NULL read
+        // back for batch-mode scans. Drain the source and assert the same per-file partition metadata.
+        PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("p").build();
+        Table table = createTable("pt", PART_SCHEMA, spec);
+        table.newAppend()
+                .appendFile(dataFile(spec, "s3://b/db/pt/p=7/old.parquet", 1024, null, "p=7"))
+                .commit();
+        table.updateSpec().removeField("p").commit();
+        Assertions.assertTrue(table.spec().isUnpartitioned());
+
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+        List<ConnectorScanRange> ranges = new ArrayList<>();
+        try (ConnectorSplitSource source = provider.streamSplits(
+                new FakeScanSession("UTC", Collections.emptyMap()),
+                new IcebergTableHandle("db1", "pt"), Collections.emptyList(), Optional.empty(), -1L)) {
+            while (source.hasNext()) {
+                ranges.add(source.next());
+            }
+        }
+
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertEquals(Collections.singletonMap("p", "7"), ranges.get(0).getPartitionValues());
+        TFileRangeDesc desc = populate(ranges.get(0));
+        Assertions.assertEquals(Collections.singletonList("p"), desc.getColumnsFromPathKeys());
+        Assertions.assertEquals(Collections.singletonList("7"), desc.getColumnsFromPath());
+        Assertions.assertEquals(0, desc.getTableFormatParams().getIcebergParams().getPartitionSpecId());
+        Assertions.assertEquals("[\"7\"]", desc.getTableFormatParams().getIcebergParams().getPartitionDataJson());
+    }
+
+    @Test
+    public void planScanKeepsUnpartitionedSpecIdentityAfterEvolvingToPartitioned() {
+        // Guard for the DML $row_id contract: a file written before identity(p) was added must still report
+        // spec 0 with an (empty) partition_data_json, so BE commits its delete file under spec 0 instead of
+        // falling back to the current partitioned spec.
+        Table table = createTable("pt", PART_SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/pt/old.parquet", 1024, null, null))
+                .commit();
+        table.updateSpec().addField("p").commit();
+        Assertions.assertTrue(table.spec().isPartitioned());
+
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(
+                IcebergCatalogProperties.of(Collections.emptyMap()), opsReturning(table));
+        List<ConnectorScanRange> ranges = provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
+                ConnectorScanRequest.builder(new IcebergTableHandle("db1", "pt"), Collections.emptyList())
+                .build());
+
+        Assertions.assertEquals(1, ranges.size());
+        TFileRangeDesc desc = populate(ranges.get(0));
+        Assertions.assertTrue(ranges.get(0).getPartitionValues().isEmpty());
+        Assertions.assertEquals(0, desc.getTableFormatParams().getIcebergParams().getPartitionSpecId());
+        Assertions.assertEquals("[]", desc.getTableFormatParams().getIcebergParams().getPartitionDataJson());
     }
 
     // ── M-2: size-proportional BE scheduling weight (selfSplitWeight / targetSplitSize) ──
@@ -1939,57 +2133,94 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
-    public void planScanHistoricalPredicateSurvivesColumnRename() {
-        assertHistoricalPredicatePlansAfterSchemaEvolution(false);
+    public void planScanHistoricalPredicateSurvivesColumnRename() throws IOException {
+        assertHistoricalPredicatePlansAfterSchemaEvolution(false, false);
     }
 
     @Test
-    public void planScanHistoricalPredicateSurvivesColumnDrop() {
-        assertHistoricalPredicatePlansAfterSchemaEvolution(true);
+    public void planScanHistoricalPredicateSurvivesColumnDrop() throws IOException {
+        assertHistoricalPredicatePlansAfterSchemaEvolution(true, false);
     }
 
-    private void assertHistoricalPredicatePlansAfterSchemaEvolution(boolean dropColumn) {
-        Schema historicalSchema = new Schema(
-                Types.NestedField.optional(1, "x", Types.IntegerType.get()),
-                Types.NestedField.optional(2, "y", Types.IntegerType.get()),
-                Types.NestedField.optional(3, "part", Types.IntegerType.get()));
-        Table table = createTable(
-                "historical_predicate_after_" + (dropColumn ? "drop" : "rename"),
-                historicalSchema, PartitionSpec.unpartitioned(),
-                Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
-        table.newFastAppend()
-                .appendFile(dataFile(table.spec(), "s3://b/db/historical.parquet", 1024, null, null))
-                .commit();
-        long historicalSnapshotId = table.currentSnapshot().snapshotId();
-        int historicalSchemaId = table.currentSnapshot().schemaId();
+    @Test
+    public void historicalPlanningIgnoresUnusedConflictingPartitionSpecs() throws IOException {
+        assertHistoricalPredicatePlansAfterSchemaEvolution(false, true);
+    }
 
-        if (dropColumn) {
-            table.updateSchema().deleteColumn("x").commit();
-        } else {
-            table.updateSchema().renameColumn("x", "renamed_x").commit();
+    private void assertHistoricalPredicatePlansAfterSchemaEvolution(boolean dropColumn, boolean evolveSpec)
+            throws IOException {
+        for (boolean partitioned : new boolean[] {false, true}) {
+            Schema historicalSchema = new Schema(
+                    Types.NestedField.optional(1, "x", Types.IntegerType.get()),
+                    Types.NestedField.optional(2, "y", Types.IntegerType.get()),
+                    Types.NestedField.optional(3, "part", Types.IntegerType.get()));
+            PartitionSpec spec = partitioned ? PartitionSpec.builderFor(historicalSchema).identity("part").build()
+                    : PartitionSpec.unpartitioned();
+            Table table = createTable("historical_predicate_" + dropColumn + "_" + partitioned,
+                    historicalSchema, spec, Collections.singletonMap(TableProperties.FORMAT_VERSION, "2"));
+            table.newFastAppend().appendFile(dataFile(table.spec(), "s3://b/db/historical.parquet",
+                    1024, null, partitioned ? "part=2" : null)).commit();
+            if (partitioned) {
+                // Both manifests belong to the selected snapshot; snapshot selection alone cannot prune this one.
+                table.newFastAppend().appendFile(dataFile(table.spec(), "s3://b/db/nonmatching.parquet",
+                        1024, null, "part=3")).commit();
+            }
+            long snapshotId = table.currentSnapshot().snapshotId();
+            int schemaId = table.currentSnapshot().schemaId();
+            if (dropColumn) {
+                table.updateSchema().deleteColumn("x").commit();
+            } else {
+                table.updateSchema().renameColumn("x", "renamed_x").commit();
+            }
+            if (evolveSpec) {
+                // This newer spec is unused by the snapshot and conflicts with its old column name.
+                table.updateSpec().addField("x", Expressions.ref("y")).commit();
+            }
+            Assertions.assertEquals(snapshotId, table.currentSnapshot().snapshotId());
+            assertHistoricalPredicatePlans(table, snapshotId, schemaId, partitioned);
+            if (evolveSpec) {
+                continue;
+            }
+            table.newFastAppend().appendFile(dataFile(table.spec(), "s3://b/db/current.parquet",
+                    1024, null, partitioned ? "part=3" : null)).commit();
+            assertHistoricalPredicatePlans(table, snapshotId, schemaId, partitioned);
+            // A reused name has a different field ID and must not change historical predicate binding.
+            table.updateSchema().addColumn("x", Types.IntegerType.get()).commit();
+            assertHistoricalPredicatePlans(table, snapshotId, schemaId, partitioned);
         }
-
-        assertHistoricalPredicatePlans(table, historicalSnapshotId, historicalSchemaId);
-
-        table.newFastAppend()
-                .appendFile(dataFile(table.spec(), "s3://b/db/current.parquet", 1024, null, null))
-                .commit();
-
-        assertHistoricalPredicatePlans(table, historicalSnapshotId, historicalSchemaId);
     }
 
     private static void assertHistoricalPredicatePlans(
-            Table table, long historicalSnapshotId, int historicalSchemaId) {
-        IcebergTableHandle historicalHandle = new IcebergTableHandle("db1", "t1")
-                .withSnapshot(historicalSnapshotId, null, historicalSchemaId);
-        List<ConnectorScanRange> ranges = providerOver(table).planScan(
-                emptySession(), ConnectorScanRequest.builder(historicalHandle, Collections.emptyList())
-                        .filter(Optional.of(eqInt("x", 1)))
-                        .build());
-
-        // Historical predicates must remain bound to the snapshot schema after later schema evolution.
-        Assertions.assertEquals(1, ranges.size());
-        Assertions.assertTrue(ranges.get(0).getPath().get().endsWith("historical.parquet"));
+            Table table, long snapshotId, int schemaId, boolean partitioned) throws IOException {
+        IcebergTableHandle handle = new IcebergTableHandle("db1", "t1").withSnapshot(snapshotId, null, schemaId);
+        Optional<ConnectorExpression> filter = Optional.of(new ConnectorAnd(
+                Arrays.asList(eqInt("x", 1), eqInt("part", 2))));
+        for (boolean cacheEnabled : new boolean[] {false, true}) {
+            IcebergManifestCache cache = new IcebergManifestCache();
+            IcebergScanPlanProvider provider = cacheEnabled
+                    ? manifestProvider(manifestCacheProps(), table, cache) : providerOver(table);
+            ConnectorSession session = emptySession();
+            List<ConnectorScanRange> ranges = provider.planScan(session,
+                    ConnectorScanRequest.builder(handle, Collections.emptyList()).filter(filter).build());
+            Assertions.assertEquals(1, ranges.size());
+            Assertions.assertTrue(ranges.get(0).getPath().get().endsWith("historical.parquet"));
+            if (cacheEnabled) {
+                // Correct rows alone do not prove the cache path succeeded instead of falling back to the SDK.
+                long[] stats = cache.takeStats(session.getQueryId());
+                Assertions.assertTrue(stats[0] + stats[1] > 0);
+                Assertions.assertEquals(0L, stats[2]);
+            }
+            Assertions.assertEquals(1L, provider.streamingSplitEstimate(batchSession(1, true), handle, filter, false));
+            if (partitioned) {
+                Assertions.assertEquals(2, table.snapshot(snapshotId).dataManifests(table.io()).size());
+                Assertions.assertEquals(-1L,
+                        provider.streamingSplitEstimate(batchSession(2, true), handle, filter, false),
+                        "the nonmatching manifest must not enable streaming at a two-file threshold");
+            }
+            List<ConnectorScanRange> streamed = drain(provider.streamSplits(
+                    batchSession(1, true), handle, Collections.emptyList(), filter, -1L));
+            Assertions.assertEquals(sortedPaths(ranges), sortedPaths(streamed));
+        }
     }
 
     @Test

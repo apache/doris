@@ -62,6 +62,9 @@ public:
     Status expand_terms(index_query::TermPattern& pattern, int32_t max_expansions,
                         std::vector<std::string>* out) override;
 
+    // The dictionary's answer for `term`, kept with the terms resolved before it.
+    Status lookup(std::string_view term, const LogicalIndexReader::BatchLookupResult** out);
+
     const LogicalIndexReader& index() const { return _idx; }
     // The rounds the shared wave fetched so far.
     size_t wave_rounds() const { return _wave.rounds(); }

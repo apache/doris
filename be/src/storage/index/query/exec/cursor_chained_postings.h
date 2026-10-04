@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <vector>
 
@@ -99,5 +100,10 @@ private:
     PostingsCursor& _cursor;
     const std::vector<uint32_t>* _candidates = nullptr;
 };
+
+// The rows every one of `cursors` holds, among `candidates` when given, listed as a chain that
+// narrows the cheapest cursor's rows by the others.
+Status chain_cursors(std::span<const std::unique_ptr<PostingsCursor>> cursors,
+                     const std::vector<uint32_t>* candidates, std::vector<uint32_t>* rows);
 
 } // namespace doris::index_query

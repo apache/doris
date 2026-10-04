@@ -40,7 +40,7 @@
 #include "core/value/vdatetime_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
-#include "storage/compaction/collection_similarity.h"
+#include "storage/index/collection_similarity.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
@@ -2598,7 +2598,53 @@ public:
             EXPECT_EQ(*first, *second);
         }
 
+        struct EmptyPhraseCase {
+            const char* text;
+            InvertedIndexQueryType type;
+        };
+        const EmptyPhraseCase empty_phrases[] = {
+                {"quick absentterm", InvertedIndexQueryType::MATCH_PHRASE_QUERY},
+                {"absentterm qui", InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY},
+                {"quick zzz", InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY},
+        };
+        for (const auto& empty_phrase : empty_phrases) {
+            SCOPED_TRACE(empty_phrase.text);
+            const auto previous_hits = stats.inverted_index_query_cache_hit;
+            Field qp = Field::create_field<TYPE_STRING>(std::string(empty_phrase.text));
+
+            auto first = std::make_shared<roaring::Roaring>();
+            auto status = fulltext_reader->query(context, "1", qp, empty_phrase.type, first);
+            ASSERT_TRUE(status.ok()) << status;
+            EXPECT_TRUE(first->isEmpty());
+            EXPECT_FALSE(context->candidate_rows_consumed);
+
+            auto second = std::make_shared<roaring::Roaring>();
+            status = fulltext_reader->query(context, "1", qp, empty_phrase.type, second);
+            ASSERT_TRUE(status.ok()) << status;
+            EXPECT_TRUE(second->isEmpty());
+            EXPECT_EQ(stats.inverted_index_query_cache_hit, previous_hits + 1);
+        }
+
+        roaring::Roaring other_candidate;
+        other_candidate.add(1);
+        context->candidate_rows = &other_candidate;
+        const auto previous_hits = stats.inverted_index_query_cache_hit;
+        Field qp = Field::create_field<TYPE_STRING>(std::string("quick brown"));
+        auto restricted = std::make_shared<roaring::Roaring>();
+        auto status = fulltext_reader->query(
+                context, "1", qp, InvertedIndexQueryType::MATCH_PHRASE_QUERY, restricted);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_TRUE(restricted->isEmpty());
+        EXPECT_TRUE(context->candidate_rows_consumed);
+
         context->candidate_rows = nullptr;
+        auto unrestricted = std::make_shared<roaring::Roaring>();
+        status = fulltext_reader->query(context, "1", qp,
+                                        InvertedIndexQueryType::MATCH_PHRASE_QUERY, unrestricted);
+        ASSERT_TRUE(status.ok()) << status;
+        EXPECT_EQ(unrestricted->cardinality(), 1);
+        EXPECT_TRUE(unrestricted->contains(0));
+        EXPECT_EQ(stats.inverted_index_query_cache_hit, previous_hits);
     }
 
     // The consumed flag must be re-armed per search: a range query on the
@@ -3923,6 +3969,16 @@ public:
                  ipv6(0xFFFFFFFF00000000ULL, 0)},
                 /*threshold=*/ipv6(0x20010DB800000000ULL, 1)); // 2001:db8::1
     }
+    void test_bkd_range_uuid() {
+        auto uuid = [](uint64_t hi, uint64_t lo) -> uint128_t {
+            return (static_cast<uint128_t>(hi) << 64) | lo;
+        };
+        verify_bkd_range_queries<TYPE_UUID, uint128_t>(
+                /*col_id=*/23, "bkd_range_uuid", "c_uuid",
+                {uuid(0, 0), uuid(0, 1), uuid(0, 0xFFFFFFFFFFFFFFFFULL), uuid(1, 0),
+                 uuid(0x7FFFFFFFFFFFFFFFULL, 0), uuid(0xFFFFFFFFFFFFFFFFULL, 0)},
+                /*threshold=*/uuid(1, 0));
+    }
 
     // Test BKD specific uncovered paths
     void test_bkd_uncovered_paths() {
@@ -4105,6 +4161,7 @@ public:
                 {"c_decimal256", FieldType::OLAP_FIELD_TYPE_DECIMAL256, 32, false},   // 20
                 {"c_ipv4", FieldType::OLAP_FIELD_TYPE_IPV4, 4, false},                // 21
                 {"c_ipv6", FieldType::OLAP_FIELD_TYPE_IPV6, 16, false},               // 22
+                {"c_uuid", FieldType::OLAP_FIELD_TYPE_UUID, 16, false},               // 23
         };
 
         for (size_t i = 0; i < columns.size(); ++i) {
@@ -4796,6 +4853,9 @@ TEST_F(InvertedIndexReaderTest, BkdRangeIPv4RangeQuery) {
 }
 TEST_F(InvertedIndexReaderTest, BkdRangeIPv6RangeQuery) {
     test_bkd_range_ipv6();
+}
+TEST_F(InvertedIndexReaderTest, BkdRangeUuidRangeQuery) {
+    test_bkd_range_uuid();
 }
 
 // Verifies that KeyCoder<OLAP_FIELD_TYPE_DATETIME> produces byte-identical

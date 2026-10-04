@@ -237,6 +237,32 @@ Status open_slot_terms(index_query::IndexSource& source,
     return Status::OK();
 }
 
+// The documents each distinct slot's terms hold: summed from its cursors, or from the
+// dictionary for a slot of more terms than one wave reads, whose terms then move to `waved`.
+Status count_slot_docs(index_query::IndexSource& source,
+                       std::vector<std::vector<std::string>>& terms_of,
+                       const std::vector<SlotCursors>& opened,
+                       std::vector<std::vector<std::string>>* waved, std::vector<uint64_t>* docs) {
+    docs->assign(terms_of.size(), 0);
+    waved->assign(terms_of.size(), {});
+    for (size_t slot = 0; slot < terms_of.size(); ++slot) {
+        if (!is_waved(terms_of[slot])) {
+            for (const auto& slot_cursor : opened[slot]) {
+                (*docs)[slot] += slot_cursor->doc_freq();
+            }
+            continue;
+        }
+        RETURN_IF_ERROR(source.prepare_terms(terms_of[slot]));
+        for (const std::string& term : terms_of[slot]) {
+            uint64_t term_docs = 0;
+            RETURN_IF_ERROR(source.doc_freq(term, &term_docs));
+            (*docs)[slot] += term_docs;
+        }
+        (*waved)[slot] = std::move(terms_of[slot]);
+    }
+    return Status::OK();
+}
+
 // Opens the phrase's slots: the exact ones first, so a missing term ends the phrase before any
 // expansion runs, then the terms the others expand to. A slot of more terms than one wave reads
 // opens none and keeps its terms in `waved`, for its rows to gather a wave at a time. `slots`
@@ -290,23 +316,8 @@ Status open_slots(index_query::IndexSource& source, std::vector<PhraseSlot> phra
     if (!found) {
         return Status::OK();
     }
-    std::vector<uint64_t> docs(distinct.size(), 0);
-    waved->assign(distinct.size(), {});
-    for (size_t slot = 0; slot < distinct.size(); ++slot) {
-        if (!is_waved(terms_of[slot])) {
-            for (const auto& slot_cursor : opened[slot]) {
-                docs[slot] += slot_cursor->doc_freq();
-            }
-            continue;
-        }
-        RETURN_IF_ERROR(source.prepare_terms(terms_of[slot]));
-        for (const std::string& term : terms_of[slot]) {
-            uint64_t term_docs = 0;
-            RETURN_IF_ERROR(source.doc_freq(term, &term_docs));
-            docs[slot] += term_docs;
-        }
-        (*waved)[slot] = std::move(terms_of[slot]);
-    }
+    std::vector<uint64_t> docs;
+    RETURN_IF_ERROR(count_slot_docs(source, terms_of, opened, waved, &docs));
     for (const size_t slot : clauses->slots) {
         clauses->costs.push_back(docs[slot]);
     }
@@ -972,6 +983,9 @@ ScorerPtr SlotPhraseWeight::_listed_scorer(index_query::IndexSource& source,
     THROW_IF_ERROR(open_slots(source, _slots(), &clauses, &slots, &waved));
     if (slots.empty()) {
         return std::make_shared<EmptyScorer>();
+    }
+    if (_options.candidate_rows_consumed != nullptr) {
+        *_options.candidate_rows_consumed = true;
     }
     std::vector<uint32_t> rows;
     HeldRows held;

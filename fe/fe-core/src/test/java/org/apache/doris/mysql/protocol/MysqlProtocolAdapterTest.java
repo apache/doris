@@ -118,7 +118,7 @@ public class MysqlProtocolAdapterTest {
     }
 
     @Test
-    public void testConnectionRegistersItsTraceIdInTheMysqlPool() {
+    public void testConnectionRegistersItsTraceIdInThePool() {
         ConnectScheduler scheduler = new ConnectScheduler(10, 10);
         ConnectContext ctx = new ConnectContext();
         ctx.setConnectScheduler(scheduler);
@@ -128,7 +128,7 @@ public class MysqlProtocolAdapterTest {
         ctx.setQueryId(queryId);
 
         Assertions.assertEquals(DebugUtil.printId(queryId), scheduler.getConnectPoolMgr().getQueryIdByTraceId("trace-1"));
-        Assertions.assertEquals("", scheduler.getFlightSqlConnectPoolMgr().getQueryIdByTraceId("trace-1"));
+        Assertions.assertEquals(DebugUtil.printId(queryId), scheduler.getQueryIdByTraceId("trace-1"));
     }
 
     @Test

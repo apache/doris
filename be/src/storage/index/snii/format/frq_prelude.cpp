@@ -194,6 +194,11 @@ Status build_frq_prelude(const FrqPreludeColumns& cols, ByteSink* out) {
     return Status::OK();
 }
 
+void encode_frq_window_row(const WindowMeta& window, bool has_prx, uint64_t previous_last,
+                           ByteSink* output) {
+    encode_window_row(window, has_prx, previous_last, output);
+}
+
 namespace {
 
 // Decoded header fields shared between parse phases.

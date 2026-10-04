@@ -25,6 +25,9 @@
 #include <vector>
 
 #include "common/status.h"
+#include "storage/index/query/docid_sink.h"
+#include "storage/index/query/exec/block_doc_set.h"
+#include "storage/index/query/exec/collect_postings.h"
 #include "storage/index/query/spi/index_source.h"
 #include "storage/index/query/spi/postings_cursor.h"
 
@@ -75,6 +78,27 @@ Status visit_term_postings(IndexSource& source, std::span<const std::string> ter
             RETURN_IF_ERROR(visit(begin + i, cursors[i].get()));
         }
         cursors.clear();
+    }
+    return Status::OK();
+}
+
+// Adds the rows any of `terms` holds to `sink`, their postings read as visit_term_postings reads
+// them; `any_present`, when given, tells whether the dictionary holds one of them.
+inline Status collect_term_rows(IndexSource& source, std::span<const std::string> terms,
+                                DocIdSink& sink, bool* any_present = nullptr) {
+    bool present = false;
+    RETURN_IF_ERROR(visit_term_postings(
+            source, terms, /*scoring=*/false, [&](size_t, PostingsCursor* cursor) -> Status {
+                if (cursor == nullptr) {
+                    return Status::OK();
+                }
+                present = true;
+                BlockDocSet docs(*cursor);
+                return collect_postings<false>(docs, nullptr, sink,
+                                               [](uint32_t, uint32_t, uint32_t) {});
+            }));
+    if (any_present != nullptr) {
+        *any_present = present;
     }
     return Status::OK();
 }

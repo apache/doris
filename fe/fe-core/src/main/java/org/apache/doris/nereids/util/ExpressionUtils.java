@@ -1129,10 +1129,10 @@ public class ExpressionUtils {
     }
 
     /** deapAnyMatch */
-    public static boolean deapAnyMatch(
+    public static boolean deepAnyMatch(
             Collection<? extends Expression> expressions, Predicate<TreeNode<Expression>> predicate) {
         for (Expression expression : expressions) {
-            if (expression.anyMatch(expr -> expr.anyMatch(predicate))) {
+            if (expression.anyMatch(predicate)) {
                 return true;
             }
         }
@@ -1140,10 +1140,10 @@ public class ExpressionUtils {
     }
 
     /** deapNoneMatch */
-    public static boolean deapNoneMatch(
+    public static boolean deepNoneMatch(
             Collection<? extends Expression> expressions, Predicate<TreeNode<Expression>> predicate) {
         for (Expression expression : expressions) {
-            if (expression.anyMatch(expr -> expr.anyMatch(predicate))) {
+            if (expression.anyMatch(predicate)) {
                 return false;
             }
         }
@@ -1207,9 +1207,27 @@ public class ExpressionUtils {
         return expression instanceof Slot;
     }
 
-    // if the input is unique, the output of agg is unique, too
+    /**
+     * Whether this aggregate preserves the uniqueness of its argument for single-row groups.
+     *
+     * <p>The argument must trace back to one slot through injective casts only. MIN and MAX then
+     * return that argument value unchanged. SUM and AVG can additionally coerce the argument to
+     * their result type, so that conversion must also be injective over the original slot type.</p>
+     */
     public static boolean isInjectiveAgg(Expression agg) {
-        return agg instanceof Sum || agg instanceof Avg || agg instanceof Max || agg instanceof Min;
+        if (!(agg instanceof Sum || agg instanceof Avg || agg instanceof Max || agg instanceof Min)) {
+            return false;
+        }
+
+        Expression source = getExpressionCoveredBySafetyCast(agg.child(0));
+        if (!(source instanceof Slot)) {
+            return false;
+        }
+
+        if (agg instanceof Max || agg instanceof Min) {
+            return true;
+        }
+        return source.getDataType().isInjectiveCastTo(agg.getDataType());
     }
 
     /**

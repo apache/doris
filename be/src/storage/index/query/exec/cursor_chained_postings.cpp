@@ -123,4 +123,17 @@ Status CursorChainedPostings::collect(std::vector<uint32_t>* out) {
             });
 }
 
+Status chain_cursors(std::span<const std::unique_ptr<PostingsCursor>> cursors,
+                     const std::vector<uint32_t>* candidates, std::vector<uint32_t>* rows) {
+    std::vector<CursorChainedPostings> terms;
+    terms.reserve(cursors.size());
+    std::vector<ChainedPostings*> chain;
+    chain.reserve(cursors.size());
+    for (const auto& cursor : cursors) {
+        terms.emplace_back(*cursor);
+        chain.push_back(&terms.back());
+    }
+    return chained_conjunction(chain, candidates, rows);
+}
+
 } // namespace doris::index_query

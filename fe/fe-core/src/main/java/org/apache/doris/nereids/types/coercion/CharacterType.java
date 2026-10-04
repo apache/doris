@@ -20,6 +20,7 @@ package org.apache.doris.nereids.types.coercion;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.VarBinaryType;
 
 /**
  * Abstract type for all characters type in Nereids.
@@ -44,7 +45,9 @@ public abstract class CharacterType extends PrimitiveType {
 
     @Override
     public boolean isInjectiveCastTo(DataType target) {
-        return target instanceof CharacterType;
+        // BE deserializes STRING into VARBINARY by copying the original bytes, including embedded
+        // zeroes; the declared VARBINARY length is not enforced by the execution data type.
+        return target instanceof CharacterType || target instanceof VarBinaryType;
     }
 
     @Override

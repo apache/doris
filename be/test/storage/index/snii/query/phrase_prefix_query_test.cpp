@@ -641,7 +641,7 @@ TEST(SniiPhrasePrefixMerge, ManyTailWavesHoldOneWaveAtATime) {
     namespace query_v2 = doris::segment_v2::inverted_index::query_v2;
     auto source = std::make_shared<SniiIndexSource>(idx);
     query_v2::PhrasePrefixWeight weight(L"content", {{0, "lead"}}, {1, "bb_"}, nullptr,
-                                        /*enable_scoring=*/false, /*max_expansions=*/0, nullptr,
+                                        /*enable_scoring=*/false, /*max_expansions=*/0, {},
                                         /*suffix=*/false, /*nullable=*/false);
     query_v2::QueryExecutionContext execution;
     execution.segment_num_rows = source->doc_count();

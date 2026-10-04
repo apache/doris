@@ -30,6 +30,10 @@
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/index/query/logical/node.h"
 
+namespace doris::segment_v2::gram {
+struct GramScheme;
+} // namespace doris::segment_v2::gram
+
 namespace doris::snii::reader {
 class LogicalIndexReader;
 } // namespace doris::snii::reader
@@ -51,6 +55,12 @@ public:
                             InvertedIndexQueryCacheHandle* cache_handle,
                             lucene::store::Directory* dir = nullptr) override;
     InvertedIndexReaderType type() override { return _reader_type; }
+    // A policy that cannot be resolved names no index a gram query could use; an analyzed query
+    // reports that failure where it matters.
+    bool is_gram_family() const override {
+        std::optional<segment_v2::gram::GramScheme> scheme;
+        return _current_gram_scheme(nullptr, &scheme).ok() && scheme.has_value();
+    }
 
 private:
     Status _open_index(const IndexQueryContextPtr& context,
@@ -69,6 +79,16 @@ private:
     index_query::IndexSourcePtr _bind_source(const IndexQueryContextPtr& context,
                                              const std::wstring& field,
                                              OpenedIndex& index) override;
+    // Declines a gram query on an index no analyzer policy could have cut into grams, and keeps
+    // an analyzed query on a gram index out of the cache and off a segment cut another way.
+    Status _admit(const IndexQueryContextPtr& context, const std::string& column_name,
+                  const LeafRequest& request, Admission* admission) override;
+    Status _run_gram(const IndexQueryContextPtr& context, OpenedIndex& index,
+                     const LeafRequest& request, std::shared_ptr<roaring::Roaring>* out) override;
+    // The scheme the current analyzer cuts query terms with: the provider of `analyzer_ctx`, or
+    // the analyzer the index properties name.
+    Status _current_gram_scheme(const InvertedIndexAnalyzerCtx* analyzer_ctx,
+                                std::optional<segment_v2::gram::GramScheme>* out) const;
     Status _get_logical_reader(
             const IndexQueryContextPtr& context, InvertedIndexCacheHandle* searcher_cache_handle,
             std::unique_ptr<::doris::snii::reader::LogicalIndexReader>* uncached_reader,

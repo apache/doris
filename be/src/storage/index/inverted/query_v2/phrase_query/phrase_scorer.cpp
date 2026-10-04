@@ -57,8 +57,17 @@ ScorerPtr PhraseScorer<TPostings>::create(
             terms.push_back(postings);
         }
     }
+    // A posting of no document, CLucene's answer for a term its dictionary lacks, empties the
+    // phrase for the whole segment before it reaches the candidates.
+    if (std::ranges::any_of(clause_postings,
+                            [](const TPostings& postings) { return postings->size_hint() == 0; })) {
+        return std::make_shared<EmptyScorer>();
+    }
     index_query::PhraseVerifier verifier(std::move(clause_terms), offsets, costs, slop,
                                          options.ordered);
+    if (options.candidate_rows_consumed != nullptr) {
+        *options.candidate_rows_consumed = true;
+    }
     auto scorer = std::make_shared<PhraseScorer<TPostings>>(
             make_intersection<TPostings>(clause_postings, num_docs, options.candidates),
             std::move(terms), clause_postings.size(), std::move(verifier), similarity);

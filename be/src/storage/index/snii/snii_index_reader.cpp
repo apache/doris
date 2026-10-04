@@ -30,6 +30,7 @@
 #include <string_view>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/exception.h"
 #include "runtime/exec_env.h"
@@ -39,6 +40,10 @@
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_reader_helper.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
+#include "storage/index/inverted/gram/gram_family.h"
+#include "storage/index/inverted/gram/gram_query.h"
+#include "storage/index/inverted/gram/gram_scheme.h"
+#include "storage/index/inverted/gram/regex_gram_compiler.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/query/docid_sink.h"
@@ -47,6 +52,7 @@
 #include "storage/index/query/term_pattern.h"
 #include "storage/index/snii/format/null_bitmap.h"
 #include "storage/index/snii/query/count_query.h"
+#include "storage/index/snii/query/gram_boolean_query.h"
 #include "storage/index/snii/query/internal/plain_term_routing.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_index_source.h"
@@ -132,7 +138,132 @@ struct SniiOpenedIndex : OpenedIndex {
     ::doris::snii::format::PrxDecodeStats prx_decode_stats;
 };
 
+// Query types whose answer is decided by terms the current analyzer produced. On a gram-family
+// index those terms are grams, and they only mean what the segment's own grams mean when both
+// were cut by the same scheme. MATCH_REGEXP belongs here even though its pattern is raw: the
+// scalar function matches it against the terms the current analyzer cuts each row into, while
+// the index matches it against the persisted dictionary. A gram query compiles against the
+// segment's own scheme, so it is not affected.
+bool analyzes_query_terms(InvertedIndexQueryType query_type) {
+    switch (query_type) {
+    case InvertedIndexQueryType::MATCH_ANY_QUERY:
+    case InvertedIndexQueryType::MATCH_ALL_QUERY:
+    case InvertedIndexQueryType::MATCH_PHRASE_QUERY:
+    case InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY:
+    case InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY:
+    case InvertedIndexQueryType::MATCH_REGEXP_QUERY:
+        return true;
+    default:
+        return false;
+    }
+}
+
 } // namespace
+
+// The provider the caller resolved, or, when none was handed down, the analyzer the index
+// properties name. A policy that no longer exists is reported, not swallowed.
+Status SniiIndexReader::_current_gram_scheme(
+        const InvertedIndexAnalyzerCtx* analyzer_ctx,
+        std::optional<segment_v2::gram::GramScheme>* out) const {
+    if (analyzer_ctx != nullptr && analyzer_ctx->analyzer_provider != nullptr) {
+        *out = analyzer_ctx->analyzer_provider->gram_scheme();
+        return Status::OK();
+    }
+    try {
+        *out = segment_v2::gram::resolve_gram_scheme(_index_meta.properties(),
+                                                     ExecEnv::GetInstance()->index_policy_mgr());
+    } catch (const Exception& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
+                "SNII resolve analyzer failed: {}", e.what());
+    }
+    return Status::OK();
+}
+
+Status SniiIndexReader::_admit(const IndexQueryContextPtr& /*context*/,
+                               const std::string& /*column_name*/, const LeafRequest& request,
+                               Admission* admission) {
+    // The segment's gram scheme decides whether the analyzer's terms mean anything here, so the
+    // analyzer is asked only once the segment is admitted.
+    admission->plan_before_open = false;
+    const InvertedIndexQueryType query_type = request.query_type;
+    if (is_gram_query(query_type)) {
+        // Only an index under an analyzer policy can have been written as a gram index.
+        if (!gram::may_be_gram_index(_index_meta.properties())) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED, false>(
+                    "index {} has no analyzer policy, so it cannot be a gram index",
+                    _index_meta.index_name());
+        }
+        // A logical index missing from its container was never built into this segment. A gram
+        // query reports it as a missing index file, so the scan's policy for missing indexes
+        // decides whether to evaluate without the index.
+        admission->open_failed = [](Status status) {
+            if (status.is<ErrorCode::INVERTED_INDEX_SNII_NOT_FOUND>()) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND, false>("{}",
+                                                                                      status.msg());
+            }
+            return status;
+        };
+        return Status::OK();
+    }
+    // An analyzed query (MATCH_*, and EQUAL on a tokenized reader, which is how SEARCH's TERM
+    // and EXACT clauses arrive) on a gram index is exact only when the query is cut by the very
+    // scheme that cut the segment. The cache key does not tell two schemes apart, so such a
+    // query is never cached.
+    const bool analyzed_query =
+            (analyzes_query_terms(query_type) ||
+             (query_type == InvertedIndexQueryType::EQUAL_QUERY &&
+              _reader_type == InvertedIndexReaderType::FULLTEXT)) &&
+            (request.analyzer_ctx == nullptr || request.analyzer_ctx->requires_analysis());
+    if (!analyzed_query) {
+        return Status::OK();
+    }
+    std::optional<segment_v2::gram::GramScheme> current;
+    RETURN_IF_ERROR(_current_gram_scheme(request.analyzer_ctx, &current));
+    admission->cacheable = !current.has_value();
+    // Either side may lack a scheme: a legacy ngram segment holds that tokenizer's terms, and a
+    // gram segment outlives a policy recreated without a mode; neither answers the other's terms.
+    admission->check_open = [current = std::move(current)](OpenedIndex& index) {
+        if (current != static_cast<SniiOpenedIndex&>(index).reader->gram_scheme()) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "gram index segment was cut with a different scheme than the current "
+                    "analyzer; the predicate is evaluated without the index");
+        }
+        return Status::OK();
+    };
+    return Status::OK();
+}
+
+// Compiles the pattern against the scheme of the dictionary that supplies the postings, since
+// current policies can differ from the one this segment was written with.
+Status SniiIndexReader::_run_gram(const IndexQueryContextPtr& context, OpenedIndex& index,
+                                  const LeafRequest& request,
+                                  std::shared_ptr<roaring::Roaring>* out) {
+    const auto& reader = *static_cast<SniiOpenedIndex&>(index).reader;
+    const auto& scheme = reader.gram_scheme();
+    if (!scheme.has_value()) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED, false>(
+                "SNII index is not a gram-family index");
+    }
+    gram::RegexGramCompiler compiler(*scheme);
+    gram::GramQuery gram_query;
+    const std::string pattern(request.text);
+    RETURN_IF_ERROR(request.query_type == InvertedIndexQueryType::LIKE_GRAM_QUERY
+                            ? compiler.compile_like(pattern, &gram_query)
+                            : compiler.compile_regexp(pattern, &gram_query));
+    if (gram_query.is_all()) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED, false>(
+                "Pattern has no prunable grams");
+    }
+    ::doris::snii::query::LogicalIndexPostingSource source(reader);
+    ::doris::snii::query::GramGateStats gate_stats;
+    auto result = std::make_shared<roaring::Roaring>();
+    RETURN_IF_ERROR(::doris::snii::query::gram_boolean_query(
+            source, gram_query, cast_set<uint32_t>(_rows_of_segment), result.get(), &gate_stats));
+    context->stats->gram_index_gate_gave_up += static_cast<int64_t>(gate_stats.nodes_given_up);
+    result->runOptimize();
+    *out = std::move(result);
+    return Status::OK();
+}
 
 Status SniiIndexReader::_open_index(const IndexQueryContextPtr& context,
                                     std::unique_ptr<OpenedIndex>* out) {

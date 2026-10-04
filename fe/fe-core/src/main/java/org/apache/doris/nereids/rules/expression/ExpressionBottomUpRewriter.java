@@ -22,6 +22,7 @@ import org.apache.doris.nereids.pattern.ExpressionPatternTraverseListeners;
 import org.apache.doris.nereids.pattern.ExpressionPatternTraverseListeners.CombinedListener;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SessionVarGuardExpr;
+import org.apache.doris.nereids.trees.expressions.functions.RequiresShortCircuitEvaluation;
 import org.apache.doris.qe.AutoCloseSessionVariable;
 
 import com.google.common.collect.ImmutableList;
@@ -75,7 +76,12 @@ public class ExpressionBottomUpRewriter implements ExpressionRewriteRule<Express
             Expression afterRewrite = expression;
             try {
                 Expression beforeRewrite;
-                if (expression instanceof SessionVarGuardExpr) {
+                if (expression instanceof RequiresShortCircuitEvaluation) {
+                    // A bottom-up walk evaluates constant children before the control-flow expression can
+                    // select its branch. Keep guarded branches opaque here; the matching rule may replace
+                    // the control-flow expression with its selected branch, which is then rewritten below.
+                    afterRewrite = expression;
+                } else if (expression instanceof SessionVarGuardExpr) {
                     try (AutoCloseSessionVariable auto = new AutoCloseSessionVariable(
                             context.cascadesContext.getConnectContext(),
                             ((SessionVarGuardExpr) expression).getSessionVars())) {
@@ -97,7 +103,10 @@ public class ExpressionBottomUpRewriter implements ExpressionRewriteRule<Express
                     if (changed) {
                         afterRewrite = applied.get();
                         // ensure children are rewritten
-                        afterRewrite = rewriteChildren(afterRewrite, context, currentBatch, rules, listeners);
+                        if (!(afterRewrite instanceof RequiresShortCircuitEvaluation)) {
+                            afterRewrite = rewriteChildren(
+                                    afterRewrite, context, currentBatch, rules, listeners);
+                        }
                     }
                     rewriteTimes++;
                 } while (changed && rewriteTimes < 100 && rules.hasCurrentAndChildrenRules(beforeRewrite));

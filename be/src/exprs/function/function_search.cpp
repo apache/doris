@@ -547,9 +547,17 @@ Status FunctionSearch::evaluate_inverted_index_with_search_param(
         const IndexExecContext* index_exec_ctx,
         const std::unordered_map<std::string, int>& field_name_to_column_id,
         const std::shared_ptr<IndexQueryContext>& index_query_context) const {
-    RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_evaluate_search_param(
-            search_param, data_type_with_names, std::move(iterators), num_rows, bitmap_result,
-            enable_cache, index_exec_ctx, field_name_to_column_id, index_query_context));
+    // VSearchExpr enters here directly, outside IFunction::execute() and its exception boundary,
+    // so this is where a failure inside the search, such as an analyzer whose first token
+    // stream throws, has to become a Status.
+    try {
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_evaluate_search_param(
+                search_param, data_type_with_names, std::move(iterators), num_rows, bitmap_result,
+                enable_cache, index_exec_ctx, field_name_to_column_id, index_query_context));
+    } catch (const CLuceneError& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>("search failed: {}",
+                                                                       e.what());
+    }
     return Status::OK();
 }
 

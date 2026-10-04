@@ -73,9 +73,6 @@ public:
     ScorerPtr scored_disjunction();
 
 private:
-    // The rows holding every term among `candidates`, listed as a chain.
-    Status _chain(const std::vector<uint32_t>* candidates, std::vector<uint32_t>* rows);
-
     index_query::IndexSourcePtr _source;
     std::shared_ptr<roaring::Roaring> _nulls;
     std::vector<size_t> _clauses;
