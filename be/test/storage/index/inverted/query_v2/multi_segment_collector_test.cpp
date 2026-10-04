@@ -19,6 +19,8 @@
 #include <CLucene/index/MultiReader.h>
 #include <gtest/gtest.h>
 
+#include <functional>
+#include <map>
 #include <memory>
 #include <roaring/roaring.hh>
 #include <string>
@@ -33,6 +35,7 @@
 #include "storage/index/inverted/query_v2/collect/multi_segment_util.h"
 #include "storage/index/inverted/query_v2/collect/top_k_collector.h"
 #include "storage/index/inverted/query_v2/term_query/term_query.h"
+#include "storage/index/inverted/similarity/collection_statistics.h"
 #include "storage/index/inverted/spi/clucene_index_source.h"
 #include "storage/index/inverted/util/string_helper.h"
 
@@ -176,6 +179,67 @@ TEST_F(MultiSegmentCollectorTest, CollectDocSetWithMultiReader) {
 
     _CLDECDELETE(dir0);
     _CLDECDELETE(dir1);
+}
+
+// Statistics for scoring that read no collection.
+class FixedCollectionStatistics final : public CollectionStatistics {
+public:
+    float get_or_calculate_idf(const std::wstring& /*field_name*/,
+                               const std::wstring& /*term*/) override {
+        return 1.5F;
+    }
+    float get_or_calculate_avg_dl(const std::wstring& /*field_name*/) override { return 2.0F; }
+};
+
+// Each segment's scored rows reach the similarity in the global docid domain, with the scores
+// its scorer gives them one row at a time: a term's rows read a postings block at a time, a
+// disjunction's as the rows it lists.
+TEST_F(MultiSegmentCollectorTest, ScoredRowsReachTheSimilarityInTheGlobalDocIdDomain) {
+    ValueArray<lucene::index::IndexReader*> readers(2);
+    readers[0] = lucene::index::IndexReader::open((kTestDir + "/segment0").c_str());
+    readers[1] = lucene::index::IndexReader::open((kTestDir + "/segment1").c_str());
+    auto reader = make_shared_reader(_CLNEW lucene::index::MultiReader(&readers, true));
+
+    const auto field = StringHelper::to_wstring("title");
+    auto index_query_context = std::make_shared<IndexQueryContext>();
+    index_query_context->collection_statistics = std::make_shared<FixedCollectionStatistics>();
+    QueryExecutionContext context;
+    context.segment_num_rows = reader->maxDoc();
+    context.sources = {clucene_index_source(reader, field, nullptr)};
+    context.field_sources.emplace(field, clucene_index_source(reader, field, nullptr));
+    const auto term = [&](const std::string& text) -> QueryPtr {
+        return std::make_shared<TermQuery>(index_query_context, field, text);
+    };
+    const auto disjunction = [&]() {
+        OperatorBooleanQueryBuilder builder(OperatorType::OP_OR);
+        builder.add(term("fleabag"));
+        builder.add(term("title"));
+        return builder.build();
+    };
+    const std::function<QueryPtr()> queries[] = {[&]() { return term("fleabag"); }, disjunction};
+    const std::vector<uint32_t> expected_rows[] = {{0, 3}, {0, 1, 3}};
+    for (size_t i = 0; i < std::size(queries); ++i) {
+        std::map<uint32_t, float> expected;
+        const auto stepped = queries[i]()->weight(true);
+        for_each_index_segment(
+                context, "", [&](const QueryExecutionContext& segment, uint32_t doc_base) {
+                    auto scorer = stepped->scorer(segment, "");
+                    for (uint32_t doc = scorer->doc(); doc != TERMINATED; doc = scorer->advance()) {
+                        expected[doc + doc_base] = scorer->score();
+                    }
+                });
+        auto rows = std::make_shared<roaring::Roaring>();
+        auto similarity = std::make_shared<CollectionSimilarity>();
+        collect_multi_segment_doc_set(queries[i]()->weight(true), context, "", rows, similarity,
+                                      true);
+
+        std::vector<uint32_t> actual_rows(rows->cardinality());
+        rows->toUint32Array(actual_rows.data());
+        EXPECT_EQ(actual_rows, expected_rows[i]) << i;
+        const auto scores = similarity->release_scores();
+        const std::map<uint32_t, float> actual(scores.begin(), scores.end());
+        EXPECT_EQ(actual, expected) << i;
+    }
 }
 
 TEST_F(MultiSegmentCollectorTest, DeletedDocumentsDoNotShrinkTheLocalDocIdDomain) {

@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <memory>
 #include <roaring/roaring.hh>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -62,6 +63,10 @@ public:
     uint32_t size_hint() const override { return static_cast<uint32_t>(_rows.size()); }
 
     float score() override { return _index < _rows.size() ? _scores[_index] : 0.0F; }
+
+    // The rows from the current one on, and their scores.
+    std::span<const uint32_t> rows() const { return std::span(_rows).subspan(_index); }
+    std::span<const float> scores() const { return std::span(_scores).subspan(_index); }
 
     bool has_null_bitmap(const NullBitmapResolver* /*resolver*/ = nullptr) override {
         return _nulls != nullptr && !_nulls->isEmpty();

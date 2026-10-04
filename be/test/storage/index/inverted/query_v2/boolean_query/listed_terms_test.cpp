@@ -160,6 +160,18 @@ protected:
         return rows;
     }
 
+    // Each term's rows scored on their own, a term query each, summed per row in term order.
+    std::map<uint32_t, float> summed(const std::vector<std::string>& texts,
+                                     const std::shared_ptr<FakeIndexSource>& source) const {
+        std::map<uint32_t, float> rows;
+        for (const std::string& text : texts) {
+            for (const auto& [doc, score] : scored([&] { return term(text); }, source)) {
+                rows[doc] += score;
+            }
+        }
+        return rows;
+    }
+
     static std::vector<uint32_t> keys(const std::map<uint32_t, float>& rows) {
         std::vector<uint32_t> keys;
         for (const auto& [doc, score] : rows) {
@@ -452,11 +464,17 @@ TEST_F(ListedTermsTest, AScoredConjunctionReadsTheListedRowsPositionsInOneRound)
 
 // A scored disjunction reads every term's rows, frequencies and norms in one round and sums,
 // per row, the scores of the terms holding it.
+// A scored disjunction lists its terms on any source and scores a row with the sum of its terms'
+// scores. A streaming source has its terms read one at a time, each cursor released before the
+// next opens, where a union would hold them all.
 TEST_F(ListedTermsTest, AScoredDisjunctionSumsTheScoresOfEachTerm) {
     const auto make = [&] { return boolean(OperatorType::OP_OR, {term("a"), term("c")}); };
-    auto streamed = source(false);
-    const auto expected = scored(make, streamed);
+    const auto expected = summed({"a", "c"}, source(false));
     EXPECT_EQ(keys(expected), (std::vector<uint32_t> {1, 2, 3, 5, 8, 20}));
+    auto streamed = source(false);
+    expect_scores_eq(scored(make, streamed), expected);
+    EXPECT_EQ(streamed->opened, (std::vector<std::string> {"a", "c"}));
+    EXPECT_EQ(streamed->live.peak, 1U);
     auto listed = source(true);
     expect_scores_eq(scored(make, listed), expected);
     EXPECT_EQ(listed->opened_together, (std::vector<std::vector<std::string>> {{"a", "c"}}));
@@ -486,13 +504,21 @@ TEST_F(ListedTermsTest, ADisjunctionOfManyTermsReadsThemAWaveAtATime) {
     EXPECT_EQ(listed->live.now, 0U);
 }
 
-// A scored disjunction of more terms than one wave reads and merges them a wave at a time.
+// A scored disjunction of more terms than one wave reads and scores them a wave at a time. Its
+// first terms merge into the rows scored so far; from the twelfth on, the rows and the term's
+// postings cover a quarter of the 64 rows, and the terms add into a slot per row. Either way a
+// row sums its terms' scores in term order.
 TEST_F(ListedTermsTest, AScoredDisjunctionOfManyTermsScoresAWaveAtATime) {
     const auto make = [&] { return many_boolean(OperatorType::OP_OR); };
-    const auto expected = scored(make, many_terms(false));
+    std::vector<std::string> texts;
+    for (size_t i = 0; i < kManyTerms; ++i) {
+        texts.push_back(many_term(i));
+    }
+    const auto expected = summed(texts, many_terms(false));
     EXPECT_EQ(expected.size(), kManyTerms + 2);
+    expect_scores_eq(scored(make, many_terms(false)), expected);
     auto listed = many_terms(true);
-    expect_scores_near(scored(make, listed), expected);
+    expect_scores_eq(scored(make, listed), expected);
     EXPECT_EQ(listed->opened_together, many_term_waves());
     EXPECT_EQ(listed->fetches, 2U);
     EXPECT_EQ(listed->live.peak, kWaveTerms);

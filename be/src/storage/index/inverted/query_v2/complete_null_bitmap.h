@@ -24,6 +24,10 @@
 #include "storage/index/inverted/query_v2/scorer.h"
 #include "storage/index/query/boolean/truth_set.h"
 
+namespace doris {
+class CollectionSimilarity;
+} // namespace doris
+
 namespace doris::segment_v2::inverted_index::query_v2 {
 
 // Reuses complete bitmap views or consumes a fresh forward-only scorer.
@@ -34,6 +38,12 @@ index_query::TruthSet collect_truth_set(const ScorerPtr& scorer, const NullBitma
 // Adds the TRUE rows of a fresh scorer to `rows`, taken from its bitmap view or a postings block at
 // a time where it has one. UNKNOWN rows are not read.
 void collect_true_rows(const ScorerPtr& scorer, roaring::Roaring* rows);
+
+// Returns the TRUE rows of a fresh scorer and hands each, rebased by `doc_base`, to `similarity`
+// with its score: a postings block or the listed rows at a time where the scorer has them.
+// UNKNOWN rows are not read.
+roaring::Roaring collect_scored_rows(const ScorerPtr& scorer, uint32_t doc_base,
+                                     CollectionSimilarity& similarity);
 
 // Intersects the truth sets `collect(scorer, candidates)` returns, reading each scorer only within
 // the rows the ones before it leave TRUE or UNKNOWN; an empty intersection ends the loop.

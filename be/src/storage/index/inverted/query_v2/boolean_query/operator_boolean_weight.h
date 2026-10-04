@@ -192,12 +192,15 @@ private:
         return std::dynamic_pointer_cast<DoNothingCombiner>(_score_combiner) != nullptr;
     }
 
-    // The term clauses to list together: those reading a source that batches its reads, and
-    // those of an unscored conjunction on any source, whose chain intersects block by block;
-    // grouped by source and opened together, with their similarities when `scoring` (a boolean
-    // scores with its clauses). The other clauses run through their scorers.
+    // The term clauses to list together: those reading a source that batches its reads, and on
+    // any source those of an unscored conjunction, whose chain intersects block by block, and
+    // those of a scored disjunction, which merges each term's rows into the rows scored so far
+    // instead of keeping a heap of its terms per row; grouped by source and opened together,
+    // with their similarities when `scoring` (a boolean scores with its clauses). The other
+    // clauses run through their scorers.
     std::vector<ListedTerms> listed_terms(const QueryExecutionContext& context, bool scoring) {
-        const bool chains = _type == OperatorType::OP_AND && !scoring;
+        const bool any_source = (_type == OperatorType::OP_AND && !scoring) ||
+                                (_type == OperatorType::OP_OR && scoring);
         std::vector<ListedTerms> groups;
         for (size_t i = 0; i < _sub_weights.size(); ++i) {
             const auto* term = dynamic_cast<const TermWeight*>(_sub_weights[i].get());
@@ -206,7 +209,7 @@ private:
             }
             DORIS_CHECK(!scoring || term->scores());
             auto source = lookup_source(term->field(), context, _binding_keys[i]);
-            if (source == nullptr || !(chains || source->batches_reads())) {
+            if (source == nullptr || !(any_source || source->batches_reads())) {
                 continue;
             }
             auto group = std::ranges::find_if(groups, [&source](const ListedTerms& candidate) {

@@ -25,6 +25,8 @@
 #include <utility>
 
 #include "core/custom_allocator.h"
+#include "storage/index/collection_similarity.h"
+#include "storage/index/inverted/query_v2/scored_rows_scorer.h"
 #include "storage/index/inverted/query_v2/term_query/term_scorer.h"
 #include "storage/index/query/boolean/truth_set.h"
 #include "storage/index/query/exec/collect_postings.h"
@@ -296,6 +298,24 @@ void collect_true_rows(const ScorerPtr& scorer, roaring::Roaring* rows) {
     } else {
         *rows |= collected;
     }
+}
+
+roaring::Roaring collect_scored_rows(const ScorerPtr& scorer, uint32_t doc_base,
+                                     CollectionSimilarity& similarity) {
+    if (const auto* listed = dynamic_cast<const ScoredRowsScorer*>(scorer.get());
+        listed != nullptr) {
+        const std::span<const uint32_t> rows = listed->rows();
+        const std::span<const float> scores = listed->scores();
+        for (size_t i = 0; i < rows.size(); ++i) {
+            similarity.collect(rows[i] + doc_base, scores[i]);
+        }
+        roaring::Roaring result;
+        result.addMany(rows.size(), rows.data());
+        return result;
+    }
+    return consume_true_rows<true>(
+            *scorer, scorer->doc(), nullptr,
+            [&](uint32_t row, auto&& score) { similarity.collect(row + doc_base, score()); });
 }
 
 ScorerPtr materialize_scorer(ScorerPtr source, bool enable_scoring,

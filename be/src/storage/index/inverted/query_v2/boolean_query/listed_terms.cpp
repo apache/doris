@@ -18,6 +18,8 @@
 #include "storage/index/inverted/query_v2/boolean_query/listed_terms.h"
 
 #include <algorithm>
+#include <bit>
+#include <optional>
 #include <span>
 #include <utility>
 
@@ -139,6 +141,53 @@ void merge_term(index_query::BlockDocSet& docs, index_query::ScoringContext<floa
     scores->swap(merged_scores);
 }
 
+// The rows a disjunction holds and their scores, one slot per row of the segment: a term adds
+// into the slots in one pass where merging would copy every row scored so far.
+class RowSlots {
+public:
+    RowSlots(uint32_t doc_count, std::span<const uint32_t> rows, std::span<const float> scores)
+            : _scores(doc_count, 0.0F), _held((doc_count + 63) / 64, 0) {
+        for (size_t i = 0; i < rows.size(); ++i) {
+            _scores[rows[i]] = scores[i];
+            hold(rows[i]);
+        }
+    }
+
+    void add_term(index_query::BlockDocSet& docs, index_query::ScoringContext<float>& similarity) {
+        for (; !docs.exhausted(); docs.advance()) {
+            const uint32_t doc = docs.doc();
+            DCHECK_LT(doc, _scores.size());
+            _scores[doc] += similarity.score(static_cast<float>(docs.freq()), docs.norm());
+            hold(doc);
+        }
+    }
+
+    // The rows held, ascending, and their scores.
+    void list(std::vector<uint32_t>* rows, std::vector<float>* scores) const {
+        size_t count = 0;
+        for (const uint64_t word : _held) {
+            count += std::popcount(word);
+        }
+        rows->clear();
+        scores->clear();
+        rows->reserve(count);
+        scores->reserve(count);
+        for (size_t word = 0; word < _held.size(); ++word) {
+            for (uint64_t bits = _held[word]; bits != 0; bits &= bits - 1) {
+                const auto row = static_cast<uint32_t>(word * 64 + std::countr_zero(bits));
+                rows->push_back(row);
+                scores->push_back(_scores[row]);
+            }
+        }
+    }
+
+private:
+    void hold(uint32_t row) { _held[row / 64] |= uint64_t {1} << (row % 64); }
+
+    std::vector<float> _scores;
+    std::vector<uint64_t> _held;
+};
+
 } // namespace
 
 // The chain lists the rows, then the terms read their positions a wave at a time, one round
@@ -178,11 +227,14 @@ ScorerPtr ListedTerms::scored_conjunction() {
 }
 
 // Every term reads its whole posting, with its frequencies and norms, a wave of terms per round;
-// a row's score sums the scores of the terms holding it, in clause order.
+// a row's score sums the scores of the terms holding it, in clause order. Once a term and the
+// rows scored before it cover a quarter of the segment, the terms add into a slot per row.
 ScorerPtr ListedTerms::scored_disjunction() {
     bool any_present = false;
     std::vector<uint32_t> rows;
     std::vector<float> scores;
+    std::optional<RowSlots> slots;
+    const uint32_t doc_count = _source->doc_count();
     THROW_IF_ERROR(index_query::visit_term_postings(
             *_source, _terms, /*scoring=*/true,
             [&](size_t i, index_query::PostingsCursor* cursor) -> Status {
@@ -191,12 +243,23 @@ ScorerPtr ListedTerms::scored_disjunction() {
                 }
                 any_present = true;
                 _similarities[i]->bind_norms(_source->norm_lengths());
+                if (!slots.has_value() && !rows.empty() &&
+                    (rows.size() + cursor->doc_freq()) * 4 >= doc_count) {
+                    slots.emplace(doc_count, rows, scores);
+                }
                 index_query::BlockDocSet docs(*cursor);
-                merge_term(docs, *_similarities[i], &rows, &scores);
+                if (slots.has_value()) {
+                    slots->add_term(docs, *_similarities[i]);
+                } else {
+                    merge_term(docs, *_similarities[i], &rows, &scores);
+                }
                 return Status::OK();
             }));
     if (!any_present) {
         return std::make_shared<EmptyScorer>();
+    }
+    if (slots.has_value()) {
+        slots->list(&rows, &scores);
     }
     return std::make_shared<ScoredRowsScorer>(std::move(rows), std::move(scores), _nulls);
 }

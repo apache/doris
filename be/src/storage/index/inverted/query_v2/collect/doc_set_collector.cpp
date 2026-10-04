@@ -17,8 +17,6 @@
 
 #include "storage/index/inverted/query_v2/collect/doc_set_collector.h"
 
-#include <array>
-
 #include "common/exception.h"
 #include "storage/index/inverted/query_v2/collect/multi_segment_util.h"
 #include "storage/index/inverted/query_v2/complete_null_bitmap.h"
@@ -27,19 +25,19 @@ namespace doris::segment_v2::inverted_index::query_v2 {
 
 namespace {
 
-// Adds a segment's UNKNOWN rows, in its own docid space, to the global ones.
-void add_segment_null_rows(const roaring::Roaring& segment_rows, uint32_t doc_base,
-                           roaring::Roaring* null_rows) {
+// Adds a segment's rows, in its own docid space, to the global ones.
+void add_segment_rows(const roaring::Roaring& segment_rows, uint32_t doc_base,
+                      roaring::Roaring* rows) {
     if (doc_base == 0) {
-        *null_rows |= segment_rows;
+        *rows |= segment_rows;
         return;
     }
     auto* shifted = roaring::api::roaring_bitmap_add_offset(&segment_rows.roaring,
                                                             static_cast<int64_t>(doc_base));
     if (shifted == nullptr) {
-        throw Exception(ErrorCode::MEM_ALLOC_FAILED, "Failed to rebase segment NULL rows");
+        throw Exception(ErrorCode::MEM_ALLOC_FAILED, "Failed to rebase segment rows");
     }
-    *null_rows |= roaring::Roaring(shifted);
+    *rows |= roaring::Roaring(shifted);
 }
 
 } // namespace
@@ -59,29 +57,19 @@ void collect_multi_segment_doc_set(const WeightPtr& weight, const QueryExecution
                 if (null_rows != nullptr && scorer->has_null_bitmap(seg_ctx.null_resolver)) {
                     const auto* nulls = scorer->get_null_bitmap(seg_ctx.null_resolver);
                     if (nulls != nullptr) {
-                        add_segment_null_rows(*nulls, doc_base, null_rows);
+                        add_segment_rows(*nulls, doc_base, null_rows);
                     }
                 }
-                // Unscored rows of the first segment are read in bulk.
-                if (!publish_scores && doc_base == 0) {
+                if (publish_scores) {
+                    add_segment_rows(collect_scored_rows(scorer, doc_base, *similarity), doc_base,
+                                     roaring.get());
+                } else if (doc_base == 0) {
                     collect_true_rows(scorer, roaring.get());
-                    return;
+                } else {
+                    roaring::Roaring rows;
+                    collect_true_rows(scorer, &rows);
+                    add_segment_rows(rows, doc_base, roaring.get());
                 }
-                // Rows arrive in order, so they are added a batch at a time.
-                std::array<uint32_t, 256> batch {};
-                size_t count = 0;
-                for (uint32_t doc = scorer->doc(); doc != TERMINATED; doc = scorer->advance()) {
-                    const uint32_t global_doc = doc + doc_base;
-                    batch[count++] = global_doc;
-                    if (count == batch.size()) {
-                        roaring->addMany(count, batch.data());
-                        count = 0;
-                    }
-                    if (publish_scores) {
-                        similarity->collect(global_doc, scorer->score());
-                    }
-                }
-                roaring->addMany(count, batch.data());
             });
 }
 
