@@ -17,9 +17,12 @@
 
 package org.apache.doris.qe.runtime;
 
+import org.apache.doris.common.Config;
+import org.apache.doris.common.QueryLogContext;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
 import org.apache.doris.qe.CoordinatorContext;
@@ -29,6 +32,8 @@ import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.ThreadContext;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
@@ -43,6 +48,37 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Supplier;
 
 class PipelineExecutionTaskTest {
+    @Test
+    void missingTimeoutOptionsKeepQueryOnlyInPrefixAndStillCancelDispatch() throws Exception {
+        boolean savedEnabled = Config.sys_log_enable_query_id;
+        Config.sys_log_enable_query_id = true;
+        CoordinatorContext context = Mockito.mock(CoordinatorContext.class);
+        TUniqueId queryId = new TUniqueId(68694, 701);
+        Deencapsulation.setField(context, "queryId", queryId);
+        Deencapsulation.setField(context, "queryOptions", new TQueryOptions());
+        Deencapsulation.setField(context, "timeoutDeadline", (Supplier<Long>) () -> 0L);
+        Mockito.when(context.withLock(ArgumentMatchers.<Callable<Object>>any()))
+                .thenAnswer(invocation -> invocation.<Callable<Object>>getArgument(0).call());
+        Mockito.when(context.readCloneStatus()).thenReturn(Status.OK);
+        MultiFragmentsPipelineTask fragments = mockFragmentTask(10001L);
+        Mockito.when(fragments.sendPhaseOneRpc(false))
+                .thenReturn(CompletableFuture.completedFuture(PExecPlanFragmentResult.getDefaultInstance()));
+        PipelineExecutionTask task = new PipelineExecutionTask(context, Mockito.mock(BackendServiceProxy.class),
+                Collections.singletonMap(Mockito.mock(BackendWorker.class), fragments));
+        String previousId = ThreadContext.get(QueryLogContext.QUERY_ID);
+        try (QueryLogContext ignored = QueryLogContext.open(queryId);
+                TestLogAppender appender = TestLogAppender.attach(PipelineExecutionTask.class)) {
+            Assertions.assertThrows(UserException.class, task::execute);
+            Assertions.assertTrue(appender.contains(Level.WARN, "Query does not set timeout info"));
+            Assertions.assertFalse(appender.contains(Level.WARN, "Query ["));
+            Mockito.verify(context).cancelSchedule(ArgumentMatchers.argThat(
+                    status -> hasDeadlineTimeoutMessage(status)));
+        } finally {
+            Config.sys_log_enable_query_id = savedEnabled;
+        }
+        Assertions.assertEquals(previousId, ThreadContext.get(QueryLogContext.QUERY_ID));
+    }
+
     @Test
     void expiredDeadlineCancelsAlreadySubmittedFragments() throws Exception {
         CoordinatorContext coordinatorContext = Mockito.mock(CoordinatorContext.class);

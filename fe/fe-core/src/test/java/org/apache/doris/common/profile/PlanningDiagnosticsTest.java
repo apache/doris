@@ -701,6 +701,196 @@ public class PlanningDiagnosticsTest {
         Assertions.assertEquals(-1, audit.get("planning_choose_plan").getAsInt());
     }
 
+    @Test
+    public void testCheckerWaitsForThresholdAndReportsBetweenPhases() {
+        PlanningDiagnostics diagnostics = new PlanningDiagnostics(context, clock::get);
+        try (TestLogAppender appender = TestLogAppender.attach(PlanningDiagnostics.class, Level.WARN)) {
+            diagnostics.reportIfSlow();
+            Assertions.assertTrue(events(appender).isEmpty(), "A pass has not started yet");
+            PlanningDiagnostics.execute(diagnostics, () -> {
+                advance(4999);
+                diagnostics.reportIfSlow();
+                Assertions.assertTrue(events(appender).isEmpty(), "The slow threshold has not elapsed");
+                advance(1);
+                diagnostics.reportIfSlow();
+                Assertions.assertEquals(1, events(appender).size());
+                JsonObject event = eventJson(events(appender).get(0));
+                Assertions.assertEquals("running", event.get("status").getAsString());
+                Assertions.assertEquals(5000, event.get("elapsed_ms").getAsLong());
+                Assertions.assertEquals(0, event.get("phase_elapsed_ms").getAsLong());
+                Assertions.assertEquals(0, event.get("operation_elapsed_ms").getAsLong());
+                Assertions.assertFalse(event.has("phase"));
+                return null;
+            });
+            Assertions.assertEquals(2, events(appender).size());
+            diagnostics.reportIfSlow();
+            Assertions.assertEquals(2, events(appender).size(), "A completed pass must no longer report");
+            Assertions.assertEquals("completed", summary.getPlanningDetails().getAsJsonObject("last_pass")
+                    .get("status").getAsString());
+            Assertions.assertEquals("not_run", phase("analyze").get("status").getAsString());
+        }
+    }
+
+    @Test
+    public void testNestedOperationOverflowRemainsBoundedAtRoot() {
+        try (TestLogAppender appender = TestLogAppender.attach(PlanningDiagnostics.class, Level.WARN)) {
+            run(() -> {
+                run(() -> {
+                    for (int i = 0; i < 20; i++) {
+                        PlanningDiagnostics.operation(context, "load_schema", "catalog.db.inner", -1, () -> {
+                            advance(1000);
+                            return null;
+                        });
+                    }
+                });
+                Assertions.assertTrue(events(appender).isEmpty(), "Nested events must wait for root cleanup");
+            });
+            Assertions.assertEquals(17, events(appender).size());
+            Assertions.assertEquals(16, events(appender).stream()
+                    .filter(event -> event.getMessage().getFormattedMessage().startsWith("Planning operation"))
+                    .count());
+            JsonObject finished = eventJson(events(appender).get(16));
+            Assertions.assertEquals(5, finished.get("omitted_operations").getAsLong(),
+                    "Four child operations and its completion event did not fit");
+            Assertions.assertEquals(2, summary.getPlanningDetails().get("passes").getAsLong(),
+                    "Bounded logs must not discard summary passes");
+            Assertions.assertEquals(40000, summary.getPlanningDetails().get("elapsed_ms").getAsLong());
+        }
+    }
+
+    @Test
+    public void testNestedLockReportIncludesOldestAncestorWithUnlockedMiddlePass() {
+        ConnectContext middle = new ConnectContext();
+        ConnectContext inner = new ConnectContext();
+        try (TestLogAppender appender = TestLogAppender.attach(PlanningDiagnostics.class, Level.WARN)) {
+            run(() -> PlanningDiagnostics.runPhase(context, Phase.REWRITE, () -> {
+                try (PlanningDiagnostics.LockHold outerLock = context.getPlanningDiagnostics()
+                        .acquiredLock("catalog.db.outer")) {
+                    advance(100);
+                    PlanningDiagnostics.execute(new PlanningDiagnostics(middle, clock::get), () ->
+                            PlanningDiagnostics.execute(new PlanningDiagnostics(inner, clock::get), () -> {
+                                try (PlanningDiagnostics.LockHold innerLock = inner.getPlanningDiagnostics()
+                                        .acquiredLock("catalog.db.inner")) {
+                                    advance(5000);
+                                    context.checkTimeout(0);
+                                    JsonObject event = eventJson(events(appender).get(0));
+                                    Assertions.assertEquals(2, event.get("held_locks").getAsInt());
+                                    Assertions.assertEquals("catalog.db.outer", event.get("oldest_lock").getAsString());
+                                    Assertions.assertEquals(5100, event.get("oldest_lock_hold_ms").getAsLong());
+                                }
+                                return null;
+                            }));
+                    Assertions.assertNull(middle.getPlanningDiagnostics());
+                    Assertions.assertNull(inner.getPlanningDiagnostics());
+                    advance(30000);
+                    context.checkTimeout(0);
+                    Assertions.assertEquals(2, events(appender).size(), "Completed children remain deferred");
+                    JsonObject event = eventJson(events(appender).get(1));
+                    Assertions.assertEquals(1, event.get("held_locks").getAsInt());
+                    Assertions.assertEquals("catalog.db.outer", event.get("oldest_lock").getAsString());
+                    Assertions.assertEquals(35100, event.get("oldest_lock_hold_ms").getAsLong());
+                }
+            }));
+        }
+    }
+
+    @Test
+    public void testDisabledOperationThresholdStillReportsOriginalFailure() {
+        Config.nereids_planning_log_threshold_ms = 0;
+        Config.nereids_planning_operation_log_threshold_ms = 0;
+        IllegalStateException failure = new IllegalStateException("metadata failure with logging thresholds disabled");
+        try (TestLogAppender appender = TestLogAppender.attach(PlanningDiagnostics.class, Level.WARN)) {
+            Assertions.assertSame(failure, Assertions.assertThrows(IllegalStateException.class,
+                    () -> run(() -> PlanningDiagnostics.runPhase(context, Phase.ANALYZE, () -> {
+                        PlanningDiagnostics.operation(context, "load_schema", "catalog.db.success", -1, () -> {
+                            advance(2000);
+                            return null;
+                        });
+                        PlanningDiagnostics.operation(context, "load_schema", "catalog.db.failed", -1, () -> {
+                            advance(3);
+                            throw failure;
+                        });
+                    }))));
+            Assertions.assertEquals(2, events(appender).size(), "Only the failure and pass summary are emitted");
+            Assertions.assertFalse(appender.contains(Level.WARN, "catalog.db.success"));
+            JsonObject operation = eventJson(events(appender).get(0));
+            Assertions.assertEquals("catalog.db.failed", operation.get("target").getAsString());
+            Assertions.assertEquals("failed", operation.get("status").getAsString());
+            Assertions.assertEquals(3, operation.get("elapsed_ms").getAsLong());
+            Assertions.assertEquals("analyze/load_schema", summary.getPlanningDetails().getAsJsonObject("last_pass")
+                    .get("failed_step").getAsString());
+            Assertions.assertEquals(2003, phase("analyze").get("elapsed_ms").getAsLong());
+        }
+    }
+
+    @Test
+    public void testPlannerCleanupFailureRestoresContextForNextPass() {
+        StatementContext statement = Mockito.spy(new StatementContext(context, new OriginStatement("select 1", 0)));
+        NereidsPlanner planner = new NereidsPlanner(statement);
+        LogicalPlan input = Mockito.mock(LogicalPlan.class);
+        IllegalStateException failure = new IllegalStateException("planner resource close failed");
+        Mockito.doThrow(failure).when(statement).releasePlannerResources();
+        ThreadContext.put(QueryLogContext.QUERY_ID, "caller");
+        Assertions.assertSame(failure, Assertions.assertThrows(IllegalStateException.class,
+                () -> planner.planWithLock(input, org.apache.doris.nereids.properties.PhysicalProperties.ANY,
+                        ExplainLevel.PARSED_PLAN, false)));
+        Assertions.assertEquals("release_resources", summary.getPlanningDetails().getAsJsonObject("last_pass")
+                .get("failed_step").getAsString());
+        Assertions.assertEquals("failed", phase("release_resources").get("status").getAsString());
+        Assertions.assertEquals("not_run", phase("preprocess").get("status").getAsString());
+        Assertions.assertNull(context.getPlanningDiagnostics());
+        Assertions.assertEquals("caller", ThreadContext.get(QueryLogContext.QUERY_ID));
+
+        Mockito.doNothing().when(statement).releasePlannerResources();
+        Assertions.assertSame(input, planner.planWithLock(input,
+                org.apache.doris.nereids.properties.PhysicalProperties.ANY, ExplainLevel.PARSED_PLAN, false));
+        Assertions.assertEquals(2, summary.getPlanningDetails().get("passes").getAsLong());
+        Assertions.assertEquals(1, summary.getPlanningDetails().get("failed_passes").getAsLong());
+        Assertions.assertEquals("completed", phase("release_resources").get("status").getAsString());
+        Assertions.assertNull(context.getPlanningDiagnostics());
+        Assertions.assertEquals("caller", ThreadContext.get(QueryLogContext.QUERY_ID));
+        Mockito.verify(statement, Mockito.times(2)).releasePlannerResources();
+    }
+
+    @Test
+    public void testSummarySnapshotsStayIndependentAcrossSuccessfulAndFailedPasses() {
+        run(() -> PlanningDiagnostics.runPhase(context, Phase.REWRITE, () -> advance(7)));
+        JsonObject first = summary.getPlanningDetails();
+        IllegalStateException failure = new IllegalStateException("analysis failed on next pass");
+        Assertions.assertSame(failure, Assertions.assertThrows(IllegalStateException.class,
+                () -> run(() -> PlanningDiagnostics.runPhase(context, Phase.ANALYZE, () -> {
+                    advance(3);
+                    throw failure;
+                }))));
+        Assertions.assertEquals(1, first.get("passes").getAsLong());
+        Assertions.assertEquals("completed", first.getAsJsonObject("last_pass").get("status").getAsString());
+        Assertions.assertFalse(first.getAsJsonObject("phase_time_ms").has("analyze"));
+
+        JsonObject current = summary.getPlanningDetails();
+        current.getAsJsonObject("phase_time_ms").addProperty("rewrite", 999);
+        current.getAsJsonObject("last_pass").addProperty("status", "completed");
+        JsonObject audit = JsonParser.parseString(summary.getPlanTime()).getAsJsonObject();
+        Assertions.assertEquals(2, audit.get("planning_passes").getAsInt());
+        Assertions.assertEquals(1, audit.get("planning_failed_passes").getAsInt());
+        Assertions.assertEquals(1, audit.get("planning_last_failed").getAsInt());
+        Assertions.assertEquals(7, audit.get("planning_rewrite").getAsInt());
+        Assertions.assertEquals(3, audit.get("planning_analyze").getAsInt());
+        Assertions.assertEquals(1, audit.get("planning_analyze_failures").getAsInt());
+    }
+
+    @Test
+    public void testAuditPlanningTimesSaturateWithoutLosingProfilePrecision() {
+        Config.nereids_planning_log_threshold_ms = 0;
+        long elapsed = (long) Integer.MAX_VALUE + 100;
+        run(() -> PlanningDiagnostics.runPhase(context, Phase.OPTIMIZE, () -> advance(elapsed)));
+        JsonObject audit = JsonParser.parseString(summary.getPlanTime()).getAsJsonObject();
+        Assertions.assertEquals(Integer.MAX_VALUE, audit.get("planning_optimize").getAsInt());
+        Assertions.assertEquals(-1, audit.get("planning_analyze").getAsInt());
+        Assertions.assertEquals(elapsed, summary.getPlanningDetails().getAsJsonObject("phase_time_ms")
+                .get("optimize").getAsLong());
+        Assertions.assertEquals(elapsed, phase("optimize").get("elapsed_ms").getAsLong());
+    }
+
     private TableIf table(long id, String name) {
         TableIf table = Mockito.mock(TableIf.class);
         Mockito.when(table.getId()).thenReturn(id);
@@ -728,5 +918,9 @@ public class PlanningDiagnosticsTest {
 
     private List<LogEvent> events(TestLogAppender appender) {
         return Deencapsulation.getField(appender, "events");
+    }
+
+    private JsonObject eventJson(LogEvent event) {
+        return JsonParser.parseString(event.getMessage().getFormattedMessage().split(": ", 2)[1]).getAsJsonObject();
     }
 }

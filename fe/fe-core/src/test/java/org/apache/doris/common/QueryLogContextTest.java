@@ -17,6 +17,7 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.authenticate.TestLogAppender;
@@ -25,16 +26,22 @@ import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.ThreadContext;
+import org.apache.logging.log4j.core.LogEvent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.Mockito;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -117,6 +124,8 @@ public class QueryLogContextTest {
         Assertions.assertEquals(" [1-2]", QueryLogContext.queryIdSuffix(queryId));
         Assertions.assertEquals("", QueryLogContext.queryIdSuffix((TUniqueId) null));
         Assertions.assertEquals("", QueryLogContext.queryIdSuffix(new TUniqueId(0, 0)));
+        Assertions.assertEquals(" [0-2]", QueryLogContext.queryIdSuffix(new TUniqueId(0, 2)));
+        Assertions.assertEquals(" [1-0]", QueryLogContext.queryIdSuffix(new TUniqueId(1, 0)));
         try (QueryLogContext ignored = QueryLogContext.open(queryId)) {
             Assertions.assertEquals("", QueryLogContext.queryIdSuffix(queryId));
             Assertions.assertEquals(" [1-3]", QueryLogContext.queryIdSuffix(new TUniqueId(1, 3)));
@@ -136,6 +145,8 @@ public class QueryLogContextTest {
         Assertions.assertEquals(" [1-2]", QueryLogContext.queryIdSuffix(queryId));
         Assertions.assertEquals("", QueryLogContext.queryIdSuffix((PUniqueId) null));
         Assertions.assertEquals("", QueryLogContext.queryIdSuffix(PUniqueId.getDefaultInstance()));
+        Assertions.assertEquals(" [0-2]", QueryLogContext.queryIdSuffix(queryId.toBuilder().setHi(0).build()));
+        Assertions.assertEquals(" [1-0]", QueryLogContext.queryIdSuffix(queryId.toBuilder().setLo(0).build()));
         try (QueryLogContext ignored = QueryLogContext.open(new TUniqueId(1, 2))) {
             Assertions.assertEquals("", QueryLogContext.queryIdSuffix(queryId));
             Assertions.assertEquals(" [1-3]",
@@ -172,6 +183,48 @@ public class QueryLogContextTest {
             target.checkTimeout(target.getStartTime());
             Assertions.assertNull(observed.get(), "Metadata commands do not own the retained query ID");
             Assertions.assertEquals("worker", ThreadContext.get(QueryLogContext.QUERY_ID));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    public void testExpiredQueryLogsAndCancelsTheTargetWithoutChangingCheckerIdentity(boolean enabled) {
+        Config.sys_log_enable_query_id = enabled;
+        ThreadContext.put(QueryLogContext.QUERY_ID, "checker");
+        String expected = enabled ? "1-2" : "checker";
+        for (MysqlCommand command : new MysqlCommand[] {MysqlCommand.COM_QUERY,
+                MysqlCommand.COM_STMT_PREPARE, MysqlCommand.COM_STMT_EXECUTE}) {
+            ConnectContext target = new ConnectContext() {
+                @Override
+                public int getExecTimeoutS() {
+                    return 1;
+                }
+            };
+            target.setQueryId(new TUniqueId(1, 2));
+            target.setCommand(command);
+            target.setStartTime();
+            StmtExecutor executor = Mockito.mock(StmtExecutor.class);
+            target.setExecutor(executor);
+            List<String> cancellations = new ArrayList<>();
+            List<Status> reasons = new ArrayList<>();
+            Mockito.doAnswer(invocation -> {
+                cancellations.add(ThreadContext.get(QueryLogContext.QUERY_ID));
+                reasons.add(invocation.getArgument(0));
+                return null;
+            }).when(executor).cancel(Mockito.any(Status.class));
+            try (TestLogAppender appender = TestLogAppender.attach(ConnectContext.class, Level.WARN)) {
+                target.checkTimeout(target.getStartTime() + 1001);
+                Assertions.assertEquals(Collections.singletonList(expected), cancellations);
+                Assertions.assertEquals(TStatusCode.TIMEOUT, reasons.get(0).getErrorCode());
+                Assertions.assertTrue(appender.contains(Level.WARN,
+                        enabled ? "kill query timeout," : "kill query timeout [1-2],"));
+                List<LogEvent> events = Deencapsulation.getField(appender, "events");
+                Assertions.assertEquals(2, events.size());
+                events.forEach(event -> Assertions.assertEquals(expected,
+                        event.getContextData().getValue(QueryLogContext.QUERY_ID)));
+            }
+            Assertions.assertEquals("checker", ThreadContext.get(QueryLogContext.QUERY_ID));
+            Assertions.assertNull(ConnectContext.get());
         }
     }
 

@@ -21,6 +21,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <functional>
 #include <iomanip>
 #include <limits>
 #include <sstream>
@@ -31,11 +32,13 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "gen_cpp/Types_types.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "gen_cpp/types.pb.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/query_task_controller.h"
 #include "runtime/workload_management/resource_context.h"
+#include "util/brpc_closure.h"
 
 namespace doris {
 namespace {
@@ -78,6 +81,17 @@ void* check_bthread_log_identity(void* arg) {
     EXPECT_EQ("", current_log_marker());
     return nullptr;
 }
+
+class QueryLogCallback : public DummyBrpcCallback<PTransmitDataResult> {
+public:
+    explicit QueryLogCallback(std::function<void()> callback) : _callback(std::move(callback)) {}
+    void call() override { _callback(); }
+
+private:
+    std::function<void()> _callback;
+};
+
+using QueryLogClosure = AutoReleaseClosure<PTransmitDataParams, QueryLogCallback>;
 
 } // namespace
 
@@ -289,6 +303,149 @@ TEST_F(QueryLogContextTest, TaskAttachmentAndResourceSwitchRestoreIdentity) {
         EXPECT_EQ(" [1-2/1]", current_log_marker());
     }
     EXPECT_EQ(" [5-6]", current_log_marker());
+}
+
+TEST_F(QueryLogContextTest, TaskScopesRestoreIdentityOnException) {
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                    "UT-QueryLogException");
+    auto query = ResourceContext::create_shared();
+    query->memory_context()->set_mem_tracker(tracker);
+    query->set_task_controller(QueryTaskController::create(nullptr));
+    query->task_controller()->set_task_id(log_test_id(1, 2));
+    auto other = ResourceContext::create_shared();
+    other->memory_context()->set_mem_tracker(tracker);
+    other->set_task_controller(QueryTaskController::create(nullptr));
+    other->task_controller()->set_task_id(log_test_id(3, 4));
+    ScopedQueryLogContext caller(QueryLogIdentity(log_test_id(5, 6)));
+    ASSERT_FALSE(thread_context()->is_attach_task());
+    EXPECT_THROW(
+            {
+                AttachTask task(query);
+                ScopedQueryLogContext fragment(
+                        QueryLogIdentity(log_test_id(1, 2), log_test_id(1, 3)));
+                EXPECT_THROW(
+                        {
+                            SwitchResourceContext switched(other);
+                            EXPECT_EQ(" [3-4]", current_log_marker());
+                            throw std::runtime_error("unwind resource switch");
+                        },
+                        std::runtime_error);
+                EXPECT_EQ(query, thread_context()->resource_ctx());
+                EXPECT_EQ(" [1-2/1]", current_log_marker());
+                throw std::runtime_error("unwind task attachment");
+            },
+            std::runtime_error);
+    EXPECT_FALSE(thread_context()->is_attach_task());
+    EXPECT_EQ(" [5-6]", current_log_marker());
+}
+
+TEST_F(QueryLogContextTest, FailedTaskConstructionDoesNotReplaceIdentity) {
+    auto incomplete = ResourceContext::create_shared();
+    incomplete->set_task_controller(QueryTaskController::create(nullptr));
+    incomplete->task_controller()->set_task_id(log_test_id(7, 8));
+    ScopedQueryLogContext caller(QueryLogIdentity(log_test_id(5, 6)));
+#ifndef NDEBUG
+    // FatalError aborts debug builds; verify the identity at the failure boundary instead.
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
+    ASSERT_TRUE(init_glog("query_log_context_test"));
+    EXPECT_DEATH({ AttachTask task(incomplete); },
+                 "\\[5-6\\] AttachTask::init:.*mem_tracker.*is null");
+#else
+    EXPECT_THROW({ AttachTask task(incomplete); }, Exception);
+#endif
+    EXPECT_EQ(" [5-6]", current_log_marker());
+    EXPECT_FALSE(thread_context()->is_attach_task());
+
+    auto tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
+                                                    "UT-QueryLogFailedSwitch");
+    auto query = ResourceContext::create_shared();
+    query->memory_context()->set_mem_tracker(tracker);
+    query->set_task_controller(QueryTaskController::create(nullptr));
+    query->task_controller()->set_task_id(log_test_id(1, 2));
+    {
+        AttachTask task(query);
+#ifndef NDEBUG
+        EXPECT_DEATH({ SwitchResourceContext switched(incomplete); },
+                     "\\[1-2\\] SwitchResourceContext:.*mem_tracker.*is null");
+#else
+        EXPECT_THROW({ SwitchResourceContext switched(incomplete); }, Exception);
+#endif
+        EXPECT_EQ(query, thread_context()->resource_ctx());
+        EXPECT_EQ(" [1-2]", current_log_marker());
+    }
+    EXPECT_EQ(" [5-6]", current_log_marker());
+}
+
+TEST_F(QueryLogContextTest, DelayedBrpcCompletionUsesSubmittingIdentityThroughCleanup) {
+    int callbacks = 0;
+    int released = 0;
+    auto callback = std::make_shared<QueryLogCallback>([&] {
+        EXPECT_EQ(" [1-2/1]", current_log_marker());
+        ++callbacks;
+    });
+    std::weak_ptr<PTransmitDataParams> request_lifetime;
+    std::unique_ptr<QueryLogClosure> closure;
+    {
+        ScopedQueryLogContext submitting(QueryLogIdentity(log_test_id(1, 2), log_test_id(1, 3)));
+        auto request = std::shared_ptr<PTransmitDataParams>(new PTransmitDataParams, [&](auto* p) {
+            EXPECT_EQ(" [1-2/1]", current_log_marker());
+            ++released;
+            delete p;
+        });
+        request_lifetime = request;
+        closure = QueryLogClosure::create_unique(request, callback);
+        // The closure must own a value snapshot, not the submitting scope's mutable identity.
+        submitting.reset(QueryLogIdentity(log_test_id(7, 8)));
+    }
+    ASSERT_FALSE(request_lifetime.expired());
+    std::thread worker([&] {
+        ScopedQueryLogContext unrelated(QueryLogIdentity(log_test_id(3, 4)));
+        closure.release()->Run();
+        EXPECT_EQ(" [3-4]", current_log_marker());
+    });
+    worker.join();
+    EXPECT_EQ(1, callbacks);
+    EXPECT_EQ(1, released);
+    EXPECT_TRUE(request_lifetime.expired());
+    EXPECT_EQ("", current_log_marker());
+}
+
+TEST_F(QueryLogContextTest, ExpiredBrpcCallbackStillReleasesUnderSubmittingIdentity) {
+    int callbacks = 0;
+    int released = 0;
+    std::unique_ptr<QueryLogClosure> closure;
+    std::weak_ptr<QueryLogCallback> callback_lifetime;
+    {
+        ScopedQueryLogContext submitting(QueryLogIdentity(log_test_id(1, 2)));
+        auto callback = std::make_shared<QueryLogCallback>([&] { ++callbacks; });
+        callback_lifetime = callback;
+        auto request = std::shared_ptr<PTransmitDataParams>(new PTransmitDataParams, [&](auto* p) {
+            EXPECT_EQ(" [1-2]", current_log_marker());
+            ++released;
+            delete p;
+        });
+        closure = QueryLogClosure::create_unique(request, callback);
+    }
+    ASSERT_TRUE(callback_lifetime.expired());
+    ScopedQueryLogContext unrelated(QueryLogIdentity(log_test_id(3, 4)));
+    closure.release()->Run();
+    EXPECT_EQ(0, callbacks);
+    EXPECT_EQ(1, released);
+    EXPECT_EQ(" [3-4]", current_log_marker());
+}
+
+TEST_F(QueryLogContextTest, BrpcCompletionWithoutSubmittingIdentityClearsWorkerIdentity) {
+    int callbacks = 0;
+    auto callback = std::make_shared<QueryLogCallback>([&] {
+        EXPECT_EQ("", current_log_marker());
+        ++callbacks;
+    });
+    auto closure =
+            QueryLogClosure::create_unique(std::make_shared<PTransmitDataParams>(), callback);
+    ScopedQueryLogContext unrelated(QueryLogIdentity(log_test_id(3, 4)));
+    closure.release()->Run();
+    EXPECT_EQ(1, callbacks);
+    EXPECT_EQ(" [3-4]", current_log_marker());
 }
 
 TEST_F(QueryLogContextTest, PthreadContextsAreIsolated) {

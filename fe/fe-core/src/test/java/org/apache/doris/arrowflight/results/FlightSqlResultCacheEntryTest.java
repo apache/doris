@@ -17,8 +17,13 @@
 
 package org.apache.doris.arrowflight.results;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.qe.ShowResultSet;
+import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.collect.ImmutableList;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -48,5 +53,25 @@ public class FlightSqlResultCacheEntryTest {
             Assertions.assertNull(entry.getQueryId());
         }
         Mockito.verify(root).close();
+    }
+
+    @Test
+    public void testLegacyChannelResultDoesNotTreatTheCacheKeyAsQueryIdentity() {
+        FlightSqlChannel channel = new FlightSqlChannel();
+        try {
+            ShowResultSet result = new ShowResultSet(ShowResultSetMetaData.builder()
+                    .addColumn(new Column("value", ScalarType.createVarchar(10))).build(),
+                    ImmutableList.of(ImmutableList.of("7")));
+            channel.addResult("independent-cache-key", "SELECT 7", result);
+            FlightSqlResultCacheEntry entry = channel.getResult("independent-cache-key");
+            Assertions.assertNull(entry.getQueryId());
+            Assertions.assertEquals("SELECT 7", entry.getQuery());
+            Assertions.assertEquals("7", entry.getVectorSchemaRoot().getVector(0).getObject(0).toString());
+            channel.invalidate("independent-cache-key");
+            Assertions.assertNull(channel.getResult("independent-cache-key"));
+            Assertions.assertEquals(0, channel.getAllocatedMemory());
+        } finally {
+            channel.close();
+        }
     }
 }
