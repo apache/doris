@@ -47,7 +47,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.TreeMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.LockSupport;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import javax.annotation.Nullable;
@@ -69,7 +71,7 @@ final class SafeKvSnapshotAndLogBatchScanner implements BatchScanner {
     private final Comparator<InternalRow> primaryKeyComparator;
     private final Map<InternalRow, KeyValueRow> logRows;
 
-    @Nullable private final BatchScanner snapshotScanner;
+    @Nullable private final PublicationGuardedBatchScanner snapshotScanner;
     @Nullable private final LogScanner logScanner;
 
     private boolean logScanFinished;
@@ -190,6 +192,17 @@ final class SafeKvSnapshotAndLogBatchScanner implements BatchScanner {
         IOUtils.closeQuietly(logScanner);
     }
 
+    /**
+     * Completes once this reader has stopped using the connection it was created on. For the log reader
+     * that is {@link #close()}; the snapshot reader, closed before its snapshot arrived, goes on copying
+     * the snapshot on the connection's download threads until {@link PublicationGuardedBatchScanner} can
+     * close it. The connection must stay open until then: shut down, fluss's download pool drops the
+     * files still queued, and the snapshot reader waits for them forever.
+     */
+    CompletableFuture<Void> released() {
+        return snapshotScanner == null ? CompletableFuture.completedFuture(null) : snapshotScanner.released();
+    }
+
     private static ProjectionPlan createProjectionPlan(
             TableInfo tableInfo, @Nullable int[] projectedFields) {
         return ProjectionPlan.create(
@@ -286,6 +299,10 @@ final class SafeKvSnapshotAndLogBatchScanner implements BatchScanner {
      * null} means ready-but-empty; a non-empty iterator means ready-with-data). An early close starts
      * one daemon waiter only for that cancelled scanner, observes the same publication boundary, and
      * then performs the delegate's first and only close.</p>
+     *
+     * <p>Until then the initializer is still copying the snapshot on the download threads of the
+     * connection the delegate was created on, so that connection has to stay open; {@link #released()}
+     * says when it may close.</p>
      */
     static final class PublicationGuardedBatchScanner implements BatchScanner {
         private static final Duration PUBLICATION_POLL = Duration.ofMillis(100);
@@ -294,6 +311,8 @@ final class SafeKvSnapshotAndLogBatchScanner implements BatchScanner {
         private final AtomicBoolean closed = new AtomicBoolean();
         private final AtomicBoolean publicationObserved = new AtomicBoolean();
         private final AtomicBoolean delegateClosed = new AtomicBoolean();
+        /** Completed once the delegate has been closed, by whichever path closed it. */
+        private final CompletableFuture<Void> released = new CompletableFuture<>();
 
         PublicationGuardedBatchScanner(BatchScanner delegate) {
             this.delegate = delegate;
@@ -323,14 +342,17 @@ final class SafeKvSnapshotAndLogBatchScanner implements BatchScanner {
             // Only early cancellation needs a waiter. A dedicated daemon avoids deadlocking the
             // ForkJoin common pool that Fluss 1.0 also uses for its initializer, while normal scans
             // create no extra thread at all.
-            Thread closeAfterPublication = new Thread(
-                    this::awaitPublicationAndClose, "fluss-snapshot-publication-close");
-            closeAfterPublication.setDaemon(true);
             try {
+                Thread closeAfterPublication = new Thread(
+                        this::awaitPublicationAndClose, "fluss-snapshot-publication-close");
+                closeAfterPublication.setDaemon(true);
                 closeAfterPublication.start();
             } catch (RuntimeException | Error startFailure) {
-                // Losing the waiter would recreate the native leak. Fall back to waiting on this
-                // cancellation thread; publication/failure is the only safe point for the SDK close.
+                // Losing the waiter would recreate the native leak, and keep the connection, which
+                // FlussJniScanner hands back only once released() completes, open for good. A thread
+                // that could not be built - an OutOfMemoryError while the heap is full - is as lost as
+                // one that could not start. Fall back to waiting on this cancellation thread;
+                // publication/failure is the only safe point for the SDK close.
                 awaitPublicationAndClose();
                 throw startFailure;
             }
@@ -348,6 +370,13 @@ final class SafeKvSnapshotAndLogBatchScanner implements BatchScanner {
                     // registry has been closed, so the delegate is safe to close at this point too.
                     closeDelegateQuietly();
                     return;
+                } catch (OutOfMemoryError pollFailure) {
+                    // This thread allocated while BE's JVM heap was full, as it may well be: a range is
+                    // often closed early because its query filled the heap. That is no initialization
+                    // failure - those arrive above, as exceptions - so the delegate must not be closed
+                    // yet, and nothing but this thread will close it, nor hand back the connection that
+                    // waits for it. Keep waiting; the failed query's memory comes back as it closes.
+                    LockSupport.parkNanos(PUBLICATION_POLL.toNanos());
                 }
             }
         }
@@ -365,15 +394,25 @@ final class SafeKvSnapshotAndLogBatchScanner implements BatchScanner {
             return observed;
         }
 
+        /** Completes once the delegate has been closed: from then on it no longer uses its connection. */
+        CompletableFuture<Void> released() {
+            return released;
+        }
+
         private void closeDelegate() throws IOException {
             if (delegateClosed.compareAndSet(false, true)) {
-                delegate.close();
+                try {
+                    delegate.close();
+                } finally {
+                    released.complete(null);
+                }
             }
         }
 
         private void closeDelegateQuietly() {
             if (delegateClosed.compareAndSet(false, true)) {
                 IOUtils.closeQuietly(delegate);
+                released.complete(null);
             }
         }
     }
@@ -386,7 +425,7 @@ final class SafeKvSnapshotAndLogBatchScanner implements BatchScanner {
     }
 
     static final class ScannerResources {
-        @Nullable BatchScanner snapshotScanner;
+        @Nullable PublicationGuardedBatchScanner snapshotScanner;
         @Nullable LogScanner logScanner;
 
         private ScannerResources() {
