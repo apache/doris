@@ -269,7 +269,7 @@ public class AuditLogScannerCursorTest {
     public void testScanLowerBoundIsCompletionAware() {
         String sql = AuditLogScanner.buildScanSql(
                 "2026-01-01 11:55:00", "2026-01-01 15:00:00", 500, 1000, 100000);
-        Assertions.assertTrue(sql.contains("timestampadd(SECOND"),
+        Assertions.assertTrue(sql.contains("timestampadd(MICROSECOND"),
                 "the lower bound must also admit rows whose START predates the window but"
                         + " whose COMPLETION reaches into it: " + sql);
         Assertions.assertTrue(sql.contains("`time` >= '2026-01-01 11:55:00'"),
@@ -875,11 +875,11 @@ public class AuditLogScannerCursorTest {
 
         String sql = AuditLogScanner.buildScanSql("2026-03-08 03:05:00",
                 "2026-03-08 06:00:00", 500, 1000, 100000, "", 3600L);
-        Assertions.assertTrue(sql.contains("CAST(`query_time` / 1000 AS BIGINT) + 3600"),
-                "the completion must carry the swing: " + sql);
+        Assertions.assertTrue(sql.contains("CAST(`query_time` AS BIGINT) * 1000 + 3600000000"),
+                "the completion must carry the swing (one hour = 3600000000 micros): " + sql);
         String withoutSwing = AuditLogScanner.buildScanSql("2026-03-08 03:05:00",
                 "2026-03-08 06:00:00", 500, 1000, 100000, "", 0L);
-        Assertions.assertFalse(withoutSwing.contains("BIGINT) + 3600"),
+        Assertions.assertFalse(withoutSwing.contains("+ 3600000000"),
                 "a zone without transitions keeps the established SQL: " + withoutSwing);
     }
 

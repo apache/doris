@@ -24,6 +24,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -47,7 +48,7 @@ import java.util.List;
 public class AuditScanPredicateTest {
 
     private static final DateTimeFormatter TS =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss[.SSS]");
     private static final String WINDOW_START = "2026-01-01 11:55:00";
     private static final String WINDOW_END = "2026-01-01 15:00:00";
 
@@ -75,6 +76,23 @@ public class AuditScanPredicateTest {
     public void testShortQueryBeforeTheWindowStaysExcluded() {
         Assertions.assertFalse(matches(windowSql(), "2026-01-01 11:00:00", 60_000L),
                 "the completion branch only admits completions that REACH the window");
+    }
+
+    /**
+     * round-37 #8: both {@code time} and {@code query_time} are millisecond values, so the
+     * duration must not be truncated to whole seconds. The reviewer's row: started
+     * 11:50:00.900, lasted 299100 ms - it truly completes at 11:55:00.000, exactly the next
+     * window's (overlap) start. The previous CAST(query_time / 1000) computed 11:54:59.900
+     * and excluded the row on EVERY later scan, since no overlap ever reaches behind the
+     * advanced watermark again.
+     */
+    @Test
+    public void testLateCompletionKeepsMillisecondPrecision() {
+        Assertions.assertTrue(matches(windowSql(), "2026-01-01 11:50:00.900", 299_100L),
+                "a row completing exactly at the window start must be admitted: " + windowSql());
+        Assertions.assertFalse(matches(windowSql(), "2026-01-01 11:50:00.899", 299_100L),
+                "one millisecond earlier still completes before the window: the fix must"
+                        + " not widen the predicate");
     }
 
     /** The floor keeps the partition pruning intact: rows beyond it are excluded. */
@@ -208,9 +226,11 @@ public class AuditScanPredicateTest {
             int at = leaf.indexOf(">= '");
             Assertions.assertTrue(at > 0, "unexpected completion leaf: " + leaf);
             String bound = leaf.substring(at + 4, leaf.indexOf('\'', at + 4));
-            long swingSeconds = swingSecondsOf(leaf);
+            // the completion is time + query_time at MILLISECOND precision (round-37 #8;
+            // the swing is an extra duration widening, in the expression's unit)
+            long completionMicros = queryTimeMs * 1000 + swingMicrosOf(leaf);
             String completion = LocalDateTime.parse(time, TS)
-                    .plusSeconds(queryTimeMs / 1000 + swingSeconds)
+                    .plus(completionMicros, ChronoUnit.MICROS)
                     .format(TS);
             return completion.compareTo(bound) >= 0;
         }
@@ -229,8 +249,8 @@ public class AuditScanPredicateTest {
         return true;
     }
 
-    /** The extra seconds the completion expression was widened by (0 when absent). */
-    private static long swingSecondsOf(String leaf) {
+    /** The extra micros the completion expression was widened by (0 when absent). */
+    private static long swingMicrosOf(String leaf) {
         int at = leaf.indexOf("AS BIGINT");
         if (at < 0) {
             return 0;

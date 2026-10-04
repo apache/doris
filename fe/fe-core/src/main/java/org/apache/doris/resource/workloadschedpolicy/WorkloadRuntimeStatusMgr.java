@@ -61,6 +61,12 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
     private final ReentrantLock queryAuditEventLock = new ReentrantLock();
     private List<AuditEvent> queryAuditEventList = Lists.newLinkedList();
     private final Map<AuditEvent, Set<Long>> externalDmlAuditBackendIds = new IdentityHashMap<>();
+    // Events DEQUEUED for the audit event processor whose handoff has not returned yet:
+    // getQueryNeedAudit removes them from queryAuditEventList before the caller enqueues
+    // them into the processor, so without this set a concurrent reader of the publication
+    // fence would see the event in NEITHER structure and could conclude that nothing is
+    // outstanding (round-37 #1). Guarded by queryAuditEventLock, like the list.
+    private final Set<AuditEvent> inFlightAuditEvents = Collections.newSetFromMap(new IdentityHashMap<>());
     private volatile long lastWarnTime;
 
     private class BeReportInfo {
@@ -89,20 +95,30 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
             int missedLogCount = 0;
             int succLogCount = 0;
             for (AuditEvent auditEvent : auditEventList) {
-                TQueryStatistics queryStats = queryStatisticsMap.get(auditEvent.queryId);
-                if (queryStats != null) {
-                    auditEvent.scanRows = queryStats.scan_rows;
-                    auditEvent.scanBytes = queryStats.scan_bytes;
-                    auditEvent.scanBytesFromLocalStorage = queryStats.scan_bytes_from_local_storage;
-                    auditEvent.scanBytesFromRemoteStorage = queryStats.scan_bytes_from_remote_storage;
-                    auditEvent.peakMemoryBytes = queryStats.max_peak_memory_bytes;
-                    auditEvent.cpuTimeMs = queryStats.cpu_ms;
-                    auditEvent.shuffleSendBytes = queryStats.shuffle_send_bytes;
-                    auditEvent.shuffleSendRows = queryStats.shuffle_send_rows;
-                    auditEvent.spillWriteBytesToLocalStorage = queryStats.spill_write_bytes_to_local_storage;
-                    auditEvent.spillReadBytesFromLocalStorage = queryStats.spill_read_bytes_from_local_storage;
+                boolean ret = false;
+                try {
+                    TQueryStatistics queryStats = queryStatisticsMap.get(auditEvent.queryId);
+                    if (queryStats != null) {
+                        auditEvent.scanRows = queryStats.scan_rows;
+                        auditEvent.scanBytes = queryStats.scan_bytes;
+                        auditEvent.scanBytesFromLocalStorage = queryStats.scan_bytes_from_local_storage;
+                        auditEvent.scanBytesFromRemoteStorage = queryStats.scan_bytes_from_remote_storage;
+                        auditEvent.peakMemoryBytes = queryStats.max_peak_memory_bytes;
+                        auditEvent.cpuTimeMs = queryStats.cpu_ms;
+                        auditEvent.shuffleSendBytes = queryStats.shuffle_send_bytes;
+                        auditEvent.shuffleSendRows = queryStats.shuffle_send_rows;
+                        auditEvent.spillWriteBytesToLocalStorage = queryStats.spill_write_bytes_to_local_storage;
+                        auditEvent.spillReadBytesFromLocalStorage = queryStats.spill_read_bytes_from_local_storage;
+                    }
+                    ret = Env.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent);
+                } finally {
+                    // The handoff ends when the processor call RETURNS - whether it
+                    // accepted the event (the processor's own fence covers it from the
+                    // enqueue) or discarded it (it will never be published): until then
+                    // the event is this manager's responsibility, so it keeps fencing
+                    // (round-37 #1).
+                    releaseInFlightAuditEvent(auditEvent);
                 }
-                boolean ret = Env.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent);
                 if (!ret) {
                     missedLogCount++;
                 } else {
@@ -115,6 +131,10 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
             }
         } catch (Throwable t) {
             LOG.warn("exception happens when handleAuditEvent, ", t);
+            // The cycle is abandoned: events it dequeued but never handed off are dropped
+            // with it, exactly like the discarded events above, so they must not keep
+            // fencing progress forever.
+            releaseAllInFlightAuditEvents();
         }
 
         // clear beToQueryStatsMap when be report timeout
@@ -165,31 +185,61 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
 
     /**
      * Start time (epoch millis, the {@code time} column of {@code audit_log}) of the
-     * OLDEST completed query this FE still HOLDS for auditing, 0 when it holds none.
+     * OLDEST completed query this FE still holds for auditing, 0 when it holds none.
      *
      * <p>A completed query enters {@code queryAuditEventList} BEFORE the audit event
      * processor - and therefore before any audit loader or the shared table - sees it,
      * and it stays here until {@code query_audit_log_timeout_ms} expires (or the expected
      * backends reported). The SPM capture's publication fence must include it: otherwise
      * the row's release lands behind the capture's advanced scan watermark and the query
-     * is never captured (round-36 #3).
+     * is never captured (round-36 #3). The events already DEQUEUED for the processor
+     * ({@link #inFlightAuditEvents}) are held too: they left the list but the processor
+     * does not cover them until the handoff returns (round-37 #1).
+     *
+     * <p>INTERNAL events (spm horizon reports, statistics refreshes, ...) are excluded:
+     * the capture only ever scans {@code is_internal = false} rows, so fencing progress
+     * for a row that can never be captured would only let the reporter's own internal
+     * statements keep refreshing this FE's fence forever (round-37 #7).
      */
     public long oldestHeldAuditEventTime() {
         long oldest = 0;
         queryAuditEventLogWriteLock();
         try {
             for (AuditEvent event : queryAuditEventList) {
-                if (event == null || event.timestamp <= 0) {
-                    continue;
-                }
-                if (oldest == 0 || event.timestamp < oldest) {
-                    oldest = event.timestamp;
-                }
+                oldest = oldestTimestamp(oldest, event);
+            }
+            for (AuditEvent event : inFlightAuditEvents) {
+                oldest = oldestTimestamp(oldest, event);
             }
         } finally {
             queryAuditEventLogWriteUnlock();
         }
         return oldest;
+    }
+
+    private static long oldestTimestamp(long oldest, AuditEvent event) {
+        if (event == null || event.isInternal || event.timestamp <= 0) {
+            return oldest;
+        }
+        return oldest == 0 || event.timestamp < oldest ? event.timestamp : oldest;
+    }
+
+    private void releaseInFlightAuditEvent(AuditEvent event) {
+        queryAuditEventLogWriteLock();
+        try {
+            inFlightAuditEvents.remove(event);
+        } finally {
+            queryAuditEventLogWriteUnlock();
+        }
+    }
+
+    private void releaseAllInFlightAuditEvents() {
+        queryAuditEventLogWriteLock();
+        try {
+            inFlightAuditEvents.clear();
+        } finally {
+            queryAuditEventLogWriteUnlock();
+        }
     }
 
     private List<AuditEvent> getQueryNeedAudit() {
@@ -236,6 +286,10 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
                     ret.add(ae);
                     iter.remove();
                     externalDmlAuditBackendIds.remove(ae);
+                    // the event is handed to the audit event processor only by the CALLER
+                    // of this method: keep it fenced here until that handoff returned
+                    // (round-37 #1)
+                    inFlightAuditEvents.add(ae);
                 }
             }
         } finally {

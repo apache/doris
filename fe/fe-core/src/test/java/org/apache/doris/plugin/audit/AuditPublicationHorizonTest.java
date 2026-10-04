@@ -22,6 +22,8 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.qe.AuditEventProcessor;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
+import org.apache.doris.statistics.repository.ResultRow;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -151,10 +153,123 @@ public class AuditPublicationHorizonTest {
     @Test
     public void testLocalHorizonIsReportedThroughTheWriter() {
         List<Long> reports = new ArrayList<>();
-        AuditPublicationHorizon.localHorizonWriterForTest = reports::add;
-        AuditPublicationHorizon.reportLocalHorizon(4_242L);
+        AuditPublicationHorizon.localHorizonWriterForTest = horizon -> {
+            reports.add(horizon);
+            return true;
+        };
+        Assertions.assertTrue(AuditPublicationHorizon.reportLocalHorizon(4_242L),
+                "a confirmed write reports true");
         AuditPublicationHorizon.clearLocalReport();
         Assertions.assertEquals(Arrays.asList(4_242L, 0L), reports,
                 "the local fence and its removal are both reported: " + reports);
+    }
+
+    // ==================== round-37 #5: unconfirmed writes are retried ====================
+
+    /**
+     * A report is TRUE only when the written state is readable back from the shared table
+     * (round-37 #5): SQL OK can still leave a COMMITTED INSERT unpublished, and the
+     * previous void return let the reporter remember the value as reported anyway - an
+     * old unpublished event then had no master-visible fence until the 60s keepalive.
+     */
+    @Test
+    public void testReportIsConfirmedOnlyWhenTheOwnRowIsReadable() {
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.getNodeName()).thenReturn("fe-test");
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+        try (MockedStatic<StatisticsUtil> statistics = Mockito.mockStatic(StatisticsUtil.class)) {
+            // the read-back shows exactly the reported value: confirmed
+            statistics.when(() -> StatisticsUtil.executeQuery(
+                            Mockito.anyString(), Mockito.anyMap(), Mockito.anyInt()))
+                    .thenReturn(Collections.singletonList(new ResultRow(Collections.singletonList("4242"))));
+            Assertions.assertTrue(AuditPublicationHorizon.reportLocalHorizon(4_242L),
+                    "a readable row with the reported value confirms the fence");
+
+            // the read-back shows a STALE value (the upsert committed but is not visible
+            // yet): unconfirmed, the reporter must retry on its next tick
+            statistics.when(() -> StatisticsUtil.executeQuery(
+                            Mockito.anyString(), Mockito.anyMap(), Mockito.anyInt()))
+                    .thenReturn(Collections.singletonList(new ResultRow(Collections.singletonList("4000"))));
+            Assertions.assertFalse(AuditPublicationHorizon.reportLocalHorizon(4_242L),
+                    "a read-back that does not match the report is NOT confirmed");
+
+            // nothing outstanding: no row at all is the confirming state
+            statistics.when(() -> StatisticsUtil.executeQuery(
+                            Mockito.anyString(), Mockito.anyMap(), Mockito.anyInt()))
+                    .thenReturn(Collections.emptyList());
+            Assertions.assertTrue(AuditPublicationHorizon.reportLocalHorizon(0L),
+                    "a cleared row confirms a zero horizon");
+
+            // a stale positive row the DELETE has not made visible yet: unconfirmed
+            statistics.when(() -> StatisticsUtil.executeQuery(
+                            Mockito.anyString(), Mockito.anyMap(), Mockito.anyInt()))
+                    .thenReturn(Collections.singletonList(new ResultRow(Collections.singletonList("99"))));
+            Assertions.assertFalse(AuditPublicationHorizon.reportLocalHorizon(0L),
+                    "a still-visible old row does not confirm the clearing");
+        }
+    }
+
+    /**
+     * An unconfirmed write must be reported as false, so the reporter does NOT remember it
+     * (round-37 #5) and retries it on the next tick.
+     */
+    @Test
+    public void testUnconfirmedWriteReportsFalseThroughTheSeam() {
+        AuditPublicationHorizon.localHorizonWriterForTest = horizon -> false;
+        Assertions.assertFalse(AuditPublicationHorizon.reportLocalHorizon(7_000L),
+                "a failed write must not look reported");
+    }
+
+    // ==================== round-37 #4: a fixed zone for update_time ====================
+
+    /**
+     * update_time is a zone-less DATETIME shared between FEs that may render their local
+     * wall time in different zones: writing and reading it in the SAME explicit zone
+     * (UTC) is what keeps a fresh row from looking hours old to a reader in another zone
+     * (it would then be discarded as stale and drop that follower's fence).
+     */
+    @Test
+    public void testUpdateTimeUsesAFixedZone() {
+        long epochMillis = 1_780_000_000_000L;
+        String rendered = AuditPublicationHorizon.renderUpdateTime(epochMillis);
+        Assertions.assertEquals("2026-05-28 20:26:40", rendered,
+                "the rendering is UTC, not the JVM zone (a +08:00 FE would render"
+                        + " 2026-05-29 04:26:40)");
+        Assertions.assertEquals(epochMillis, AuditPublicationHorizon.parseUpdateTime(rendered),
+                "reading a row back yields the same instant");
+    }
+
+    // ==================== round-37 #7: internal events never fence ======================
+
+    /**
+     * Internal statements (e.g. the horizon reporter's own SQL) are never captured, so
+     * they must not fence progress - otherwise the reporter's writes would keep their own
+     * FE's fence (and the writes it triggers) alive forever on an idle FE.
+     */
+    @Test
+    public void testInternalEventsDoNotFenceThePipeline() {
+        mockedEnv.when(Env::getCurrentAuditEventProcessor).thenReturn(processor);
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.getWorkloadRuntimeStatusMgr()).thenReturn(mgr);
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+        AuditEvent internal = new AuditEvent.AuditEventBuilder()
+                .setQueryId("internal-horizon-report")
+                .setTimestamp(1_000L)
+                .setStmt("INSERT INTO __internal_schema.spm_audit_horizon ...")
+                .setisInternal(true)
+                .build();
+
+        mgr.submitFinishQueryToAudit(internal);
+        processor.handleAuditEvent(internal);
+        Deencapsulation.setField(processor, "processingEvent", internal);
+        Assertions.assertEquals(0L, AuditPublicationHorizon.localHorizon(),
+                "an internal event can never be captured and must not fence any stage");
+
+        Deencapsulation.setField(processor, "processingEvent", null);
+        Assertions.assertEquals(0L, AuditPublicationHorizon.localHorizon(),
+                "the internal event stays out of the fence at every stage");
     }
 }

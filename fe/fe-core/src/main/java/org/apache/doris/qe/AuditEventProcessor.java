@@ -33,7 +33,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Class for processing all audit events.
@@ -52,11 +51,27 @@ public class AuditEventProcessor {
     private Thread workerThread;
 
     /**
+     * How long an idle worker waits outside the in-flight lock before re-checking the
+     * queue: short enough to keep the pickup latency of a submitted event negligible,
+     * long enough not to spin.
+     */
+    private static final long QUEUE_POLL_INTERVAL_MILLIS = 100L;
+
+    /**
+     * Guards {@link #processingEvent} TOGETHER with {@link #eventQueue}: the
+     * queue-to-in-flight transfer, the in-flight release and the fence read are one
+     * linearized state (round-37 #2). Producers never take it (the queue has its own
+     * lock), so a busy fence reader can never block an event submission, and the worker
+     * only holds it for the transfer / release - its idle wait happens outside.
+     */
+    private final Object inFlightLock = new Object();
+
+    /**
      * The event the worker has DEQUEUED and is currently handing to the audit plugins,
      * or null between events. A plugin (​{@link AuditLogBuilder}, the builtin audit
      * loader, ...) runs with the event OUT of the queue, so a horizon built from the
      * queue alone would report "nothing outstanding" while an accepted event is still
-     * unpublished (round-36 #3).
+     * unpublished (round-36 #3). Written and read under {@link #inFlightLock}.
      */
     private volatile AuditEvent processingEvent;
 
@@ -103,19 +118,30 @@ public class AuditEventProcessor {
      * has neither. Part of the SPM capture's publication fence: a completed query enters
      * this queue before any audit loader sees it, and a plugin can stall while its event
      * is already dequeued (round-36 #3).
+     *
+     * <p>The queue and the in-flight slot are read as ONE atomic snapshot (round-37 #2):
+     * the worker moves an event from the queue into the in-flight slot under the same
+     * lock, so the read can never see the event in neither and report "nothing
+     * outstanding" for an accepted-but-unpublished event.
+     *
+     * <p>INTERNAL events are excluded: the capture only scans {@code is_internal = false}
+     * rows, so an internal statement (e.g. the horizon reporter's own SQL) must not keep
+     * fencing progress (round-37 #7).
      */
     public long oldestQueuedOrInFlightEventTime() {
         long oldest = 0;
-        AuditEvent processing = processingEvent;
-        if (processing != null && processing.timestamp > 0) {
-            oldest = processing.timestamp;
-        }
-        for (AuditEvent event : eventQueue) {
-            if (event == null || event.timestamp <= 0) {
-                continue;
+        synchronized (inFlightLock) {
+            AuditEvent processing = processingEvent;
+            if (processing != null && !processing.isInternal && processing.timestamp > 0) {
+                oldest = processing.timestamp;
             }
-            if (oldest == 0 || event.timestamp < oldest) {
-                oldest = event.timestamp;
+            for (AuditEvent event : eventQueue) {
+                if (event == null || event.isInternal || event.timestamp <= 0) {
+                    continue;
+                }
+                if (oldest == 0 || event.timestamp < oldest) {
+                    oldest = event.timestamp;
+                }
             }
         }
         return oldest;
@@ -158,21 +184,29 @@ public class AuditEventProcessor {
                     }
                 }
 
-                try {
-                    auditEvent = eventQueue.poll(5, TimeUnit.SECONDS);
-                    if (auditEvent == null) {
-                        continue;
+                synchronized (inFlightLock) {
+                    auditEvent = eventQueue.poll();
+                    if (auditEvent != null) {
+                        // The dequeue and the in-flight publication are ONE step: a fence
+                        // read must never observe the event in NEITHER the queue (poll
+                        // already returned) NOR the in-flight slot (not yet assigned)
+                        // (round-37 #2).
+                        processingEvent = auditEvent;
                     }
-                } catch (InterruptedException e) {
-                    LOG.warn("encounter exception when getting audit event from queue, ignore", e);
+                }
+                if (auditEvent == null) {
+                    // Nothing queued: wait OUTSIDE the lock so the fence read is never
+                    // blocked by an idle worker; the pickup latency of an arriving event
+                    // is bounded by QUEUE_POLL_INTERVAL_MILLIS.
+                    try {
+                        Thread.sleep(QUEUE_POLL_INTERVAL_MILLIS);
+                    } catch (InterruptedException e) {
+                        LOG.warn("encounter exception when getting audit event from queue, ignore", e);
+                    }
                     continue;
                 }
 
                 try {
-                    // the event is OUT of the queue while the plugins run: publish it as the
-                    // in-flight fence so a concurrent horizon read still sees it (see
-                    // oldestQueuedOrInFlightEventTime)
-                    processingEvent = auditEvent;
                     for (Plugin plugin : auditPlugins) {
                         if (((AuditPlugin) plugin).eventFilter(auditEvent.type)) {
                             ((AuditPlugin) plugin).exec(auditEvent);
@@ -181,7 +215,13 @@ public class AuditEventProcessor {
                 } catch (Exception e) {
                     LOG.warn("encounter exception when processing audit events. ignore", e);
                 } finally {
-                    processingEvent = null;
+                    // The plugins have run: the builtin loader accepted the event (its own
+                    // fence covers it from the enqueue) or every plugin filtered it out
+                    // (it will never be published). Only now does the event stop being
+                    // in flight - atomically with the read that looks for it.
+                    synchronized (inFlightLock) {
+                        processingEvent = null;
+                    }
                 }
             }
         }

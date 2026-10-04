@@ -247,6 +247,13 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         fillLogBuffer(event, auditLogBuffer);
         ++auditLogNum;
         long eventTime = event.timestamp;
+        // INTERNAL events never fence progress (round-37 #7): the capture only scans
+        // is_internal = false rows, so tracking e.g. the horizon reporter's own INSERT
+        // here would let it keep its FE's fence (and thereby its own writes) alive
+        // forever on an idle FE.
+        if (event.isInternal) {
+            return;
+        }
         if (eventTime > 0 && (batchOldestEventTime == 0 || eventTime < batchOldestEventTime)) {
             batchOldestEventTime = eventTime;
             // the sample row of a later publish probe (see publishFenceOldestEventTime)
@@ -264,7 +271,8 @@ public class AuditLoader extends Plugin implements AuditPlugin {
      * at or before this instant, otherwise a row the local loader still owes (e.g. a query the
      * {@code query_audit_log_timeout_ms} hold released late, or one sitting behind a slow
      * stream load in the {@link #auditEventQueue}) would fall behind the advanced watermark
-     * and never be captured.
+     * and never be captured. INTERNAL events are excluded - the capture never scans them,
+     * and the reporter's own SQL would otherwise fence itself (round-37 #7).
      */
     public static long oldestUnpublishedEventTime() {
         AuditLoader loader = runningLoader;
@@ -298,7 +306,9 @@ public class AuditLoader extends Plugin implements AuditPlugin {
             // is cheap next to a capture cycle; a concurrently dequeued event is simply no
             // longer outstanding.
             for (AuditEvent event : queue) {
-                if (event == null) {
+                if (event == null || event.isInternal) {
+                    // INTERNAL events can never be captured (round-37 #7): fencing for
+                    // them would only keep the reporter's own writes alive forever
                     continue;
                 }
                 long eventTime = event.timestamp;
@@ -684,9 +694,14 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                 boolean keepAlive = horizon > 0
                         && now - lastReportAt >= HORIZON_KEEPALIVE_MILLIS;
                 if (changed || keepAlive) {
-                    AuditPublicationHorizon.reportLocalHorizon(horizon);
-                    lastReported = horizon;
-                    lastReportAt = now;
+                    // Remember the value only when the shared row CONFIRMS it (round-37
+                    // #5): a failed / not-yet-visible write must be retried on the next
+                    // tick, otherwise an old unpublished event would have no
+                    // master-visible fence until the 60s keepalive.
+                    if (AuditPublicationHorizon.reportLocalHorizon(horizon)) {
+                        lastReported = horizon;
+                        lastReportAt = now;
+                    }
                 }
             }
         }

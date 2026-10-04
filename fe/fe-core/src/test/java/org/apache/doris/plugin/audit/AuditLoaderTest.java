@@ -325,6 +325,42 @@ public class AuditLoaderTest {
                 "an OK response without content stays confirmed (the pre-existing contract)");
     }
 
+    // round-37 #7: internal statements (e.g. the horizon reporter's own SQL) are never
+    // captured, so they must not fence progress - otherwise the reporter's writes keep
+    // their own FE's fence (and thereby further writes) alive forever on an idle FE.
+    @Test
+    public void testInternalEventsDoNotFenceTheLoaderHorizon() throws Exception {
+        AuditLoader loader = new AuditLoader();
+        BlockingQueue<AuditEvent> queue = Queues.newLinkedBlockingDeque();
+        setPrivateField(loader, "auditEventQueue", queue);
+        setRunningLoader(loader);
+        try {
+            queue.add(internalEvent(4000L));
+            Assertions.assertEquals(0L, AuditLoader.oldestUnpublishedEventTime(),
+                    "a queued INTERNAL event can never be captured and must not fence");
+
+            Deencapsulation.invoke(loader, "transferNextEvent");
+            Assertions.assertEquals(0L, AuditLoader.oldestUnpublishedEventTime(),
+                    "an internal event entering the assembled batch must not fence either");
+
+            queue.add(event(5000L));
+            Deencapsulation.invoke(loader, "transferNextEvent");
+            Assertions.assertEquals(5000L, AuditLoader.oldestUnpublishedEventTime(),
+                    "a user event in the same batch still fences");
+        } finally {
+            setRunningLoader(null);
+        }
+    }
+
+    private static AuditEvent internalEvent(long timestamp) {
+        return new AuditEvent.AuditEventBuilder()
+                .setQueryId("internal-" + timestamp)
+                .setTimestamp(timestamp)
+                .setStmt("insert into __internal_schema.spm_audit_horizon values (...)")
+                .setisInternal(true)
+                .build();
+    }
+
     private static AuditEvent event(long timestamp) {
         return new AuditEvent.AuditEventBuilder()
                 .setQueryId("qid-" + timestamp)

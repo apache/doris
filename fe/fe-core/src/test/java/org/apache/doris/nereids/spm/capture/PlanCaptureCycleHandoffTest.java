@@ -65,6 +65,8 @@ public class PlanCaptureCycleHandoffTest {
         private final String returnCursorTime;
         private final String returnCursorQueryId;
         private final String returnCursorTail;
+        /** when set, every scan() throws it (a failing audit scan, round-37 #6). */
+        private RuntimeException scanError;
 
         RecordingScanner(List<CapturedQuery> candidates, boolean exhausted,
                 long returnCursorQueryTime, String returnCursorTime,
@@ -77,11 +79,18 @@ public class PlanCaptureCycleHandoffTest {
             this.returnCursorTail = returnCursorTail;
         }
 
+        void failScan(RuntimeException error) {
+            this.scanError = error;
+        }
+
         @Override
         public ScanBatch scan(long startTimeMs, long endTimeMs, int maxBatchSize,
                 PlanCaptureFilter filter, long cursorQueryTime, String cursorTime,
                 String cursorQueryId, String cursorTail, String firstPassZoneId) {
             calls.incrementAndGet();
+            if (scanError != null) {
+                throw scanError;
+            }
             windows.add(new long[] {startTimeMs, endTimeMs});
             cursors.add(new Object[] {cursorQueryTime, cursorTime, cursorQueryId});
             tails.add(cursorTail);
@@ -413,6 +422,39 @@ public class PlanCaptureCycleHandoffTest {
             Assertions.assertTrue(manager.isPendingWindowResumePromptForTest(),
                     "the retry must be scheduled promptly, not after a full capture"
                             + " interval with nothing scanned");
+        } finally {
+            manager.resetForTest();
+        }
+    }
+
+    /**
+     * round-37 #6: an EXCEPTION during the cycle (e.g. {@code scanner.scan} timing out)
+     * must not leave the next wakeup at the default capture interval. The cycle already
+     * cleared pendingWindowNeedsPromptResume and its window reservation is durable, so the
+     * error path must set the prompt flag again: the next cycle resumes the pending window
+     * instead of a full interval later.
+     */
+    @Test
+    public void testScanFailureSchedulesAPromptResume() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            AtomicReference<Map<String, String>> visible = new AtomicReference<>();
+            manager.setCheckpointReaderForTest(() -> visible.get() == null
+                    ? List.of() : List.of(checkpointRow(visible.get())));
+            manager.setCheckpointWriterForTest((sql, params) -> visible.set(new HashMap<>(params)));
+            RecordingScanner scanner = new RecordingScanner(List.of(), true,
+                    AuditLogScanner.CURSOR_ABSENT, "", "", "");
+            scanner.failScan(new RuntimeException("audit scan timed out"));
+            manager.setScannerForTest(scanner);
+
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+
+            Assertions.assertEquals(1, scanner.calls.get(), "the scan was attempted");
+            Assertions.assertTrue(manager.isPendingWindowResumePromptForTest(),
+                    "a failed cycle must schedule a prompt resume, not a full-interval wait"
+                            + " over a window nothing was consumed from");
         } finally {
             manager.resetForTest();
         }

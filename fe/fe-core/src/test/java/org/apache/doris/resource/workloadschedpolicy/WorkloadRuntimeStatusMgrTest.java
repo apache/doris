@@ -436,4 +436,46 @@ public class WorkloadRuntimeStatusMgrTest {
         Assertions.assertEquals(4_000L, mgr.oldestHeldAuditEventTime(),
                 "the OLDEST held event fences, regardless of submission order");
     }
+
+    // round-37 #1: getQueryNeedAudit removes the ready events from the list BEFORE the
+    // caller hands them to the audit event processor. Until that handoff returns the
+    // events are still unpublished and must keep fencing: a concurrent reader that sees
+    // them in NEITHER structure would let the capture advance past their rows.
+    @Test
+    public void testDequeuedAuditEventsKeepFencingUntilTheHandoffReturns() {
+        int originalAuditTimeout = Config.query_audit_log_timeout_ms;
+        try {
+            Config.query_audit_log_timeout_ms = 10;
+            AuditEvent event = new AuditEvent.AuditEventBuilder()
+                    .setQueryId("qid-dequeued").setTimestamp(2_000L).setStmt("select 1").build();
+            mgr.submitFinishQueryToAudit(event);
+            event.pushToAuditLogQueueTime = System.currentTimeMillis() - 20;
+
+            Assertions.assertEquals(2_000L, mgr.oldestHeldAuditEventTime(),
+                    "the held query fences before the dequeue");
+
+            List<AuditEvent> ready = Deencapsulation.invoke(mgr, "getQueryNeedAudit");
+            Assertions.assertEquals(1, ready.size(), "the timed-out event is ready");
+            Assertions.assertEquals(2_000L, mgr.oldestHeldAuditEventTime(),
+                    "a dequeued event stays fenced until the processor handoff returns");
+
+            Deencapsulation.invoke(mgr, "releaseInFlightAuditEvent", ready.get(0));
+            Assertions.assertEquals(0L, mgr.oldestHeldAuditEventTime(),
+                    "after the handoff the event is the processor's responsibility");
+        } finally {
+            Config.query_audit_log_timeout_ms = originalAuditTimeout;
+        }
+    }
+
+    // round-37 #7: internal statements (statistics refreshes, the horizon reporter's own
+    // SQL, ...) are never captured, so they must not fence progress.
+    @Test
+    public void testInternalAuditEventsDoNotFenceThePublicationHorizon() {
+        mgr.submitFinishQueryToAudit(new AuditEvent.AuditEventBuilder()
+                .setQueryId("qid-internal").setTimestamp(1_000L)
+                .setStmt("insert into __internal_schema.spm_audit_horizon values (...)")
+                .setisInternal(true).build());
+        Assertions.assertEquals(0L, mgr.oldestHeldAuditEventTime(),
+                "an internal event can never be captured and must not fence");
+    }
 }

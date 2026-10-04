@@ -829,7 +829,14 @@ public class PlanCaptureManager extends MasterDaemon {
                     pages, successCount.get(), skipDuplicateCount.get(), skipSingleTableCount.get(),
                     skipFilterCount.get(), failCount.get());
         } catch (Exception e) {
-            LOG.warn("Plan capture cycle failed", e);
+            // A failed cycle (e.g. scanner.scan timing out) must NOT leave the next wakeup
+            // at the default capture interval: the cycle already cleared
+            // pendingWindowNeedsPromptResume and the window reservation - when one was made
+            // - is durable, so this is exactly the state the prompt resume exists for
+            // (round-37 #6). The next cycle resumes the pending window (or re-derives when
+            // nothing is pending, which a prompt cycle merely does earlier).
+            pendingWindowNeedsPromptResume = true;
+            LOG.warn("Plan capture cycle failed; the pending window is retained for a prompt resume", e);
         }
     }
 

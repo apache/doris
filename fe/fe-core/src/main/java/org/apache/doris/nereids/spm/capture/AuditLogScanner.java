@@ -927,10 +927,17 @@ public class AuditLogScanner {
         // starting 03:05 would exclude the row on EVERY later scan (no overlap reaches it
         // again). Adding the swing seconds makes the bound conservative in the admitting
         // direction, which is the safe side for a late-completion lookback.
+        //
+        // The duration is added at MILLISECOND precision (round-37 #8): both `time` and
+        // `query_time` are millisecond values, and the previous CAST(query_time / 1000)
+        // truncated the duration to whole seconds - a row at 11:50:00.900 lasting 299100
+        // ms truly completes at 11:55:00.000 (the next overlap start) but computed as
+        // 11:54:59.900 and was excluded on every later scan. Microsecond arithmetic on
+        // the exact millisecond duration is exact in both directions.
         String start = windowRanges.get(0)[0];
         String lastEnd = windowRanges.get(windowRanges.size() - 1)[1];
-        String completionBound = "timestampadd(SECOND, CAST(`query_time` / 1000 AS BIGINT)"
-                + (offsetSwingSeconds == 0 ? "" : " + " + offsetSwingSeconds)
+        String completionBound = "timestampadd(MICROSECOND, CAST(`query_time` AS BIGINT) * 1000"
+                + (offsetSwingSeconds == 0 ? "" : " + " + offsetSwingSeconds * 1_000_000L)
                 + ", `time`)";
         return "SELECT " + SELECT_COLUMNS + " FROM __internal_schema.audit_log "
                 + "WHERE `time` >= '" + floor + "' "
