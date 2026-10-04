@@ -149,20 +149,26 @@ Status JniReader::open(RuntimeState* state, RuntimeProfile* profile) {
         batch_size = _state->batch_size();
     }
     _batch_size = batch_size;
-    RETURN_IF_ERROR(Jni::Env::Get(&env));
-    // Only a reader whose range declared the heap it will hold waits for it; see the constructor.
+    // Only a reader whose range declared the heap it will hold waits for it; see the constructor. It
+    // waits before attaching to the JVM, which a reader whose query is cancelled meanwhile never does.
     if (_jni_heap_bytes > 0) {
         int64_t heap_wait_ns = 0;
-        JniScanHeapGate::instance()->acquire(
-                _jni_heap_bytes,
-                // A cancelled query opens without waiting for heap and stops at its next block.
-                [this]() { return _state != nullptr && _state->is_cancelled(); }, &_heap_permit,
-                &heap_wait_ns);
+        const bool admitted = JniScanHeapGate::instance()->acquire(
+                _jni_heap_bytes, [this]() { return _state != nullptr && _state->is_cancelled(); },
+                &_heap_permit, &heap_wait_ns);
         if (_profile != nullptr) {
             COUNTER_UPDATE(_jvm_heap_wait_time, heap_wait_ns);
             COUNTER_UPDATE(_jvm_heap_declared_bytes, _jni_heap_bytes);
         }
+        if (!admitted) {
+            // The query was cancelled while this reader waited for heap: it opens no Java scanner.
+            // Opening it would not be harmless - FileScanner reads the first block in the same
+            // pass, and a merge read loads the row groups of all its files for that block.
+            DORIS_CHECK(_state != nullptr && _state->is_cancelled());
+            return _state->cancel_reason();
+        }
     }
+    RETURN_IF_ERROR(Jni::Env::Get(&env));
     // The permit covers the Java scanner: close() releases it, and here it goes if the scanner
     // did not open.
     Defer release_unless_opened {[this]() {

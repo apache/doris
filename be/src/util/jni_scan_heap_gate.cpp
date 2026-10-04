@@ -65,7 +65,7 @@ JniScanHeapGate* JniScanHeapGate::instance() {
     return gate;
 }
 
-void JniScanHeapGate::acquire(int64_t bytes, const std::function<bool()>& stop_waiting,
+bool JniScanHeapGate::acquire(int64_t bytes, const std::function<bool()>& stop_waiting,
                               Permit* permit, int64_t* wait_ns) {
     DORIS_CHECK(bytes > 0);
     DORIS_CHECK(permit != nullptr);
@@ -81,26 +81,34 @@ void JniScanHeapGate::acquire(int64_t bytes, const std::function<bool()>& stop_w
         const bool stop = stop_waiting();
         lock.lock();
         const int64_t waited = MonotonicNanos() - start;
-        bool admit = stop || _fits(ticket, bytes);
-        if (!admit && waited >= config::jni_scanner_heap_max_wait_ms * 1000 * 1000) {
-            LOG_EVERY_T(WARNING, 10) << "A JNI scanner opens after waiting " << waited / 1000 / 1000
-                                     << " ms for its share of the JVM heap, longer than "
-                                        "jni_scanner_heap_max_wait_ms: it declared "
-                                     << bytes / MB << " MB, while " << _holders << " scanners hold "
-                                     << _admitted_bytes / MB << " MB of a " << _budget() / MB
-                                     << " MB budget and " << _waiting.size() - 1 << " others wait";
-            admit = true;
+        bool admit = false;
+        if (!stop) {
+            admit = _fits(ticket, bytes);
+            if (!admit && waited >= config::jni_scanner_heap_max_wait_ms * 1000 * 1000) {
+                LOG_EVERY_T(WARNING, 10)
+                        << "A JNI scanner opens after waiting " << waited / 1000 / 1000
+                        << " ms for its share of the JVM heap, longer than "
+                           "jni_scanner_heap_max_wait_ms: it declared "
+                        << bytes / MB << " MB, while " << _holders << " scanners hold "
+                        << _admitted_bytes / MB << " MB of a " << _budget() / MB
+                        << " MB budget and " << _waiting.size() - 1 << " others wait";
+                admit = true;
+            }
         }
-        if (admit) {
+        if (stop || admit) {
             _waiting.erase(std::find(_waiting.begin(), _waiting.end(), ticket));
+            *wait_ns = waited;
+            // Whoever is first in line now may fit.
+            _cv.notify_all();
+            if (stop) {
+                // The reader's scan has stopped: it will open nothing, so it takes no share.
+                return false;
+            }
             _admitted_bytes += bytes;
             ++_holders;
             permit->_gate = this;
             permit->_bytes = bytes;
-            *wait_ns = waited;
-            // Whoever is first in line now may fit.
-            _cv.notify_all();
-            return;
+            return true;
         }
         _cv.wait_for(lock, POLL_INTERVAL);
     }
