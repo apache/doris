@@ -408,7 +408,11 @@ public class DateTimeExtractAndTransform {
             throw new AnalysisException("The length of format string in time_format() function should not be greater"
                     + " than 128.");
         }
-        return new VarcharLiteral(DateTimeFormatterUtils.toFormatStringConservative(time, format));
+        String formatted = DateTimeFormatterUtils.toFormatStringConservative(time, format);
+        if (formatted == null) {
+            return new NullLiteral(StringType.INSTANCE);
+        }
+        return new VarcharLiteral(formatted);
     }
 
     /**
