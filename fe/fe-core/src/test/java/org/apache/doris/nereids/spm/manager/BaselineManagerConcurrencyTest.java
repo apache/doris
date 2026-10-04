@@ -88,6 +88,12 @@ public class BaselineManagerConcurrencyTest {
          * exactly the durable state the baselines table's own MAX(id) loses.
          */
         private long reservedHighWater;
+        /**
+         * When set, every by-id read AFTER an identity delete fails (round-35 #1): the
+         * lingering-row cleanup of a DROP cannot be completed.
+         */
+        private boolean failReadAfterDelete;
+        private boolean deleted;
 
         @Override
         public long seqWatermark() {
@@ -125,6 +131,9 @@ public class BaselineManagerConcurrencyTest {
 
         @Override
         public List<BaselinePlan> readById(long id) {
+            if (failReadAfterDelete && deleted) {
+                throw new RuntimeException("internal table read timed out");
+            }
             if (probeEntered != null) {
                 probeEntered.countDown();
                 try {
@@ -155,6 +164,7 @@ public class BaselineManagerConcurrencyTest {
                     Thread.currentThread().interrupt();
                 }
             }
+            deleted = true;
             rows.computeIfPresent(plan.getId(), (id, current) -> {
                 List<BaselinePlan> updated = new ArrayList<>(current);
                 updated.removeIf(row -> row.getBindSqlDigest().equals(plan.getBindSqlDigest())
@@ -2575,6 +2585,128 @@ public class BaselineManagerConcurrencyTest {
                     "a higher MAX(id) proves the table has a row the store never saw");
         } finally {
             BaselineManager.snapshotReaderForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    // ==================== round-35: drop eviction + transition evidence ================
+
+    /**
+     * round-35 #1: persistDeleteByIdentity CONFIRMS the requested row is gone, then
+     * wipeDurableRowsById reads the table AGAIN to clean up a lingering OTHER
+     * incarnation. When that cleanup read fails, the DROP reported the failure but the
+     * cached ENABLED entry stayed in the map - ordinary queries kept matching and
+     * REPLAYING a baseline whose durable row no longer existed until a later refresh.
+     * The confirmed identity delete must evict the cache entry no matter what the
+     * cleanup reports, while the DROP itself still fails retryably (the retry takes the
+     * cache-miss path and finds the row already gone).
+     */
+    @Test
+    public void testConfirmedIdentityDeleteEvictsTheCacheWhenTheCleanupReadFails() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        BaselineManager.idAllocatorStoreForTest = store;
+        try {
+            long id = manager.createBaseline(baseline("d-cleanup", "p-cleanup"));
+            Assertions.assertNotNull(manager.getBaseline(id), "precondition: cached");
+            store.failReadAfterDelete = true;
+
+            Assertions.assertThrows(RuntimeException.class, () -> manager.dropBaseline(id),
+                    "the lingering-row cleanup failure still reports the DROP as failed");
+            Assertions.assertNull(manager.getBaseline(id),
+                    "the confirmed identity delete must stop the cache entry from matching /"
+                            + " replaying a row that is already gone");
+            Assertions.assertTrue(store.rowsOf(id).isEmpty(),
+                    "the requested row IS durably gone: " + store.rowsOf(id));
+
+            store.failReadAfterDelete = false;
+            Assertions.assertFalse(manager.dropBaseline(id),
+                    "the retry observes the row already gone (the confirmed delete landed)");
+            Assertions.assertNull(manager.getBaseline(id));
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-35 #2: a previously failed old-row DELETE can leave a STALE row of the OLD
+     * status beside the winner (round-30 keeps both rows when the delete outcome is
+     * unknown). The status-only evidence then accepted that stale row as the publication
+     * of an ENABLE whose conditional INSERT ABORTED: the probe found the leftover ENABLED
+     * row of the failed DISABLE and {@code confirmInsertVisible} agreed, so a failed
+     * DISABLED delete published ENABLED + success while a durable reload still picks the
+     * DISABLED winner. The attempted STORED SECOND is the discriminator: a flip stores
+     * its row strictly later than every row it met.
+     */
+    @Test
+    public void testAStaleSameStatusRowDoesNotProveAnAbortedStatusInsert() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        BaselineManager.idAllocatorStoreForTest = store;
+        try {
+            BaselinePlan stale = baseline("d-shadow", "p-shadow");
+            stale.setId(9L);
+            stale.setUpdateTime(System.currentTimeMillis() - 5_000L);
+            store.insert(stale); // the leftover ENABLED row of the failed DISABLE
+
+            BaselinePlan attempted = baseline("d-shadow", "p-shadow");
+            attempted.setId(9L);
+            attempted.setUpdateTime(System.currentTimeMillis());
+            Assertions.assertFalse(BaselineManager.observedInsertRowIsOurs(attempted),
+                    "the stale ENABLED row at another stored second is NOT the row THIS"
+                            + " ENABLE would have written");
+
+            BaselinePlan written = baseline("d-shadow", "p-shadow");
+            written.setId(9L);
+            written.setUpdateTime(attempted.getUpdateTime());
+            store.insert(written);
+            Assertions.assertTrue(BaselineManager.observedInsertRowIsOurs(attempted),
+                    "the row at the ATTEMPTED stored second proves the INSERT landed");
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * The visibility confirmation of a JUST-WRITTEN row asks for the ATTEMPTED stored
+     * second (round-35 #2): a simulator that models the stale-row case implements the
+     * three-argument form and must receive the attempted row's update time.
+     */
+    @Test
+    public void testVisibilityConfirmationCarriesTheAttemptedStoredSecond() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        BaselineManager.idAllocatorStoreForTest = store;
+        List<Long> probedSeconds = new ArrayList<>();
+        BaselineManager.durableVisibilityProbeForTest =
+                new BaselineManager.DurableVisibilityProbeForTest() {
+                    @Override
+                    public boolean isReadable(long id, BaselineStatus status) {
+                        throw new AssertionError("the write confirmation must carry the"
+                                + " attempted stored second");
+                    }
+
+                    @Override
+                    public boolean isReadable(long id, BaselineStatus status, long updateTime) {
+                        probedSeconds.add(updateTime);
+                        return true;
+                    }
+                };
+        try {
+            long id = manager.createBaseline(baseline("d-second", "p-second"));
+            Assertions.assertEquals(1, probedSeconds.size(),
+                    "the create's insert must be confirmed exactly once");
+            Assertions.assertEquals(manager.getBaseline(id).getUpdateTime() / 1000L,
+                    probedSeconds.get(0) / 1000L,
+                    "the confirmation must ask for the ATTEMPTED row's stored second");
+        } finally {
+            BaselineManager.durableVisibilityProbeForTest = null;
+            BaselineManager.idAllocatorStoreForTest = null;
             manager.clearForTest();
         }
     }

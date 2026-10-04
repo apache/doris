@@ -183,6 +183,23 @@ public class BaselineManager {
     @VisibleForTesting
     interface DurableVisibilityProbeForTest {
         boolean isReadable(long id, BaselineStatus status);
+
+        /**
+         * The confirmation of a row JUST WRITTEN additionally checks the ATTEMPTED
+         * STORED SECOND: the requested status ALONE is weak evidence (a previously
+         * failed old-row delete can leave a STALE row of that very status behind, see
+         * {@link #observedInsertRowIsOurs}). The default delegates to the two-argument
+         * form so a simulator that models only the visibility window of one row keeps
+         * its semantics.
+         *
+         * @param id         the baseline id
+         * @param status     the status the write attempted
+         * @param updateTime the attempted row's update time (stored seconds)
+         * @return whether THAT row is readable
+         */
+        default boolean isReadable(long id, BaselineStatus status, long updateTime) {
+            return isReadable(id, status);
+        }
     }
 
     @VisibleForTesting
@@ -1117,20 +1134,41 @@ public class BaselineManager {
             // dropped): DROP is keyed by the user-facing id, so no row of this id may
             // survive - identity-deleting only the stale object would report success
             // while the real row stays and keeps matching later reads.
-            wipeDurableRowsById(id, removed);
-            stateLock.writeLock().lock();
             try {
-                BaselinePlan gone = baselines.remove(id);
-                if (gone == null) {
-                    // raced with a concurrent drop / refresh: the row is gone either way
-                    return true;
-                }
+                wipeDurableRowsById(id, removed);
+            } catch (RuntimeException e) {
+                // The IDENTITY delete is CONFIRMED (persistDeleteByIdentity only returns
+                // once the row is gone): this cached entry's durable row no longer exists,
+                // so it must stop being matchable / replayable on this FE even though the
+                // cleanup of a LINGERING other incarnation could not be read. Keeping the
+                // entry let ordinary queries keep replaying a baseline whose row the DROP
+                // had already deleted; the failure still propagates (retryable), and the
+                // retry takes the cache-miss path which deletes the lingering rows.
+                removeCachedBaseline(id);
+                throw e;
+            }
+            removeCachedBaseline(id);
+            return true;
+        }
+    }
+
+    /**
+     * Removes one id from the in-memory store (baseline map + hash index) under the
+     * write lock. Shared by {@link #dropBaseline}'s happy path and its lingering-row
+     * cleanup failure path: once the identity delete is confirmed, the cached row must
+     * stop being matchable / replayable no matter what the cleanup of a DIFFERENT
+     * incarnation reported (round-35 #1).
+     */
+    private void removeCachedBaseline(long id) {
+        stateLock.writeLock().lock();
+        try {
+            BaselinePlan gone = baselines.remove(id);
+            if (gone != null) {
                 removeFromHashIndex(gone);
                 stateVersion++;
-                return true;
-            } finally {
-                stateLock.writeLock().unlock();
             }
+        } finally {
+            stateLock.writeLock().unlock();
         }
     }
 
@@ -3416,11 +3454,12 @@ public class BaselineManager {
             return true;
         } catch (Exception e) {
             // An INSERT that reports an error (typically a statement timeout) may still
-            // have COMMITTED: the row carrying this id + key + the REQUESTED status is the
-            // proof it landed (the previous-status row would not prove it - it is exactly
-            // the row the conditional statement must not have matched).
-            if (probeDurableRow(p.getId(), p.getBindSqlDigest(), p.getPlanSql(), p.getStatus())
-                    == DurablePresence.PRESENT) {
+            // have COMMITTED: the row carrying this id + key + the REQUESTED status AT
+            // THE ATTEMPTED STORED SECOND is the proof it landed (the previous-status row
+            // would not prove it - it is exactly the row the conditional statement must
+            // not have matched; and the status ALONE could be a STALE row left by a
+            // previously failed old-row delete - round-35 #2).
+            if (observedInsertRowIsOurs(p)) {
                 LOG.warn("SPM persist (status insert) reported {} but the row is durable"
                         + " (id={}); keeping it", e.getMessage(), p.getId());
                 return true;
@@ -3459,14 +3498,13 @@ public class BaselineManager {
         } catch (Exception e) {
             // An INSERT that reports an error (typically a statement timeout) may still
             // have COMMITTED: reconcile against the durable table before failing the
-            // write. The row carrying this id + key + STATUS is the proof it landed:
-            // matching only (id, key) treated the still-present OLD-status row of an
-            // ALTER as the freshly written new-status row - updateStatus then deleted
-            // the old row and NO durable version remained (refresh / restart lost the
-            // baseline). Any other outcome (absent or unconfirmable) reports the
-            // original failure.
-            if (probeDurableRow(p.getId(), p.getBindSqlDigest(), p.getPlanSql(),
-                    p.getStatus()) == DurablePresence.PRESENT) {
+            // write. The row carrying this id + key + REQUESTED STATUS + the ATTEMPTED
+            // stored SECOND is the proof it landed: matching only (id, key) treated the
+            // still-present OLD-status row of an ALTER as the freshly written new-status
+            // row, and the status alone could be satisfied by a STALE row a previously
+            // failed old-row delete left behind (round-35 #2). Any other outcome
+            // (absent or unconfirmable) reports the original failure.
+            if (observedInsertRowIsOurs(p)) {
                 LOG.warn("SPM persist (insert) reported {} but the row is durable (id={});"
                         + " keeping it", e.getMessage(), p.getId());
                 return;
@@ -3542,9 +3580,9 @@ public class BaselineManager {
         }
         for (int attempt = 0; attempt < BASELINE_VISIBILITY_ATTEMPTS; attempt++) {
             boolean readable = durableVisibilityProbeForTest != null
-                    ? durableVisibilityProbeForTest.isReadable(p.getId(), p.getStatus())
-                    : probeDurableRow(p.getId(), p.getBindSqlDigest(), p.getPlanSql(),
-                            p.getStatus()) == DurablePresence.PRESENT;
+                    ? durableVisibilityProbeForTest.isReadable(p.getId(), p.getStatus(),
+                            p.getUpdateTime())
+                    : observedInsertRowIsOurs(p);
             if (readable) {
                 return;
             }
@@ -3678,6 +3716,21 @@ public class BaselineManager {
      */
     private static DurablePresence probeDurableRow(long id, String bindSqlDigest, String planSql,
             BaselineStatus status, String schemaFingerprint) {
+        return probeDurableRow(id, bindSqlDigest, planSql, status, schemaFingerprint, null);
+    }
+
+    /**
+     * As above, with an optional STORED-SECOND constraint. The requested status ALONE is
+     * weak evidence of a status-flip INSERT: a previously failed old-row DELETE leaves a
+     * STALE row of that very status beside the winner (round-35 #2 - a leftover ENABLED
+     * row made an ENABLE whose conditional INSERT aborted look "written"), and
+     * {@code confirmInsertVisible} then accepted the old row as the new row's
+     * publication. A flip stores its row STRICTLY LATER than every row it met (see
+     * updateStatus' stored-second bump), so requiring the ATTEMPTED second distinguishes
+     * the row THIS write would have produced from any older same-status row.
+     */
+    private static DurablePresence probeDurableRow(long id, String bindSqlDigest, String planSql,
+            BaselineStatus status, String schemaFingerprint, Long requiredUpdateTimeMs) {
         if (idAllocatorStoreForTest != null) {
             try {
                 for (BaselinePlan row : idAllocatorStoreForTest.readById(id)) {
@@ -3686,7 +3739,9 @@ public class BaselineManager {
                             && Objects.equals(row.getPlanSql(), planSql)
                             && (status == null || row.getStatus() == status)
                             && (schemaFingerprint == null || Objects.equals(
-                                    row.getSchemaFingerprint(), schemaFingerprint))) {
+                                    row.getSchemaFingerprint(), schemaFingerprint))
+                            && (requiredUpdateTimeMs == null || sameStoredSecond(
+                                    row.getUpdateTime(), requiredUpdateTimeMs))) {
                         return DurablePresence.PRESENT;
                     }
                 }
@@ -3701,7 +3756,9 @@ public class BaselineManager {
             for (BaselinePlan row : readPersistedByKey(bindSqlDigest, planSql)) {
                 if (row.getId() == id && (status == null || row.getStatus() == status)
                         && (schemaFingerprint == null || Objects.equals(
-                                row.getSchemaFingerprint(), schemaFingerprint))) {
+                                row.getSchemaFingerprint(), schemaFingerprint))
+                        && (requiredUpdateTimeMs == null || sameStoredSecond(
+                                row.getUpdateTime(), requiredUpdateTimeMs))) {
                     return DurablePresence.PRESENT;
                 }
             }
@@ -3711,6 +3768,22 @@ public class BaselineManager {
                     id, t.getMessage());
             return DurablePresence.UNKNOWN;
         }
+    }
+
+    /**
+     * Whether a READABLE durable row proves the row THIS write attempted landed: the
+     * identity AND the attempted STORED SECOND. The status alone was accepted
+     * before, and a previously failed old-row delete can leave a STALE row of that very
+     * status beside the winner - the ENABLE of round-35 #2 found the leftover ENABLED
+     * row of the failed DISABLE and treated its aborted conditional INSERT as written,
+     * after which a failed DISABLE delete published a status no durable winner carried.
+     * The flip's stored second is strictly later than every row it met (the bump in
+     * updateStatus), so only the row this write would have produced can match it.
+     */
+    @VisibleForTesting
+    static boolean observedInsertRowIsOurs(BaselinePlan p) {
+        return probeDurableRow(p.getId(), p.getBindSqlDigest(), p.getPlanSql(), p.getStatus(),
+                null, p.getUpdateTime()) == DurablePresence.PRESENT;
     }
 
     private static void persistDeleteByIdentity(BaselinePlan p) {

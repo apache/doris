@@ -50,14 +50,18 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.Variable;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -238,28 +242,29 @@ public final class SPMPlanTreeSupport {
 
     /**
      * Whether every row-limiting node of {@code replayed} is justified by the caller's own
-     * tree {@code userPlan}: the MULTISET of (limit, offset) pairs the replay exposes must
-     * be contained in the caller's own - a LIMIT VARIANT replay transfers the caller's
-     * top-level value POSITIONALLY, so any other cap it still exposes was inherited from
-     * the CAPTURED plan (or a manual plan) and would silently truncate the result of the
-     * variant (reviewer round 32 #8: the frozen
+     * tree {@code userPlan}: the MULTISET of (limit, offset, INPUT-IDENTITY) keys the
+     * replay exposes must be contained in the caller's own - a LIMIT VARIANT replay
+     * transfers the caller's top-level value POSITIONALLY, so any other cap it still
+     * exposes was inherited from the CAPTURED plan (or a manual plan) and would silently
+     * truncate the result of the variant (reviewer round 32 #8: the frozen
      * {@code SELECT DISTINCT k FROM (SELECT k FROM t ORDER BY k LIMIT 1) s ORDER BY k
      * LIMIT 2} kept the inner cap at 1 while the caller asked for two keys).
      *
-     * <p>Comparing value pairs rather than node paths is deliberate: the replay is a
+     * <p>Comparing INPUT IDENTITIES rather than node paths is deliberate: the replay is a
      * MANUAL frozen plan whose structure may legitimately differ from the caller's, so
-     * only what the caller itself asked for can justify a cap.
+     * only what the caller itself asked for (values AND the input they truncate) can
+     * justify a cap.
      *
      * @param replayed the replayed tree AFTER the limit merge
      * @param userPlan the caller's own tree
      * @return whether every replayed cap is one the caller's tree also has
      */
     public static boolean rowLimitsWithin(Plan replayed, Plan userPlan) {
-        Map<List<Long>, Integer> allowed = new HashMap<>();
+        Map<String, Integer> allowed = new HashMap<>();
         collectRowLimits(userPlan, allowed);
-        Map<List<Long>, Integer> used = new HashMap<>();
+        Map<String, Integer> used = new HashMap<>();
         collectRowLimits(replayed, used);
-        for (Map.Entry<List<Long>, Integer> entry : used.entrySet()) {
+        for (Map.Entry<String, Integer> entry : used.entrySet()) {
             Integer available = allowed.get(entry.getKey());
             if (available == null || available < entry.getValue()) {
                 return false;
@@ -268,20 +273,118 @@ public final class SPMPlanTreeSupport {
         return true;
     }
 
-    /** Collects the (limit, offset) pair of every row-limiting node of the tree. */
-    private static void collectRowLimits(Plan plan, Map<List<Long>, Integer> out) {
-        if (plan == null) {
+    /**
+     * Collects every row-limiting node of the tree as (limit, offset, INPUT IDENTITIES):
+     * the (limit, offset) pair ALONE is not enough - a cap of the same value can sit on a
+     * different input than the caller's own cap of that value, and the positional merge
+     * leaves it there (round-35 #3: a manual plan capped t2 while the caller's own cap
+     * sat on t1; with one matching t1 row and two matching t2 rows the variant returned
+     * ONE row where the caller's own plan returns two). The key therefore includes the
+     * QUALIFIED NAMES of every relation beneath the cap, so a replayed cap only counts as
+     * one the caller also has when it truncates the same input.
+     *
+     * <p>The walk covers the plans OUTSIDE children() as well - CTE bodies
+     * (LogicalCTE.extraPlans()) and expression-owned subquery plans (IN / EXISTS / scalar,
+     * plus {@code * REPLACE} payloads) - a cap inside a WITH body was invisible to a
+     * children-only walk, and the caller raising only the OUTER limit kept the frozen body
+     * cap for the variant (round-35 #4). The identity set keeps a plan reachable through
+     * two paths (a filter's extraPlans() and its predicate expression) from counting the
+     * same cap twice.
+     */
+    private static void collectRowLimits(Plan plan, Map<String, Integer> out) {
+        collectRowLimits(plan, out, Collections.newSetFromMap(new IdentityHashMap<>()));
+    }
+
+    private static void collectRowLimits(Plan plan, Map<String, Integer> out, Set<Plan> visited) {
+        if (plan == null || !visited.add(plan)) {
             return;
         }
         if (plan instanceof LogicalLimit) {
-            out.merge(Arrays.asList(((LogicalLimit<?>) plan).getLimit(),
-                    ((LogicalLimit<?>) plan).getOffset()), 1, Integer::sum);
+            out.merge(rowLimitKey(((LogicalLimit<?>) plan).getLimit(),
+                    ((LogicalLimit<?>) plan).getOffset(), plan), 1, Integer::sum);
         } else if (plan instanceof LogicalTopN) {
-            out.merge(Arrays.asList(((LogicalTopN<?>) plan).getLimit(),
-                    ((LogicalTopN<?>) plan).getOffset()), 1, Integer::sum);
+            out.merge(rowLimitKey(((LogicalTopN<?>) plan).getLimit(),
+                    ((LogicalTopN<?>) plan).getOffset(), plan), 1, Integer::sum);
         }
         for (Plan child : plan.children()) {
-            collectRowLimits(child, out);
+            collectRowLimits(child, out, visited);
+        }
+        for (Plan extra : plan.extraPlans()) {
+            collectRowLimits(extra, out, visited);
+        }
+        for (Expression expression : plan.getExpressions()) {
+            collectRowLimits(expression, out, visited);
+        }
+    }
+
+    /** Recurses one expression tree looking for subquery plans (see walkSubqueryPlans). */
+    private static void collectRowLimits(Expression expression, Map<String, Integer> out,
+            Set<Plan> visited) {
+        if (expression instanceof SubqueryExpr) {
+            collectRowLimits(((SubqueryExpr) expression).getQueryPlan(), out, visited);
+        }
+        if (expression instanceof UnboundStar) {
+            for (NamedExpression replaced : ((UnboundStar) expression).getReplacedAlias()) {
+                collectRowLimits(replaced, out, visited);
+            }
+        }
+        for (Expression child : expression.children()) {
+            collectRowLimits(child, out, visited);
+        }
+    }
+
+    /** The identity of one row-limiting node: its values AND the input it truncates. */
+    private static String rowLimitKey(long limit, long offset, Plan limitNode) {
+        Set<String> inputs = new TreeSet<>();
+        collectRelationInputs(limitNode, inputs,
+                Collections.newSetFromMap(new IdentityHashMap<>()));
+        return limit + ":" + offset + ":" + String.join(",", inputs);
+    }
+
+    /**
+     * The QUALIFIED name of every relation beneath a row-limiting node (children, CTE
+     * bodies and expression-owned subquery plans included). A subtree without a relation
+     * (a FROM-less child) contributes nothing - the key then identifies the cap by its
+     * values alone, exactly as the caller's equivalent cap does.
+     */
+    private static void collectRelationInputs(Plan plan, Set<String> out, Set<Plan> visited) {
+        if (plan == null || !visited.add(plan)) {
+            return;
+        }
+        if (plan instanceof UnboundRelation) {
+            List<String> parts = ((UnboundRelation) plan).getNameParts();
+            if (parts != null && !parts.isEmpty()) {
+                out.add(String.join(".", parts));
+            }
+        } else if (plan instanceof LogicalCatalogRelation) {
+            out.add(((LogicalCatalogRelation) plan).getTable().getNameWithFullQualifiers());
+        } else if (plan instanceof UnboundTVFRelation) {
+            out.add(((UnboundTVFRelation) plan).getFunctionName());
+        }
+        for (Plan child : plan.children()) {
+            collectRelationInputs(child, out, visited);
+        }
+        for (Plan extra : plan.extraPlans()) {
+            collectRelationInputs(extra, out, visited);
+        }
+        for (Expression expression : plan.getExpressions()) {
+            collectRelationInputs(expression, out, visited);
+        }
+    }
+
+    /** Recurses one expression tree for relation inputs (see collectRelationInputs). */
+    private static void collectRelationInputs(Expression expression, Set<String> out,
+            Set<Plan> visited) {
+        if (expression instanceof SubqueryExpr) {
+            collectRelationInputs(((SubqueryExpr) expression).getQueryPlan(), out, visited);
+        }
+        if (expression instanceof UnboundStar) {
+            for (NamedExpression replaced : ((UnboundStar) expression).getReplacedAlias()) {
+                collectRelationInputs(replaced, out, visited);
+            }
+        }
+        for (Expression child : expression.children()) {
+            collectRelationInputs(child, out, visited);
         }
     }
 
@@ -1078,11 +1181,19 @@ public final class SPMPlanTreeSupport {
     public static boolean containsReplayContextExpression(Expression expr) {
         if (expr instanceof Variable || expr instanceof UnboundVariable
                 || expr instanceof CurrentUser || expr instanceof SessionUser
-                || expr instanceof Database || expr instanceof ConnectionId) {
+                || expr instanceof Database || expr instanceof ConnectionId
+                || expr instanceof CurrentDate || expr instanceof CurrentTime
+                || expr instanceof Now) {
             // a PARSED "@v" is an UnboundVariable, not the analyzed Variable: the guard
             // only knew the analyzed shape, so `WHERE k = @v` slipped through and the
             // creator-context optimization froze the CREATOR's value into the planSql
-            // of a GLOBAL baseline.
+            // of a GLOBAL baseline. The BARE clock keywords
+            // (CURRENT_DATE / CURRENT_TIME / CURRENT_TIMESTAMP / LOCALTIME /
+            // LOCALTIMESTAMP) are not calls at all: the parser builds the bound
+            // CurrentDate / CurrentTime / Now leaves directly
+            // (LogicalPlanBuilder#visitCurrentDate etc.), so the name-based UnboundFunction
+            // check below never saw them and a frozen baseline served the CREATE date for
+            // every later match while the parenthesized forms were rejected (round-35 #5).
             return true;
         }
         if (expr instanceof UnboundFunction) {

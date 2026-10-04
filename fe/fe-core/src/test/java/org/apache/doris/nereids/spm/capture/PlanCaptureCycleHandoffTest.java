@@ -359,6 +359,10 @@ public class PlanCaptureCycleHandoffTest {
                     "the failed reservation is the only attempted write");
             Assertions.assertFalse(manager.isDurableCheckpointObservedForTest(),
                     "the failed reservation leaves no durable state");
+            Assertions.assertTrue(manager.isPendingWindowResumePromptForTest(),
+                    "the FAILED WRITE must schedule a prompt retry: the daemon would"
+                            + " otherwise sleep a full interval although no audit row was"
+                            + " scanned and the window is waiting (round-35 #6)");
 
             // cycle 2: the write succeeds -> the window is durable BEFORE the scan ...
             manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
@@ -411,6 +415,9 @@ public class PlanCaptureCycleHandoffTest {
                     "an unreadable reservation must not consume the window");
             Assertions.assertFalse(manager.isDurableCheckpointObservedForTest(),
                     "the unconfirmed reservation must stay retryable");
+            Assertions.assertTrue(manager.isPendingWindowResumePromptForTest(),
+                    "EXHAUSTED visibility probes must schedule a prompt retry: no audit row"
+                            + " was scanned and the window is waiting (round-35 #6)");
 
             // the publication lands: the next cycle re-persists (idempotent UPSERT) and
             // only then consumes the window

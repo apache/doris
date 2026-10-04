@@ -645,6 +645,12 @@ public class PlanCaptureManager extends MasterDaemon {
                     // either this reservation could not be confirmed readable (retried next
                     // cycle, idempotent UPSERT) or an earlier leader's window surfaced and
                     // was adopted instead (resumed next cycle) - both abort WITHOUT scanning
+                    // a single audit row while the window waits. Resume PROMPTLY: leaving the
+                    // daemon at the configured interval (three hours by default) delayed the
+                    // retry of a window nothing was consumed from, exactly like the failed
+                    // first READ above (round-35 #6; the adoption path already set the flag,
+                    // the write / visibility failure did not).
+                    pendingWindowNeedsPromptResume = true;
                     LOG.warn("Plan capture cycle skipped: the initial checkpoint row could not"
                             + " be confirmed VISIBLE / was superseded by an earlier window");
                     return;
