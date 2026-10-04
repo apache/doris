@@ -24,6 +24,8 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.QueryLogContext;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.profile.PlanningDiagnostics.Phase;
+import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -32,6 +34,7 @@ import org.apache.doris.mysql.authenticate.TestLogAppender;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
@@ -57,7 +60,10 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 public class PlanningDiagnosticsTest {
     private final AtomicLong clock = new AtomicLong(TimeUnit.SECONDS.toNanos(1));
@@ -491,6 +497,68 @@ public class PlanningDiagnosticsTest {
     }
 
     @Test
+    public void testOperationWithoutDiagnosticsDoesNotResolveTarget() {
+        Supplier<String> target = () -> {
+            throw new AssertionError("Target must not be resolved without planning diagnostics");
+        };
+        Object expected = new Object();
+        IllegalStateException failure = new IllegalStateException("original operation failure");
+        for (ConnectContext testContext : new ConnectContext[] {null, context}) {
+            AtomicInteger calls = new AtomicInteger();
+            Assertions.assertNull(PlanningDiagnostics.current(testContext));
+            Assertions.assertSame(expected,
+                    PlanningDiagnostics.operation(testContext, "load_schema", target, -1, () -> {
+                        calls.incrementAndGet();
+                        return expected;
+                    }));
+            Assertions.assertEquals(1, calls.get());
+            Assertions.assertSame(failure, Assertions.assertThrows(IllegalStateException.class,
+                    () -> PlanningDiagnostics.operation(testContext, "load_schema", target, -1, () -> {
+                        calls.incrementAndGet();
+                        throw failure;
+                    })));
+            Assertions.assertEquals(2, calls.get());
+        }
+    }
+
+    @Test
+    public void testOperationTargetIsCapturedOnceOnPlanningThread() throws Exception {
+        Thread planningThread = Thread.currentThread();
+        AtomicInteger calls = new AtomicInteger();
+        AtomicReference<String> target = new AtomicReference<>("catalog.db.original");
+        ExecutorService checker = Executors.newSingleThreadExecutor();
+        try (TestLogAppender appender = TestLogAppender.attach(PlanningDiagnostics.class, Level.WARN)) {
+            run(() -> PlanningDiagnostics.runPhase(context, Phase.ANALYZE,
+                    () -> PlanningDiagnostics.operation(context, "load_schema", () -> {
+                        Assertions.assertSame(planningThread, Thread.currentThread());
+                        calls.incrementAndGet();
+                        return target.get();
+                    }, -1, () -> {
+                        target.set("catalog.db.changed");
+                        advance(5000);
+                        try {
+                            CompletableFuture.runAsync(() -> context.checkTimeout(0), checker)
+                                    .get(10, TimeUnit.SECONDS);
+                        } catch (Exception e) {
+                            throw new AssertionError(e);
+                        }
+                        return null;
+                    })));
+            Assertions.assertEquals(1, calls.get());
+            Assertions.assertTrue(appender.contains(Level.WARN, "\"status\":\"running\""));
+            Assertions.assertTrue(appender.contains(Level.WARN, "Planning operation"));
+            Assertions.assertEquals(2, events(appender).stream()
+                    .filter(event -> event.getMessage().getFormattedMessage()
+                            .contains("\"target\":\"catalog.db.original\""))
+                    .count());
+            Assertions.assertFalse(appender.contains(Level.WARN, "catalog.db.changed"));
+        } finally {
+            checker.shutdownNow();
+            Assertions.assertTrue(checker.awaitTermination(10, TimeUnit.SECONDS));
+        }
+    }
+
+    @Test
     public void testExternalSchemaPartitionsAndSnapshotOperations() {
         ExternalTable table = Mockito.mock(ExternalTable.class, Mockito.CALLS_REAL_METHODS);
         Mockito.doReturn("catalog.db.external").when(table).getNameWithFullQualifiers();
@@ -529,6 +597,49 @@ public class PlanningDiagnosticsTest {
             Assertions.assertTrue(appender.contains(Level.WARN, "\"operation\":\"load_snapshot\""));
             Assertions.assertEquals(6000, phase("analyze").get("elapsed_ms").getAsLong());
         }
+    }
+
+    @Test
+    public void testMetadataWithoutDiagnosticsDoesNotResolveTarget() {
+        ExternalTable table = Mockito.mock(ExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        // Schema reads need no catalog; resolving the diagnostic name would dereference this unset catalog.
+        ExternalDatabase dbWithoutCatalog = Mockito.mock(ExternalDatabase.class);
+        table.setDb(dbWithoutCatalog);
+        List<Column> latestSchema = ImmutableList.of(Mockito.mock(Column.class));
+        List<Column> pinnedSchema = ImmutableList.of(Mockito.mock(Column.class));
+        MvccSnapshot snapshot = Mockito.mock(MvccSnapshot.class);
+        Mockito.doReturn(Optional.of(new SchemaCacheValue(latestSchema))).when(table).getSchemaCacheValue();
+        Mockito.doReturn(Optional.of(new SchemaCacheValue(pinnedSchema)))
+                .when(table).getSchemaCacheValue(Optional.of(snapshot));
+
+        PluginDrivenMvccExternalTable snapshotTable = Mockito.mock(PluginDrivenMvccExternalTable.class);
+        Mockito.doThrow(new AssertionError("Snapshot target must not be resolved without diagnostics"))
+                .when(snapshotTable).getNameWithFullQualifiers();
+        ExternalDatabase db = Mockito.mock(ExternalDatabase.class);
+        ExternalCatalog catalog = Mockito.mock(ExternalCatalog.class);
+        Mockito.when(snapshotTable.getDatabase()).thenReturn(db);
+        Mockito.when(db.getCatalog()).thenReturn(catalog);
+        Mockito.when(db.getFullName()).thenReturn("db");
+        Mockito.when(catalog.getName()).thenReturn("catalog");
+        Mockito.when(snapshotTable.getName()).thenReturn("snapshot");
+        Mockito.when(snapshotTable.loadSnapshot(Optional.empty(), Optional.empty())).thenReturn(snapshot);
+
+        for (ConnectContext testContext : new ConnectContext[] {null, context}) {
+            ConnectContext.remove();
+            if (testContext != null) {
+                testContext.setThreadLocalInfo();
+            }
+            Assertions.assertSame(latestSchema, table.getFullSchema());
+            Assertions.assertSame(pinnedSchema, table.getFullSchema(Optional.of(snapshot)));
+            Assertions.assertSame(SelectedPartitions.NOT_PRUNED, table.initSelectedPartitions(Optional.empty()));
+            StatementContext statement = new StatementContext(testContext, new OriginStatement("select 1", 0));
+            statement.loadSnapshots(snapshotTable, Optional.empty(), Optional.empty());
+            Assertions.assertSame(snapshot, statement.getSnapshot(snapshotTable).get());
+        }
+        Mockito.verify(table, Mockito.never()).getNameWithFullQualifiers();
+        Mockito.verify(dbWithoutCatalog, Mockito.never()).getCatalog();
+        Mockito.verify(snapshotTable, Mockito.never()).getNameWithFullQualifiers();
+        Mockito.verify(snapshotTable, Mockito.times(2)).loadSnapshot(Optional.empty(), Optional.empty());
     }
 
     @Test

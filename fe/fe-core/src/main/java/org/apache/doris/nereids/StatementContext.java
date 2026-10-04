@@ -584,8 +584,9 @@ public class StatementContext implements Closeable {
                 throw new AnalysisException("Unknown table from " + tableFrom);
         }
         return tables.computeIfAbsent(
-                tableQualifier, k -> PlanningDiagnostics.operation(connectContext, "resolve_table", String.join(".", k),
-                        -1, () -> RelationUtil.getTable(k, connectContext.getEnv(), unboundRelation)));
+                tableQualifier, k -> PlanningDiagnostics.operation(connectContext, "resolve_table",
+                        () -> String.join(".", k), -1,
+                        () -> RelationUtil.getTable(k, connectContext.getEnv(), unboundRelation)));
     }
 
     public void setConnectContext(ConnectContext connectContext) {
@@ -1238,7 +1239,7 @@ public class StatementContext implements Closeable {
      */
     public void loadSnapshots(TableIf specificTable, Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams) {
-        PlanningDiagnostics.operation(connectContext, "load_snapshot", specificTable.getNameWithFullQualifiers(),
+        PlanningDiagnostics.operation(connectContext, "load_snapshot", specificTable::getNameWithFullQualifiers,
                 -1, () -> {
                     loadSnapshotsInternal(specificTable, tableSnapshot, scanParams);
                     return null;

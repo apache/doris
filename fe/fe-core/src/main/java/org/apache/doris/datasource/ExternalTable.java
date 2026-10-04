@@ -184,7 +184,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         // NOT getFullSchema(Optional.empty()): an empty snapshot means "this reference has no pin" (=>
         // latest), whereas the no-arg form means "I have no reference, resolve from the ambient context".
         // Collapsing the two would strip the ambient resolution from every statement-global caller.
-        return PlanningDiagnostics.operation(ConnectContext.get(), "load_schema", getNameWithFullQualifiers(), -1,
+        return PlanningDiagnostics.operation(ConnectContext.get(), "load_schema", this::getNameWithFullQualifiers, -1,
                 () -> getSchemaCacheValue().map(SchemaCacheValue::getSchema).orElse(null));
     }
 
@@ -193,7 +193,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      * path must pass the reference's pin rather than relying on the ambient lookup.
      */
     public List<Column> getFullSchema(Optional<MvccSnapshot> snapshot) {
-        return PlanningDiagnostics.operation(ConnectContext.get(), "load_schema", getNameWithFullQualifiers(), -1,
+        return PlanningDiagnostics.operation(ConnectContext.get(), "load_schema", this::getNameWithFullQualifiers, -1,
                 () -> getSchemaCacheValue(snapshot).map(SchemaCacheValue::getSchema).orElse(null));
     }
 
@@ -490,8 +490,8 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      * @return
      */
     public SelectedPartitions initSelectedPartitions(Optional<MvccSnapshot> snapshot) {
-        return PlanningDiagnostics.operation(ConnectContext.get(), "load_partitions", getNameWithFullQualifiers(), -1,
-                () -> initSelectedPartitionsInternal(snapshot));
+        return PlanningDiagnostics.operation(ConnectContext.get(), "load_partitions", this::getNameWithFullQualifiers,
+                -1, () -> initSelectedPartitionsInternal(snapshot));
     }
 
     private SelectedPartitions initSelectedPartitionsInternal(Optional<MvccSnapshot> snapshot) {

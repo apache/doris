@@ -156,13 +156,19 @@ public final class PlanningDiagnostics {
     /** A negative operation budget means that timeout handling belongs to the connector. */
     public static <T> T operation(ConnectContext context, String operation, String target,
             long budgetMs, Supplier<T> action) {
+        return operation(context, operation, () -> target, budgetMs, action);
+    }
+
+    /** Resolve the target only for an active planning pass, on the calling thread. */
+    public static <T> T operation(ConnectContext context, String operation, Supplier<String> target,
+            long budgetMs, Supplier<T> action) {
         PlanningDiagnostics diagnostics = current(context);
         if (diagnostics == null) {
             return action.get();
         }
         Step step = diagnostics.current;
         return diagnostics.measure(step == null ? Phase.PREPROCESS : step.phase,
-                operation, target, budgetMs, action);
+                operation, target.get(), budgetMs, action);
     }
 
     public static PlanningDiagnostics current(ConnectContext context) {
