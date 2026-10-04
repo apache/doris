@@ -221,6 +221,10 @@ public class DateTimeFormatterUtils {
         String pattern = trimFormat(format.getValue());
         String res = formatTemporalLiteral(0, 0, 0, time.getHour(), time.getMinute(),
                 time.getSecond(), time.getMicroSecond(), time.getMicroSecond() * 1000, pattern);
+        if (res == null) {
+            // the pattern needs date fields, which a TIME value does not carry
+            return null;
+        }
         if (time.isNegative()) {
             res = "-" + res;
         }
