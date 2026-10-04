@@ -379,4 +379,26 @@ class DoubleLiteralTest {
         Assertions.assertEquals("5e-324", ((StringLiteral) (new DoubleLiteral(Double.MIN_VALUE)
                 .uncheckedCastTo(StringType.INSTANCE))).getValue());
     }
+
+    @Test
+    void testCastToIntegralUsesTheBinaryValue() {
+        // 1e38 is not exactly 10^38 as a double; BE reports the binary magnitude
+        Expression expression = new DoubleLiteral(1e38).uncheckedCastTo(LargeIntType.INSTANCE);
+        Assertions.assertInstanceOf(LargeIntLiteral.class, expression);
+        Assertions.assertEquals("99999999999999997748809823456034029568",
+                ((LargeIntLiteral) expression).getValue().toString());
+
+        // the exact case is unchanged
+        expression = new DoubleLiteral(1e9).uncheckedCastTo(LargeIntType.INSTANCE);
+        Assertions.assertEquals("1000000000", ((LargeIntLiteral) expression).getValue().toString());
+
+        // truncation of ordinary values still trims toward zero
+        expression = new DoubleLiteral(-12.999).uncheckedCastTo(BigIntType.INSTANCE);
+        Assertions.assertEquals(-12, ((BigIntLiteral) expression).getValue().intValue());
+
+        // out of range still fails instead of silently saturating
+        DoubleLiteral tooBig = new DoubleLiteral(1e39);
+        Assertions.assertThrows(CastException.class,
+                () -> tooBig.uncheckedCastTo(LargeIntType.INSTANCE));
+    }
 }
