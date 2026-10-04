@@ -17,6 +17,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdint>
+#include <limits>
 #include <list>
 #include <map>
 #include <memory>
@@ -29,12 +31,37 @@
 #include "exec/pipeline/dependency.h"
 #include "exec/scan/file_scanner_v2.h"
 #include "exec/scan/scanner.h"
+#include "exec/scan/scanner_scheduler.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
 
 namespace doris::pipeline {
 namespace {
+
+// One tuple with no slots: all a file scan node needs to be initialized and prepared.
+Status create_one_tuple_descriptors(ObjectPool* pool, DescriptorTbl** descriptors) {
+    TDescriptorTable thrift_descriptors;
+    TTupleDescriptor tuple_descriptor;
+    tuple_descriptor.id = 0;
+    tuple_descriptor.byteSize = 0;
+    tuple_descriptor.numNullBytes = 0;
+    thrift_descriptors.tupleDescriptors.push_back(tuple_descriptor);
+    return DescriptorTbl::create(pool, thrift_descriptors, descriptors);
+}
+
+// A file scan node over that tuple.
+TPlanNode file_scan_plan_node() {
+    TPlanNode plan_node;
+    plan_node.node_id = 0;
+    plan_node.node_type = TPlanNodeType::FILE_SCAN_NODE;
+    plan_node.num_children = 0;
+    plan_node.limit = -1;
+    plan_node.row_tuples.push_back(0);
+    plan_node.file_scan_node.tuple_id = 0;
+    plan_node.__isset.file_scan_node = true;
+    return plan_node;
+}
 
 TFileScanRangeParams scan_level_format(const std::string& table_format) {
     TFileScanRangeParams params;
@@ -132,25 +159,12 @@ TEST(FileScanOperatorFlussTest, ScannerV2SupportsEveryRangeKindOfAForcedNode) {
 // over JNI: 69 reads where 16 would do on a 16-bucket table spread over 9 instances.
 TEST(FileScanOperatorFlussTest, EveryInstanceOfTheNodeReadsThroughTheNodesCache) {
     ObjectPool pool;
-    TDescriptorTable thrift_descriptors;
-    TTupleDescriptor tuple_descriptor;
-    tuple_descriptor.id = 0;
-    tuple_descriptor.byteSize = 0;
-    tuple_descriptor.numNullBytes = 0;
-    thrift_descriptors.tupleDescriptors.push_back(tuple_descriptor);
     DescriptorTbl* descriptors = nullptr;
-    ASSERT_TRUE(DescriptorTbl::create(&pool, thrift_descriptors, &descriptors).ok());
+    ASSERT_TRUE(create_one_tuple_descriptors(&pool, &descriptors).ok());
     MockRuntimeState state;
     state.set_desc_tbl(descriptors);
 
-    TPlanNode plan_node;
-    plan_node.node_id = 0;
-    plan_node.node_type = TPlanNodeType::FILE_SCAN_NODE;
-    plan_node.num_children = 0;
-    plan_node.limit = -1;
-    plan_node.row_tuples.push_back(0);
-    plan_node.file_scan_node.tuple_id = 0;
-    plan_node.__isset.file_scan_node = true;
+    const TPlanNode plan_node = file_scan_plan_node();
     FileScanOperatorX node(&pool, plan_node, 0, *descriptors, /*parallel_tasks=*/1);
     ASSERT_TRUE(node.init(plan_node, &state).ok());
     ASSERT_TRUE(node.prepare(&state).ok());
@@ -185,6 +199,28 @@ TEST(FileScanOperatorFlussTest, EveryInstanceOfTheNodeReadsThroughTheNodesCache)
             EXPECT_EQ(file_scanner->_kv_cache, node._kv_cache.get()) << "instance " << instance;
         }
     }
+}
+
+// The node's cache is sharded for the scanners of all its instances: the instance count times
+// max_file_scanners_concurrency, a session variable with no upper bound. A user may set it to
+// INT32_MAX to mean "no limit", and with two instances that product overflows an int, which would
+// leave the node a single shard, behind whose lock every scanner of every instance loads its delete
+// files one at a time. The count has to come out capped by the remote scan threads instead.
+TEST(FileScanOperatorFlussTest, CacheShardsOfAnUnlimitedScannerSettingAreCappedNotOverflowed) {
+    ObjectPool pool;
+    DescriptorTbl* descriptors = nullptr;
+    ASSERT_TRUE(create_one_tuple_descriptors(&pool, &descriptors).ok());
+    MockRuntimeState state;
+    state.set_desc_tbl(descriptors);
+    state._query_options.__set_parallel_instance(2);
+    state._query_options.__set_max_file_scanners_concurrency(std::numeric_limits<int32_t>::max());
+
+    const TPlanNode plan_node = file_scan_plan_node();
+    FileScanOperatorX node(&pool, plan_node, 0, *descriptors, /*parallel_tasks=*/2);
+    ASSERT_TRUE(node.init(plan_node, &state).ok());
+    ASSERT_TRUE(node.prepare(&state).ok());
+    EXPECT_EQ(node._kv_cache->_num_shards,
+              static_cast<uint32_t>(ScannerScheduler::default_remote_scan_thread_num()));
 }
 
 } // namespace doris::pipeline

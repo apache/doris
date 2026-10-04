@@ -23,13 +23,15 @@ import org.apache.fluss.config.Configuration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
@@ -77,38 +79,31 @@ final class FlussConnectionPool {
     /** How often idle connections are looked at: one lives at most this much past its timeout. */
     private static final long REAP_INTERVAL_SECONDS = 10;
 
-    static final FlussConnectionPool INSTANCE = new FlussConnectionPool(
-            ConnectionFactory::createConnection, System::nanoTime, FlussConnectionCloser::close);
-
-    static {
-        ScheduledExecutorService reaper = Executors.newSingleThreadScheduledExecutor(runnable -> {
-            Thread thread = new Thread(runnable, "fluss-connection-reaper");
-            // Never what keeps BE's JVM alive.
-            thread.setDaemon(true);
-            // The closer may hand a close back to this thread, and closing can load fluss classes.
-            thread.setContextClassLoader(FlussConnectionPool.class.getClassLoader());
-            return thread;
-        });
-        reaper.scheduleWithFixedDelay(() -> sweep(INSTANCE), REAP_INTERVAL_SECONDS, REAP_INTERVAL_SECONDS,
-                TimeUnit.SECONDS);
-    }
+    static final FlussConnectionPool INSTANCE = new FlussConnectionPool(ConnectionFactory::createConnection,
+            System::nanoTime, FlussConnectionCloser::close, FlussConnectionPool::startReaper);
 
     private final Function<Configuration, Connection> factory;
     private final LongSupplier nanoTime;
     /** Closes, without waiting for it, a connection the pool lets go of: {@link FlussConnectionCloser#close}. */
     private final Consumer<Connection> closer;
+    /** Starts the thread that runs the sweep it is given on this pool: {@link #startReaper}. */
+    private final Consumer<Runnable> reaperStarter;
+    /** Set while the reaper is being started and once it has; see {@link #startReaperOnce}. */
+    private final AtomicBoolean reaperStarted = new AtomicBoolean();
 
     /**
      * Idle connections by the configuration they were opened with, the most recently returned last. A
-     * configuration with no idle connection has no entry, which is what {@link #borrow} relies on.
+     * configuration with no idle connection has no entry, which is what {@link #borrow} and the reaper rely
+     * on: {@link #giveBack} puts an entry in only once it holds its connection.
      */
-    private final Map<Map<String, String>, ArrayDeque<Idle>> idle = new HashMap<>();
+    private final Map<Map<String, String>, Deque<Idle>> idle = new HashMap<>();
 
     FlussConnectionPool(Function<Configuration, Connection> factory, LongSupplier nanoTime,
-            Consumer<Connection> closer) {
+            Consumer<Connection> closer, Consumer<Runnable> reaperStarter) {
         this.factory = factory;
         this.nanoTime = nanoTime;
         this.closer = closer;
+        this.reaperStarter = reaperStarter;
     }
 
     /**
@@ -119,7 +114,7 @@ final class FlussConnectionPool {
     Lease borrow(Configuration config) {
         Map<String, String> key = config.toMap();
         synchronized (idle) {
-            ArrayDeque<Idle> connections = idle.get(key);
+            Deque<Idle> connections = idle.get(key);
             if (connections != null) {
                 Connection connection = connections.pollLast().connection;
                 if (connections.isEmpty()) {
@@ -132,11 +127,56 @@ final class FlussConnectionPool {
         return new Lease(key, factory.apply(config), true);
     }
 
-    /** Takes back the connection of a range that was read to its end, for the next range to borrow. */
+    /**
+     * Takes back the connection of a range that was read to its end, for the next range to borrow.
+     *
+     * <p>An {@code OutOfMemoryError} here may cost this connection, never the ones the pool holds: wherever
+     * it strikes, the pool is left whole. An entry goes into {@link #idle} already holding its connection -
+     * put in empty and filled after, an error in between would leave an entry that every later
+     * {@link #borrow} and every sweep take a connection from and find none. And an entry is a
+     * {@link LinkedList}, which allocates a node before it links it in: an {@code ArrayDeque} stores an
+     * element first and grows its array after, and an error in that growth leaves it looking empty while it
+     * holds every connection - the next one given back overwrites the oldest, and the rest are out of reach
+     * of {@link #borrow} and of the reaper for good.
+     */
     void giveBack(Lease lease) {
-        long now = nanoTime.getAsLong();
+        Idle returned = new Idle(lease.connection, nanoTime.getAsLong());
         synchronized (idle) {
-            idle.computeIfAbsent(lease.key, key -> new ArrayDeque<>()).addLast(new Idle(lease.connection, now));
+            Deque<Idle> connections = idle.get(lease.key);
+            if (connections == null) {
+                Deque<Idle> first = new LinkedList<>();
+                first.addLast(returned);
+                idle.put(lease.key, first);
+            } else {
+                connections.addLast(returned);
+            }
+        }
+        startReaperOnce();
+    }
+
+    /**
+     * Starts the reaper with the first connection given back, and with a later one again if starting it
+     * failed. Not while the class initializes: starting a thread fails with an {@code OutOfMemoryError}
+     * while BE's JVM heap is full or no native thread is to be had, and an error in a static initializer
+     * leaves the class unusable in its classloader, which BE keeps for the life of the process - every
+     * fluss read of the BE would fail with {@code NoClassDefFoundError} until it restarted. Until the reaper
+     * runs, ranges go on borrowing and giving back; only idle connections wait for it.
+     */
+    private void startReaperOnce() {
+        if (reaperStarted.get() || !reaperStarted.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            reaperStarter.accept(() -> sweep(this));
+        } catch (Throwable startFailure) {
+            reaperStarted.set(false);
+            try {
+                LOG.warn("Failed to start the thread that closes idle fluss connections; the next connection"
+                        + " given back tries again", startFailure);
+            } catch (Throwable logFailure) {
+                // Logging allocates too, and the heap may still be full; the next connection given back
+                // tries again regardless.
+            }
         }
     }
 
@@ -181,15 +221,15 @@ final class FlussConnectionPool {
     /**
      * Takes one connection idle for {@code idleNanos} at {@code now} out of the pool, or returns null if
      * none is. Nothing may allocate between unlinking it and returning it ({@link #closeIdleLongerThan}):
-     * the deque only unlinks it, and the iterator removes an emptied entry by the hash the map stored
+     * the list only unlinks it, and the iterator removes an emptied entry by the hash the map stored
      * rather than hashing the configuration again.
      */
     private Connection takeExpired(long now, long idleNanos) {
         synchronized (idle) {
-            Iterator<ArrayDeque<Idle>> keys = idle.values().iterator();
+            Iterator<Deque<Idle>> keys = idle.values().iterator();
             while (keys.hasNext()) {
-                ArrayDeque<Idle> connections = keys.next();
-                // A deque is in the order its connections came back, so an expired one is at its head.
+                Deque<Idle> connections = keys.next();
+                // An entry is in the order its connections came back, so an expired one is at its head.
                 if (now - connections.peekFirst().since >= idleNanos) {
                     Connection connection = connections.pollFirst().connection;
                     if (connections.isEmpty()) {
@@ -222,10 +262,27 @@ final class FlussConnectionPool {
         }
     }
 
+    /**
+     * Runs {@code sweep} every {@link #REAP_INTERVAL_SECONDS} on a daemon thread of its own. A new executor
+     * on every call, never one kept from a call that failed: that one already holds the sweep, queued
+     * before the thread to run it failed to start, and a later start of its thread would run it twice.
+     */
+    private static void startReaper(Runnable sweep) {
+        ScheduledExecutorService reaper = Executors.newSingleThreadScheduledExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "fluss-connection-reaper");
+            // Never what keeps BE's JVM alive.
+            thread.setDaemon(true);
+            // The closer may hand a close back to this thread, and closing can load fluss classes.
+            thread.setContextClassLoader(FlussConnectionPool.class.getClassLoader());
+            return thread;
+        });
+        reaper.scheduleWithFixedDelay(sweep, REAP_INTERVAL_SECONDS, REAP_INTERVAL_SECONDS, TimeUnit.SECONDS);
+    }
+
     int idleCount() {
         synchronized (idle) {
             int count = 0;
-            for (ArrayDeque<Idle> connections : idle.values()) {
+            for (Deque<Idle> connections : idle.values()) {
                 count += connections.size();
             }
             return count;

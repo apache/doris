@@ -331,11 +331,15 @@ Status FileScanOperatorX::prepare(RuntimeState* state) {
     // Sharded for the scanners that can reach the cache at once, which are now every instance's:
     // as many as the per-instance caches it replaces had between them. That is the fragment's
     // instances, not this operator's parallelism: a serial operator has one instance, and it runs
-    // the scanners of all of them (max_scanners_concurrency).
-    const int shard_num =
-            std::min(ScannerScheduler::default_remote_scan_thread_num(),
-                     state->query_parallel_instance_num() * file_scanners_per_instance(state));
-    _kv_cache = std::make_unique<ShardedKVCache>(cast_set<uint32_t>(std::max(shard_num, 1)));
+    // the scanners of all of them (max_scanners_concurrency). Counted in 64 bits: the scanners per
+    // instance are a session variable with no upper bound, and in an int the product overflows
+    // before std::min can cap it, leaving the whole node one shard to load under.
+    const int64_t shard_num =
+            std::min<int64_t>(ScannerScheduler::default_remote_scan_thread_num(),
+                              static_cast<int64_t>(state->query_parallel_instance_num()) *
+                                      file_scanners_per_instance(state));
+    _kv_cache =
+            std::make_unique<ShardedKVCache>(cast_set<uint32_t>(std::max<int64_t>(shard_num, 1)));
     if (state->get_query_ctx() != nullptr &&
         state->get_query_ctx()->file_scan_range_params_map.contains(node_id())) {
         TFileScanRangeParams& params =

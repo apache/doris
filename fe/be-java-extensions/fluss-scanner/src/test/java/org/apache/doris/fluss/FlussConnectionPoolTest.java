@@ -37,6 +37,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 /**
  * What the pool promises a scan range: it borrows the connection a range before it gave back, never one
@@ -51,11 +52,14 @@ public class FlussConnectionPoolTest {
     /** Far longer than a close handed to the closer takes to start. */
     private static final long PATIENCE_SECONDS = 60;
 
+    /** The tests run each sweep themselves, on their own clock; no reaper thread runs one. */
+    private static final Consumer<Runnable> NO_REAPER = sweep -> { };
+
     private final AtomicLong now = new AtomicLong();
     /** One per connection opened, counted down when it is closed. Opened outside the pool's lock. */
     private final List<CountDownLatch> closes = Collections.synchronizedList(new ArrayList<>());
     private final FlussConnectionPool pool =
-            new FlussConnectionPool(config -> open(), now::get, FlussConnectionCloser::close);
+            new FlussConnectionPool(config -> open(), now::get, FlussConnectionCloser::close, NO_REAPER);
 
     @Test
     public void rangeBorrowsTheConnectionTheRangeBeforeItGaveBack() {
@@ -197,7 +201,7 @@ public class FlussConnectionPoolTest {
         FlussConnectionPool failing = new FlussConnectionPool(config -> open(), () -> {
             sweeps.incrementAndGet();
             throw new OutOfMemoryError("simulated: Java heap space");
-        }, FlussConnectionCloser::close);
+        }, FlussConnectionCloser::close, NO_REAPER);
         ScheduledExecutorService reaper = Executors.newSingleThreadScheduledExecutor();
         try {
             reaper.scheduleWithFixedDelay(() -> FlussConnectionPool.sweep(failing), 0, 1, TimeUnit.MILLISECONDS);
@@ -224,7 +228,7 @@ public class FlussConnectionPoolTest {
                 throw new OutOfMemoryError("simulated: Java heap space");
             }
             FlussConnectionCloser.close(connection);
-        });
+        }, NO_REAPER);
         FlussConnectionPool.Lease first = failing.borrow(config("server-a:9123"));
         FlussConnectionPool.Lease second = failing.borrow(config("server-a:9123"));
         FlussConnectionPool.Lease third = failing.borrow(config("server-a:9123"));
@@ -240,6 +244,44 @@ public class FlussConnectionPoolTest {
         FlussConnectionPool.sweep(failing);
         Assertions.assertEquals(0, failing.idleCount());
         Assertions.assertTrue(closes.get(2).await(PATIENCE_SECONDS, TimeUnit.SECONDS), "the third was never closed");
+    }
+
+    /**
+     * The reaper is started with the first connection given back, not while the class initializes, where
+     * an {@code OutOfMemoryError} - no native thread to be had, or a full heap - would leave the class
+     * unusable and every fluss read of the BE failing until it restarted. A start that fails costs the
+     * sweeps until a later connection given back starts the reaper; ranges go on borrowing and giving back
+     * meanwhile.
+     */
+    @Test
+    public void reaperThatFailedToStartIsStartedByALaterGiveBack() throws Exception {
+        AtomicInteger starts = new AtomicInteger();
+        List<Runnable> reapers = new ArrayList<>();
+        FlussConnectionPool starting = new FlussConnectionPool(config -> open(), now::get,
+                FlussConnectionCloser::close, sweep -> {
+                    if (starts.incrementAndGet() == 1) {
+                        throw new OutOfMemoryError("simulated: unable to create native thread");
+                    }
+                    reapers.add(sweep);
+                });
+
+        FlussConnectionPool.Lease first = starting.borrow(config("server-a:9123"));
+        starting.giveBack(first);
+        Assertions.assertEquals(1, starts.get(), "the first connection given back did not try to start the reaper");
+        Assertions.assertEquals(1, starting.idleCount(), "the failed start lost the connection given back");
+
+        FlussConnectionPool.Lease second = starting.borrow(config("server-a:9123"));
+        Assertions.assertSame(first.connection(), second.connection(), "the failed start stopped the lending");
+        starting.giveBack(second);
+        Assertions.assertEquals(1, reapers.size(), "the next connection given back did not start the reaper");
+
+        starting.giveBack(starting.borrow(config("server-a:9123")));
+        Assertions.assertEquals(2, starts.get(), "a reaper already running was started again");
+
+        now.addAndGet(FlussConnectionPool.IDLE_TIMEOUT_NANOS);
+        reapers.get(0).run();
+        Assertions.assertEquals(0, starting.idleCount());
+        Assertions.assertTrue(closes.get(0).await(PATIENCE_SECONDS, TimeUnit.SECONDS), "never closed");
     }
 
     private Connection open() {
