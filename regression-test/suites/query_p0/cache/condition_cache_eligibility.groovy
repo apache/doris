@@ -67,6 +67,37 @@ suite("condition_cache_eligibility", "nonConcurrent") {
             return total
         }
 
+        sql "set experimental_enable_virtual_slot_for_cse = true"
+        def virtualFirst = """
+            SELECT k FROM condition_cache_eligibility
+            WHERE abs(k + 1) + abs(k + 1) = 0 ORDER BY k
+        """
+        def virtualSecond = """
+            SELECT k FROM condition_cache_eligibility
+            WHERE abs(k - 9999) + abs(k - 9999) = 0 ORDER BY k
+        """
+        for (String query : [virtualFirst, virtualSecond]) {
+            explain {
+                sql query
+                verbose true
+                contains "virtualColumn=abs"
+            }
+        }
+        long beforeVirtualColumn = cacheLookups()
+        // Compare with uncached base-column predicates so the reference queries do not affect the metric.
+        def emptyReference = """
+            SELECT /*+ SET_VAR(enable_condition_cache=false) */ k
+            FROM condition_cache_eligibility WHERE k = -1 ORDER BY k
+        """
+        def matchingReference = """
+            SELECT /*+ SET_VAR(enable_condition_cache=false) */ k
+            FROM condition_cache_eligibility WHERE k = 9999 ORDER BY k
+        """
+        check_sqls_result_equal(virtualFirst, emptyReference)
+        check_sqls_result_equal(virtualSecond, matchingReference)
+        check_sqls_result_equal(virtualSecond, matchingReference)
+        assertEquals(beforeVirtualColumn, cacheLookups(), "Virtual-column predicates looked up condition cache")
+
         // Seeded shuffle is repeatable within a block, but its count changes with block boundaries.
         // Check that volatile scans never look up the cache instead of recording their random counts.
         for (int batchSize : [1, 1024]) {
