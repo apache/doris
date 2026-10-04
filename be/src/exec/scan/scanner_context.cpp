@@ -839,12 +839,15 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
         std::shared_ptr<ScanTask> current_scan_task, int32_t current_concurrency) {
     int32_t effective_max_concurrency = _max_scan_concurrency;
     if (_enable_adaptive_scanners) {
-        effective_max_concurrency = _adaptive_processor->expected_scanners > 0
-                                            ? _adaptive_processor->expected_scanners
-                                            : _max_scan_concurrency;
+        // _get_margin() has just refreshed expected_scanners, so zero is a real allocation here, as
+        // in can_admit_scan_task(), not a missing one. Reading it as _max_scan_concurrency let an
+        // instance whose allocation fell to zero keep every scanner it held.
+        effective_max_concurrency = _adaptive_processor->expected_scanners;
     }
 
-    if (current_concurrency >= effective_max_concurrency) {
+    // Keep one task progressing even when the adaptive limit is zero. Otherwise no worker can
+    // publish a result and wake the operator to make another scheduling decision.
+    if (current_concurrency > 0 && current_concurrency >= effective_max_concurrency) {
         VLOG_DEBUG << fmt::format(
                 "ScannerContext {} current concurrency {} >= effective_max_concurrency {}, skip "
                 "pull",
