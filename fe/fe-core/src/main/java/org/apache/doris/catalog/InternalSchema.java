@@ -53,6 +53,19 @@ public class InternalSchema {
      */
     public static final String SPM_BASELINES_SEQ_TBL_NAME = "spm_baselines_seq";
 
+    /**
+     * Name of the cluster-wide audit PUBLICATION horizon internal table: one row per FE
+     * carrying the start time of the OLDEST audit event that FE has accepted but not yet
+     * published (queued in its audit pipeline, or a batch whose stream load reported
+     * Publish Timeout). The SPM capture runs on the leader only and scans the shared
+     * audit table, so a row another FE still owes is invisible to it: the leader must
+     * fence its scan-window floor with the MINIMUM over every alive FE's row, or a
+     * follower's delayed event falls behind the advanced watermark and is never
+     * captured. A row whose update_time is older than the reporter's freshness window is
+     * ignored (its FE stopped reporting - the events are gone with it).
+     */
+    public static final String SPM_AUDIT_HORIZON_TBL_NAME = "spm_audit_horizon";
+
     // Do not use the original schema directly, because it may be modified by create table operation.
     public static final List<ColumnDef> TABLE_STATS_SCHEMA;
     public static final List<ColumnDef> PARTITION_STATS_SCHEMA;
@@ -61,6 +74,7 @@ public class InternalSchema {
     public static final List<ColumnDef> SPM_BASELINES_SCHEMA;
     public static final List<ColumnDef> SPM_BASELINES_SEQ_SCHEMA;
     public static final List<ColumnDef> SPM_CAPTURE_CHECKPOINT_SCHEMA;
+    public static final List<ColumnDef> SPM_AUDIT_HORIZON_SCHEMA;
 
     static {
         // table statistics table
@@ -390,6 +404,21 @@ public class InternalSchema {
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NOT_NULLABLE));
         SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("update_time",
                 ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
+
+        // The cluster-wide audit publication horizon (see SPM_AUDIT_HORIZON_TBL_NAME):
+        // fe_name is the FE identity reported by the audit events themselves
+        // (feIp:port at the event's write time is FE-local, so the FE uses its own
+        // name); horizon_ms is the start time of the oldest event that FE has accepted
+        // but not published (0 = nothing outstanding), and update_time lets the reader
+        // skip rows of an FE that stopped reporting. The row's size is constant, one
+        // row per FE.
+        SPM_AUDIT_HORIZON_SCHEMA = new ArrayList<>();
+        SPM_AUDIT_HORIZON_SCHEMA.add(new ColumnDef("fe_name",
+                ScalarType.createVarchar(128), ColumnNullableType.NOT_NULLABLE));
+        SPM_AUDIT_HORIZON_SCHEMA.add(new ColumnDef("horizon_ms",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        SPM_AUDIT_HORIZON_SCHEMA.add(new ColumnDef("update_time",
+                ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
     }
 
     // Get copied schema for statistic table
@@ -417,6 +446,9 @@ public class InternalSchema {
                 break;
             case SPM_CAPTURE_CHECKPOINT_TBL_NAME:
                 schema = SPM_CAPTURE_CHECKPOINT_SCHEMA;
+                break;
+            case SPM_AUDIT_HORIZON_TBL_NAME:
+                schema = SPM_AUDIT_HORIZON_SCHEMA;
                 break;
             default:
                 throw new UserException("Unknown internal table name: " + tblName);

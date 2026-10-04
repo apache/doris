@@ -18,6 +18,7 @@
 package org.apache.doris.plugin.audit;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DigitalVersion;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.plugin.AuditEvent;
@@ -29,12 +30,19 @@ import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.plugin.PluginInfo.PluginType;
 import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.statistics.repository.ResultRow;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Queues;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 
 /*
@@ -81,12 +89,63 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     // read by the SPM capture thread - volatile, and only ever narrowed while a batch is
     // being assembled, so a stale read can only under-, never over-state the horizon.
     private volatile long batchOldestEventTime = 0;
+    // query id of the event that set batchOldestEventTime: the sample row a pending
+    // publish is probed with (see publishFenceOldestEventTime).
+    private String batchOldestQueryId = "";
+    /**
+     * Fence of a batch whose stream load reported Publish Timeout (or failed ambiguously):
+     * the transaction is COMMITTED but its rows are not readable yet, so the batch must
+     * KEEP fencing progress until publication is confirmed (round-36 #2). Holds the start
+     * time of the oldest event of the oldest such batch; {@link #publishFenceQueryId} is
+     * its sample row, {@link #publishFenceSince} bounds how long it may fence in total
+     * (a batch that never becomes readable was lost - e.g. the txn rolled back - and
+     * fencing forever would freeze the capture instead of protecting anything).
+     */
+    private long publishFenceOldestEventTime = 0;
+    private String publishFenceQueryId = "";
+    private long publishFenceSince = 0;
+
+    /**
+     * How long a Publish-Timeout fence may hold progress without its sample row ever
+     * becoming readable before it is released with a warning (see
+     * {@link #publishFenceOldestEventTime}).
+     */
+    public static final long PUBLISH_FENCE_MAX_MILLIS = 30 * 60 * 1000L;
+
+    /** How often the horizon reporter wakes up (it only writes on change / keepalive). */
+    static final long HORIZON_REPORT_TICK_MILLIS = 5_000L;
+
+    /**
+     * How often an UNCHANGED, non-zero horizon is re-reported: the shared row must stay
+     * fresh while a long hold persists, otherwise {@code AuditPublicationHorizon} treats
+     * the FE as gone and ignores its fence.
+     */
+    public static final long HORIZON_KEEPALIVE_MILLIS = 60_000L;
+
+    private static final String PUBLISH_PROBE_SQL = "SELECT `query_id` FROM `"
+            + FeConstants.INTERNAL_DB_NAME + "`.`" + AUDIT_LOG_TABLE
+            + "` WHERE `query_id` = '${queryId}' AND `time` >= '${eventTime}' LIMIT 1";
+    private static final int PUBLISH_PROBE_TIMEOUT_SECONDS = 10;
+
+    /**
+     * Test seam: whether a Publish-Timeout batch's rows are readable yet. One call is ONE
+     * probe attempt. Null in production (the real probe reads the audit table).
+     */
+    @VisibleForTesting
+    interface PublishVisibilityProbe {
+        boolean isVisible(long eventTime, String queryId);
+    }
+
+    @VisibleForTesting
+    static volatile PublishVisibilityProbe publishVisibilityProbeForTest;
+
     // sometimes the audit log may fail to load to doris, count it to observe.
     private long discardLogNum = 0;
 
     private BlockingQueue<AuditEvent> auditEventQueue;
     private AuditStreamLoader streamLoader;
     private Thread loadThread;
+    private Thread horizonReporterThread;
 
     private volatile boolean isClosed = false;
     private volatile boolean isInit = false;
@@ -119,6 +178,12 @@ public class AuditLoader extends Plugin implements AuditPlugin {
             this.streamLoader = new AuditStreamLoader();
             this.loadThread = new Thread(new LoadWorker(), "audit loader thread");
             this.loadThread.start();
+            // the cluster-wide publication fence: this FE's own horizon must be visible to
+            // the leader that runs the SPM capture, or a follower's backlog stays
+            // invisible to it (see AuditPublicationHorizon)
+            this.horizonReporterThread = new Thread(new HorizonReporter(), "audit horizon reporter");
+            this.horizonReporterThread.setDaemon(true);
+            this.horizonReporterThread.start();
 
             isInit = true;
             runningLoader = this;
@@ -141,6 +206,16 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                 }
             }
         }
+        if (horizonReporterThread != null) {
+            try {
+                horizonReporterThread.join();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        // nothing more will be published from here: drop this FE's reported fence so the
+        // capture does not wait for an FE that is gone
+        AuditPublicationHorizon.clearLocalReport();
     }
 
     public boolean eventFilter(AuditEvent.EventType type) {
@@ -174,6 +249,8 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         long eventTime = event.timestamp;
         if (eventTime > 0 && (batchOldestEventTime == 0 || eventTime < batchOldestEventTime)) {
             batchOldestEventTime = eventTime;
+            // the sample row of a later publish probe (see publishFenceOldestEventTime)
+            batchOldestQueryId = event.queryId == null ? "" : event.queryId;
         }
     }
 
@@ -209,6 +286,12 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         // watermark past the row the loader eventually wrote.
         synchronized (this) {
             long oldest = batchOldestEventTime;
+            // a batch whose load reported Publish Timeout is COMMITTED but still
+            // unreadable: it keeps fencing until its rows are observed (round-36 #2)
+            if (publishFenceOldestEventTime > 0
+                    && (oldest == 0 || publishFenceOldestEventTime < oldest)) {
+                oldest = publishFenceOldestEventTime;
+            }
             // the queue is drained FIFO, but the ENQUEUE order is not the event-time order
             // (the upstream hold releases events by completion, not by start), so every
             // queued event is examined. The queue is a weak-consistency view and the scan
@@ -352,6 +435,11 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         if (auditLogBuffer.length() != 0 && (force || auditLogBuffer.length() >= GlobalVariable.auditPluginMaxBatchBytes
                 || currentTime - lastLoadTimeAuditLog >= GlobalVariable.auditPluginMaxBatchInternalSec * 1000)) {
             // begin to load
+            long batchOldest = batchOldestEventTime;
+            String batchQueryId = batchOldestQueryId;
+            // whether the load's outcome was CONFIRMED published; null = the batch was
+            // never sent (an earlier failure), so there is nothing to fence
+            Boolean published = null;
             try {
                 String token = "";
                 try {
@@ -366,18 +454,153 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("audit loader response: {}", response);
                 }
+                published = batchPublicationConfirmed(response);
+                if (!published) {
+                    LOG.warn("audit loader: the stream load of {} event(s) is not confirmed"
+                            + " published ({}); its rows keep fencing the capture progress"
+                            + " until they become readable", auditLogNum, response);
+                }
             } catch (Exception e) {
+                // a reported error (typically a timeout) may hide a COMMITTED load whose
+                // rows are only not readable yet: fence it like a Publish Timeout
+                published = Boolean.FALSE;
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("encounter exception when putting current audit batch, discard current batch", e);
                 }
                 discardLogNum += auditLogNum;
             } finally {
+                if (published != null && !published) {
+                    retainPublishFence(batchOldest, batchQueryId);
+                }
                 // make a new string builder to receive following events.
                 resetBatch(currentTime);
                 if (discardLogNum > 0) {
                     LOG.info("num of total discarded audit logs: {}", discardLogNum);
                 }
             }
+        }
+    }
+
+    /**
+     * Whether a stream-load response PROVES the batch is published (visible in the shared
+     * audit table). Only an HTTP-OK response whose content does not report
+     * {@code Publish Timeout} does: that status means the transaction is COMMITTED while
+     * its rows are still unreadable, and the previous unconditional batch reset let the
+     * capture advance past them (round-36 #2).
+     */
+    @VisibleForTesting
+    static boolean batchPublicationConfirmed(AuditStreamLoader.LoadResponse response) {
+        if (response == null || response.status != 200) {
+            return false;
+        }
+        String content = response.respContent;
+        if (content == null) {
+            return true;
+        }
+        return !content.toLowerCase(Locale.ROOT).contains("publish timeout");
+    }
+
+    /**
+     * Keeps the fence of a batch whose publication is not confirmed: the OLDEST such batch
+     * (and its sample row) owns the fence; a later timeout extends neither its time nor its
+     * sample, so the total wait stays bounded by {@link #PUBLISH_FENCE_MAX_MILLIS}.
+     */
+    private void retainPublishFence(long batchOldest, String batchQueryId) {
+        if (batchOldest <= 0) {
+            return;
+        }
+        synchronized (this) {
+            if (publishFenceOldestEventTime == 0 || batchOldest < publishFenceOldestEventTime) {
+                publishFenceOldestEventTime = batchOldest;
+                publishFenceQueryId = batchQueryId == null ? "" : batchQueryId;
+            }
+            if (publishFenceSince == 0) {
+                publishFenceSince = System.currentTimeMillis();
+            }
+        }
+    }
+
+    /**
+     * Releases the publish fence once its sample row is READABLE, or after
+     * {@link #PUBLISH_FENCE_MAX_MILLIS} with the row never appearing (the batch was lost -
+     * fencing forever would freeze the capture instead of protecting anything). Called by
+     * the load worker on every tick; unconfirmable probes keep the fence.
+     */
+    private void confirmPublishFence() {
+        long fence;
+        String queryId;
+        synchronized (this) {
+            fence = publishFenceOldestEventTime;
+            queryId = publishFenceQueryId;
+        }
+        if (fence <= 0) {
+            return;
+        }
+        boolean visible = publishVisibilityProbeForTest != null
+                ? publishVisibilityProbeForTest.isVisible(fence, queryId)
+                : publishFenceRowVisible(fence, queryId);
+        if (visible) {
+            clearPublishFence("its rows are readable now");
+            return;
+        }
+        synchronized (this) {
+            if (publishFenceOldestEventTime > 0 && publishFenceSince > 0
+                    && System.currentTimeMillis() - publishFenceSince > PUBLISH_FENCE_MAX_MILLIS) {
+                LOG.warn("audit loader: the Publish-Timeout fence of event time {} is still"
+                        + " unreadable after {} ms; assuming those rows were lost and"
+                        + " releasing the fence", publishFenceOldestEventTime,
+                        PUBLISH_FENCE_MAX_MILLIS);
+                publishFenceOldestEventTime = 0;
+                publishFenceQueryId = "";
+                publishFenceSince = 0;
+            }
+        }
+    }
+
+    private void clearPublishFence(String reason) {
+        synchronized (this) {
+            if (publishFenceOldestEventTime > 0) {
+                LOG.info("audit loader: released the Publish-Timeout fence of event time {}"
+                        + " ({})", publishFenceOldestEventTime, reason);
+            }
+            publishFenceOldestEventTime = 0;
+            publishFenceQueryId = "";
+            publishFenceSince = 0;
+        }
+    }
+
+    /** Real visibility probe of a fenced batch: is its sample audit row readable yet? */
+    private static boolean publishFenceRowVisible(long eventTime, String queryId) {
+        if (queryId == null || queryId.isEmpty()) {
+            return false; // nothing to probe: only the bounded retention releases the fence
+        }
+        try {
+            Map<String, String> params = new HashMap<>();
+            params.put("queryId", StatisticsUtil.escapeSQL(queryId));
+            params.put("eventTime", TimeUtils.longToTimeStringWithms(eventTime));
+            List<ResultRow> rows = StatisticsUtil.executeQuery(PUBLISH_PROBE_SQL, params,
+                    PUBLISH_PROBE_TIMEOUT_SECONDS);
+            return rows != null && !rows.isEmpty();
+        } catch (Exception e) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("audit loader: publish fence probe failed: {}", e.getMessage());
+            }
+            return false; // unconfirmable: keep fencing
+        }
+    }
+
+    /**
+     * The FE identity reported to the shared horizon table. Uses the FE's configured node
+     * name (unique per FE); a missing Env (partial startup) falls back to a constant that
+     * only matters while nothing is published anyway.
+     */
+    static String selfFeName() {
+        try {
+            Env env = Env.getCurrentEnv();
+            String name = env == null ? null : env.getNodeName();
+            return name == null || name.isEmpty() ? "unknown-fe" : name;
+        } catch (Throwable t) {
+            return "unknown-fe";
         }
     }
 
@@ -411,12 +634,59 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                     }
                     // process all audit logs
                     loadIfNecessary(false);
+                    // a batch whose load reported Publish Timeout keeps fencing until its
+                    // rows are readable (round-36 #2)
+                    confirmPublishFence();
                 } catch (InterruptedException ie) {
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("encounter exception when loading current audit batch", ie);
                     }
                 } catch (Exception e) {
                     LOG.error("run audit logger error:", e);
+                }
+            }
+        }
+    }
+
+    /**
+     * Reports THIS FE's audit publication horizon into the shared table so the leader
+     * that runs the capture sees a follower's backlog (round-36 #1). It writes when the
+     * value CHANGED and re-reports an unchanged non-zero value on the keepalive cadence
+     * (the reader ignores rows whose reporter went silent). A zero horizon is reported
+     * once (which removes the row).
+     */
+    private class HorizonReporter implements Runnable {
+
+        @Override
+        public void run() {
+            long lastReported = -1;
+            long lastReportAt = 0;
+            while (!isClosed) {
+                try {
+                    Thread.sleep(HORIZON_REPORT_TICK_MILLIS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                if (isClosed) {
+                    return;
+                }
+                long horizon;
+                try {
+                    horizon = AuditPublicationHorizon.localHorizon();
+                } catch (Throwable t) {
+                    LOG.warn("audit horizon reporter: cannot compute the local horizon: {}",
+                            t.getMessage());
+                    continue;
+                }
+                long now = System.currentTimeMillis();
+                boolean changed = horizon != lastReported;
+                boolean keepAlive = horizon > 0
+                        && now - lastReportAt >= HORIZON_KEEPALIVE_MILLIS;
+                if (changed || keepAlive) {
+                    AuditPublicationHorizon.reportLocalHorizon(horizon);
+                    lastReported = horizon;
+                    lastReportAt = now;
                 }
             }
         }

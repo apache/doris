@@ -28,6 +28,7 @@ import org.apache.doris.nereids.spm.SPMPlanner;
 import org.apache.doris.nereids.spm.SPMUtils;
 import org.apache.doris.nereids.spm.manager.BaselineManager;
 import org.apache.doris.plugin.audit.AuditLoader;
+import org.apache.doris.plugin.audit.AuditPublicationHorizon;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
@@ -444,11 +445,14 @@ public class PlanCaptureManager extends MasterDaemon {
     private long firstAttemptedWindowStart = 0;
 
     /**
-     * The LOCAL audit loader's publication horizon: the start time (epoch millis) of the
-     * oldest audit event this FE's loader has accepted but not published yet (0 = nothing
-     * outstanding). Production reads the live {@link AuditLoader}; tests replace it.
+     * The CLUSTER-WIDE audit publication horizon: the start time (epoch millis) of the
+     * oldest audit event ANY FE has accepted but not published yet (0 = nothing
+     * outstanding), i.e. one this FE's loader owes, one still held / queued before the
+     * loader of any FE, or a follower's batch whose load reported Publish Timeout. The
+     * capture runs on the leader alone, so only the shared view can fence a follower's
+     * backlog (round-36 #1). Production reads the live shared table; tests replace it.
      */
-    private LongSupplier auditQueueHorizon = AuditLoader::oldestUnpublishedEventTime;
+    private LongSupplier auditQueueHorizon = AuditPublicationHorizon::clusterHorizon;
 
     // capture statistics (design doc 7.2.1 / 7.2.6)
     private final AtomicLong successCount = new AtomicLong(0);
@@ -598,6 +602,21 @@ public class PlanCaptureManager extends MasterDaemon {
             pendingWindowNeedsPromptResume = false;
 
             long currentTime = System.currentTimeMillis();
+            // The CLUSTER-WIDE publication fence: the oldest audit event ANY FE has
+            // accepted but not published yet (round-36 #1: the local loader queue alone
+            // cannot see a follower's backlog - the capture runs on the leader, and the
+            // follower's row would land behind the advanced watermark). An unreadable
+            // shared table means the fence is INCOMPLETE, so the cycle is skipped and
+            // retried promptly instead of advancing blind.
+            long publicationHorizon;
+            try {
+                publicationHorizon = auditQueueHorizon.getAsLong();
+            } catch (RuntimeException e) {
+                pendingWindowNeedsPromptResume = true;
+                LOG.warn("Plan capture cycle skipped: the cluster audit publication horizon"
+                        + " could not be read", e);
+                return;
+            }
             // a non-positive interval / batch size can never be written through SQL SET
             // (see SessionVariable), but clamp defensively: an interval of 0 would make
             // every window empty and a batch size of 0 would return LIMIT 0, mark the
@@ -612,7 +631,7 @@ public class PlanCaptureManager extends MasterDaemon {
             long[] window = resolveScanWindow(lastScanTimestamp, pendingWindowStart, pendingWindowEnd,
                     currentTime, intervalMs,
                     scanWindowOverlapMs(GlobalVariable.auditPluginMaxBatchInternalSec,
-                            auditQueueHorizon.getAsLong(), currentTime),
+                            publicationHorizon, currentTime),
                     firstAttemptedWindowStart);
             long scanStart = window[0];
             long scanEnd = window[1];
@@ -1897,7 +1916,7 @@ public class PlanCaptureManager extends MasterDaemon {
         checkpointWriter = (sql, params) -> StatisticsUtil.execUpdate(
                 sql, params, CHECKPOINT_IO_TIMEOUT_SECONDS);
         checkpointSeamsForTest = false;
-        auditQueueHorizon = AuditLoader::oldestUnpublishedEventTime;
+        auditQueueHorizon = AuditPublicationHorizon::clusterHorizon;
         successCount.set(0);
         skipDuplicateCount.set(0);
         skipSingleTableCount.set(0);

@@ -51,6 +51,15 @@ public class AuditEventProcessor {
     private BlockingQueue<AuditEvent> eventQueue = Queues.newLinkedBlockingDeque();
     private Thread workerThread;
 
+    /**
+     * The event the worker has DEQUEUED and is currently handing to the audit plugins,
+     * or null between events. A plugin (​{@link AuditLogBuilder}, the builtin audit
+     * loader, ...) runs with the event OUT of the queue, so a horizon built from the
+     * queue alone would report "nothing outstanding" while an accepted event is still
+     * unpublished (round-36 #3).
+     */
+    private volatile AuditEvent processingEvent;
+
     private volatile boolean isStopped = false;
 
     private Set<String> skipAuditUsers = Sets.newHashSet();
@@ -86,6 +95,30 @@ public class AuditEventProcessor {
                 LOG.warn("join worker join failed.", e);
             }
         }
+    }
+
+    /**
+     * Start time (epoch millis, the {@code time} column of {@code audit_log}) of the
+     * OLDEST audit event this processor has QUEUED or is currently processing, 0 when it
+     * has neither. Part of the SPM capture's publication fence: a completed query enters
+     * this queue before any audit loader sees it, and a plugin can stall while its event
+     * is already dequeued (round-36 #3).
+     */
+    public long oldestQueuedOrInFlightEventTime() {
+        long oldest = 0;
+        AuditEvent processing = processingEvent;
+        if (processing != null && processing.timestamp > 0) {
+            oldest = processing.timestamp;
+        }
+        for (AuditEvent event : eventQueue) {
+            if (event == null || event.timestamp <= 0) {
+                continue;
+            }
+            if (oldest == 0 || event.timestamp < oldest) {
+                oldest = event.timestamp;
+            }
+        }
+        return oldest;
     }
 
     public boolean handleAuditEvent(AuditEvent auditEvent) {
@@ -136,6 +169,10 @@ public class AuditEventProcessor {
                 }
 
                 try {
+                    // the event is OUT of the queue while the plugins run: publish it as the
+                    // in-flight fence so a concurrent horizon read still sees it (see
+                    // oldestQueuedOrInFlightEventTime)
+                    processingEvent = auditEvent;
                     for (Plugin plugin : auditPlugins) {
                         if (((AuditPlugin) plugin).eventFilter(auditEvent.type)) {
                             ((AuditPlugin) plugin).exec(auditEvent);
@@ -143,6 +180,8 @@ public class AuditEventProcessor {
                     }
                 } catch (Exception e) {
                     LOG.warn("encounter exception when processing audit events. ignore", e);
+                } finally {
+                    processingEvent = null;
                 }
             }
         }

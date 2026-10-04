@@ -77,13 +77,13 @@ suite("test_spm_review_round27", "spm") {
 
     sql """DROP MATERIALIZED VIEW IF EXISTS spm_r27_mv"""
     // the baseline is frozen while NO eligible MV exists: the fingerprint pins the source
-    // table and the frozen plan reads it
-    String agg = "SELECT k, SUM(v) FROM spm_r27_mv_t GROUP BY k"
+    // table and the frozen plan reads it. ORDER BY is part of the query text (and of the
+    // baseline), so the pinned replay results below are deterministic.
+    String agg = "SELECT k, SUM(v) FROM spm_r27_mv_t GROUP BY k ORDER BY k"
     long aggId = createBaseline(agg, agg)
     assertTrue(explainOf(agg).contains("SPM baseline hit: id=${aggId}"),
             "the aggregate baseline must be hit: " + explainOf(agg))
-    assertEquals("[[1, 3], [2, 3], [3, 4]]", sql(agg).sort().toString(),
-            "the frozen aggregate reads the source table")
+    order_qt_r27_frozen_agg """SELECT k, SUM(v) FROM spm_r27_mv_t GROUP BY k ORDER BY k"""
 
     // ... an eligible async MTMV appears afterwards and is refreshed
     sql """
@@ -123,8 +123,7 @@ suite("test_spm_review_round27", "spm") {
             "the replay must keep scanning the frozen source table: " + explainOf(agg))
     assertFalse(explainOf(agg).contains("spm_r27_mv chose"),
             "the MTMV must not be substituted into the replay: " + explainOf(agg))
-    assertEquals("[[1, 3], [2, 3], [3, 4]]", sql(agg).sort().toString(),
-            "the frozen aggregate must return the same rows with the MTMV present")
+    order_qt_r27_frozen_agg_with_mv """SELECT k, SUM(v) FROM spm_r27_mv_t GROUP BY k ORDER BY k"""
 
     // ==================== #2: the ambiguous per-occurrence swap is rejected ============
     sql """DROP TABLE IF EXISTS spm_r27_sj"""
@@ -144,12 +143,12 @@ suite("test_spm_review_round27", "spm") {
         exception "DIFFERENT occurrences"
     }
     // the aligned pair keeps working and keeps reading exactly its own partitions
-    String aligned = "SELECT a.k, b.k FROM spm_r27_sj PARTITION(p1) a CROSS JOIN spm_r27_sj PARTITION(p2) b"
+    String aligned = "SELECT a.k, b.k FROM spm_r27_sj PARTITION(p1) a CROSS JOIN spm_r27_sj" +
+            " PARTITION(p2) b ORDER BY a.k, b.k"
     long alignedId = createBaseline(aligned, aligned)
     assertTrue(explainOf(aligned).contains("SPM baseline hit: id=${alignedId}"),
             "the aligned self-join baseline must be hit: " + explainOf(aligned))
-    assertEquals([[1, 11]], sql(aligned).sort(),
-            "each occurrence must keep reading its own pinned partition")
+    order_qt_r27_pinned_self_join """SELECT a.k, b.k FROM spm_r27_sj PARTITION(p1) a CROSS JOIN spm_r27_sj PARTITION(p2) b ORDER BY a.k, b.k"""
 
     // a pinned join of two DIFFERENT tables whose column names collide: every column is
     // referenced through the occurrence alias, so both pinned scans are wrapped
@@ -169,11 +168,12 @@ suite("test_spm_review_round27", "spm") {
     """
     sql """INSERT INTO spm_r27_a VALUES (1), (2)"""
     sql """INSERT INTO spm_r27_b VALUES (1), (3)"""
-    String pinnedJoin = "SELECT a.k, b.k FROM spm_r27_a PARTITION(p1) a CROSS JOIN spm_r27_b PARTITION(p1) b"
+    String pinnedJoin = "SELECT a.k, b.k FROM spm_r27_a PARTITION(p1) a CROSS JOIN spm_r27_b" +
+            " PARTITION(p1) b ORDER BY a.k, b.k"
     long pinnedJoinId = createBaseline(pinnedJoin, pinnedJoin)
     assertTrue(explainOf(pinnedJoin).contains("SPM baseline hit: id=${pinnedJoinId}"),
             "the pinned two-table baseline must be hit: " + explainOf(pinnedJoin))
-    assertEquals([[1, 1], [1, 3], [2, 1], [2, 3]], sql(pinnedJoin).sort())
+    order_qt_r27_pinned_join """SELECT a.k, b.k FROM spm_r27_a PARTITION(p1) a CROSS JOIN spm_r27_b PARTITION(p1) b ORDER BY a.k, b.k"""
 
     assertEquals(3, ownBaselines().size(),
             "only the two aligned pairs and the aggregate may exist: " + ownBaselines())

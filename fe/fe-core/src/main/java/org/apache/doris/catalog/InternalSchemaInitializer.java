@@ -133,11 +133,12 @@ public class InternalSchemaInitializer extends Thread {
 
     /**
      * Internal tables whose replica count is raised towards
-     * {@link StatisticConstants#STATISTIC_INTERNAL_TABLE_REPLICA_NUM}. The three SPM
-     * tables carry cluster-wide state: with the default minimum replication of 1 they are
-     * created single-replica, and losing the hosting BE would make every global baseline
-     * unavailable, erase the only capture handoff cursor, or make the id watermark / every
-     * global CREATE BASELINE PLAN unreadable.
+     * {@link StatisticConstants#STATISTIC_INTERNAL_TABLE_REPLICA_NUM}. The SPM tables carry
+     * cluster-wide state: with the default minimum replication of 1 they are created
+     * single-replica, and losing the hosting BE would make every global baseline
+     * unavailable, erase the only capture handoff cursor, make the id watermark / every
+     * global CREATE BASELINE PLAN unreadable, or silently drop the audit publication fence
+     * of a whole FE.
      */
     @VisibleForTesting
     static final List<String> REPLICA_UPGRADED_INTERNAL_TABLES = Lists.newArrayList(
@@ -146,7 +147,8 @@ public class InternalSchemaInitializer extends Thread {
             AuditLoader.AUDIT_LOG_TABLE,
             InternalSchema.SPM_BASELINES_TBL_NAME,
             InternalSchema.SPM_BASELINES_SEQ_TBL_NAME,
-            InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME);
+            InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME,
+            InternalSchema.SPM_AUDIT_HORIZON_TBL_NAME);
 
     public void modifyColumnStatsTblSchema() {
         while (true) {
@@ -445,6 +447,7 @@ public class InternalSchemaInitializer extends Thread {
         createTable(getSpmBaselinesCreateSql());
         createTable(getSpmBaselinesSeqCreateSql());
         createTable(getSpmCaptureCheckpointCreateSql());
+        createTable(getSpmAuditHorizonCreateSql());
     }
 
     /**
@@ -973,6 +976,42 @@ public class InternalSchemaInitializer extends Thread {
                 generateColumnDefinitions(InternalSchema.getCopiedSchema(tableName)), getPropertyStr(properties));
     }
 
+    /**
+     * CREATE SQL of the cluster-wide audit publication horizon table: one row per FE
+     * (upserted by its own audit loader) holding the start time of the oldest audit event
+     * that FE has accepted but not yet published. The SPM capture reads the MINIMUM over
+     * the fresh rows so a follower's delayed event cannot fall behind the leader's
+     * advanced scan watermark (see InternalSchema#SPM_AUDIT_HORIZON_TBL_NAME).
+     */
+    private static String getSpmAuditHorizonCreateSql() throws UserException {
+        String catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        String dbName = FeConstants.INTERNAL_DB_NAME;
+        String tableName = InternalSchema.SPM_AUDIT_HORIZON_TBL_NAME;
+
+        Map<String, String> properties = new HashMap<String, String>() {
+            {
+                put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, String.valueOf(
+                        Math.max(1, Config.min_replication_num_per_tablet)));
+                // merge-on-write makes each FE's per-row upsert atomic, exactly like the
+                // capture checkpoint: a reporter crash can never leave the fence of that
+                // FE half-written
+                put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true");
+            }
+        };
+
+        String template =
+                "CREATE TABLE IF NOT EXISTS `%s`.`%s`.`%s` (\n"
+                        + "%s\n"
+                        + ") ENGINE = olap\n"
+                        + "UNIQUE KEY(`fe_name`)\n"
+                        + "COMMENT \"Doris internal audit publication horizon table, DO NOT MODIFY IT\"\n"
+                        + "DISTRIBUTED BY HASH(`fe_name`)\n"
+                        + "BUCKETS 1\n"
+                        + "PROPERTIES (%s)";
+        return String.format(template, catalogName, dbName, tableName,
+                generateColumnDefinitions(InternalSchema.getCopiedSchema(tableName)), getPropertyStr(properties));
+    }
+
     private static String getPropertyStr(Map<String, String> properties) {
         StringBuilder propertiesStr = new StringBuilder();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
@@ -1086,6 +1125,13 @@ public class InternalSchemaInitializer extends Thread {
             return false;
         }
 
+        // 4d. check the audit publication horizon table the same way: the capture reads its
+        // rows to fence a follower's still-unpublished backlog, so an upgraded cluster must
+        // gain it too (round-36 #1).
+        if (isSpmAuditHorizonTableMissing(db)) {
+            return false;
+        }
+
         // 5. check and update audit table schema
         OlapTable auditTable = (OlapTable) optionalTable.get();
 
@@ -1128,6 +1174,18 @@ public class InternalSchemaInitializer extends Thread {
     @VisibleForTesting
     static boolean isSpmBaselinesSeqTableMissing(Database db) {
         return !db.getTable(InternalSchema.SPM_BASELINES_SEQ_TBL_NAME).isPresent();
+    }
+
+    /**
+     * Whether the audit publication horizon internal table is absent. Package-visible for
+     * the upgrade test, exactly like {@link #isSpmBaselinesTableMissing}.
+     *
+     * @param db the internal schema database
+     * @return true when spm_audit_horizon does not exist yet
+     */
+    @VisibleForTesting
+    static boolean isSpmAuditHorizonTableMissing(Database db) {
+        return !db.getTable(InternalSchema.SPM_AUDIT_HORIZON_TBL_NAME).isPresent();
     }
 
     private boolean alterAuditSchemaIfNeeded(OlapTable auditTable) {

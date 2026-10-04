@@ -70,8 +70,8 @@ suite("test_spm_group_concat", "spm") {
             "multi_distinct_group_concat must freeze as GROUP_CONCAT(DISTINCT ...): " + dedupFrozen)
     assertTrue(dedupFrozen.contains("ORDER BY"),
             "the ORDER BY of the dedup aggregate must survive the freeze: " + dedupFrozen)
-    assertEquals("1,2", sql(dedupSql)[0][0].toString(),
-            "the replay must keep the dedup (GROUP_CONCAT(k1) would return 1,1,2)")
+    order_qt_dedup_replay """select multi_distinct_group_concat(k1 order by k1) as s
+        from spm_gc_t where k2 = 1"""
 
     // ==================== distinct + order is decompiled, not fallen back ====================
     String distinctOrderSql = "select group_concat(distinct k1 order by k1) as s" +
@@ -96,8 +96,7 @@ suite("test_spm_group_concat", "spm") {
             "the plain group_concat must also be decompiled: " + plainFrozen)
     assertFalse(plainFrozen.toUpperCase().contains("DISTINCT"),
             "no DISTINCT may be invented for a plain group_concat: " + plainFrozen)
-    assertEquals("1,1,2", sql(plainSql)[0][0].toString(),
-            "the plain group_concat must keep its duplicates")
+    order_qt_plain_replay """select group_concat(k1 order by k1) as s from spm_gc_t where k2 = 1"""
 
     // leave no baselines behind for other runs
     ownBaselines().each { row ->

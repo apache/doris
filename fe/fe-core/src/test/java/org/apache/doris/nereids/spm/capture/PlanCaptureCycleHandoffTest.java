@@ -388,6 +388,37 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
+     * round-36 #1: the cluster-wide publication horizon is read through the shared
+     * per-FE fence table. When that read fails, the fence is INCOMPLETE - advancing the
+     * watermark could drop a follower's still-unpublished row - so the cycle is skipped
+     * and rescheduled PROMPTLY instead of waiting a full interval.
+     */
+    @Test
+    public void testUnreadableClusterHorizonSkipsTheCycleAndRetriesPromptly() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            RecordingScanner scanner = new RecordingScanner(List.of(), true,
+                    AuditLogScanner.CURSOR_ABSENT, "", "", "");
+            manager.setScannerForTest(scanner);
+            manager.setAuditQueueHorizonForTest(() -> {
+                throw new IllegalStateException("spm_audit_horizon read timed out");
+            });
+
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+
+            Assertions.assertEquals(0, scanner.calls.get(),
+                    "an incomplete fence must not consume the window");
+            Assertions.assertTrue(manager.isPendingWindowResumePromptForTest(),
+                    "the retry must be scheduled promptly, not after a full capture"
+                            + " interval with nothing scanned");
+        } finally {
+            manager.resetForTest();
+        }
+    }
+
+    /**
      * A reservation whose internal INSERT returned OK with transaction status COMMITTED
      * (publication timed out) is NOT readable yet. Consuming the window anyway relies on
      * a reservation no takeover can read: a leadership change before publication makes

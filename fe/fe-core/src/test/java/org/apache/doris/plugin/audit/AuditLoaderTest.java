@@ -27,6 +27,8 @@ import com.google.common.collect.Queues;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
@@ -250,6 +252,77 @@ public class AuditLoaderTest {
         }
         Assertions.assertEquals(0L, AuditLoader.oldestUnpublishedEventTime(),
                 "no running loader = no known delay");
+    }
+
+    // round-36 #2: a stream load can return Publish Timeout AFTER commit while its rows
+    // stay unreadable. The batch must be fenced until publication is confirmed - the
+    // previous unconditional batch reset let the capture advance past those rows, so
+    // their late publication landed behind the watermark.
+    @Test
+    public void testPublishTimeoutKeepsFencingUntilTheRowsAreReadable() throws Exception {
+        AuditLoader loader = new AuditLoader();
+        setPrivateField(loader, "auditEventQueue", Queues.newLinkedBlockingDeque());
+        setRunningLoader(loader);
+        List<Long> probes = new ArrayList<>();
+        boolean[] readable = {false};
+        AuditLoader.publishVisibilityProbeForTest = (eventTime, queryId) -> {
+            probes.add(eventTime);
+            return readable[0];
+        };
+        try {
+            // the load reported Publish Timeout: the batch's oldest event (and its sample
+            // query id) fences progress even though the batch itself was reset
+            Deencapsulation.invoke(loader, "retainPublishFence", 10_000L, "qid-timeout");
+            Deencapsulation.invoke(loader, "resetBatch", System.currentTimeMillis());
+            Assertions.assertEquals(10_000L, AuditLoader.oldestUnpublishedEventTime(),
+                    "the committed-but-unreadable batch keeps fencing after the batch reset");
+
+            // still unreadable: the fence holds
+            Deencapsulation.invoke(loader, "confirmPublishFence");
+            Assertions.assertEquals(10_000L, AuditLoader.oldestUnpublishedEventTime(),
+                    "an unconfirmable / still-invisible batch must keep fencing");
+
+            // the delayed publication lands: the fence is released
+            readable[0] = true;
+            Deencapsulation.invoke(loader, "confirmPublishFence");
+            Assertions.assertEquals(0L, AuditLoader.oldestUnpublishedEventTime(),
+                    "once the rows are readable the fence must be released");
+            Assertions.assertEquals(Arrays.asList(10_000L, 10_000L), probes,
+                    "the probe must ask for the fenced batch's own event time: " + probes);
+
+            // a fence that never becomes readable is released after the retention bound
+            Deencapsulation.invoke(loader, "retainPublishFence", 20_000L, "qid-lost");
+            setPrivateField(loader, "publishFenceSince",
+                    System.currentTimeMillis() - AuditLoader.PUBLISH_FENCE_MAX_MILLIS - 1);
+            readable[0] = false;
+            Deencapsulation.invoke(loader, "confirmPublishFence");
+            Assertions.assertEquals(0L, AuditLoader.oldestUnpublishedEventTime(),
+                    "a batch that never becomes readable must not fence forever");
+        } finally {
+            AuditLoader.publishVisibilityProbeForTest = null;
+            setRunningLoader(null);
+        }
+    }
+
+    // round-36 #2: the response is the only evidence of the load's real outcome.
+    @Test
+    public void testBatchPublicationConfirmationReadsTheLoadResponse() {
+        Assertions.assertFalse(AuditLoader.batchPublicationConfirmed(null),
+                "no response object = nothing confirmed");
+        Assertions.assertFalse(AuditLoader.batchPublicationConfirmed(
+                new AuditStreamLoader.LoadResponse(200, "OK",
+                        "{\"Status\": \"Publish Timeout\", \"TxnId\": 7}")),
+                "Publish Timeout is committed but NOT visible: it must fence");
+        Assertions.assertFalse(AuditLoader.batchPublicationConfirmed(
+                new AuditStreamLoader.LoadResponse(500, "Internal error", "oops")),
+                "a non-OK status never proves publication");
+        Assertions.assertTrue(AuditLoader.batchPublicationConfirmed(
+                new AuditStreamLoader.LoadResponse(200, "OK",
+                        "{\"Status\": \"Success\", \"TxnId\": 7}")),
+                "a clean success is published");
+        Assertions.assertTrue(AuditLoader.batchPublicationConfirmed(
+                new AuditStreamLoader.LoadResponse(200, "OK", null)),
+                "an OK response without content stays confirmed (the pre-existing contract)");
     }
 
     private static AuditEvent event(long timestamp) {

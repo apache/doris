@@ -418,4 +418,22 @@ public class WorkloadRuntimeStatusMgrTest {
         mgr.rebuildQueryStatisticsSnapshot();
         return mgr.getQueryStatisticsMap();
     }
+
+    // round-36 #3: a completed query the manager still HOLDS (it enters the pipeline
+    // before the audit event processor / any audit loader sees it, and is only released
+    // after query_audit_log_timeout_ms) must be part of the SPM capture's publication
+    // fence - otherwise its row lands behind the advanced scan watermark.
+    @Test
+    public void testOldestHeldAuditEventTimeIsThePublicationFence() {
+        Assertions.assertEquals(0L, mgr.oldestHeldAuditEventTime(),
+                "an empty hold list has nothing outstanding");
+
+        mgr.submitFinishQueryToAudit(new AuditEvent.AuditEventBuilder()
+                .setQueryId("qid-9000").setTimestamp(9_000L).setStmt("select 1").build());
+        mgr.submitFinishQueryToAudit(new AuditEvent.AuditEventBuilder()
+                .setQueryId("qid-4000").setTimestamp(4_000L).setStmt("select 2").build());
+
+        Assertions.assertEquals(4_000L, mgr.oldestHeldAuditEventTime(),
+                "the OLDEST held event fences, regardless of submission order");
+    }
 }

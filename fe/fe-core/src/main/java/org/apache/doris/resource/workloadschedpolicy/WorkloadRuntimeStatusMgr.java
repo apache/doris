@@ -163,6 +163,35 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         }
     }
 
+    /**
+     * Start time (epoch millis, the {@code time} column of {@code audit_log}) of the
+     * OLDEST completed query this FE still HOLDS for auditing, 0 when it holds none.
+     *
+     * <p>A completed query enters {@code queryAuditEventList} BEFORE the audit event
+     * processor - and therefore before any audit loader or the shared table - sees it,
+     * and it stays here until {@code query_audit_log_timeout_ms} expires (or the expected
+     * backends reported). The SPM capture's publication fence must include it: otherwise
+     * the row's release lands behind the capture's advanced scan watermark and the query
+     * is never captured (round-36 #3).
+     */
+    public long oldestHeldAuditEventTime() {
+        long oldest = 0;
+        queryAuditEventLogWriteLock();
+        try {
+            for (AuditEvent event : queryAuditEventList) {
+                if (event == null || event.timestamp <= 0) {
+                    continue;
+                }
+                if (oldest == 0 || event.timestamp < oldest) {
+                    oldest = event.timestamp;
+                }
+            }
+        } finally {
+            queryAuditEventLogWriteUnlock();
+        }
+        return oldest;
+    }
+
     private List<AuditEvent> getQueryNeedAudit() {
         long currentTime = System.currentTimeMillis();
         int queryAuditLogTimeout = Config.query_audit_log_timeout_ms;

@@ -316,6 +316,17 @@ class InternalSchemaInitializerTest {
                 .thenReturn(Optional.of(Mockito.mock(Table.class)));
         Assertions.assertFalse(InternalSchemaInitializer.isSpmBaselinesSeqTableMissing(db),
                 "an existing spm_baselines_seq table must not block completion");
+
+        // round-36 #1: the audit publication horizon table gates completion the same way -
+        // without it the capture cannot fence progress with a follower's backlog
+        Mockito.when(db.getTable(InternalSchema.SPM_AUDIT_HORIZON_TBL_NAME))
+                .thenReturn(Optional.empty());
+        Assertions.assertTrue(InternalSchemaInitializer.isSpmAuditHorizonTableMissing(db),
+                "a cluster where only spm_audit_horizon is absent must not count as initialized");
+        Mockito.when(db.getTable(InternalSchema.SPM_AUDIT_HORIZON_TBL_NAME))
+                .thenReturn(Optional.of(Mockito.mock(Table.class)));
+        Assertions.assertFalse(InternalSchemaInitializer.isSpmAuditHorizonTableMissing(db),
+                "an existing spm_audit_horizon table must not block completion");
     }
 
     /**
@@ -360,6 +371,25 @@ class InternalSchemaInitializerTest {
                         .contains(InternalSchema.SPM_BASELINES_SEQ_TBL_NAME),
                 "spm_baselines_seq must be raised as well: an unreadable id sequence"
                         + " fails every global CREATE BASELINE PLAN (round-32 #2)");
+        Assertions.assertTrue(InternalSchemaInitializer.REPLICA_UPGRADED_INTERNAL_TABLES
+                        .contains(InternalSchema.SPM_AUDIT_HORIZON_TBL_NAME),
+                "spm_audit_horizon must be raised as well: losing the hosting BE silently"
+                        + " drops the publication fence of a whole FE (round-36 #1)");
+    }
+
+    /** The completion gate must also create / cover the audit publication horizon table. */
+    @Test
+    public void testCreateTblCoversSpmAuditHorizonTable() throws Exception {
+        Method method = InternalSchemaInitializer.class.getDeclaredMethod("getSpmAuditHorizonCreateSql");
+        method.setAccessible(true);
+        String sql = (String) method.invoke(null);
+        Assertions.assertTrue(sql.contains("CREATE TABLE IF NOT EXISTS"
+                        + " `internal`.`__internal_schema`.`spm_audit_horizon`"),
+                "the SPM completion gate re-runs createTbl(): it must create the table: " + sql);
+        Assertions.assertTrue(sql.contains("UNIQUE KEY(`fe_name`)"),
+                "one row per FE is upserted by that FE's audit loader: " + sql);
+        Assertions.assertTrue(sql.contains("`horizon_ms`") && sql.contains("`update_time`"),
+                "the fence value and its freshness column must exist: " + sql);
     }
 
     /**
