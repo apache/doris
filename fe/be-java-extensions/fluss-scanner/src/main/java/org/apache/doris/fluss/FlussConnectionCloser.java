@@ -99,14 +99,26 @@ final class FlussConnectionCloser {
      * are closing already. A failure to close is logged and nothing else: the scans the connection
      * served have already returned their rows, and nothing may fail over the cleanup of one of their
      * connections.
+     *
+     * <p>Nothing else holds a connection by the time it gets here - the pool and the range have let go of
+     * it - so one that cannot be handed to a closer thread is closed by the caller. Handing it over
+     * allocates the task and perhaps a thread, which fails with an {@code OutOfMemoryError} while BE's JVM
+     * heap is full or no native thread is to be had; dropped there, the connection would keep its threads
+     * and sockets for the life of the process.
      */
     static void close(Connection connection) {
-        CLOSER.execute(() -> {
-            try {
-                connection.close();
-            } catch (Exception e) {
-                LOG.warn("Failed to close a fluss connection", e);
-            }
-        });
+        try {
+            CLOSER.execute(() -> closeQuietly(connection));
+        } catch (RuntimeException | Error handoffFailure) {
+            closeQuietly(connection);
+        }
+    }
+
+    private static void closeQuietly(Connection connection) {
+        try {
+            connection.close();
+        } catch (Exception e) {
+            LOG.warn("Failed to close a fluss connection", e);
+        }
     }
 }

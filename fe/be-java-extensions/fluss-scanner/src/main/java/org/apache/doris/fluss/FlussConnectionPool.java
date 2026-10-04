@@ -24,14 +24,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
 
@@ -53,12 +52,16 @@ import java.util.function.LongSupplier;
  * default) would be shared by every primary-key range copying its kv snapshot at the same moment, where
  * each such range used to have three of its own. Lending a connection to one range at a time keeps every
  * range's client resources what they were; what changes is that a connection outlives its range and
- * serves the next one. The pool never holds more connections than ranges were read at once.
+ * serves the next one. So the pool never holds more connections for a client configuration than ranges
+ * with that configuration have been read at once.
  *
  * <p><b>Keyed by the whole client configuration.</b> A connection goes back to the ranges that would have
  * opened it with the same settings, so ranges of catalogs with different servers, credentials or client
  * options never share one. The key holds whatever the configuration holds, credentials included, and is
- * never logged.
+ * never logged. The bound above is per configuration, not for the pool as a whole: what is idle under
+ * each configuration adds up until it is closed. One catalog alone has two, since its {@code PK_FULL}
+ * ranges leave the log read preference at fluss's default and its other ranges set it
+ * ({@code FlussJniScanner#clientConfig}).
  *
  * <p><b>Idle connections are closed after {@link #IDLE_TIMEOUT_NANOS}.</b> What one burst of ranges
  * opened is there for the next burst and closed, through the closer, once nothing has borrowed it for
@@ -74,8 +77,8 @@ final class FlussConnectionPool {
     /** How often idle connections are looked at: one lives at most this much past its timeout. */
     private static final long REAP_INTERVAL_SECONDS = 10;
 
-    static final FlussConnectionPool INSTANCE =
-            new FlussConnectionPool(ConnectionFactory::createConnection, System::nanoTime);
+    static final FlussConnectionPool INSTANCE = new FlussConnectionPool(
+            ConnectionFactory::createConnection, System::nanoTime, FlussConnectionCloser::close);
 
     static {
         ScheduledExecutorService reaper = Executors.newSingleThreadScheduledExecutor(runnable -> {
@@ -92,6 +95,8 @@ final class FlussConnectionPool {
 
     private final Function<Configuration, Connection> factory;
     private final LongSupplier nanoTime;
+    /** Closes, without waiting for it, a connection the pool lets go of: {@link FlussConnectionCloser#close}. */
+    private final Consumer<Connection> closer;
 
     /**
      * Idle connections by the configuration they were opened with, the most recently returned last. A
@@ -99,9 +104,11 @@ final class FlussConnectionPool {
      */
     private final Map<Map<String, String>, ArrayDeque<Idle>> idle = new HashMap<>();
 
-    FlussConnectionPool(Function<Configuration, Connection> factory, LongSupplier nanoTime) {
+    FlussConnectionPool(Function<Configuration, Connection> factory, LongSupplier nanoTime,
+            Consumer<Connection> closer) {
         this.factory = factory;
         this.nanoTime = nanoTime;
+        this.closer = closer;
     }
 
     /**
@@ -143,33 +150,55 @@ final class FlussConnectionPool {
      * ({@code FlussJniScanner#closeInternal}); closed under the copy, the connection would strand it.
      */
     void discard(Lease lease) {
-        FlussConnectionCloser.close(lease.connection);
+        closer.accept(lease.connection);
     }
 
-    /** Closes, without waiting for them, the connections nobody has borrowed for {@code idleNanos}. */
+    /**
+     * Closes, without waiting for them, the connections nobody has borrowed for {@code idleNanos}.
+     *
+     * <p>One at a time: a connection leaves the pool only to be handed to the closer at once. Nothing else
+     * holds it then, so an {@code OutOfMemoryError} between taking it and handing it over would leave it
+     * open, threads and sockets, for the life of the process - and while BE's JVM heap is full, the error
+     * strikes whatever allocates. Taken out together into a list and handed over after a log line, every
+     * expired connection was out of the pool while the list grew, the line was logged and each close was
+     * submitted, which is where nearly all of a sweep's allocation is, and an error there lost all of them.
+     */
     void closeIdleLongerThan(long idleNanos) {
         long now = nanoTime.getAsLong();
-        List<Connection> expired = new ArrayList<>();
+        int closed = 0;
+        for (Connection connection = takeExpired(now, idleNanos); connection != null;
+                connection = takeExpired(now, idleNanos)) {
+            // Outside the lock: a close the closer hands back to this thread takes two seconds.
+            closer.accept(connection);
+            closed++;
+        }
+        if (closed > 0) {
+            LOG.info("Closing {} fluss connections nobody has borrowed for {} seconds", closed,
+                    TimeUnit.NANOSECONDS.toSeconds(idleNanos));
+        }
+    }
+
+    /**
+     * Takes one connection idle for {@code idleNanos} at {@code now} out of the pool, or returns null if
+     * none is. Nothing may allocate between unlinking it and returning it ({@link #closeIdleLongerThan}):
+     * the deque only unlinks it, and the iterator removes an emptied entry by the hash the map stored
+     * rather than hashing the configuration again.
+     */
+    private Connection takeExpired(long now, long idleNanos) {
         synchronized (idle) {
             Iterator<ArrayDeque<Idle>> keys = idle.values().iterator();
             while (keys.hasNext()) {
                 ArrayDeque<Idle> connections = keys.next();
-                // A deque is in the order its connections came back, so the expired ones are at its head.
-                while (!connections.isEmpty() && now - connections.peekFirst().since >= idleNanos) {
-                    expired.add(connections.pollFirst().connection);
-                }
-                if (connections.isEmpty()) {
-                    keys.remove();
+                // A deque is in the order its connections came back, so an expired one is at its head.
+                if (now - connections.peekFirst().since >= idleNanos) {
+                    Connection connection = connections.pollFirst().connection;
+                    if (connections.isEmpty()) {
+                        keys.remove();
+                    }
+                    return connection;
                 }
             }
-        }
-        if (!expired.isEmpty()) {
-            LOG.info("Closing {} fluss connections nobody has borrowed for {} seconds", expired.size(),
-                    TimeUnit.NANOSECONDS.toSeconds(idleNanos));
-        }
-        // Outside the lock: a close the closer hands back to this thread takes two seconds.
-        for (Connection connection : expired) {
-            FlussConnectionCloser.close(connection);
+            return null;
         }
     }
 

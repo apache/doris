@@ -49,6 +49,7 @@ import java.util.NoSuchElementException;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.LockSupport;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import javax.annotation.Nullable;
@@ -341,14 +342,17 @@ final class SafeKvSnapshotAndLogBatchScanner implements BatchScanner {
             // Only early cancellation needs a waiter. A dedicated daemon avoids deadlocking the
             // ForkJoin common pool that Fluss 1.0 also uses for its initializer, while normal scans
             // create no extra thread at all.
-            Thread closeAfterPublication = new Thread(
-                    this::awaitPublicationAndClose, "fluss-snapshot-publication-close");
-            closeAfterPublication.setDaemon(true);
             try {
+                Thread closeAfterPublication = new Thread(
+                        this::awaitPublicationAndClose, "fluss-snapshot-publication-close");
+                closeAfterPublication.setDaemon(true);
                 closeAfterPublication.start();
             } catch (RuntimeException | Error startFailure) {
-                // Losing the waiter would recreate the native leak. Fall back to waiting on this
-                // cancellation thread; publication/failure is the only safe point for the SDK close.
+                // Losing the waiter would recreate the native leak, and keep the connection, which
+                // FlussJniScanner hands back only once released() completes, open for good. A thread
+                // that could not be built - an OutOfMemoryError while the heap is full - is as lost as
+                // one that could not start. Fall back to waiting on this cancellation thread;
+                // publication/failure is the only safe point for the SDK close.
                 awaitPublicationAndClose();
                 throw startFailure;
             }
@@ -366,6 +370,13 @@ final class SafeKvSnapshotAndLogBatchScanner implements BatchScanner {
                     // registry has been closed, so the delegate is safe to close at this point too.
                     closeDelegateQuietly();
                     return;
+                } catch (OutOfMemoryError pollFailure) {
+                    // This thread allocated while BE's JVM heap was full, as it may well be: a range is
+                    // often closed early because its query filled the heap. That is no initialization
+                    // failure - those arrive above, as exceptions - so the delegate must not be closed
+                    // yet, and nothing but this thread will close it, nor hand back the connection that
+                    // waits for it. Keep waiting; the failed query's memory comes back as it closes.
+                    LockSupport.parkNanos(PUBLICATION_POLL.toNanos());
                 }
             }
         }

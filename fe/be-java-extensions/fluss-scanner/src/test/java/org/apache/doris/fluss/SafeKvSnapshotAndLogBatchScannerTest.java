@@ -162,6 +162,26 @@ public class SafeKvSnapshotAndLogBatchScannerTest {
         Assertions.assertEquals(1, snapshot.closeCalls.get());
     }
 
+    /**
+     * A range is often closed early because its query filled BE's JVM heap, and the waiter's polls
+     * allocate. Ended by an OutOfMemoryError on its own thread, the waiter would leave the SDK scanner
+     * open and the connection waiting for released() for good; it has to keep waiting instead.
+     */
+    @Test
+    public void publicationWaiterOutlastsAnOutOfMemoryErrorOnItsOwnThread() throws Exception {
+        LatePublishingSnapshotScanner snapshot = new LatePublishingSnapshotScanner();
+        SafeKvSnapshotAndLogBatchScanner.ScannerResources resources =
+                acquireSnapshotOnly(new OutOfMemoryOnFirstPoll(snapshot));
+        resources.snapshotScanner.close();
+
+        Assertions.assertTrue(snapshot.pollEntered.await(5, TimeUnit.SECONDS),
+                "the waiter did not poll again after an OutOfMemoryError on its thread");
+        snapshot.publishNativeReader();
+        resources.snapshotScanner.released().get(5, TimeUnit.SECONDS);
+        Assertions.assertEquals(1, snapshot.closeCalls.get(),
+                "the SDK scanner must be closed exactly once, after publication");
+    }
+
     /** Opens a range that reads only {@code snapshot}: its log range is empty. */
     private static SafeKvSnapshotAndLogBatchScanner.ScannerResources acquireSnapshotOnly(BatchScanner snapshot) {
         SafeKvSnapshotAndLogBatchScanner.ScannerFactory factory =
@@ -265,6 +285,29 @@ public class SafeKvSnapshotAndLogBatchScannerTest {
 
         private void publishNativeReader() {
             published.countDown();
+        }
+    }
+
+    /** The first poll fails as an allocation on the polling thread does while the heap is full. */
+    private static final class OutOfMemoryOnFirstPoll implements BatchScanner {
+        private final BatchScanner delegate;
+        private final AtomicBoolean failed = new AtomicBoolean();
+
+        private OutOfMemoryOnFirstPoll(BatchScanner delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public CloseableIterator<InternalRow> pollBatch(Duration timeout) throws IOException {
+            if (failed.compareAndSet(false, true)) {
+                throw new OutOfMemoryError("simulated: Java heap space");
+            }
+            return delegate.pollBatch(timeout);
+        }
+
+        @Override
+        public void close() throws IOException {
+            delegate.close();
         }
     }
 }

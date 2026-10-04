@@ -394,6 +394,9 @@ public class FlussJniScanner extends JniScanner {
                 // under that copy, the connection would drop the files still queued, and the reader would
                 // wait for them forever - with the pool thread it runs on, the thread waiting to close it,
                 // and the half-copied snapshot directory. So the connection waits for the reader instead.
+                // handBack is a discard here, since a range whose snapshot never arrived was not read to
+                // its end, and a connection no closer thread can take is closed on the thread completing
+                // released (FlussConnectionCloser#close): the future thenRun returns has nothing to report.
                 released.thenRun(handBack);
             }
             lease = null;

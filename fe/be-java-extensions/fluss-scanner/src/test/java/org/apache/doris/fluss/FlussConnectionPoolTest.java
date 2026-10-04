@@ -54,7 +54,8 @@ public class FlussConnectionPoolTest {
     private final AtomicLong now = new AtomicLong();
     /** One per connection opened, counted down when it is closed. Opened outside the pool's lock. */
     private final List<CountDownLatch> closes = Collections.synchronizedList(new ArrayList<>());
-    private final FlussConnectionPool pool = new FlussConnectionPool(config -> open(), now::get);
+    private final FlussConnectionPool pool =
+            new FlussConnectionPool(config -> open(), now::get, FlussConnectionCloser::close);
 
     @Test
     public void rangeBorrowsTheConnectionTheRangeBeforeItGaveBack() {
@@ -196,7 +197,7 @@ public class FlussConnectionPoolTest {
         FlussConnectionPool failing = new FlussConnectionPool(config -> open(), () -> {
             sweeps.incrementAndGet();
             throw new OutOfMemoryError("simulated: Java heap space");
-        });
+        }, FlussConnectionCloser::close);
         ScheduledExecutorService reaper = Executors.newSingleThreadScheduledExecutor();
         try {
             reaper.scheduleWithFixedDelay(() -> FlussConnectionPool.sweep(failing), 0, 1, TimeUnit.MILLISECONDS);
@@ -208,6 +209,37 @@ public class FlussConnectionPoolTest {
             reaper.shutdownNow();
         }
         Assertions.assertTrue(sweeps.get() >= 3, "sweeps after the first error: " + (sweeps.get() - 1));
+    }
+
+    /**
+     * The same error, struck while the sweep is handing its connections to the closer: it may cost the
+     * one being handed over, never the ones the sweep had not reached. Those stay in the pool, and the
+     * next sweep closes them; out of it, nothing would ever close them.
+     */
+    @Test
+    public void sweepThatFailsMidwayKeepsTheConnectionsItHadNotHandedOver() throws Exception {
+        AtomicInteger handedOver = new AtomicInteger();
+        FlussConnectionPool failing = new FlussConnectionPool(config -> open(), now::get, connection -> {
+            if (handedOver.incrementAndGet() == 2) {
+                throw new OutOfMemoryError("simulated: Java heap space");
+            }
+            FlussConnectionCloser.close(connection);
+        });
+        FlussConnectionPool.Lease first = failing.borrow(config("server-a:9123"));
+        FlussConnectionPool.Lease second = failing.borrow(config("server-a:9123"));
+        FlussConnectionPool.Lease third = failing.borrow(config("server-a:9123"));
+        failing.giveBack(first);
+        failing.giveBack(second);
+        failing.giveBack(third);
+        now.addAndGet(FlussConnectionPool.IDLE_TIMEOUT_NANOS);
+
+        FlussConnectionPool.sweep(failing);
+        Assertions.assertTrue(closes.get(0).await(PATIENCE_SECONDS, TimeUnit.SECONDS), "the first was never closed");
+        Assertions.assertEquals(1, failing.idleCount(), "connections the failed sweep had not reached");
+
+        FlussConnectionPool.sweep(failing);
+        Assertions.assertEquals(0, failing.idleCount());
+        Assertions.assertTrue(closes.get(2).await(PATIENCE_SECONDS, TimeUnit.SECONDS), "the third was never closed");
     }
 
     private Connection open() {
