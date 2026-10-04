@@ -41,10 +41,11 @@ protected:
 
     void TearDown() override { config::jni_scanner_heap_max_wait_ms = _saved_max_wait_ms; }
 
+    // For a reader whose scan never stops, so it always ends up admitted.
     void acquire(int64_t mb, JniScanHeapGate::Permit* permit, int64_t* wait_ns = nullptr) {
         int64_t ignored = 0;
-        _gate.acquire(
-                mb * MB, []() { return false; }, permit, wait_ns ? wait_ns : &ignored);
+        EXPECT_TRUE(_gate.acquire(
+                mb * MB, []() { return false; }, permit, wait_ns ? wait_ns : &ignored));
     }
 
     // Acquires `permit` on a thread of its own and reports when it got it.
@@ -168,7 +169,7 @@ TEST_F(JniScanHeapGateTest, ABiggerBudgetAppliesToTheReadersAlreadyWaiting) {
     EXPECT_EQ(_gate.admitted_bytes(), 600 * MB);
 }
 
-TEST_F(JniScanHeapGateTest, StopsWaitingWhenAskedTo) {
+TEST_F(JniScanHeapGateTest, AReaderWhoseScanStopsLeavesWithoutAShare) {
     JniScanHeapGate::Permit holder;
     acquire(500, &holder);
 
@@ -179,16 +180,64 @@ TEST_F(JniScanHeapGateTest, StopsWaitingWhenAskedTo) {
     });
     JniScanHeapGate::Permit stopped;
     int64_t wait_ns = 0;
-    _gate.acquire(
-            100 * MB, [&cancelled]() { return cancelled.load(); }, &stopped, &wait_ns);
+    // Its query is cancelled while it waits. Admitting it would open a Java scanner above the budget
+    // for a query with nothing left to read - all of that query's waiting readers at once.
+    EXPECT_FALSE(_gate.acquire(
+            100 * MB, [&cancelled]() { return cancelled.load(); }, &stopped, &wait_ns));
     canceller.join();
-    // Admitted beyond the budget, so that the reader can see the stop itself; the permit is real and
-    // gives its share back like any other.
-    EXPECT_TRUE(stopped.held());
-    EXPECT_EQ(_gate.admitted_bytes(), 600 * MB);
-    EXPECT_GE(wait_ns, 200LL * 1000 * 1000);
-    stopped.release();
+    EXPECT_FALSE(stopped.held());
+    EXPECT_EQ(_gate.holders(), 1);
     EXPECT_EQ(_gate.admitted_bytes(), 500 * MB);
+    EXPECT_EQ(_gate.waiters(), 0);
+    EXPECT_GE(wait_ns, 200LL * 1000 * 1000);
+}
+
+TEST_F(JniScanHeapGateTest, AReaderWhoseScanHasStoppedTakesNothingEvenWhenItFits) {
+    JniScanHeapGate::Permit permit;
+    int64_t wait_ns = -1;
+    EXPECT_FALSE(_gate.acquire(
+            100 * MB, []() { return true; }, &permit, &wait_ns));
+    EXPECT_FALSE(permit.held());
+    EXPECT_EQ(_gate.holders(), 0);
+    EXPECT_EQ(_gate.admitted_bytes(), 0);
+    EXPECT_EQ(_gate.waiters(), 0);
+    EXPECT_LT(wait_ns, 100LL * 1000 * 1000);
+}
+
+TEST_F(JniScanHeapGateTest, AStoppedReaderFirstInLineLetsTheNextOneIn) {
+    JniScanHeapGate::Permit holder;
+    acquire(300, &holder);
+
+    // 300 + 400 > 500: the large reader waits first in line, and a small one behind it although
+    // 300 + 100 would fit.
+    std::atomic<bool> large_stopped {false};
+    std::atomic<bool> large_returned {false};
+    JniScanHeapGate::Permit large;
+    std::thread large_waiter([this, &large_stopped, &large_returned, &large]() {
+        int64_t ignored = 0;
+        EXPECT_FALSE(_gate.acquire(
+                400 * MB, [&large_stopped]() { return large_stopped.load(); }, &large, &ignored));
+        large_returned.store(true);
+    });
+    ASSERT_TRUE(waiters_become(1));
+    JniScanHeapGate::Permit small;
+    std::atomic<bool> small_admitted {false};
+    auto small_waiter = acquire_async(100, &small, &small_admitted);
+    ASSERT_TRUE(waiters_become(2));
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    EXPECT_FALSE(small_admitted.load());
+
+    // The large reader's scan stops: it leaves the line, and the small one, first now, fits while
+    // the holder still holds its share.
+    large_stopped.store(true);
+    EXPECT_TRUE(becomes_true(large_returned));
+    EXPECT_TRUE(becomes_true(small_admitted));
+    large_waiter.join();
+    small_waiter.join();
+    EXPECT_FALSE(large.held());
+    EXPECT_EQ(_gate.holders(), 2);
+    EXPECT_EQ(_gate.admitted_bytes(), 400 * MB);
+    EXPECT_EQ(_gate.waiters(), 0);
 }
 
 TEST_F(JniScanHeapGateTest, GivesUpWaitingAfterTheLongestWait) {

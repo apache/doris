@@ -46,10 +46,12 @@ namespace doris {
 // JVM hold, and garbage nobody has collected yet, are not the gate's business.
 //
 // Readers that do not fit wait in the order they came, so a large one is not passed over for ever by
-// small ones arriving behind it. Three things end a wait whatever the account says: no reader holding
-// a share (nobody would give one back for this reader, so one that declares more than the whole budget
-// runs alone), the caller asking to stop waiting (a cancelled query), and the wait outlasting
-// jni_scanner_heap_max_wait_ms.
+// small ones arriving behind it. Two things admit a waiting reader whatever the account says: no
+// reader holding a share (nobody would give one back for this reader, so one that declares more than
+// the whole budget runs alone), and the wait outlasting jni_scanner_heap_max_wait_ms. A reader whose
+// scan stops while it waits - a cancelled query, a satisfied limit - leaves the line without a share
+// and opens nothing: admitting it would let every waiting reader of a cancelled query open at once,
+// above the budget.
 class JniScanHeapGate {
 public:
     // Held by a reader from before its Java scanner opens until that scanner is closed.
@@ -78,12 +80,12 @@ public:
     // of the -Xmx the JVM was started with.
     static JniScanHeapGate* instance();
 
-    // Waits until `bytes` fit (see the class comment) and hands the reader `permit` for them.
-    // `stop_waiting` is asked whenever the gate looks again; once it answers true the reader is
-    // admitted without further waiting, and is expected to notice the stop itself. `wait_ns` gets the
-    // time spent here.
-    void acquire(int64_t bytes, const std::function<bool()>& stop_waiting, Permit* permit,
-                 int64_t* wait_ns);
+    // Waits until `bytes` fit (see the class comment), hands the reader `permit` for them and returns
+    // true. `stop_waiting` is asked whenever the gate looks, the first time before any wait; once it
+    // answers true the reader leaves the line without a permit and this returns false: its scan has
+    // stopped, and it must not open its Java scanner. `wait_ns` gets the time spent here.
+    [[nodiscard]] bool acquire(int64_t bytes, const std::function<bool()>& stop_waiting,
+                               Permit* permit, int64_t* wait_ns);
 
     int64_t admitted_bytes() const;
     int64_t holders() const;
