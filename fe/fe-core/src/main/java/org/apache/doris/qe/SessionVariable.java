@@ -819,6 +819,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PAIMON_RUST_READER = "enable_paimon_rust_reader";
 
+    public static final String ENABLE_JNI_HEAP_ADMISSION = "enable_jni_heap_admission";
+
     public static final String ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE = "enable_count_push_down_for_external_table";
 
     public static final String FETCH_ALL_FE_FOR_SYSTEM_TABLE = "fetch_all_fe_for_system_table";
@@ -3015,6 +3017,14 @@ public class SessionVariable implements Serializable, Writable {
             fuzzy = true,
             description = "Prefer paimon-rust for eligible Paimon reads")
     private boolean enablePaimonRustReader = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_JNI_HEAP_ADMISSION, needForward = true,
+            description = "Whether the JNI readers that hold much of BE's JVM heap - a paimon split read "
+                    + "through JNI, a fluss primary-key bucket or log tail - declare how much they will hold, "
+                    + "so that BE opens them only while what its open readers declared fits in "
+                    + "jni_scanner_heap_budget_ratio of the JVM's maximum heap. Off by default: such a read "
+                    + "that needs more heap than the JVM has fails with OutOfMemoryError instead")
+    public boolean enableJniHeapAdmission = false;
 
     @VarAttrDef.VarAttr(name = ENABLE_COUNT_PUSH_DOWN_FOR_EXTERNAL_TABLE,
             fuzzy = true,
