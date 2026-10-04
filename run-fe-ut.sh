@@ -219,7 +219,8 @@ FE_MODULES+=("fe-connector/fe-connector-fluss")
 # Listed one by one rather than as the aggregator: -pl on an aggregator selects that pom and none
 # of its children. Keep in sync with the module list in build.sh, which is the other complete
 # enumeration of this directory.
-for be_java_extension in jni-spi jni-bootstrap plugin-toolkit hive-apache-shade hive-udf-shade \
+for be_java_extension in jni-spi jni-bootstrap plugin-toolkit fluss-client-patch \
+    hive-apache-shade hive-udf-shade \
     hadoop-deps iceberg-metadata-scanner hadoop-hudi-scanner java-udf jdbc-scanner paimon-scanner \
     fluss-scanner max-compute-connector trino-connector-scanner java-writer; do
     FE_MODULES+=("be-java-extensions/${be_java_extension}")
