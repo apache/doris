@@ -86,4 +86,34 @@ public class NumericArithmeticTest {
                 new BigIntLiteral(compareValue), thresholdLiterals);
         Assertions.assertEquals(expected, result.getValue());
     }
+
+    @Test
+    public void testCeilAndRoundKeepSignedZero() {
+        DoubleLiteral ceil = (DoubleLiteral) NumericArithmetic.ceil(new DoubleLiteral(-0.5));
+        Assertions.assertTrue(isNegativeZero(ceil.getValue()));
+
+        DoubleLiteral round = (DoubleLiteral) NumericArithmetic.round(new DoubleLiteral(-0.4));
+        Assertions.assertTrue(isNegativeZero(round.getValue()));
+
+        round = (DoubleLiteral) NumericArithmetic.round(new DoubleLiteral(0.4));
+        Assertions.assertFalse(isNegativeZero(round.getValue()));
+
+        // half away from zero, like std::round
+        Assertions.assertEquals(3.0,
+                ((DoubleLiteral) NumericArithmetic.round(new DoubleLiteral(2.5))).getValue());
+        Assertions.assertEquals(-3.0,
+                ((DoubleLiteral) NumericArithmetic.round(new DoubleLiteral(-2.5))).getValue());
+        Assertions.assertEquals(2.0,
+                ((DoubleLiteral) NumericArithmetic.ceil(new DoubleLiteral(1.2))).getValue());
+        Assertions.assertEquals(-1.0,
+                ((DoubleLiteral) NumericArithmetic.ceil(new DoubleLiteral(-1.5))).getValue());
+        Assertions.assertEquals(Double.POSITIVE_INFINITY, ((DoubleLiteral) NumericArithmetic
+                .ceil(new DoubleLiteral(Double.POSITIVE_INFINITY))).getValue());
+        Assertions.assertTrue(Double.isNaN(
+                ((DoubleLiteral) NumericArithmetic.round(new DoubleLiteral(Double.NaN))).getValue()));
+    }
+
+    private static boolean isNegativeZero(double value) {
+        return value == 0 && Double.doubleToRawLongBits(value) == Double.doubleToRawLongBits(-0.0);
+    }
 }
