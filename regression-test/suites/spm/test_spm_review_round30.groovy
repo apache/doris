@@ -43,6 +43,13 @@ suite("test_spm_review_round30", "spm") {
     // surface as an error, never silently re-run the original query.
     sql """set enable_spm_fallback = false"""
     sql """set enable_spm_rewrite = true"""
+    // The unix_timestamp(k2) assertion below converts DATETIME values using the
+    // SESSION time_zone, and this suite's .out file pins the +08:00 epochs. Without
+    // this the FE default comes from the runner's HOST zone: on a UTC runner the same
+    // query yields values 28,800 seconds later and the suite fails although SPM behaved
+    // correctly. A fixed offset (not 'Asia/Shanghai') keeps the expectation independent
+    // of the tzdata installed on the runner as well.
+    sql """set time_zone = '+08:00'"""
 
     // ==================== setup: table (drop before use, keep after) ====================
     sql """DROP TABLE IF EXISTS spm_r30_t1"""

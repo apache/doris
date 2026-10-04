@@ -133,10 +133,11 @@ public class InternalSchemaInitializer extends Thread {
 
     /**
      * Internal tables whose replica count is raised towards
-     * {@link StatisticConstants#STATISTIC_INTERNAL_TABLE_REPLICA_NUM}. The two SPM tables
-     * carry cluster-wide state: with the default minimum replication of 1 they are created
-     * single-replica, and losing the hosting BE would make every global baseline
-     * unavailable or erase the only capture handoff cursor.
+     * {@link StatisticConstants#STATISTIC_INTERNAL_TABLE_REPLICA_NUM}. The three SPM
+     * tables carry cluster-wide state: with the default minimum replication of 1 they are
+     * created single-replica, and losing the hosting BE would make every global baseline
+     * unavailable, erase the only capture handoff cursor, or make the id watermark / every
+     * global CREATE BASELINE PLAN unreadable.
      */
     @VisibleForTesting
     static final List<String> REPLICA_UPGRADED_INTERNAL_TABLES = Lists.newArrayList(
@@ -144,6 +145,7 @@ public class InternalSchemaInitializer extends Thread {
             StatisticConstants.PARTITION_STATISTIC_TBL_NAME,
             AuditLoader.AUDIT_LOG_TABLE,
             InternalSchema.SPM_BASELINES_TBL_NAME,
+            InternalSchema.SPM_BASELINES_SEQ_TBL_NAME,
             InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME);
 
     public void modifyColumnStatsTblSchema() {
@@ -441,6 +443,7 @@ public class InternalSchemaInitializer extends Thread {
          */
         createTable(getAuditLogCreateSql());
         createTable(getSpmBaselinesCreateSql());
+        createTable(getSpmBaselinesSeqCreateSql());
         createTable(getSpmCaptureCheckpointCreateSql());
     }
 
@@ -633,6 +636,11 @@ public class InternalSchemaInitializer extends Thread {
      *   plan_capture_include_pattern` applied mid-window terminally filter away rows the
      *   window's earlier pages had admitted: they are then neither captured nor inside
      *   the next window's overlap.
+     * - scan_zone: the session time_zone (zone ID) the current scan pass rendered its
+     *   bounds in. audit_log.time is the WRITER's local rendering; after `SET GLOBAL
+     *   time_zone` the stored rows of the previous rendering fall outside bounds rendered
+     *   in the new zone, so the next pass must re-render the same window in this zone
+     *   (and only then in the new one).
      */
     @VisibleForTesting
     static final Map<String, ScalarType> SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS = new LinkedHashMap<>();
@@ -649,6 +657,11 @@ public class InternalSchemaInitializer extends Thread {
         SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS.put("include_pattern",
                 ScalarType.createType(PrimitiveType.STRING));
         SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS.put("exclude_pattern",
+                ScalarType.createType(PrimitiveType.STRING));
+        // the zone ID of the last scan pass (the zone the scanned rows' timestamps were
+        // rendered in): after a global time_zone change the next pass re-renders the window
+        // in this zone, otherwise rows already stored under it are unreachable.
+        SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS.put("scan_zone",
                 ScalarType.createType(PrimitiveType.STRING));
     }
 
@@ -673,6 +686,7 @@ public class InternalSchemaInitializer extends Thread {
         SPM_CAPTURE_CHECKPOINT_UPGRADE_POSITIONS.put("min_scan_rows", "min_query_time_ms");
         SPM_CAPTURE_CHECKPOINT_UPGRADE_POSITIONS.put("include_pattern", "min_scan_rows");
         SPM_CAPTURE_CHECKPOINT_UPGRADE_POSITIONS.put("exclude_pattern", "include_pattern");
+        SPM_CAPTURE_CHECKPOINT_UPGRADE_POSITIONS.put("scan_zone", "exclude_pattern");
     }
 
     /**
@@ -927,6 +941,38 @@ public class InternalSchemaInitializer extends Thread {
                 generateColumnDefinitions(InternalSchema.getCopiedSchema(tableName)), getPropertyStr(properties));
     }
 
+    /**
+     * CREATE SQL of the SPM baseline id sequence table: append-only rows (id = 1) whose
+     * MAX(last_id) is the id high-water mark of the create path. It must survive a DROP
+     * of the baseline that held the highest id - the baselines table's own MAX(id) falls
+     * back with the row, and a reused id would let a delayed DROP-by-id retry remove a
+     * DIFFERENT baseline (see InternalSchema#SPM_BASELINES_SEQ_TBL_NAME).
+     */
+    private static String getSpmBaselinesSeqCreateSql() throws UserException {
+        String catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
+        String dbName = FeConstants.INTERNAL_DB_NAME;
+        String tableName = InternalSchema.SPM_BASELINES_SEQ_TBL_NAME;
+
+        Map<String, String> properties = new HashMap<String, String>() {
+            {
+                put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, String.valueOf(
+                        Math.max(1, Config.min_replication_num_per_tablet)));
+            }
+        };
+
+        String template =
+                "CREATE TABLE IF NOT EXISTS `%s`.`%s`.`%s` (\n"
+                        + "%s\n"
+                        + ") ENGINE = olap\n"
+                        + "DUPLICATE KEY(`id`)\n"
+                        + "COMMENT \"Doris internal SPM baseline id sequence table, DO NOT MODIFY IT\"\n"
+                        + "DISTRIBUTED BY HASH(`id`)\n"
+                        + "BUCKETS 1\n"
+                        + "PROPERTIES (%s)";
+        return String.format(template, catalogName, dbName, tableName,
+                generateColumnDefinitions(InternalSchema.getCopiedSchema(tableName)), getPropertyStr(properties));
+    }
+
     private static String getPropertyStr(Map<String, String> properties) {
         StringBuilder propertiesStr = new StringBuilder();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
@@ -1033,6 +1079,13 @@ public class InternalSchemaInitializer extends Thread {
             return false;
         }
 
+        // 4c. check the SPM baseline id sequence table the same way: without it the create
+        // path cannot read / advance the id high-water mark and every CREATE BASELINE would
+        // fail retryably.
+        if (isSpmBaselinesSeqTableMissing(db)) {
+            return false;
+        }
+
         // 5. check and update audit table schema
         OlapTable auditTable = (OlapTable) optionalTable.get();
 
@@ -1063,6 +1116,18 @@ public class InternalSchemaInitializer extends Thread {
     @VisibleForTesting
     static boolean isSpmCaptureCheckpointTableMissing(Database db) {
         return !db.getTable(InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME).isPresent();
+    }
+
+    /**
+     * Whether the SPM baseline id sequence internal table is absent. Package-visible for
+     * the upgrade test, exactly like {@link #isSpmBaselinesTableMissing}.
+     *
+     * @param db the internal schema database
+     * @return true when spm_baselines_seq does not exist yet
+     */
+    @VisibleForTesting
+    static boolean isSpmBaselinesSeqTableMissing(Database db) {
+        return !db.getTable(InternalSchema.SPM_BASELINES_SEQ_TBL_NAME).isPresent();
     }
 
     private boolean alterAuditSchemaIfNeeded(OlapTable auditTable) {

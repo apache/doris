@@ -471,6 +471,33 @@ public class AuditLogScanner {
     public ScanBatch scan(long startTimeMs, long endTimeMs, int maxBatchSize,
             PlanCaptureFilter filter, long cursorQueryTime, String cursorTime,
             String cursorQueryId, String cursorTail) {
+        return scan(startTimeMs, endTimeMs, maxBatchSize, filter, cursorQueryTime,
+                cursorTime, cursorQueryId, cursorTail, null);
+    }
+
+    /**
+     * As the eight-argument overload, with the zone the window must be rendered in when
+     * its cursor does not carry one (a window whose FIRST pass runs now).
+     *
+     * <p>audit_log.time is the audit WRITER's local rendering and the writer follows the
+     * global session time_zone, so after {@code SET GLOBAL time_zone} the rows published
+     * BEFORE the change are stored in the OLD rendering and are invisible to bounds
+     * rendered in the new zone - the reviewer's example: a 10:00 UTC row stored as
+     * "10:00" is searched as [17:00, 20:00) after the zone becomes +08, the (empty) page
+     * looks exhausted and the watermark moves past the row forever. The window is
+     * therefore opened in the zone the PREVIOUS scan used while that differs from the
+     * global zone: the old rendering's rows are found first, and the following pass (see
+     * PlanCaptureManager's exhaustion branch) revisits the SAME window in the new zone
+     * for the rows published after the change. Each pass is a single rendering, so the
+     * keyset pagination keeps walking one consistent total order.
+     *
+     * @param firstPassZoneId zone ID of the previous scan pass (empty / null = follow the
+     *                        current global time_zone)
+     * @return the scan batch (candidates + resume cursor)
+     */
+    public ScanBatch scan(long startTimeMs, long endTimeMs, int maxBatchSize,
+            PlanCaptureFilter filter, long cursorQueryTime, String cursorTime,
+            String cursorQueryId, String cursorTail, String firstPassZoneId) {
         // The bounds are rendered in the zone the AUDIT WRITER used (the global session
         // time_zone, see auditWriteZone) - not the FE host zone - because
         // __internal_schema.audit_log.time stores the writer's rendering. A PENDING
@@ -480,6 +507,15 @@ public class AuditLogScanner {
         // and skip the whole unconsumed range. Only a NEW window follows a changed
         // global zone.
         ZoneId auditZone = scanZoneFor(cursorTail);
+        if (zoneOfTail(cursorTail) == null && firstPassZoneId != null && !firstPassZoneId.isEmpty()) {
+            ZoneId firstPassZone = parseZone(firstPassZoneId);
+            if (firstPassZone != null && !firstPassZone.equals(auditZone)) {
+                LOG.info("SPM audit scan opens the window in zone {} (the global time_zone is"
+                        + " now {}): its already published rows were rendered under the"
+                        + " previous zone", firstPassZone, auditZone);
+                auditZone = firstPassZone;
+            }
+        }
         // window bounds as MONOTONE wall-clock ranges: a UTC window crossing a DST
         // transition renders as several local ranges (see localTimeRanges), never as one
         // inverted range that matches nothing
@@ -493,7 +529,7 @@ public class AuditLogScanner {
         long minScanRows = filter.getMinScanRows();
         String sql = buildScanSql(windowRanges, limit, minQueryTimeMs, minScanRows,
                 cursorPredicate(cursorQueryTime, cursorTime, cursorQueryId, cursorTail),
-                zoneOffsetSwingSeconds(auditZone));
+                zoneOffsetSwingSeconds(auditZone), lateCompletionFloor(startTimeMs, auditZone));
 
         // bounded statement timeout: see AUDIT_SCAN_TIMEOUT_SECONDS (the no-timeout
         // overload would inherit the 12h analyze timeout)
@@ -540,11 +576,25 @@ public class AuditLogScanner {
         if (tail == null || tail.getZoneId() == null || tail.getZoneId().isEmpty()) {
             return null;
         }
+        return parseZone(tail.getZoneId());
+    }
+
+    /**
+     * The zone ID recorded in a cursor tail, or null when the tail is absent / carries no
+     * (parsable) zone - a caller deciding whether the window still owes a pass in another
+     * zone needs exactly this distinction (see PlanCaptureManager's scan-zone handoff).
+     */
+    static String zoneIdOfTail(String cursorTail) {
+        ZoneId zone = zoneOfTail(cursorTail);
+        return zone == null ? null : zone.getId();
+    }
+
+    /** Parses a zone ID (aliases allowed); an unusable value is null, never an error. */
+    private static ZoneId parseZone(String zoneId) {
         try {
-            return ZoneId.of(tail.getZoneId(), TimeUtils.timeZoneAliasMap);
+            return ZoneId.of(zoneId, TimeUtils.timeZoneAliasMap);
         } catch (RuntimeException e) {
-            LOG.warn("SPM audit scan ignores an unparsable cursor zone '{}': {}",
-                    tail.getZoneId(), e.getMessage());
+            LOG.warn("SPM audit scan ignores an unparsable zone '{}': {}", zoneId, e.getMessage());
             return null;
         }
     }
@@ -829,6 +879,24 @@ public class AuditLogScanner {
     static String buildScanSql(List<String[]> windowRanges, int maxBatchSize,
             long minQueryTimeMs, long minScanRows, String cursorPredicate,
             long offsetSwingSeconds) {
+        return buildScanSql(windowRanges, maxBatchSize, minQueryTimeMs, minScanRows,
+                cursorPredicate, offsetSwingSeconds,
+                completeWindowFloor(windowRanges.get(0)[0]));
+    }
+
+    /**
+     * As the six-argument overload with an EXPLICIT completion floor (the top-level
+     * partition-pruning lower bound), rendered by the caller from the window-start
+     * INSTANT (see {@link #lateCompletionFloor}): the string form is civil arithmetic and
+     * therefore wrong across a DST transition (see
+     * {@link #completeWindowFloor(String)}).
+     *
+     * @param floor the already rendered completion floor (see {@link #lateCompletionFloor})
+     * @return the scan SQL
+     */
+    static String buildScanSql(List<String[]> windowRanges, int maxBatchSize,
+            long minQueryTimeMs, long minScanRows, String cursorPredicate,
+            long offsetSwingSeconds, String floor) {
         // The window lower bound is COMPLETION-aware: audit_log.time is the query's START
         // time, but its row is published only when the query FINISHES. A long-running
         // query started at 11:50 is absent from the 12:00 scan; without the
@@ -861,7 +929,6 @@ public class AuditLogScanner {
         // direction, which is the safe side for a late-completion lookback.
         String start = windowRanges.get(0)[0];
         String lastEnd = windowRanges.get(windowRanges.size() - 1)[1];
-        String floor = completeWindowFloor(start);
         String completionBound = "timestampadd(SECOND, CAST(`query_time` / 1000 AS BIGINT)"
                 + (offsetSwingSeconds == 0 ? "" : " + " + offsetSwingSeconds)
                 + ", `time`)";
@@ -878,6 +945,25 @@ public class AuditLogScanner {
                 + (cursorPredicate == null ? "" : cursorPredicate)
                 + ORDER_BY
                 + "LIMIT " + maxBatchSize;
+    }
+
+    /**
+     * The completion floor computed from the window-start INSTANT in the scan zone: the
+     * window start minus {@link #LATE_COMPLETION_LOOKBACK_MILLIS}, rendered in the same
+     * zone the bounds are rendered in. Subtracting from the instant (not from the civil
+     * {@code LocalDateTime}) is what keeps the lookback exactly 24 hours across a DST
+     * transition: for a window starting 2026-03-08 03:05 PDT the civil subtraction yields
+     * 03:05 PST (25 hours earlier) while the instant subtraction yields the intended
+     * 02:05 PST - and a query started 02:30 PST that ran ~23h40m into the window was
+     * rejected by the too-late floor on every later scan, although it is inside the
+     * promised lookback.
+     *
+     * @param startTimeMs window start (epoch millis)
+     * @param zone        the zone the bounds are rendered in
+     * @return the rendered floor timestamp
+     */
+    static String lateCompletionFloor(long startTimeMs, ZoneId zone) {
+        return formatTimestamp(startTimeMs - LATE_COMPLETION_LOOKBACK_MILLIS, zone);
     }
 
     /**
@@ -902,9 +988,13 @@ public class AuditLogScanner {
     }
 
     /**
-     * The partitionable floor of the completion-aware lower bound: the window start minus
-     * {@link #LATE_COMPLETION_LOOKBACK_MILLIS}, rendered like the window bounds. An
-     * unparsable timestamp keeps the start itself (never a LESS bounded range).
+     * The partitionable floor of the completion-aware lower bound derived from the rendered
+     * window start WITHOUT a zone: civil arithmetic on the local timestamp. It is only
+     * exact for a fixed-offset rendering - across a DST transition the subtraction lands
+     * an hour off the intended instant - so the production scan computes the floor from
+     * the window-start INSTANT instead (see {@link #lateCompletionFloor}); this form is
+     * kept for the string-only builders (tests, legacy single-range callers). An unparsable
+     * timestamp keeps the start itself (never a LESS bounded range).
      */
     private static String completeWindowFloor(String start) {
         try {

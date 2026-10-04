@@ -143,6 +143,13 @@ public class BaselineManager {
     interface IdAllocatorStoreForTest {
         long watermark();
 
+        default long seqWatermark() {
+            return 0;
+        }
+
+        default void reserveId(long id) {
+        }
+
         void insert(BaselinePlan plan);
 
         List<BaselinePlan> readById(long id);
@@ -229,6 +236,10 @@ public class BaselineManager {
     private static final String SPM_BASELINES_TABLE =
             FeConstants.INTERNAL_DB_NAME + "." + InternalSchema.SPM_BASELINES_TBL_NAME;
 
+    /** The append-only id reservation table (see InternalSchema#SPM_BASELINES_SEQ_TBL_NAME). */
+    private static final String SPM_BASELINES_SEQ_TABLE =
+            FeConstants.INTERNAL_DB_NAME + "." + InternalSchema.SPM_BASELINES_SEQ_TBL_NAME;
+
     /** Column order follows InternalSchema.SPM_BASELINES_SCHEMA (unpaged selection). */
     private static final String SNAPSHOT_COLUMNS =
             "SELECT `id`, `bind_sql`, `bind_sql_digest`,"
@@ -268,6 +279,20 @@ public class BaselineManager {
     /** The persistence-layer id watermark (see the class javadoc "Id source"): read
      *  before every id allocation. MAX over an aggregate is a light single-row query. */
     private static final String SELECT_MAX_ID_SQL = "SELECT MAX(`id`) FROM " + SPM_BASELINES_TABLE;
+
+    /**
+     * The id high-water mark that OUTLIVES the rows (see
+     * {@link InternalSchema#SPM_BASELINES_SEQ_TBL_NAME}): MAX(last_id) over the append-only
+     * reservation rows. The baselines table's own MAX(id) falls back to a lower value as
+     * soon as its highest row is DROPped, and an id reused for a DIFFERENT baseline would
+     * let a delayed {@code DROP BASELINE PLAN IF EXISTS N} retry delete the new baseline.
+     */
+    private static final String SELECT_SEQ_ID_SQL = "SELECT MAX(`last_id`) FROM "
+            + SPM_BASELINES_SEQ_TABLE;
+
+    /** Appends one reservation row (the id just allocated). Append-only: MAX never falls. */
+    private static final String INSERT_SEQ_ID_SQL = "INSERT INTO " + SPM_BASELINES_SEQ_TABLE
+            + " VALUES (1, ${lastId})";
 
     /**
      * The consistency fence of the paginated snapshot read (see
@@ -736,6 +761,11 @@ public class BaselineManager {
                 long now = System.currentTimeMillis();
                 plan.setCreateTime(now);
                 plan.setUpdateTime(now);
+                // reserve the id durably BEFORE the row: an id that was handed out must
+                // never be handed out again after a DROP, or a delayed DROP-by-id retry
+                // removes a DIFFERENT baseline (see reserveAllocatedId / the class javadoc
+                // "Id source"). A crash between the two leaves a harmless GAP.
+                reserveAllocatedId(id);
                 // persist first so a persist failure leaves the in-memory state untouched
                 // and fails the DDL visibly; no same-key row can exist here (the
                 // durable-key check above returned any), so the INSERT cannot overwrite an
@@ -2394,31 +2424,93 @@ public class BaselineManager {
     }
 
     /**
-     * Reads the persistence-layer id watermark (MAX(id)) - the id-source invariant described
-     * in the class javadoc. Returns 0 when persistence is disabled (unit tests / internal
-     * schema db off). A failed read is rethrown as a retryable error: createBaseline must
-     * never allocate an id while the watermark is unknown.
+     * Reads the persistence-layer id watermark (MAX(id) of the baselines table, and
+     * {@link #SELECT_SEQ_ID_SQL}) - the id-source invariant described in the class javadoc.
+     * Returns 0 when persistence is disabled (unit tests / internal schema db off). A
+     * failed read is rethrown as a retryable error: createBaseline must never allocate an
+     * id while the watermark is unknown.
+     *
+     * <p>The sequence table is what keeps the watermark from going BACKWARDS when the row
+     * holding the highest id is dropped (see
+     * {@link InternalSchema#SPM_BASELINES_SEQ_TBL_NAME}), so the watermark is the greater
+     * of the two. The table read is part of the same fail-visible contract: an unreadable
+     * sequence fails the CREATE rather than risk handing out a used id.
      */
     private static long readPersistedWatermark() {
         if (idAllocatorStoreForTest != null) {
-            return idAllocatorStoreForTest.watermark();
+            return Math.max(idAllocatorStoreForTest.watermark(),
+                    idAllocatorStoreForTest.seqWatermark());
         }
         if (!persistenceEnabled()) {
             return 0;
         }
+        long tableWatermark;
         try {
             List<ResultRow> rows =
                     StatisticsUtil.executeQuery(SELECT_MAX_ID_SQL, Collections.emptyMap(),
                             INTERNAL_QUERY_TIMEOUT_SECONDS);
             if (rows == null || rows.isEmpty()) {
-                return 0;
+                tableWatermark = 0;
+            } else {
+                // an empty table yields one row with a NULL MAX(id)
+                tableWatermark = parseWatermark(rows.get(0).getWithDefault(0, ""));
             }
-            // an empty table yields one row with a NULL MAX(id)
-            String maxId = rows.get(0).getWithDefault(0, "");
-            return maxId.isEmpty() ? 0 : Long.parseLong(maxId.trim());
+        } catch (RuntimeException e) {
+            throw e;
         } catch (Exception e) {
             throw new RuntimeException(
                     "SPM baseline id watermark read failed (retry the CREATE): " + e.getMessage(), e);
+        }
+        long seqWatermark;
+        try {
+            List<ResultRow> rows =
+                    StatisticsUtil.executeQuery(SELECT_SEQ_ID_SQL, Collections.emptyMap(),
+                            INTERNAL_QUERY_TIMEOUT_SECONDS);
+            if (rows == null || rows.isEmpty()) {
+                seqWatermark = 0;
+            } else {
+                // an empty sequence table yields one row with a NULL MAX(last_id)
+                seqWatermark = parseWatermark(rows.get(0).getWithDefault(0, ""));
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(
+                    "SPM baseline id sequence read failed (retry the CREATE): " + e.getMessage(), e);
+        }
+        return Math.max(tableWatermark, seqWatermark);
+    }
+
+    /** One watermark cell of an aggregate read (blank / NULL = 0). */
+    private static long parseWatermark(String text) {
+        return text == null || text.isEmpty() ? 0L : Long.parseLong(text.trim());
+    }
+
+    /**
+     * Durably RESERVES an allocated id BEFORE its baseline row is written. The reservation
+     * is an append-only row of {@link InternalSchema#SPM_BASELINES_SEQ_TBL_NAME}, so the id
+     * stays used even when the baseline that held it is later dropped - a Follower that
+     * never saw that row (and therefore reads a LOWER MAX(id) from the baselines table)
+     * must not hand the id to a different baseline, or a delayed DROP-by-id retry would
+     * delete the new one. A failed reservation fails the CREATE retryably and nothing was
+     * published (the caller has not inserted the row yet).
+     *
+     * @param id the id just allocated
+     */
+    private static void reserveAllocatedId(long id) {
+        if (idAllocatorStoreForTest != null) {
+            idAllocatorStoreForTest.reserveId(id);
+            return;
+        }
+        if (!persistenceEnabled()) {
+            return;
+        }
+        Map<String, String> params = new HashMap<>();
+        params.put("lastId", String.valueOf(id));
+        try {
+            StatisticsUtil.execUpdate(INSERT_SEQ_ID_SQL, params,
+                    BASELINE_WRITE_TIMEOUT_SECONDS);
+        } catch (Exception e) {
+            throw new RuntimeException("SPM baseline id reservation write failed (retry the"
+                    + " CREATE): " + e.getMessage(), e);
         }
     }
 

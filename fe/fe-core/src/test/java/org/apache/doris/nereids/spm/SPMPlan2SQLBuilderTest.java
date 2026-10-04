@@ -660,6 +660,12 @@ public class SPMPlan2SQLBuilderTest {
         String sql = new SPMPlan2SQLBuilder().toSQL(agg);
         Assertions.assertTrue(sql.contains("partial_myagg(v)"),
                 "the user aggregate must survive the decompile under its OWN name: " + sql);
+        // round-32 #7: a UDAF carries its DATABASE (JavaUdaf#getDbName) and the frozen SQL
+        // must keep the qualifier - freezing db1.f(v) as f(v) let FunctionRegistry resolve
+        // the replay under ANOTHER current database to a same-signature db2.f with a
+        // different implementation.
+        Assertions.assertTrue(sql.contains("test_db.partial_myagg(v)"),
+                "the UDAF database qualifier must survive the freeze: " + sql);
     }
 
     /**
@@ -1882,8 +1888,58 @@ public class SPMPlan2SQLBuilderTest {
                 "DISTINCT must not be invented for the riding aggregate: " + sql);
     }
 
-    // ==================== external file scan modifiers ====================
+    /**
+     * round-32 #6: the GROUPED distinct shape. {@code SELECT k, SUM(DISTINCT x), SUM(y)
+     * GROUP BY k} is split into a final DISTINCT_GLOBAL {@code sum(x)} (isDistinct CLEARED)
+     * above a dedup stage grouping by (k, x) - and this final SUM consumes the key x
+     * DIRECTLY (INPUT_TO_RESULT, no lower partial buffer), so the buffer provenance the
+     * test above exercises has nothing to mark. The keys the eliminated dedup stage groups
+     * by are the remaining evidence: without restoring them the frozen SQL summed the
+     * key's multiplicity (4 instead of 2 for two x = 2 rows).
+     */
+    @Test
+    public void testGroupedDistinctKeepsDistinctWithAMixedAggregate() {
+        SlotReference k = new SlotReference("k", IntegerType.INSTANCE);
+        SlotReference x = new SlotReference("x", IntegerType.INSTANCE);
+        SlotReference y = new SlotReference("y", IntegerType.INSTANCE);
+        PhysicalOlapScan scan = mockScan("t1", List.of(k, x, y));
 
+        // the eliminated dedup stage: GROUP BY (k, x), one partial buffer for the PLAIN sum
+        Alias plainBuffer = new Alias(new AggregateExpression(new Sum(y),
+                new AggregateParam(AggPhase.GLOBAL, AggMode.INPUT_TO_BUFFER)), "buf");
+        PhysicalHashAggregate<?> dedup = Mockito.mock(PhysicalHashAggregate.class);
+        Mockito.when(dedup.child(0)).thenReturn(scan);
+        Mockito.when(dedup.getAggPhase()).thenReturn(AggPhase.GLOBAL);
+        Mockito.when(dedup.getGroupByExpressions()).thenReturn(List.of(k, x));
+        Mockito.when(dedup.getOutputExpressions()).thenReturn(List.of(k, x, plainBuffer));
+        stubAccept(dedup);
+
+        SlotReference bufferSlot = new SlotReference(
+                plainBuffer.getExprId(), "buf", IntegerType.INSTANCE, true, List.of());
+        PhysicalHashAggregate<?> finalAgg = Mockito.mock(PhysicalHashAggregate.class);
+        Mockito.when(finalAgg.child(0)).thenReturn(dedup);
+        Mockito.when(finalAgg.getAggPhase()).thenReturn(AggPhase.DISTINCT_GLOBAL);
+        Mockito.when(finalAgg.getGroupByExpressions()).thenReturn(List.of(k));
+        Mockito.when(finalAgg.getOutputExpressions()).thenReturn(List.of(
+                k,
+                (NamedExpression) new Alias(new AggregateExpression(new Sum(x),
+                        new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.INPUT_TO_RESULT)),
+                        "sx"),
+                (NamedExpression) new Alias(new AggregateExpression(new Sum(bufferSlot),
+                        new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.BUFFER_TO_RESULT),
+                        bufferSlot), "sy")));
+        stubAccept(finalAgg);
+
+        String sql = new SPMPlan2SQLBuilder().toSQL(finalAgg);
+        Assertions.assertTrue(sql.contains("sum(DISTINCT x)"),
+                "the key-consuming SUM of a DISTINCT_GLOBAL stage must restore DISTINCT: "
+                        + sql);
+        Assertions.assertTrue(sql.contains("sum(y)"),
+                "the riding aggregate keeps its plain form: " + sql);
+        Assertions.assertFalse(sql.contains("sum(DISTINCT y)"), sql);
+    }
+
+    // ==================== external file scan modifiers ====================
     @Test
     public void testFileScanWithoutModifiersDecompiles() {
         PhysicalFileScan scan = mockFileScan();

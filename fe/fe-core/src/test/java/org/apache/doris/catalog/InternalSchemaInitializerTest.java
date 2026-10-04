@@ -305,6 +305,17 @@ class InternalSchemaInitializerTest {
                 .thenReturn(Optional.of(Mockito.mock(Table.class)));
         Assertions.assertFalse(InternalSchemaInitializer.isSpmCaptureCheckpointTableMissing(db),
                 "an existing spm_capture_checkpoint table must not block completion");
+
+        // round-32 #2: the id sequence table gates completion the same way - without it the
+        // create path cannot read / advance its high-water mark
+        Mockito.when(db.getTable(InternalSchema.SPM_BASELINES_SEQ_TBL_NAME))
+                .thenReturn(Optional.empty());
+        Assertions.assertTrue(InternalSchemaInitializer.isSpmBaselinesSeqTableMissing(db),
+                "a cluster where only spm_baselines_seq is absent must not count as initialized");
+        Mockito.when(db.getTable(InternalSchema.SPM_BASELINES_SEQ_TBL_NAME))
+                .thenReturn(Optional.of(Mockito.mock(Table.class)));
+        Assertions.assertFalse(InternalSchemaInitializer.isSpmBaselinesSeqTableMissing(db),
+                "an existing spm_baselines_seq table must not block completion");
     }
 
     /**
@@ -345,6 +356,10 @@ class InternalSchemaInitializerTest {
         Assertions.assertTrue(InternalSchemaInitializer.REPLICA_UPGRADED_INTERNAL_TABLES
                         .contains(InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME),
                 "spm_capture_checkpoint must be raised towards the statistics replica target");
+        Assertions.assertTrue(InternalSchemaInitializer.REPLICA_UPGRADED_INTERNAL_TABLES
+                        .contains(InternalSchema.SPM_BASELINES_SEQ_TBL_NAME),
+                "spm_baselines_seq must be raised as well: an unreadable id sequence"
+                        + " fails every global CREATE BASELINE PLAN (round-32 #2)");
     }
 
     /**

@@ -105,6 +105,4 @@ suite("test_join_new_types_p0", "p0") {
                 MARK_SLOT m
         ORDER BY a NULLS LAST, b
     """
-
-    sql "DROP DATABASE IF EXISTS ${db}"
 }

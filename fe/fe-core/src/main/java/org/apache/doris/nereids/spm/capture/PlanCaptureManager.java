@@ -52,6 +52,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
 /**
@@ -183,7 +184,7 @@ public class PlanCaptureManager extends MasterDaemon {
                     + " `cursor_query_time`, `cursor_time`, `cursor_query_id`,"
                     + " `failed_attempts`, `retry_queue`, `cursor_tail`,"
                     + " `min_query_time_ms`, `min_scan_rows`, `include_pattern`,"
-                    + " `exclude_pattern` FROM " + CHECKPOINT_TABLE
+                    + " `exclude_pattern`, `scan_zone` FROM " + CHECKPOINT_TABLE
                     + " WHERE `id` = " + CHECKPOINT_ID + " ORDER BY `update_time` DESC LIMIT 1";
 
     /**
@@ -210,11 +211,11 @@ public class PlanCaptureManager extends MasterDaemon {
                     + " (`id`, `last_scan_timestamp`, `pending_window_start`, `pending_window_end`,"
                     + " `cursor_query_time`, `cursor_time`, `cursor_query_id`, `cursor_tail`,"
                     + " `failed_attempts`, `retry_queue`, `min_query_time_ms`, `min_scan_rows`,"
-                    + " `include_pattern`, `exclude_pattern`, `update_time`)"
+                    + " `include_pattern`, `exclude_pattern`, `scan_zone`, `update_time`)"
                     + " VALUES (" + CHECKPOINT_ID + ", ${lastScan}, ${pendingStart}, ${pendingEnd},"
                     + " ${cursorQueryTime}, '${cursorTime}', '${cursorQueryId}', '${cursorTail}',"
                     + " '${failedAttempts}', '${retryQueue}', ${minQueryTimeMs}, ${minScanRows},"
-                    + " '${includePattern}', '${excludePattern}', NOW())";
+                    + " '${includePattern}', '${excludePattern}', '${scanZone}', NOW())";
 
     private AuditLogScanner scanner = new AuditLogScanner();
 
@@ -223,6 +224,19 @@ public class PlanCaptureManager extends MasterDaemon {
 
     /** Last scan window start (epoch millis); 0 means "first run, scan one interval". */
     private long lastScanTimestamp = 0;
+
+    /**
+     * The session time_zone (zone ID) the most recent scan PASS rendered its window bounds
+     * in - the zone the audited rows' {@code time} columns are stored in. Empty = never
+     * scanned (a fresh process follows the global zone). audit_log keeps the WRITER's
+     * local rendering, so a global time_zone change makes the already published rows
+     * invisible to bounds rendered in the new zone: while this differs from the current
+     * global zone, the next pass re-renders the window in this zone first and only then in
+     * the new one (see {@link #resolveScanPassZone} and the exhaustion branch of
+     * {@link #runCaptureCycle}). Persisted with the checkpoint so a takeover resumes the
+     * same rendering.
+     */
+    private String lastScanZone = "";
 
     /**
      * Pending scan window of a TRUNCATED cycle: the (start, end) pair the resume cursor
@@ -393,8 +407,27 @@ public class PlanCaptureManager extends MasterDaemon {
      */
     private boolean checkpointSeamsForTest = false;
 
-    /** Whether the cloud-mode warning was already logged (the gate fires every cycle). */
+    /**
+     * Whether the cloud-mode warning was already logged (the gate fires every cycle).
+     */
     private boolean cloudModeWarned = false;
+
+    /**
+     * The start of the window the FIRST cycle would have consumed when its checkpoint read
+     * FAILED (0 = none). A failed read records no window and the daemon retries promptly;
+     * without this floor the first cycle that succeeds on an EMPTY store would derive its
+     * own [now-interval, now) and permanently skip the rows of the first attempted window
+     * (every later window starts even later). Cleared as soon as a durable row is read or
+     * the reserved window becomes durable.
+     */
+    private long firstAttemptedWindowStart = 0;
+
+    /**
+     * The LOCAL audit loader's publication horizon: the start time (epoch millis) of the
+     * oldest audit event this FE's loader has accepted but not published yet (0 = nothing
+     * outstanding). Production reads the live {@link AuditLoader}; tests replace it.
+     */
+    private LongSupplier auditQueueHorizon = AuditLoader::oldestUnpublishedEventTime;
 
     // capture statistics (design doc 7.2.1 / 7.2.6)
     private final AtomicLong successCount = new AtomicLong(0);
@@ -514,6 +547,19 @@ public class PlanCaptureManager extends MasterDaemon {
             // leader's unconsumed tail is still unreadable would overwrite its only
             // record (the write path shares the same internal table the read failed on).
             if (!loadCheckpointIfNeeded()) {
+                // The read failed and recorded nothing, so this process still has no window.
+                // Remember the window this cycle WOULD have consumed and retry promptly: the
+                // internal-schema initializer is asynchronous, and a later cycle deriving its
+                // OWN [now-interval, now) would permanently skip every eligible short row of
+                // this first attempted window (no later overlap reaches behind a NEW window's
+                // start). Nothing is written here - an unreadable checkpoint must never be
+                // replaced by a freshly derived one.
+                long attemptedStart = System.currentTimeMillis()
+                        - Math.max(1L, global.getPlanCaptureIntervalSeconds()) * 1000L;
+                if (firstAttemptedWindowStart == 0 || attemptedStart < firstAttemptedWindowStart) {
+                    firstAttemptedWindowStart = attemptedStart;
+                }
+                pendingWindowNeedsPromptResume = true;
                 LOG.warn("Plan capture cycle skipped: durable checkpoint not confirmed");
                 return;
             }
@@ -544,12 +590,21 @@ public class PlanCaptureManager extends MasterDaemon {
             // filtered by query id below.
             long[] window = resolveScanWindow(lastScanTimestamp, pendingWindowStart, pendingWindowEnd,
                     currentTime, intervalMs,
-                    scanWindowOverlapMs(GlobalVariable.auditPluginMaxBatchInternalSec));
+                    scanWindowOverlapMs(GlobalVariable.auditPluginMaxBatchInternalSec,
+                            auditQueueHorizon.getAsLong(), currentTime),
+                    firstAttemptedWindowStart);
             long scanStart = window[0];
             long scanEnd = window[1];
             if (scanStart >= scanEnd) {
                 return;
             }
+
+            // The zone this cycle's scan RENDERS its bounds in (see resolveScanPassZone):
+            // remember it as the zone of the record this cycle persists, so a takeover
+            // resumes the same rendering and the next window can detect a change.
+            String currentZoneId = AuditLogScanner.auditWriteZone().getId();
+            String passZoneId = resolveScanPassZone(currentZoneId);
+            lastScanZone = passZoneId;
 
             if (!durableCheckpointObserved) {
                 // FIRST cycle after a successful-but-EMPTY read: the store holds NO row
@@ -566,11 +621,16 @@ public class PlanCaptureManager extends MasterDaemon {
                 pendingWindowEnd = scanEnd;
                 pendingWindowFilter = cycleFilter;
                 if (!persistCheckpointAndConfirm()) {
+                    // either this reservation could not be confirmed readable (retried next
+                    // cycle, idempotent UPSERT) or an earlier leader's window surfaced and
+                    // was adopted instead (resumed next cycle) - both abort WITHOUT scanning
                     LOG.warn("Plan capture cycle skipped: the initial checkpoint row could not"
-                            + " be confirmed VISIBLE (a reservation nothing can read cannot"
-                            + " protect the window)");
+                            + " be confirmed VISIBLE / was superseded by an earlier window");
                     return;
                 }
+                // the reservation is durable and readable: the remembered first attempted
+                // window is now covered by a durable record and must not widen anything
+                firstAttemptedWindowStart = 0;
             }
 
             // Drain this window with a BOUNDED number of pages: one page per wakeup would
@@ -604,7 +664,7 @@ public class PlanCaptureManager extends MasterDaemon {
                 pageStartFilter = cycleFilter;
 
                 batch = scanner.scan(scanStart, scanEnd, batchSize, cycleFilter,
-                        cursorQueryTime, cursorTime, cursorQueryId, cursorTail);
+                        cursorQueryTime, cursorTime, cursorQueryId, cursorTail, passZoneId);
                 pages++;
                 for (CapturedQuery candidate : batch.getCandidates()) {
                     scannedQueryIds.add(retryKeyOf(candidate));
@@ -652,16 +712,52 @@ public class PlanCaptureManager extends MasterDaemon {
                 // cursor it has, and the next cycle - scheduled promptly - retries.
                 pendingWindowNeedsPromptResume = true;
             } else if (batch.isWindowExhausted()) {
-                // The whole window was scanned: advance the watermark to the CONSUMED
-                // window end (not to `now` - rows that arrived between a resumed pending
-                // window's end and now would be skipped), keep the overlap so
-                // late-arriving audit rows stay capturable, and drop the resume state.
-                lastScanTimestamp = nextScanTimestamp(lastScanTimestamp, scanEnd, true);
-                clearPendingWindow();
-                cursorQueryTime = AuditLogScanner.CURSOR_ABSENT;
-                cursorTime = "";
-                cursorQueryId = "";
-                cursorTail = "";
+                if (!passZoneId.equals(currentZoneId)) {
+                    // The window drained in the zone it was OPENED with (the cursor's
+                    // rendering), but the global time_zone changed since: rows published
+                    // AFTER the change were rendered in the NEW zone and the drained pass
+                    // could not see them. Re-scan the SAME window from its top in the
+                    // current zone instead of advancing the watermark - the reviewer's
+                    // example: a 10:00 UTC row stored as "10:00" is invisible to a
+                    // [17:00, 20:00) rendering, and the watermark would move past it
+                    // forever. `lastScanZone` follows the new pass, so the re-scan itself
+                    // advances normally once its rendering matches the global zone
+                    // (several changes chain one pass each).
+                    LOG.info("Plan capture: the global time_zone changed from {} to {} during"
+                            + " window [{}, {}); re-scanning it in the new zone before advancing",
+                            passZoneId, currentZoneId, scanStart, scanEnd);
+                    pendingWindowStart = scanStart;
+                    pendingWindowEnd = scanEnd;
+                    pendingWindowFilter = cycleFilter;
+                    cursorQueryTime = AuditLogScanner.CURSOR_ABSENT;
+                    cursorTime = "";
+                    cursorQueryId = "";
+                    cursorTail = "";
+                    lastScanZone = currentZoneId;
+                    pendingWindowNeedsPromptResume = true;
+                } else {
+                    // The whole window was scanned: advance the watermark to the CONSUMED
+                    // window end (not to `now` - rows that arrived between a resumed pending
+                    // window's end and now would be skipped), keep the overlap so
+                    // late-arriving audit rows stay capturable, and drop the resume state.
+                    lastScanTimestamp = nextScanTimestamp(lastScanTimestamp, scanEnd, true);
+                    clearPendingWindow();
+                    cursorQueryTime = AuditLogScanner.CURSOR_ABSENT;
+                    cursorTime = "";
+                    cursorQueryId = "";
+                    cursorTail = "";
+                    lastScanZone = currentZoneId;
+                    if (!failedCaptureQueue.isEmpty()) {
+                        // The window is consumed but retries outlived it: this cycle replayed at
+                        // most MAX_RETRY_REPLAY_PER_CYCLE of them, so without a prompt resume the
+                        // remaining batches would each wait a FULL capture interval - a 25,000
+                        // entry outage queue would need days to burn down at the default three
+                        // hours per 1,000 entries. Keep the per-cycle work cap and only shorten
+                        // the WAKEUP: resume queued retries at the pending-window cadence until
+                        // the queue is drained.
+                        pendingWindowNeedsPromptResume = true;
+                    }
+                }
             } else {
                 // The window is still not consumed (page budget reached, the last
                 // checkpoint write failed, or the queue budget paused the drain): keep the
@@ -1112,6 +1208,10 @@ public class PlanCaptureManager extends MasterDaemon {
         // the tail column is APPENDED to the SELECT list: rows written by an older FE
         // (or fabricated by tests) carry fewer values
         cursorTail = row.getValues().size() > 8 && row.get(8) != null ? row.get(8) : "";
+        // the scan zone column is APPENDED after the pattern columns: rows written by an
+        // older FE (or fabricated by tests) carry fewer values. Empty = unknown rendering,
+        // which simply follows the current global zone.
+        lastScanZone = row.getValues().size() > 13 && row.get(13) != null ? row.get(13) : "";
         if (cursorQueryTime != AuditLogScanner.CURSOR_ABSENT && cursorTail.isEmpty()) {
             // Legacy row: a cursor exists but its tail does not (the column predates it).
             // The (time, query_time, query_id) prefix alone cannot always make progress
@@ -1157,6 +1257,9 @@ public class PlanCaptureManager extends MasterDaemon {
         // a row was READ: this process now knows a durable record exists, so the initial
         // reservation in runCaptureCycle never overwrites / takes over its role
         durableCheckpointObserved = true;
+        // the store HAS a row: the "first attempted window" floor of a failed fresh read is
+        // moot - the durable record defines the window to consume
+        firstAttemptedWindowStart = 0;
         // Restored retries take the RESTORED cursor as their anchor. That is now always a
         // position BEFORE every persisted retry row: persistCheckpoint rewinds to the
         // oldest queued entry's PRE-PAGE anchor whenever the queue is non-empty (not only
@@ -1304,6 +1407,7 @@ public class PlanCaptureManager extends MasterDaemon {
                 ? "" : durableFilter.getIncludePatternText()));
         params.put("excludePattern", StatisticsUtil.escapeSQL(durableFilter == null
                 ? "" : durableFilter.getExcludePatternText()));
+        params.put("scanZone", StatisticsUtil.escapeSQL(lastScanZone == null ? "" : lastScanZone));
         try {
             // Single UPSERT: the new row is durable BEFORE the old one stops being read
             // (the table is UNIQUE-key(id) + merge-on-write), so no crash / timeout can
@@ -1351,15 +1455,28 @@ public class PlanCaptureManager extends MasterDaemon {
         // THIS cycle (they are not touched by the write itself)
         final long reservationStart = pendingWindowStart;
         final long reservationEnd = pendingWindowEnd;
+        if (reconcileReadableCheckpoint(reservationStart, reservationEnd)) {
+            return false;
+        }
         if (!persistCheckpoint()) {
             return false;
         }
         for (int attempt = 0; attempt < CHECKPOINT_VISIBILITY_ATTEMPTS; attempt++) {
             try {
                 List<ResultRow> rows = checkpointReader.get();
-                if (rows != null && !rows.isEmpty()
-                        && isOurReservationRow(rows.get(0), reservationStart, reservationEnd)) {
-                    return true;
+                if (rows != null && !rows.isEmpty()) {
+                    if (isOurReservationRow(rows.get(0), reservationStart, reservationEnd)) {
+                        return true;
+                    }
+                    // A readable FOREIGN row (an earlier leader's reservation that only now
+                    // surfaced): it describes a window this process never consumed. Adopting
+                    // it cannot lose anything, while consuming OUR window over it would
+                    // (= the single-row UPSERT has already replaced it) permanently skip the
+                    // foreign window's tail - the exact loss this reservation exists to
+                    // prevent.
+                    if (reconcileReadableCheckpoint(reservationStart, reservationEnd)) {
+                        return false;
+                    }
                 }
             } catch (Exception e) {
                 LOG.debug("SPM capture checkpoint visibility probe failed: {}", e.getMessage());
@@ -1375,6 +1492,51 @@ public class PlanCaptureManager extends MasterDaemon {
         LOG.warn("SPM capture: OUR checkpoint reservation is not readable yet (any OTHER"
                 + " row is not proof the write became visible); the cycle will retry");
         return false;
+    }
+
+    /**
+     * Reconciles the FIRST-cycle reservation with the store: an earlier leader's row (its
+     * own reservation, a demoted master's, or this process's earlier attempt) can become
+     * READABLE only after this process's empty read was cached and its window derived -
+     * the reviewer's takeover: leader A commits [09:00,12:00) but its row is still
+     * unreadable when B promotes at 12:10 and derives [09:10,12:10); the single-row
+     * UNIQUE-key UPSERT would then replace A's record and an eligible 09:05 audit row
+     * would fall outside B's window and every later overlap. When such a row surfaces,
+     * its window - not this process's freshly derived one - is the window to consume:
+     * adopt it (bounds, cursor, retry state), put the adopted state back immediately (so
+     * the store converges to it even when this process's own reservation is already
+     * queued behind the foreign row), and abort the cycle. The next cycle resumes
+     * PROMPTLY from the earlier window, so nothing behind it is skipped.
+     *
+     * @return true when a foreign row was adopted (the caller must abort the cycle)
+     */
+    private boolean reconcileReadableCheckpoint(long reservationStart, long reservationEnd) {
+        List<ResultRow> rows;
+        try {
+            rows = checkpointReader.get();
+        } catch (Exception e) {
+            // the read fails like the cycle-initial one: nothing to reconcile
+            return false;
+        }
+        if (rows == null || rows.isEmpty()) {
+            return false;
+        }
+        ResultRow row = rows.get(0);
+        if (isOurReservationRow(row, reservationStart, reservationEnd)) {
+            return false;
+        }
+        LOG.warn("SPM capture: a checkpoint row of an earlier leader is readable (window"
+                + " [{}, {})); adopting it instead of replacing it with the derived"
+                + " window [{}, {})",
+                parseLongValue(row.get(1)), parseLongValue(row.get(2)),
+                reservationStart, reservationEnd);
+        applyCheckpointRow(row);
+        // Write the adopted state back: this process's own reservation may already be
+        // queued behind the foreign row in the single-row store, and until the adopted
+        // state is written back a later takeover could read our (stale) window instead.
+        persistCheckpoint();
+        pendingWindowNeedsPromptResume = true;
+        return true;
     }
 
     /**
@@ -1586,6 +1748,33 @@ public class PlanCaptureManager extends MasterDaemon {
     }
 
     /**
+     * Overlap including the LOCAL audit loader's outstanding queue horizon. The delay a
+     * batch interval plus the configured holds describe is a BOUNDED wait; it says nothing
+     * about how long the loader itself needs to PUBLISH the events it already accepted - a
+     * slow / stalled stream load leaves them in the {@link AuditLoader} queue long after
+     * that bound, and no fixed overlap can cover an unbounded backlog (the reviewer's
+     * example: a short 11:50 query missing from the 12:00 scan but loaded successfully at
+     * 12:02; a five minute overlap never re-reads it again). The window is therefore never
+     * allowed to start after the oldest event the loader still owes: while such an event
+     * exists, its instant fenced the window start, so every row from that instant on is
+     * re-scanned until the backlog is published.
+     *
+     * @param auditBatchIntervalSec the configured audit loader batch interval (seconds)
+     * @param oldestUnpublishedEventMs {@link AuditLoader#oldestUnpublishedEventTime()}
+     *        (0 when the loader is not running or has nothing outstanding)
+     * @param currentTimeMs the cycle's clock reading
+     * @return the overlap in milliseconds (never less than {@link #scanWindowOverlapMs(long)})
+     */
+    static long scanWindowOverlapMs(long auditBatchIntervalSec, long oldestUnpublishedEventMs,
+            long currentTimeMs) {
+        long baseMs = scanWindowOverlapMs(auditBatchIntervalSec);
+        if (oldestUnpublishedEventMs <= 0 || currentTimeMs <= oldestUnpublishedEventMs) {
+            return baseMs;
+        }
+        return Math.max(baseMs, currentTimeMs - oldestUnpublishedEventMs);
+    }
+
+    /**
      * Resolves the (start, end) window the next capture cycle scans.
      *
      * A truncated cycle leaves {@code pendingStart/pendingEnd} set: the SAME window is
@@ -1598,13 +1787,54 @@ public class PlanCaptureManager extends MasterDaemon {
      */
     static long[] resolveScanWindow(long lastScanTimestamp, long pendingStart, long pendingEnd,
             long currentTime, long intervalMs, long overlapMs) {
+        return resolveScanWindow(lastScanTimestamp, pendingStart, pendingEnd, currentTime,
+                intervalMs, overlapMs, 0);
+    }
+
+    /**
+     * Same as the six-argument overload, with the floor of a FAILED first checkpoint read
+     * ({@link #firstAttemptedWindowStart}): a fresh process whose first read failed must not
+     * skip the window that cycle would have consumed, so the first derived window starts
+     * there when that is EARLIER than the interval-derived start.
+     *
+     * @return [windowStart, windowEnd]
+     */
+    static long[] resolveScanWindow(long lastScanTimestamp, long pendingStart, long pendingEnd,
+            long currentTime, long intervalMs, long overlapMs, long firstAttemptedStart) {
         if (pendingEnd > 0) {
             return new long[] {pendingStart, pendingEnd};
         }
         long start = (lastScanTimestamp == 0)
                 ? currentTime - intervalMs
                 : Math.max(0L, lastScanTimestamp - overlapMs);
+        if (lastScanTimestamp == 0 && firstAttemptedStart > 0 && firstAttemptedStart < start) {
+            start = firstAttemptedStart;
+        }
         return new long[] {start, currentTime};
+    }
+
+    /**
+     * The zone THIS cycle's scan pass renders its window bounds in.
+     *
+     * <p>A window that is mid-drain keeps the rendering frozen in its cursor (the tail
+     * records the zone its pages were rendered in, so a global time_zone change cannot mix
+     * two renderings inside one keyset walk). A window whose pass has NOT started - a new
+     * window, or one whose cursor was just reset for the zone-change re-scan - renders in
+     * the zone the PREVIOUS pass used while that differs from the current global zone: the
+     * rows published before `SET GLOBAL time_zone` are stored in the old rendering and are
+     * invisible to bounds rendered in the new zone, which would silently exhaust the window
+     * and advance the watermark past them (see AuditLogScanner#scan). The following pass
+     * revisits the same window in the new zone for the rows published after the change.
+     *
+     * @param currentZoneId the current global session time_zone's ID
+     * @return the zone ID to render this pass in
+     */
+    private String resolveScanPassZone(String currentZoneId) {
+        String frozenZone = AuditLogScanner.zoneIdOfTail(cursorTail);
+        if (frozenZone != null) {
+            return frozenZone;
+        }
+        return lastScanZone == null || lastScanZone.isEmpty() ? currentZoneId : lastScanZone;
     }
 
     private void clearPendingWindow() {
@@ -1629,6 +1859,7 @@ public class PlanCaptureManager extends MasterDaemon {
         checkpointWriter = (sql, params) -> StatisticsUtil.execUpdate(
                 sql, params, CHECKPOINT_IO_TIMEOUT_SECONDS);
         checkpointSeamsForTest = false;
+        auditQueueHorizon = AuditLoader::oldestUnpublishedEventTime;
         successCount.set(0);
         skipDuplicateCount.set(0);
         skipSingleTableCount.set(0);
@@ -1640,6 +1871,8 @@ public class PlanCaptureManager extends MasterDaemon {
     private void clearProgressState() {
         lastScanTimestamp = 0;
         clearPendingWindow();
+        firstAttemptedWindowStart = 0;
+        lastScanZone = "";
         cursorQueryTime = AuditLogScanner.CURSOR_ABSENT;
         cursorTime = "";
         cursorQueryId = "";
@@ -1769,6 +2002,29 @@ public class PlanCaptureManager extends MasterDaemon {
     }
 
     /**
+     * For tests: the zone ID the last scan pass rendered its bounds in (see
+     * {@link #lastScanZone}) - empty when nothing was scanned yet.
+     *
+     * @return the zone ID
+     */
+    @VisibleForTesting
+    public String lastScanZoneForTest() {
+        return lastScanZone;
+    }
+
+    /**
+     * For tests: the zone ID the NEXT cycle's scan pass will render its bounds in, given
+     * the current global zone (see {@link #resolveScanPassZone}).
+     *
+     * @param currentZoneId the current global session time_zone id
+     * @return the zone ID to render in
+     */
+    @VisibleForTesting
+    public String resolveScanPassZoneForTest(String currentZoneId) {
+        return resolveScanPassZone(currentZoneId);
+    }
+
+    /**
      * For tests: the page budget of ONE cycle (see {@link #MAX_PAGES_PER_CYCLE}).
      *
      * @return how many audit pages one wakeup may consume
@@ -1870,6 +2126,12 @@ public class PlanCaptureManager extends MasterDaemon {
     public void setCheckpointWriterForTest(CheckpointWriter writer) {
         this.checkpointWriter = writer;
         this.checkpointSeamsForTest = true;
+    }
+
+    /** For tests: installs a scripted local audit loader publication horizon. */
+    @VisibleForTesting
+    public void setAuditQueueHorizonForTest(LongSupplier horizon) {
+        this.auditQueueHorizon = horizon;
     }
 
     @VisibleForTesting

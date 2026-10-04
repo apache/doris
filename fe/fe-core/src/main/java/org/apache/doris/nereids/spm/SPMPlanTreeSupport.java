@@ -137,6 +137,39 @@ public final class SPMPlanTreeSupport {
     /** Expression transform used by transform. */
     public interface ExprTransform {
         Expression apply(Expression expr);
+
+        /**
+         * Called while the rebuild ENTERS a nested query block (a derived table / CTE body /
+         * subquery alias), with {@link #exitQueryBlock()} in a finally block. The placeholder
+         * builder gives every block its own identity so two literals of DIFFERENT blocks can
+         * never share one placeholder id: block 0 was previously shared by the outer query
+         * and every derived table, so equal filter literals there (e.g. an outer
+         * {@code x = 1} and a derived-table {@code x = 1} whose parent signatures coincide)
+         * merged into one id and a variant changing only one of the values could never
+         * match (reviewer round 32 #9).
+         */
+        default void enterQueryBlock() {
+        }
+
+        /** Matching exit of {@link #enterQueryBlock()}. */
+        default void exitQueryBlock() {
+        }
+
+        /**
+         * Called while the rebuild enters ONE projection item (SELECT-list slot) of a
+         * projection-like list, with {@link #exitProjectionItem()} in a finally block. The
+         * item POSITION is part of a literal's placeholder identity: the literals of
+         * {@code SELECT 1 AS x, 1 AS y} have the same value, the same child position inside
+         * their Alias and (before the position existed) the same parent signature, so they
+         * shared one placeholder and a variant with different values per column could never
+         * match (reviewer round 32 #9).
+         */
+        default void enterProjectionItem(int index) {
+        }
+
+        /** Matching exit of {@link #enterProjectionItem(int)}. */
+        default void exitProjectionItem() {
+        }
     }
 
     /**
@@ -201,6 +234,55 @@ public final class SPMPlanTreeSupport {
                     ((LogicalTopN<?>) node).getOffset()};
         }
         return null;
+    }
+
+    /**
+     * Whether every row-limiting node of {@code replayed} is justified by the caller's own
+     * tree {@code userPlan}: the MULTISET of (limit, offset) pairs the replay exposes must
+     * be contained in the caller's own - a LIMIT VARIANT replay transfers the caller's
+     * top-level value POSITIONALLY, so any other cap it still exposes was inherited from
+     * the CAPTURED plan (or a manual plan) and would silently truncate the result of the
+     * variant (reviewer round 32 #8: the frozen
+     * {@code SELECT DISTINCT k FROM (SELECT k FROM t ORDER BY k LIMIT 1) s ORDER BY k
+     * LIMIT 2} kept the inner cap at 1 while the caller asked for two keys).
+     *
+     * <p>Comparing value pairs rather than node paths is deliberate: the replay is a
+     * MANUAL frozen plan whose structure may legitimately differ from the caller's, so
+     * only what the caller itself asked for can justify a cap.
+     *
+     * @param replayed the replayed tree AFTER the limit merge
+     * @param userPlan the caller's own tree
+     * @return whether every replayed cap is one the caller's tree also has
+     */
+    public static boolean rowLimitsWithin(Plan replayed, Plan userPlan) {
+        Map<List<Long>, Integer> allowed = new HashMap<>();
+        collectRowLimits(userPlan, allowed);
+        Map<List<Long>, Integer> used = new HashMap<>();
+        collectRowLimits(replayed, used);
+        for (Map.Entry<List<Long>, Integer> entry : used.entrySet()) {
+            Integer available = allowed.get(entry.getKey());
+            if (available == null || available < entry.getValue()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Collects the (limit, offset) pair of every row-limiting node of the tree. */
+    private static void collectRowLimits(Plan plan, Map<List<Long>, Integer> out) {
+        if (plan == null) {
+            return;
+        }
+        if (plan instanceof LogicalLimit) {
+            out.merge(Arrays.asList(((LogicalLimit<?>) plan).getLimit(),
+                    ((LogicalLimit<?>) plan).getOffset()), 1, Integer::sum);
+        } else if (plan instanceof LogicalTopN) {
+            out.merge(Arrays.asList(((LogicalTopN<?>) plan).getLimit(),
+                    ((LogicalTopN<?>) plan).getOffset()), 1, Integer::sum);
+        }
+        for (Plan child : plan.children()) {
+            collectRowLimits(child, out);
+        }
     }
 
     // ==================== whole-tree transform (parameterize / substitute) ====================
@@ -283,6 +365,26 @@ public final class SPMPlanTreeSupport {
                 return new LogicalCTE<Plan>(cte.isRecursive(), newAliasQueries, newChild);
             } catch (RuntimeException e) {
                 return cte;
+            }
+        }
+
+        @Override
+        public Plan visitLogicalSubQueryAlias(LogicalSubQueryAlias<? extends Plan> alias,
+                ExprTransform transform) {
+            // A derived table / CTE body opens a nested QUERY BLOCK (see
+            // ExprTransform#enterQueryBlock): its literals must be able to distinguish
+            // themselves from equally shaped literals of the outer block or of a sibling.
+            // The numbering is per rebuild and both trees of a baseline traverse the same
+            // structure, so corresponding blocks keep corresponding ids.
+            transform.enterQueryBlock();
+            try {
+                Plan child = alias.child() == null ? null : alias.child().accept(this, transform);
+                if (child == alias.child()) {
+                    return alias;
+                }
+                return alias.withChildren(java.util.List.of(child));
+            } finally {
+                transform.exitQueryBlock();
             }
         }
 
@@ -596,8 +698,17 @@ public final class SPMPlanTreeSupport {
             ExprTransform transform) {
         boolean changed = false;
         List<NamedExpression> newExpressions = new ArrayList<>(expressions.size());
-        for (NamedExpression expression : expressions) {
-            Expression transformed = transform.apply(expression);
+        for (int i = 0; i < expressions.size(); i++) {
+            NamedExpression expression = expressions.get(i);
+            // the item's POSITION in the list is part of the placeholder identity (see
+            // ExprTransform#enterProjectionItem)
+            transform.enterProjectionItem(i);
+            Expression transformed;
+            try {
+                transformed = transform.apply(expression);
+            } finally {
+                transform.exitProjectionItem();
+            }
             if (transformed instanceof NamedExpression && transformed != expression) {
                 newExpressions.add((NamedExpression) transformed);
                 changed = true;
@@ -1695,31 +1806,43 @@ public final class SPMPlanTreeSupport {
         }
         List<NamedExpression> rewrittenItems = outputItemsOf(rewrittenNode);
         List<NamedExpression> userItems = outputItemsOf(userNode);
-        if (rewrittenItems.size() != userItems.size()) {
+        // The caller's list may still hold a STAR while the rewritten (frozen) list is the
+        // EXPANDED projection: the capture-time plan was analyzed, so its sink pinned one
+        // item per derived column, while a raw parse keeps `*` as ONE item. Expand the
+        // caller's stars through its OWN child relation first, so the labels of the
+        // capture-time text can still be replaced (reviewer round 32 #10: `SELECT *` over
+        // `(SELECT k + 1 FROM t) s` kept the captured `k + 1` header on the replay of the
+        // `k + 2` variant, although the original query exposes `k + 2`).
+        List<String> userLabels = expandedOutputLabels(userItems, userNode);
+        if (userLabels == null || userLabels.size() != rewrittenItems.size()) {
             return rewritten;
         }
         List<NamedExpression> aligned = new ArrayList<>(rewrittenItems.size());
         boolean changed = false;
         for (int i = 0; i < rewrittenItems.size(); i++) {
             NamedExpression rewrittenItem = rewrittenItems.get(i);
-            NamedExpression userItem = userItems.get(i);
-            String userLabel = outputLabelOf(userItem);
+            NamedExpression userItem = userItems.size() == userLabels.size()
+                    ? userItems.get(i) : null;
+            String userLabel = userLabels.get(i);
             String rewrittenLabel = outputLabelOf(rewrittenItem);
             if (userLabel == null || rewrittenLabel == null
                     || userLabel.equals(rewrittenLabel)) {
                 // no label on one of the two sides (or both equal): the position carries no
-                // captured header text to realign. A STAR projection is the important case:
-                // the frozen plan may project `*` while the caller names a bare column, and
-                // its expansion to real columns happens at binding - wrapping it in a
-                // renamed item builds an Alias over an unbound star and the analyzer
-                // rejects the tree ("Invalid call to ...getDataType() on unbound object").
+                // captured header text to realign. A STAR projection is the important case
+                // when its expansion is not derivable (a star over a join / base table,
+                // `* EXCEPT` / `* REPLACE`): the frozen plan may project `*` while the
+                // caller names a bare column, and its expansion to real columns happens at
+                // binding - wrapping it in a renamed item builds an Alias over an unbound
+                // star and the analyzer rejects the tree ("Invalid call to
+                // ...getDataType() on unbound object").
                 aligned.add(rewrittenItem);
                 continue;
             }
             // the caller's own header text (explicit, derived or a bare column name)
             // replaces the label the frozen sink pinned; the SUBSTITUTED expression
             // itself stays untouched
-            aligned.add(renameOutputItem(rewrittenItem, userLabel, isDerivedAlias(userItem)));
+            aligned.add(renameOutputItem(rewrittenItem, userLabel,
+                    userItem != null && isDerivedAlias(userItem)));
             changed = true;
         }
         if (!changed) {
@@ -1745,6 +1868,61 @@ public final class SPMPlanTreeSupport {
             return true;
         }
         return node instanceof LogicalSink && !((LogicalSink<?>) node).getOutputExprs().isEmpty();
+    }
+
+    /**
+     * One label per caller-visible output COLUMN: a plain item contributes its own label,
+     * a root STAR is expanded through the caller's own child relation (see
+     * {@link #starExpansionLabels}).
+     *
+     * @return the labels (null entries = the position carries no derivable label), or
+     *         null when a star cannot be expanded (a star over a join / base relation
+     *         whose columns are REAL names, `* EXCEPT` / `* REPLACE`, ...)
+     */
+    private static List<String> expandedOutputLabels(List<NamedExpression> items, Plan node) {
+        List<String> labels = new ArrayList<>(items.size());
+        for (NamedExpression item : items) {
+            if (item instanceof UnboundStar && !hasStarPayload((UnboundStar) item)
+                    && node.children().size() == 1) {
+                List<String> expanded = starExpansionLabels(node.child(0));
+                if (expanded == null) {
+                    return null;
+                }
+                labels.addAll(expanded);
+                continue;
+            }
+            labels.add(outputLabelOf(item));
+        }
+        return labels;
+    }
+
+    /** Whether a star carries an EXCEPT / REPLACE payload (then its expansion is not a
+     * plain projection and must not be derived here). */
+    private static boolean hasStarPayload(UnboundStar star) {
+        return !star.getExceptedSlots().isEmpty() || !star.getReplacedAlias().isEmpty();
+    }
+
+    /**
+     * The labels a caller-side star expands to, derived from the CALLER's own tree: the
+     * output items of the relation the star reads from (following the subquery-alias /
+     * wrapper chain). Only a DERIVED relation is resolvable this way; a base relation or
+     * a join expands to real column names that need no realignment.
+     *
+     * @param relation the relation the star projects from
+     * @return one label per expanded column, or null when not derivable
+     */
+    private static List<String> starExpansionLabels(Plan relation) {
+        Plan node = relation;
+        while (node != null && node.children().size() == 1 && !carriesOutputList(node)
+                && (node instanceof LogicalSubQueryAlias
+                        || (node instanceof LogicalSink
+                                && ((LogicalSink<?>) node).getOutputExprs().isEmpty()))) {
+            node = node.child(0);
+        }
+        if (node == null || !carriesOutputList(node)) {
+            return null;
+        }
+        return expandedOutputLabels(outputItemsOf(node), node);
     }
 
     /** The caller-visible output list of a node that {@link #carriesOutputList}. */

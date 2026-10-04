@@ -113,8 +113,22 @@ public class SPMMatchingSafetyTest {
         Assertions.assertTrue(matchesParameterized(bind,
                 "SELECT (a = 3 OR a = 4) AS c FROM t WHERE a = 4"),
                 "a pairing that satisfies BOTH placeholder uses must be found");
-        Assertions.assertFalse(matchesParameterized(bind,
+        // round-32 #9: the SELECT-list literal and the WHERE literal of the bind tree are
+        // INDEPENDENT placeholders (different projection-item / no-item scopes), so a
+        // variant that changes each site independently is a legitimate match - the old
+        // identity shared one id between the two sites and rejected it.
+        Assertions.assertTrue(matchesParameterized(bind,
                 "SELECT (a = 3 OR a = 4) AS c FROM t WHERE a = 5"),
+                "the projection and the predicate occurrences are separate placeholders");
+        // The one-id-one-value rule still rejects an INCONSISTENT assignment: two identical
+        // repeated sub-expressions of the bind tree share their literal ids, so a variant
+        // assigning different values to those same positions cannot match.
+        String repeated = "SELECT * FROM t WHERE (a + 2) > 3 AND (a + 2) > 3";
+        Assertions.assertTrue(matchesParameterized(repeated,
+                "SELECT * FROM t WHERE (a + 5) > 3 AND (a + 5) > 3"),
+                "the same value at every occurrence of the shared id matches");
+        Assertions.assertFalse(matchesParameterized(repeated,
+                "SELECT * FROM t WHERE (a + 5) > 3 AND (a + 6) > 3"),
                 "no consistent global assignment exists here");
     }
 

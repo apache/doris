@@ -127,6 +127,39 @@ public class AuditScanPredicateTest {
         Assertions.assertFalse(matches(sql, "2026-03-08 01:20:00", 60_000L), sql);
     }
 
+    /**
+     * round-32 #13: the completion floor is derived from the window-start INSTANT in the
+     * scan zone - subtracting from the civil {@code LocalDateTime} landed an hour off
+     * after a spring-forward transition, and the too-late floor rejected a row inside the
+     * promised 24 hour lookback on EVERY later scan (the reviewer's ~23h40m query).
+     */
+    @Test
+    public void testCompletionFloorSubtractsFromTheWindowStartInstant() {
+        ZoneId zone = ZoneId.of("America/Los_Angeles");
+        // 2026-03-08 03:05 PDT (the spring-forward transition was that morning)
+        long startMs = Instant.parse("2026-03-08T10:05:00Z").toEpochMilli();
+        long endMs = startMs + 30 * 60_000L;
+        Assertions.assertEquals("2026-03-07 02:05:00",
+                AuditLogScanner.lateCompletionFloor(startMs, zone),
+                "24 hours before 03:05 PDT is 02:05 PST, not 03:05 PST");
+        List<String[]> ranges = AuditLogScanner.localTimeRanges(startMs, endMs, zone);
+        long swing = AuditLogScanner.zoneOffsetSwingSeconds(zone);
+        String sql = AuditLogScanner.buildScanSql(ranges, 500, 1000, 100000, "",
+                swing, AuditLogScanner.lateCompletionFloor(startMs, zone));
+        // started 02:30 PST (10:30Z), ran ~23h40m, completes 03:10 PDT: inside the window
+        // and inside the lookback
+        long queryTimeMs = 23 * 3600_000L + 40 * 60_000L;
+        Assertions.assertTrue(matches(sql, "2026-03-07 02:30:00", queryTimeMs),
+                "a row inside the lookback whose completion reaches the window must be"
+                        + " admitted: " + sql);
+        // the old CIVIL floor (LocalDateTime.minus(1 day)) landed at 03:05 PST and
+        // rejected exactly that row - the bug this fixes
+        String stale = AuditLogScanner.buildScanSql(ranges, 500, 1000, 100000, "", swing,
+                "2026-03-07 03:05:00.000");
+        Assertions.assertFalse(matches(stale, "2026-03-07 02:30:00", queryTimeMs),
+                "the civil floor excluded the row permanently");
+    }
+
     // ==================== a minimal evaluator of the generated predicate ====================
 
     /**

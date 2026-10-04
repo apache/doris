@@ -55,7 +55,8 @@ import java.util.List;
  * query "a = 5 AND b = 7" could never match; without the child index, the two operands
  * of "1 + 1" would share one id and a similar query "2 + 1" could never match either.
  */
-public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Expression> {
+public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Expression>
+        implements SPMPlanTreeSupport.ExprTransform {
 
     /** Auto-increment placeholder id counter (starts at 1). */
     private long nextId = 1;
@@ -86,6 +87,22 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     private long currentBlockId = 0;
 
     /**
+     * Enclosing query-block ids (see {@link #enterQueryBlock()}): a nested block's id is
+     * restored on exit, so SIBLING derived tables / CTE bodies get distinct ids while the
+     * enclosing block numbering resumes - the same discipline the subquery-expression
+     * blocks already followed.
+     */
+    private final Deque<Long> blockIdStack = new ArrayDeque<>();
+
+    /**
+     * Projection ITEM positions of the SELECT-list slots currently being visited (see
+     * {@link #enterProjectionItem(int)}): {@code SELECT 1 AS x, 1 AS y} must give its two
+     * literals different placeholder ids although value, parent structure and child
+     * position coincide (see PlaceholderExpr#matches).
+     */
+    private final Deque<Integer> projectItemStack = new ArrayDeque<>();
+
+    /**
      * Parameterizes a list of expressions with this single shared builder (entry point).
      *
      * Every expression is parameterized in order with the same builder, so placeholder
@@ -111,6 +128,103 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
     public void startNewTree() {
         nextBlockId = 1;
         currentBlockId = 0;
+        blockIdStack.clear();
+        projectItemStack.clear();
+    }
+
+    /**
+     * The whole-tree parameterization transform: the builder IS an
+     * {@link SPMPlanTreeSupport.ExprTransform}, so the plan walk can hand it the query
+     * BLOCK and projection ITEM scopes of the expressions it visits (see
+     * {@link SPMPlanTreeSupport.ExprTransform#enterQueryBlock()}). Passing a bare lambda
+     * instead would lose those scopes and merge independent literals into one placeholder
+     * id.
+     */
+    @Override
+    public Expression apply(Expression expr) {
+        return expr.accept(this, null);
+    }
+
+    /**
+     * Transform of a SUBQUERY expression's own plan tree: every expression the walk hands
+     * over is a block ROOT (the child-position sentinel -1), and the query-block /
+     * projection-item scope hooks are forwarded to the enclosing builder so nested
+     * derived tables keep their own block ids.
+     */
+    private final class SubqueryBlockTransform implements SPMPlanTreeSupport.ExprTransform {
+        @Override
+        public Expression apply(Expression expr) {
+            childIndexStack.push(-1);
+            try {
+                return expr.accept(SPMPlaceholderBuilder.this, null);
+            } finally {
+                childIndexStack.pop();
+            }
+        }
+
+        @Override
+        public void enterQueryBlock() {
+            SPMPlaceholderBuilder.this.enterQueryBlock();
+        }
+
+        @Override
+        public void exitQueryBlock() {
+            SPMPlaceholderBuilder.this.exitQueryBlock();
+        }
+
+        @Override
+        public void enterProjectionItem(int index) {
+            SPMPlaceholderBuilder.this.enterProjectionItem(index);
+        }
+
+        @Override
+        public void exitProjectionItem() {
+            SPMPlaceholderBuilder.this.exitProjectionItem();
+        }
+    }
+
+    /**
+     * Enters a nested query block (see
+     * {@link org.apache.doris.nereids.spm.SPMPlanTreeSupport.ExprTransform#enterQueryBlock()}):
+     * the block gets its own monotonic id, the enclosing one is restored by
+     * {@link #exitQueryBlock()}.
+     */
+    @Override
+    public void enterQueryBlock() {
+        blockIdStack.push(currentBlockId);
+        currentBlockId = nextBlockId++;
+    }
+
+    /** Leaves the current nested query block and restores the enclosing block id. */
+    @Override
+    public void exitQueryBlock() {
+        if (!blockIdStack.isEmpty()) {
+            currentBlockId = blockIdStack.pop();
+        }
+    }
+
+    /**
+     * Enters one projection item of a projection-like list: every literal of its subtree
+     * carries this position, so two equally shaped literals in different items (or in a
+     * projection and in a filter) never share one placeholder id.
+     */
+    @Override
+    public void enterProjectionItem(int index) {
+        projectItemStack.push(index);
+    }
+
+    /** Leaves the current projection item. */
+    @Override
+    public void exitProjectionItem() {
+        if (!projectItemStack.isEmpty()) {
+            projectItemStack.pop();
+        }
+    }
+
+    /** Position of the projection item currently being visited; -1 outside a SELECT list. */
+    private int currentProjectItem() {
+        Integer top = projectItemStack.peek();
+        return top == null ? -1 : top;
     }
 
     public List<PlaceholderExpr> getPlaceholderExprs() {
@@ -135,15 +249,16 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         // the two occurrences resolve to the same user value and never match).
         int childIndex = currentChildIndex();
         long blockId = currentBlockId;
+        int projectItem = currentProjectItem();
         for (PlaceholderExpr record : placeholderExprs) {
-            if (record.matches(literal, parent, childIndex, blockId)) {
+            if (record.matches(literal, parent, childIndex, blockId, projectItem)) {
                 return record.getPlaceholderExpr();
             }
         }
         long id = nextId++;
         SpmConstVar placeholder = SpmConstVar.of(id, literal);
         placeholderExprs.add(new PlaceholderExpr(literal, placeholder, parent, childIndex,
-                blockId));
+                blockId, projectItem));
         return placeholder;
     }
 
@@ -170,8 +285,9 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             // the plan tree.
             int childIndex = currentChildIndex();
             long blockId = currentBlockId;
+            int projectItem = currentProjectItem();
             for (PlaceholderExpr record : placeholderExprs) {
-                if (record.matches(inPredicate, parent, childIndex, blockId)) {
+                if (record.matches(inPredicate, parent, childIndex, blockId, projectItem)) {
                     return record.getPlaceholderExpr();
                 }
             }
@@ -179,7 +295,7 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
             SpmConstList list = SpmConstList.of(id, inPredicate.getOptions());
             InPredicate placeholder = new InPredicate(newCompare, ImmutableList.of(list));
             placeholderExprs.add(new PlaceholderExpr(inPredicate, placeholder, parent, childIndex,
-                    blockId));
+                    blockId, projectItem));
             return placeholder;
         }
 
@@ -215,24 +331,15 @@ public class SPMPlaceholderBuilder extends ExpressionVisitor<Expression, Express
         // projections, aggregate ... and nested subqueries recursively). The
         // expressions of the subquery plan are NEW roots: push the root sentinel so a
         // bare-literal root records -1 instead of a stale outer child index. The plan
-        // is also a NEW query block: save the enclosing block, give the nested block
-        // its own monotonic id, and restore afterwards so sibling subqueries get
-        // distinct ids while the outer block numbering resumes.
-        long enclosingBlock = currentBlockId;
-        currentBlockId = nextBlockId++;
+        // is also a NEW query block (see enterQueryBlock), restored afterwards so
+        // sibling subqueries get distinct ids while the outer block numbering resumes.
+        enterQueryBlock();
         LogicalPlan newPlan;
         try {
             newPlan = SPMPlanTreeSupport.transform(
-                    subqueryExpr.getQueryPlan(), expr -> {
-                        childIndexStack.push(-1);
-                        try {
-                            return expr.accept(this, null);
-                        } finally {
-                            childIndexStack.pop();
-                        }
-                    });
+                    subqueryExpr.getQueryPlan(), new SubqueryBlockTransform());
         } finally {
-            currentBlockId = enclosingBlock;
+            exitQueryBlock();
         }
         if (newPlan == subqueryExpr.getQueryPlan() && newCompare == null) {
             return subqueryExpr;

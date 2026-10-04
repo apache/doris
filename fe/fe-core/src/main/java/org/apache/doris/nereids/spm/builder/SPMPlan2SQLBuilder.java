@@ -2338,10 +2338,16 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         boolean distinctMergeCount = phase == AggPhase.DISTINCT_GLOBAL;
         boolean stageHasDistinctMergeBuffer = distinctMergeCount
                 && hasMarkedDistinctMergeArg(agg.getOutputExpressions());
+        // The distinct keys SplitAggMultiPhase put BELOW this stage: the eliminated
+        // dedup stages group by (the user's group keys + the DISTINCT arguments), so
+        // the extra keys identify an aggregate whose DISTINCT the split CLEARED. See
+        // dedupKeysBelow for the reviewer's sum(DISTINCT x) with a non-empty GROUP BY.
+        Set<ExprId> dedupKeyIds = distinctMergeCount
+                ? dedupKeysBelow(agg.child(0), ownGroupKeyIds(agg)) : Collections.emptySet();
         List<Pair<ExprId, String>> selects = new ArrayList<>();
         for (NamedExpression output : agg.getOutputExpressions()) {
             appendAggSelect(aggRelation, childRelation, output, selects, distinctMergeCount,
-                    stageHasDistinctMergeBuffer);
+                    stageHasDistinctMergeBuffer, dedupKeyIds);
         }
         aggRelation.setSelects(selects);
         // columnNames: expose ONLY the aggregate output columns (group-by keys +
@@ -2500,6 +2506,80 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
         return false;
     }
 
+    /** The ExprIds of the group-by expressions' slots of one aggregate stage. */
+    private static Set<ExprId> ownGroupKeyIds(PhysicalHashAggregate<? extends Plan> agg) {
+        Set<ExprId> ids = new HashSet<>();
+        for (Expression group : agg.getGroupByExpressions()) {
+            collectAllSlotIds(group, ids);
+        }
+        return ids;
+    }
+
+    /**
+     * The DISTINCT keys SplitAggMultiPhase placed below a final aggregate stage: every
+     * ELIMINATED aggregate stage of the child chain groups by (the user's group keys +
+     * the DISTINCT arguments), so the keys that are NOT this stage's own are exactly
+     * those distinct arguments. SplitAggDistinct rewrites {@code sum(DISTINCT x)} into a
+     * final {@code sum(x)} whose isDistinct is CLEARED (the lower stage's grouping IS the
+     * deduplication); the decompiler folds that stage away, so consuming the key directly
+     * (no lower partial buffer) is the only remaining evidence of the user's DISTINCT and
+     * has to restore it - otherwise the frozen SQL sums the key's multiplicity instead of
+     * its distinct values (reviewer round 32 #6: {@code SELECT k, SUM(DISTINCT x), SUM(y)
+     * GROUP BY k} with two x = 2 rows froze {@code sum(distinct x)} as {@code sum(x)} and
+     * returned 4 instead of 2). A plain aggregate riding along the same stage consumes
+     * the lower stage's partial buffer (see localAggParams), never a bare key, so it
+     * stays plain.
+     *
+     * @param childPlan     the input of the final stage
+     * @param ownGroupKeys  the final stage's own group keys (never dedup keys)
+     * @return the dedup key ExprIds (empty when no eliminated stage groups by an extra key)
+     */
+    private static Set<ExprId> dedupKeysBelow(Plan childPlan, Set<ExprId> ownGroupKeys) {
+        Set<ExprId> keys = new HashSet<>();
+        Plan node = childPlan;
+        while (node instanceof PhysicalHashAggregate) {
+            PhysicalHashAggregate<? extends Plan> stage = (PhysicalHashAggregate<? extends Plan>) node;
+            if (!stage.getAggPhase().isLocal() && !isIntermediateAggStage(stage)) {
+                break;
+            }
+            for (Expression group : stage.getGroupByExpressions()) {
+                collectAllSlotIds(group, keys);
+            }
+            node = stage.child(0);
+        }
+        keys.removeAll(ownGroupKeys);
+        return keys;
+    }
+
+    /**
+     * Whether one aggregate of a DISTINCT_GLOBAL stage consumes a bare (non-buffer) dedup
+     * key - the direct-key form of a DISTINCT aggregate whose isDistinct was cleared (see
+     * {@link #dedupKeysBelow}). Arguments that resolve to a LOWER partial buffer are the
+     * merge chain of a riding-along / lower-stage aggregate and are never dedup keys.
+     */
+    private boolean consumesDedupKey(List<Expression> args, Set<ExprId> dedupKeyIds) {
+        if (dedupKeyIds.isEmpty()) {
+            return false;
+        }
+        for (Expression arg : args) {
+            if (arg instanceof SlotReference
+                    && dedupKeyIds.contains(((SlotReference) arg).getExprId())
+                    && !localAggParams.containsKey(((SlotReference) arg).getExprId())) {
+                return true;
+            }
+            if (arg instanceof AggregateExpression) {
+                for (Expression child : ((AggregateExpression) arg).children()) {
+                    if (child instanceof SlotReference
+                            && dedupKeyIds.contains(((SlotReference) child).getExprId())
+                            && !localAggParams.containsKey(((SlotReference) child).getExprId())) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     /** Whether one of the count arguments consumes the distinct-dedup buffer recorded
      * by recordLocalAggStage - either as the buffer slot itself or nested one level
      * below a partial_* merge function. */
@@ -2558,7 +2638,7 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
      */
     private void appendAggSelect(SQLRelation relation, SQLRelation child, NamedExpression output,
             List<Pair<ExprId, String>> selects, boolean distinctMergeCount,
-            boolean stageHasDistinctMergeBuffer) {
+            boolean stageHasDistinctMergeBuffer, Set<ExprId> dedupKeyIds) {
         Expression inner = output instanceof Alias ? ((Alias) output).child() : output;
         if (inner instanceof SlotReference
                 && (isSystemColumnName(((SlotReference) inner).getName())
@@ -2648,8 +2728,12 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
             // function to partial_* (that prefix exists only in the RENDERED text of a
             // buffer stage - see isPartialAggregate), so the historical "strip the
             // partial_ prefix" rewrite could only ever damage a user function whose own
-            // name carries it (partial_myagg -> myagg).
-            String aggName = fn.getName();
+            // name carries it (partial_myagg -> myagg). A UDAF keeps its DATABASE
+            // QUALIFIER (JavaUdaf / PythonUdaf carry dbName): freezing db1.f(v) as f(v)
+            // let FunctionRegistry resolve the replay under ANOTHER default database to
+            // a same-signature db2.f with a different implementation (the UDF
+            // fingerprint cannot tell them apart).
+            String aggName = SPMExprSqlBuilder.functionName(fn);
             boolean distinct;
             if (fn.isDistinct()) {
                 distinct = true;
@@ -2664,13 +2748,21 @@ public class SPMPlan2SQLBuilder extends PlanVisitor<SQLRelation, Void> {
                     // different value when x has duplicates. An aggregate riding along
                     // the same stage consumes a merge-chain buffer and stays plain (see
                     // distinctMergeBuffers).
-                    distinct = isDistinctMergeArg(bufferArgs);
+                    distinct = isDistinctMergeArg(bufferArgs) || isDistinctMergeArg(args);
                 } else {
                     // No buffer of the stage is marked (distinct plans built by other
                     // shapes): keep the historical blanket behavior for count and never
                     // invent DISTINCT for the other aggregates.
                     distinct = "count".equalsIgnoreCase(aggName);
                 }
+                // The GROUPED distinct shape ({@code ... SUM(DISTINCT x), SUM(y) GROUP BY
+                // k}: the split's dedup stage groups by (k, x) and the final SUM consumes
+                // the key x DIRECTLY with no lower buffer) leaves no buffer provenance at
+                // all: the dedup key below the stage is the only evidence (see
+                // dedupKeysBelow). A riding-along aggregate consumes a lower partial
+                // buffer, never a bare key, so it stays plain.
+                distinct = distinct || consumesDedupKey(args, dedupKeyIds)
+                        || consumesDedupKey(bufferArgs, dedupKeyIds);
             } else {
                 distinct = false;
             }

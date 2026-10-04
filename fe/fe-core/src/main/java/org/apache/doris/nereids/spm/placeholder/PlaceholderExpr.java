@@ -57,6 +57,16 @@ public class PlaceholderExpr {
     private final long blockId;
 
     /**
+     * POSITION of the SELECT-list item the literal was found in, or -1 when it is not
+     * below a projection item (filters, join conditions, ...). Value + parent structure
+     * + child position do not distinguish {@code SELECT 1 AS x, 1 AS y}: both literals
+     * sit at child 0 of an Alias whose parent signature omits the alias name, so they
+     * used to share one placeholder id and a variant with different values per column
+     * could never match (reviewer round 32 #9).
+     */
+    private final int projectItem;
+
+    /**
      * Constructs a PlaceholderExpr.
      *
      * @param originalExpr    the original literal
@@ -65,14 +75,27 @@ public class PlaceholderExpr {
      *                        no parent node)
      * @param childIndex      the position of the literal inside its direct parent
      *                        (the child index); -1 when there is no parent node
+     * @param blockId         the query block of the literal
+     * @param projectItem     the SELECT-list item position of the literal; -1 outside a
+     *                        projection
      */
     public PlaceholderExpr(Expression originalExpr, Expression placeholderExpr, Expression parentExpr,
-            int childIndex, long blockId) {
+            int childIndex, long blockId, int projectItem) {
         this.originalExpr = Objects.requireNonNull(originalExpr, "originalExpr can not be null");
         this.placeholderExpr = Objects.requireNonNull(placeholderExpr, "placeholderExpr can not be null");
         this.parentExpr = parentExpr;
         this.childIndex = childIndex;
         this.blockId = blockId;
+        this.projectItem = projectItem;
+    }
+
+    /**
+     * Constructs a PlaceholderExpr outside a projection item (see the primary
+     * constructor); kept for callers that carry no projection context.
+     */
+    public PlaceholderExpr(Expression originalExpr, Expression placeholderExpr, Expression parentExpr,
+            int childIndex, long blockId) {
+        this(originalExpr, placeholderExpr, parentExpr, childIndex, blockId, -1);
     }
 
     public Expression getOriginalExpr() {
@@ -93,6 +116,10 @@ public class PlaceholderExpr {
 
     public long getBlockId() {
         return blockId;
+    }
+
+    public int getProjectItem() {
+        return projectItem;
     }
 
     /**
@@ -119,9 +146,20 @@ public class PlaceholderExpr {
      * @return whether it matches
      */
     public boolean matches(Expression expr, Expression parent, int childIndex, long blockId) {
-        if (this.blockId != blockId) {
-            // different query blocks (outer query vs subquery): never share one id, or a
-            // user query with different values in the two blocks could never match
+        return matches(expr, parent, childIndex, blockId, -1);
+    }
+
+    /**
+     * Same as the four-argument overload with an explicit projection item position: a
+     * literal below a DIFFERENT SELECT-list item of the same block never reuses this id
+     * even when value / parent / child position coincide (see {@link #projectItem}).
+     */
+    public boolean matches(Expression expr, Expression parent, int childIndex, long blockId,
+            int projectItem) {
+        if (this.blockId != blockId || this.projectItem != projectItem) {
+            // different query blocks (outer query vs subquery / derived table) or different
+            // SELECT-list items: never share one id, or a user query with different values
+            // in the two positions could never match
             return false;
         }
         if (!originalExpr.equals(expr)) {

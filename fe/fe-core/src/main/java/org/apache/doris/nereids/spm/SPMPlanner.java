@@ -329,7 +329,19 @@ public class SPMPlanner {
             return true;
         }
         if (Arrays.equals(userLimit, SPMPlanTreeSupport.topLevelLimitOf(replayed))) {
-            return true;
+            // The caller's own top-level limit is in place. A limit VARIANT (its value
+            // differs from the CAPTURED one) is only accepted while the replay carries NO
+            // row-limiting cap the caller's own tree does not have: the transfer is
+            // POSITIONAL, so an inner cap of the manual plan that the merge cannot align
+            // keeps the CAPTURED value and silently truncates the result - the reviewer's
+            // example: bind 'SELECT k FROM t ORDER BY k LIMIT 1' replayed from
+            // 'SELECT DISTINCT k FROM (SELECT k FROM t ORDER BY k LIMIT 1) s ORDER BY k
+            // LIMIT 2' updated the outer TopN but left the inner cap at 1, so a query
+            // with two keys returned one row (reviewer round 32 #8).
+            if (Arrays.equals(userLimit, SPMPlanTreeSupport.topLevelLimitOf(bindTree))) {
+                return true; // not a variant: the captured caps ARE the caller's contract
+            }
+            return SPMPlanTreeSupport.rowLimitsWithin(replayed, userPlan);
         }
         return Arrays.equals(userLimit, SPMPlanTreeSupport.topLevelLimitOf(bindTree));
     }
@@ -951,7 +963,7 @@ public class SPMPlanner {
         // one tree = one block-numbering run: corresponding blocks of the bind tree and
         // the (separately parsed) plan tree keep corresponding numbers
         builder.startNewTree();
-        return SPMPlanTreeSupport.transform(plan, expr -> expr.accept(builder, null));
+        return SPMPlanTreeSupport.transform(plan, builder);
     }
 
     /**
@@ -1089,8 +1101,7 @@ public class SPMPlanner {
             return Pair.of(bindPlan, bindPlan); // both null: the caller skips the row
         }
         SPMPlaceholderBuilder builder = new SPMPlaceholderBuilder();
-        LogicalPlan parameterizedBind = SPMPlanTreeSupport.transform(
-                bindPlan, expr -> expr.accept(builder, null));
+        LogicalPlan parameterizedBind = SPMPlanTreeSupport.transform(bindPlan, builder);
         if (planSql == null || bindSql.equals(planSql)) {
             // bind == plan: one shared parameterized tree serves both roles (like CREATE)
             return Pair.of(parameterizedBind, parameterizedBind);
@@ -1107,8 +1118,7 @@ public class SPMPlanner {
             // placeholder, and the placeholder-residue check then rejects a baseline
             // that worked before a refresh / restart.
             builder.startNewTree();
-            LogicalPlan parameterizedPlan = SPMPlanTreeSupport.transform(
-                    planPlan, expr -> expr.accept(builder, null));
+            LogicalPlan parameterizedPlan = SPMPlanTreeSupport.transform(planPlan, builder);
             return Pair.of(parameterizedBind, parameterizedPlan);
         } catch (Throwable t) {
             LOG.warn("SPM rebuild parameterized plan tree failed: {}", t.getMessage());

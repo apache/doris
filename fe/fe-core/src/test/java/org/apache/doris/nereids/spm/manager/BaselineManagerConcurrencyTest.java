@@ -82,6 +82,22 @@ public class BaselineManagerConcurrencyTest {
         private Supplier<BaselinePlan> foreignSupplier;
         private boolean injectOnFirstProbe;
         private long injectedId = -1;
+        /**
+         * The id high-water mark of the append-only SEQUENCE table (round-32 #2): the ids
+         * the create path has RESERVED, which survive a DROP of the row that held them -
+         * exactly the durable state the baselines table's own MAX(id) loses.
+         */
+        private long reservedHighWater;
+
+        @Override
+        public long seqWatermark() {
+            return reservedHighWater;
+        }
+
+        @Override
+        public void reserveId(long id) {
+            reservedHighWater = Math.max(reservedHighWater, id);
+        }
 
         @Override
         public long watermark() {
@@ -161,6 +177,46 @@ public class BaselineManagerConcurrencyTest {
     }
 
     // ==================== #1: deterministic id-collision resolution ====================
+
+    /**
+     * round-32 #2: a DROP must not make the id reusable. The baselines table's own MAX(id)
+     * loses the highest id with its row, so a FE that never saw that row (a follower
+     * promoting after the drop) would hand the id to a DIFFERENT baseline - and a delayed
+     * {@code DROP BASELINE PLAN IF EXISTS N} retry for the old row would delete the new
+     * one. The append-only id sequence outlives the row.
+     */
+    @Test
+    public void testDroppedHighestIdIsNeverHandedOutAgain() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        BaselineManager.idAllocatorStoreForTest = store;
+        try {
+            long first = manager.createBaseline(baseline("aa", "select 1"));
+            long highest = manager.createBaseline(baseline("bb", "select 2"));
+            Assertions.assertTrue(highest > first, "ids are allocated upward");
+            Assertions.assertTrue(manager.dropBaseline(highest), "the highest row is dropped");
+            Assertions.assertEquals(first, store.watermark(),
+                    "precondition: the baselines table's MAX(id) falls back after the drop");
+
+            // the take-over that never saw `highest`: its next CREATE must not reuse the id
+            long next = manager.createBaseline(baseline("cc", "select 3"));
+            Assertions.assertTrue(next > highest,
+                    "the dropped id must stay reserved, got " + next + " after " + highest);
+            Assertions.assertEquals(1, store.rowsOf(next).size(),
+                    "the new baseline exists under its own id");
+            Assertions.assertEquals("cc", store.rowsOf(next).get(0).getBindSqlDigest());
+
+            // the delayed id-based retry of the OLD drop cannot reach the new baseline
+            Assertions.assertFalse(manager.dropBaseline(highest),
+                    "the old id resolves to nothing");
+            Assertions.assertEquals(1, store.rowsOf(next).size(),
+                    "the new baseline must survive the delayed retry: " + store.rowsOf(next));
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
 
     @Test
     public void testSmallerIdentityKeepsTheContestedId() {

@@ -117,14 +117,15 @@ suite("test_spm_review_round12", "spm") {
     assertEquals('0', replaced[2].toString(), "the retry count must follow the replacement")
 
     // The REAL checkpoint table must carry the canonical physical order: the upgrade adds
-    // cursor_tail AFTER cursor_query_id (before failed_attempts), like a fresh create.
+    // cursor_tail AFTER cursor_query_id (before failed_attempts) and scan_zone AFTER
+    // exclude_pattern (before update_time), like a fresh create.
     List<String> ckptColumns = sql(
             "SHOW COLUMNS FROM __internal_schema.spm_capture_checkpoint")
                     .collect { it[0].toString().toLowerCase() }
     assertEquals(["id", "last_scan_timestamp", "pending_window_start", "pending_window_end",
             "cursor_query_time", "cursor_time", "cursor_query_id", "cursor_tail",
             "failed_attempts", "retry_queue", "min_query_time_ms", "min_scan_rows",
-            "include_pattern", "exclude_pattern", "update_time"], ckptColumns,
+            "include_pattern", "exclude_pattern", "scan_zone", "update_time"], ckptColumns,
             "the checkpoint layout must match the canonical schema order (see"
                     + " InternalSchema.SPM_CAPTURE_CHECKPOINT_SCHEMA)")
 

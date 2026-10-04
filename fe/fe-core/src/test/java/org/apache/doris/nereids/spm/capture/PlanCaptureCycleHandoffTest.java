@@ -54,6 +54,8 @@ public class PlanCaptureCycleHandoffTest {
         private final List<long[]> windows = new ArrayList<>();
         private final List<Object[]> cursors = new ArrayList<>();
         private final List<String> tails = new ArrayList<>();
+        /** the zone each page was told to render its bounds in (pass zone). */
+        private final List<String> passZones = new ArrayList<>();
         /** Thresholds of the filter each page was scanned with, in call order. */
         private final List<long[]> thresholds = new ArrayList<>();
         private final List<CapturedQuery> candidates;
@@ -77,11 +79,12 @@ public class PlanCaptureCycleHandoffTest {
         @Override
         public ScanBatch scan(long startTimeMs, long endTimeMs, int maxBatchSize,
                 PlanCaptureFilter filter, long cursorQueryTime, String cursorTime,
-                String cursorQueryId, String cursorTail) {
+                String cursorQueryId, String cursorTail, String firstPassZoneId) {
             calls.incrementAndGet();
             windows.add(new long[] {startTimeMs, endTimeMs});
             cursors.add(new Object[] {cursorQueryTime, cursorTime, cursorQueryId});
             tails.add(cursorTail);
+            passZones.add(firstPassZoneId);
             thresholds.add(new long[] {filter.getMinQueryTimeMs(), filter.getMinScanRows()});
             return new ScanBatch(candidates, exhausted, returnCursorQueryTime,
                     returnCursorTime, returnCursorQueryId, returnCursorTail);
@@ -427,11 +430,13 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
-     * round-22 #5: a NON-EMPTY read is not proof the reservation became visible - the
-     * visible row may be the OLD master's reservation (published after its demotion).
-     * Confirming "some row exists" would consume this window, and the final UPSERT would
-     * replace the old master's still-unconsumed pending window. Only a row carrying OUR
-     * pending bounds may confirm the reservation.
+     * round-22 #5 + round-32 #11: a NON-EMPTY read is not proof the reservation became
+     * visible - the visible row may be the OLD master's reservation (published after its
+     * demotion). Confirming "some row exists" would consume OUR window and the final
+     * UPSERT would replace the old master's still-unconsumed pending window. Round-32 makes
+     * that row the WINDOW TO CONSUME: it is adopted (with its cursor / retry state), the
+     * cycle aborts, and the earlier window is consumed next - never replaced by the derived
+     * one.
      */
     @Test
     public void testReservationMustMatchOurOwnWindow() {
@@ -439,13 +444,14 @@ public class PlanCaptureCycleHandoffTest {
         manager.resetForTest();
         try {
             // the successful-but-empty read of the first cycle, then the store keeps
-            // showing the OLD master's reservation (a different window)
+            // showing the OLD master's reservation (a different window, with a live cursor)
+            String oldTail = "[\"10.0.0.9\",\"h9\",\"900\",\"90\",\"m9\"]";
             AtomicInteger reads = new AtomicInteger();
             manager.setCheckpointReaderForTest(() -> reads.getAndIncrement() == 0
                     ? List.of()
                     : List.of(new ResultRow(List.of(
                             "123456", "500", "600", "7", "2026-01-01 00:00:00", "qid-old",
-                            "{}", "{}", ""))));
+                            "{}", "{}", oldTail))));
             RecordingScanner scanner = new RecordingScanner(List.of(), true,
                     AuditLogScanner.CURSOR_ABSENT, "", "", "");
             manager.setScannerForTest(scanner);
@@ -455,17 +461,24 @@ public class PlanCaptureCycleHandoffTest {
             manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
                     manager.getFilter());
             Assertions.assertEquals(0, scanner.calls.get(),
-                    "a foreign (old master's) row must not confirm OUR reservation");
-            Assertions.assertFalse(manager.isDurableCheckpointObservedForTest(),
-                    "the reservation must stay retryable");
+                    "a foreign (old master's) row must not let OUR window be consumed");
+            Object[] adopted = manager.checkpointFieldsForTest();
+            Assertions.assertEquals(500L, ((Number) adopted[1]).longValue(),
+                    "the old master's window is adopted instead of replaced");
+            Assertions.assertEquals(600L, ((Number) adopted[2]).longValue());
+            Assertions.assertEquals(7L, ((Number) adopted[3]).longValue(),
+                    "with its cursor and retry state");
+            Assertions.assertTrue(manager.isPendingWindowResumePromptForTest(),
+                    "and it resumes promptly");
 
-            // the store publishes OUR reservation: the next cycle confirms and consumes
-            manager.setCheckpointReaderForTest(() -> visible.get() == null
-                    ? List.of() : List.of(checkpointRow(visible.get())));
+            // the store now carries the adopted state: the next cycle re-scans the EARLIER
+            // window (from its own cursor) and only then advances
             manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
                     manager.getFilter());
             Assertions.assertEquals(1, scanner.calls.get(),
-                    "the same-window row confirms the reservation");
+                    "the same-window row confirms the reservation and the window drains");
+            Assertions.assertArrayEquals(new long[] {500L, 600L}, scanner.windows.get(0),
+                    "the adoption keeps the EARLIER window, not the derived one");
         } finally {
             manager.resetForTest();
         }
@@ -604,7 +617,7 @@ public class PlanCaptureCycleHandoffTest {
         @Override
         public ScanBatch scan(long startTimeMs, long endTimeMs, int maxBatchSize,
                 PlanCaptureFilter filter, long cursorQueryTime, String cursorTime,
-                String cursorQueryId, String cursorTail) {
+                String cursorQueryId, String cursorTail, String firstPassZoneId) {
             int call = calls.incrementAndGet();
             windows.add(new long[] {startTimeMs, endTimeMs});
             cursors.add(new Object[] {cursorQueryTime, cursorTime, cursorQueryId});
@@ -961,6 +974,362 @@ public class PlanCaptureCycleHandoffTest {
                             + " were first admitted under");
             Assertions.assertEquals("F1_EXCLUDED", resumed.filters.get(0).getExcludePatternText(),
                     "the pinned table-name pattern travels with the rewound window as well");
+        } finally {
+            manager.resetForTest();
+        }
+    }
+
+    // ==================== round-32: resume scheduling, reservation takeover, zones ====================
+
+    /**
+     * round-32 #4: an EXHAUSTED window with retries still queued keeps the SHORT resume
+     * interval. replayQueuedFailures burns at most 1,000 entries per cycle, so a window
+     * that exhausts while holding an outage-sized queue would otherwise sleep a full
+     * capture interval (three hours by default) between every 1,000 retries - a 25,000
+     * entry backlog would need days to drain.
+     */
+    @Test
+    public void testExhaustedWindowWithQueuedRetriesRequestsPromptResume() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class)) {
+            // a capture that cannot be planned is the retryable failure the queue exists for
+            Env env = Mockito.mock(Env.class);
+            CatalogMgr catalogMgr = Mockito.mock(CatalogMgr.class);
+            ExternalCatalog external = Mockito.mock(ExternalCatalog.class);
+            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+            Mockito.when(env.getCatalogMgr()).thenReturn(catalogMgr);
+            Mockito.when(catalogMgr.getCatalog("ext_cat")).thenReturn(external);
+            Mockito.when(external.isInitialized()).thenReturn(false);
+            Mockito.when(external.getDbNullable("ext_db")).thenReturn(null);
+
+            CapturedQuery failing = new CapturedQuery(
+                    "SELECT t1.a FROM ext_cat.ext_db.t1 t1 JOIN ext_cat.ext_db.t2 t2"
+                            + " ON t1.a = t2.a",
+                    5000, 100000, 0, "digest-r32-4", "hash", "ext_db", "ext_cat", "qid-r32-4");
+            AuditLogScanner.ScanBatch page = new AuditLogScanner.ScanBatch(List.of(failing),
+                    true, AuditLogScanner.CURSOR_ABSENT, "", "", "");
+            DrainingScanner scanner = new DrainingScanner(page, exhaustedPage(),
+                    Integer.MAX_VALUE);
+            manager.setScannerForTest(scanner);
+            AtomicReference<Map<String, String>> visible = new AtomicReference<>();
+            manager.setCheckpointReaderForTest(() -> visible.get() == null
+                    ? List.of() : List.of(checkpointRow(visible.get())));
+            manager.setCheckpointWriterForTest((sql, params) -> visible.set(new HashMap<>(params)));
+
+            // an ACCEPTING window filter: the candidate must fail in PLANNING (catalog
+            // unavailable), not be terminally filtered out by the thresholds
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    new PlanCaptureFilter(null, null, 1000L, 1000L));
+            Assertions.assertTrue(manager.isQueuedForTest("qid-r32-4"),
+                    "the failed capture stays queued for a bounded retry");
+            Object[] fields = manager.checkpointFieldsForTest();
+            Assertions.assertEquals(0L, ((Number) fields[1]).longValue(),
+                    "the window is exhausted and advances");
+            Assertions.assertTrue(manager.isPendingWindowResumePromptForTest(),
+                    "the queued retry must resume at the pending-window cadence, not after"
+                            + " a full capture interval");
+
+            // once the queue is empty again the next exhaustion keeps the full interval
+            manager.resetForTest();
+            AtomicReference<Map<String, String>> visible2 = new AtomicReference<>();
+            manager.setCheckpointReaderForTest(() -> visible2.get() == null
+                    ? List.of() : List.of(checkpointRow(visible2.get())));
+            manager.setCheckpointWriterForTest((sql, params) -> visible2.set(new HashMap<>(params)));
+            manager.setScannerForTest(new DrainingScanner(exhaustedPage(), exhaustedPage(), 0));
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertFalse(manager.isPendingWindowResumePromptForTest(),
+                    "a clean exhaustion keeps the configured interval");
+        } finally {
+            manager.resetForTest();
+        }
+    }
+
+    /**
+     * round-32 #15: a FAILED first checkpoint read must not lose the window it would have
+     * consumed. The read fails while the internal table initializes; a later cycle deriving
+     * its OWN [now - interval, now) would permanently skip every eligible short row of the
+     * first attempted window (no later overlap reaches behind a NEW window's start).
+     */
+    @Test
+    public void testFailedFirstReadRetainsTheFirstAttemptedWindow() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            AtomicInteger reads = new AtomicInteger();
+            AtomicReference<Map<String, String>> visible = new AtomicReference<>();
+            manager.setCheckpointReaderForTest(() -> {
+                if (reads.incrementAndGet() == 1) {
+                    throw new RuntimeException("internal table not ready");
+                }
+                // becomes readable and EMPTY right afterwards; the reservation write then
+                // makes its own row readable (the visibility probes need it)
+                return visible.get() == null
+                        ? List.of() : List.of(checkpointRow(visible.get()));
+            });
+            RecordingScanner scanner = new RecordingScanner(List.of(), true,
+                    AuditLogScanner.CURSOR_ABSENT, "", "", "");
+            manager.setScannerForTest(scanner);
+            List<Map<String, String>> persisted = new ArrayList<>();
+            manager.setCheckpointWriterForTest((sql, params) -> {
+                persisted.add(new HashMap<>(params));
+                visible.set(new HashMap<>(params));
+            });
+
+            long intervalMs = Math.max(1L,
+                    VariableMgr.getDefaultSessionVariable().getPlanCaptureIntervalSeconds())
+                    * 1000L;
+            long beforeFirstCycle = System.currentTimeMillis();
+
+            // cycle 1: read fails - nothing is scanned or written, but the retry is scheduled
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(0, scanner.calls.get());
+            Assertions.assertEquals(0, persisted.size(),
+                    "an unreadable checkpoint must never be replaced by a derived one");
+            Assertions.assertTrue(manager.isPendingWindowResumePromptForTest(),
+                    "a failed read reschedules promptly instead of after three hours");
+
+            // cycle 2: the store is readable and empty - the first attempted window is
+            // scanned, not a freshly derived [now - interval, now)
+            // (a short sleep keeps the two candidate starts apart on a coarse clock)
+            Thread.sleep(50L);
+            long beforeSecondCycle = System.currentTimeMillis();
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(1, scanner.calls.get());
+            long scanStart = scanner.windows.get(0)[0];
+            Assertions.assertTrue(scanStart < beforeSecondCycle - intervalMs,
+                    "the fresh window must reach back to the FIRST attempted start, got "
+                            + scanStart + " vs " + (beforeSecondCycle - intervalMs));
+            Assertions.assertTrue(scanStart >= beforeFirstCycle - intervalMs,
+                    "and must not reach further back than the first attempt");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+        } finally {
+            manager.resetForTest();
+        }
+    }
+
+    /**
+     * round-32 #11: a reservation the PREVIOUS leader wrote but that only becomes readable
+     * later must be ADOPTED, not replaced. Leader A commits [09:00, 12:00) but its row is
+     * still unreadable when B promotes and derives [09:10, 12:10); the single-row UPSERT
+     * would replace A's record and an eligible 09:05 row would fall outside B's window and
+     * every later overlap. The reconciliation read runs BEFORE the reservation write.
+     */
+    @Test
+    public void testForeignReservationReadableBeforeTheWriteIsAdopted() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            AtomicInteger reads = new AtomicInteger();
+            // call 1: the cycle-initial read is EMPTY (the foreign row is not visible yet);
+            // call 2: the pre-write reconciliation sees the earlier leader's reservation
+            manager.setCheckpointReaderForTest(() -> {
+                if (reads.incrementAndGet() <= 1) {
+                    return List.of();
+                }
+                return List.of(new ResultRow(List.of(
+                        "0", "100", "200", "0", "", "", "{}", "{}", "",
+                        "-1", "-1", "", "")));
+            });
+            RecordingScanner scanner = new RecordingScanner(List.of(), true,
+                    AuditLogScanner.CURSOR_ABSENT, "", "", "");
+            manager.setScannerForTest(scanner);
+            List<Map<String, String>> persisted = new ArrayList<>();
+            manager.setCheckpointWriterForTest((sql, params) -> persisted.add(new HashMap<>(params)));
+
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(0, scanner.calls.get(),
+                    "the cycle must abort instead of consuming the derived window over the"
+                            + " earlier leader's reservation");
+            Object[] fields = manager.checkpointFieldsForTest();
+            Assertions.assertEquals(100L, ((Number) fields[1]).longValue(),
+                    "the earlier leader's window is adopted");
+            Assertions.assertEquals(200L, ((Number) fields[2]).longValue());
+            Assertions.assertTrue(manager.isPendingWindowResumePromptForTest(),
+                    "the adopted window resumes promptly");
+            Assertions.assertFalse(persisted.isEmpty(),
+                    "the adopted state is written back, so a later takeover cannot read the"
+                            + " replaced window instead");
+            Assertions.assertEquals("100", persisted.get(persisted.size() - 1).get("pendingStart"));
+
+            // the next cycle consumes the EARLIER window (and reports where it stopped)
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(1, scanner.calls.get());
+            Assertions.assertArrayEquals(new long[] {100L, 200L}, scanner.windows.get(0),
+                    "the resumed window is the earlier leader's, not the derived one");
+        } finally {
+            manager.resetForTest();
+        }
+    }
+
+    /**
+     * round-32 #11 (probe half): the visibility probes of the reservation must adopt a
+     * FOREIGN row that surfaces while probing - ignoring it (\"not ours\") let the cycle
+     * consume the derived window although the earlier leader's pending window was now
+     * readable.
+     */
+    @Test
+    public void testForeignReservationReadableDuringTheProbesIsAdopted() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            AtomicInteger reads = new AtomicInteger();
+            manager.setCheckpointReaderForTest(() -> {
+                int call = reads.incrementAndGet();
+                if (call <= 2) {
+                    // cycle-initial read + pre-write reconciliation: still empty
+                    return List.of();
+                }
+                // the earlier leader's row surfaces during this cycle's probes
+                return List.of(new ResultRow(List.of(
+                        "0", "300", "400", "0", "", "", "{}", "{}", "",
+                        "-1", "-1", "", "")));
+            });
+            RecordingScanner scanner = new RecordingScanner(List.of(), true,
+                    AuditLogScanner.CURSOR_ABSENT, "", "", "");
+            manager.setScannerForTest(scanner);
+            List<Map<String, String>> persisted = new ArrayList<>();
+            manager.setCheckpointWriterForTest((sql, params) -> persisted.add(new HashMap<>(params)));
+
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(0, scanner.calls.get(),
+                    "the cycle aborts once the foreign window is readable");
+            Object[] fields = manager.checkpointFieldsForTest();
+            Assertions.assertEquals(300L, ((Number) fields[1]).longValue(),
+                    "the foreign window is adopted");
+            Assertions.assertEquals(400L, ((Number) fields[2]).longValue());
+            Assertions.assertTrue(manager.isPendingWindowResumePromptForTest());
+            Assertions.assertEquals("300", persisted.get(persisted.size() - 1).get("pendingStart"),
+                    "the adopted state is pushed back over this cycle's own reservation");
+        } finally {
+            manager.resetForTest();
+        }
+    }
+
+    /**
+     * round-32 #3: after a global time_zone change the window is rendered in the PREVIOUS
+     * zone first - the rows published before the change are stored with the old rendering
+     * and are invisible to bounds rendered in the new zone (an empty page would exhaust the
+     * window and advance the watermark past them forever). The following pass revisits the
+     * SAME window in the current zone, and only then does the watermark advance.
+     */
+    @Test
+    public void testZoneChangeRescansTheWindowInTheCurrentZone() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            String currentZone = AuditLogScanner.auditWriteZone().getId();
+            String previousZone = "UTC".equals(currentZone) ? "Asia/Tokyo" : "UTC";
+            AtomicInteger reads = new AtomicInteger();
+            manager.setCheckpointReaderForTest(() -> {
+                // a checkpoint row whose scan pass ran in the PREVIOUS zone, with a window
+                // still pending (the zone changed while it was being consumed)
+                if (reads.getAndIncrement() == 0) {
+                    return List.of(new ResultRow(List.of(
+                            "0", "100", "200",
+                            String.valueOf(AuditLogScanner.CURSOR_ABSENT), "", "",
+                            "{}", "{}", "", "111", "11", "", "", previousZone)));
+                }
+                return List.of();
+            });
+            RecordingScanner scanner = new RecordingScanner(List.of(), true,
+                    AuditLogScanner.CURSOR_ABSENT, "", "", "");
+            manager.setScannerForTest(scanner);
+            List<Map<String, String>> persisted = new ArrayList<>();
+            manager.setCheckpointWriterForTest((sql, params) -> persisted.add(new HashMap<>(params)));
+
+            // pass 1: the pending window is drained in the zone it was OPENED in ...
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(1, scanner.calls.get());
+            Assertions.assertEquals(previousZone, scanner.passZones.get(0),
+                    "the window keeps the rendering of its cursor's zone");
+            Object[] fields = manager.checkpointFieldsForTest();
+            Assertions.assertEquals(100L, ((Number) fields[1]).longValue(),
+                    "the zone change does NOT advance the watermark: the same window is"
+                            + " re-scanned in the new zone first");
+            Assertions.assertEquals(200L, ((Number) fields[2]).longValue());
+            Assertions.assertEquals(AuditLogScanner.CURSOR_ABSENT, ((Number) fields[3]).longValue(),
+                    "the re-scan starts from the top of the window");
+            Assertions.assertTrue(manager.isPendingWindowResumePromptForTest(),
+                    "the re-scan resumes promptly");
+            Assertions.assertEquals(currentZone, manager.lastScanZoneForTest(),
+                    "the next pass follows the current global zone");
+            Assertions.assertEquals(currentZone,
+                    persisted.get(persisted.size() - 1).get("scanZone"),
+                    "the pass zone is persisted for a takeover");
+
+            // pass 2: the SAME window is re-scanned in the current zone and only then drained
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(2, scanner.calls.get());
+            Assertions.assertEquals(currentZone, scanner.passZones.get(1),
+                    "the second pass renders in the NEW zone");
+            Assertions.assertArrayEquals(scanner.windows.get(0), scanner.windows.get(1),
+                    "both passes cover the same window");
+            Object[] drained = manager.checkpointFieldsForTest();
+            Assertions.assertEquals(0L, ((Number) drained[1]).longValue(),
+                    "the window is consumed by the second pass and the watermark advances");
+            Assertions.assertEquals(200L, ((Number) drained[0]).longValue());
+            Assertions.assertFalse(manager.isPendingWindowResumePromptForTest());
+        } finally {
+            manager.resetForTest();
+        }
+    }
+
+    /**
+     * round-32 #12: the scan overlap grows to the LOCAL audit loader's outstanding queue
+     * horizon. A fixed overlap only covers the CONFIGURED waits; the loader can still hold
+     * the row of an 11:50 query while the 12:00 window advances, and only re-reading that
+     * instant keeps it capturable.
+     */
+    @Test
+    public void testScanOverlapFollowsTheAuditLoaderQueueHorizon() {
+        long batchSec = 5L;
+        long base = PlanCaptureManager.scanWindowOverlapMs(batchSec);
+        long now = 1_000_000_000L;
+        Assertions.assertEquals(base,
+                PlanCaptureManager.scanWindowOverlapMs(batchSec, 0L, now),
+                "nothing outstanding keeps the configured overlap");
+        Assertions.assertEquals(base,
+                PlanCaptureManager.scanWindowOverlapMs(batchSec, now + 5_000L, now),
+                "a future horizon cannot widen the overlap");
+        Assertions.assertEquals(10 * 60_000L,
+                PlanCaptureManager.scanWindowOverlapMs(batchSec, now - 10 * 60_000L, now),
+                "an event the loader has held for ten minutes fences the window back to it");
+
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            manager.setAuditQueueHorizonForTest(() -> System.currentTimeMillis() - 10 * 60_000L);
+            RecordingScanner scanner = new RecordingScanner(List.of(), true,
+                    AuditLogScanner.CURSOR_ABSENT, "", "", "");
+            manager.setScannerForTest(scanner);
+            AtomicReference<Map<String, String>> visible = new AtomicReference<>();
+            manager.setCheckpointReaderForTest(() -> visible.get() == null
+                    ? List.of() : List.of(checkpointRow(visible.get())));
+            manager.setCheckpointWriterForTest((sql, params) -> visible.set(new HashMap<>(params)));
+
+            // cycle 1: a fresh window, then advance the watermark
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            long firstEnd = scanner.windows.get(0)[1];
+            // cycle 2: the window must start at (or before) the outstanding horizon event, so
+            // the row the loader still holds stays inside a scanned range
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            long secondStart = scanner.windows.get(1)[0];
+            Assertions.assertTrue(secondStart <= System.currentTimeMillis() - 10 * 60_000L,
+                    "the overlap must retain the loader's outstanding horizon, got "
+                            + secondStart + " vs the first window end " + firstEnd);
         } finally {
             manager.resetForTest();
         }

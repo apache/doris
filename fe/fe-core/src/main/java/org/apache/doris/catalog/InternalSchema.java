@@ -42,12 +42,24 @@ public class InternalSchema {
      */
     public static final String SPM_CAPTURE_CHECKPOINT_TBL_NAME = "spm_capture_checkpoint";
 
+    /**
+     * Name of the SPM baseline id sequence internal table: append-only rows recording the
+     * ids the create path has ALLOCATED. The id of a baseline must never be handed out
+     * twice, but {@code MAX(id)} of the baselines table loses the highest id as soon as
+     * its row is DROPped - a FE that never saw that id (a follower promoting after the
+     * drop) would allocate it again for a DIFFERENT baseline, and a delayed
+     * {@code DROP BASELINE PLAN IF EXISTS N} retry would then delete the new baseline.
+     * The sequence survives the delete, so the watermark read is the MAX of BOTH.
+     */
+    public static final String SPM_BASELINES_SEQ_TBL_NAME = "spm_baselines_seq";
+
     // Do not use the original schema directly, because it may be modified by create table operation.
     public static final List<ColumnDef> TABLE_STATS_SCHEMA;
     public static final List<ColumnDef> PARTITION_STATS_SCHEMA;
     public static final List<ColumnDef> HISTO_STATS_SCHEMA;
     public static final List<ColumnDef> AUDIT_SCHEMA;
     public static final List<ColumnDef> SPM_BASELINES_SCHEMA;
+    public static final List<ColumnDef> SPM_BASELINES_SEQ_SCHEMA;
     public static final List<ColumnDef> SPM_CAPTURE_CHECKPOINT_SCHEMA;
 
     static {
@@ -304,6 +316,17 @@ public class InternalSchema {
         SPM_BASELINES_SCHEMA.add(new ColumnDef("schema_fingerprint",
                 ScalarType.createVarchar(4096), ColumnNullableType.NULLABLE));
 
+        // SPM baseline id sequence (append-only, id = 1): every row records one id the
+        // create path has reserved. The baseline table itself cannot be the watermark:
+        // DROP removes rows, so MAX(id) of the table falls back and an id could be reused
+        // for a different baseline - a delayed DROP-by-id retry for the old row would then
+        // delete the new one. MAX(last_id) over these rows never decreases.
+        SPM_BASELINES_SEQ_SCHEMA = new ArrayList<>();
+        SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("id",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("last_id",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+
         // SPM plan-capture checkpoint (single row, id = 1): the truncated window bounds,
         // the FULL cursor (time, query_time, query_id + the encoded tie-breaker tail)
         // and the retry state survive a leader handoff / FE restart. JSON text for the
@@ -319,7 +342,10 @@ public class InternalSchema {
         // thresholds its already-consumed rows were judged by. include_pattern /
         // exclude_pattern are the table-name regexes of that same snapshot (empty = none):
         // a pattern change mid-window must not terminally filter away rows the window's
-        // earlier pages had admitted.
+        // earlier pages had admitted. scan_zone is the zone ID of the last scan pass (the
+        // zone its rendered bounds were written in): after `SET GLOBAL time_zone` the next
+        // pass must render the window in the previous zone too, or rows already stored
+        // under it become unreachable (see PlanCaptureManager).
         SPM_CAPTURE_CHECKPOINT_SCHEMA = new ArrayList<>();
         SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("id",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
@@ -353,6 +379,15 @@ public class InternalSchema {
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NOT_NULLABLE));
         SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("exclude_pattern",
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NOT_NULLABLE));
+        // scan_zone is the session time_zone (zone ID) the CURRENT scan pass renders its
+        // bounds in - the zone the scanned rows' `time` columns were WRITTEN in. audit_log
+        // stores local wall-clock DATETIMEs and the writer follows the global time_zone,
+        // so after `SET GLOBAL time_zone` the rows of the OLD rendering are invisible to
+        // bounds rendered in the new zone: the next pass must first render the window in
+        // the OLD zone again (see PlanCaptureManager / AuditLogScanner#zoneOfTail). Empty
+        // = never scanned (a fresh process follows the current global zone).
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("scan_zone",
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NOT_NULLABLE));
         SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("update_time",
                 ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
     }
@@ -376,6 +411,9 @@ public class InternalSchema {
                 break;
             case SPM_BASELINES_TBL_NAME:
                 schema = SPM_BASELINES_SCHEMA;
+                break;
+            case SPM_BASELINES_SEQ_TBL_NAME:
+                schema = SPM_BASELINES_SEQ_SCHEMA;
                 break;
             case SPM_CAPTURE_CHECKPOINT_TBL_NAME:
                 schema = SPM_CAPTURE_CHECKPOINT_SCHEMA;

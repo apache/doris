@@ -64,9 +64,24 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     public static final String AUDIT_TABLE_COL_SEPARATOR_STR = "\\x1F";
     public static final String AUDIT_TABLE_LINE_DELIMITER_STR = "\\x1E";
 
+    /**
+     * The FE's running builtin loader, published for readers that must know how far this
+     * FE's audit events have actually been PUBLISHED: the SPM capture advances its scan
+     * watermark from {@code audit_log}, and a row that is still inside this loader (queued,
+     * or assembled into the not yet flushed batch) is not readable there yet - advancing
+     * past it would drop the query permanently (see
+     * PlanCaptureManager#scanWindowOverlapMs).
+     */
+    private static volatile AuditLoader runningLoader;
+
     private StringBuilder auditLogBuffer = new StringBuilder();
     private int auditLogNum = 0;
     private long lastLoadTimeAuditLog = 0;
+    // start time of the oldest event the current, NOT YET LOADED batch holds (0 = empty).
+    // written by the assembling thread (AuditEventProcessor) under the loader monitor,
+    // read by the SPM capture thread - volatile, and only ever narrowed while a batch is
+    // being assembled, so a stale read can only under-, never over-state the horizon.
+    private volatile long batchOldestEventTime = 0;
     // sometimes the audit log may fail to load to doris, count it to observe.
     private long discardLogNum = 0;
 
@@ -107,6 +122,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
             this.loadThread.start();
 
             isInit = true;
+            runningLoader = this;
         }
     }
 
@@ -114,6 +130,9 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     public void close() throws IOException {
         super.close();
         isClosed = true;
+        if (runningLoader == this) {
+            runningLoader = null;
+        }
         if (loadThread != null) {
             try {
                 loadThread.join();
@@ -153,6 +172,49 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     private synchronized void assembleAudit(AuditEvent event) {
         fillLogBuffer(event, auditLogBuffer);
         ++auditLogNum;
+        long eventTime = event.timestamp;
+        if (eventTime > 0 && (batchOldestEventTime == 0 || eventTime < batchOldestEventTime)) {
+            batchOldestEventTime = eventTime;
+        }
+    }
+
+    /**
+     * Start time (epoch millis, the {@code time} column of {@code audit_log}) of the OLDEST
+     * event this FE's builtin loader has accepted but not published yet - queued events plus
+     * the assembled, not yet flushed batch. Returns 0 when the loader is not running (or has
+     * nothing outstanding), i.e. when there is no known publication delay to retain.
+     *
+     * <p>The SPM capture uses this as a progress fence: its next scan window must still start
+     * at or before this instant, otherwise a row the local loader still owes (e.g. a query the
+     * {@code query_audit_log_timeout_ms} hold released late, or one sitting behind a slow
+     * stream load in the {@link #auditEventQueue}) would fall behind the advanced watermark
+     * and never be captured.
+     */
+    public static long oldestUnpublishedEventTime() {
+        AuditLoader loader = runningLoader;
+        return loader == null ? 0L : loader.oldestOutstandingEventTime();
+    }
+
+    private long oldestOutstandingEventTime() {
+        BlockingQueue<AuditEvent> queue = auditEventQueue;
+        if (queue == null) {
+            return 0L;
+        }
+        long oldest = batchOldestEventTime;
+        // the queue is drained FIFO, but the ENQUEUE order is not the event-time order (the
+        // upstream hold releases events by completion, not by start), so every queued event
+        // is examined. The queue is a weak-consistency view and the scan is cheap next to a
+        // capture cycle; a concurrently dequeued event is simply no longer outstanding.
+        for (AuditEvent event : queue) {
+            if (event == null) {
+                continue;
+            }
+            long eventTime = event.timestamp;
+            if (eventTime > 0 && (oldest == 0 || eventTime < oldest)) {
+                oldest = eventTime;
+            }
+        }
+        return oldest;
     }
 
     private void fillLogBuffer(AuditEvent event, StringBuilder logBuffer) {
@@ -313,6 +375,8 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         this.auditLogBuffer = new StringBuilder();
         this.lastLoadTimeAuditLog = currentTime;
         this.auditLogNum = 0;
+        // the batch is published now (its load has returned), so it no longer fences progress
+        this.batchOldestEventTime = 0;
     }
 
     private class LoadWorker implements Runnable {

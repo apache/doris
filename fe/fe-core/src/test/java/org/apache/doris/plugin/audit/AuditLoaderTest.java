@@ -23,10 +23,12 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.plugin.AuditEvent;
 
 import com.google.common.base.Splitter;
+import com.google.common.collect.Queues;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -159,6 +161,67 @@ public class AuditLoaderTest {
         Assertions.assertEquals("ArrowFlightSQL", columns.get(names.indexOf("protocol")));
         Assertions.assertEquals("select 1", columns.get(names.indexOf("stmt")));
         Assertions.assertEquals(names.size() - 1, names.indexOf("stmt"));
+    }
+
+    // round-32 #12: the SPM capture overlaps its scan window by the LOCAL loader's
+    // outstanding queue horizon. The horizon is the OLDEST event the loader has accepted but
+    // not published yet - the assembled batch counts as well, and enqueue order is NOT
+    // event-time order (the upstream hold releases events by completion), so every queued
+    // event is examined.
+    @Test
+    public void testOldestUnpublishedEventTimeTracksTheQueueHorizon() throws Exception {
+        AuditLoader loader = new AuditLoader();
+        BlockingQueue<AuditEvent> queue = Queues.newLinkedBlockingDeque();
+        // production fields: the queue the worker drains and the batch currently assembled
+        setPrivateField(loader, "auditEventQueue", queue);
+        setRunningLoader(loader);
+        try {
+            Assertions.assertEquals(0L, AuditLoader.oldestUnpublishedEventTime(),
+                    "nothing outstanding = no publication delay to retain");
+
+            queue.add(event(5000L));
+            queue.add(event(3000L));
+            queue.add(event(7000L));
+            Assertions.assertEquals(3000L, AuditLoader.oldestUnpublishedEventTime(),
+                    "the OLDEST queued event fences the window, not the queue order");
+
+            // the assembled (not yet flushed) batch is unpublished as well
+            setPrivateField(loader, "batchOldestEventTime", 1000L);
+            Assertions.assertEquals(1000L, AuditLoader.oldestUnpublishedEventTime(),
+                    "the assembled batch is part of the horizon");
+
+            // publishing the batch clears that half of the horizon
+            Deencapsulation.invoke(loader, "resetBatch", 0L);
+            Assertions.assertEquals(3000L, AuditLoader.oldestUnpublishedEventTime());
+
+            queue.clear();
+            Assertions.assertEquals(0L, AuditLoader.oldestUnpublishedEventTime(),
+                    "a drained queue leaves nothing outstanding");
+        } finally {
+            setRunningLoader(null);
+        }
+        Assertions.assertEquals(0L, AuditLoader.oldestUnpublishedEventTime(),
+                "no running loader = no known delay");
+    }
+
+    private static AuditEvent event(long timestamp) {
+        return new AuditEvent.AuditEventBuilder()
+                .setQueryId("qid-" + timestamp)
+                .setTimestamp(timestamp)
+                .setStmt("select 1")
+                .build();
+    }
+
+    private static void setPrivateField(Object target, String name, Object value) throws Exception {
+        java.lang.reflect.Field field = target.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(target, value);
+    }
+
+    private static void setRunningLoader(AuditLoader loader) throws Exception {
+        java.lang.reflect.Field field = AuditLoader.class.getDeclaredField("runningLoader");
+        field.setAccessible(true);
+        field.set(null, loader);
     }
 
     private static int count(CharSequence s, char c) {

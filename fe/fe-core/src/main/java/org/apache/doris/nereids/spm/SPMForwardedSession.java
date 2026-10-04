@@ -55,11 +55,28 @@ public final class SPMForwardedSession {
 
     private static final Logger LOG = LogManager.getLogger(SPMForwardedSession.class);
 
+    /**
+     * The forward payload's CHARACTER budget (the JSON text carried in the session variable
+     * of the forwarded statement). The payload is part of a Thrift
+     * {@code TMasterOpRequest} whose default message limit is 100 MiB - an unbounded
+     * serialization of a session holding enough ADMIN-created baselines (each with BOTH SQL
+     * texts) made EVERY forwarded statement on that connection fail with a transport error.
+     * Rows are carried in id order until the budget is exhausted; the rest is skipped (with
+     * a warning) rather than breaking the statement, and the matching is pointwise - a
+     * skipped row simply does not participate in the master's rewrite. 8 MiB is generous for
+     * any realistic session (thousands of multi-KB baselines) yet far below the transport
+     * limit even after JSON escaping doubles the text.
+     */
+    private static final int MAX_PAYLOAD_CHARS = 8 * 1024 * 1024;
+
     private SPMForwardedSession() {
     }
 
     /**
-     * Serializes the ENABLED rows of the session store.
+     * Serializes the ENABLED rows of the session store, bounded by
+     * {@link #MAX_PAYLOAD_CHARS}: rows are carried in id order until the budget is spent
+     * (see the constant for why an unbounded payload is a correctness bug, not just a
+     * size concern - it made every forwarded statement of the connection fail).
      *
      * @param store the connection's session store (may be null)
      * @return the JSON payload, or "" when there is nothing to carry
@@ -68,31 +85,53 @@ public final class SPMForwardedSession {
         if (store == null || store.isEmpty()) {
             return "";
         }
+        Gson gson = new Gson();
         List<Map<String, String>> rows = new ArrayList<>();
+        long payloadChars = 2; // the enclosing []
+        int skipped = 0;
         for (BaselinePlan plan : store.getAllBaselines()) {
             if (plan.getStatus() != BaselineStatus.ENABLED) {
                 continue;
             }
-            Map<String, String> row = new HashMap<>();
-            row.put("id", String.valueOf(plan.getId()));
-            row.put("bindSql", plan.getBindSql() == null ? "" : plan.getBindSql());
-            row.put("planSql", plan.getPlanSql() == null ? "" : plan.getPlanSql());
-            row.put("bindSqlDigest",
-                    plan.getBindSqlDigest() == null ? "" : plan.getBindSqlDigest());
-            row.put("bindSqlHash", String.valueOf(plan.getBindSqlHash()));
-            row.put("creatorSqlMode", String.valueOf(plan.getCreatorSqlMode()));
-            row.put("planSqlMode",
-                    plan.getPlanSqlMode() == null ? "" : String.valueOf(plan.getPlanSqlMode()));
-            row.put("planFrozen",
-                    plan.getPlanFrozen() == null ? "" : plan.getPlanFrozen().toString());
-            row.put("schemaFingerprint",
-                    plan.getSchemaFingerprint() == null ? "" : plan.getSchemaFingerprint());
-            row.put("queryId", plan.getQueryId() == null ? "" : plan.getQueryId());
-            row.put("cost", String.valueOf(plan.getCost()));
-            row.put("queryTimeMs", String.valueOf(plan.getQueryTimeMs()));
+            Map<String, String> row = toPayloadRow(plan);
+            // measure the row EXACTLY as the array serializes it (same Gson encoding)
+            long rowChars = gson.toJson(row).length() + 1;
+            if (payloadChars + rowChars > MAX_PAYLOAD_CHARS) {
+                skipped++;
+                continue;
+            }
             rows.add(row);
+            payloadChars += rowChars;
         }
-        return rows.isEmpty() ? "" : new Gson().toJson(rows);
+        if (skipped > 0) {
+            LOG.warn("The session holds more SPM baselines than the forwarded payload can"
+                    + " carry ({} enabled rows, {} of them over the {} character budget): the"
+                    + " skipped baselines cannot apply on a FORWARDED statement",
+                    rows.size() + skipped, skipped, MAX_PAYLOAD_CHARS);
+        }
+        return rows.isEmpty() ? "" : gson.toJson(rows);
+    }
+
+    /** One carried row (the payload's field set for a baseline). */
+    private static Map<String, String> toPayloadRow(BaselinePlan plan) {
+        Map<String, String> row = new HashMap<>();
+        row.put("id", String.valueOf(plan.getId()));
+        row.put("bindSql", plan.getBindSql() == null ? "" : plan.getBindSql());
+        row.put("planSql", plan.getPlanSql() == null ? "" : plan.getPlanSql());
+        row.put("bindSqlDigest",
+                plan.getBindSqlDigest() == null ? "" : plan.getBindSqlDigest());
+        row.put("bindSqlHash", String.valueOf(plan.getBindSqlHash()));
+        row.put("creatorSqlMode", String.valueOf(plan.getCreatorSqlMode()));
+        row.put("planSqlMode",
+                plan.getPlanSqlMode() == null ? "" : String.valueOf(plan.getPlanSqlMode()));
+        row.put("planFrozen",
+                plan.getPlanFrozen() == null ? "" : plan.getPlanFrozen().toString());
+        row.put("schemaFingerprint",
+                plan.getSchemaFingerprint() == null ? "" : plan.getSchemaFingerprint());
+        row.put("queryId", plan.getQueryId() == null ? "" : plan.getQueryId());
+        row.put("cost", String.valueOf(plan.getCost()));
+        row.put("queryTimeMs", String.valueOf(plan.getQueryTimeMs()));
+        return row;
     }
 
     /**
