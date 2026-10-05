@@ -376,6 +376,12 @@ DEFINE_mInt32(cache_periodic_prune_stale_sweep_sec, "60");
 DEFINE_mInt32(tablet_lookup_cache_stale_sweep_time_sec, "30");
 DEFINE_mInt32(point_query_row_cache_stale_sweep_time_sec, "300");
 DEFINE_mInt32(disk_stat_monitor_interval, "5");
+// Maximum time for one startup disk/spill check, local-engine disk health check,
+// or the final disk-state update/error-disk handling phase. Includes IO-error handling.
+// 0 disables the watchdog; changes require restart.
+// On timeout BE exits with status 74 without logging, flushing or generating a core.
+DEFINE_Int32(disk_health_check_timeout_seconds, "0");
+DEFINE_Validator(disk_health_check_timeout_seconds, [](int value) -> bool { return value >= 0; });
 DEFINE_mInt32(unused_rowset_monitor_interval, "30");
 // Legacy name retained for compatibility; controls GLOBAL_ROWID_COL file-map GC.
 DEFINE_mInt32(quering_rowsets_evict_interval, "30");

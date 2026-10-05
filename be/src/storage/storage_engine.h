@@ -44,6 +44,7 @@
 #include "storage/adaptive_thread_pool_controller.h"
 #include "storage/compaction/compaction_permit_limiter.h"
 #include "storage/delete/calc_delete_bitmap_executor.h"
+#include "storage/disk_health_check_watchdog.h"
 #include "storage/olap_common.h"
 #include "storage/options.h"
 #include "storage/rowset/pending_rowset_helper.h"
@@ -529,6 +530,7 @@ private:
     std::shared_ptr<Thread> _garbage_sweeper_thread;
     // thread to monitor disk stat
     std::shared_ptr<Thread> _disk_stat_monitor_thread;
+    DiskHealthCheckWatchdog _disk_health_check_watchdog;
     // thread to produce both base and cumulative compaction tasks
     std::shared_ptr<Thread> _compaction_tasks_producer_thread;
     std::shared_ptr<Thread> _binlog_compaction_tasks_producer_thread;

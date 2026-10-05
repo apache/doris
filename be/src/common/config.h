@@ -459,6 +459,7 @@ DECLARE_mInt32(cache_periodic_prune_stale_sweep_sec);
 DECLARE_mInt32(tablet_lookup_cache_stale_sweep_time_sec);
 DECLARE_mInt32(point_query_row_cache_stale_sweep_time_sec);
 DECLARE_mInt32(disk_stat_monitor_interval);
+DECLARE_Int32(disk_health_check_timeout_seconds);
 DECLARE_mInt32(unused_rowset_monitor_interval);
 // Legacy name retained for compatibility; controls GLOBAL_ROWID_COL file-map GC.
 DECLARE_mInt32(quering_rowsets_evict_interval);

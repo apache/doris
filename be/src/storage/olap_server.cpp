@@ -240,6 +240,8 @@ Status StorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
     LOG(INFO) << "garbage sweeper thread started";
 
     // start thread for monitoring the tablet with io error
+    RETURN_IF_ERROR(_disk_health_check_watchdog.start(
+            std::chrono::seconds(config::disk_health_check_timeout_seconds)));
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "disk_stat_monitor_thread",
             [this]() { this->_disk_stat_monitor_thread_callback(); }, &_disk_stat_monitor_thread));
@@ -422,6 +424,7 @@ void StorageEngine::_disk_stat_monitor_thread_callback() {
 
         interval = config::disk_stat_monitor_interval;
         if (interval <= 0) {
+            DiskHealthCheckWatchdog::ScopedCheck check(_disk_health_check_watchdog);
             LOG(WARNING) << "disk_stat_monitor_interval config is illegal: " << interval
                          << ", force set to 1";
             interval = 1;

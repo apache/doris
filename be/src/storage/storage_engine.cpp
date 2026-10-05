@@ -495,9 +495,15 @@ int64_t StorageEngine::get_file_or_directory_size(const std::string& file_path) 
 
 void StorageEngine::_start_disk_stat_monitor() {
     for (auto& it : _store_map) {
+        // Include IO-error handling: persisting the broken path can also stall.
+        DiskHealthCheckWatchdog::ScopedCheck check(_disk_health_check_watchdog);
         it.second->health_check();
     }
 
+    // These steps acquire _store_lock and may log a fatal disk failure. Keep
+    // supervising them so a stalled report or fatal logger cannot stop probing
+    // forever after the last per-disk check has completed.
+    DiskHealthCheckWatchdog::ScopedCheck check(_disk_health_check_watchdog);
     _update_storage_medium_type_count();
 
     _exit_if_too_many_disks_are_failed();
@@ -750,6 +756,8 @@ void StorageEngine::stop() {
     THREAD_JOIN(_unused_rowset_monitor_thread);
     THREAD_JOIN(_garbage_sweeper_thread);
     THREAD_JOIN(_disk_stat_monitor_thread);
+    // A stuck health check must remain supervised while stop() waits for it.
+    _disk_health_check_watchdog.stop();
     THREAD_JOIN(_cache_clean_thread);
     THREAD_JOIN(_tablet_checkpoint_tasks_producer_thread);
     THREAD_JOIN(_async_publish_thread);
