@@ -224,6 +224,30 @@ public class BaselineManager {
         }
 
         /**
+         * Records a DROP TOMBSTONE (round-42 #9): the append-only identity of a baseline
+         * the DROP removed. The default keeps simulators without tombstones working (the
+         * load filter then finds no marker).
+         *
+         * @param id            the dropped baseline id
+         * @param bindSqlDigest the baseline's bind digest
+         * @param planSqlHash   the hash of the baseline's plan SQL
+         * @param atMillis      the marker instant (epoch millis)
+         */
+        default void appendDroppedMarker(long id, String bindSqlDigest, long planSqlHash,
+                long atMillis) {
+        }
+
+        /**
+         * The recorded DROP TOMBSTONES as {@code id|bindSqlDigest|planSqlHash} keys; the
+         * load filter ignores rows matching one. The default keeps simulators working.
+         *
+         * @return the recorded tombstone keys (empty when none)
+         */
+        default List<String> droppedMarkers() {
+            return List.of();
+        }
+
+        /**
          * The newest stored update_time of the WHOLE simulated table, in epoch SECONDS
          * (0 = none): see {@link StatusProtocolStoreForTest#newestStoredUpdateSecond()}
          * (round-39 #9).
@@ -350,17 +374,20 @@ public class BaselineManager {
 
     /**
      * First page of a whole-table snapshot: ordered by id so the pagination can continue
-     * with {@link #SELECT_PAGE_SQL} from the last row read. The order is a TOTAL order over
-     * the rows of ONE id - {@code (update_time, status)} break the id ties (round-38 #3):
-     * with {@code ORDER BY `id`} alone the engine may return a repeated id's rows in ANY
-     * order in EVERY execution (SQL promises nothing for equal sort keys), and an OFFSET
-     * continuation that lands inside such a group could then re-read one row and skip
-     * another while the row COUNT - the completeness proof - stays unchanged, so the
-     * refresh would publish the OLD status. Rows equal in EVERY column remain
-     * interchangeable (they resolve to the same {@link #pickDurableWinner} outcome).
+     * with {@link #SELECT_PAGE_SQL} from the last row read. The order must be a TOTAL
+     * order over the rows of ONE id - {@code (update_time, status)} break the id ties
+     * (round-38 #3) and the CONTENT columns break the remaining ties (round-42 #1): two
+     * masters can leave two DIFFERENT rows of one id with the same stored second and the
+     * same status (a delayed INSERT committing after a handoff collision), and with
+     * {@code ORDER BY `id`} alone the engine may return such rows in ANY order in EVERY
+     * execution, so an OFFSET continuation landing inside the group could re-read one row
+     * and skip another while the row COUNT - the completeness proof - stays unchanged.
+     * Rows equal in EVERY column remain interchangeable (they resolve to the same
+     * {@link #pickDurableWinner} outcome).
      */
     private static final String SELECT_ALL_ORDERED_SQL =
-            SNAPSHOT_COLUMNS + SPM_BASELINES_TABLE + " ORDER BY `id`, `update_time`, `status`";
+            SNAPSHOT_COLUMNS + SPM_BASELINES_TABLE + " ORDER BY `id`, `update_time`, `status`,"
+                    + " `bind_sql_digest`, `plan_sql`, `bind_sql`";
 
     /**
      * One continuation page of a whole-table snapshot: every row with {@code id >=
@@ -371,10 +398,11 @@ public class BaselineManager {
      * omit the rows behind the first page, possibly the newest durable status. The order
      * must remain a TOTAL order within one id (see {@link #SELECT_ALL_ORDERED_SQL}) or a
      * tie order that differs between the two queries can make the offset skip a row of
-     * the interrupted group (round-38 #3).
+     * the interrupted group (round-38 #3, content tie-breakers added round-42 #1).
      */
     private static final String SELECT_PAGE_SQL = SNAPSHOT_COLUMNS + SPM_BASELINES_TABLE
-            + " WHERE `id` >= ${lastId} ORDER BY `id`, `update_time`, `status`"
+            + " WHERE `id` >= ${lastId} ORDER BY `id`, `update_time`, `status`,"
+            + " `bind_sql_digest`, `plan_sql`, `bind_sql`"
             + " LIMIT ${pageSize} OFFSET ${offset}";
 
     /**
@@ -408,9 +436,30 @@ public class BaselineManager {
     /** Appends one reservation row (the id just allocated). Append-only: MAX never falls. */
     private static final String INSERT_SEQ_ID_SQL = "INSERT INTO " + SPM_BASELINES_SEQ_TABLE
             + " (`id`, `last_id`, `bind_sql_digest`, `plan_sql_hash`, `reserve_time`,"
-            + " `unconfirmed`)"
+            + " `unconfirmed`, `dropped`)"
             + " VALUES (1, ${lastId}, '${bindSqlDigest}', ${planSqlHash}, '${reserveTime}',"
-            + " ${unconfirmed})";
+            + " ${unconfirmed}, 0)";
+
+    /**
+     * Appends a DROP TOMBSTONE (round-42 #9): the identity of a baseline this FE just
+     * removed, with {@code dropped = 1}. A demoted master's in-flight status INSERT can
+     * commit AFTER the DROP deleted the row - its conditional precondition ran against
+     * the pre-DROP snapshot, and Doris cannot re-check it at durable commit - and the
+     * revived row would make the dropped baseline ACTIVE again on every loader. The
+     * tombstone is APPEND-ONLY and survives that commit: a load that sees a baseline row
+     * matching a tombstone's (id, bind_sql_digest, plan_sql_hash) treats it as deleted
+     * (and repairs it away). Ids are never reused (the sequence watermark), so a matching
+     * tombstone always describes this very incarnation.
+     */
+    private static final String INSERT_SEQ_DROPPED_SQL = "INSERT INTO " + SPM_BASELINES_SEQ_TABLE
+            + " (`id`, `last_id`, `bind_sql_digest`, `plan_sql_hash`, `reserve_time`,"
+            + " `unconfirmed`, `dropped`)"
+            + " VALUES (1, ${lastId}, '${bindSqlDigest}', ${planSqlHash}, '${reserveTime}',"
+            + " 0, 1)";
+
+    /** Reads every DROP TOMBSTONE (see {@link #INSERT_SEQ_DROPPED_SQL}). */
+    private static final String SELECT_SEQ_DROPPED_SQL = "SELECT `last_id`, `bind_sql_digest`,"
+            + " `plan_sql_hash` FROM " + SPM_BASELINES_SEQ_TABLE + " WHERE `dropped` = 1";
 
     /**
      * The latest UNCONFIRMED pending marker of one baseline: the durable half of the
@@ -1547,7 +1596,10 @@ public class BaselineManager {
                     // delete must stop matching NOW, and the fence keeps a later daemon
                     // snapshot / SHOW read from resurrecting it until the durable table
                     // shows the outcome (or the fence expires). The failure still
-                    // propagates - the client may retry.
+                    // propagates - the client may retry. The tombstone (round-42 #9)
+                    // additionally neutralizes an in-flight status INSERT committing
+                    // AFTER the delete.
+                    noteDroppedSeqState(removed);
                     removeCachedBaseline(id);
                     recordPendingMutationFence(id, null, 0);
                 }
@@ -1573,6 +1625,10 @@ public class BaselineManager {
                 throw e;
             }
             removeCachedBaseline(id);
+            // A DELAYED status INSERT of a demoted master can commit AFTER this delete
+            // and revive the row (round-42 #9): the append-only tombstone makes every
+            // later load treat that incarnation as deleted, whatever the commit order.
+            noteDroppedSeqState(removed);
             // Even a CONFIRMED identity delete can stay unreadable to a later local read
             // (its publication lags the confirmation): the fence keeps the refresh / a
             // SHOW reload from re-adding the dropped row until the table shows it gone
@@ -1619,10 +1675,18 @@ public class BaselineManager {
         } catch (RuntimeException e) {
             if (!NO_LONGER_MASTER.equals(e.getMessage())) {
                 // same fence as the cached path (round-41 #10): the delete may have
-                // committed while its publication lags
+                // committed while its publication lags, and a delayed status INSERT may
+                // still revive the row (round-42 #9) - tombstone every identity this
+                // DROP asked to remove
+                for (BaselinePlan row : durable) {
+                    noteDroppedSeqState(row);
+                }
                 recordPendingMutationFence(id, null, 0);
             }
             throw e;
+        }
+        for (BaselinePlan row : durable) {
+            noteDroppedSeqState(row);
         }
         recordPendingMutationFence(id, null, 0);
         LOG.info("SPM dropped baseline {} from the durable table while the local cache did"
@@ -1649,6 +1713,9 @@ public class BaselineManager {
             LOG.warn("SPM drop of baseline {} removed a lingering row of a different"
                     + " incarnation (digest {})", id, row.getBindSqlDigest());
             persistDeleteByIdentity(row);
+            // the wiped incarnation gets its own tombstone: a still-in-flight write of
+            // THAT identity must not revive it either (round-42 #9)
+            noteDroppedSeqState(row);
         }
     }
 
@@ -2845,10 +2912,23 @@ public class BaselineManager {
     public static final class ForwardedDdlExpectation {
         private final long id;
         private final BaselineStatus status; // null = the row must be GONE (DROP)
+        private final String createdBindSql; // non-null = presence of this identity
+        private final String createdPlanSql;
 
         private ForwardedDdlExpectation(long id, BaselineStatus status) {
+            this(id, status, null, null);
+        }
+
+        private ForwardedDdlExpectation(String createdBindSql, String createdPlanSql) {
+            this(0, null, createdBindSql, createdPlanSql);
+        }
+
+        private ForwardedDdlExpectation(long id, BaselineStatus status, String createdBindSql,
+                String createdPlanSql) {
             this.id = id;
             this.status = status;
+            this.createdBindSql = createdBindSql;
+            this.createdPlanSql = createdPlanSql;
         }
 
         /** The expected outcome of a forwarded DROP: no readable row carries the id. */
@@ -2861,6 +2941,22 @@ public class BaselineManager {
             return new ForwardedDdlExpectation(id, status);
         }
 
+        /**
+         * The expected outcome of a forwarded CREATE (round-42 #2): a readable row carries
+         * this EXACT (bindSql, planSql) identity. The follower cannot know the id - it is
+         * allocated on the master - but without a requirement its refresh accepted a
+         * stable local snapshot that still LACKED the new row, and the next query on the
+         * same connection missed its GLOBAL baseline until the refresh daemon caught up.
+         *
+         * @param bindSql the forwarded CREATE's bind SQL
+         * @param planSql the forwarded CREATE's plan SQL
+         * @return the presence expectation
+         */
+        public static ForwardedDdlExpectation created(String bindSql, String planSql) {
+            return new ForwardedDdlExpectation(bindSql == null ? "" : bindSql,
+                    planSql == null ? "" : planSql);
+        }
+
         public long getId() {
             return id;
         }
@@ -2869,7 +2965,23 @@ public class BaselineManager {
             return status;
         }
 
+        /** A human-readable description for failure messages. */
+        String describe() {
+            return createdBindSql != null
+                    ? "the forwarded CREATE of '" + createdBindSql + "'"
+                    : "baseline " + id;
+        }
+
         boolean isSatisfiedBy(Map<Long, BaselinePlan> snapshot) {
+            if (createdBindSql != null) {
+                for (BaselinePlan row : snapshot.values()) {
+                    if (createdBindSql.equals(row.getBindSql())
+                            && createdPlanSql.equals(row.getPlanSql())) {
+                        return true;
+                    }
+                }
+                return false;
+            }
             BaselinePlan row = snapshot.get(id);
             return status == null ? row == null : row != null && row.getStatus() == status;
         }
@@ -2991,7 +3103,7 @@ public class BaselineManager {
                     recordForwardedDdlFence(expected);
                     invalidatePublishedStore();
                     throw new IllegalStateException("SPM cannot confirm the forwarded GLOBAL"
-                            + " DDL on this FE yet (baseline " + expected.getId()
+                            + " DDL on this FE yet (" + expected.describe()
                             + " has not reached its expected durable outcome); the local"
                             + " baseline cache was invalidated (please retry later)");
                 }
@@ -3164,11 +3276,12 @@ public class BaselineManager {
     /**
      * Retains a forwarded GLOBAL DDL's expectation as a mutation fence (round-41 #3) so
      * every LATER read on this FE keeps masking a row that contradicts it (see
-     * {@link #pendingMutationFences}). A CREATE carries no expectation object (the
-     * follower cannot name the id the master produced), so only DROP / ALTER fence here.
+     * {@link #pendingMutationFences}). DROP / ALTER fenced by id; the CREATE's identity
+     * expectation (round-42 #2) is NOT id-keyed (the follower never learned the id) - its
+     * failure path already invalidates the store, and the daemon converges later.
      */
     private void recordForwardedDdlFence(ForwardedDdlExpectation expected) {
-        if (expected != null) {
+        if (expected != null && expected.getId() > 0) {
             recordPendingMutationFence(expected.getId(), expected.getStatus(), 0);
         }
     }
@@ -3362,6 +3475,130 @@ public class BaselineManager {
     }
 
     /**
+     * Appends a DROP TOMBSTONE for one removed baseline (round-42 #9, see
+     * {@link #INSERT_SEQ_DROPPED_SQL}). Best effort with a warning: the DROP itself has
+     * already been reported / fenced, and failing it now would misreport the delete's
+     * outcome - the marker only closes the DELAYED-commit window, and its absence
+     * degrades to the previous behavior.
+     *
+     * @param plan the baseline this FE removed (or decided to stop matching)
+     */
+    private static void noteDroppedSeqState(BaselinePlan plan) {
+        if (plan.getBindSqlDigest() == null || plan.getPlanSql() == null) {
+            return;
+        }
+        long planSqlHash = SPMUtils.hashOf(plan.getPlanSql());
+        long now = System.currentTimeMillis();
+        if (idAllocatorStoreForTest != null) {
+            idAllocatorStoreForTest.appendDroppedMarker(plan.getId(), plan.getBindSqlDigest(),
+                    planSqlHash, now);
+            return;
+        }
+        if (!persistenceEnabled()) {
+            return;
+        }
+        Map<String, String> params = new HashMap<>();
+        params.put("lastId", String.valueOf(plan.getId()));
+        params.put("bindSqlDigest", StatisticsUtil.escapeSQL(plan.getBindSqlDigest()));
+        params.put("planSqlHash", String.valueOf(planSqlHash));
+        params.put("reserveTime", toTs(now));
+        try {
+            StatisticsUtil.execUpdate(INSERT_SEQ_DROPPED_SQL, params,
+                    BASELINE_WRITE_TIMEOUT_SECONDS);
+        } catch (Exception e) {
+            LOG.warn("SPM could not persist the drop tombstone of baseline {} (an"
+                    + " in-flight status write may revive it): {}",
+                    plan.getId(), e.getMessage());
+        }
+    }
+
+    /**
+     * Reads every DROP TOMBSTONE as {@code id|bindSqlDigest|planSqlHash} keys (round-42
+     * #9). A read failure propagates: loads fail closed rather than publishing a row that
+     * may be a resurrection.
+     */
+    private static Set<String> readDroppedIdentities() {
+        if (idAllocatorStoreForTest != null) {
+            return new java.util.HashSet<>(idAllocatorStoreForTest.droppedMarkers());
+        }
+        if (snapshotReaderForTest != null) {
+            // the snapshot seam replaces the WHOLE durable read (a unit test has no
+            // internal table): tombstones come from the allocator seam, and without one
+            // there is nothing to filter against
+            return Set.of();
+        }
+        if (!persistenceEnabled()) {
+            return Set.of();
+        }
+        try {
+            List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+                    SELECT_SEQ_DROPPED_SQL, Collections.emptyMap(),
+                    INTERNAL_QUERY_TIMEOUT_SECONDS));
+            Set<String> markers = new java.util.HashSet<>();
+            if (rows != null) {
+                for (ResultRow row : rows) {
+                    List<String> values = row.getValues();
+                    if (values == null || values.size() < 3 || values.get(0) == null
+                            || values.get(1) == null || values.get(2) == null) {
+                        continue;
+                    }
+                    markers.add(values.get(0).trim() + "|" + values.get(1) + "|"
+                            + values.get(2).trim());
+                }
+            }
+            return markers;
+        } catch (Exception e) {
+            throw new RuntimeException("SPM durable drop-marker read failed (retry the"
+                    + " operation): " + e.getMessage(), e);
+        }
+    }
+
+    /** The tombstone key of one row / plan: {@code id|bindSqlDigest|planSqlHash}. */
+    private static String droppedIdentityKey(BaselinePlan plan) {
+        return plan.getId() + "|"
+                + (plan.getBindSqlDigest() == null ? "" : plan.getBindSqlDigest()) + "|"
+                + SPMUtils.hashOf(plan.getPlanSql() == null ? "" : plan.getPlanSql());
+    }
+
+    /**
+     * Removes every row whose identity carries a DROP TOMBSTONE (round-42 #9): the row
+     * was deleted by a completed DROP and revived afterwards by a delayed write (a
+     * demoted master's in-flight status INSERT committing after the delete). Matching it
+     * would make the dropped baseline ACTIVE again. The rows are also repaired away
+     * (best effort - a follower's load cannot write).
+     *
+     * @param snapshot the rows read from the durable table (not mutated)
+     * @return the rows without resurrected ones
+     */
+    private static Map<Long, BaselinePlan> filterResurrectedRows(
+            Map<Long, BaselinePlan> snapshot) {
+        if (snapshot == null || snapshot.isEmpty()) {
+            return snapshot == null ? Map.of() : snapshot;
+        }
+        Set<String> tombstones = readDroppedIdentities();
+        if (tombstones.isEmpty()) {
+            return snapshot;
+        }
+        Map<Long, BaselinePlan> filtered = new java.util.LinkedHashMap<>(snapshot);
+        for (BaselinePlan row : snapshot.values()) {
+            if (!tombstones.contains(droppedIdentityKey(row))) {
+                continue;
+            }
+            filtered.remove(row.getId());
+            LOG.warn("SPM ignores and repairs a durable baseline {} revived after its DROP"
+                    + " (an in-flight write committed after the delete)", row.getId());
+            try {
+                persistDeleteByIdentity(row);
+            } catch (RuntimeException e) {
+                LOG.warn("SPM cannot repair the revived baseline {} yet ({}); it stays"
+                        + " hidden until the next leader repairs it", row.getId(),
+                        e.getMessage());
+            }
+        }
+        return filtered;
+    }
+
+    /**
      * Retires the durable UNCONFIRMED marker(s) of a RESOLVED ambiguous write (round-40
      * #7): once the reserved row became readable (or was retired as stale), the identity
      * no longer fences - without this the marker outlived its resolution and rejected a
@@ -3545,11 +3782,14 @@ public class BaselineManager {
      * walks the id space forward until a short page ends the snapshot.
      */
     private static Map<Long, BaselinePlan> readPersistedSnapshot() throws Exception {
-        if (snapshotReaderForTest != null) {
-            return snapshotReaderForTest.get();
-        }
-        return readStableSnapshot(BaselineManager::readSnapshotPage,
-                BaselineManager::readSnapshotFence);
+        Map<Long, BaselinePlan> snapshot = snapshotReaderForTest != null
+                ? snapshotReaderForTest.get()
+                : readStableSnapshot(BaselineManager::readSnapshotPage,
+                        BaselineManager::readSnapshotFence);
+        // a durable row whose identity carries a DROP TOMBSTONE must never reach the
+        // cache (round-42 #9): an in-flight status INSERT of a demoted master can commit
+        // after the DROP deleted the row and revive it as an ACTIVE baseline
+        return filterResurrectedRows(snapshot);
     }
 
     /** One page of the whole-table snapshot, read through the internal table. */
@@ -4033,7 +4273,25 @@ public class BaselineManager {
         if (firstDisabled != secondDisabled) {
             return firstDisabled ? first : second;
         }
-        return first;
+        // Fully tied (same stored second, same status): the winner must be DETERMINISTIC
+        // (round-42 #1) - two masters can leave two DIFFERENT rows of one id with the
+        // same stored second (a delayed INSERT committing after a handoff collision),
+        // and an arbitrary pick made refresh / restart / SHOW / the paginated read
+        // disagree on which row is authoritative. The CONTENT is a total,
+        // order-independent tie-breaker; fully identical rows stay interchangeable.
+        int byDigest = String.valueOf(first.getBindSqlDigest())
+                .compareTo(String.valueOf(second.getBindSqlDigest()));
+        if (byDigest != 0) {
+            return byDigest < 0 ? first : second;
+        }
+        int byPlan = String.valueOf(first.getPlanSql())
+                .compareTo(String.valueOf(second.getPlanSql()));
+        if (byPlan != 0) {
+            return byPlan < 0 ? first : second;
+        }
+        int byBind = String.valueOf(first.getBindSql())
+                .compareTo(String.valueOf(second.getBindSql()));
+        return byBind <= 0 ? first : second;
     }
 
     /**

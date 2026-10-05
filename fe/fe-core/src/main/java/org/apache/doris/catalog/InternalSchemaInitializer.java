@@ -674,10 +674,11 @@ public class InternalSchemaInitializer extends Thread {
         // in this zone, otherwise rows already stored under it are unreachable.
         SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS.put("scan_zone",
                 ScalarType.createType(PrimitiveType.STRING));
-        // the checkpoint UPSERT's fencing token (round-39 #16): the writer's max journal
-        // id, refused when the stored row carries a newer one.
-        SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS.put("leader_epoch",
-                ScalarType.createType(PrimitiveType.BIGINT));
+        // leader_epoch / write_seq are NOT upgrade columns: they are the new APPEND-ONLY
+        // key (round-42 #8). A pre-append-only table (no write_seq) is DROPPED and
+        // recreated by ensureSpmCaptureCheckpointColumnsExist - its UNIQUE-key(id)
+        // merge-on-write layout is the very hazard the model removes, so it is never
+        // ALTERed into the new one.
     }
 
     /**
@@ -702,7 +703,6 @@ public class InternalSchemaInitializer extends Thread {
         SPM_CAPTURE_CHECKPOINT_UPGRADE_POSITIONS.put("include_pattern", "min_scan_rows");
         SPM_CAPTURE_CHECKPOINT_UPGRADE_POSITIONS.put("exclude_pattern", "include_pattern");
         SPM_CAPTURE_CHECKPOINT_UPGRADE_POSITIONS.put("scan_zone", "exclude_pattern");
-        SPM_CAPTURE_CHECKPOINT_UPGRADE_POSITIONS.put("leader_epoch", "scan_zone");
     }
 
     /**
@@ -733,11 +733,24 @@ public class InternalSchemaInitializer extends Thread {
      * this once and the replica-upgrade loop never comes back.
      */
     static void ensureSpmCaptureCheckpointColumnsExist() {
-        while (!spmCaptureCheckpointColumnsExist()) {
+        // The MODEL check is part of the gate (round-42 #8): a pre-append-only table
+        // carries every UPGRADE column (they were added by earlier builds), so the
+        // column set alone would declare it ready and the drop/recreate below would
+        // never run - every checkpoint INSERT then failed on the missing write_seq.
+        while (!spmCaptureCheckpointColumnsExist() || checkpointTableModelOutdated()) {
             try {
-                upgradeSpmCaptureCheckpointSchema();
+                if (!spmCaptureCheckpointTableExists()) {
+                    // absent because this method just dropped the pre-append-only table
+                    // (or the create gate never saw it): createTbl() ran BEFORE this
+                    // method and never runs again, so the recreation happens here
+                    createTable(getSpmCaptureCheckpointCreateSql());
+                } else if (checkpointTableModelOutdated()) {
+                    dropSpmCaptureCheckpointTable();
+                } else {
+                    upgradeSpmCaptureCheckpointSchema();
+                }
             } catch (Throwable t) {
-                LOG.warn("SPM: failed to add the spm_capture_checkpoint cursor_tail column,"
+                LOG.warn("SPM: failed to upgrade the spm_capture_checkpoint table,"
                         + " will retry", t);
             }
             if (spmCaptureCheckpointColumnsExist()) {
@@ -749,6 +762,49 @@ public class InternalSchemaInitializer extends Thread {
                 LOG.info("Sleep interrupted. {}", e.getMessage());
             }
         }
+    }
+
+    /** Whether the spm_capture_checkpoint table is there at all (upgrade loop helper). */
+    private static boolean spmCaptureCheckpointTableExists() {
+        return internalSchemaTable(InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME) != null;
+    }
+
+    /**
+     * Whether the existing spm_capture_checkpoint table predates the APPEND-ONLY model
+     * (round-42 #8): a table without the {@code write_seq} column is the old
+     * UNIQUE-key(id) + merge-on-write layout, which is DROPPED and recreated instead of
+     * ALTERed - keeping the unique key while adding write_seq would preserve the very
+     * hazard the model removes (a delayed lower-epoch write REPLACED the newest row).
+     * The checkpoint is a best-effort resume aid: its loss re-scans the pending window
+     * from its top, which is idempotent (captures dedupe by query id and digest).
+     */
+    @VisibleForTesting
+    static boolean checkpointTableModelOutdated() {
+        Table table = internalSchemaTable(InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME);
+        if (table == null) {
+            return false;
+        }
+        return table.getBaseSchema().stream()
+                .noneMatch(column -> column.getName().equalsIgnoreCase("write_seq"));
+    }
+
+    /** Drops the pre-append-only checkpoint table; the caller recreates the new model. */
+    private static void dropSpmCaptureCheckpointTable() throws UserException {
+        LOG.warn("SPM: dropping the pre-append-only {} table (UNIQUE-key(id) model)",
+                InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME);
+        Env.getCurrentEnv().getInternalCatalog().dropTable(FeConstants.INTERNAL_DB_NAME,
+                InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME, false, false, false, true,
+                false, true);
+    }
+
+    /** The internal-schema table, or null while the db / table does not exist yet. */
+    private static Table internalSchemaTable(String tableName) {
+        Optional<Database> dbOpt =
+                Env.getCurrentEnv().getInternalCatalog().getDb(FeConstants.INTERNAL_DB_NAME);
+        if (!dbOpt.isPresent()) {
+            return null;
+        }
+        return dbOpt.get().getTable(tableName).orElse(null);
     }
 
     /** Whether the spm_capture_checkpoint table already carries every upgraded column
@@ -849,6 +905,11 @@ public class InternalSchemaInitializer extends Thread {
         // only these rows); a plain reservation exists for every create and must never
         // fence. NULL (pre-marker rows) is treated as "not unconfirmed".
         SPM_BASELINES_SEQ_UPGRADE_COLUMNS.put("unconfirmed",
+                ScalarType.createType(PrimitiveType.BIGINT));
+        // 1 = a DROP TOMBSTONE (round-42 #9): keeps a delayed status INSERT from
+        // resurrecting a dropped baseline (see InternalSchema#SPM_BASELINES_SEQ_SCHEMA).
+        // NULL (pre-marker rows) is treated as "not dropped".
+        SPM_BASELINES_SEQ_UPGRADE_COLUMNS.put("dropped",
                 ScalarType.createType(PrimitiveType.BIGINT));
     }
 
@@ -1077,8 +1138,14 @@ public class InternalSchemaInitializer extends Thread {
     }
 
     /**
-     * CREATE SQL of the SPM plan-capture checkpoint table: one durable row (id = 1) holding
-     * the truncated scan window, the resume cursor and the retry state.
+     * CREATE SQL of the SPM plan-capture checkpoint table: APPEND-ONLY rows keyed by
+     * {@code (leader_epoch, write_seq)} (round-42 #8). Every write is a plain INSERT whose
+     * row carries the writer's next token; the reader takes the GREATEST row, so a stale
+     * writer's delayed row can only be IGNORED - it can never replace the newest
+     * checkpoint (the old UNIQUE-key(id) merge-on-write UPSERT treated a late write from a
+     * demoted leader as the newest row). The duplicate key cannot dedupe equal tokens,
+     * which is fine: equal-token rows are equivalent writes, and the reader's update_time
+     * tie-break prefers the newer commit.
      */
     private static String getSpmCaptureCheckpointCreateSql() throws UserException {
         String catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
@@ -1089,10 +1156,6 @@ public class InternalSchemaInitializer extends Thread {
             {
                 put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, String.valueOf(
                         Math.max(1, Config.min_replication_num_per_tablet)));
-                // merge-on-write makes the single-row upsert (INSERT with the same key)
-                // atomic: the new checkpoint row replaces the old one in one statement,
-                // so no crash can leave the shared store without a row
-                put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true");
             }
         };
 
@@ -1100,9 +1163,9 @@ public class InternalSchemaInitializer extends Thread {
                 "CREATE TABLE IF NOT EXISTS `%s`.`%s`.`%s` (\n"
                         + "%s\n"
                         + ") ENGINE = olap\n"
-                        + "UNIQUE KEY(`id`)\n"
+                        + "DUPLICATE KEY(`leader_epoch`, `write_seq`)\n"
                         + "COMMENT \"Doris internal SPM capture checkpoint table, DO NOT MODIFY IT\"\n"
-                        + "DISTRIBUTED BY HASH(`id`)\n"
+                        + "DISTRIBUTED BY HASH(`leader_epoch`)\n"
                         + "BUCKETS 1\n"
                         + "PROPERTIES (%s)";
         return String.format(template, catalogName, dbName, tableName,

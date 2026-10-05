@@ -450,17 +450,43 @@ public class AuditLoaderTest {
                     "close() must keep the committed fence instead of clearing the row: "
                             + reports);
 
-            // control: no committed batch -> the row is cleared on close
+            // control: no committed batch -> the row is de-registered on close
             AuditLoader clean = new AuditLoader();
             setPrivateField(clean, "auditEventQueue", Queues.newLinkedBlockingDeque());
             setRunningLoader(clean);
             reports.clear();
             clean.close();
-            Assertions.assertEquals(Arrays.asList(0L), reports,
-                    "with nothing committed the fence is dropped so the capture does not"
-                            + " wait for a gone FE: " + reports);
+            Assertions.assertTrue(reports.isEmpty(),
+                    "with nothing committed the row is DELETED instead of re-reported as a"
+                            + " zero fence (round-42 #12: a zero report would upsert the"
+                            + " shutting-down FE's row back into the shared table): "
+                            + reports);
         } finally {
             AuditPublicationHorizon.localHorizonWriterForTest = null;
+            setRunningLoader(null);
+        }
+    }
+
+    // round-42 #7: the OLDEST pending fence must keep fencing even after it was EVICTED
+    // from the bounded list - dropping it released the fence of the oldest committed
+    // batch (its rows can still become readable).
+    @Test
+    public void testEvictedOldestFenceKeepsFencing() throws Exception {
+        AuditLoader loader = new AuditLoader();
+        setPrivateField(loader, "auditEventQueue", Queues.newLinkedBlockingDeque());
+        setRunningLoader(loader);
+        try {
+            Deencapsulation.invoke(loader, "retainPublishFence", 10_000L, "qid-oldest");
+            for (int i = 0; i < AuditLoader.MAX_PENDING_PUBLISH_FENCES + 5; i++) {
+                Deencapsulation.invoke(loader, "retainPublishFence", 20_000L + i, "qid-" + i);
+            }
+            Assertions.assertEquals(AuditLoader.MAX_PENDING_PUBLISH_FENCES,
+                    loader.pendingPublishFenceCountForTest(),
+                    "the list itself stays bounded");
+            Assertions.assertEquals(10_000L, AuditLoader.oldestCommittedPublishFenceEventTime(),
+                    "the EVICTED oldest batch keeps fencing: its rows can still publish"
+                            + " after this FE stops");
+        } finally {
             setRunningLoader(null);
         }
     }

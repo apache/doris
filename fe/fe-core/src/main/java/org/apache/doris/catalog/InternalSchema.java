@@ -371,13 +371,24 @@ public class InternalSchema {
         // (successful ones included) and must never block a legitimate re-create.
         SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("unconfirmed",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        // 1 = a DROP TOMBSTONE (round-42 #9): the identity of a baseline this FE deleted.
+        // A demoted master's in-flight status INSERT can commit AFTER the DROP removed the
+        // row (its conditional precondition ran against the pre-DROP snapshot and Doris
+        // cannot re-check it at commit) - the revived row would look like an ACTIVE
+        // baseline again. The append-only tombstone survives that commit, and every load
+        // that sees a row matching (id, bind_sql_digest, plan_sql_hash) treats it as
+        // deleted (ids are never reused, so a matching tombstone refers to this very
+        // incarnation) and repairs it away.
+        SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("dropped",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
 
-        // SPM plan-capture checkpoint (single row, id = 1): the truncated window bounds,
-        // the FULL cursor (time, query_time, query_id + the encoded tie-breaker tail)
-        // and the retry state survive a leader handoff / FE restart. JSON text for the
-        // two maps keeps the encoding trivial and bounded (the writer caps the entry
-        // count). cursor_tail is the JSON tail of the ORDER BY key tuple (see
-        // AuditLogScanner#CursorTail): it keeps rows sharing (time, query_time,
+        // SPM plan-capture checkpoint (APPEND-ONLY, round-42 #8; every row carries the
+        // fixed id = 1): the truncated window bounds, the FULL cursor (time, query_time,
+        // query_id + the encoded tie-breaker tail) and the retry state survive a leader
+        // handoff / FE restart. JSON text for the two maps keeps the encoding trivial
+        // and bounded (the writer caps the entry count). cursor_tail is the JSON tail of
+        // the ORDER BY key tuple (see AuditLogScanner#CursorTail): it keeps rows sharing
+        // (time, query_time,
         // query_id) - e.g. a page of NULL query ids - from looping or being skipped
         // after a handoff; a legacy row without it re-scans its pending window.
         // min_query_time_ms / min_scan_rows are the capture thresholds the PENDING
@@ -392,6 +403,22 @@ public class InternalSchema {
         // pass must render the window in the previous zone too, or rows already stored
         // under it become unreachable (see PlanCaptureManager).
         SPM_CAPTURE_CHECKPOINT_SCHEMA = new ArrayList<>();
+        // (leader_epoch, write_seq) is the row's WRITE TOKEN and the table's key: the
+        // writer's max journal id (round-39 #16) plus a per-process write counter. The
+        // reader takes the GREATEST row. A demoted FE's write forwards to the new master
+        // and executes there, where no statement precondition can stop it (round-42 #8) -
+        // under the old single-row UNIQUE model it could only be REFUSED, and a refusal
+        // the fenced writer did not expect (or a timeout AFTER the deferred commit) left
+        // the store without its newest row. Append-only turns the same delayed write into
+        // a harmless EXTRA row: it can never destroy the row that was already there, and
+        // the next read (and the leader's next write) ignores it. leader_epoch is the
+        // writer's max journal id, a cluster-wide monotonic token; write_seq orders the
+        // writes of ONE epoch, so even two same-epoch writers cannot hide each other.
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("leader_epoch",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("write_seq",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        // the fixed row payload id (always 1); no longer a uniqueness key
         SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("id",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
         SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("last_scan_timestamp",
@@ -433,13 +460,6 @@ public class InternalSchema {
         // = never scanned (a fresh process follows the current global zone).
         SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("scan_zone",
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NOT_NULLABLE));
-        // leader_epoch fences the checkpoint UPSERT against leader handoff (round-39 #16):
-        // the writer's max journal id, a cluster-wide monotonic token. The conditional
-        // INSERT only replaces the row while the writer's epoch is not older than the
-        // stored one - a demoted FE's write forwards to the new master and executes
-        // there, so only the STATEMENT can refuse it.
-        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("leader_epoch",
-                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
         SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("update_time",
                 ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
 

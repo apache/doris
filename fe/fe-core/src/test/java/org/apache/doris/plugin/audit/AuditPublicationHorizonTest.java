@@ -79,6 +79,7 @@ public class AuditPublicationHorizonTest {
         AuditPublicationHorizon.horizonRowsReaderForTest = null;
         AuditPublicationHorizon.localHorizonWriterForTest = null;
         AuditPublicationHorizon.feAliveProbeForTest = null;
+        AuditPublicationHorizon.reporterNamesForTest = null;
         AuditWriterZones.captureCoveredThroughForTest = null;
         AuditWriterZones.resetForTest();
     }
@@ -161,7 +162,7 @@ public class AuditPublicationHorizonTest {
                         + " advance");
     }
 
-    /** The reporter writes THIS FE's horizon (and a zero clears the row). */
+    /** The reporter writes THIS FE's horizon; the shutdown de-registers the row. */
     @Test
     public void testLocalHorizonIsReportedThroughTheWriter() {
         List<Long> reports = new ArrayList<>();
@@ -172,8 +173,10 @@ public class AuditPublicationHorizonTest {
         Assertions.assertTrue(AuditPublicationHorizon.reportLocalHorizon(4_242L),
                 "a confirmed write reports true");
         AuditPublicationHorizon.clearLocalReport();
-        Assertions.assertEquals(Arrays.asList(4_242L, 0L), reports,
-                "the local fence and its removal are both reported: " + reports);
+        Assertions.assertEquals(Collections.singletonList(4_242L), reports,
+                "de-registration must NOT re-report a zero fence (round-42 #12): the row"
+                        + " is DELETED instead, and a zero report would upsert the"
+                        + " shutting-down FE's row back into the shared table: " + reports);
     }
 
     // ==================== round-37 #5: unconfirmed writes are retried ====================
@@ -207,14 +210,24 @@ public class AuditPublicationHorizonTest {
             Assertions.assertFalse(AuditPublicationHorizon.reportLocalHorizon(4_242L),
                     "a read-back that does not match the report is NOT confirmed");
 
-            // nothing outstanding: no row at all is the confirming state
+            // an IDLE REGISTRATION must be READABLE (round-42 #12): the row's ABSENCE
+            // reads as "this FE never registered", so it can NOT confirm a zero report
             statistics.when(() -> StatisticsUtil.executeQuery(
                             Mockito.anyString(), Mockito.anyMap(), Mockito.anyInt()))
                     .thenReturn(Collections.emptyList());
-            Assertions.assertTrue(AuditPublicationHorizon.reportLocalHorizon(0L),
-                    "a cleared row confirms a zero horizon");
+            Assertions.assertFalse(AuditPublicationHorizon.reportLocalHorizon(0L),
+                    "an absent row is an UNCONFIRMED idle registration");
 
-            // a stale positive row the DELETE has not made visible yet: unconfirmed
+            // a readable ZERO row is the confirming state of an idle registration
+            statistics.when(() -> StatisticsUtil.executeQuery(
+                            Mockito.anyString(), Mockito.anyMap(), Mockito.anyInt()))
+                    .thenReturn(Collections.singletonList(
+                            new ResultRow(Arrays.asList("0", "", "0"))));
+            Assertions.assertTrue(AuditPublicationHorizon.reportLocalHorizon(0L),
+                    "a readable zero row confirms the idle registration");
+
+            // a stale POSITIVE row (a pending fence about to be re-reported):
+            // unconfirmed
             statistics.when(() -> StatisticsUtil.executeQuery(
                             Mockito.anyString(), Mockito.anyMap(), Mockito.anyInt()))
                     .thenReturn(Collections.singletonList(new ResultRow(Collections.singletonList("99"))));
@@ -232,6 +245,63 @@ public class AuditPublicationHorizonTest {
         AuditPublicationHorizon.localHorizonWriterForTest = horizon -> false;
         Assertions.assertFalse(AuditPublicationHorizon.reportLocalHorizon(7_000L),
                 "a failed write must not look reported");
+    }
+
+    /**
+     * round-42 #3: a ZERO report is an IDLE REGISTRATION and must UPSERT the row - the
+     * old path DELETED it, so a live FE with nothing outstanding was indistinguishable
+     * from an FE that never registered (and round-42 #12 fails the cluster read closed
+     * for those).
+     */
+    @Test
+    public void testZeroReportUpsertsTheRegistrationInsteadOfDeletingTheRow() {
+        Env env = Mockito.mock(Env.class);
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.getNodeName()).thenReturn("fe-test");
+        mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+        try (MockedStatic<StatisticsUtil> statistics = Mockito.mockStatic(StatisticsUtil.class)) {
+            List<String> statements = new ArrayList<>();
+            statistics.when(() -> StatisticsUtil.execUpdate(
+                            Mockito.anyString(), Mockito.anyMap(), Mockito.anyInt()))
+                    .thenAnswer(invocation -> {
+                        statements.add(invocation.getArgument(0));
+                        return null;
+                    });
+            statistics.when(() -> StatisticsUtil.executeQuery(
+                            Mockito.anyString(), Mockito.anyMap(), Mockito.anyInt()))
+                    .thenReturn(Collections.singletonList(
+                            new ResultRow(Arrays.asList("0", "", "0"))));
+            Assertions.assertTrue(AuditPublicationHorizon.reportLocalHorizon(0L),
+                    "the idle registration is confirmed by the readable zero row");
+            Assertions.assertEquals(1, statements.size(),
+                    "exactly one statement: " + statements);
+            Assertions.assertTrue(statements.get(0).startsWith("INSERT"),
+                    "the zero report must UPSERT the row (idle registration), not DELETE"
+                            + " it: " + statements.get(0));
+        }
+    }
+
+    /**
+     * round-42 #12: a live FE with NO row is not "nothing outstanding" - its pipeline may
+     * still owe events (or a committed batch may still publish), so the cluster horizon
+     * must fail CLOSED (retryable) instead of reading the absence as a zero fence. Once
+     * the FE registers - a zero row IS a registration - the read succeeds again.
+     */
+    @Test
+    public void testLiveFeWithoutARowFailsTheClusterHorizonClosed() {
+        long now = System.currentTimeMillis();
+        AuditPublicationHorizon.reporterNamesForTest =
+                () -> Collections.singleton("fe-b");
+        AuditPublicationHorizon.horizonRowsReaderForTest = Collections::emptyList;
+        Assertions.assertThrows(IllegalStateException.class,
+                AuditPublicationHorizon::clusterHorizon,
+                "a live FE that has not registered yet must fail the cycle closed");
+
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                new Object[] {"fe-b", 0L, now});
+        Assertions.assertEquals(0L, AuditPublicationHorizon.clusterHorizon(),
+                "a registered idle FE contributes no fence");
     }
 
     // ==================== round-37 #4: a fixed zone for update_time ====================

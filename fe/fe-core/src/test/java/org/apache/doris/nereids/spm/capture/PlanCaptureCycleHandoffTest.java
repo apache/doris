@@ -35,6 +35,7 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -133,7 +134,14 @@ public class PlanCaptureCycleHandoffTest {
                     AuditLogScanner.CURSOR_ABSENT, "", "", "");
             manager.setScannerForTest(scanner);
             List<String> statements = new ArrayList<>();
-            manager.setCheckpointWriterForTest((sql, params) -> statements.add(sql));
+            manager.setCheckpointWriterForTest((sql, params) -> {
+                if (!sql.startsWith("INSERT")) {
+                    // the best-effort prune rides the same seam (round-42 #8): only the
+                    // APPEND is a checkpoint write
+                    return;
+                }
+                statements.add(sql);
+            });
 
             // cycle 1: the checkpoint read FAILS. Deriving a fresh window / persisting it
             // here would overwrite the previous leader's pending cursor (or, if the write
@@ -194,7 +202,13 @@ public class PlanCaptureCycleHandoffTest {
                 params.getOrDefault("minQueryTimeMs", "-1"),
                 params.getOrDefault("minScanRows", "-1"),
                 params.getOrDefault("includePattern", ""),
-                params.getOrDefault("excludePattern", "")));
+                params.getOrDefault("excludePattern", ""),
+                // scan_zone plus the round-42 #8 write token are APPENDED to the real
+                // SELECT list: a row round-tripped through the seams carries them too, so
+                // the writer's next token continues above the loaded one
+                params.getOrDefault("scanZone", ""),
+                params.getOrDefault("epoch", "0"),
+                params.getOrDefault("seq", "0")));
     }
 
     /**
@@ -221,6 +235,10 @@ public class PlanCaptureCycleHandoffTest {
                     ? List.of() : List.of(checkpointRow(visible.get())));
             List<Map<String, String>> persisted = new ArrayList<>();
             manager.setCheckpointWriterForTest((sql, params) -> {
+                if (!sql.startsWith("INSERT")) {
+                    // the best-effort prune (round-42 #8) is not a checkpoint write
+                    return;
+                }
                 persisted.add(new HashMap<>(params));
                 visible.set(new HashMap<>(params));
             });
@@ -296,6 +314,10 @@ public class PlanCaptureCycleHandoffTest {
             AtomicInteger writes = new AtomicInteger();
             List<Map<String, String>> persisted = new ArrayList<>();
             manager.setCheckpointWriterForTest((sql, params) -> {
+                if (!sql.startsWith("INSERT")) {
+                    // the best-effort prune (round-42 #8) is not a checkpoint write
+                    return;
+                }
                 if (writes.incrementAndGet() == 1) {
                     throw new RuntimeException("internal statement timed out after 10s");
                 }
@@ -360,6 +382,10 @@ public class PlanCaptureCycleHandoffTest {
             AtomicInteger writes = new AtomicInteger();
             List<Map<String, String>> persisted = new ArrayList<>();
             manager.setCheckpointWriterForTest((sql, params) -> {
+                if (!sql.startsWith("INSERT")) {
+                    // the best-effort prune (round-42 #8) is not a checkpoint write
+                    return;
+                }
                 if (writes.incrementAndGet() == 1) {
                     throw new RuntimeException("internal statement timed out after 10s");
                 }
@@ -490,7 +516,13 @@ public class PlanCaptureCycleHandoffTest {
                     AuditLogScanner.CURSOR_ABSENT, "", "", "");
             manager.setScannerForTest(scanner);
             AtomicInteger writes = new AtomicInteger();
-            manager.setCheckpointWriterForTest((sql, params) -> writes.incrementAndGet());
+            manager.setCheckpointWriterForTest((sql, params) -> {
+                if (!sql.startsWith("INSERT")) {
+                    // the best-effort prune (round-42 #8) is not a checkpoint write
+                    return;
+                }
+                writes.incrementAndGet();
+            });
 
             manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
                     manager.getFilter());
@@ -509,6 +541,10 @@ public class PlanCaptureCycleHandoffTest {
             manager.setCheckpointReaderForTest(() -> visible.get() == null
                     ? List.of() : List.of(checkpointRow(visible.get())));
             manager.setCheckpointWriterForTest((sql, params) -> {
+                if (!sql.startsWith("INSERT")) {
+                    // the best-effort prune (round-42 #8) is not a checkpoint write
+                    return;
+                }
                 writes.incrementAndGet();
                 visible.set(new HashMap<>(params));
             });
@@ -594,6 +630,10 @@ public class PlanCaptureCycleHandoffTest {
                     ? List.of() : List.of(checkpointRow(visible.get())));
             AtomicInteger writes = new AtomicInteger();
             manager.setCheckpointWriterForTest((sql, params) -> {
+                if (!sql.startsWith("INSERT")) {
+                    // the best-effort prune (round-42 #8) is not a checkpoint write
+                    return;
+                }
                 writes.incrementAndGet();
                 visible.set(new HashMap<>(params));
             });
@@ -1649,26 +1689,84 @@ public class PlanCaptureCycleHandoffTest {
     }
 
     /**
-     * round-39 #16: the checkpoint UPSERT is fenced by a DURABLE leader epoch. A demoted
-     * FE's write forwards to the new master, so only the STATEMENT can refuse it (via the
-     * epoch condition); the production writer translates the zero affected-row count into
-     * {@link PlanCaptureManager.CheckpointWriteRefusedException} and the drain must STOP -
-     * consuming further pages while the store refuses the checkpoint is exactly what the
-     * handoff fence exists to prevent.
+     * round-42 #6: a positive horizon BELOW the window does NOT prove the window is clear
+     * either. The horizon is the MINIMUM over all outstanding events, so an older
+     * unpublished event (e.g. a long query started an hour ago) MASKS a newer one inside
+     * the window: the min sits below scanStart while the in-window row is still in
+     * flight. `horizon >= scanStart` therefore completed the window and the next fixed
+     * overlap started after that row - it is skipped forever. Any positive horizon below
+     * scanEnd must retain the resumed window; only a horizon at/after scanEnd may
+     * complete it.
+     */
+    @Test
+    public void testResumedWindowStaysPendingWhenAnOlderHorizonMasksANewerEvent() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            // the event of the older query sits BELOW the window the checkpoint holds
+            AtomicReference<Long> horizon = new AtomicReference<>(50L);
+            manager.setAuditQueueHorizonForTest(horizon::get);
+            String tail = "[\"10.0.0.5\",\"h5\",\"500\",\"50\",\"m5\"]";
+            Map<String, String> stored = new HashMap<>();
+            stored.put("lastScan", "0");
+            stored.put("pendingStart", "100");
+            stored.put("pendingEnd", "200");
+            stored.put("cursorQueryTime", "7");
+            stored.put("cursorTime", "2026-01-01 00:00:00");
+            stored.put("cursorQueryId", "qid-masked");
+            stored.put("cursorTail", tail);
+            manager.setCheckpointReaderForTest(() -> List.of(checkpointRow(stored)));
+            AtomicReference<Map<String, String>> visible = new AtomicReference<>();
+            manager.setCheckpointWriterForTest((sql, params) -> visible.set(new HashMap<>(params)));
+            RecordingScanner scanner = new RecordingScanner(List.of(), true,
+                    AuditLogScanner.CURSOR_ABSENT, "", "", "");
+            manager.setScannerForTest(scanner);
+
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Object[] fields = manager.checkpointFieldsForTest();
+            Assertions.assertEquals(100L, ((Number) fields[1]).longValue(),
+                    "the resumed window must stay pending while SOME event below its end"
+                            + " is outstanding: " + ((Number) fields[1]).longValue());
+            Assertions.assertEquals(0L, ((Number) fields[0]).longValue(),
+                    "a blocked window must not advance the watermark");
+            Assertions.assertTrue(manager.isPendingWindowResumePromptForTest());
+
+            // the old query completes (the newer in-window event never existed / published):
+            // the re-scan from the top completes the window
+            horizon.set(0L);
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(100L, scanner.windows.get(1)[0],
+                    "the completion pass covers the SAME pending window from its top");
+            Assertions.assertNotEquals(0L,
+                    ((Number) manager.checkpointFieldsForTest()[0]).longValue(),
+                    "with nothing outstanding the window completes");
+        } finally {
+            manager.resetForTest();
+        }
+    }
+
+    /**
+     * round-39 #16 / round-42 #8: a checkpoint write the store did NOT land - the
+     * writer's ZERO-affected-row signal,
+     * {@link PlanCaptureManager.CheckpointWriteRefusedException} - must abort the cycle:
+     * consuming further pages while the reservation is not durable is exactly what the
+     * handoff fence exists to prevent. (Since #8 the append-only INSERT cannot be refused
+     * by an epoch condition any more; the exception remains the writer's generic "the
+     * store reported no written row" signal.)
      */
     @Test
     public void testRefusedCheckpointWriteStopsTheDrain() {
         PlanCaptureManager manager = PlanCaptureManager.getInstance();
         manager.resetForTest();
         try {
-            AtomicReference<Long> storedEpoch = new AtomicReference<>(200L);
-            // this FE writes with a STALE epoch (it was demoted)
-            manager.setCheckpointEpochForTest(() -> 100L);
+            AtomicBoolean refuseWrites = new AtomicBoolean(true);
             AtomicReference<Map<String, String>> visible = new AtomicReference<>();
             manager.setCheckpointReaderForTest(() -> visible.get() == null
                     ? List.of() : List.of(checkpointRow(visible.get())));
             manager.setCheckpointWriterForTest((sql, params) -> {
-                if (Long.parseLong(params.get("epoch")) < storedEpoch.get()) {
+                if (refuseWrites.get()) {
                     throw new PlanCaptureManager.CheckpointWriteRefusedException();
                 }
                 visible.set(new HashMap<>(params));
@@ -1681,10 +1779,10 @@ public class PlanCaptureCycleHandoffTest {
                     manager.getFilter());
             Assertions.assertEquals(0, scanner.calls.get(),
                     "a refused RESERVATION write aborts the cycle before any page is"
-                            + " consumed - the new leader owns the checkpoint");
+                            + " consumed - the store did not land the checkpoint");
 
-            // this FE writes with a CURRENT epoch again: the statement accepts it
-            manager.setCheckpointEpochForTest(() -> 300L);
+            // the store accepts writes again: the cycle drains and the window completes
+            refuseWrites.set(false);
             manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
                     manager.getFilter());
             Assertions.assertEquals(1, scanner.calls.get(), "the accepted cycle scans");
@@ -1698,6 +1796,42 @@ public class PlanCaptureCycleHandoffTest {
             Assertions.assertTrue(PlanCaptureManager.checkpointWriteAccepted(-1),
                     "an unknown count is never proof of a refusal");
             Assertions.assertTrue(PlanCaptureManager.checkpointWriteAccepted(1));
+        } finally {
+            manager.resetForTest();
+        }
+    }
+
+    /**
+     * round-42 #8: the checkpoint is append-only, so a process RESUMING a row must write a
+     * strictly GREATER write token. The leader epoch is the max journal id, which does NOT
+     * change across an FE restart - without seeding the counter from the loaded row, a
+     * restarted same-epoch leader would store (epoch, 1) BELOW the durable (epoch, 7) and
+     * the reader would keep picking the row the restart meant to supersede.
+     */
+    @Test
+    public void testResumedWriterAdvancesTheCheckpointToken() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            manager.setCheckpointEpochForTest(() -> 500L);
+            Map<String, String> stored = new HashMap<>();
+            stored.put("lastScan", "1700000000000");
+            stored.put("pendingStart", "0");
+            stored.put("pendingEnd", "0");
+            stored.put("cursorQueryTime", "0");
+            stored.put("epoch", "500");
+            stored.put("seq", "7");
+            manager.setCheckpointReaderForTest(() -> List.of(checkpointRow(stored)));
+            Map<String, String> written = new HashMap<>();
+            manager.setCheckpointWriterForTest((sql, params) -> written.putAll(params));
+
+            manager.loadCheckpointForTest();
+            manager.persistCheckpointForTest();
+
+            Assertions.assertEquals("8", written.get("seq"),
+                    "the write token must continue ABOVE the loaded row: " + written);
+            Assertions.assertEquals("500", written.get("epoch"),
+                    "the epoch is this process's own journal-id token");
         } finally {
             manager.resetForTest();
         }

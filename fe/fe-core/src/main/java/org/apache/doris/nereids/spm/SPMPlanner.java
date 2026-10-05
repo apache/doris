@@ -261,7 +261,13 @@ public class SPMPlanner {
                         matchPlan);
                 if (!limitContractPreserved(replay, matchPlan, bindTree)) {
                     LOG.info("SPM tryRewritePlan: baseline {} skipped: its plan cannot carry"
-                            + " the caller's LIMIT / OFFSET", candidate.getId());
+                                    + " the caller's LIMIT / OFFSET (caller {}, replayed {},"
+                                    + " replayedCapsWithinCaller={}, callerCapsSurvive={})",
+                            candidate.getId(),
+                            Arrays.toString(SPMPlanTreeSupport.topLevelLimitOf(matchPlan)),
+                            Arrays.toString(SPMPlanTreeSupport.topLevelLimitOf(replay)),
+                            SPMPlanTreeSupport.rowLimitsWithin(replay, matchPlan),
+                            SPMPlanTreeSupport.rowLimitsSurviveReplay(replay, matchPlan));
                     continue;
                 }
                 usedBaselineId = candidate.getId();
@@ -292,7 +298,13 @@ public class SPMPlanner {
                     matchPlan);
             if (!limitContractPreserved(replay, matchPlan, bindTree)) {
                 LOG.info("SPM tryRewritePlan: baseline {} skipped: its plan cannot carry"
-                        + " the caller's LIMIT / OFFSET", candidate.getId());
+                                + " the caller's LIMIT / OFFSET (caller {}, replayed {},"
+                                + " replayedCapsWithinCaller={}, callerCapsSurvive={})",
+                        candidate.getId(),
+                        Arrays.toString(SPMPlanTreeSupport.topLevelLimitOf(matchPlan)),
+                        Arrays.toString(SPMPlanTreeSupport.topLevelLimitOf(replay)),
+                        SPMPlanTreeSupport.rowLimitsWithin(replay, matchPlan),
+                        SPMPlanTreeSupport.rowLimitsSurviveReplay(replay, matchPlan));
                 continue;
             }
             usedBaselineId = candidate.getId();
@@ -343,10 +355,22 @@ public class SPMPlanner {
             // truncates a DIFFERENT slice before the outer sort. Only the captured caps
             // themselves may justify the replay's caps - the captured (bind) tree is
             // what the caller's own tree structurally matched, so an identical-text
-            // baseline keeps passing.
-            return SPMPlanTreeSupport.rowLimitsWithin(replayed, userPlan);
+            // baseline keeps passing. Round-42 #11 additionally requires the CALLER's
+            // caps to survive: 'SELECT k FROM (SELECT k FROM t ORDER BY k LIMIT 1) s
+            // ORDER BY k LIMIT 2' against a manual plan carrying only the outer cap
+            // passed the one-directional check (replayed caps ⊆ caller caps) although
+            // the replay returns TWO rows where the caller returns one.
+            return SPMPlanTreeSupport.rowLimitsWithin(replayed, userPlan)
+                    && SPMPlanTreeSupport.rowLimitsSurviveReplay(replayed, userPlan);
         }
-        return Arrays.equals(userLimit, SPMPlanTreeSupport.topLevelLimitOf(bindTree));
+        // Round-42 #5: matching the CAPTURED limit VALUE is not enough - the replayed tree
+        // must actually CARRY the caller's cap. A manual plan 'SELECT k FROM t' freezes a
+        // text with NO limit node: mergeLimits only replaces the VALUE of a cap that
+        // aligns positionally, it cannot add a missing one, so accepting this replay
+        // returned every row although the caller asked for the captured LIMIT 2 (the two
+        // branches above are the only proofs that the cap survived - equal top-level caps
+        // plus every nested cap justified).
+        return false;
     }
 
     /**

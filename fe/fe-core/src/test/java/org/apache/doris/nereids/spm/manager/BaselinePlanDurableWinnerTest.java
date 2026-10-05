@@ -136,6 +136,54 @@ public class BaselinePlanDurableWinnerTest {
         Assertions.assertSame(winner, BaselineManager.pickDurableWinner(winner, winner));
     }
 
+    /**
+     * round-42 #1: fully tied timestamps + status must still resolve DETERMINISTICALLY
+     * when the CONTENT differs. Two masters can leave two DIFFERENT rows of one id with
+     * the same stored second (DATETIME has second precision), and an arbitrary pick made
+     * refresh / restart / SHOW / the paginated read disagree on which row is
+     * authoritative. The content tie-breakers are total and order-independent.
+     */
+    @Test
+    public void testContentTieBreakIsOrderIndependent() {
+        BaselinePlan digestZ = row(9, 300, BaselineStatus.ENABLED);
+        digestZ.setBindSqlDigest("z-digest");
+        digestZ.setPlanSql("plan-a");
+        digestZ.setBindSql("bind-a");
+        BaselinePlan digestA = row(9, 300, BaselineStatus.ENABLED);
+        digestA.setBindSqlDigest("a-digest");
+        digestA.setPlanSql("plan-z");
+        digestA.setBindSql("bind-z");
+        Assertions.assertSame(digestA, BaselineManager.pickDurableWinner(digestZ, digestA),
+                "the lexicographically smaller digest wins regardless of the read order");
+        Assertions.assertSame(digestA, BaselineManager.pickDurableWinner(digestA, digestZ));
+
+        // same digest: the PLAN text breaks the tie (again order-independent)
+        BaselinePlan planB = row(9, 300, BaselineStatus.ENABLED);
+        planB.setBindSqlDigest("same-digest");
+        planB.setPlanSql("plan-b");
+        BaselinePlan planA = row(9, 300, BaselineStatus.ENABLED);
+        planA.setBindSqlDigest("same-digest");
+        planA.setPlanSql("plan-a");
+        Assertions.assertSame(planA, BaselineManager.pickDurableWinner(planB, planA),
+                "the plan text must break a digest tie");
+        Assertions.assertSame(planA, BaselineManager.pickDurableWinner(planA, planB));
+
+        // ... then the BIND text; a fully identical pair stays stable on the first read
+        BaselinePlan bindB = row(9, 300, BaselineStatus.ENABLED);
+        bindB.setBindSqlDigest("same-digest");
+        bindB.setPlanSql("same-plan");
+        bindB.setBindSql("bind-b");
+        BaselinePlan bindA = row(9, 300, BaselineStatus.ENABLED);
+        bindA.setBindSqlDigest("same-digest");
+        bindA.setPlanSql("same-plan");
+        bindA.setBindSql("bind-a");
+        Assertions.assertSame(bindA, BaselineManager.pickDurableWinner(bindB, bindA),
+                "the bind text must break a plan tie");
+        Assertions.assertSame(bindA, BaselineManager.pickDurableWinner(bindA, bindB));
+        Assertions.assertSame(bindA, BaselineManager.pickDurableWinner(bindA, bindA),
+                "a fully identical pair stays interchangeable");
+    }
+
     /** Seeds one ENABLED in-memory baseline and returns its id. */
     private static long seedEnabledBaseline(BaselineManager manager) {
         BaselinePlan plan = new BaselinePlan();

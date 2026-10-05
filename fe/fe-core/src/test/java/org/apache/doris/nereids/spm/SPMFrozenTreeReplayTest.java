@@ -286,6 +286,84 @@ public class SPMFrozenTreeReplayTest {
     }
 
     /**
+     * round-42 #5: matching the CAPTURED limit VALUE is not a contract. A manual plan
+     * {@code 'SELECT k FROM t1'} freezes a text with NO limit node at all - mergeLimits
+     * only replaces the VALUE of a cap that aligns positionally, it cannot ADD a missing
+     * one - so a LIMIT 2 caller used to be answered with EVERY row. The candidate must be
+     * skipped unless the replayed tree actually carries the caller's cap.
+     */
+    @Test
+    public void testReplayWithoutTheCallersCapIsRejected() throws Exception {
+        installConnectContext();
+        SPMPlanner planner = new SPMPlanner();
+        String bindSql = "SELECT k FROM t1 ORDER BY k LIMIT 2";
+        // the frozen manual plan has no cap the merge could align with
+        String frozenPlanSql = "SELECT k FROM t1";
+        manager.createBaseline(frozenBaseline(bindSql, frozenPlanSql));
+
+        LogicalPlan userPlan = parse(bindSql);
+        long deadline = System.currentTimeMillis() + 5000;
+        LogicalPlan rewritten = planner.tryRewritePlan(userPlan, deadline);
+
+        Assertions.assertNull(rewritten,
+                "a replay that cannot CARRY the caller's LIMIT must be skipped");
+        Assertions.assertTrue(planner.getUsedBaselineId() <= 0,
+                "no baseline may be reported as hit: " + planner.getUsedBaselineId());
+    }
+
+    /**
+     * round-42 #11: the CALLER's own nested caps must survive the replay as well. A manual
+     * plan that kept only the OUTER cap passed the one-directional containment
+     * (replayed caps ⊆ caller caps) although the replayed tree answers with the outer
+     * cap ALONE: the caller's INNER cap used to truncate a different slice first, so the
+     * two plans return different rows.
+     */
+    @Test
+    public void testCallerInnerCapMustSurviveTheReplay() throws Exception {
+        installConnectContext();
+        SPMPlanner planner = new SPMPlanner();
+        String bindSql = "SELECT k FROM (SELECT k FROM t1 ORDER BY k LIMIT 1) s"
+                + " ORDER BY k LIMIT 2";
+        String frozenPlanSql = "SELECT k FROM t1 ORDER BY k LIMIT 2";
+        manager.createBaseline(frozenBaseline(bindSql, frozenPlanSql));
+
+        LogicalPlan userPlan = parse(bindSql);
+        long deadline = System.currentTimeMillis() + 5000;
+        LogicalPlan rewritten = planner.tryRewritePlan(userPlan, deadline);
+
+        Assertions.assertNull(rewritten,
+                "the replay lacks the caller's INNER cap: it returns more rows than the"
+                        + " caller's own plan, so the candidate must be skipped");
+        Assertions.assertTrue(planner.getUsedBaselineId() <= 0,
+                "no baseline may be reported as hit: " + planner.getUsedBaselineId());
+    }
+
+    /**
+     * round-42 #11: a cap's identity is (value, occurrence, AGGREGATE-BELOW, ORDER-BY
+     * SLICE), not the value alone. A manual plan whose inner TOP-N sorts a DIFFERENT
+     * direction truncates a different slice; the previous value-only key matched it and
+     * answered an ascending caller with the descending slice.
+     */
+    @Test
+    public void testCapSliceMustMatchNotOnlyTheValue() throws Exception {
+        installConnectContext();
+        SPMPlanner planner = new SPMPlanner();
+        String bindSql = "SELECT k FROM (SELECT k FROM t1 ORDER BY k DESC LIMIT 1) s";
+        String frozenPlanSql = "SELECT k FROM (SELECT k FROM t1 ORDER BY k ASC LIMIT 1) s";
+        manager.createBaseline(frozenBaseline(bindSql, frozenPlanSql));
+
+        LogicalPlan userPlan = parse(bindSql);
+        long deadline = System.currentTimeMillis() + 5000;
+        LogicalPlan rewritten = planner.tryRewritePlan(userPlan, deadline);
+
+        Assertions.assertNull(rewritten,
+                "a cap over a DIFFERENT ORDER-BY slice picks other rows: same LIMIT value"
+                        + " is not the same cap");
+        Assertions.assertTrue(planner.getUsedBaselineId() <= 0,
+                "no baseline may be reported as hit: " + planner.getUsedBaselineId());
+    }
+
+    /**
      * round-41 #2: a real global UDF named like the marker whose FIRST argument is not the
      * marker id must still have its OTHER arguments substituted. The old early return left
      * a genuine nested marker in the tree, and the residue scan then rejected a persisted

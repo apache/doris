@@ -173,7 +173,11 @@ public class PlanCaptureManager extends MasterDaemon {
      */
     private static final int MAX_CAPTURE_ATTEMPTS = 3;
 
-    /** Durable checkpoint key: the internal table holds exactly one row. */
+    /**
+     * The fixed {@code id} value every checkpoint row carries: uniqueness is the
+     * {@code (leader_epoch, write_seq)} token now (round-42 #8), not the id, but the
+     * predicate ({@code WHERE id = 1}) stays valid for rows written by older builds.
+     */
     private static final long CHECKPOINT_ID = 1L;
 
     /** Upper bound for the retry entries written into the checkpoint row (row size). */
@@ -183,53 +187,69 @@ public class PlanCaptureManager extends MasterDaemon {
     private static final String CHECKPOINT_TABLE =
             "`__internal_schema`.`spm_capture_checkpoint`";
 
+    /**
+     * The read takes the lexicographically GREATEST row of the append-only table
+     * (round-42 #8): {@code (leader_epoch, write_seq)} is the row's write token. The
+     * previous {@code ORDER BY update_time LIMIT 1} was ambiguous between the newest row
+     * and whatever a delayed stale write (a demoted FE whose INSERT committed late) had
+     * put next to it. update_time only breaks an EXACT token tie (two same-epoch writers
+     * resumed from the same row), where the more recently committed row is the better
+     * guess.
+     */
     private static final String CHECKPOINT_SELECT_SQL =
             "SELECT `last_scan_timestamp`, `pending_window_start`, `pending_window_end`,"
                     + " `cursor_query_time`, `cursor_time`, `cursor_query_id`,"
                     + " `failed_attempts`, `retry_queue`, `cursor_tail`,"
                     + " `min_query_time_ms`, `min_scan_rows`, `include_pattern`,"
-                    + " `exclude_pattern`, `scan_zone` FROM " + CHECKPOINT_TABLE
-                    + " WHERE `id` = " + CHECKPOINT_ID + " ORDER BY `update_time` DESC LIMIT 1";
+                    + " `exclude_pattern`, `scan_zone`, `leader_epoch`, `write_seq` FROM "
+                    + CHECKPOINT_TABLE
+                    + " WHERE `id` = " + CHECKPOINT_ID
+                    + " ORDER BY `leader_epoch` DESC, `write_seq` DESC, `update_time` DESC"
+                    + " LIMIT 1";
 
     /**
-     * One UPSERT statement: the table is UNIQUE-key(id) with merge-on-write, so inserting
-     * the row again REPLACES it atomically. The previous delete-then-insert pair was two
-     * separately committed statements: a crash / leadership loss / timeout / failed
-     * INSERT after the DELETE left NO row for the next leader, which then derived a fresh
-     * window and permanently skipped the deleted pending window's unconsumed tail.
+     * One APPEND of the checkpoint (round-42 #8): a plain INSERT whose row carries the
+     * writer's next {@code (leader_epoch, write_seq)} token. The previous statement was a
+     * conditional UPSERT against UNIQUE-key(id) + merge-on-write, which made a demoted
+     * leader's late (forwarded) write REPLACE the new master's row - the newer checkpoint
+     * (including a queued retry for a late audit row) was destroyed, and the epoch
+     * condition that was supposed to refuse it could not fire reliably (the condition is
+     * evaluated at execution time, not commit time, and its refusal then aborted the
+     * new leader's own drain). Append-only makes the same write harmless: it adds an
+     * OLDER row that the reader's ORDER BY never picks. The row's {@code leader_epoch} is
+     * the FE's max journal id (see {@link #currentLeaderEpoch}); {@code write_seq} orders
+     * the writes of one epoch (seeded from the loaded row, see {@link #applyCheckpointRow}).
      *
-     * The statement is a conditional INSERT ... SELECT (round-39 #16): it only writes
-     * while the writer's {@code leader_epoch} is not OLDER than the stored row's. A
-     * demoted leader's write FORWARDS and executes ON the new master, so no local
-     * leadership check can fence it - the STATEMENT itself must refuse. Without the
-     * condition, L1 (which passed isLeaderForCheckpointWrite before pausing) replaced
-     * L2's freshly REWOUND checkpoint (with its queued retry) by L1's ahead cursor and no
-     * retry entry, and L2's in-memory retry queue was the only remaining repair path. The
-     * epoch is the FE's max journal id (see {@link #currentLeaderEpoch}); the statement
-     * reports ZERO affected rows when it refuses, which the writer treats as a failed
-     * write (the drain stops and resumes promptly).
-     *
-     * The target columns are listed EXPLICITLY (never positional): the PHYSICAL order of
-     * an upgraded table can differ (the upgrade APPENDS what it adds), and a positional
-     * INSERT then shifts every value behind the first out-of-position column - the tail
-     * JSON was written into failed_attempts, the retry JSON into update_time and NOW()
-     * into cursor_tail - and the checkpoint write failed / persisted garbage. Address the
-     * columns by NAME instead, exactly like the (by-name) CHECKPOINT_SELECT_SQL read.
+     * The target columns are listed EXPLICITLY: the PHYSICAL order of an upgraded table
+     * can differ from a freshly created one, and a positional INSERT then shifts every
+     * value behind the first out-of-position column - the tail JSON was written into
+     * failed_attempts, the retry JSON into update_time and NOW() into cursor_tail - and
+     * the checkpoint write failed / persisted garbage. Address the columns by NAME, like
+     * the SELECT list above.
      */
     private static final String CHECKPOINT_INSERT_SQL =
             "INSERT INTO " + CHECKPOINT_TABLE
-                    + " (`id`, `last_scan_timestamp`, `pending_window_start`, `pending_window_end`,"
-                    + " `cursor_query_time`, `cursor_time`, `cursor_query_id`, `cursor_tail`,"
-                    + " `failed_attempts`, `retry_queue`, `min_query_time_ms`, `min_scan_rows`,"
-                    + " `include_pattern`, `exclude_pattern`, `scan_zone`, `leader_epoch`,"
-                    + " `update_time`)"
-                    + " SELECT " + CHECKPOINT_ID + ", ${lastScan}, ${pendingStart}, ${pendingEnd},"
-                    + " ${cursorQueryTime}, '${cursorTime}', '${cursorQueryId}', '${cursorTail}',"
-                    + " '${failedAttempts}', '${retryQueue}', ${minQueryTimeMs}, ${minScanRows},"
-                    + " '${includePattern}', '${excludePattern}', '${scanZone}', ${epoch}, NOW()"
-                    + " FROM (SELECT COALESCE(MAX(`leader_epoch`), ${epoch}) AS `epoch_floor`"
-                    + " FROM " + CHECKPOINT_TABLE + " WHERE `id` = " + CHECKPOINT_ID + ") s"
-                    + " WHERE ${epoch} >= s.`epoch_floor`";
+                    + " (`leader_epoch`, `write_seq`, `id`, `last_scan_timestamp`,"
+                    + " `pending_window_start`, `pending_window_end`, `cursor_query_time`,"
+                    + " `cursor_time`, `cursor_query_id`, `cursor_tail`, `failed_attempts`,"
+                    + " `retry_queue`, `min_query_time_ms`, `min_scan_rows`,"
+                    + " `include_pattern`, `exclude_pattern`, `scan_zone`, `update_time`)"
+                    + " VALUES (${epoch}, ${seq}, " + CHECKPOINT_ID + ", ${lastScan},"
+                    + " ${pendingStart}, ${pendingEnd}, ${cursorQueryTime}, '${cursorTime}',"
+                    + " '${cursorQueryId}', '${cursorTail}', '${failedAttempts}',"
+                    + " '${retryQueue}', ${minQueryTimeMs}, ${minScanRows},"
+                    + " '${includePattern}', '${excludePattern}', '${scanZone}', NOW())";
+
+    /**
+     * Best-effort garbage collection of the append-only checkpoint (round-42 #8): removes
+     * the rows the just-written one supersedes - strictly older epochs, plus same-epoch
+     * rows with a lower write_seq. Correctness never depends on it (the reader's ORDER BY
+     * ignores stale rows), so failures are swallowed by the caller.
+     */
+    private static final String CHECKPOINT_PRUNE_SQL =
+            "DELETE FROM " + CHECKPOINT_TABLE
+                    + " WHERE `leader_epoch` < ${epoch}"
+                    + " OR (`leader_epoch` = ${epoch} AND `write_seq` < ${seq})";
 
     private AuditLogScanner scanner = new AuditLogScanner();
 
@@ -238,6 +258,14 @@ public class PlanCaptureManager extends MasterDaemon {
 
     /** Last scan window start (epoch millis); 0 means "first run, scan one interval". */
     private long lastScanTimestamp = 0;
+
+    /**
+     * The write token of the append-only checkpoint rows (round-42 #8): this process's
+     * last {@code write_seq}, seeded by {@link #applyCheckpointRow} from the row it
+     * loaded and advanced by every CONFIRMED write. See the seeding comment there for
+     * why the loaded row must raise it.
+     */
+    private long checkpointWriteSeq = 0;
 
     /**
      * The session time_zone (zone ID) the most recent scan PASS rendered its window bounds
@@ -884,17 +912,19 @@ public class PlanCaptureManager extends MasterDaemon {
                     cursorTail = "";
                     lastScanZone = missingZone;
                     pendingWindowNeedsPromptResume = true;
-                } else if (blocksWindowCompletion(publicationHorizon, scanStart, scanEnd)) {
-                    // An event that is STILL unpublished has an instant INSIDE this window
-                    // (round-39 #6): it may expose its row anywhere in the window when it
-                    // publishes - including BELOW the position the descending keyset
+                } else if (blocksWindowCompletion(publicationHorizon, scanEnd)) {
+                    // An audit event older than the window END is STILL unpublished
+                    // (round-39 #6, round-42 #6): it may expose its row anywhere this
+                    // window scans - including BELOW the position the descending keyset
                     // pagination has already walked past (a 10:30 row publishing between
                     // page one and page two sorts before the 10:00 cursor and is skipped).
-                    // Completing the window is only safe once no such event exists:
-                    // re-scan the widened window from its TOP and resume promptly. When
-                    // the event publishes (or its 30-minute fence expires) the re-scan
-                    // sees the row; with nothing outstanding the completion proceeds
-                    // normally.
+                    // The value is the MINIMUM over all outstanding events, so even a
+                    // horizon BELOW the window does not prove the window is clear: an
+                    // older event can mask a newer one inside it. Completing the window
+                    // is only safe once nothing below scanEnd is outstanding: re-scan
+                    // the widened window from its TOP and resume promptly. When the
+                    // event publishes (or its 30-minute fence expires) the re-scan sees
+                    // the row; with nothing outstanding the completion proceeds normally.
                     LOG.info("Plan capture: window [{}, {}) stays pending: an audit event at"
                                     + " {} is still unpublished and its row may appear inside"
                                     + " the window after its page was walked; re-scanning from"
@@ -1435,6 +1465,18 @@ public class PlanCaptureManager extends MasterDaemon {
                         restoredMinQueryTimeMs, restoredMinScanRows);
             }
         }
+        // The append-only write token of the row just read (round-42 #8, the two columns
+        // APPENDED to the SELECT list): a process that RESUMES this checkpoint must write
+        // strictly ABOVE it. The leader epoch is the max journal id, which does NOT change
+        // across an FE restart, so without the seeding a same-epoch restarted leader
+        // would store (epoch, 1) next to the durable (epoch, N) - and the reader, ranking
+        // by write_seq, would keep preferring the row the restart meant to supersede.
+        if (row.getValues().size() > 15 && row.get(15) != null) {
+            long loadedSeq = parseLongValue(row.get(15));
+            if (loadedSeq > checkpointWriteSeq) {
+                checkpointWriteSeq = loadedSeq;
+            }
+        }
         // a row was READ: this process now knows a durable record exists, so the initial
         // reservation in runCaptureCycle never overwrites / takes over its role
         durableCheckpointObserved = true;
@@ -1598,12 +1640,20 @@ public class PlanCaptureManager extends MasterDaemon {
                 ? "" : durableFilter.getExcludePatternText()));
         params.put("scanZone", StatisticsUtil.escapeSQL(durableScanZone == null
                 ? "" : durableScanZone));
-        // the conditional UPSERT's fencing token (round-39 #16, see CHECKPOINT_INSERT_SQL)
+        // the append-only write token (round-42 #8, see CHECKPOINT_INSERT_SQL): the
+        // writer's leader epoch (round-39 #16) plus this process's next write_seq. The
+        // counter commits only with a CONFIRMED write, so a failed write reuses its
+        // token - harmless: equal tokens are equivalent rows, and a retry would write
+        // the same state anyway.
         params.put("epoch", String.valueOf(checkpointEpoch.getAsLong()));
+        final long writeSeq = checkpointWriteSeq + 1;
+        params.put("seq", String.valueOf(writeSeq));
         try {
-            // Single UPSERT: the new row is durable BEFORE the old one stops being read
-            // (the table is UNIQUE-key(id) + merge-on-write), so no crash / timeout can
-            // leave the shared store without a checkpoint row.
+            // One plain APPEND: the new row is durable before anything reads it, and the
+            // row it supersedes stays intact whatever happens to THIS statement - the old
+            // single-row UPSERT could leave the store without a checkpoint when a
+            // demoted FE's forwarded write replaced the new master's row / the commit
+            // was deferred past the writer's timeout (round-42 #8).
             // Pin the DEFAULT parser mode for the write: escapeSQL doubles backslashes,
             // which only decode back in that mode - under a global NO_BACKSLASH_ESCAPES
             // the stored JSON / SQL text would keep the doubled bytes (and a doubled
@@ -1617,22 +1667,48 @@ public class PlanCaptureManager extends MasterDaemon {
                 return null;
             });
         } catch (CheckpointWriteRefusedException refused) {
-            // The conditional statement REFUSED the write: the durable row carries a newer
-            // leader epoch (round-39 #16). This FE is demoted, and forwarding the UPSERT
-            // to the new master would have replaced its rewound checkpoint - including a
-            // queued retry for a late audit row - with this FE's ahead cursor. Treat it
-            // as a failed write: the drain stops, the window stays pending with its
-            // cursor, and the real leader resumes it.
-            LOG.warn("SPM capture checkpoint NOT persisted: the durable row belongs to a"
-                    + " NEWER leader epoch (this FE is no longer the master)");
+            // The statement reported NO written row (round-39 #16 defensive path): the
+            // append-only INSERT has no refusing WHERE clause any more (round-42 #8), so
+            // this only fires on a store oddity or a test seam. Treat it as a failed
+            // write: the drain stops, the window stays pending with its cursor, and the
+            // next cycle retries.
+            LOG.warn("SPM capture checkpoint NOT persisted: the statement reported no"
+                    + " written row");
             return false;
         } catch (Exception e) {
             LOG.warn("SPM capture checkpoint write failed (will retry next cycle): {}",
                     e.getMessage());
             return false;
         }
+        checkpointWriteSeq = writeSeq;
+        pruneStaleCheckpointRows(params);
         durableCheckpointObserved = true;
         return true;
+    }
+
+    /**
+     * Best-effort prune of the append-only checkpoint rows the just-written row SUPERSEDES
+     * (round-42 #8): strictly older epochs, plus same-epoch rows with a lower write_seq.
+     * The row just written is never its own victim ({@code seq} is its token), and the
+     * reader's ORDER BY ignores whatever a failed prune leaves behind - so this runs
+     * OUTSIDE the checkpoint write's try/catch: the row IS durable, and a GC error must
+     * not be reported as a failed checkpoint (which would stop the drain).
+     */
+    private void pruneStaleCheckpointRows(Map<String, String> params) {
+        try {
+            SqlModeHelper.withSqlMode(SqlModeHelper.MODE_DEFAULT, () -> {
+                try {
+                    checkpointWriter.write(CHECKPOINT_PRUNE_SQL, params);
+                } catch (Exception pruneFailure) {
+                    throw new RuntimeException(pruneFailure);
+                }
+                return null;
+            });
+        } catch (Exception pruneFailure) {
+            // includes the production seam's CheckpointWriteRefusedException: a DELETE
+            // that matched 0 rows is not an error
+            LOG.info("SPM capture checkpoint prune skipped: {}", pruneFailure.getMessage());
+        }
     }
 
     /**
@@ -2062,20 +2138,25 @@ public class PlanCaptureManager extends MasterDaemon {
      * event that is still unpublished with an instant INSIDE {@code [scanStart, scanEnd)}
      * may expose its row anywhere in the window when it publishes - including BELOW the
      * position the descending keyset pagination already walked past - so the drained
-     * pages cannot be trusted to have seen it. The {@code >= scanStart} bound also covers
-     * the window's widened start (the overlap exists exactly for such events). A horizon
-     * outside the window cannot expose a row inside it, and 0 (nothing outstanding) never
-     * fences.
+     * pages cannot be trusted to have seen it.
+     *
+     * <p>Round-42 #6: a positive horizon BELOW the window does NOT establish that the
+     * window is clear either. The horizon is the MINIMUM over all outstanding events, so
+     * an older unpublished event (a long 08:30 query) MASKS a newer one inside the window
+     * (an unpublished 10:15 row): the min drops below {@code scanStart} while the 10:15
+     * row is still in flight, the window would be treated as complete, and the next fixed
+     * overlap can start after that row. The only sound reading of the value is "some
+     * event below scanEnd is outstanding": it may own a row this window scans (rows are
+     * admitted by membership OR by completion reaching the window start), so every
+     * positive horizon below {@code scanEnd} retains the window. A horizon at or after
+     * {@code scanEnd} belongs to later windows only.
      *
      * @param publicationHorizon the cluster horizon observed at cycle start
-     * @param scanStart the window start (epoch millis)
      * @param scanEnd the window end (epoch millis)
      * @return whether the window must stay pending
      */
-    private static boolean blocksWindowCompletion(long publicationHorizon, long scanStart,
-            long scanEnd) {
-        return publicationHorizon > 0 && publicationHorizon >= scanStart
-                && publicationHorizon < scanEnd;
+    private static boolean blocksWindowCompletion(long publicationHorizon, long scanEnd) {
+        return publicationHorizon > 0 && publicationHorizon < scanEnd;
     }
 
     private void clearPendingWindow() {
@@ -2109,6 +2190,8 @@ public class PlanCaptureManager extends MasterDaemon {
         auditQueueHorizon = AuditPublicationHorizon::clusterHorizon;
         auditWriterZones = AuditPublicationHorizon::clusterWriterZones;
         checkpointEpoch = PlanCaptureManager::currentLeaderEpoch;
+        // the append-only write counter is process state, like the epoch supplier
+        checkpointWriteSeq = 0;
         // the writer-zone registry is process-wide (written by the audit loader): a test
         // must not inherit another test's zones through the production supplier
         AuditWriterZones.resetForTest();
@@ -2435,11 +2518,11 @@ public class PlanCaptureManager extends MasterDaemon {
     }
 
     /**
-     * For tests: the durable UPSERT statement (see {@link #CHECKPOINT_INSERT_SQL}). The
-     * column list must stay one-to-one with
-     * {@link org.apache.doris.catalog.InternalSchema#SPM_CAPTURE_CHECKPOINT_SCHEMA} (and
-     * must be a column LIST, not a positional VALUES) so an upgraded table with a
-     * different PHYSICAL order cannot shift the values.
+     * For tests: the append-only checkpoint INSERT (see {@link #CHECKPOINT_INSERT_SQL}).
+     * The column NAMES must stay one-to-one with
+     * {@link org.apache.doris.catalog.InternalSchema#SPM_CAPTURE_CHECKPOINT_SCHEMA} - the
+     * VALUES bind positionally, but against that NAMED column list - so an upgraded table
+     * with a different PHYSICAL order cannot shift the values.
      */
     @VisibleForTesting
     public static String checkpointInsertSqlForTest() {

@@ -1616,6 +1616,78 @@ public class BaselineManagerConcurrencyTest {
     // ==================== SHOW uses the confirmed read (round-15) ====================
 
     /**
+     * round-42 #9: a DROP TOMBSTONE must filter a durable row a delayed status write
+     * revived. The status flip INSERTs the new row BEFORE deleting the old one, so a
+     * demoted master's in-flight INSERT can commit AFTER the DROP removed the row - its
+     * conditional precondition ran against the pre-DROP snapshot and Doris cannot
+     * re-check it at commit. The append-only tombstone survives that commit; a load that
+     * sees a matching (id, digest, planSqlHash) row must treat it as deleted AND repair
+     * it away.
+     */
+    @Test
+    public void testDropTombstoneFiltersAndRepairsTheRevivedRow() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        IdentityStoreSimulator store = new IdentityStoreSimulator();
+        try {
+            BaselinePlan revived = withId(baseline("d-revive", "p-revive"), 7L);
+            // a row WITHOUT a tombstone loads normally (the filter must not over-match)
+            store.rows.put(7L, revived);
+            BaselineManager.idAllocatorStoreForTest = store;
+            BaselineManager.snapshotReaderForTest = () -> Map.of(7L, revived);
+            manager.setPersistToTableForTest(true);
+            manager.prepareLoadForTest();
+            manager.loadFromInternalTable();
+            Assertions.assertEquals(1, manager.getAllBaselines().size(),
+                    "no tombstone exists: the row is published");
+
+            // the completed DROP appends the identity tombstone; a delayed status write
+            // then revives the row in the store. clearForTest() drops every test seam
+            // (persistence included), so they are re-installed for the second load.
+            store.appendTombstone(revived);
+            manager.clearForTest();
+            BaselineManager.idAllocatorStoreForTest = store;
+            BaselineManager.snapshotReaderForTest = () -> Map.of(7L, revived);
+            manager.setPersistToTableForTest(true);
+            manager.prepareLoadForTest();
+            manager.loadFromInternalTable();
+
+            Assertions.assertTrue(manager.getAllBaselines().isEmpty(),
+                    "a row whose identity carries a DROP tombstone must not enter the"
+                            + " matchable cache: " + manager.getAllBaselines());
+            Assertions.assertTrue(store.rows.isEmpty(),
+                    "the load must repair the revived row away: " + store.rows.keySet());
+        } finally {
+            BaselineManager.snapshotReaderForTest = null;
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-42 #2: a forwarded CREATE's outcome fence cannot name the master's id (the
+     * follower cannot know which id the master allocated), so the expectation matches ANY
+     * id that carries the created bind+plan TEXT - and a snapshot without it does not
+     * satisfy the fence.
+     */
+    @Test
+    public void testForwardedCreateExpectationMatchesTheCreatedText() {
+        BaselineManager.ForwardedDdlExpectation created =
+                BaselineManager.ForwardedDdlExpectation.created(
+                        "select k from t1", "p-created");
+        BaselinePlan row = withId(baseline("d-created", "p-created"), 42L);
+        Assertions.assertTrue(created.isSatisfiedBy(Map.of(42L, row)),
+                "any id carrying the created bind+plan text satisfies the expectation");
+        Assertions.assertFalse(created.isSatisfiedBy(Map.of()),
+                "no row at all does not satisfy it");
+        BaselinePlan other = withId(baseline("d-other", "p-other"), 43L);
+        Assertions.assertFalse(created.isSatisfiedBy(Map.of(43L, other)),
+                "a different identity does not satisfy it");
+        Assertions.assertTrue(created.describe().contains("CREATE"),
+                "the failure message must name the create: " + created.describe());
+    }
+
+    /**
      * SHOW BASELINE PLANS used the ASYNCHRONOUS getAllBaselines(): right after startup / a
      * promotion (empty map, load not finished) it listed ZERO rows although durable
      * baselines existed, and a failed read never converged. The command now requires a
@@ -1740,8 +1812,27 @@ public class BaselineManagerConcurrencyTest {
     private static final class IdentityStoreSimulator
             implements BaselineManager.IdAllocatorStoreForTest {
         private final Map<Long, BaselinePlan> rows = new java.util.concurrent.ConcurrentHashMap<>();
+        /** The DROP TOMBSTONES (round-42 #9) this FE appended, as id|digest|planSqlHash. */
+        private final List<String> dropped = new java.util.concurrent.CopyOnWriteArrayList<>();
         private boolean failDelete;
         private boolean failRead;
+
+        /** Appends the tombstone a completed DROP of {@code row} would have written. */
+        void appendTombstone(BaselinePlan row) {
+            dropped.add(row.getId() + "|" + row.getBindSqlDigest() + "|"
+                    + org.apache.doris.nereids.spm.SPMUtils.hashOf(row.getPlanSql()));
+        }
+
+        @Override
+        public List<String> droppedMarkers() {
+            return new ArrayList<>(dropped);
+        }
+
+        @Override
+        public void appendDroppedMarker(long id, String bindSqlDigest, long planSqlHash,
+                long atMillis) {
+            dropped.add(id + "|" + bindSqlDigest + "|" + planSqlHash);
+        }
 
         @Override
         public long watermark() {

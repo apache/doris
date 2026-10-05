@@ -284,6 +284,54 @@ public class SessionBaselineStoreTest {
     }
 
     /**
+     * round-42 #4: the admission bound must count the payload's ENCLOSING "[]" as well -
+     * the store admitted a row that pushed the SERIALIZED payload two characters over
+     * {@link SPMForwardedSession#MAX_PAYLOAD_CHARS}, and the serializer then failed the
+     * forwarded statement loudly. The bound is EXACT now: a payload of exactly the budget
+     * is accepted and serializes, one character more is rejected at registration.
+     */
+    @Test
+    public void testForwardedPayloadBudgetCountsTheEnclosure() {
+        // SAME tag on every calibration row: the digest length is part of the row
+        int base = SPMForwardedSession.payloadRowChars(payloadPlan(0, "probe"));
+        int budget = SPMForwardedSession.MAX_PAYLOAD_CHARS
+                - SPMForwardedSession.PAYLOAD_ENCLOSURE_CHARS;
+        int exactLen = budget - base;
+        Assertions.assertTrue(exactLen > 0, "the calibration must leave room for a payload");
+
+        SessionBaselineStore exact = new SessionBaselineStore();
+        BaselinePlan exactRow = payloadPlan(exactLen, "probe");
+        Assertions.assertEquals(budget, SPMForwardedSession.payloadRowChars(exactRow),
+                "the calibration row must hit the accounted budget exactly");
+        exact.createBaseline(exactRow);
+        Assertions.assertTrue(SPMForwardedSession.serialize(exact).length()
+                        <= SPMForwardedSession.MAX_PAYLOAD_CHARS,
+                "a payload of exactly the budget must serialize");
+
+        // one character more must be rejected at REGISTRATION (the serializer would throw)
+        SessionBaselineStore over = new SessionBaselineStore();
+        Assertions.assertThrows(IllegalStateException.class,
+                () -> over.createBaseline(payloadPlan(exactLen + 1, "probe")),
+                "the row that would push the serialized payload over the budget must be"
+                        + " rejected by the store");
+    }
+
+    /** A minimal registrable baseline whose only size contributor is its bind text. */
+    private static BaselinePlan payloadPlan(int bindLength, String tag) {
+        BaselinePlan plan = new BaselinePlan();
+        // registerLocked ASSIGNS the id (SESSION_ID_BASE + n) before measuring the row:
+        // the calibration must carry an id of the same WIDTH or the measured chars are
+        // short by the digits the assignment adds
+        plan.setId(BaselineScope.SESSION_ID_BASE);
+        plan.setBindSql("x".repeat(bindLength));
+        plan.setBindSqlDigest("payload-digest-" + tag);
+        plan.setBindSqlHash(SPMUtils.hashOf("payload-digest-" + tag));
+        plan.setPlanSql("SELECT 1");
+        plan.setStatus(BaselineStatus.ENABLED);
+        return plan;
+    }
+
+    /**
      * Hand-builds a baseline whose planSql is a frozen (placeholder-carrying) plan text -
      * the equivalent of what buildBaselineFromSql stores after a successful decompile.
      */

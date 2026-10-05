@@ -72,6 +72,15 @@ public final class SPMForwardedSession {
      */
     public static final int MAX_PAYLOAD_CHARS = 8 * 1024 * 1024;
 
+    /**
+     * Characters the JSON ARRAY enclosure ({@code []}) adds to the payload (round-42 #4).
+     * The session store's admission check AND {@link #serialize} must account for it with
+     * the SAME number: a store that admitted rows summing exactly to the row budget used
+     * to serialize two characters MORE than the budget and every rewrite-enabled
+     * statement forwarded from that connection failed in {@code serialize}.
+     */
+    public static final int PAYLOAD_ENCLOSURE_CHARS = 2;
+
     private static final Logger LOG = LogManager.getLogger(SPMForwardedSession.class);
 
     private SPMForwardedSession() {
@@ -107,7 +116,7 @@ public final class SPMForwardedSession {
         }
         Gson gson = new Gson();
         List<Map<String, String>> rows = new ArrayList<>();
-        long payloadChars = 2; // the enclosing []
+        long payloadChars = PAYLOAD_ENCLOSURE_CHARS; // the enclosing []
         for (BaselinePlan plan : store.getAllBaselines()) {
             if (plan.getStatus() != BaselineStatus.ENABLED) {
                 continue;

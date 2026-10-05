@@ -108,6 +108,19 @@ public class AuditLoader extends Plugin implements AuditPlugin {
      */
     private final List<PublishFence> pendingPublishFences = new ArrayList<>();
 
+    /**
+     * The AGGREGATE fence of the batches dropped by the {@link #MAX_PENDING_PUBLISH_FENCES}
+     * bound (round-42 #7): the earliest event time among them plus the earliest
+     * {@code since}. Removing the oldest entry outright released its fence without ANY
+     * visibility probe - a sustained Publish-Timeout rate then let the capture advance
+     * past an event that was still committed-but-unreadable, and the pinned window can
+     * never widen back to include it. The aggregate keeps fencing until its own retention
+     * bound elapses (the bound the FIRST dropped batch was already running on), so the
+     * memory stays bounded while the protection survives. Guarded by the loader monitor.
+     */
+    private long droppedPublishFenceTime = 0;
+    private long droppedPublishFenceSince = 0;
+
     /** One committed-but-unreadable batch (see {@link #pendingPublishFences}). */
     private static final class PublishFence {
         final long oldestEventTime;
@@ -594,9 +607,14 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                     batchQueryId == null ? "" : batchQueryId, publishFenceNow()));
             while (pendingPublishFences.size() > MAX_PENDING_PUBLISH_FENCES) {
                 PublishFence dropped = pendingPublishFences.remove(0);
-                LOG.warn("audit loader: releasing the publish fence of event time {} early"
-                                + " (more than {} batches await publication; each batch also"
-                                + " releases its own fence after {} ms)",
+                // the dropped batch keeps fencing through the AGGREGATE (round-42 #7):
+                // releasing it with the removal let the capture advance past a batch whose
+                // rows may still publish
+                aggregateDroppedFence(dropped);
+                LOG.warn("audit loader: aggregating the publish fence of event time {}"
+                                + " into the dropped-fence aggregate (more than {} batches"
+                                + " await publication; the aggregate expires with the same"
+                                + " {} ms bound)",
                         dropped.oldestEventTime, MAX_PENDING_PUBLISH_FENCES,
                         PUBLISH_FENCE_MAX_MILLIS);
             }
@@ -625,8 +643,56 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                     oldest = fence.oldestEventTime;
                 }
             }
-            return oldest;
+            return minPositive(oldest, liveDroppedPublishFence());
         }
+    }
+
+    /**
+     * Merges one bounded-out batch into the dropped-fence aggregate (round-42 #7): the
+     * aggregate carries the EARLIEST dropped event time and the EARLIEST retention start,
+     * so it expires no later than the first dropped batch would have.
+     */
+    private void aggregateDroppedFence(PublishFence dropped) {
+        if (droppedPublishFenceTime == 0 || dropped.oldestEventTime < droppedPublishFenceTime) {
+            droppedPublishFenceTime = dropped.oldestEventTime;
+        }
+        if (droppedPublishFenceSince == 0 || dropped.since < droppedPublishFenceSince) {
+            droppedPublishFenceSince = dropped.since;
+        }
+    }
+
+    /**
+     * The still-valid dropped-fence aggregate, or 0 once its own retention bound elapsed
+     * (the sample rows of the aggregated batches cannot be probed individually without
+     * re-growing the list, so the bound - not a read-back - releases it, exactly like the
+     * per-batch fallback in {@link #confirmPublishFence}). Clears itself lazily under the
+     * monitor.
+     */
+    private long liveDroppedPublishFence() {
+        if (droppedPublishFenceTime == 0) {
+            return 0;
+        }
+        if (publishFenceNow() - droppedPublishFenceSince > PUBLISH_FENCE_MAX_MILLIS) {
+            LOG.warn("audit loader: the aggregated dropped-publish fence of event time {} is"
+                            + " released after {} ms; the aggregated batches are assumed"
+                            + " lost",
+                    droppedPublishFenceTime, PUBLISH_FENCE_MAX_MILLIS);
+            droppedPublishFenceTime = 0;
+            droppedPublishFenceSince = 0;
+            return 0;
+        }
+        return droppedPublishFenceTime;
+    }
+
+    /** The smaller of two positive values (0 means "none" and is ignored). */
+    private static long minPositive(long first, long second) {
+        if (first <= 0) {
+            return Math.max(0L, second);
+        }
+        if (second <= 0) {
+            return first;
+        }
+        return Math.min(first, second);
     }
 
     /**
@@ -702,15 +768,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     /** For tests: the event time of the OLDEST pending publish fence (0 = none). */
     @VisibleForTesting
     long oldestPublishFenceForTest() {
-        synchronized (this) {
-            long oldest = 0;
-            for (PublishFence fence : pendingPublishFences) {
-                if (oldest == 0 || fence.oldestEventTime < oldest) {
-                    oldest = fence.oldestEventTime;
-                }
-            }
-            return oldest;
-        }
+        return oldestPendingPublishFenceEventTime();
     }
 
     /** For tests: how many batches currently fence progress (see #pendingPublishFences). */

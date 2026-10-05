@@ -172,7 +172,12 @@ public class SessionBaselineStore {
         BaselinePlan replaced = baselines.get(id);
         long usedChars = forwardedPayloadChars
                 - (replaced == null ? 0 : SPMForwardedSession.payloadRowChars(replaced));
-        if (usedChars + rowChars > SPMForwardedSession.MAX_PAYLOAD_CHARS) {
+        // The ENCLOSURE (the serialized payload's leading "[]") counts against the same
+        // budget (round-42 #4): the store admitted a row at exactly the row budget while
+        // SPMForwardedSession.serialize needed two characters more and rejected the same
+        // store on every forwarded statement.
+        if (usedChars + rowChars + SPMForwardedSession.PAYLOAD_ENCLOSURE_CHARS
+                > SPMForwardedSession.MAX_PAYLOAD_CHARS) {
             // reject the CREATION instead of dropping rows while forwarding (see
             // forwardedPayloadChars): the statement that fails here is an explicit user
             // action, while a dropped row would silently change a later statement's plan

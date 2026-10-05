@@ -393,20 +393,34 @@ class InternalSchemaInitializerTest {
     }
 
     /**
-     * The checkpoint replacement must be a single-key UPSERT: the table is UNIQUE-key(id)
-     * with merge-on-write, so re-inserting the row replaces it atomically and no crash can
-     * leave the shared store without a checkpoint row.
+     * The checkpoint table must be an APPEND-ONLY DUPLICATE-key table (round-42 #8):
+     * every write adds a row whose (leader_epoch, write_seq) token supersedes the previous
+     * one, so a demoted FE's delayed write is a harmless extra row the reader never picks.
+     * The old UNIQUE-key(id) merge-on-write layout made that same write REPLACE the new
+     * master's row - the newest checkpoint (and a queued retry it carried) was destroyed.
      */
     @Test
-    public void testCaptureCheckpointTableIsUniqueKeyUpsert() throws Exception {
+    public void testCaptureCheckpointTableIsAppendOnlyDuplicateKey() throws Exception {
         Method method = InternalSchemaInitializer.class.getDeclaredMethod(
                 "getSpmCaptureCheckpointCreateSql");
         method.setAccessible(true);
         String sql = (String) method.invoke(null);
-        Assertions.assertTrue(sql.contains("UNIQUE KEY(`id`)"),
-                "the checkpoint table must be UNIQUE-key so the INSERT upserts: " + sql);
-        Assertions.assertTrue(sql.contains("enable_unique_key_merge_on_write"),
-                "merge-on-write makes the single-row replacement atomic: " + sql);
+        Assertions.assertTrue(sql.contains("DUPLICATE KEY(`leader_epoch`, `write_seq`)"),
+                "the checkpoint table must be keyed by its write token: " + sql);
+        Assertions.assertFalse(sql.contains("UNIQUE KEY"),
+                "a unique key would let a stale write REPLACE the newest row: " + sql);
+        Assertions.assertFalse(sql.contains("enable_unique_key_merge_on_write"),
+                "merge-on-write belongs to the removed single-row model: " + sql);
+        // the token columns must never be ALTER-added columns: a pre-append-only table
+        // (no write_seq) is dropped and recreated as a whole
+        Assertions.assertFalse(
+                InternalSchemaInitializer.SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS
+                        .containsKey("leader_epoch"),
+                "a pre-append-only table is dropped and recreated, not ALTERed");
+        Assertions.assertFalse(
+                InternalSchemaInitializer.SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS
+                        .containsKey("write_seq"),
+                "a pre-append-only table is dropped and recreated, not ALTERed");
     }
 
     /**
@@ -496,11 +510,12 @@ class InternalSchemaInitializerTest {
     }
 
     /**
-     * The durable checkpoint UPSERT (PlanCaptureManager#CHECKPOINT_INSERT_SQL) binds its
-     * VALUES by POSITION, so the explicit column list must stay one-to-one with the
-     * canonical schema order. Dropping the list (a bare positional INSERT) or letting it
-     * go stale silently rebinds every value on a table whose PHYSICAL order differs from
-     * the canonical one - the tail JSON used to land in failed_attempts there.
+     * The durable checkpoint INSERT (PlanCaptureManager#CHECKPOINT_INSERT_SQL) binds its
+     * VALUES by POSITION against the NAMED column list, so that list must stay one-to-one
+     * with the canonical schema order. Dropping the list (a bare positional INSERT) or
+     * letting it go stale silently rebinds every value on a table whose PHYSICAL order
+     * differs from the canonical one - the tail JSON used to land in failed_attempts
+     * there.
      */
     @Test
     public void testCheckpointInsertSqlListsCanonicalColumns() {
@@ -511,24 +526,21 @@ class InternalSchemaInitializerTest {
         int listStart = sql.indexOf('(');
         int listEnd = sql.indexOf(')');
         Assertions.assertTrue(listStart > 0 && listEnd > listStart,
-                "the UPSERT must list its target columns: " + sql);
+                "the INSERT must list its target columns: " + sql);
         Assertions.assertEquals(canonical, sql.substring(listStart + 1, listEnd),
                 "the INSERT column list must match the schema order: " + sql);
-        // round-39 #16: the statement is a CONDITIONAL INSERT ... SELECT (never
-        // positional VALUES): the epoch is a SELECT operand and the whole write is
-        // refused (zero rows) while the durable row carries a NEWER leader epoch - a
-        // demoted leader's UPSERT forwards to the new master and only the statement
-        // itself can fence it there.
-        Assertions.assertTrue(sql.contains(" SELECT "),
-                "the column list must be followed by the SELECT operands: " + sql);
-        Assertions.assertFalse(sql.contains(") VALUES ("),
-                "the conditional write must not use positional VALUES: " + sql);
-        Assertions.assertTrue(sql.contains("${epoch}"),
-                "the UPSERT must bind the leader epoch: " + sql);
-        Assertions.assertTrue(sql.contains("COALESCE(MAX(`leader_epoch`), ${epoch})"),
-                "an EMPTY table must still accept the first write: " + sql);
-        Assertions.assertTrue(sql.contains("WHERE ${epoch} >= s.`epoch_floor`"),
-                "the write must be conditional on the stored epoch: " + sql);
+        // round-42 #8: the write is a plain APPEND - a VALUES tuple against the NAMED
+        // target list - carrying the (leader_epoch, write_seq) token. There is NO epoch
+        // condition / subquery any more: the statement cannot be refused, and a stale
+        // writer's row is simply never selected.
+        Assertions.assertTrue(sql.contains(") VALUES ("),
+                "the append must bind its VALUES against the named column list: " + sql);
+        Assertions.assertFalse(sql.contains(" SELECT "),
+                "the statement is an append, not a conditional SELECT: " + sql);
+        Assertions.assertFalse(sql.contains("epoch_floor"),
+                "the removed epoch fence must not come back into the statement: " + sql);
+        Assertions.assertTrue(sql.contains("${epoch}") && sql.contains("${seq}"),
+                "the append must carry its write token: " + sql);
     }
 
     /**

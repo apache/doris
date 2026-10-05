@@ -672,29 +672,33 @@ public class PlanCaptureTest {
      * The checkpoint replacement used to be two separately committed statements
      * (DELETE, then INSERT): a crash / leadership loss / timeout / failed INSERT after the
      * DELETE left NO row and the next leader permanently skipped the deleted pending
-     * window's tail. It must be ONE upserted statement on the UNIQUE-key table now.
+     * window's tail. Since round-42 #8 the model is APPEND-ONLY: the write is exactly one
+     * INSERT, and the stale rows it supersedes are removed by a separate BEST-EFFORT
+     * prune whose failure cannot affect the write (the reader's ORDER BY ignores rows the
+     * prune missed).
      */
     @Test
-    public void testCheckpointReplacementIsOneUpsertStatement() {
+    public void testCheckpointWriteIsOneAppendPlusBestEffortPrune() {
         PlanCaptureManager manager = PlanCaptureManager.getInstance();
         manager.resetForTest();
         List<String> statements = new ArrayList<>();
         manager.setCheckpointWriterForTest((sql, params) -> statements.add(sql));
 
         manager.persistCheckpointForTest();
-        Assertions.assertEquals(1, statements.size(),
-                "the checkpoint must be replaced by exactly one statement: " + statements);
+        Assertions.assertEquals(2, statements.size(),
+                "the checkpoint write is one APPEND plus its prune: " + statements);
         Assertions.assertTrue(statements.get(0).startsWith("INSERT INTO"), statements.get(0));
+        Assertions.assertTrue(statements.get(1).startsWith("DELETE FROM"), statements.get(1));
         Assertions.assertFalse(statements.get(0).contains("DELETE"),
-                "the only checkpoint row must never be deleted before its replacement is durable: "
-                        + statements.get(0));
-        // the UPSERT must address its columns by NAME: the physical order of an upgraded
+                "the append must never delete the row it supersedes: " + statements.get(0));
+        // the INSERT must address its columns by NAME: the physical order of an upgraded
         // table can differ from the canonical schema order (see
         // InternalSchemaInitializerTest#testCheckpointUpgradeRestoresCanonicalColumnOrder),
         // and a positional VALUES would shift the tail JSON into failed_attempts there
         Assertions.assertTrue(
-                statements.get(0).contains("(`id`, `last_scan_timestamp`, `pending_window_start`"),
-                "the checkpoint UPSERT must carry its explicit target column list: "
+                statements.get(0).contains(
+                        "(`leader_epoch`, `write_seq`, `id`, `last_scan_timestamp`"),
+                "the checkpoint INSERT must carry its explicit target column list: "
                         + statements.get(0));
         manager.resetForTest();
     }

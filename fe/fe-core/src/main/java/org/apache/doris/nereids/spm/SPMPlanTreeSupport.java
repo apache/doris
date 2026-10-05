@@ -282,6 +282,35 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
+     * The REVERSE direction of {@link #rowLimitsWithin} (round-42 #11): every cap the
+     * CALLER's tree asks for must survive in the replayed tree with the SAME values,
+     * ordered slice and input placement. The one-directional check only rejected caps the
+     * replay ADDED; a replay that DROPPED a caller cap passed (bind
+     * {@code SELECT k FROM (SELECT k FROM t ORDER BY k LIMIT 1) s ORDER BY k LIMIT 2} vs
+     * manual plan {@code SELECT k FROM t ORDER BY k LIMIT 2}: the replay's sole outer cap
+     * is contained in the caller's {inner, outer} set, yet for t={1,2,3} the caller
+     * returns ONE row and the replay two). Positive logic: a cap can only be honored when
+     * the replay demonstrably carries it.
+     *
+     * @param replayed the replayed tree AFTER the limit merge
+     * @param userPlan the caller's own tree
+     * @return whether every caller cap exists in the replayed tree
+     */
+    public static boolean rowLimitsSurviveReplay(Plan replayed, Plan userPlan) {
+        Map<String, Integer> required = new HashMap<>();
+        collectRowLimits(userPlan, required);
+        Map<String, Integer> exposed = new HashMap<>();
+        collectRowLimits(replayed, exposed);
+        for (Map.Entry<String, Integer> entry : required.entrySet()) {
+            Integer present = exposed.get(entry.getKey());
+            if (present == null || present < entry.getValue()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Collects every row-limiting node of the tree as (limit, offset, INPUT IDENTITIES):
      * the (limit, offset) pair ALONE is not enough - a cap of the same value can sit on a
      * different input than the caller's own cap of that value, and the positional merge
@@ -408,15 +437,41 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * The identity of one row-limiting node: its values AND the occurrence-tagged
-     * relations it truncates (see the collectRowLimits javadoc).
+     * The identity of one row-limiting node: its values, its ORDERED SLICE and the
+     * occurrence-tagged relations it truncates (see the collectRowLimits javadoc).
+     *
+     * <p>The slice is part of the identity (round-42 #11): equal (limit, offset,
+     * inputs) is NOT enough when the cap truncates a DIFFERENT slice of the same input -
+     * an ASC/DESC change of the TopN picks other rows, and a manual plan may keep the cap
+     * at a different position of the same query block. The key therefore carries the
+     * cap's sort ARITY with each key's direction and NULL placement ("-" for an
+     * order-free LogicalLimit, which truncates an arbitrary slice either way).
+     *
+     * <p>Two further candidate dimensions are deliberately NOT part of the key because
+     * they are not comparable ACROSS trees: the order keys' EXPRESSION TEXT (the caller
+     * and the frozen replay are different trees whose sort keys reference per-tree slots
+     * - the TPCH q02 cap sorts by {@code c_16} in the frozen text and by
+     * {@code s_acctbal} for the caller), and whether an AGGREGATE sits below the cap (a
+     * scalar subquery exists as a materialized JOIN + aggregate in the decompiled frozen
+     * text while the caller's own tree still carries it as an expression node - TPCH q02
+     * was rejected by exactly that mismatch although both plans truncate the same slice).
      */
     private static String rowLimitKey(long limit, long offset, Plan limitNode,
             IdentityHashMap<Plan, Integer> relationOrdinals) {
         Set<String> inputs = new TreeSet<>();
         collectRelationInputs(limitNode, relationOrdinals, inputs,
                 Collections.newSetFromMap(new IdentityHashMap<>()));
-        return limit + ":" + offset + ":" + String.join(",", inputs);
+        String slice = "-";
+        if (limitNode instanceof LogicalTopN) {
+            List<OrderKey> orderKeys = ((LogicalTopN<?>) limitNode).getOrderKeys();
+            StringBuilder keys = new StringBuilder(String.valueOf(orderKeys.size()));
+            for (OrderKey key : orderKeys) {
+                keys.append(key.isAsc() ? '+' : '-')
+                        .append(key.isNullFirst() ? 'n' : 'l').append(';');
+            }
+            slice = keys.toString();
+        }
+        return limit + ":" + offset + ":" + slice + ":" + String.join(",", inputs);
     }
 
     /**

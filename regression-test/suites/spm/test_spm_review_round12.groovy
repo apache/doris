@@ -116,19 +116,19 @@ suite("test_spm_review_round12", "spm") {
     assertEquals('{"page":9}', replaced[1].toString(), "the tail must follow the replacement")
     assertEquals('0', replaced[2].toString(), "the retry count must follow the replacement")
 
-    // The REAL checkpoint table must carry the canonical physical order: the upgrade adds
-    // cursor_tail AFTER cursor_query_id (before failed_attempts), scan_zone AFTER
-    // exclude_pattern and leader_epoch AFTER scan_zone (before update_time), like a fresh
-    // create (leader_epoch fences the checkpoint UPSERT against leader handoff,
-    // round-39 #16).
+    // The REAL checkpoint table must carry the canonical physical order: the APPEND-ONLY
+    // key (leader_epoch, write_seq) FIRST - like a fresh create (round-42 #8: the reader
+    // takes the greatest token, so a stale writer can only add an ignored row), then the
+    // historical payload columns with cursor_tail AFTER cursor_query_id and scan_zone
+    // AFTER exclude_pattern.
     List<String> ckptColumns = sql(
             "SHOW COLUMNS FROM __internal_schema.spm_capture_checkpoint")
                     .collect { it[0].toString().toLowerCase() }
-    assertEquals(["id", "last_scan_timestamp", "pending_window_start", "pending_window_end",
-            "cursor_query_time", "cursor_time", "cursor_query_id", "cursor_tail",
-            "failed_attempts", "retry_queue", "min_query_time_ms", "min_scan_rows",
-            "include_pattern", "exclude_pattern", "scan_zone", "leader_epoch",
-            "update_time"], ckptColumns,
+    assertEquals(["leader_epoch", "write_seq", "id", "last_scan_timestamp",
+            "pending_window_start", "pending_window_end", "cursor_query_time", "cursor_time",
+            "cursor_query_id", "cursor_tail", "failed_attempts", "retry_queue",
+            "min_query_time_ms", "min_scan_rows", "include_pattern", "exclude_pattern",
+            "scan_zone", "update_time"], ckptColumns,
             "the checkpoint layout must match the canonical schema order (see"
                     + " InternalSchema.SPM_CAPTURE_CHECKPOINT_SCHEMA)")
 

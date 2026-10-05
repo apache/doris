@@ -172,6 +172,14 @@ public final class AuditPublicationHorizon {
     static volatile Function<Long, Boolean> localHorizonWriterForTest;
 
     /**
+     * Test seam enumerating the OTHER alive FEs that must have registered a row (see
+     * {@link #verifyEveryLiveReporterRegistered}); null falls back to the live membership
+     * view, which unit tests do not have.
+     */
+    @VisibleForTesting
+    static volatile Supplier<Set<String>> reporterNamesForTest;
+
+    /**
      * Test seam: the liveness of the FE behind a reported fence row ({@code null} =
      * undecidable; see {@link #reportingFeAlive}). Null in production.
      */
@@ -374,10 +382,12 @@ public final class AuditPublicationHorizon {
             long horizon = (Long) row[1];
             long updatedAt = (Long) row[2];
             long committedFence = row.length > 4 && row[4] != null ? (Long) row[4] : 0L;
-            // the COMMITTED fence is the stronger statement of the two (round-40 #10):
-            // the row's horizon already covers it while the reporter is alive, but after
-            // a crash only the marker says that rows may still publish
-            long fence = Math.max(horizon, committedFence);
+            // The ROW's earliest obligation is the MINIMUM of its horizon and its
+            // committed fence (round-42 #3): both are lower bounds on "events that may
+            // still be missing", so the earlier one fences. (The reporter's write already
+            // folds them; a row written by an older build can still carry a horizon that
+            // OVERSTATES the committed fence, and taking the max kept that overstatement.)
+            long fence = minPositive(horizon, committedFence);
             if (fence <= 0) {
                 continue; // nothing outstanding: a zero row needs no fence
             }
@@ -417,7 +427,77 @@ public final class AuditPublicationHorizon {
             }
             oldest = minPositive(oldest, fence);
         }
+        // Round-42 #12: the row set must cover every LIVE audit-producing FE. A live
+        // follower whose first report failed holds no row even though it can carry a
+        // committed, unreadable batch; interpreting that gap as a zero horizon let a
+        // capture window checkpoint past the row that publishes later. Idle FEs register
+        // a zero row (see reportLocalHorizon), so ABSENCE means "never reported / not
+        // visible" - fail closed and retry promptly instead.
+        verifyEveryLiveReporterRegistered(rows);
         return oldest;
+    }
+
+    /**
+     * Verifies that every ALIVE frontend (other than this FE, whose own pipeline is
+     * covered by {@link #localHorizon()}) has a row in the shared table (round-42 #12).
+     * Without a live membership view / a seam the requirement cannot be verified and is
+     * skipped (the shared table is not authoritative in that state either).
+     *
+     * @param rows the rows read from the shared table
+     * @throws IllegalStateException when a live FE has not registered yet (retryable)
+     */
+    private static void verifyEveryLiveReporterRegistered(List<Object[]> rows) {
+        Set<String> expected = liveReporterNames();
+        if (expected == null || expected.isEmpty()) {
+            return;
+        }
+        Set<String> registered = new LinkedHashSet<>();
+        for (Object[] row : rows) {
+            if (row != null && row.length >= 1 && row[0] != null) {
+                registered.add(((String) row[0]).trim());
+            }
+        }
+        for (String feName : expected) {
+            if (!registered.contains(feName)) {
+                throw new IllegalStateException("SPM capture cannot trust the cluster audit"
+                        + " publication horizon: FE " + feName + " is alive but has not"
+                        + " registered its fence yet (a committed batch may still be"
+                        + " unreadable); the capture must retry on a later cycle");
+            }
+        }
+    }
+
+    /**
+     * The names of the alive FEs that run an audit loader, EXCLUDING this FE (whose
+     * obligations fold in through {@link #localHorizon()}), or null when the membership
+     * cannot be enumerated.
+     */
+    private static Set<String> liveReporterNames() {
+        Supplier<Set<String>> seam = reporterNamesForTest;
+        if (seam != null) {
+            return seam.get();
+        }
+        try {
+            Env env = Env.getCurrentEnv();
+            if (env == null) {
+                return null;
+            }
+            List<Frontend> frontends = env.getFrontends(null);
+            if (frontends == null || frontends.isEmpty()) {
+                return null; // no membership view (not the leader / not ready)
+            }
+            String self = AuditLoader.selfFeName();
+            Set<String> names = new LinkedHashSet<>();
+            for (Frontend frontend : frontends) {
+                if (frontend.isAlive() && frontend.getNodeName() != null
+                        && !frontend.getNodeName().equals(self)) {
+                    names.add(frontend.getNodeName());
+                }
+            }
+            return names;
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     /**
@@ -477,7 +557,17 @@ public final class AuditPublicationHorizon {
         // batch timed out (a stale zero, or the close path's clear) cannot DELETE or
         // understate it - this is what keeps the crash/close gap closed.
         long committedFence = AuditLoader.oldestCommittedPublishFenceEventTime();
-        long effectiveHorizon = Math.max(Math.max(0L, horizon), committedFence);
+        // EVERY locally known obligation is folded with minPositive (round-42 #3): the
+        // caller's value can be a PARTIAL report (AuditLoader.reportCommittedFence passes
+        // only the batch fence), and taking the MAX of (value, committed fence) OVERSTATED
+        // the shared horizon whenever an OLDER event was still upstream - a queued 09:55
+        // event next to a 10:00 committed batch reported 10:00, a capture window then
+        // opened at 10:00, and the 09:55 row could be checkpointed past once it published.
+        // The minimum of the full local pipeline, the caller's value and the committed
+        // fence is the EARLIEST event this FE can still owe; 0 means "none" and is
+        // ignored, so an idle report still reduces to the committed fence / zero.
+        long effectiveHorizon = minPositive(
+                minPositive(horizon, localHorizon()), committedFence);
         Function<Long, Boolean> writer = localHorizonWriterForTest;
         if (writer != null) {
             return Boolean.TRUE.equals(writer.apply(effectiveHorizon));
@@ -496,15 +586,17 @@ public final class AuditPublicationHorizon {
             // still needs them for windows it has not completed, so deleting the row
             // would drop exactly that knowledge
             String writerZones = AuditWriterZones.encode();
-            if (effectiveHorizon > 0 || !writerZones.isEmpty()) {
-                params.put("horizonMs", String.valueOf(effectiveHorizon));
-                params.put("updateTime", renderUpdateTime(System.currentTimeMillis()));
-                params.put("writerZones", StatisticsUtil.escapeSQL(writerZones));
-                params.put("committedFenceMs", String.valueOf(committedFence));
-                StatisticsUtil.execUpdate(UPSERT_OWN_ROW_SQL, params, IO_TIMEOUT_SECONDS);
-            } else {
-                StatisticsUtil.execUpdate(DELETE_OWN_ROW_SQL, params, IO_TIMEOUT_SECONDS);
-            }
+            // ALWAYS upsert the row - a ZERO-horizon report is an EXPLICIT IDLE
+            // REGISTRATION (round-42 #12): the cluster check treats a live FE without a
+            // row as an INCOMPLETE horizon (its first report may have failed while it
+            // holds a committed, unreadable batch), so absence must mean "never
+            // reported / not visible", never "nothing owed". The clean-close path
+            // de-registers explicitly via clearLocalReport().
+            params.put("horizonMs", String.valueOf(effectiveHorizon));
+            params.put("updateTime", renderUpdateTime(System.currentTimeMillis()));
+            params.put("writerZones", StatisticsUtil.escapeSQL(writerZones));
+            params.put("committedFenceMs", String.valueOf(committedFence));
+            StatisticsUtil.execUpdate(UPSERT_OWN_ROW_SQL, params, IO_TIMEOUT_SECONDS);
             boolean confirmed = ownRowConfirms(feName, effectiveHorizon, writerZones, committedFence);
             if (confirmed) {
                 // Only a CONFIRMED report makes the zones known to the capture (round-41
@@ -521,12 +613,29 @@ public final class AuditPublicationHorizon {
     }
 
     /**
-     * Reports "this FE is done" (graceful shutdown). The row is DELETED unless a
-     * writer-zone set or a COMMITTED-but-unreadable batch keeps it (round-40 #10): the
-     * latter's rows can still publish after this FE stops, so its fence must survive it.
+     * De-registers this FE's shared row (graceful shutdown): the FE no longer produces
+     * audit rows, so its absence must not read as "an unreported live reporter". A
+     * pending COMMITTED-but-unreadable batch still keeps the row (round-40 #10): its
+     * rows can publish after this FE stops, so its fence must survive it - the fold at
+     * write time (round-42 #3) keeps the row whenever the committed fence is positive.
      */
     public static void clearLocalReport() {
-        reportLocalHorizon(0L);
+        long committedFence = AuditLoader.oldestCommittedPublishFenceEventTime();
+        if (committedFence > 0) {
+            reportLocalHorizon(0L);
+            return;
+        }
+        if (!sharedTableAvailable()) {
+            return;
+        }
+        try {
+            Map<String, String> params = new HashMap<>();
+            params.put("feName", StatisticsUtil.escapeSQL(AuditLoader.selfFeName()));
+            StatisticsUtil.execUpdate(DELETE_OWN_ROW_SQL, params, IO_TIMEOUT_SECONDS);
+        } catch (Exception e) {
+            LOG.warn("audit publication horizon: cannot de-register this FE's row: {}",
+                    e.getMessage());
+        }
     }
 
     /**
@@ -546,7 +655,8 @@ public final class AuditPublicationHorizon {
         long readBack = 0;
         String readBackZones = "";
         long readBackCommitted = 0;
-        if (rows != null && !rows.isEmpty()) {
+        boolean sawRow = rows != null && !rows.isEmpty();
+        if (sawRow) {
             List<String> values = rows.get(0).getValues();
             if (values != null && !values.isEmpty()) {
                 readBack = Long.parseLong(values.get(0).trim());
@@ -560,7 +670,12 @@ public final class AuditPublicationHorizon {
             return readBack == horizon && readBackCommitted == committedFenceMs
                     && sameZones(readBackZones, writerZones);
         }
-        return readBack <= 0 && readBackCommitted <= 0 && sameZones(readBackZones, writerZones);
+        // An IDLE REGISTRATION must be VISIBLE (round-42 #12): the cluster check reads
+        // the row's ABSENCE as "the FE never registered", so a zero report is confirmed
+        // only once the row itself can be read back - an unconfirmed zero would stop the
+        // reporter's retries while the leader keeps failing the cycle closed.
+        return sawRow && readBack <= 0 && readBackCommitted <= 0
+                && sameZones(readBackZones, writerZones);
     }
 
     /** Zone-set comparison of a read-back against the attempted report (null = empty). */

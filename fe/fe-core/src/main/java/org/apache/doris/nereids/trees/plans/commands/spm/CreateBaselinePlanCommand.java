@@ -141,10 +141,17 @@ public class CreateBaselinePlanCommand extends Command implements Forward {
      * carries no journal wait of its own), a pre-DDL in-flight load is fenced and an
      * unconfirmable read surfaces as a retryable failure instead of silently leaving the
      * baseline invisible here.
+     *
+     * <p>Round-42 #2: the refresh additionally requires the CREATED row's identity (the
+     * follower does not know the master-allocated id, but it knows the exact bind / plan
+     * SQL it submitted): without the expectation the refresh accepted a stable local
+     * snapshot that still LACKED the new row, and the next query of that connection
+     * missed its GLOBAL baseline until the daemon caught up.
      */
     @Override
     public void afterForwardToMaster(ConnectContext ctx) {
-        BaselineManager.getInstance().refreshAfterForwardedDdl(ctx);
+        BaselineManager.getInstance().refreshAfterForwardedDdl(ctx,
+                BaselineManager.ForwardedDdlExpectation.created(bindSql, planSql));
     }
 
     @Override
