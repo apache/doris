@@ -37,8 +37,10 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -99,7 +101,8 @@ public final class AuditPublicationHorizon {
     public static final long ROW_STALE_MILLIS = 5 * 60 * 1000L;
 
     private static final String SELECT_ROWS_SQL =
-            "SELECT `fe_name`, `horizon_ms`, `update_time` FROM `" + FeConstants.INTERNAL_DB_NAME + "`."
+            "SELECT `fe_name`, `horizon_ms`, `update_time`, `writer_zones` FROM `"
+                    + FeConstants.INTERNAL_DB_NAME + "`."
                     + "`" + InternalSchema.SPM_AUDIT_HORIZON_TBL_NAME + "`";
     private static final String SELECT_OWN_ROW_SQL = "SELECT `horizon_ms` FROM `"
             + FeConstants.INTERNAL_DB_NAME + "`."
@@ -109,11 +112,15 @@ public final class AuditPublicationHorizon {
     // no window (a crash, or a reader between two statements) in which the row is MISSING
     // while the follower still owes an old event (round-37 #9: the previous DELETE+INSERT
     // committed separately and the leader could read no row in between). A zero horizon
-    // deletes the row instead (also one statement): a missing row and a zero row are the
-    // same "nothing outstanding" to every reader.
+    // with an EMPTY writer-zone registry deletes the row instead (also one statement): a
+    // missing row and a zero row are the same "nothing outstanding" to every reader. A
+    // zero horizon WITH recorded zones keeps the row (round-39 #3): the capture still
+    // needs this FE's zone history for windows it has not completed, and deleting the row
+    // would drop exactly that knowledge.
     private static final String UPSERT_OWN_ROW_SQL = "INSERT INTO `" + FeConstants.INTERNAL_DB_NAME + "`."
             + "`" + InternalSchema.SPM_AUDIT_HORIZON_TBL_NAME + "`"
-            + " (`fe_name`, `horizon_ms`, `update_time`) VALUES ('${feName}', ${horizonMs}, '${updateTime}')";
+            + " (`fe_name`, `horizon_ms`, `update_time`, `writer_zones`)"
+            + " VALUES ('${feName}', ${horizonMs}, '${updateTime}', '${writerZones}')";
     private static final String DELETE_OWN_ROW_SQL = "DELETE FROM `" + FeConstants.INTERNAL_DB_NAME + "`."
             + "`" + InternalSchema.SPM_AUDIT_HORIZON_TBL_NAME + "` WHERE `fe_name` = '${feName}'";
     private static final int IO_TIMEOUT_SECONDS = 10;
@@ -217,6 +224,74 @@ public final class AuditPublicationHorizon {
     }
 
     /**
+     * The zones the CLUSTER's audit writers have RENDERED rows in - this FE's own live
+     * history plus every fresh reporter row's registered zones (round-39 #3). The SPM
+     * capture must render a window pass in every one of them before completing the
+     * window: rows stored under a zone that is no longer current are invisible to bounds
+     * rendered in the current zone, and a zone change BETWEEN two capture cycles is
+     * invisible to the capture's own start/end comparisons. A read failure fails closed
+     * exactly like {@link #clusterHorizon()}.
+     *
+     * @return the zone IDs that may own audit rows
+     */
+    public static Set<String> clusterWriterZones() {
+        Set<String> zones = new LinkedHashSet<>(AuditWriterZones.zones());
+        zones.addAll(remoteWriterZones());
+        return zones;
+    }
+
+    /**
+     * The zones registered in the FRESH rows of the shared table. Overdue rows are
+     * excluded here (the horizon read owns the fail-closed decision for those rows - by
+     * the time this is called for a cycle, {@link #clusterHorizon()} has already refused
+     * the cycle when a live reporter's row was overdue).
+     */
+    private static Set<String> remoteWriterZones() {
+        List<Object[]> rows;
+        Supplier<List<Object[]>> reader = horizonRowsReaderForTest;
+        if (reader != null) {
+            rows = reader.get();
+        } else if (!sharedTableAvailable()) {
+            return Collections.emptySet(); // no live FE environment: nothing reported
+        } else {
+            try {
+                List<ResultRow> result = StatisticsUtil.executeQuery(
+                        SELECT_ROWS_SQL, Collections.emptyMap(), IO_TIMEOUT_SECONDS);
+                rows = new ArrayList<>();
+                if (result != null) {
+                    for (ResultRow row : result) {
+                        List<String> values = row.getValues();
+                        if (values == null || values.size() < 3) {
+                            continue;
+                        }
+                        rows.add(new Object[] {values.get(0).trim(),
+                                Long.parseLong(values.get(1).trim()),
+                                parseUpdateTime(values.get(2).trim()),
+                                values.size() > 3 && values.get(3) != null
+                                        ? values.get(3) : ""});
+                    }
+                }
+            } catch (Exception e) {
+                throw new IllegalStateException("SPM capture cannot read the cluster audit"
+                        + " writer zones: " + e.getMessage(), e);
+            }
+        }
+        Set<String> zones = new LinkedHashSet<>();
+        long now = System.currentTimeMillis();
+        for (Object[] row : rows) {
+            if (row == null || row.length < 4 || row[2] == null) {
+                continue;
+            }
+            long updatedAt = (Long) row[2];
+            if (updatedAt <= 0 || now - updatedAt > ROW_STALE_MILLIS) {
+                continue; // a quiet FE's zone history is not refreshed any more
+            }
+            zones.addAll(AuditWriterZones.decode((String) row[3]));
+        }
+        return zones;
+    }
+
+    /**
      * The minimum horizon over the FRESH rows of the shared table (0 when none / when
      * every overdue row belongs to a FE that is provably gone). A read failure - or an
      * overdue row of a live / undecidable reporter - propagates as a retryable
@@ -242,7 +317,9 @@ public final class AuditPublicationHorizon {
                         }
                         rows.add(new Object[] {values.get(0).trim(),
                                 Long.parseLong(values.get(1).trim()),
-                                parseUpdateTime(values.get(2).trim())});
+                                parseUpdateTime(values.get(2).trim()),
+                                values.size() > 3 && values.get(3) != null
+                                        ? values.get(3) : ""});
                     }
                 }
             } catch (Exception e) {
@@ -353,9 +430,15 @@ public final class AuditPublicationHorizon {
         try {
             Map<String, String> params = new HashMap<>();
             params.put("feName", StatisticsUtil.escapeSQL(feName));
-            if (horizon > 0) {
-                params.put("horizonMs", String.valueOf(horizon));
+            // the writer-zone snapshot travels with every report (round-39 #3), and a
+            // ZERO-horizon report KEEPS the row while zones are registered: the capture
+            // still needs them for windows it has not completed, so deleting the row
+            // would drop exactly that knowledge
+            String writerZones = AuditWriterZones.encode();
+            if (horizon > 0 || !writerZones.isEmpty()) {
+                params.put("horizonMs", String.valueOf(Math.max(0L, horizon)));
                 params.put("updateTime", renderUpdateTime(System.currentTimeMillis()));
+                params.put("writerZones", StatisticsUtil.escapeSQL(writerZones));
                 StatisticsUtil.execUpdate(UPSERT_OWN_ROW_SQL, params, IO_TIMEOUT_SECONDS);
             } else {
                 StatisticsUtil.execUpdate(DELETE_OWN_ROW_SQL, params, IO_TIMEOUT_SECONDS);

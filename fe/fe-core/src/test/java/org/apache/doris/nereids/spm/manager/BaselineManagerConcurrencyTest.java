@@ -88,6 +88,8 @@ public class BaselineManagerConcurrencyTest {
          * exactly the durable state the baselines table's own MAX(id) loses.
          */
         private long reservedHighWater;
+        /** identity-carrying reservations, keyed by digest + planSql hash (round-39 #4). */
+        private final Map<String, long[]> keyedReservations = new ConcurrentHashMap<>();
         /**
          * When set, every by-id read AFTER an identity delete fails (round-35 #1): the
          * lingering-row cleanup of a DROP cannot be completed.
@@ -103,6 +105,44 @@ public class BaselineManagerConcurrencyTest {
         @Override
         public void reserveId(long id) {
             reservedHighWater = Math.max(reservedHighWater, id);
+        }
+
+        /**
+         * The identity-carrying reservation (round-39 #4): the plain reservation only
+         * extends the watermark - the DURABLE fence is driven by the explicit UNCONFIRMED
+         * marker below ({@link #notePendingSeqState}). A reservation exists for every
+         * create (successful ones included) and must never fence.
+         */
+        @Override
+        public void reserveId(long id, String bindSqlDigest, long planSqlHash,
+                long reserveTimeMs) {
+            reserveId(id);
+        }
+
+        @Override
+        public void notePendingSeqState(String bindSqlDigest, long planSqlHash, long id,
+                long atMillis) {
+            keyedReservations.put(bindSqlDigest + '\u0001' + planSqlHash,
+                    new long[] {id, atMillis});
+        }
+
+        @Override
+        public BaselineManager.SeqReservation pendingSeqReservation(String bindSqlDigest,
+                long planSqlHash) {
+            long[] entry = keyedReservations.get(bindSqlDigest + '\u0001' + planSqlHash);
+            return entry == null ? null : new BaselineManager.SeqReservation(entry[0], entry[1]);
+        }
+
+        /** The table-wide newest stored update_time (round-39 #9). */
+        @Override
+        public long newestStoredUpdateSecond() {
+            long max = 0;
+            for (List<BaselinePlan> idRows : rows.values()) {
+                for (BaselinePlan row : idRows) {
+                    max = Math.max(max, row.getUpdateTime() / 1000L);
+                }
+            }
+            return max;
         }
 
         @Override
@@ -2840,6 +2880,405 @@ public class BaselineManagerConcurrencyTest {
             BaselineManager.durableVisibilityProbeForTest = null;
             BaselineManager.idAllocatorStoreForTest = null;
             manager.clearForTest();
+        }
+    }
+
+    // ==================== round-39: unresolved creates, identity, epochs ====================
+
+    /**
+     * round-39 #11: an INSERT error may be raised AFTER a commit (a statement timeout),
+     * so it must surface as an UNCONFIRMED write: the create remembers the attempted
+     * identity, the retry DEFERS (or adopts) instead of allocating a SECOND id, and no
+     * baseline is published while the outcome is unresolved.
+     */
+    @Test
+    public void testAmbiguousInsertErrorKeepsTheCreateIdentityPending() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            store.failInsert = true;
+            Assertions.assertThrows(IllegalStateException.class,
+                    () -> manager.createBaseline(baseline("d-amb", "p-amb")),
+                    "an error whose commit is uncertain must fail the create retryably");
+            Assertions.assertEquals(1, manager.pendingCreateCountForTest(),
+                    "the attempted identity must be remembered: the durable-key read cannot"
+                            + " see an unpublished row");
+            Assertions.assertEquals(0, manager.getAllBaselines().size(),
+                    "nothing may be published while the outcome is unresolved");
+
+            // the retry DEFERS instead of consuming a second id
+            IllegalStateException deferred = Assertions.assertThrows(IllegalStateException.class,
+                    () -> manager.createBaseline(baseline("d-amb", "p-amb")));
+            Assertions.assertTrue(deferred.getMessage().contains("awaiting publication"),
+                    deferred.getMessage());
+
+            // the committed row becomes READABLE: the retry adopts its id
+            long reservedId = store.reservedHighWater;
+            Assertions.assertTrue(reservedId > 0, "the id was reserved");
+            BaselinePlan committed = baseline("d-amb", "p-amb");
+            committed.setId(reservedId);
+            store.replaceRows(reservedId, List.of(committed));
+            long adopted = manager.createBaseline(baseline("d-amb", "p-amb"));
+            Assertions.assertEquals(reservedId, adopted,
+                    "the adopted id must be the reserved one - a second id left two"
+                            + " ENABLED rows once the first published");
+            Assertions.assertEquals(1, store.rowsOf(reservedId).size(),
+                    "no second row may be inserted for the same baseline");
+            Assertions.assertEquals(0, manager.pendingCreateCountForTest(),
+                    "the adoption retires the pending record");
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-39 #4: the promotion reload must NOT clear the pending-create registry - the
+     * reload cannot see an unpublished row, so the identity it describes is still the only
+     * guard against a second id.
+     */
+    @Test
+    public void testPromotionReloadKeepsUnconfirmedCreateIdentities() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            store.failInsert = true;
+            Assertions.assertThrows(IllegalStateException.class,
+                    () -> manager.createBaseline(baseline("d-keep", "p-keep")));
+            Assertions.assertEquals(1, manager.pendingCreateCountForTest());
+
+            // the FE is demoted / re-promoted: the store is invalidated and reloaded
+            manager.invalidatePublishedStoreForTest();
+            Assertions.assertEquals(1, manager.pendingCreateCountForTest(),
+                    "clearing the registry here let a re-promoted FE load a snapshot before"
+                            + " the row published, see no key duplicate and assign a SECOND id");
+
+            IllegalStateException deferred = Assertions.assertThrows(IllegalStateException.class,
+                    () -> manager.createBaseline(baseline("d-keep", "p-keep")));
+            Assertions.assertTrue(deferred.getMessage().contains("awaiting publication"),
+                    deferred.getMessage());
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-39 #4 (cross-FE): the retry after a TRUE leader transfer runs on an FE whose
+     * in-memory registry is empty. The identity-carrying id RESERVATION in the shared
+     * sequence table is the durable fence: while its row is still unreadable the retry
+     * defers instead of allocating a second id.
+     */
+    @Test
+    public void testDurableReservationFencesACrossFeRetry() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            store.failInsert = true;
+            Assertions.assertThrows(IllegalStateException.class,
+                    () -> manager.createBaseline(baseline("d-x", "p-x")));
+            long reserved = store.reservedHighWater;
+            Assertions.assertTrue(reserved > 0, "the id reservation must carry the identity");
+
+            // a NEW leader: its in-memory registry is empty, the shared table is not
+            manager.clearForTest();
+            BaselineManager.idAllocatorStoreForTest = store;
+            IllegalStateException deferred = Assertions.assertThrows(IllegalStateException.class,
+                    () -> manager.createBaseline(baseline("d-x", "p-x")));
+            Assertions.assertTrue(deferred.getMessage().contains("awaiting publication"),
+                    "the durable reservation must defer the retry: " + deferred.getMessage());
+            Assertions.assertEquals(reserved, store.reservedHighWater,
+                    "the retry must NOT consume a second id");
+
+            // the committed row publishes: the retry adopts the reserved id
+            BaselinePlan committed = baseline("d-x", "p-x");
+            committed.setId(reserved);
+            store.replaceRows(reserved, List.of(committed));
+            long adopted = manager.createBaseline(baseline("d-x", "p-x"));
+            Assertions.assertEquals(reserved, adopted,
+                    "the durable reservation's id must survive as the single row");
+            Assertions.assertEquals(1, store.rowsOf(reserved).size());
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-39 #12: when the pending-create registry is FULL a NEW create fails admission
+     * BEFORE it writes; an unresolved identity is never EVICTED. Evicting the oldest entry
+     * let a retry of that key see its reserved sequence id but neither its row nor a
+     * pending record - it allocated a new id and both rows later published ENABLED.
+     */
+    @Test
+    public void testFullPendingRegistryFailsAdmissionInsteadOfEvicting() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            store.failInsert = true;
+            for (int i = 0; i < 64; i++) {
+                final int key = i;
+                Assertions.assertThrows(IllegalStateException.class,
+                        () -> manager.createBaseline(baseline("d-" + key, "p-" + key)));
+            }
+            Assertions.assertEquals(64, manager.pendingCreateCountForTest(),
+                    "every committed-but-unreadable identity stays recorded");
+            long reservedBefore = store.reservedHighWater;
+
+            // the 65th key fails ADMISSION: nothing more is written
+            IllegalStateException full = Assertions.assertThrows(IllegalStateException.class,
+                    () -> manager.createBaseline(baseline("d-65", "p-65")));
+            Assertions.assertTrue(full.getMessage().contains("registry is full"),
+                    full.getMessage());
+            Assertions.assertEquals(reservedBefore, store.reservedHighWater,
+                    "a refused admission must not even reserve an id");
+            Assertions.assertEquals(64, manager.pendingCreateCountForTest(),
+                    "the first key's identity is still recorded - no eviction");
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-39 #7: the leadership is re-checked immediately before the id RESERVATION and
+     * immediately before the ROW write. A demoted FE could pass the loop-top check and
+     * pause; the new master then created the same key under N+1, and the old FE's
+     * forwarded INSERT left TWO enabled baselines for it.
+     */
+    @Test
+    public void testDemotionBeforeTheRowWriteStopsTheInsert() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            AtomicInteger checks = new AtomicInteger();
+            // the loop-top and the reservation re-check pass; the WRITE-time re-check
+            // fails (the handoff lands exactly in the pause the reviewer described)
+            BaselineManager.leaderProbeForTest = () -> checks.incrementAndGet() <= 2;
+            IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
+                    () -> manager.createBaseline(baseline("d-w", "p-w")));
+            Assertions.assertTrue(failure.getMessage().contains("no longer the master"),
+                    failure.getMessage());
+            Assertions.assertTrue(store.reservedHighWater > 0,
+                    "the reservation happened before the demotion was noticed");
+            Assertions.assertEquals(0, store.rowsOf(store.reservedHighWater).size(),
+                    "the demoted FE must not write the baseline row - its INSERT would even"
+                            + " FORWARD to the new master");
+            Assertions.assertEquals(0, manager.pendingCreateCountForTest(),
+                    "no pending record for a write that never started");
+        } finally {
+            BaselineManager.leaderProbeForTest = null;
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-39 #9: after rapid flips gave ANOTHER baseline a FUTURE stored update_time,
+     * flipping this one used to keep update_time = now - dwarfed by the future row - so
+     * neither MAX(id), COUNT(*) nor MAX(update_time) (the paginated snapshot fence)
+     * changed and a refresh could merge two states while the fence accepted the mix. The
+     * flip must advance past the TABLE-wide newest stored second, so every flip moves
+     * MAX(update_time).
+     */
+    @Test
+    public void testStatusFlipAdvancesPastTheTableWideNewestStoredSecond() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            long id = manager.createBaseline(baseline("d-bump", "p-bump"));
+            long future = System.currentTimeMillis() + 60_000L;
+            BaselinePlan other = baseline("d-future", "p-future");
+            other.setId(999L);
+            other.setUpdateTime(future);
+            store.replaceRows(999L, List.of(other));
+
+            Assertions.assertTrue(manager.updateStatus(id, BaselineStatus.DISABLED));
+            long flippedUpdateTime = store.rowsOf(id).stream()
+                    .filter(row -> row.getStatus() == BaselineStatus.DISABLED)
+                    .findFirst().orElseThrow().getUpdateTime();
+            Assertions.assertTrue(flippedUpdateTime / 1000L > future / 1000L,
+                    "the new-status row must exceed the TABLE-wide newest stored second ("
+                            + flippedUpdateTime + " vs " + future + ")");
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-39 #5: the conditional status INSERT matches the CACHED row's IDENTITY as
+     * well. With the cache holding B/id N while the durable winner is A/id N (a delayed
+     * old-leader INSERT), matching only (id, previousStatus) wrote B's cached SQL with a
+     * later timestamp - and the identity-scoped old-row DELETE cannot remove A, so a
+     * reload replaced the durable baseline with stale B while ALTER reported success.
+     */
+    @Test
+    public void testStaleCachedIncarnationIsNeverFlipped() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        IdentityStatusStore store = new IdentityStatusStore(
+                withId(baseline("d-A", "p-A"), 7L));
+        try {
+            // the cache holds B/id 7 (loaded before the old leader's delayed INSERT landed)
+            BaselineManager.snapshotReaderForTest = () -> Map.of(7L, withId(baseline("d-B", "p-B"), 7L));
+            manager.prepareLoadForTest();
+            manager.loadFromInternalTable();
+            Assertions.assertEquals("p-B", manager.getBaseline(7L).getPlanSql(),
+                    "precondition: the cache is stale");
+            BaselineManager.snapshotReaderForTest = null;
+
+            // the ALTER of the stale incarnation: the identity-scoped condition matches
+            // NO durable row -> retryable conflict, nothing written
+            BaselineManager.statusProtocolStoreForTest = store;
+            IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
+                    () -> manager.updateStatus(7L, BaselineStatus.DISABLED));
+            Assertions.assertTrue(failure.getMessage().contains("row was gone"),
+                    failure.getMessage());
+            Assertions.assertTrue(store.rowsOf(7L).stream().noneMatch(
+                            row -> "p-B".equals(row.getPlanSql())
+                                    && row.getStatus() == BaselineStatus.DISABLED),
+                    "B's cached SQL must never be written with a later timestamp: "
+                            + store.rowsOf(7L));
+            Assertions.assertTrue(store.rowsOf(7L).stream().anyMatch(
+                            row -> "p-A".equals(row.getPlanSql())),
+                    "the durable winner A must be untouched");
+        } finally {
+            BaselineManager.snapshotReaderForTest = null;
+            BaselineManager.statusProtocolStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-39 #14: a forwarded GLOBAL DDL's outcome is CONFIRMED before the snapshot may
+     * publish. A GLOBAL DISABLE can return success while its DISABLED row is committed but
+     * unreadable; republishing the old ENABLED snapshot kept replaying a baseline the
+     * master already disabled on that connection. The bounded re-reads converge when the
+     * publication lands, and an outcome that never appears fails CLOSED.
+     */
+    @Test
+    public void testForwardedDdlOutcomeIsConfirmedBeforePublishing() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        try {
+            manager.setPersistToTableForTest(true);
+            AtomicInteger reads = new AtomicInteger();
+            manager.prepareLoadForTest();
+            BaselineManager.snapshotReaderForTest = () -> {
+                if (reads.incrementAndGet() <= 2) {
+                    return Map.of(7L, withId(baseline("d-fwd", "p-fwd"), 7L)); // pre-DDL
+                }
+                BaselinePlan disabled = withId(baseline("d-fwd", "p-fwd"), 7L);
+                disabled.setStatus(BaselineStatus.DISABLED);
+                return Map.of(7L, disabled);
+            };
+            manager.refreshAfterForwardedDdl(null,
+                    BaselineManager.ForwardedDdlExpectation.status(7L, BaselineStatus.DISABLED));
+            Assertions.assertEquals(BaselineStatus.DISABLED, manager.getBaseline(7L).getStatus(),
+                    "the confirmed post-DDL outcome must be the published state");
+            Assertions.assertTrue(reads.get() >= 3,
+                    "the pre-DDL snapshot must be re-read until the flip is visible: "
+                            + reads.get());
+
+            // the outcome NEVER becomes visible: fail CLOSED, never republish the old row
+            manager.clearForTest();
+            manager.setPersistToTableForTest(true);
+            manager.prepareLoadForTest();
+            BaselineManager.snapshotReaderForTest =
+                    () -> Map.of(7L, withId(baseline("d-fwd2", "p-fwd2"), 7L));
+            IllegalStateException failure = Assertions.assertThrows(IllegalStateException.class,
+                    () -> manager.refreshAfterForwardedDdl(null,
+                            BaselineManager.ForwardedDdlExpectation.status(7L,
+                                    BaselineStatus.DISABLED)));
+            Assertions.assertTrue(failure.getMessage().contains("cannot confirm"),
+                    failure.getMessage());
+            Assertions.assertFalse(manager.hasBaselines(),
+                    "the unconfirmable refresh must invalidate the published cache");
+        } finally {
+            BaselineManager.snapshotReaderForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * Identity-keyed status store (round-39 #5): the conditional INSERT mirrors the
+     * durable statement's (id, previousStatus, digest, planSql) condition, so a flip can
+     * only land on the SAME incarnation it was computed from.
+     */
+    private static final class IdentityStatusStore implements BaselineManager.StatusProtocolStoreForTest {
+        private final Map<Long, List<BaselinePlan>> rows = new ConcurrentHashMap<>();
+
+        IdentityStatusStore(BaselinePlan... initial) {
+            for (BaselinePlan row : initial) {
+                rows.computeIfAbsent(row.getId(), k -> new ArrayList<>()).add(row);
+            }
+        }
+
+        private List<BaselinePlan> rowsOf(long id) {
+            return new ArrayList<>(rows.getOrDefault(id, List.of()));
+        }
+
+        @Override
+        public void insert(BaselinePlan plan) {
+            rows.computeIfAbsent(plan.getId(), k -> new ArrayList<>()).add(plan);
+        }
+
+        @Override
+        public boolean insertIfPreviousPresent(BaselinePlan plan, BaselineStatus previousStatus) {
+            for (BaselinePlan row : rows.getOrDefault(plan.getId(), List.of())) {
+                if (row.getStatus() == previousStatus
+                        && java.util.Objects.equals(row.getBindSqlDigest(),
+                                plan.getBindSqlDigest())
+                        && java.util.Objects.equals(row.getPlanSql(), plan.getPlanSql())) {
+                    insert(plan);
+                    return true;
+                }
+            }
+            return false; // nothing written: no identity-matching previous-status row
+        }
+
+        @Override
+        public void deleteByIdAndStatus(long id, BaselineStatus status) {
+            rows.computeIfPresent(id, (k, current) -> {
+                List<BaselinePlan> updated = new ArrayList<>(current);
+                updated.removeIf(row -> row.getStatus() == status);
+                return updated.isEmpty() ? null : updated;
+            });
+        }
+
+        @Override
+        public int countByIdAndStatus(long id, BaselineStatus status) {
+            int count = 0;
+            for (BaselinePlan row : rows.getOrDefault(id, List.of())) {
+                if (row.getStatus() == status) {
+                    count++;
+                }
+            }
+            return count;
+        }
+
+        @Override
+        public long newestStoredUpdateSecond() {
+            long max = 0;
+            for (List<BaselinePlan> idRows : rows.values()) {
+                for (BaselinePlan row : idRows) {
+                    max = Math.max(max, row.getUpdateTime() / 1000L);
+                }
+            }
+            return max;
         }
     }
 }

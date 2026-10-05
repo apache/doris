@@ -479,8 +479,21 @@ class InternalSchemaInitializerTest {
                 "the UPSERT must list its target columns: " + sql);
         Assertions.assertEquals(canonical, sql.substring(listStart + 1, listEnd),
                 "the INSERT column list must match the schema order: " + sql);
-        Assertions.assertTrue(sql.contains(") VALUES ("),
-                "the column list must be followed by the VALUES operands: " + sql);
+        // round-39 #16: the statement is a CONDITIONAL INSERT ... SELECT (never
+        // positional VALUES): the epoch is a SELECT operand and the whole write is
+        // refused (zero rows) while the durable row carries a NEWER leader epoch - a
+        // demoted leader's UPSERT forwards to the new master and only the statement
+        // itself can fence it there.
+        Assertions.assertTrue(sql.contains(" SELECT "),
+                "the column list must be followed by the SELECT operands: " + sql);
+        Assertions.assertFalse(sql.contains(") VALUES ("),
+                "the conditional write must not use positional VALUES: " + sql);
+        Assertions.assertTrue(sql.contains("${epoch}"),
+                "the UPSERT must bind the leader epoch: " + sql);
+        Assertions.assertTrue(sql.contains("COALESCE(MAX(`leader_epoch`), ${epoch})"),
+                "an EMPTY table must still accept the first write: " + sql);
+        Assertions.assertTrue(sql.contains("WHERE ${epoch} >= s.`epoch_floor`"),
+                "the write must be conditional on the stored epoch: " + sql);
     }
 
     /**

@@ -326,7 +326,12 @@ public class SPMPlanner {
             LogicalPlan bindTree) {
         long[] userLimit = SPMPlanTreeSupport.topLevelLimitOf(userPlan);
         if (userLimit == null) {
-            return true;
+            // The caller asks for NO top-level cap (round-39 #1): the capture-side LIMIT
+            // VALUES are NOT the caller's contract here, so the replay must carry no
+            // row-limiting node at all. A manual planSql like 'SELECT k FROM t LIMIT 1'
+            // frozen over an unbounded bind otherwise passed creation and this early
+            // return silently returned ONE row for every matching unbounded SELECT.
+            return SPMPlanTreeSupport.rowLimitsWithin(replayed, userPlan);
         }
         if (Arrays.equals(userLimit, SPMPlanTreeSupport.topLevelLimitOf(replayed))) {
             // The caller's own top-level limit is in place. A limit VARIANT (its value

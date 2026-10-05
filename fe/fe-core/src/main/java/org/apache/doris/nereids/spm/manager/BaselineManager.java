@@ -30,6 +30,7 @@ import org.apache.doris.nereids.spm.BaselineSource;
 import org.apache.doris.nereids.spm.BaselineStatus;
 import org.apache.doris.nereids.spm.SPMPlanTreeSupport;
 import org.apache.doris.nereids.spm.SPMPlanner;
+import org.apache.doris.nereids.spm.SPMUtils;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
@@ -131,6 +132,18 @@ public class BaselineManager {
             insert(plan);
             return true;
         }
+
+        /**
+         * The newest stored update_time of the WHOLE simulated table, in epoch SECONDS
+         * (0 = none): the updateStatus bump reads this (round-39 #9), so a simulator that
+         * keeps future-bumped update_times must expose them for the bump to apply - the
+         * default keeps simulators that never store future times working.
+         *
+         * @return the newest stored update_time in seconds, 0 when unavailable
+         */
+        default long newestStoredUpdateSecond() {
+            return 0;
+        }
     }
 
     /**
@@ -149,6 +162,60 @@ public class BaselineManager {
         }
 
         default void reserveId(long id) {
+        }
+
+        /**
+         * The identity-carrying reservation (round-39 #4): routes to the simulator's own
+         * storage of {@link #pendingSeqReservation}. The default keeps simulators that
+         * model no keyed reservations working.
+         *
+         * @param id           the reserved id
+         * @param bindSqlDigest the baseline's bind digest
+         * @param planSqlHash   the hash of the baseline's plan SQL
+         * @param reserveTimeMs the reservation instant (epoch millis)
+         */
+        default void reserveId(long id, String bindSqlDigest, long planSqlHash,
+                long reserveTimeMs) {
+            reserveId(id);
+        }
+
+        /**
+         * Records the DURABLE pending marker of an ambiguous create (round-39 #4): the
+         * same identity-carrying append with {@code unconfirmed = 1}. The default keeps
+         * simulators without keyed reservations working.
+         *
+         * @param bindSqlDigest the baseline's bind digest
+         * @param planSqlHash   the hash of the baseline's plan SQL
+         * @param id            the id the ambiguous write consumed
+         * @param atMillis      the marker instant (epoch millis)
+         */
+        default void notePendingSeqState(String bindSqlDigest, long planSqlHash, long id,
+                long atMillis) {
+        }
+
+        /**
+         * The latest UNCONFIRMED pending marker of one baseline in the simulated sequence
+         * table, or null: the durable unconfirmed-create fence of
+         * {@link #resolveDurablePendingCreate} reads it. The default keeps simulators
+         * without keyed markers working (no marker = no fence).
+         *
+         * @param bindSqlDigest the baseline's bind digest
+         * @param planSqlHash   the hash of the baseline's plan SQL
+         * @return the marker, or null when none exists
+         */
+        default SeqReservation pendingSeqReservation(String bindSqlDigest, long planSqlHash) {
+            return null;
+        }
+
+        /**
+         * The newest stored update_time of the WHOLE simulated table, in epoch SECONDS
+         * (0 = none): see {@link StatusProtocolStoreForTest#newestStoredUpdateSecond()}
+         * (round-39 #9).
+         *
+         * @return the newest stored update_time in seconds, 0 when unavailable
+         */
+        default long newestStoredUpdateSecond() {
+            return 0;
         }
 
         void insert(BaselinePlan plan);
@@ -324,7 +391,22 @@ public class BaselineManager {
 
     /** Appends one reservation row (the id just allocated). Append-only: MAX never falls. */
     private static final String INSERT_SEQ_ID_SQL = "INSERT INTO " + SPM_BASELINES_SEQ_TABLE
-            + " VALUES (1, ${lastId})";
+            + " (`id`, `last_id`, `bind_sql_digest`, `plan_sql_hash`, `reserve_time`,"
+            + " `unconfirmed`)"
+            + " VALUES (1, ${lastId}, '${bindSqlDigest}', ${planSqlHash}, '${reserveTime}',"
+            + " ${unconfirmed})";
+
+    /**
+     * The latest UNCONFIRMED pending marker of one baseline: the durable half of the
+     * unresolved-create fence (round-39 #4, see {@link #resolveDurablePendingCreate}).
+     * Only markers appended by a create whose INSERT outcome was AMBIGUOUS
+     * ({@code unconfirmed = 1}) fence - a plain reservation exists for every create,
+     * successful ones included, and must never block a legitimate re-create of the key.
+     */
+    private static final String SELECT_PENDING_SEQ_SQL = "SELECT `last_id`, `reserve_time` FROM "
+            + SPM_BASELINES_SEQ_TABLE + " WHERE `bind_sql_digest` = '${bindSqlDigest}'"
+            + " AND `plan_sql_hash` = ${planSqlHash} AND `unconfirmed` = 1"
+            + " ORDER BY `reserve_time` DESC LIMIT 1";
 
     /**
      * The consistency fence of the paginated snapshot read (see
@@ -397,6 +479,16 @@ public class BaselineManager {
      * baseline that a concurrent DROP removed while the ALTER was in flight (or stalled
      * before its INSERT) is never resurrected - the ALTER then fails retryably instead
      * of publishing an ACTIVE status the completed DROP had already reported removed.
+     *
+     * <p>The condition matches the CACHED row's IDENTITY as well (round-39 #5): a leader
+     * handoff can leave this FE caching B/id N while a delayed old-leader INSERT made
+     * A/id N the durable winner. Matching (id, previousStatus) alone then wrote B's
+     * cached SQL with a later timestamp - and the following identity-scoped DELETE
+     * cannot remove A, so a reload replaced the durable baseline with stale B while
+     * ALTER reported success. Requiring (id, previousStatus, bind_sql_digest, plan_sql)
+     * makes the statement write NOTHING against a foreign incarnation; the caller then
+     * reconciles its cache with the readable durable winner and reports the conflict as
+     * retryable (or re-reads it as the completed flip).
      */
     private static final String INSERT_IF_PREVIOUS_STATUS_SQL = "INSERT INTO "
             + SPM_BASELINES_TABLE + " SELECT ${id}, '${bindSql}', '${bindSqlDigest}',"
@@ -404,12 +496,21 @@ public class BaselineManager {
             + " '${source}', '${status}', '${createTime}', '${updateTime}', ${sqlMode},"
             + " ${planSqlMode}, ${planFrozen}, '${schemaFingerprint}' FROM "
             + SPM_BASELINES_TABLE + " WHERE `id` = ${id} AND `status` = '${previousStatus}'"
+            + " AND `bind_sql_digest` = '${bindSqlDigest}' AND `plan_sql` = '${planSql}'"
             + " LIMIT 1";
 
     /** Reconciliation read of the ambiguous status-update path: how many durable rows
      *  currently carry (id, status). */
     private static final String COUNT_BY_ID_AND_STATUS_SQL = "SELECT COUNT(*) FROM "
             + SPM_BASELINES_TABLE + " WHERE `id` = ${id} AND `status` = '${status}'";
+
+    /**
+     * The newest stored update_time of the WHOLE table: the status-flip bump advances
+     * the new row past this value (see updateStatus), which is what makes every flip move
+     * the {@link #SELECT_SNAPSHOT_FENCE_SQL} fence (round-39 #9).
+     */
+    private static final String SELECT_MAX_UPDATE_TIME_SQL = "SELECT MAX(`update_time`) FROM "
+            + SPM_BASELINES_TABLE;
 
     /**
      * DATETIME column format (internal table create_time / update_time). The columns are
@@ -452,6 +553,13 @@ public class BaselineManager {
     /** Delay between two visibility probes of a reported-successful write (ms). */
     private static final long BASELINE_VISIBILITY_RETRY_MILLIS = 200L;
 
+    /**
+     * Bounded confirmation attempts of a forwarded GLOBAL DDL's durable outcome (see
+     * {@link #ForwardedDdlExpectation}): a short publication lag must converge, an
+     * outcome that stays invisible fails CLOSED (never republish the pre-DDL row).
+     */
+    private static final int FORWARDED_DDL_CONFIRM_ATTEMPTS = BASELINE_VISIBILITY_ATTEMPTS;
+
     /** How long a management caller waits for an in-flight background load. */
     private static final long MANAGEMENT_LOAD_WAIT_MILLIS = 5_000L;
 
@@ -463,12 +571,34 @@ public class BaselineManager {
     private static final int MAX_ID_COLLISION_RETRIES = 8;
 
     /**
-     * Bound of {@link #pendingCreates}: an unconfirmed create is a rare (and manually
-     * retried) event, so a small registry is enough. The OLDEST entry is dropped when the
-     * bound is reached, which re-exposes that single write to a duplicate id (the state
-     * before this registry existed) - the log line names the baseline.
+     * Admission bound of {@link #pendingCreates}: an unconfirmed create is a rare (and
+     * manually retried) event, so a small registry is enough. When the bound is reached a
+     * NEW create fails retryably BEFORE it writes (round-39 #12) - an unresolved identity
+     * is never dropped, because evicting one re-exposes exactly that write to a duplicate
+     * id on a retry.
      */
     private static final int MAX_PENDING_CREATES = 64;
+
+    /**
+     * How long the DURABLE unconfirmed-create marker fences a retry of the same baseline
+     * ({@link #resolveDurablePendingCreate}): the fence must survive a leader handoff and
+     * the retry's own latency, while a row that never becomes readable must not block a
+     * legitimate re-create of the key for long (the committed-row publication lag is
+     * normally seconds; the previous tests of this class resolve within milliseconds).
+     * Deliberately SHORTER than {@link #PENDING_CREATE_FENCE_MILLIS}: the in-memory
+     * registry knows the exact age of the SAME FE's attempt, the durable marker only a
+     * likely-dead write's instant.
+     */
+    private static final long DURABLE_PENDING_CREATE_FENCE_MILLIS = 5 * 60 * 1000L;
+
+    /**
+     * How long an unconfirmed create fences a retry of the same baseline (see
+     * {@link #pendingCreates}): the committed row is normally readable within the
+     * visibility-confirmation budget, and a write that never becomes readable after this
+     * bound is treated as LOST - fencing longer would refuse every retry of that key
+     * forever. Same bound as the audit loader's Publish-Timeout fence.
+     */
+    private static final long PENDING_CREATE_FENCE_MILLIS = 30 * 60 * 1000L;
 
     // ==================== priority ordering ====================
 
@@ -572,11 +702,43 @@ public class BaselineManager {
      * the durable-key read can see it. A RETRY of the same CREATE must not allocate a
      * SECOND id for the same baseline - both rows would later publish under different ids
      * and dropping the id the client was told about would leave the other ACTIVE. The
-     * retry ADOPTS the remembered row once it becomes readable and is DEFERRED until then.
-     * Guarded by writerLock (every access runs inside it). Bounded by
-     * {@link #MAX_PENDING_CREATES}.
+     * retry ADOPTS the remembered row once it becomes readable and is DEFERRED (bounded by
+     * {@link #PENDING_CREATE_FENCE_MILLIS}) until then. Guarded by writerLock (every
+     * access runs inside it). The registry is never SHRUNK by eviction (round-39 #12):
+     * createBaseline's admission fence refuses a new write while it is full, so an
+     * unresolved identity always stays recorded until it becomes readable or its fence
+     * expires. The durable reservation rows of {@link #SPM_BASELINES_SEQ_TABLE} carry the
+     * same identity for the cross-FE case (the retry runs on ANOTHER FE whose in-memory
+     * registry is empty - see {@link #resolveDurablePendingCreate}).
      */
-    private final List<BaselinePlan> pendingCreates = new ArrayList<>();
+    private final List<PendingCreate> pendingCreates = new ArrayList<>();
+
+    /** One committed-but-unpublished create (see {@link #pendingCreates}). */
+    private static final class PendingCreate {
+        final BaselinePlan plan;
+        final long since;
+
+        PendingCreate(BaselinePlan plan, long since) {
+            this.plan = plan;
+            this.since = since;
+        }
+    }
+
+    /**
+     * One identity-carrying id reservation (see
+     * {@link IdAllocatorStoreForTest#pendingSeqReservation}): the id and the instant its
+     * creation reserved it.
+     */
+    @VisibleForTesting
+    static final class SeqReservation {
+        final long id;
+        final long reserveTimeMs;
+
+        SeqReservation(long id, long reserveTimeMs) {
+            this.id = id;
+            this.reserveTimeMs = reserveTimeMs;
+        }
+    }
 
     /** id -> BaselinePlan (Phase 1 in-memory storage). */
     private final Map<Long, BaselinePlan> baselines = new HashMap<>();
@@ -633,6 +795,19 @@ public class BaselineManager {
         // in-memory duplicate validation (phase 1) and the publication (phase 2). Holding
         // the state lock across the I/O would stall every SPM query's rewrite lookup.
         synchronized (writerLock) {
+            // Admission fence BEFORE any write (round-39 #12): when the registry of
+            // committed-but-unpublished creates is full, this CREATE must fail before it
+            // can write, not after. Evicting the OLDEST pending record used to let a
+            // retry of that first key see its reserved sequence id but neither its row
+            // nor a pending entry - it then allocated a new id and both rows later
+            // published ENABLED. Refusing admission keeps every unresolved identity
+            // recorded until it becomes readable (or its fence expires).
+            if (pendingCreates.size() >= MAX_PENDING_CREATES) {
+                throw new IllegalStateException("SPM cannot create baseline: "
+                        + pendingCreates.size() + " previously committed writes of other"
+                        + " baselines are still awaiting publication (the pending-create"
+                        + " registry is full); retry the statement later");
+            }
             // Id watermark first (see the class javadoc "Id source"): the generator must be
             // advanced past the persistence layer BEFORE an id is handed out. A create whose
             // watermark read fails fails visibly and allocates nothing, instead of silently
@@ -645,9 +820,22 @@ public class BaselineManager {
             // (different ids) and dropping the id the client was told about would leave the
             // other one ACTIVE. Resolve the remembered write first - adopt it once it is
             // readable, otherwise DEFER the retry until it is.
-            Long adoptedId = resolvePendingCreate(plan);
-            if (adoptedId != null) {
-                return adoptedId;
+            PendingResolution resolved = resolvePendingCreate(plan);
+            if (resolved.adoptedId != null) {
+                return resolved.adoptedId;
+            }
+            // Durable half of the same fence (round-39 #4): the in-memory registry above
+            // is per-FE, so a retry that runs on the new master after a handoff (or after
+            // a restart) finds no record here although the original write COMMITTED - the
+            // unconfirmed marker of the sequence table carries its identity and defers the
+            // retry until the row is readable (then adopts the reserved id). A key the
+            // in-memory registry already resolved must skip it: the marker cannot tell
+            // "still publishing" from "already retired by this FE".
+            if (!resolved.handled) {
+                Long durableAdoptedId = resolveDurablePendingCreate(plan);
+                if (durableAdoptedId != null) {
+                    return durableAdoptedId;
+                }
             }
             // Phase 1: duplicate validation against the in-memory index (read lock). A
             // duplicate must agree on the SCHEMA FINGERPRINT as well: after
@@ -797,15 +985,32 @@ public class BaselineManager {
                 // never be handed out again after a DROP, or a delayed DROP-by-id retry
                 // removes a DIFFERENT baseline (see reserveAllocatedId / the class javadoc
                 // "Id source"). A crash between the two leaves a harmless GAP.
-                reserveAllocatedId(id);
+                //
+                // Re-check the leadership at the RESERVATION too (round-39 #7): this FE
+                // can pass the check above and pause here, the new master then reads the
+                // same MAX(id) and reserves id N for a DIFFERENT key - the reservation
+                // (the id/key ownership record) must never be written by a demoted FE,
+                // whose statement would even FORWARD to the new master.
+                assertLeaderForWrite();
+                reserveAllocatedId(plan);
                 // persist first so a persist failure leaves the in-memory state untouched
                 // and fails the DDL visibly; no same-key row can exist here (the
                 // durable-key check above returned any), so the INSERT cannot overwrite an
-                // existing baseline
+                // existing baseline.
+                //
+                // Re-check the leadership immediately before the ROW write as well: the
+                // pause between the reservation and this INSERT let a promoted FE create
+                // the same key under N+1, and this FE's internal INSERT (executed on the
+                // new master after forwarding) then left TWO enabled baselines for the
+                // key - each by-id collision probe sees only its own id (round-39 #7).
+                assertLeaderForWrite();
                 try {
                     persistInsert(plan);
                 } catch (UnconfirmedInsertException unconfirmed) {
                     rememberPendingCreate(plan);
+                    // persist the SAME identity durably (round-39 #4): a retry on ANOTHER
+                    // FE has no in-memory registry to consult
+                    markSeqPendingUnconfirmed(plan);
                     throw unconfirmed;
                 }
                 if (idAllocatorStoreForTest == null && !persistenceEnabled()) {
@@ -924,6 +1129,26 @@ public class BaselineManager {
     }
 
     /**
+     * The outcome of {@link #resolvePendingCreate}: the adopted id (when a remembered
+     * write became readable) and whether the IN-MEMORY registry accounted for this key at
+     * all (adopted, retired or expired here). A HANDLED key skips the durable pending
+     * fence (round-39 #4): the durable marker can only say "some write of this key was
+     * ambiguous once" - when this FE already retired/resolved that write in memory, the
+     * marker must not re-defer the very retry that resolved it.
+     */
+    private static final class PendingResolution {
+        static final PendingResolution NONE = new PendingResolution(null, false);
+        static final PendingResolution HANDLED = new PendingResolution(null, true);
+        final Long adoptedId;
+        final boolean handled;
+
+        PendingResolution(Long adoptedId, boolean handled) {
+            this.adoptedId = adoptedId;
+            this.handled = handled;
+        }
+    }
+
+    /**
      * Applies {@link #pendingCreates} to a CREATE of the same baseline (see the call site
      * in {@link #createBaseline}): a remembered write that has become READABLE is ADOPTED
      * (its id is published and returned) while a still-invisible write DEFERS the create
@@ -935,25 +1160,41 @@ public class BaselineManager {
      * baseline.
      *
      * @param plan the CREATE's baseline
-     * @return the adopted id, or null when no remembered write of this baseline exists
+     * @return the resolution (see {@link PendingResolution})
      */
-    private Long resolvePendingCreate(BaselinePlan plan) {
+    private PendingResolution resolvePendingCreate(BaselinePlan plan) {
         if (pendingCreates.isEmpty()) {
-            return null;
+            return PendingResolution.NONE;
         }
-        Iterator<BaselinePlan> iterator = pendingCreates.iterator();
+        boolean handled = false;
+        Iterator<PendingCreate> iterator = pendingCreates.iterator();
         while (iterator.hasNext()) {
-            BaselinePlan pending = iterator.next();
-            if (!sameIdentity(pending, plan)) {
+            PendingCreate pending = iterator.next();
+            if (!sameIdentity(pending.plan, plan)) {
                 continue;
             }
-            if (!durableRowReadable(pending)) {
-                throw new IllegalStateException("SPM cannot create baseline " + pending.getId()
-                        + ": a previously COMMITTED write of the same baseline is still"
-                        + " awaiting publication (its id is consumed); retry the statement");
+            handled = true;
+            if (!durableRowReadable(pending.plan)) {
+                if (System.currentTimeMillis() - pending.since <= PENDING_CREATE_FENCE_MILLIS) {
+                    throw new IllegalStateException("SPM cannot create baseline "
+                            + pending.plan.getId()
+                            + ": a previously COMMITTED write of the same baseline is still"
+                            + " awaiting publication (its id is consumed); retry the statement");
+                }
+                // The fence expired: a write that never became readable after this bound
+                // is treated as LOST (the same convention as the audit loader's
+                // Publish-Timeout fence). Retire the record so the create proceeds - the
+                // reserved id stays consumed (the sequence watermark), the fresh id is
+                // allocated above it.
+                iterator.remove();
+                LOG.warn("SPM pending create of baseline {}: still not readable after {} ms;"
+                                + " assuming the write was lost and allocating a fresh id",
+                        pending.plan.getId(), PENDING_CREATE_FENCE_MILLIS);
+                continue;
             }
             iterator.remove();
-            if (!Objects.equals(pending.getSchemaFingerprint(), plan.getSchemaFingerprint())) {
+            if (!Objects.equals(pending.plan.getSchemaFingerprint(),
+                    plan.getSchemaFingerprint())) {
                 // The schema changed while the committed write awaited publication (e.g.
                 // ALTER TABLE t ADD COLUMN x turned the fingerprint F1 into F2): the
                 // pending row is STALE - matching / replay reject it - so adopting it
@@ -961,37 +1202,55 @@ public class BaselineManager {
                 // (it is unreachable for matching either way) and fall through: the
                 // normal create path allocates a fresh row under the CURRENT fingerprint.
                 try {
-                    persistDeleteByIdentity(pending);
+                    persistDeleteByIdentity(pending.plan);
                 } catch (RuntimeException e) {
                     // best effort: the durable-key check of the create below retires the
                     // row as soon as a read sees it
                     LOG.warn("SPM failed to retire the stale pending-create row (id={}): {}",
-                            pending.getId(), e.getMessage());
+                            pending.plan.getId(), e.getMessage());
                 }
                 LOG.warn("SPM pending create of baseline {}: its schema fingerprint changed"
                                 + " ({} -> {}); replacing the stale committed row",
-                        pending.getId(), pending.getSchemaFingerprint(),
+                        pending.plan.getId(), pending.plan.getSchemaFingerprint(),
                         plan.getSchemaFingerprint());
                 continue;
             }
-            BaselinePlan winner = null;
-            for (BaselinePlan row : readPersistedParsedById(pending.getId())) {
-                if (!sameIdentity(row, plan)) {
-                    continue; // the id carries a DIFFERENT baseline: never adopt it
-                }
-                winner = winner == null ? row : pickDurableWinner(winner, row);
+            Long adopted = adoptReadablePendingRow(pending.plan.getId(), plan);
+            if (adopted != null) {
+                return new PendingResolution(adopted, true);
             }
-            if (winner == null) {
-                LOG.warn("SPM pending create of baseline {}: the id no longer carries this"
-                        + " baseline; allocating a fresh id", pending.getId());
-                continue;
-            }
-            publishBaseline(winner);
-            LOG.info("SPM pending create of baseline {} adopted from the durable table",
-                    winner.getId());
-            return winner.getId();
+            LOG.warn("SPM pending create of baseline {}: the id no longer carries this"
+                    + " baseline; allocating a fresh id", pending.plan.getId());
         }
-        return null;
+        return handled ? PendingResolution.HANDLED : PendingResolution.NONE;
+    }
+
+    /**
+     * Adopts the READABLE durable row of one pending create: the row carrying the pending
+     * id with THIS baseline's identity is published and its id returned; null when the id
+     * no longer carries the identity (the caller falls through / allocates a fresh id).
+     * Shared by the in-memory registry ({@link #resolvePendingCreate}) and the durable
+     * reservation fence ({@link #resolveDurablePendingCreate}).
+     *
+     * @param pendingId the id the pending write consumed
+     * @param plan      the CREATE's baseline
+     * @return the adopted id, or null when the id carries no matching row
+     */
+    private Long adoptReadablePendingRow(long pendingId, BaselinePlan plan) {
+        BaselinePlan winner = null;
+        for (BaselinePlan row : readPersistedParsedById(pendingId)) {
+            if (!sameIdentity(row, plan)) {
+                continue; // the id carries a DIFFERENT baseline: never adopt it
+            }
+            winner = winner == null ? row : pickDurableWinner(winner, row);
+        }
+        if (winner == null) {
+            return null;
+        }
+        publishBaseline(winner);
+        LOG.info("SPM pending create of baseline {} adopted from the durable table",
+                winner.getId());
+        return winner.getId();
     }
 
     /**
@@ -1002,18 +1261,17 @@ public class BaselineManager {
      * @param plan the row that was written
      */
     private void rememberPendingCreate(BaselinePlan plan) {
-        for (BaselinePlan pending : pendingCreates) {
-            if (sameIdentity(pending, plan)) {
+        for (PendingCreate pending : pendingCreates) {
+            if (sameIdentity(pending.plan, plan)) {
                 return; // already remembered by an earlier attempt
             }
         }
-        if (pendingCreates.size() >= MAX_PENDING_CREATES) {
-            BaselinePlan evicted = pendingCreates.remove(0);
-            LOG.warn("SPM dropped the pending-create record of baseline {} (registry bound {});"
-                            + " a retry may allocate a second id for it",
-                    evicted.getId(), MAX_PENDING_CREATES);
-        }
-        pendingCreates.add(plan);
+        // NEVER evict an unresolved identity (round-39 #12): the admission fence of
+        // createBaseline keeps the registry below MAX_PENDING_CREATES before any write, so
+        // this only runs past the bound when concurrent creates grew it - the new record
+        // is still retained, because evicting an OLDER identity is exactly what could
+        // duplicate a baseline on a retry.
+        pendingCreates.add(new PendingCreate(plan, System.currentTimeMillis()));
         LOG.warn("SPM baseline create of id {} is committed but not readable yet; a retry will"
                 + " adopt it instead of allocating a second id", plan.getId());
     }
@@ -1449,11 +1707,19 @@ public class BaselineManager {
             // newest EXISTING stored second keeps the durable order ("the later intent
             // wins") exact at the stored precision, so the row this statement writes is
             // always the durable winner once it is written.
-            if (probe != null && probe.winner != null && probe.winner.getUpdateTime() > 0) {
-                long newestSecond = probe.winner.getUpdateTime() / 1000L;
-                if (newUpdateTime / 1000L <= newestSecond) {
-                    newUpdateTime = (newestSecond + 1) * 1000L;
-                }
+            //
+            // The bump reads the newest stored second of the WHOLE TABLE, not just the
+            // rows of this id (round-39 #9): after rapid flips gave another baseline B a
+            // future stored update_time, flipping A and C kept update_time = now -
+            // dwarfed by B - so NEITHER MAX(id), COUNT(*) nor MAX(update_time) (the
+            // paginated snapshot fence) changed, and a refresh could merge pages of two
+            // different states while a matching fence accepted the mix (refresh kept
+            // replaying A after its successful DISABLE). Bumping past the table-wide
+            // maximum makes EVERY flip move MAX(update_time), so the fence always
+            // observes it.
+            long newestSecond = readNewestStoredUpdateSecond();
+            if (newUpdateTime / 1000L <= newestSecond) {
+                newUpdateTime = (newestSecond + 1) * 1000L;
             }
             // Persist a DETACHED snapshot carrying the new status: the live object keeps
             // the old status until the durable write (or the confirmed reconciliation)
@@ -2365,7 +2631,50 @@ public class BaselineManager {
      * dropped / disabled baseline) and a retryable failure surfaces to the caller.
      */
     public void refreshAfterForwardedDdl() {
-        refreshAfterForwardedDdl(ConnectContext.get());
+        refreshAfterForwardedDdl(ConnectContext.get(), null);
+    }
+
+    /**
+     * The DURABLE outcome a forwarded GLOBAL DDL must have produced on the master
+     * (round-39 #14). A forward runs with FORWARD_NO_SYNC and the follower's local
+     * internal read may STILL return the pre-DDL visible version although the master
+     * already committed the DDL: a GLOBAL DISABLE can return success while its DISABLED
+     * row is committed but unreadable, and a DROP likewise while its DELETE publication
+     * lags. Republishing the old snapshot made subsequent queries on that connection
+     * replay a baseline just disabled or dropped.
+     */
+    @VisibleForTesting
+    public static final class ForwardedDdlExpectation {
+        private final long id;
+        private final BaselineStatus status; // null = the row must be GONE (DROP)
+
+        private ForwardedDdlExpectation(long id, BaselineStatus status) {
+            this.id = id;
+            this.status = status;
+        }
+
+        /** The expected outcome of a forwarded DROP: no readable row carries the id. */
+        public static ForwardedDdlExpectation absent(long id) {
+            return new ForwardedDdlExpectation(id, null);
+        }
+
+        /** The expected outcome of a forwarded ALTER: the id's row carries the status. */
+        public static ForwardedDdlExpectation status(long id, BaselineStatus status) {
+            return new ForwardedDdlExpectation(id, status);
+        }
+
+        public long getId() {
+            return id;
+        }
+
+        public BaselineStatus getStatus() {
+            return status;
+        }
+
+        boolean isSatisfiedBy(Map<Long, BaselinePlan> snapshot) {
+            BaselinePlan row = snapshot.get(id);
+            return status == null ? row == null : row != null && row.getStatus() == status;
+        }
     }
 
     /**
@@ -2375,6 +2684,21 @@ public class BaselineManager {
      * @param ctx the context of the statement that was forwarded (may be null in tests)
      */
     public void refreshAfterForwardedDdl(ConnectContext ctx) {
+        refreshAfterForwardedDdl(ctx, null);
+    }
+
+    /**
+     * As {@link #refreshAfterForwardedDdl(ConnectContext)}, additionally CONFIRMING the
+     * forwarded DDL's durable outcome before the snapshot is published (round-39 #14):
+     * the snapshot must show the expected status flip / row removal, re-read within a
+     * bounded budget; an outcome that never becomes visible fails CLOSED (the published
+     * cache is invalidated and a retryable error surfaces) instead of republishing the
+     * pre-DDL row.
+     *
+     * @param ctx      the forwarded statement's context (may be null in tests)
+     * @param expected the durable outcome to confirm, or null to skip the confirmation
+     */
+    public void refreshAfterForwardedDdl(ConnectContext ctx, ForwardedDdlExpectation expected) {
         if (!persistenceEnabled() && snapshotReaderForTest == null) {
             return;
         }
@@ -2427,21 +2751,45 @@ public class BaselineManager {
                     throw new IllegalStateException("SPM baseline store is not ready yet"
                             + " (the baseline table has not been loaded); please retry later");
                 }
-                return;
+                if (expected == null) {
+                    // the inline load above just published the CURRENT table content;
+                    // nothing further to confirm
+                    return;
+                }
             }
-            final Map<Long, BaselinePlan> snapshot;
-            try {
-                snapshot = readPersistedSnapshot();
-            } catch (Throwable t) {
-                // Never pretend the local cache reflects the committed DDL: fence the
-                // (possibly pre-DDL) published rows out and surface a retryable failure.
-                invalidatePublishedStore();
-                throw new IllegalStateException("SPM baseline cache cannot be confirmed after"
-                        + " the forwarded DDL (please retry later): " + t.getMessage(), t);
+            // The journal sync orders THIS FE's metadata AFTER the master's DDL, but the
+            // internal table's VISIBILITY of the DDL's own row write lags it: the expected
+            // outcome is confirmed with bounded re-reads (round-39 #14). No writer can
+            // interleave (writerLock is held) and loads return early while loaded, so an
+            // accepted snapshot is authoritative for this instant.
+            for (int attempt = 0; ; attempt++) {
+                final Map<Long, BaselinePlan> snapshot;
+                try {
+                    snapshot = readPersistedSnapshot();
+                } catch (Throwable t) {
+                    // Never pretend the local cache reflects the committed DDL: fence the
+                    // (possibly pre-DDL) published rows out and surface a retryable failure.
+                    invalidatePublishedStore();
+                    throw new IllegalStateException("SPM baseline cache cannot be confirmed after"
+                            + " the forwarded DDL (please retry later): " + t.getMessage(), t);
+                }
+                if (expected == null || expected.isSatisfiedBy(snapshot)) {
+                    applyRefreshedBaselines(snapshot);
+                    return;
+                }
+                if (attempt >= FORWARDED_DDL_CONFIRM_ATTEMPTS) {
+                    // The committed DDL's outcome never became visible. Publishing this
+                    // snapshot would republish the old ENABLED row after a DISABLE (or the
+                    // dropped row), which ordinary queries on this connection keep
+                    // replaying - fail CLOSED instead (invalidate + retryable error).
+                    invalidatePublishedStore();
+                    throw new IllegalStateException("SPM cannot confirm the forwarded GLOBAL"
+                            + " DDL on this FE yet (baseline " + expected.getId()
+                            + " has not reached its expected durable outcome); the local"
+                            + " baseline cache was invalidated (please retry later)");
+                }
+                sleepBeforeVisibilityRetry();
             }
-            // No writer can interleave (writerLock is held) and loads return early while
-            // loaded, so the snapshot is authoritative for this instant.
-            applyRefreshedBaselines(snapshot);
         }
     }
 
@@ -2654,11 +3002,20 @@ public class BaselineManager {
      * delete the new one. A failed reservation fails the CREATE retryably and nothing was
      * published (the caller has not inserted the row yet).
      *
-     * @param id the id just allocated
+     * <p>The reservation ALSO carries the baseline's identity + instant (round-39 #4):
+     * {@link #resolveDurablePendingCreate} reads it back when a retry runs on an FE whose
+     * in-memory pending registry is empty, so a committed-but-unreadable row still fences
+     * the id.
+     *
+     * @param plan the row about to be written (its id was just allocated)
      */
-    private static void reserveAllocatedId(long id) {
+    private static void reserveAllocatedId(BaselinePlan plan) {
+        long id = plan.getId();
+        long reserveTime = System.currentTimeMillis();
+        String digest = plan.getBindSqlDigest() == null ? "" : plan.getBindSqlDigest();
+        long planSqlHash = SPMUtils.hashOf(plan.getPlanSql() == null ? "" : plan.getPlanSql());
         if (idAllocatorStoreForTest != null) {
-            idAllocatorStoreForTest.reserveId(id);
+            idAllocatorStoreForTest.reserveId(id, digest, planSqlHash, reserveTime);
             return;
         }
         if (!persistenceEnabled()) {
@@ -2666,11 +3023,150 @@ public class BaselineManager {
         }
         Map<String, String> params = new HashMap<>();
         params.put("lastId", String.valueOf(id));
+        params.put("bindSqlDigest", StatisticsUtil.escapeSQL(digest));
+        params.put("planSqlHash", String.valueOf(planSqlHash));
+        params.put("reserveTime", toTs(reserveTime));
+        params.put("unconfirmed", "0");
         try {
             StatisticsUtil.execUpdate(INSERT_SEQ_ID_SQL, params,
                     BASELINE_WRITE_TIMEOUT_SECONDS);
         } catch (Exception e) {
             throw new RuntimeException("SPM baseline id reservation write failed (retry the"
+                    + " CREATE): " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Appends the DURABLE marker of an AMBIGUOUS create (round-39 #4): the same
+     * identity-carrying row with {@code unconfirmed = 1}. A retry on another FE (leader
+     * handoff / restart, where the in-memory {@link #pendingCreates} registry is empty)
+     * reads it back and DEFERS instead of allocating a second id for a row that may
+     * already be committed but not readable yet.
+     *
+     * <p>Best effort by design: the create is already failing with the original
+     * unconfirmed error, and re-masking it with a marker-write failure would lose the
+     * real cause. A missing marker only weakens the CROSS-FE fence - the same-FE
+     * registry is unaffected.
+     *
+     * @param plan the row whose write is unresolved
+     */
+    private static void markSeqPendingUnconfirmed(BaselinePlan plan) {
+        if (plan.getBindSqlDigest() == null || plan.getPlanSql() == null) {
+            return;
+        }
+        long planSqlHash = SPMUtils.hashOf(plan.getPlanSql());
+        long now = System.currentTimeMillis();
+        if (idAllocatorStoreForTest != null) {
+            idAllocatorStoreForTest.notePendingSeqState(plan.getBindSqlDigest(), planSqlHash,
+                    plan.getId(), now);
+            return;
+        }
+        if (!persistenceEnabled()) {
+            return;
+        }
+        Map<String, String> params = new HashMap<>();
+        params.put("lastId", String.valueOf(plan.getId()));
+        params.put("bindSqlDigest", StatisticsUtil.escapeSQL(plan.getBindSqlDigest()));
+        params.put("planSqlHash", String.valueOf(planSqlHash));
+        params.put("reserveTime", toTs(now));
+        params.put("unconfirmed", "1");
+        try {
+            StatisticsUtil.execUpdate(INSERT_SEQ_ID_SQL, params,
+                    BASELINE_WRITE_TIMEOUT_SECONDS);
+        } catch (Exception e) {
+            LOG.warn("SPM could not persist the unconfirmed-create marker of baseline {}"
+                    + " (a retry on ANOTHER FE may allocate a second id): {}",
+                    plan.getId(), e.getMessage());
+        }
+    }
+
+    /**
+     * The DURABLE half of the unconfirmed-create fence (round-39 #4). The in-memory
+     * {@link #pendingCreates} registry is per-FE: after a leader handoff (or a restart)
+     * the retry of a committed-but-unpublished CREATE runs on an FE that never saw the
+     * write, so the durable-key read misses the unreadable row too - the retry then
+     * allocated a SECOND id and both rows later published ENABLED. The UNCONFIRMED
+     * MARKER the ambiguous create appended to the sequence table (see
+     * {@link #markSeqPendingUnconfirmed}) carries the baseline's identity and IS visible
+     * (the reviewer's scenario: "the sequence reservation may already be visible"): a
+     * fresh marker whose baseline row is still unreadable DEFERS the retry; once the row
+     * publishes it is ADOPTED, and an expired marker is treated as a lost write (see
+     * {@link #DURABLE_PENDING_CREATE_FENCE_MILLIS}).
+     *
+     * <p>Only UNCONFIRMED markers fence - a plain reservation exists for every create
+     * (successful ones included) and must never block a legitimate re-create of the key.
+     *
+     * @param plan the CREATE's baseline
+     * @return the ADOPTED id when the marker's row became readable, else null (the create
+     *         proceeds: no ambiguous write of this key exists, or its fence expired)
+     */
+    private Long resolveDurablePendingCreate(BaselinePlan plan) {
+        if (plan.getBindSqlDigest() == null || plan.getPlanSql() == null) {
+            return null;
+        }
+        long planSqlHash = SPMUtils.hashOf(plan.getPlanSql());
+        SeqReservation reservation;
+        if (idAllocatorStoreForTest != null) {
+            reservation = idAllocatorStoreForTest.pendingSeqReservation(plan.getBindSqlDigest(),
+                    planSqlHash);
+        } else {
+            if (!persistenceEnabled()) {
+                return null;
+            }
+            reservation = readPersistedSeqReservation(plan.getBindSqlDigest(), planSqlHash);
+        }
+        if (reservation == null) {
+            return null;
+        }
+        if (probeDurableRow(reservation.id, plan.getBindSqlDigest(), plan.getPlanSql())
+                == DurablePresence.PRESENT) {
+            // readable now: ADOPT the reserved row - the same path as the in-memory
+            // registry, and the only way the retry returns the id the first write
+            // consumed instead of allocating a second one
+            return adoptReadablePendingRow(reservation.id, plan);
+        }
+        if (System.currentTimeMillis() - reservation.reserveTimeMs
+                <= DURABLE_PENDING_CREATE_FENCE_MILLIS) {
+            throw new IllegalStateException("SPM cannot create baseline: a previously COMMITTED"
+                    + " write of the same baseline (id " + reservation.id + ") is still awaiting"
+                    + " publication (its id is consumed); retry the statement");
+        }
+        LOG.warn("SPM durable pending create of baseline {}: its unconfirmed marker is older"
+                        + " than {} ms and the row never became readable; assuming the write"
+                        + " was lost and allocating a fresh id",
+                reservation.id, DURABLE_PENDING_CREATE_FENCE_MILLIS);
+        return null;
+    }
+
+    /**
+     * Reads the latest identity-carrying reservation of one baseline (see
+     * {@link #SELECT_PENDING_SEQ_SQL}); null when none / an unparsable row (a pre-identity
+     * row carries NULL and never matches the filter).
+     */
+    private static SeqReservation readPersistedSeqReservation(String bindSqlDigest,
+            long planSqlHash) {
+        Map<String, String> params = new HashMap<>();
+        params.put("bindSqlDigest", StatisticsUtil.escapeSQL(bindSqlDigest));
+        params.put("planSqlHash", String.valueOf(planSqlHash));
+        try {
+            List<ResultRow> rows = StatisticsUtil.executeQuery(SELECT_PENDING_SEQ_SQL, params,
+                    INTERNAL_QUERY_TIMEOUT_SECONDS);
+            if (rows == null || rows.isEmpty()) {
+                return null;
+            }
+            ResultRow row = rows.get(0);
+            String idText = row.getWithDefault(0, "");
+            if (idText == null || idText.isEmpty()) {
+                return null;
+            }
+            String timeText = row.getValues().size() > 1 ? row.getWithDefault(1, "") : "";
+            long reserveTime = timeText == null || timeText.isEmpty()
+                    ? 0 : fromTs(timeText.trim());
+            return new SeqReservation(Long.parseLong(idText.trim()), reserveTime);
+        } catch (Exception e) {
+            // fail closed like every other watermark read: without the answer the create
+            // cannot prove it is not a duplicate
+            throw new RuntimeException("SPM baseline id sequence identity read failed (retry the"
                     + " CREATE): " + e.getMessage(), e);
         }
     }
@@ -3225,10 +3721,13 @@ public class BaselineManager {
                 loaded = false;
                 baselines.clear();
                 hashIndex.clear();
-                // the pending-create records describe writes of the INVALIDATED state: a
-                // reload sees a committed row once it publishes, and a create that still
-                // cannot see it re-remembers the identity itself
-                pendingCreates.clear();
+                // Pending-create records are NOT cleared here (round-39 #4): they describe
+                // writes THIS FE committed, and a reload cannot see an unpublished row.
+                // Clearing them let a re-promoted FE load a snapshot before the row
+                // published, see no key duplicate and assign a retry a SECOND id - both
+                // rows later published ENABLED and dropping the returned id left the
+                // other one ACTIVE. A record whose row never becomes readable is retired
+                // by the fence bound in resolvePendingCreate.
                 stateVersion++;
             } finally {
                 stateLock.writeLock().unlock();
@@ -3490,12 +3989,23 @@ public class BaselineManager {
 
     private static void persistInsert(BaselinePlan p) {
         if (idAllocatorStoreForTest != null) {
-            idAllocatorStoreForTest.insert(p);
+            try {
+                idAllocatorStoreForTest.insert(p);
+            } catch (RuntimeException e) {
+                // an ambiguous SIMULATOR outcome takes the same path as the real one
+                // (round-39 #11): the write may have landed, so it must not fail like a
+                // genuine non-commit
+                throwAmbiguousInsertUnlessDurable(p, e);
+            }
             confirmInsertVisible(p);
             return;
         }
         if (statusProtocolStoreForTest != null) {
-            statusProtocolStoreForTest.insert(p);
+            try {
+                statusProtocolStoreForTest.insert(p);
+            } catch (RuntimeException e) {
+                throwAmbiguousInsertUnlessDurable(p, e);
+            }
             confirmInsertVisible(p);
             return;
         }
@@ -3515,14 +4025,9 @@ public class BaselineManager {
             // stored SECOND is the proof it landed: matching only (id, key) treated the
             // still-present OLD-status row of an ALTER as the freshly written new-status
             // row, and the status alone could be satisfied by a STALE row a previously
-            // failed old-row delete left behind (round-35 #2). Any other outcome
-            // (absent or unconfirmable) reports the original failure.
-            if (observedInsertRowIsOurs(p)) {
-                LOG.warn("SPM persist (insert) reported {} but the row is durable (id={});"
-                        + " keeping it", e.getMessage(), p.getId());
-                return;
-            }
-            throw new RuntimeException("SPM persist (insert) failed: " + e.getMessage(), e);
+            // failed old-row delete left behind (round-35 #2). An outcome that cannot be
+            // PROVEN counts as AMBIGUOUS, never as a genuine failure (round-39 #11).
+            throwAmbiguousInsertUnlessDurable(p, e);
         }
         // A reported SUCCESS still does not prove the row is READABLE: the default insert
         // return mode accepts SQL OK with the transaction merely COMMITTED (publication
@@ -3571,6 +4076,15 @@ public class BaselineManager {
     private static final class UnconfirmedInsertException extends IllegalStateException {
         UnconfirmedInsertException(String message) {
             super(message);
+        }
+
+        /**
+         * The ambiguous-output form (round-39 #11): the INSERT reported an ERROR that may
+         * have been raised AFTER a commit, so the original cause travels with the
+         * unconfirmed report.
+         */
+        UnconfirmedInsertException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 
@@ -3797,6 +4311,68 @@ public class BaselineManager {
     static boolean observedInsertRowIsOurs(BaselinePlan p) {
         return probeDurableRow(p.getId(), p.getBindSqlDigest(), p.getPlanSql(), p.getStatus(),
                 null, p.getUpdateTime()) == DurablePresence.PRESENT;
+    }
+
+    /**
+     * Fails an INSERT whose outcome is AMBIGUOUS (round-39 #11). A reported error may have
+     * been raised AFTER a commit (a statement timeout: the row is committed and merely
+     * waiting for publication), so it must travel as {@link UnconfirmedInsertException}:
+     * the create path then REMEMBERS the attempted identity and the retry defers /
+     * adopts instead of allocating a SECOND id for the same baseline (whose unreadable
+     * row the durable-key read cannot see). An ordinary exception left that handler
+     * unreachable for this path. A probe that already SEES the row treats the write as
+     * landed.
+     *
+     * @param p     the row the write attempted
+     * @param cause the reported error
+     */
+    private static void throwAmbiguousInsertUnlessDurable(BaselinePlan p, Exception cause) {
+        if (observedInsertRowIsOurs(p)) {
+            LOG.warn("SPM persist (insert) reported {} but the row is durable (id={});"
+                    + " keeping it", cause.getMessage(), p.getId());
+            return;
+        }
+        throw new UnconfirmedInsertException("SPM persist (insert) of baseline " + p.getId()
+                + " reported an error and may still have COMMITTED (a committed row is"
+                + " only waiting for publication): " + cause.getMessage()
+                + " - its id is retained until the outcome is resolved; retry the"
+                + " statement", cause);
+    }
+
+    /**
+     * The newest stored update_time of the WHOLE durable table, in epoch SECONDS (0 when
+     * the table holds no row / the read is unavailable). The status-flip bump advances a
+     * new row past this value, so EVERY flip moves {@code MAX(update_time)} - the snapshot
+     * fence (round-39 #9, see {@link #SELECT_MAX_UPDATE_TIME_SQL}).
+     *
+     * @return the newest stored second
+     */
+    private static long readNewestStoredUpdateSecond() {
+        if (idAllocatorStoreForTest != null) {
+            return idAllocatorStoreForTest.newestStoredUpdateSecond();
+        }
+        if (statusProtocolStoreForTest != null) {
+            return statusProtocolStoreForTest.newestStoredUpdateSecond();
+        }
+        if (!persistenceEnabled()) {
+            return 0;
+        }
+        try {
+            List<ResultRow> rows = inInternalIoMode(() -> StatisticsUtil.executeQuery(
+                    SELECT_MAX_UPDATE_TIME_SQL, Collections.emptyMap(),
+                    INTERNAL_QUERY_TIMEOUT_SECONDS));
+            if (rows == null || rows.isEmpty()) {
+                return 0;
+            }
+            String text = rows.get(0).getWithDefault(0, "");
+            if (text == null || text.isEmpty()) {
+                return 0; // an empty table yields one NULL MAX(update_time)
+            }
+            return fromTs(text.trim()) / 1000L;
+        } catch (Exception e) {
+            throw new RuntimeException("SPM baseline update_time watermark read failed"
+                    + " (retry the statement): " + e.getMessage(), e);
+        }
     }
 
     private static void persistDeleteByIdentity(BaselinePlan p) {

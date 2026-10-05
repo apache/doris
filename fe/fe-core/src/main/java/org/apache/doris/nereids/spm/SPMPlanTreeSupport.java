@@ -2332,9 +2332,9 @@ public final class SPMPlanTreeSupport {
         if (bindPlan == planPlan) {
             return; // one parse (bindSql == planSql): symmetric by construction
         }
-        Map<String, List<String>> bindSelectors = scanSelectorsByTable(bindPlan);
-        Map<String, List<String>> planSelectors = scanSelectorsByTable(planPlan);
-        for (Map.Entry<String, List<String>> entry : bindSelectors.entrySet()) {
+        Map<String, List<ScanSelectorOccurrence>> bindSelectors = scanSelectorsByTable(bindPlan);
+        Map<String, List<ScanSelectorOccurrence>> planSelectors = scanSelectorsByTable(planPlan);
+        for (Map.Entry<String, List<ScanSelectorOccurrence>> entry : bindSelectors.entrySet()) {
             if (!planSelectors.containsKey(entry.getKey())) {
                 // The plan does not read this table at all (it is a manual plan over its
                 // OWN table set - the fingerprint covers the plan-side tables): there is
@@ -2342,23 +2342,26 @@ public final class SPMPlanTreeSupport {
                 // divergent selection.
                 continue;
             }
-            List<String> fromBind = entry.getValue();
-            List<String> fromPlan = planSelectors.get(entry.getKey());
-            if (fromBind.equals(fromPlan)) {
-                // identical descriptions IN STATEMENT ORDER: every occurrence carries the
-                // same selection in both texts.
+            List<ScanSelectorOccurrence> fromBind = entry.getValue();
+            List<ScanSelectorOccurrence> fromPlan = planSelectors.get(entry.getKey());
+            if (scanSelectorsAligned(fromBind, fromPlan)) {
                 continue;
             }
-            if (sameSelectionIgnoreOrder(fromBind, fromPlan)) {
-                // The SAME multiset sits on DIFFERENT occurrences: e.g. the bind reads
-                // `t PARTITION(p1) a CROSS JOIN t PARTITION(p2) b` while the manual plan
-                // pins p2 on `a` and p1 on `b`. Each occurrence keeps its own pin, so the
-                // pin/occurrence mapping is AMBIGUOUS and cannot be aligned: initially the
-                // two plans can agree, but after a new partition arrives (p2 gains an
-                // extra row) the bind pair changes while the replayed plan returns the
-                // other pairing - silently different results. Reject it: comparing only
-                // the per-table multiset (the previous behavior) accepted exactly this
-                // swap.
+            List<String> bindSelectorList = selectorOnly(fromBind);
+            List<String> planSelectorList = selectorOnly(fromPlan);
+            if (sameSelectionIgnoreOrder(bindSelectorList, planSelectorList)) {
+                // The SAME selector multiset sits on DIFFERENT occurrences. Comparing only
+                // the per-table multiset accepted a reversed self join - bind
+                // `t PARTITION(p1) a CROSS JOIN t PARTITION(p2) b` vs a manual plan writing
+                // `t PARTITION(p1) b CROSS JOIN t PARTITION(p2) a` produced the identical
+                // list `t -> [p1, p2]`, so CREATE accepted them, and with k=1 in p1 and
+                // k=11 in p2 the bind returned (1,11) while the frozen plan returned
+                // (11,1) (round-39 #15). Each occurrence keeps its own pin, so the
+                // pin/occurrence mapping is only verifiable when the alias-attached lists
+                // line up: a self-join occurrence carries its own PARTITION / TABLET /
+                // TABLESAMPLE / index selection, and after a partition change the replay
+                // silently returns the other pairing. Reject it: write the selections under
+                // the SAME aliases in the same occurrence order in both statements.
                 throw new org.apache.doris.nereids.exceptions.AnalysisException(
                         "SPM cannot align the plan SQL with the bind SQL: the scan selectors"
                                 + " of table '" + entry.getKey() + "' are the same set but pin"
@@ -2367,8 +2370,8 @@ public final class SPMPlanTreeSupport {
                                 + " keeps its own PARTITION / TABLET / TABLESAMPLE / index"
                                 + " selection, so the pin/occurrence mapping is ambiguous - after"
                                 + " a partition change the replay silently returns the other"
-                                + " pairing. Write the selections in the SAME occurrence order in"
-                                + " both statements: " + bindSql);
+                                + " pairing. Write the selections under the SAME aliases in the"
+                                + " same occurrence order in both statements: " + bindSql);
             }
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                     "SPM cannot align the plan SQL with the bind SQL: their scan"
@@ -2383,25 +2386,128 @@ public final class SPMPlanTreeSupport {
     }
 
     /**
-     * The scan-selector description of every base-table relation, grouped by the
-     * relation's LAST name part (the table name) and kept in STATEMENT (walk) ORDER: the
-     * bind and plan texts may qualify their tables differently, while a self join
-     * contributes one entry per occurrence - the caller compares the lists of one table
-     * per occurrence, so a pin stays attached to the occurrence it belongs to.
+     * Whether two occurrences of one table carry the SAME scan selector, attached to the
+     * SAME occurrence. A table read ONCE per statement is compared by its selector alone
+     * (the alias cannot disambiguate anything, and a manual plan may name its relation
+     * differently). With SEVERAL occurrences of the same table the comparison is by the
+     * pair (alias, selector) in statement order: the reversed self join of round-39 #15
+     * produced identical per-table selector lists while pinning them to swapped aliases,
+     * and every replay then returned the other pairing.
+     *
+     * @param bind the bind side's occurrences, in statement order
+     * @param plan the plan side's occurrences, in statement order
+     * @return whether the two statements' scan selectors agree
      */
-    private static Map<String, List<String>> scanSelectorsByTable(Plan plan) {
-        Map<String, List<String>> byTable = new HashMap<>();
-        SPMPlanTreeSupport.<RuntimeException>walkPlans(plan, (Plan node) -> {
-            if (node instanceof UnboundRelation) {
-                UnboundRelation relation = (UnboundRelation) node;
-                List<String> nameParts = relation.getNameParts();
-                String table = nameParts == null || nameParts.isEmpty()
-                        ? "" : nameParts.get(nameParts.size() - 1);
-                byTable.computeIfAbsent(table, k -> new ArrayList<>())
-                        .add(describeScanSelector(relation));
+    private static boolean scanSelectorsAligned(List<ScanSelectorOccurrence> bind,
+            List<ScanSelectorOccurrence> plan) {
+        if (bind.size() != plan.size()) {
+            return false;
+        }
+        if (bind.size() <= 1) {
+            // single occurrence (or none): selector only - aliases are interchangeable here
+            return bind.isEmpty() || bind.get(0).selector.equals(plan.get(0).selector);
+        }
+        for (int i = 0; i < bind.size(); i++) {
+            if (!bind.get(i).alias.equals(plan.get(i).alias)
+                    || !bind.get(i).selector.equals(plan.get(i).selector)) {
+                return false;
             }
-        });
+        }
+        return true;
+    }
+
+    /** The selector-only view of an occurrence list (used for the error-message choice). */
+    private static List<String> selectorOnly(List<ScanSelectorOccurrence> occurrences) {
+        List<String> selectors = new ArrayList<>();
+        for (ScanSelectorOccurrence occurrence : occurrences) {
+            selectors.add(occurrence.selector);
+        }
+        return selectors;
+    }
+
+    /** One base-table occurrence's scan selector together with the relation's alias. */
+    private static final class ScanSelectorOccurrence {
+        final String alias;
+        final String selector;
+
+        ScanSelectorOccurrence(String alias, String selector) {
+            this.alias = alias == null ? "" : alias;
+            this.selector = selector;
+        }
+
+        @Override
+        public String toString() {
+            return alias.isEmpty() ? selector : alias + ':' + selector;
+        }
+    }
+
+    /**
+     * The scan-selector description of every base-table relation together with the ALIAS
+     * of the occurrence it belongs to, grouped by the relation's LAST name part (the table
+     * name) and kept in STATEMENT (walk) ORDER: the bind and plan texts may qualify their
+     * tables differently, while a self join contributes one entry per occurrence - the
+     * caller compares the lists of one table per occurrence, so a pin stays attached to
+     * the occurrence it belongs to (see {@link #scanSelectorsAligned}).
+     */
+    private static Map<String, List<ScanSelectorOccurrence>> scanSelectorsByTable(Plan plan) {
+        Map<String, List<ScanSelectorOccurrence>> byTable = new HashMap<>();
+        collectScanSelectors(plan, "", byTable,
+                Collections.newSetFromMap(new IdentityHashMap<>()));
         return byTable;
+    }
+
+    /**
+     * The walk behind {@link #scanSelectorsByTable}: mirrors {@code walkPlans} (children,
+     * extraPlans and expression subqueries, each node ONCE) while tracking the alias of
+     * the closest enclosing {@code LogicalSubQueryAlias} - a plain {@code FROM t a}
+     * parses as an alias node wrapping the unbound relation.
+     */
+    private static void collectScanSelectors(Plan node, String alias,
+            Map<String, List<ScanSelectorOccurrence>> byTable, Set<Plan> visited) {
+        if (node == null || !visited.add(node)) {
+            return;
+        }
+        String scopeAlias = alias;
+        if (node instanceof LogicalSubQueryAlias) {
+            String own = ((LogicalSubQueryAlias<?>) node).getAlias();
+            if (own != null && !own.isEmpty()) {
+                scopeAlias = own;
+            }
+        }
+        if (node instanceof UnboundRelation) {
+            UnboundRelation relation = (UnboundRelation) node;
+            List<String> nameParts = relation.getNameParts();
+            String table = nameParts == null || nameParts.isEmpty()
+                    ? "" : nameParts.get(nameParts.size() - 1);
+            byTable.computeIfAbsent(table, k -> new ArrayList<>())
+                    .add(new ScanSelectorOccurrence(scopeAlias, describeScanSelector(relation)));
+        }
+        for (Plan child : node.children()) {
+            collectScanSelectors(child, scopeAlias, byTable, visited);
+        }
+        for (Plan extra : node.extraPlans()) {
+            collectScanSelectors(extra, scopeAlias, byTable, visited);
+        }
+        for (Expression expression : node.getExpressions()) {
+            collectScanSelectorsFromExpression(expression, scopeAlias, byTable, visited);
+        }
+    }
+
+    /** Recurses one expression tree looking for subquery plans (mirrors walkPlans). */
+    private static void collectScanSelectorsFromExpression(Expression expression, String alias,
+            Map<String, List<ScanSelectorOccurrence>> byTable, Set<Plan> visited) {
+        if (expression instanceof SubqueryExpr) {
+            collectScanSelectors(((SubqueryExpr) expression).getQueryPlan(), alias, byTable,
+                    visited);
+        }
+        if (expression instanceof UnboundStar) {
+            for (NamedExpression replaced : ((UnboundStar) expression).getReplacedAlias()) {
+                collectScanSelectorsFromExpression(replaced, alias, byTable, visited);
+            }
+        }
+        for (Expression child : expression.children()) {
+            collectScanSelectorsFromExpression(child, alias, byTable, visited);
+        }
     }
 
     // ==================== view guard ====================

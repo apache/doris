@@ -101,13 +101,16 @@ public class DropBaselinePlanCommand extends Command implements Forward {
      * master: refresh the local cache right away so the removed baseline stops matching on
      * this FE without waiting for the next BaselineRefreshDaemon cycle. The refresh is
      * CONFIRMED: the local metadata is synchronized with the master first (the forward
-     * carries no journal wait of its own), a pre-DDL in-flight load is fenced and an
-     * unconfirmable read surfaces as a retryable failure instead of silently replaying the
-     * dropped baseline here.
+     * carries no journal wait of its own), a pre-DDL in-flight load is fenced, the ROW
+     * REMOVAL is confirmed before the snapshot may publish (round-39 #14: a DROP can
+     * return success while its DELETE publication lags, and republishing the old snapshot
+     * kept replaying the dropped baseline) and an unconfirmable read surfaces as a
+     * retryable failure instead of silently replaying the dropped baseline here.
      */
     @Override
     public void afterForwardToMaster(ConnectContext ctx) {
-        BaselineManager.getInstance().refreshAfterForwardedDdl(ctx);
+        BaselineManager.getInstance().refreshAfterForwardedDdl(ctx,
+                BaselineManager.ForwardedDdlExpectation.absent(baselineId));
     }
 
     @Override

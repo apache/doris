@@ -20,6 +20,7 @@ package org.apache.doris.nereids.spm.capture;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.statistics.repository.ResultRow;
@@ -31,6 +32,7 @@ import org.mockito.Mockito;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -67,6 +69,8 @@ public class PlanCaptureCycleHandoffTest {
         private final String returnCursorTail;
         /** when set, every scan() throws it (a failing audit scan, round-37 #6). */
         private RuntimeException scanError;
+        /** invoked at the END of every scan() call, before returning (mid-pass hooks). */
+        private Runnable onScan;
 
         RecordingScanner(List<CapturedQuery> candidates, boolean exhausted,
                 long returnCursorQueryTime, String returnCursorTime,
@@ -83,6 +87,10 @@ public class PlanCaptureCycleHandoffTest {
             this.scanError = error;
         }
 
+        void onScan(Runnable hook) {
+            this.onScan = hook;
+        }
+
         @Override
         public ScanBatch scan(long startTimeMs, long endTimeMs, int maxBatchSize,
                 PlanCaptureFilter filter, long cursorQueryTime, String cursorTime,
@@ -96,6 +104,9 @@ public class PlanCaptureCycleHandoffTest {
             tails.add(cursorTail);
             passZones.add(firstPassZoneId);
             thresholds.add(new long[] {filter.getMinQueryTimeMs(), filter.getMinScanRows()});
+            if (onScan != null) {
+                onScan.run();
+            }
             return new ScanBatch(candidates, exhausted, returnCursorQueryTime,
                     returnCursorTime, returnCursorQueryId, returnCursorTail);
         }
@@ -1475,6 +1486,218 @@ public class PlanCaptureCycleHandoffTest {
             Assertions.assertTrue(secondStart <= System.currentTimeMillis() - 10 * 60_000L,
                     "the overlap must retain the loader's outstanding horizon, got "
                             + secondStart + " vs the first window end " + firstEnd);
+        } finally {
+            manager.resetForTest();
+        }
+    }
+
+    // ============ round-39: zone passes, mid-drain publication, epoch fence ============
+
+    /**
+     * round-39 #13: the writer zone compared AT EXHAUSTION must be re-read there, not the
+     * sample taken before the page loop. A {@code SET GLOBAL time_zone} landing WHILE the
+     * pages are scanned stores newly published rows under the NEW zone (a 12:30 UTC event
+     * as 20:30); the stale comparison skipped the re-scan, the window checkpointed at
+     * 13:00, and the next (new-zone) window started around 20:55 - past the row forever.
+     */
+    @Test
+    public void testZoneChangedDuringThePassRescansTheWindow() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        SessionVariable global = VariableMgr.getDefaultSessionVariable();
+        String originalZone = global.getTimeZone();
+        try {
+            global.setTimeZone("UTC");
+            AtomicReference<Map<String, String>> visible = new AtomicReference<>();
+            manager.setCheckpointReaderForTest(() -> visible.get() == null
+                    ? List.of() : List.of(checkpointRow(visible.get())));
+            RecordingScanner scanner = new RecordingScanner(List.of(), true,
+                    AuditLogScanner.CURSOR_ABSENT, "", "", "");
+            // the zone flips MID-PASS: the pages were already told to render UTC bounds
+            scanner.onScan(() -> global.setTimeZone("Asia/Tokyo"));
+            manager.setScannerForTest(scanner);
+            manager.setCheckpointWriterForTest((sql, params) -> visible.set(new HashMap<>(params)));
+
+            manager.runCaptureCycle(global, manager.getFilter());
+
+            Assertions.assertEquals("UTC", scanner.passZones.get(0),
+                    "the pass opened in the zone current at its start");
+            Object[] fields = manager.checkpointFieldsForTest();
+            Assertions.assertEquals(0L, ((Number) fields[0]).longValue(),
+                    "the mid-pass zone change must NOT advance the watermark");
+            Assertions.assertNotEquals(0L, ((Number) fields[1]).longValue(),
+                    "the same window stays pending");
+            Assertions.assertEquals("Asia/Tokyo", manager.lastScanZoneForTest(),
+                    "the re-scan renders in the zone read AT EXHAUSTION");
+            Assertions.assertTrue(manager.isPendingWindowResumePromptForTest());
+
+            // the re-scan (second pass) runs in the new zone and completes the window
+            manager.runCaptureCycle(global, manager.getFilter());
+            Assertions.assertEquals("Asia/Tokyo", scanner.passZones.get(1),
+                    "the re-scan renders in the new zone");
+            Assertions.assertNotEquals(0L,
+                    ((Number) manager.checkpointFieldsForTest()[0]).longValue(),
+                    "with both zones covered the window completes and the watermark moves");
+        } finally {
+            global.setTimeZone(originalZone);
+            manager.resetForTest();
+        }
+    }
+
+    /**
+     * round-39 #3: TWO zone changes between two cycles (UTC -> America/New_York ->
+     * Asia/Tokyo). The capture never OBSERVES the intermediate zone (no cycle ran while
+     * it was current) - the cluster's writer-zone history (here: the scripted supplier,
+     * in production the publication-horizon table's per-FE writer_zones column) is what
+     * still requires a completed pass in it before the window may advance.
+     */
+    @Test
+    public void testIntermediateWriterZoneStillGetsItsOwnPass() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        SessionVariable global = VariableMgr.getDefaultSessionVariable();
+        String originalZone = global.getTimeZone();
+        try {
+            global.setTimeZone("UTC");
+            AtomicReference<Map<String, String>> visible = new AtomicReference<>();
+            manager.setCheckpointReaderForTest(() -> visible.get() == null
+                    ? List.of() : List.of(checkpointRow(visible.get())));
+            RecordingScanner scanner = new RecordingScanner(List.of(), true,
+                    AuditLogScanner.CURSOR_ABSENT, "", "", "");
+            manager.setScannerForTest(scanner);
+            manager.setCheckpointWriterForTest((sql, params) -> visible.set(new HashMap<>(params)));
+            // the cluster KNOWS about the intermediate zone: rows were rendered under it
+            // while the capture was idle between cycles
+            manager.setAuditWriterZonesForTest(
+                    () -> new LinkedHashSet<>(List.of("America/New_York")));
+
+            // cycle 1 drains in UTC; the intermediate zone has no pass yet
+            manager.runCaptureCycle(global, manager.getFilter());
+            Assertions.assertEquals("UTC", scanner.passZones.get(0));
+            Assertions.assertEquals(0L,
+                    ((Number) manager.checkpointFieldsForTest()[0]).longValue(),
+                    "the watermark must not advance before every writer zone was scanned");
+            Assertions.assertEquals("America/New_York", manager.lastScanZoneForTest());
+
+            // the global zone changes AGAIN before the next cycle
+            global.setTimeZone("Asia/Tokyo");
+            manager.runCaptureCycle(global, manager.getFilter());
+            Assertions.assertEquals("America/New_York", scanner.passZones.get(1),
+                    "the INTERMEDIATE zone gets its own completed pass");
+            Assertions.assertEquals(0L,
+                    ((Number) manager.checkpointFieldsForTest()[0]).longValue(),
+                    "the current zone Asia/Tokyo still owes its pass");
+            Assertions.assertEquals("Asia/Tokyo", manager.lastScanZoneForTest());
+
+            manager.runCaptureCycle(global, manager.getFilter());
+            Assertions.assertEquals("Asia/Tokyo", scanner.passZones.get(2));
+            Assertions.assertNotEquals(0L,
+                    ((Number) manager.checkpointFieldsForTest()[0]).longValue(),
+                    "once every writer zone was covered the window completes");
+        } finally {
+            global.setTimeZone(originalZone);
+            manager.resetForTest();
+        }
+    }
+
+    /**
+     * round-39 #6: a row that publishes BETWEEN the pages of one drain sorts BELOW the
+     * descending keyset cursor and is skipped; once the horizon clears, the next window's
+     * fixed overlap only reaches behind a NEW watermark and cannot recover it. The window
+     * must stay pending - re-scanned from its top - while an outstanding event's instant
+     * falls INSIDE it.
+     */
+    @Test
+    public void testWindowStaysPendingWhileAnInWindowEventIsOutstanding() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            AtomicReference<Long> horizon =
+                    new AtomicReference<>(System.currentTimeMillis() - 10 * 60_000L);
+            manager.setAuditQueueHorizonForTest(horizon::get);
+            RecordingScanner scanner = new RecordingScanner(List.of(), true,
+                    AuditLogScanner.CURSOR_ABSENT, "", "", "");
+            manager.setScannerForTest(scanner);
+            AtomicReference<Map<String, String>> visible = new AtomicReference<>();
+            manager.setCheckpointReaderForTest(() -> visible.get() == null
+                    ? List.of() : List.of(checkpointRow(visible.get())));
+            manager.setCheckpointWriterForTest((sql, params) -> visible.set(new HashMap<>(params)));
+
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Object[] fields = manager.checkpointFieldsForTest();
+            Assertions.assertEquals(0L, ((Number) fields[0]).longValue(),
+                    "an outstanding in-window event blocks the completion: its row may"
+                            + " publish below the position the cursor walked past");
+            long pendingStart = ((Number) fields[1]).longValue();
+            Assertions.assertNotEquals(0L, pendingStart, "the window stays pending");
+            Assertions.assertTrue(manager.isPendingWindowResumePromptForTest());
+
+            // the event publishes: nothing is outstanding -> the re-scan from the top sees
+            // its row and the window completes
+            horizon.set(0L);
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(pendingStart, scanner.windows.get(1)[0],
+                    "the completion pass covers the SAME pending window from its top");
+            Assertions.assertNotEquals(0L,
+                    ((Number) manager.checkpointFieldsForTest()[0]).longValue(),
+                    "with nothing outstanding the window completes");
+        } finally {
+            manager.resetForTest();
+        }
+    }
+
+    /**
+     * round-39 #16: the checkpoint UPSERT is fenced by a DURABLE leader epoch. A demoted
+     * FE's write forwards to the new master, so only the STATEMENT can refuse it (via the
+     * epoch condition); the production writer translates the zero affected-row count into
+     * {@link PlanCaptureManager.CheckpointWriteRefusedException} and the drain must STOP -
+     * consuming further pages while the store refuses the checkpoint is exactly what the
+     * handoff fence exists to prevent.
+     */
+    @Test
+    public void testRefusedCheckpointWriteStopsTheDrain() {
+        PlanCaptureManager manager = PlanCaptureManager.getInstance();
+        manager.resetForTest();
+        try {
+            AtomicReference<Long> storedEpoch = new AtomicReference<>(200L);
+            // this FE writes with a STALE epoch (it was demoted)
+            manager.setCheckpointEpochForTest(() -> 100L);
+            AtomicReference<Map<String, String>> visible = new AtomicReference<>();
+            manager.setCheckpointReaderForTest(() -> visible.get() == null
+                    ? List.of() : List.of(checkpointRow(visible.get())));
+            manager.setCheckpointWriterForTest((sql, params) -> {
+                if (Long.parseLong(params.get("epoch")) < storedEpoch.get()) {
+                    throw new PlanCaptureManager.CheckpointWriteRefusedException();
+                }
+                visible.set(new HashMap<>(params));
+            });
+            RecordingScanner scanner = new RecordingScanner(List.of(), true,
+                    AuditLogScanner.CURSOR_ABSENT, "", "", "");
+            manager.setScannerForTest(scanner);
+
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(0, scanner.calls.get(),
+                    "a refused RESERVATION write aborts the cycle before any page is"
+                            + " consumed - the new leader owns the checkpoint");
+
+            // this FE writes with a CURRENT epoch again: the statement accepts it
+            manager.setCheckpointEpochForTest(() -> 300L);
+            manager.runCaptureCycle(VariableMgr.getDefaultSessionVariable(),
+                    manager.getFilter());
+            Assertions.assertEquals(1, scanner.calls.get(), "the accepted cycle scans");
+            Assertions.assertNotEquals(0L,
+                    ((Number) manager.checkpointFieldsForTest()[0]).longValue(),
+                    "an accepted checkpoint write lets the window complete");
+
+            // the affected-row translator: 0 = refused, -1 (unknown) = treated as written
+            Assertions.assertFalse(PlanCaptureManager.checkpointWriteAccepted(0),
+                    "zero affected rows IS the durable refusal signal");
+            Assertions.assertTrue(PlanCaptureManager.checkpointWriteAccepted(-1),
+                    "an unknown count is never proof of a refusal");
+            Assertions.assertTrue(PlanCaptureManager.checkpointWriteAccepted(1));
         } finally {
             manager.resetForTest();
         }

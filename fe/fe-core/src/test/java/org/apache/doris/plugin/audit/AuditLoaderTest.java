@@ -29,7 +29,9 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -291,15 +293,64 @@ public class AuditLoaderTest {
                     "the probe must ask for the fenced batch's own event time: " + probes);
 
             // a fence that never becomes readable is released after the retention bound
+            long base = System.currentTimeMillis();
+            AuditLoader.publishFenceClockForTest = () -> base;
             Deencapsulation.invoke(loader, "retainPublishFence", 20_000L, "qid-lost");
-            setPrivateField(loader, "publishFenceSince",
-                    System.currentTimeMillis() - AuditLoader.PUBLISH_FENCE_MAX_MILLIS - 1);
             readable[0] = false;
+            AuditLoader.publishFenceClockForTest =
+                    () -> base + AuditLoader.PUBLISH_FENCE_MAX_MILLIS + 1;
             Deencapsulation.invoke(loader, "confirmPublishFence");
             Assertions.assertEquals(0L, AuditLoader.oldestUnpublishedEventTime(),
                     "a batch that never becomes readable must not fence forever");
         } finally {
             AuditLoader.publishVisibilityProbeForTest = null;
+            AuditLoader.publishFenceClockForTest = null;
+            setRunningLoader(null);
+        }
+    }
+
+    // round-39 #2: EVERY timed-out batch is retained and confirmed SEPARATELY. Keeping
+    // only the OLDEST batch's sample released the whole fence when that sample became
+    // visible although a newer batch B could still be committed but unreadable; the
+    // capture then checkpointed past B and once the watermark moved, later windows could
+    // never reach B's rows.
+    @Test
+    public void testEachTimedOutBatchFencesUntilItsOwnRowsAreReadable() throws Exception {
+        AuditLoader loader = new AuditLoader();
+        setPrivateField(loader, "auditEventQueue", Queues.newLinkedBlockingDeque());
+        setRunningLoader(loader);
+        // event times whose sample row is (becomes) readable
+        Set<Long> visible = new HashSet<>();
+        AuditLoader.publishVisibilityProbeForTest =
+                (eventTime, queryId) -> visible.contains(eventTime);
+        try {
+            Deencapsulation.invoke(loader, "retainPublishFence", 10_000L, "qid-a");
+            Deencapsulation.invoke(loader, "retainPublishFence", 30_000L, "qid-b");
+            Assertions.assertEquals(2, loader.pendingPublishFenceCountForTest(),
+                    "both timed-out batches must be tracked");
+            Assertions.assertEquals(10_000L, AuditLoader.oldestUnpublishedEventTime(),
+                    "the oldest pending batch owns the horizon value");
+
+            // A becomes readable FIRST: only A's fence may be released - B's rows can
+            // still be committed but unreadable
+            visible.add(10_000L);
+            Deencapsulation.invoke(loader, "confirmPublishFence");
+            Assertions.assertEquals(1, loader.pendingPublishFenceCountForTest(),
+                    "B's fence must survive A's visibility");
+            Assertions.assertEquals(30_000L, AuditLoader.oldestUnpublishedEventTime(),
+                    "B keeps fencing progress on its own event time");
+
+            // B publishes later, in the OPPOSITE order of the timeouts: its own sample
+            // probe releases it
+            visible.add(30_000L);
+            Deencapsulation.invoke(loader, "confirmPublishFence");
+            Assertions.assertEquals(0, loader.pendingPublishFenceCountForTest(),
+                    "each batch is released by its OWN sample becoming readable");
+            Assertions.assertEquals(0L, AuditLoader.oldestUnpublishedEventTime(),
+                    "nothing is outstanding once both batches published");
+        } finally {
+            AuditLoader.publishVisibilityProbeForTest = null;
+            AuditLoader.publishFenceClockForTest = null;
             setRunningLoader(null);
         }
     }

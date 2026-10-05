@@ -335,11 +335,31 @@ public class InternalSchema {
         // DROP removes rows, so MAX(id) of the table falls back and an id could be reused
         // for a different baseline - a delayed DROP-by-id retry for the old row would then
         // delete the new one. MAX(last_id) over these rows never decreases.
+        //
+        // The reservation ALSO carries the baseline's identity (bind_sql_digest +
+        // plan_sql_hash, with reserve_time): a create that COMMITTED but is not readable
+        // yet is invisible to the durable-key dedup, so a retry running on another FE
+        // (leader handoff / restart, where the in-memory pending registry is empty) must
+        // find and respect the reservation here instead of allocating a second id for the
+        // same baseline (round-39 #4). Rows written before these columns existed carry
+        // NULL and are skipped by the identity lookup; they reach no in-flight create
+        // anyway (they are long published), and reserve_time NULL ages them out.
         SPM_BASELINES_SEQ_SCHEMA = new ArrayList<>();
         SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("id",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
         SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("last_id",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("bind_sql_digest",
+                ScalarType.createVarchar(4096), ColumnNullableType.NULLABLE));
+        SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("plan_sql_hash",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
+        SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("reserve_time",
+                ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NULLABLE));
+        // 1 = the marker of an AMBIGUOUS create (round-39 #4): only these rows drive the
+        // durable pending-create fence - a plain reservation exists for every create
+        // (successful ones included) and must never block a legitimate re-create.
+        SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("unconfirmed",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
 
         // SPM plan-capture checkpoint (single row, id = 1): the truncated window bounds,
         // the FULL cursor (time, query_time, query_id + the encoded tie-breaker tail)
@@ -402,6 +422,13 @@ public class InternalSchema {
         // = never scanned (a fresh process follows the current global zone).
         SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("scan_zone",
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NOT_NULLABLE));
+        // leader_epoch fences the checkpoint UPSERT against leader handoff (round-39 #16):
+        // the writer's max journal id, a cluster-wide monotonic token. The conditional
+        // INSERT only replaces the row while the writer's epoch is not older than the
+        // stored one - a demoted FE's write forwards to the new master and executes
+        // there, so only the STATEMENT can refuse it.
+        SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("leader_epoch",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
         SPM_CAPTURE_CHECKPOINT_SCHEMA.add(new ColumnDef("update_time",
                 ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
 
@@ -411,7 +438,12 @@ public class InternalSchema {
         // name); horizon_ms is the start time of the oldest event that FE has accepted
         // but not published (0 = nothing outstanding), and update_time lets the reader
         // skip rows of an FE that stopped reporting. The row's size is constant, one
-        // row per FE.
+        // row per FE. writer_zones is the audit WRITER's zone history of that FE
+        // (zoneId=lastRenderedMillis pairs, see AuditWriterZones): audit_log.time stores
+        // the writer's local rendering, so the capture must scan a window in EVERY zone
+        // that can own rows before completing it - a zone change is invisible to the
+        // leader's own observations when it happens between two capture cycles (round-39
+        // #3).
         SPM_AUDIT_HORIZON_SCHEMA = new ArrayList<>();
         SPM_AUDIT_HORIZON_SCHEMA.add(new ColumnDef("fe_name",
                 ScalarType.createVarchar(128), ColumnNullableType.NOT_NULLABLE));
@@ -419,6 +451,8 @@ public class InternalSchema {
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
         SPM_AUDIT_HORIZON_SCHEMA.add(new ColumnDef("update_time",
                 ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
+        SPM_AUDIT_HORIZON_SCHEMA.add(new ColumnDef("writer_zones",
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
     }
 
     // Get copied schema for statistic table

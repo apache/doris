@@ -39,6 +39,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -90,27 +91,49 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     // being assembled, so a stale read can only under-, never over-state the horizon.
     private volatile long batchOldestEventTime = 0;
     // query id of the event that set batchOldestEventTime: the sample row a pending
-    // publish is probed with (see publishFenceOldestEventTime).
+    // publish is probed with (see pendingPublishFences).
     private String batchOldestQueryId = "";
     /**
-     * Fence of a batch whose stream load reported Publish Timeout (or failed ambiguously):
-     * the transaction is COMMITTED but its rows are not readable yet, so the batch must
-     * KEEP fencing progress until publication is confirmed (round-36 #2). Holds the start
-     * time of the oldest event of the oldest such batch; {@link #publishFenceQueryId} is
-     * its sample row, {@link #publishFenceSince} bounds how long it may fence in total
-     * (a batch that never becomes readable was lost - e.g. the txn rolled back - and
-     * fencing forever would freeze the capture instead of protecting anything).
+     * Fences of the batches whose stream loads reported Publish Timeout (or failed
+     * ambiguously): every such transaction is COMMITTED but its rows are not readable
+     * yet, so the batch must KEEP fencing progress until publication is confirmed
+     * (round-36 #2). EVERY pending batch is retained as its OWN entry (round-39 #2):
+     * keeping only the oldest batch's sample released the whole fence the moment that
+     * sample became visible, although a NEWER batch B could still be committed and
+     * unreadable - the capture then checkpointed past B, and once the watermark moved,
+     * later windows could never reach B's rows. Each entry carries its own sample row
+     * ({@code queryId}) and its own {@code since} bound (see
+     * {@link #PUBLISH_FENCE_MAX_MILLIS}). Guarded by the loader monitor.
      */
-    private long publishFenceOldestEventTime = 0;
-    private String publishFenceQueryId = "";
-    private long publishFenceSince = 0;
+    private final List<PublishFence> pendingPublishFences = new ArrayList<>();
+
+    /** One committed-but-unreadable batch (see {@link #pendingPublishFences}). */
+    private static final class PublishFence {
+        final long oldestEventTime;
+        final String queryId;
+        final long since;
+
+        PublishFence(long oldestEventTime, String queryId, long since) {
+            this.oldestEventTime = oldestEventTime;
+            this.queryId = queryId == null ? "" : queryId;
+            this.since = since;
+        }
+    }
 
     /**
      * How long a Publish-Timeout fence may hold progress without its sample row ever
      * becoming readable before it is released with a warning (see
-     * {@link #publishFenceOldestEventTime}).
+     * {@link #pendingPublishFences}).
      */
     public static final long PUBLISH_FENCE_MAX_MILLIS = 30 * 60 * 1000L;
+
+    /**
+     * Hard bound of {@link #pendingPublishFences}: a sustained Publish-Timeout rate over
+     * the whole fencing window would otherwise grow the list without limit. Beyond the
+     * bound the OLDEST entry is released early with a warning (it is the one closest to
+     * its own time bound anyway).
+     */
+    static final int MAX_PENDING_PUBLISH_FENCES = 256;
 
     /** How often the horizon reporter wakes up (it only writes on change / keepalive). */
     static final long HORIZON_REPORT_TICK_MILLIS = 5_000L;
@@ -138,6 +161,16 @@ public class AuditLoader extends Plugin implements AuditPlugin {
 
     @VisibleForTesting
     static volatile PublishVisibilityProbe publishVisibilityProbeForTest;
+
+    /** Test seam: the clock of the publish-fence bookkeeping (null = the real clock). */
+    @VisibleForTesting
+    static volatile java.util.function.LongSupplier publishFenceClockForTest;
+
+    /** The clock of the publish-fence bookkeeping (see {@link #publishFenceClockForTest}). */
+    private static long publishFenceNow() {
+        java.util.function.LongSupplier clock = publishFenceClockForTest;
+        return clock == null ? System.currentTimeMillis() : clock.getAsLong();
+    }
 
     // sometimes the audit log may fail to load to doris, count it to observe.
     private long discardLogNum = 0;
@@ -295,10 +328,13 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         synchronized (this) {
             long oldest = batchOldestEventTime;
             // a batch whose load reported Publish Timeout is COMMITTED but still
-            // unreadable: it keeps fencing until its rows are observed (round-36 #2)
-            if (publishFenceOldestEventTime > 0
-                    && (oldest == 0 || publishFenceOldestEventTime < oldest)) {
-                oldest = publishFenceOldestEventTime;
+            // unreadable: it keeps fencing until its rows are observed (round-36 #2);
+            // EVERY pending batch fences (round-39 #2), so the oldest of them is the
+            // value
+            for (PublishFence fence : pendingPublishFences) {
+                if (oldest == 0 || fence.oldestEventTime < oldest) {
+                    oldest = fence.oldestEventTime;
+                }
             }
             // the queue is drained FIFO, but the ENQUEUE order is not the event-time order
             // (the upstream hold releases events by completion, not by start), so every
@@ -322,6 +358,11 @@ public class AuditLoader extends Plugin implements AuditPlugin {
 
     private void fillLogBuffer(AuditEvent event, StringBuilder logBuffer) {
         // should be same order as InternalSchema.AUDIT_SCHEMA
+
+        // record the zone this row's time column is RENDERED in (round-39 #3): the SPM
+        // capture must scan a window in every zone that can own rows, and a zone change
+        // between two capture cycles is only observable HERE, at a render
+        AuditWriterZones.noteCurrentWriterZone();
 
         // uuid and time
         appendField(logBuffer, event.queryId);
@@ -511,71 +552,98 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     }
 
     /**
-     * Keeps the fence of a batch whose publication is not confirmed: the OLDEST such batch
-     * (and its sample row) owns the fence; a later timeout extends neither its time nor its
-     * sample, so the total wait stays bounded by {@link #PUBLISH_FENCE_MAX_MILLIS}.
+     * Retains the fence of a batch whose publication is not confirmed. EVERY pending
+     * batch gets its OWN entry (round-39 #2): the previous single slot kept only the
+     * OLDEST batch's sample, so the moment A's sample became visible the WHOLE fence was
+     * cleared although a newer batch B could still be committed and unreadable - the
+     * capture then checkpointed past B and later windows could never reach it. Each entry
+     * carries its own sample row (probed individually) and its own time bound, so the
+     * total wait of every batch stays bounded by {@link #PUBLISH_FENCE_MAX_MILLIS}.
      */
     private void retainPublishFence(long batchOldest, String batchQueryId) {
         if (batchOldest <= 0) {
             return;
         }
         synchronized (this) {
-            if (publishFenceOldestEventTime == 0 || batchOldest < publishFenceOldestEventTime) {
-                publishFenceOldestEventTime = batchOldest;
-                publishFenceQueryId = batchQueryId == null ? "" : batchQueryId;
-            }
-            if (publishFenceSince == 0) {
-                publishFenceSince = System.currentTimeMillis();
+            pendingPublishFences.add(new PublishFence(batchOldest,
+                    batchQueryId == null ? "" : batchQueryId, publishFenceNow()));
+            while (pendingPublishFences.size() > MAX_PENDING_PUBLISH_FENCES) {
+                PublishFence dropped = pendingPublishFences.remove(0);
+                LOG.warn("audit loader: releasing the publish fence of event time {} early"
+                                + " (more than {} batches await publication; each batch also"
+                                + " releases its own fence after {} ms)",
+                        dropped.oldestEventTime, MAX_PENDING_PUBLISH_FENCES,
+                        PUBLISH_FENCE_MAX_MILLIS);
             }
         }
     }
 
     /**
-     * Releases the publish fence once its sample row is READABLE, or after
-     * {@link #PUBLISH_FENCE_MAX_MILLIS} with the row never appearing (the batch was lost -
-     * fencing forever would freeze the capture instead of protecting anything). Called by
-     * the load worker on every tick; unconfirmable probes keep the fence.
+     * Releases the fence of EVERY pending batch whose sample row is READABLE (each batch
+     * is confirmed INDIVIDUALLY, round-39 #2), and the fences whose
+     * {@link #PUBLISH_FENCE_MAX_MILLIS} bound elapsed with the row never appearing (that
+     * batch was lost - fencing forever would freeze the capture instead of protecting
+     * anything). Called by the load worker on every tick; unconfirmable probes keep their
+     * fence.
      */
     private void confirmPublishFence() {
-        long fence;
-        String queryId;
+        List<PublishFence> pending;
         synchronized (this) {
-            fence = publishFenceOldestEventTime;
-            queryId = publishFenceQueryId;
+            if (pendingPublishFences.isEmpty()) {
+                return;
+            }
+            pending = new ArrayList<>(pendingPublishFences);
         }
-        if (fence <= 0) {
-            return;
-        }
-        boolean visible = publishVisibilityProbeForTest != null
-                ? publishVisibilityProbeForTest.isVisible(fence, queryId)
-                : publishFenceRowVisible(fence, queryId);
-        if (visible) {
-            clearPublishFence("its rows are readable now");
-            return;
-        }
-        synchronized (this) {
-            if (publishFenceOldestEventTime > 0 && publishFenceSince > 0
-                    && System.currentTimeMillis() - publishFenceSince > PUBLISH_FENCE_MAX_MILLIS) {
-                LOG.warn("audit loader: the Publish-Timeout fence of event time {} is still"
-                        + " unreadable after {} ms; assuming those rows were lost and"
-                        + " releasing the fence", publishFenceOldestEventTime,
-                        PUBLISH_FENCE_MAX_MILLIS);
-                publishFenceOldestEventTime = 0;
-                publishFenceQueryId = "";
-                publishFenceSince = 0;
+        long now = publishFenceNow();
+        for (PublishFence fence : pending) {
+            boolean visible = publishVisibilityProbeForTest != null
+                    ? publishVisibilityProbeForTest.isVisible(fence.oldestEventTime, fence.queryId)
+                    : publishFenceRowVisible(fence.oldestEventTime, fence.queryId);
+            if (visible) {
+                releasePublishFence(fence, "its rows are readable now");
+                continue;
+            }
+            if (now - fence.since > PUBLISH_FENCE_MAX_MILLIS) {
+                releasePublishFence(fence, "its rows are still unreadable after "
+                        + PUBLISH_FENCE_MAX_MILLIS + " ms; assuming the batch was lost");
             }
         }
     }
 
-    private void clearPublishFence(String reason) {
+    /**
+     * Releases ONE pending batch's fence (see {@link #confirmPublishFence}); the other
+     * pending batches keep fencing.
+     */
+    private void releasePublishFence(PublishFence fence, String reason) {
         synchronized (this) {
-            if (publishFenceOldestEventTime > 0) {
-                LOG.info("audit loader: released the Publish-Timeout fence of event time {}"
-                        + " ({})", publishFenceOldestEventTime, reason);
+            if (!pendingPublishFences.remove(fence)) {
+                return; // already released by an earlier tick
             }
-            publishFenceOldestEventTime = 0;
-            publishFenceQueryId = "";
-            publishFenceSince = 0;
+            LOG.info("audit loader: released the Publish-Timeout fence of event time {}"
+                            + " ({}; {} pending batches remain)", fence.oldestEventTime, reason,
+                    pendingPublishFences.size());
+        }
+    }
+
+    /** For tests: the event time of the OLDEST pending publish fence (0 = none). */
+    @VisibleForTesting
+    long oldestPublishFenceForTest() {
+        synchronized (this) {
+            long oldest = 0;
+            for (PublishFence fence : pendingPublishFences) {
+                if (oldest == 0 || fence.oldestEventTime < oldest) {
+                    oldest = fence.oldestEventTime;
+                }
+            }
+            return oldest;
+        }
+    }
+
+    /** For tests: how many batches currently fence progress (see #pendingPublishFences). */
+    @VisibleForTesting
+    int pendingPublishFenceCountForTest() {
+        synchronized (this) {
+            return pendingPublishFences.size();
         }
     }
 
@@ -671,6 +739,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         public void run() {
             long lastReported = -1;
             long lastReportAt = 0;
+            String lastReportedZones = "";
             while (!isClosed) {
                 try {
                     Thread.sleep(HORIZON_REPORT_TICK_MILLIS);
@@ -690,10 +759,16 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                     continue;
                 }
                 long now = System.currentTimeMillis();
+                // the audit WRITER's zone history travels with every report (round-39 #3):
+                // a zone change must reach the capture even while nothing is outstanding,
+                // so a changed registry reports immediately and keeps the (zero-horizon)
+                // row fresh on the keepalive cadence
+                String zones = AuditWriterZones.encode();
                 boolean changed = horizon != lastReported;
-                boolean keepAlive = horizon > 0
+                boolean zonesChanged = !zones.equals(lastReportedZones);
+                boolean keepAlive = (horizon > 0 || !zones.isEmpty())
                         && now - lastReportAt >= HORIZON_KEEPALIVE_MILLIS;
-                if (changed || keepAlive) {
+                if (changed || zonesChanged || keepAlive) {
                     // Remember the value only when the shared row CONFIRMS it (round-37
                     // #5): a failed / not-yet-visible write must be retried on the next
                     // tick, otherwise an old unpublished event would have no
@@ -701,6 +776,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                     if (AuditPublicationHorizon.reportLocalHorizon(horizon)) {
                         lastReported = horizon;
                         lastReportAt = now;
+                        lastReportedZones = zones;
                     }
                 }
             }

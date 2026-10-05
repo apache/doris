@@ -126,6 +126,11 @@ public class InternalSchemaInitializer extends Thread {
         // missing column would make every checkpoint write fail, silently losing the
         // leader-handoff cursor.
         ensureSpmCaptureCheckpointColumnsExist();
+        // ... and for the two SPM side tables: the id reservation rows carry the pending
+        // create's identity (round-39 #4) and the horizon rows carry each FE's audit
+        // writer zone history (round-39 #3); the writers always fill them.
+        ensureSpmBaselinesSeqColumnsExist();
+        ensureSpmAuditHorizonColumnsExist();
         for (String tblName : REPLICA_UPGRADED_INTERNAL_TABLES) {
             modifyTblReplicaCount(database, tblName);
         }
@@ -666,6 +671,10 @@ public class InternalSchemaInitializer extends Thread {
         // in this zone, otherwise rows already stored under it are unreachable.
         SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS.put("scan_zone",
                 ScalarType.createType(PrimitiveType.STRING));
+        // the checkpoint UPSERT's fencing token (round-39 #16): the writer's max journal
+        // id, refused when the stored row carries a newer one.
+        SPM_CAPTURE_CHECKPOINT_UPGRADE_COLUMNS.put("leader_epoch",
+                ScalarType.createType(PrimitiveType.BIGINT));
     }
 
     /**
@@ -690,6 +699,7 @@ public class InternalSchemaInitializer extends Thread {
         SPM_CAPTURE_CHECKPOINT_UPGRADE_POSITIONS.put("include_pattern", "min_scan_rows");
         SPM_CAPTURE_CHECKPOINT_UPGRADE_POSITIONS.put("exclude_pattern", "include_pattern");
         SPM_CAPTURE_CHECKPOINT_UPGRADE_POSITIONS.put("scan_zone", "exclude_pattern");
+        SPM_CAPTURE_CHECKPOINT_UPGRADE_POSITIONS.put("leader_epoch", "scan_zone");
     }
 
     /**
@@ -805,6 +815,149 @@ public class InternalSchemaInitializer extends Thread {
                     new AlterTableCommand(tableNameInfo, Lists.newArrayList(addColumnOp)));
             LOG.info("SPM: added the {} column to {}", entry.getKey(),
                     InternalSchema.SPM_CAPTURE_CHECKPOINT_TBL_NAME);
+            // ONE column per attempt: the table enters SCHEMA_CHANGE until this alter
+            // finishes, and the wait loop's next round continues with the remainder
+            return;
+        }
+    }
+
+    /**
+     * The columns an UPGRADED cluster must gain on a pre-existing spm_baselines_seq
+     * table (new clusters get them from the create SQL): bind_sql_digest / plan_sql_hash /
+     * reserve_time let a create's id reservation carry the baseline's identity, which is
+     * how the DURABLE unresolved-create fence of BaselineManager finds a committed but
+     * unpublished write after a leader handoff / restart (round-39 #4).
+     */
+    @VisibleForTesting
+    static final Map<String, ScalarType> SPM_BASELINES_SEQ_UPGRADE_COLUMNS = new LinkedHashMap<>();
+
+    static {
+        SPM_BASELINES_SEQ_UPGRADE_COLUMNS.put("bind_sql_digest", ScalarType.createVarchar(4096));
+        SPM_BASELINES_SEQ_UPGRADE_COLUMNS.put("plan_sql_hash",
+                ScalarType.createType(PrimitiveType.BIGINT));
+        SPM_BASELINES_SEQ_UPGRADE_COLUMNS.put("reserve_time",
+                ScalarType.createType(PrimitiveType.DATETIME));
+        // 1 = the marker of an AMBIGUOUS create (the durable pending-create fence reads
+        // only these rows); a plain reservation exists for every create and must never
+        // fence. NULL (pre-marker rows) is treated as "not unconfirmed".
+        SPM_BASELINES_SEQ_UPGRADE_COLUMNS.put("unconfirmed",
+                ScalarType.createType(PrimitiveType.BIGINT));
+    }
+
+    /**
+     * The columns an UPGRADED cluster must gain on a pre-existing spm_audit_horizon table
+     * (new clusters get them from the create SQL): writer_zones carries the audit
+     * writer's zone history of that FE, so the capture can require a window pass in every
+     * zone that may own rows (round-39 #3).
+     */
+    @VisibleForTesting
+    static final Map<String, ScalarType> SPM_AUDIT_HORIZON_UPGRADE_COLUMNS = new LinkedHashMap<>();
+
+    static {
+        SPM_AUDIT_HORIZON_UPGRADE_COLUMNS.put("writer_zones",
+                ScalarType.createType(PrimitiveType.STRING));
+    }
+
+    /**
+     * Waits until the spm_baselines_seq table carries every column of
+     * {@link #SPM_BASELINES_SEQ_UPGRADE_COLUMNS} (transient ALTER failures are retried
+     * HERE - run() calls this once and never comes back).
+     */
+    static void ensureSpmBaselinesSeqColumnsExist() {
+        ensureSpmUpgradeColumns(SPM_BASELINES_SEQ_UPGRADE_COLUMNS, "spm_baselines_seq",
+                InternalSchema.SPM_BASELINES_SEQ_TBL_NAME);
+    }
+
+    /**
+     * Waits until the spm_audit_horizon table carries every column of
+     * {@link #SPM_AUDIT_HORIZON_UPGRADE_COLUMNS}.
+     */
+    static void ensureSpmAuditHorizonColumnsExist() {
+        ensureSpmUpgradeColumns(SPM_AUDIT_HORIZON_UPGRADE_COLUMNS, "spm_audit_horizon",
+                InternalSchema.SPM_AUDIT_HORIZON_TBL_NAME);
+    }
+
+    /** Shared retry skeleton of the two upgrade loops above (see the checkpoint one). */
+    private static void ensureSpmUpgradeColumns(Map<String, ScalarType> upgradeColumns,
+            String label, String tableName) {
+        while (!spmUpgradeColumnsExist(upgradeColumns, tableName)) {
+            try {
+                upgradeSpmTableSchema(upgradeColumns, label, tableName);
+            } catch (Throwable t) {
+                LOG.warn("SPM: failed to add the {} columns, will retry", label, t);
+            }
+            if (spmUpgradeColumnsExist(upgradeColumns, tableName)) {
+                return;
+            }
+            try {
+                Thread.sleep(Config.resource_not_ready_sleep_seconds * 1000);
+            } catch (InterruptedException e) {
+                LOG.info("Sleep interrupted. {}", e.getMessage());
+            }
+        }
+    }
+
+    /** Whether a table already carries every upgraded column (false while it is absent). */
+    private static boolean spmUpgradeColumnsExist(Map<String, ScalarType> upgradeColumns,
+            String tableName) {
+        Optional<Database> dbOpt =
+                Env.getCurrentEnv().getInternalCatalog().getDb(FeConstants.INTERNAL_DB_NAME);
+        if (!dbOpt.isPresent()) {
+            return false;
+        }
+        Table table = dbOpt.get().getTable(tableName).orElse(null);
+        if (table == null) {
+            return false;
+        }
+        Set<String> existing = table.getBaseSchema().stream()
+                .map(column -> column.getName().toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+        return existing.containsAll(upgradeColumns.keySet());
+    }
+
+    /**
+     * Adds the missing columns of an upgrade map to a PRE-EXISTING table (one ALTER per
+     * attempt, plain APPEND: the two tables' canonical order puts the upgraded columns
+     * last, and their writes are name-addressed). Idempotent; throws on failure - the
+     * caller's retry loop owns the policy.
+     */
+    private static void upgradeSpmTableSchema(Map<String, ScalarType> upgradeColumns,
+            String label, String tableName) throws UserException {
+        Optional<Database> dbOpt =
+                Env.getCurrentEnv().getInternalCatalog().getDb(FeConstants.INTERNAL_DB_NAME);
+        if (!dbOpt.isPresent()) {
+            LOG.warn("SPM: internal schema db not found yet, will retry the {} upgrade", label);
+            return;
+        }
+        Table table = dbOpt.get().getTable(tableName).orElse(null);
+        if (table == null) {
+            LOG.warn("SPM: {} table not found yet, will retry the upgrade", label);
+            return;
+        }
+        // a table in SCHEMA_CHANGE rejects further ALTERs - wait for NORMAL instead of
+        // re-issuing the same column forever (see the checkpoint upgrade)
+        if (!(table instanceof OlapTable)
+                || ((OlapTable) table).getState() != OlapTable.OlapTableState.NORMAL) {
+            LOG.info("SPM: {} is not in NORMAL state ({}), waiting for the pending schema"
+                            + " change before the upgrade", label,
+                    table instanceof OlapTable ? ((OlapTable) table).getState() : "unknown");
+            return;
+        }
+        Set<String> existing = table.getBaseSchema().stream()
+                .map(column -> column.getName().toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+        for (Map.Entry<String, ScalarType> entry : upgradeColumns.entrySet()) {
+            if (existing.contains(entry.getKey())) {
+                continue;
+            }
+            ColumnDefinition definition = spmUpgradeColumnDefinition(entry.getKey(), entry.getValue());
+            AddColumnOp addColumnOp = new AddColumnOp(definition, null, null, null);
+            addColumnOp.setColumn(definition.translateToCatalogStyleForSchemaChange());
+            TableNameInfo tableNameInfo = new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
+                    FeConstants.INTERNAL_DB_NAME, tableName);
+            Env.getCurrentEnv().alterTable(
+                    new AlterTableCommand(tableNameInfo, Lists.newArrayList(addColumnOp)));
+            LOG.info("SPM: added the {} column to {}", entry.getKey(), tableName);
             // ONE column per attempt: the table enters SCHEMA_CHANGE until this alter
             // finishes, and the wait loop's next round continues with the remainder
             return;

@@ -29,9 +29,11 @@ import org.apache.doris.nereids.spm.SPMUtils;
 import org.apache.doris.nereids.spm.manager.BaselineManager;
 import org.apache.doris.plugin.audit.AuditLoader;
 import org.apache.doris.plugin.audit.AuditPublicationHorizon;
+import org.apache.doris.plugin.audit.AuditWriterZones;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.VariableMgr;
@@ -49,6 +51,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -195,28 +198,38 @@ public class PlanCaptureManager extends MasterDaemon {
      * INSERT after the DELETE left NO row for the next leader, which then derived a fresh
      * window and permanently skipped the deleted pending window's unconsumed tail.
      *
-     * The target columns are listed EXPLICITLY. The VALUES order below follows
-     * {@link org.apache.doris.catalog.InternalSchema#SPM_CAPTURE_CHECKPOINT_SCHEMA}, but
-     * the PHYSICAL order of an upgraded table can differ: the upgrade of a pre-existing
-     * table APPENDS the columns it adds ({@code InternalSchemaInitializer#
-     * upgradeSpmCaptureCheckpointSchema}), which used to place cursor_tail after
-     * update_time. A positional INSERT then shifts every value behind the first
-     * out-of-position column - the tail JSON was written into failed_attempts, the retry
-     * JSON into update_time and NOW() into cursor_tail - and the checkpoint write failed
-     * / persisted garbage. Address the columns by NAME instead: the write must stay
-     * correct on every physical layout, exactly like the (by-name) CHECKPOINT_SELECT_SQL
-     * read.
+     * The statement is a conditional INSERT ... SELECT (round-39 #16): it only writes
+     * while the writer's {@code leader_epoch} is not OLDER than the stored row's. A
+     * demoted leader's write FORWARDS and executes ON the new master, so no local
+     * leadership check can fence it - the STATEMENT itself must refuse. Without the
+     * condition, L1 (which passed isLeaderForCheckpointWrite before pausing) replaced
+     * L2's freshly REWOUND checkpoint (with its queued retry) by L1's ahead cursor and no
+     * retry entry, and L2's in-memory retry queue was the only remaining repair path. The
+     * epoch is the FE's max journal id (see {@link #currentLeaderEpoch}); the statement
+     * reports ZERO affected rows when it refuses, which the writer treats as a failed
+     * write (the drain stops and resumes promptly).
+     *
+     * The target columns are listed EXPLICITLY (never positional): the PHYSICAL order of
+     * an upgraded table can differ (the upgrade APPENDS what it adds), and a positional
+     * INSERT then shifts every value behind the first out-of-position column - the tail
+     * JSON was written into failed_attempts, the retry JSON into update_time and NOW()
+     * into cursor_tail - and the checkpoint write failed / persisted garbage. Address the
+     * columns by NAME instead, exactly like the (by-name) CHECKPOINT_SELECT_SQL read.
      */
     private static final String CHECKPOINT_INSERT_SQL =
             "INSERT INTO " + CHECKPOINT_TABLE
                     + " (`id`, `last_scan_timestamp`, `pending_window_start`, `pending_window_end`,"
                     + " `cursor_query_time`, `cursor_time`, `cursor_query_id`, `cursor_tail`,"
                     + " `failed_attempts`, `retry_queue`, `min_query_time_ms`, `min_scan_rows`,"
-                    + " `include_pattern`, `exclude_pattern`, `scan_zone`, `update_time`)"
-                    + " VALUES (" + CHECKPOINT_ID + ", ${lastScan}, ${pendingStart}, ${pendingEnd},"
+                    + " `include_pattern`, `exclude_pattern`, `scan_zone`, `leader_epoch`,"
+                    + " `update_time`)"
+                    + " SELECT " + CHECKPOINT_ID + ", ${lastScan}, ${pendingStart}, ${pendingEnd},"
                     + " ${cursorQueryTime}, '${cursorTime}', '${cursorQueryId}', '${cursorTail}',"
                     + " '${failedAttempts}', '${retryQueue}', ${minQueryTimeMs}, ${minScanRows},"
-                    + " '${includePattern}', '${excludePattern}', '${scanZone}', NOW())";
+                    + " '${includePattern}', '${excludePattern}', '${scanZone}', ${epoch}, NOW()"
+                    + " FROM (SELECT COALESCE(MAX(`leader_epoch`), ${epoch}) AS `epoch_floor`"
+                    + " FROM " + CHECKPOINT_TABLE + " WHERE `id` = " + CHECKPOINT_ID + ") s"
+                    + " WHERE ${epoch} >= s.`epoch_floor`";
 
     private AuditLogScanner scanner = new AuditLogScanner();
 
@@ -418,8 +431,26 @@ public class PlanCaptureManager extends MasterDaemon {
         void write(String sql, Map<String, String> params) throws Exception;
     }
 
-    private CheckpointWriter checkpointWriter = (sql, params) -> StatisticsUtil.execUpdate(
-            sql, params, CHECKPOINT_IO_TIMEOUT_SECONDS);
+    /**
+     * Raised when the conditional UPSERT REFUSED the write: the durable row carries a
+     * newer leader_epoch than the writer's (round-39 #16). The affected-row count of the
+     * real statement is the only signal, so the production writer translates it here and
+     * {@link #persistCheckpoint()} treats it as a failed write.
+     */
+    @VisibleForTesting
+    static final class CheckpointWriteRefusedException extends RuntimeException {
+        CheckpointWriteRefusedException() {
+            super("the conditional checkpoint UPSERT wrote no row: the durable row belongs"
+                    + " to a newer leader epoch");
+        }
+    }
+
+    private CheckpointWriter checkpointWriter = (sql, params) -> {
+        QueryState state = StatisticsUtil.execUpdate(sql, params, CHECKPOINT_IO_TIMEOUT_SECONDS);
+        if (state != null && !checkpointWriteAccepted(state.getAffectedRows())) {
+            throw new CheckpointWriteRefusedException();
+        }
+    };
 
     /**
      * Whether a scripted checkpoint read / write seam is installed (tests only). The
@@ -453,6 +484,33 @@ public class PlanCaptureManager extends MasterDaemon {
      * backlog (round-36 #1). Production reads the live shared table; tests replace it.
      */
     private LongSupplier auditQueueHorizon = AuditPublicationHorizon::clusterHorizon;
+
+    /**
+     * The zones the CLUSTER's audit writers have rendered rows in (round-39 #3): a window
+     * only completes after a pass in EVERY one of them (plus the current global zone),
+     * because rows stored under a zone that is no longer current are invisible to bounds
+     * rendered in the current zone. Production reads the shared table (+ this FE's live
+     * writer history); tests replace it.
+     */
+    private Supplier<Set<String>> auditWriterZones = AuditPublicationHorizon::clusterWriterZones;
+
+    /**
+     * The zones this pending window already COMPLETED a pass in (round-39 #3/#13). Seeded
+     * with the pass zone the durable checkpoint describes, and reset whenever the window
+     * is completed or abandoned. In-memory only: a takeover that restores the pending
+     * window re-scans zone passes it cannot remember - duplicates are filtered by the
+     * processed-query-id dedup, so the cost is a re-scan, never a correctness gap.
+     */
+    private final Set<String> scannedZonesInWindow = new LinkedHashSet<>();
+
+    /**
+     * The fencing token of the checkpoint UPSERT (round-39 #16): the max journal id of
+     * this FE - a cluster-wide monotonic clock - so a demoted leader's write (which
+     * FORWARDS and executes on the new master) is refused by the STATEMENT itself when
+     * the stored row carries a newer epoch. Production reads the live environment; tests
+     * replace it.
+     */
+    private LongSupplier checkpointEpoch = PlanCaptureManager::currentLeaderEpoch;
 
     // capture statistics (design doc 7.2.1 / 7.2.6)
     private final AtomicLong successCount = new AtomicLong(0);
@@ -609,9 +667,27 @@ public class PlanCaptureManager extends MasterDaemon {
             // shared table means the fence is INCOMPLETE, so the cycle is skipped and
             // retried promptly instead of advancing blind.
             long publicationHorizon;
+            Set<String> clusterWriterZones;
             try {
                 publicationHorizon = auditQueueHorizon.getAsLong();
+                // the writer zones travel with the SAME fail-closed read (round-39 #3):
+                // an unreadable zone set must not complete a window any more than an
+                // unreadable horizon may advance past it
+                Set<String> zones = auditWriterZones.get();
+                clusterWriterZones = zones == null ? Collections.emptySet() : zones;
             } catch (RuntimeException e) {
+                // The read failed and recorded nothing, so remember the window this cycle
+                // WOULD have consumed (round-39 #10): an empty checkpoint can load at
+                // 09:00, repeated horizon-read failures return here, and a 10:00 audit
+                // row may publish normally during the outage. When the reads recover at
+                // 15:00, a first window derived from [now-interval, now) alone would
+                // permanently skip it - exactly like the failed-checkpoint-read path
+                // above, record the earliest attempted start before returning.
+                long attemptedStart = System.currentTimeMillis()
+                        - Math.max(1L, global.getPlanCaptureIntervalSeconds()) * 1000L;
+                if (firstAttemptedWindowStart == 0 || attemptedStart < firstAttemptedWindowStart) {
+                    firstAttemptedWindowStart = attemptedStart;
+                }
                 pendingWindowNeedsPromptResume = true;
                 LOG.warn("Plan capture cycle skipped: the cluster audit publication horizon"
                         + " could not be read", e);
@@ -645,6 +721,14 @@ public class PlanCaptureManager extends MasterDaemon {
             String currentZoneId = AuditLogScanner.auditWriteZone().getId();
             String passZoneId = resolveScanPassZone(currentZoneId);
             lastScanZone = passZoneId;
+            // The zone passes this window still OWES (round-39 #3): the pass about to run
+            // counts as done here (it either completes this cycle or continues the same
+            // window next cycle with the same rendering), and the checkpoint's pass zone
+            // was seeded the same way on a takeover - so a restored pending window never
+            // re-scans a zone the previous leader already covered.
+            if (!passZoneId.isEmpty()) {
+                scannedZonesInWindow.add(passZoneId);
+            }
 
             if (!durableCheckpointObserved) {
                 // FIRST cycle after a successful-but-EMPTY read: the store holds NO row
@@ -759,20 +843,38 @@ public class PlanCaptureManager extends MasterDaemon {
                 // cursor it has, and the next cycle - scheduled promptly - retries.
                 pendingWindowNeedsPromptResume = true;
             } else if (batch.isWindowExhausted()) {
-                if (!passZoneId.equals(currentZoneId)) {
-                    // The window drained in the zone it was OPENED with (the cursor's
-                    // rendering), but the global time_zone changed since: rows published
-                    // AFTER the change were rendered in the NEW zone and the drained pass
-                    // could not see them. Re-scan the SAME window from its top in the
-                    // current zone instead of advancing the watermark - the reviewer's
-                    // example: a 10:00 UTC row stored as "10:00" is invisible to a
-                    // [17:00, 20:00) rendering, and the watermark would move past it
-                    // forever. `lastScanZone` follows the new pass, so the re-scan itself
-                    // advances normally once its rendering matches the global zone
-                    // (several changes chain one pass each).
-                    LOG.info("Plan capture: the global time_zone changed from {} to {} during"
-                            + " window [{}, {}); re-scanning it in the new zone before advancing",
-                            passZoneId, currentZoneId, scanStart, scanEnd);
+                // The pass THIS cycle rendered completed: record its zone.
+                scannedZonesInWindow.add(passZoneId);
+                // Re-read the global writer zone AT EXHAUSTION (round-39 #13): the value
+                // sampled before the page loop is stale when `SET GLOBAL time_zone` landed
+                // while the pages were scanned - a short row loaded under the NEW zone
+                // (e.g. a 12:30 UTC event stored as 20:30 under +08:00) is invisible to
+                // the UTC pages, and comparing the stale sample skipped the re-scan that
+                // would have seen it, so the window was checkpointed at 13:00 and the next
+                // +08:00 window started around 20:55 - past the row forever.
+                String exhaustZoneId = AuditLogScanner.auditWriteZone().getId();
+                // EVERY zone that can own rows of this window must get a completed pass
+                // before the watermark advances (round-39 #3): the union of the writer
+                // zones the cluster reported (plus this FE's live writer history), the
+                // zone this pass rendered in and the CURRENT global zone. A window drained
+                // in UTC and +08:00 while an intermediate -05:00 epoch rendered rows is
+                // otherwise advanced past events neither rendering can see.
+                Set<String> requiredZones = new LinkedHashSet<>(clusterWriterZones);
+                requiredZones.add(passZoneId);
+                requiredZones.add(exhaustZoneId);
+                String missingZone = firstNotScanned(requiredZones, scannedZonesInWindow);
+                if (missingZone != null) {
+                    // Re-scan the SAME window from its top in the missing zone instead of
+                    // advancing the watermark - rows rendered under that zone are
+                    // invisible to bounds rendered in the others (the reviewer's 12:00Z
+                    // event stored as 07:00 under -05:00 falls outside both the UTC and
+                    // the +08:00 renderings). `lastScanZone` follows the re-scan, so the
+                    // following pass itself advances normally once every required zone was
+                    // covered (several changes chain one pass each).
+                    LOG.info("Plan capture: the window [{}, {}) was not yet scanned in zone {}"
+                                    + " (completed passes: {}); re-scanning it there before"
+                                    + " advancing the watermark",
+                            scanStart, scanEnd, missingZone, scannedZonesInWindow);
                     pendingWindowStart = scanStart;
                     pendingWindowEnd = scanEnd;
                     pendingWindowFilter = cycleFilter;
@@ -780,7 +882,31 @@ public class PlanCaptureManager extends MasterDaemon {
                     cursorTime = "";
                     cursorQueryId = "";
                     cursorTail = "";
-                    lastScanZone = currentZoneId;
+                    lastScanZone = missingZone;
+                    pendingWindowNeedsPromptResume = true;
+                } else if (blocksWindowCompletion(publicationHorizon, scanStart, scanEnd)) {
+                    // An event that is STILL unpublished has an instant INSIDE this window
+                    // (round-39 #6): it may expose its row anywhere in the window when it
+                    // publishes - including BELOW the position the descending keyset
+                    // pagination has already walked past (a 10:30 row publishing between
+                    // page one and page two sorts before the 10:00 cursor and is skipped).
+                    // Completing the window is only safe once no such event exists:
+                    // re-scan the widened window from its TOP and resume promptly. When
+                    // the event publishes (or its 30-minute fence expires) the re-scan
+                    // sees the row; with nothing outstanding the completion proceeds
+                    // normally.
+                    LOG.info("Plan capture: window [{}, {}) stays pending: an audit event at"
+                                    + " {} is still unpublished and its row may appear inside"
+                                    + " the window after its page was walked; re-scanning from"
+                                    + " the top", scanStart, scanEnd, publicationHorizon);
+                    pendingWindowStart = scanStart;
+                    pendingWindowEnd = scanEnd;
+                    pendingWindowFilter = cycleFilter;
+                    cursorQueryTime = AuditLogScanner.CURSOR_ABSENT;
+                    cursorTime = "";
+                    cursorQueryId = "";
+                    cursorTail = "";
+                    lastScanZone = exhaustZoneId;
                     pendingWindowNeedsPromptResume = true;
                 } else {
                     // The whole window was scanned: advance the watermark to the CONSUMED
@@ -793,7 +919,7 @@ public class PlanCaptureManager extends MasterDaemon {
                     cursorTime = "";
                     cursorQueryId = "";
                     cursorTail = "";
-                    lastScanZone = currentZoneId;
+                    lastScanZone = exhaustZoneId;
                     if (!failedCaptureQueue.isEmpty()) {
                         // The window is consumed but retries outlived it: this cycle replayed at
                         // most MAX_RETRY_REPLAY_PER_CYCLE of them, so without a prompt resume the
@@ -1472,6 +1598,8 @@ public class PlanCaptureManager extends MasterDaemon {
                 ? "" : durableFilter.getExcludePatternText()));
         params.put("scanZone", StatisticsUtil.escapeSQL(durableScanZone == null
                 ? "" : durableScanZone));
+        // the conditional UPSERT's fencing token (round-39 #16, see CHECKPOINT_INSERT_SQL)
+        params.put("epoch", String.valueOf(checkpointEpoch.getAsLong()));
         try {
             // Single UPSERT: the new row is durable BEFORE the old one stops being read
             // (the table is UNIQUE-key(id) + merge-on-write), so no crash / timeout can
@@ -1488,6 +1616,16 @@ public class PlanCaptureManager extends MasterDaemon {
                 }
                 return null;
             });
+        } catch (CheckpointWriteRefusedException refused) {
+            // The conditional statement REFUSED the write: the durable row carries a newer
+            // leader epoch (round-39 #16). This FE is demoted, and forwarding the UPSERT
+            // to the new master would have replaced its rewound checkpoint - including a
+            // queued retry for a late audit row - with this FE's ahead cursor. Treat it
+            // as a failed write: the drain stops, the window stays pending with its
+            // cursor, and the real leader resumes it.
+            LOG.warn("SPM capture checkpoint NOT persisted: the durable row belongs to a"
+                    + " NEWER leader epoch (this FE is no longer the master)");
+            return false;
         } catch (Exception e) {
             LOG.warn("SPM capture checkpoint write failed (will retry next cycle): {}",
                     e.getMessage());
@@ -1861,6 +1999,14 @@ public class PlanCaptureManager extends MasterDaemon {
      * skip the window that cycle would have consumed, so the first derived window starts
      * there when that is EARLIER than the interval-derived start.
      *
+     * <p>The FIRST window (no watermark yet) is widened by the overlap as well (round-39
+     * #8): the overlap already folds the cluster publication horizon (see
+     * {@link #scanWindowOverlapMs(long, long, long)}), and a first pass delayed by leader
+     * readiness must start NO LATER than the oldest event any FE still owes. A 13:00 cycle
+     * with a three-hour interval and a valid 09:00 follower horizon otherwise started at
+     * 10:00, and a short 09:00 row publishing before the scan fell outside both the window
+     * and the next overlap (which only reaches behind a watermark that is never moved back).
+     *
      * @return [windowStart, windowEnd]
      */
     static long[] resolveScanWindow(long lastScanTimestamp, long pendingStart, long pendingEnd,
@@ -1869,7 +2015,7 @@ public class PlanCaptureManager extends MasterDaemon {
             return new long[] {pendingStart, pendingEnd};
         }
         long start = (lastScanTimestamp == 0)
-                ? currentTime - intervalMs
+                ? Math.max(0L, currentTime - Math.max(intervalMs, overlapMs))
                 : Math.max(0L, lastScanTimestamp - overlapMs);
         if (lastScanTimestamp == 0 && firstAttemptedStart > 0 && firstAttemptedStart < start) {
             start = firstAttemptedStart;
@@ -1901,12 +2047,45 @@ public class PlanCaptureManager extends MasterDaemon {
         return lastScanZone == null || lastScanZone.isEmpty() ? currentZoneId : lastScanZone;
     }
 
+    /** The first zone of {@code required} without a completed pass yet, or null (none). */
+    private static String firstNotScanned(Set<String> required, Set<String> scanned) {
+        for (String zone : required) {
+            if (zone != null && !zone.isEmpty() && !scanned.contains(zone)) {
+                return zone;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Whether an outstanding publication fences the window's completion (round-39 #6): an
+     * event that is still unpublished with an instant INSIDE {@code [scanStart, scanEnd)}
+     * may expose its row anywhere in the window when it publishes - including BELOW the
+     * position the descending keyset pagination already walked past - so the drained
+     * pages cannot be trusted to have seen it. The {@code >= scanStart} bound also covers
+     * the window's widened start (the overlap exists exactly for such events). A horizon
+     * outside the window cannot expose a row inside it, and 0 (nothing outstanding) never
+     * fences.
+     *
+     * @param publicationHorizon the cluster horizon observed at cycle start
+     * @param scanStart the window start (epoch millis)
+     * @param scanEnd the window end (epoch millis)
+     * @return whether the window must stay pending
+     */
+    private static boolean blocksWindowCompletion(long publicationHorizon, long scanStart,
+            long scanEnd) {
+        return publicationHorizon > 0 && publicationHorizon >= scanStart
+                && publicationHorizon < scanEnd;
+    }
+
     private void clearPendingWindow() {
         pendingWindowStart = 0;
         pendingWindowEnd = 0;
         // the pinned threshold snapshot belongs to the window: a later window must follow
         // the globals again
         pendingWindowFilter = null;
+        // the per-window zone-pass record belongs to the window as well (round-39 #3)
+        scannedZonesInWindow.clear();
     }
 
     /**
@@ -1920,10 +2099,19 @@ public class PlanCaptureManager extends MasterDaemon {
         // restore the production read / write seams (tests replace them)
         checkpointReader = () -> StatisticsUtil.executeQuery(
                 CHECKPOINT_SELECT_SQL, Collections.emptyMap(), CHECKPOINT_IO_TIMEOUT_SECONDS);
-        checkpointWriter = (sql, params) -> StatisticsUtil.execUpdate(
-                sql, params, CHECKPOINT_IO_TIMEOUT_SECONDS);
+        checkpointWriter = (sql, params) -> {
+            QueryState state = StatisticsUtil.execUpdate(sql, params, CHECKPOINT_IO_TIMEOUT_SECONDS);
+            if (state != null && !checkpointWriteAccepted(state.getAffectedRows())) {
+                throw new CheckpointWriteRefusedException();
+            }
+        };
         checkpointSeamsForTest = false;
         auditQueueHorizon = AuditPublicationHorizon::clusterHorizon;
+        auditWriterZones = AuditPublicationHorizon::clusterWriterZones;
+        checkpointEpoch = PlanCaptureManager::currentLeaderEpoch;
+        // the writer-zone registry is process-wide (written by the audit loader): a test
+        // must not inherit another test's zones through the production supplier
+        AuditWriterZones.resetForTest();
         successCount.set(0);
         skipDuplicateCount.set(0);
         skipSingleTableCount.set(0);
@@ -1991,6 +2179,31 @@ public class PlanCaptureManager extends MasterDaemon {
             return true;
         }
         return Env.getCurrentEnv().isMaster();
+    }
+
+    /**
+     * The checkpoint UPSERT's fencing token (round-39 #16): the FE's current max journal
+     * id. Journal ids are a cluster-wide MONOTONIC clock that grows across leadership
+     * changes (a new master journals before it can service writes), so a demoted
+     * leader's statement - which forwards to the new master and executes THERE - carries
+     * an epoch the stored row already exceeds, and the conditional statement refuses to
+     * overwrite. When the journal is unavailable (partial startup) the value falls back
+     * to 0: still refused behind any leader that ever wrote a positive epoch, and the
+     * first write of a fresh cluster (no row yet) always passes (the COALESCE floor).
+     *
+     * @return the fencing token
+     */
+    static long currentLeaderEpoch() {
+        try {
+            Env env = Env.getCurrentEnv();
+            if (env == null) {
+                return 0L;
+            }
+            Long journalId = env.getMaxJournalId();
+            return journalId == null ? 0L : journalId;
+        } catch (Throwable t) {
+            return 0L;
+        }
     }
 
     /**
@@ -2199,6 +2412,18 @@ public class PlanCaptureManager extends MasterDaemon {
         this.auditQueueHorizon = horizon;
     }
 
+    /** For tests: installs a scripted cluster audit WRITER zone set (round-39 #3). */
+    @VisibleForTesting
+    public void setAuditWriterZonesForTest(Supplier<Set<String>> zones) {
+        this.auditWriterZones = zones;
+    }
+
+    /** For tests: installs a scripted checkpoint UPSERT epoch (round-39 #16). */
+    @VisibleForTesting
+    public void setCheckpointEpochForTest(LongSupplier epoch) {
+        this.checkpointEpoch = epoch;
+    }
+
     @VisibleForTesting
     public void loadCheckpointForTest() {
         loadCheckpointIfNeeded();
@@ -2219,6 +2444,19 @@ public class PlanCaptureManager extends MasterDaemon {
     @VisibleForTesting
     public static String checkpointInsertSqlForTest() {
         return CHECKPOINT_INSERT_SQL;
+    }
+
+    /**
+     * Whether the conditional UPSERT's affected-row count PROVES it wrote the row
+     * (round-39 #16). An unknown count (-1) is NOT proof of a refusal, so it counts as
+     * written (the same convention as BaselineManager#insertWroteRows).
+     *
+     * @param affectedRows the statement's affected-row count
+     * @return whether the write may be treated as landed
+     */
+    @VisibleForTesting
+    static boolean checkpointWriteAccepted(long affectedRows) {
+        return affectedRows != 0;
     }
 
     /**
