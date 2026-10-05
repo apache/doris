@@ -81,6 +81,12 @@ import java.util.function.Supplier;
  *       read FAIL CLOSED instead: its pipeline may still owe events (and may even
  *       have gained events with OLDER start times), so neither the stale value may
  *       be trusted nor the fence released (round-38 #2).</li>
+ *   <li>a COMMITTED batch whose rows are only not readable yet (Publish Timeout) keeps
+ *       fencing even after its FE died: its {@code committed_fence_ms} marker survives
+ *       the death for the same bound the loader itself applies (round-40 #10) - the
+ *       FEs' writer-zone history in that row is kept for exactly as long as durable
+ *       capture progress has not passed it, so no uncompleted window loses its zone
+ *       (round-40 #2).</li>
  * </ul>
  */
 public final class AuditPublicationHorizon {
@@ -100,11 +106,25 @@ public final class AuditPublicationHorizon {
      */
     public static final long ROW_STALE_MILLIS = 5 * 60 * 1000L;
 
+    /**
+     * How long the committed-publication fence of a PROVABLY GONE FE keeps fencing
+     * (round-40 #10): a batch whose stream load reported Publish Timeout is COMMITTED,
+     * and its rows can become readable AFTER the FE died - dropping the fence at death
+     * would let the capture checkpoint past them. Deliberately the SAME bound the loader
+     * itself applies ({@link AuditLoader#PUBLISH_FENCE_MAX_MILLIS}): after it the batch
+     * is "conclusively lost" for both sides, so fencing longer would freeze the capture
+     * without protecting anything.
+     */
+    public static final long COMMITTED_FENCE_SURVIVAL_MILLIS =
+            AuditLoader.PUBLISH_FENCE_MAX_MILLIS;
+
     private static final String SELECT_ROWS_SQL =
-            "SELECT `fe_name`, `horizon_ms`, `update_time`, `writer_zones` FROM `"
+            "SELECT `fe_name`, `horizon_ms`, `update_time`, `writer_zones`,"
+                    + " `committed_fence_ms` FROM `"
                     + FeConstants.INTERNAL_DB_NAME + "`."
                     + "`" + InternalSchema.SPM_AUDIT_HORIZON_TBL_NAME + "`";
-    private static final String SELECT_OWN_ROW_SQL = "SELECT `horizon_ms` FROM `"
+    private static final String SELECT_OWN_ROW_SQL = "SELECT `horizon_ms`, `writer_zones`,"
+            + " `committed_fence_ms` FROM `"
             + FeConstants.INTERNAL_DB_NAME + "`."
             + "`" + InternalSchema.SPM_AUDIT_HORIZON_TBL_NAME + "` WHERE `fe_name` = '${feName}'";
     // ONE atomic statement per report: the table is a merge-on-write UNIQUE KEY(`fe_name`)
@@ -119,8 +139,9 @@ public final class AuditPublicationHorizon {
     // would drop exactly that knowledge.
     private static final String UPSERT_OWN_ROW_SQL = "INSERT INTO `" + FeConstants.INTERNAL_DB_NAME + "`."
             + "`" + InternalSchema.SPM_AUDIT_HORIZON_TBL_NAME + "`"
-            + " (`fe_name`, `horizon_ms`, `update_time`, `writer_zones`)"
-            + " VALUES ('${feName}', ${horizonMs}, '${updateTime}', '${writerZones}')";
+            + " (`fe_name`, `horizon_ms`, `update_time`, `writer_zones`, `committed_fence_ms`)"
+            + " VALUES ('${feName}', ${horizonMs}, '${updateTime}', '${writerZones}',"
+            + " ${committedFenceMs})";
     private static final String DELETE_OWN_ROW_SQL = "DELETE FROM `" + FeConstants.INTERNAL_DB_NAME + "`."
             + "`" + InternalSchema.SPM_AUDIT_HORIZON_TBL_NAME + "` WHERE `fe_name` = '${feName}'";
     private static final int IO_TIMEOUT_SECONDS = 10;
@@ -241,10 +262,13 @@ public final class AuditPublicationHorizon {
     }
 
     /**
-     * The zones registered in the FRESH rows of the shared table. Overdue rows are
-     * excluded here (the horizon read owns the fail-closed decision for those rows - by
-     * the time this is called for a cycle, {@link #clusterHorizon()} has already refused
-     * the cycle when a live reporter's row was overdue).
+     * The zones registered in the rows of the shared table. A row's zones stay REQUIRED
+     * until the DURABLE CAPTURE PROGRESS has passed the row's last refresh (round-40 #2):
+     * a follower can publish a row under a zone and then stop reporting (crash, stalled
+     * keepalive) while an uncompleted capture window still contains that row - dropping
+     * its zone here let a UTC leader exhaust the window scanning only its own zones and
+     * checkpoint past the row stored under e.g. -05:00. Fresh rows are always included;
+     * an unreadable capture watermark keeps every zone (fail closed).
      */
     private static Set<String> remoteWriterZones() {
         List<Object[]> rows;
@@ -268,7 +292,10 @@ public final class AuditPublicationHorizon {
                                 Long.parseLong(values.get(1).trim()),
                                 parseUpdateTime(values.get(2).trim()),
                                 values.size() > 3 && values.get(3) != null
-                                        ? values.get(3) : ""});
+                                        ? values.get(3) : "",
+                                values.size() > 4 && values.get(4) != null
+                                        && !values.get(4).trim().isEmpty()
+                                        ? Long.parseLong(values.get(4).trim()) : 0L});
                     }
                 }
             } catch (Exception e) {
@@ -278,13 +305,19 @@ public final class AuditPublicationHorizon {
         }
         Set<String> zones = new LinkedHashSet<>();
         long now = System.currentTimeMillis();
+        long coveredThrough = AuditWriterZones.captureCoveredThrough();
         for (Object[] row : rows) {
             if (row == null || row.length < 4 || row[2] == null) {
                 continue;
             }
             long updatedAt = (Long) row[2];
-            if (updatedAt <= 0 || now - updatedAt > ROW_STALE_MILLIS) {
-                continue; // a quiet FE's zone history is not refreshed any more
+            if (updatedAt <= 0) {
+                continue;
+            }
+            if (now - updatedAt > ROW_STALE_MILLIS && updatedAt < coveredThrough) {
+                // an expired row whose last render is COVERED by durable capture
+                // progress: no uncompleted window can still contain its rows
+                continue;
             }
             zones.addAll(AuditWriterZones.decode((String) row[3]));
         }
@@ -319,7 +352,10 @@ public final class AuditPublicationHorizon {
                                 Long.parseLong(values.get(1).trim()),
                                 parseUpdateTime(values.get(2).trim()),
                                 values.size() > 3 && values.get(3) != null
-                                        ? values.get(3) : ""});
+                                        ? values.get(3) : "",
+                                values.size() > 4 && values.get(4) != null
+                                        && !values.get(4).trim().isEmpty()
+                                        ? Long.parseLong(values.get(4).trim()) : 0L});
                     }
                 }
             } catch (Exception e) {
@@ -337,7 +373,12 @@ public final class AuditPublicationHorizon {
             String feName = (String) row[0];
             long horizon = (Long) row[1];
             long updatedAt = (Long) row[2];
-            if (horizon <= 0) {
+            long committedFence = row.length > 4 && row[4] != null ? (Long) row[4] : 0L;
+            // the COMMITTED fence is the stronger statement of the two (round-40 #10):
+            // the row's horizon already covers it while the reporter is alive, but after
+            // a crash only the marker says that rows may still publish
+            long fence = Math.max(horizon, committedFence);
+            if (fence <= 0) {
                 continue; // nothing outstanding: a zero row needs no fence
             }
             if (updatedAt <= 0 || now - updatedAt > ROW_STALE_MILLIS) {
@@ -350,6 +391,19 @@ public final class AuditPublicationHorizon {
                 // promptly instead of checkpointing past the unread fence.
                 Boolean alive = reportingFeAlive(feName);
                 if (Boolean.FALSE.equals(alive)) {
+                    if (committedFence > 0
+                            && now - updatedAt <= COMMITTED_FENCE_SURVIVAL_MILLIS) {
+                        // Round-40 #10: the batch is COMMITTED, so its rows can become
+                        // readable even though the FE is dead; the fence survives its
+                        // death until they are observed or the same bound the loader
+                        // itself applies has elapsed
+                        LOG.warn("audit publication horizon: keeping the COMMITTED fence"
+                                        + " {} of FE {} (not refreshed for {} ms) although the"
+                                        + " FE is gone: the committed batch may still publish",
+                                committedFence, feName, now - updatedAt);
+                        oldest = minPositive(oldest, committedFence);
+                        continue;
+                    }
                     LOG.warn("audit publication horizon: dropping the overdue fence of FE"
                             + " {} (oldest event {}, not refreshed for {} ms): the FE is"
                             + " gone, its events died with it", feName, horizon, now - updatedAt);
@@ -361,7 +415,7 @@ public final class AuditPublicationHorizon {
                         + " ms while the FE is " + (alive == null ? "not confirmably gone"
                         : "still alive") + "; the capture must retry on a later cycle");
             }
-            oldest = minPositive(oldest, horizon);
+            oldest = minPositive(oldest, fence);
         }
         return oldest;
     }
@@ -413,13 +467,20 @@ public final class AuditPublicationHorizon {
      * the FE's row for a positive horizon, a single DELETE for zero. A reader can never
      * observe the row missing while it is being refreshed by the old value.
      *
-     * @param horizon the local horizon (0 = nothing outstanding: the row is deleted)
+     * @param horizon the local horizon (0 = nothing outstanding: the row is deleted
+     *                unless the WRITER-ZONE set or a committed publish fence keeps it)
      * @return whether the written state is confirmed visible in the shared table
      */
     public static boolean reportLocalHorizon(long horizon) {
+        // A COMMITTED-but-unreadable batch must survive this FE's death (round-40 #10):
+        // the fence is folded in HERE, at write time, so even a report computed before the
+        // batch timed out (a stale zero, or the close path's clear) cannot DELETE or
+        // understate it - this is what keeps the crash/close gap closed.
+        long committedFence = AuditLoader.oldestCommittedPublishFenceEventTime();
+        long effectiveHorizon = Math.max(Math.max(0L, horizon), committedFence);
         Function<Long, Boolean> writer = localHorizonWriterForTest;
         if (writer != null) {
-            return Boolean.TRUE.equals(writer.apply(horizon));
+            return Boolean.TRUE.equals(writer.apply(effectiveHorizon));
         }
         if (!sharedTableAvailable()) {
             // no live FE environment (unit tests / not ready): no shared table, and also
@@ -435,15 +496,16 @@ public final class AuditPublicationHorizon {
             // still needs them for windows it has not completed, so deleting the row
             // would drop exactly that knowledge
             String writerZones = AuditWriterZones.encode();
-            if (horizon > 0 || !writerZones.isEmpty()) {
-                params.put("horizonMs", String.valueOf(Math.max(0L, horizon)));
+            if (effectiveHorizon > 0 || !writerZones.isEmpty()) {
+                params.put("horizonMs", String.valueOf(effectiveHorizon));
                 params.put("updateTime", renderUpdateTime(System.currentTimeMillis()));
                 params.put("writerZones", StatisticsUtil.escapeSQL(writerZones));
+                params.put("committedFenceMs", String.valueOf(committedFence));
                 StatisticsUtil.execUpdate(UPSERT_OWN_ROW_SQL, params, IO_TIMEOUT_SECONDS);
             } else {
                 StatisticsUtil.execUpdate(DELETE_OWN_ROW_SQL, params, IO_TIMEOUT_SECONDS);
             }
-            return ownRowConfirms(feName, horizon);
+            return ownRowConfirms(feName, effectiveHorizon, writerZones, committedFence);
         } catch (Exception e) {
             LOG.warn("audit publication horizon: cannot report the local fence {}: {}",
                     horizon, e.getMessage());
@@ -451,29 +513,53 @@ public final class AuditPublicationHorizon {
         }
     }
 
-    /** Removes this FE's row (graceful shutdown: nothing more will be published). */
+    /**
+     * Reports "this FE is done" (graceful shutdown). The row is DELETED unless a
+     * writer-zone set or a COMMITTED-but-unreadable batch keeps it (round-40 #10): the
+     * latter's rows can still publish after this FE stops, so its fence must survive it.
+     */
     public static void clearLocalReport() {
         reportLocalHorizon(0L);
     }
 
     /**
-     * Re-reads THIS FE's row and checks it matches what was just written: a positive
-     * horizon is confirmed when its row carries exactly that value, a zero horizon when
-     * no (or a non-positive) row remains. A read failure is an UNCONFIRMED write - the
-     * caller retries (round-37 #5).
+     * Re-reads THIS FE's row and checks it matches what was just written: the horizon
+     * value, the WRITER-ZONE SET (round-40 #3: a zero-horizon report carrying a NEW zone
+     * set is indistinguishable from the old row by the horizon alone - if the UPSERT
+     * committed without being readable, the reporter would record the new zones as
+     * reported and the capture could checkpoint in the gap without scanning the new
+     * zone) and the COMMITTED fence (round-40 #10: an unreadable marker would let a crash
+     * drop the fence). A read failure is an UNCONFIRMED write - the caller retries.
      */
-    private static boolean ownRowConfirms(String feName, long horizon) throws Exception {
+    private static boolean ownRowConfirms(String feName, long horizon, String writerZones,
+            long committedFenceMs) throws Exception {
         Map<String, String> params = new HashMap<>();
         params.put("feName", StatisticsUtil.escapeSQL(feName));
         List<ResultRow> rows = StatisticsUtil.executeQuery(SELECT_OWN_ROW_SQL, params, IO_TIMEOUT_SECONDS);
         long readBack = 0;
+        String readBackZones = "";
+        long readBackCommitted = 0;
         if (rows != null && !rows.isEmpty()) {
             List<String> values = rows.get(0).getValues();
             if (values != null && !values.isEmpty()) {
                 readBack = Long.parseLong(values.get(0).trim());
+                readBackZones = values.size() > 1 && values.get(1) != null ? values.get(1) : "";
+                readBackCommitted = values.size() > 2 && values.get(2) != null
+                        && !values.get(2).trim().isEmpty()
+                        ? Long.parseLong(values.get(2).trim()) : 0L;
             }
         }
-        return horizon > 0 ? readBack == horizon : readBack <= 0;
+        if (horizon > 0) {
+            return readBack == horizon && readBackCommitted == committedFenceMs
+                    && sameZones(readBackZones, writerZones);
+        }
+        return readBack <= 0 && readBackCommitted <= 0 && sameZones(readBackZones, writerZones);
+    }
+
+    /** Zone-set comparison of a read-back against the attempted report (null = empty). */
+    private static boolean sameZones(String readBack, String attempted) {
+        return (readBack == null ? "" : readBack.trim())
+                .equals(attempted == null ? "" : attempted.trim());
     }
 
     /**

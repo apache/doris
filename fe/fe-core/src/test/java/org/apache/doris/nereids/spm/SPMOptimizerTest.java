@@ -70,6 +70,42 @@ public class SPMOptimizerTest {
                 "the UK-driven ORDER BY reduction is not fingerprinted and must be excluded");
     }
 
+    /**
+     * round-40 #13: ELIMINATE_GROUP_BY rewrites a GROUP BY into a row-wise projection on
+     * a DECLARED UNIQUE key (DataTrait uniqueness the constraint feeds, which
+     * schemaFingerprint does not capture). After DROP CONSTRAINT + a duplicate-key insert
+     * the original query returns one summed row while the frozen replay would return two
+     * unsummed rows - same uniqueness family as the already-excluded _KEY rules.
+     */
+    @Test
+    public void testUniquenessDrivenGroupByEliminationIsExcluded() throws Exception {
+        Assertions.assertTrue(SPMOptimizer.getSpmExcludedRuleNames().contains("ELIMINATE_GROUP_BY"),
+                "the UNIQUE-key GROUP BY elimination is not fingerprinted and must be excluded");
+        Set<String> names = new HashSet<>(List.of(SPMOptimizer.buildSpmEnabledRules("").split(",")));
+        Assertions.assertFalse(names.contains("ELIMINATE_GROUP_BY"),
+                "the rule must not be whitelisted for baseline creation");
+    }
+
+    /**
+     * round-40 #11: OLAP_SCAN_PARTITION_PRUNE freezes the CURRENT partition set (it can
+     * even emit an empty relation, decompiled as WHERE FALSE), while an ADD PARTITION
+     * changes nothing schemaFingerprint hashes - the frozen baseline then keeps returning
+     * zero rows instead of the new partition's rows. Excluded together with
+     * PRUNE_EMPTY_PARTITION; the frozen SQL carries no partition pin for a pruned scan,
+     * so the replay re-derives the selection.
+     */
+    @Test
+    public void testPartitionPruningIsExcludedFromBaselineCreation() throws Exception {
+        Assertions.assertTrue(
+                SPMOptimizer.getSpmExcludedRuleNames().contains("OLAP_SCAN_PARTITION_PRUNE"),
+                "state-dependent partition pruning must be excluded");
+        Set<String> names = new HashSet<>(List.of(SPMOptimizer.buildSpmEnabledRules("").split(",")));
+        Assertions.assertFalse(names.contains("OLAP_SCAN_PARTITION_PRUNE"),
+                "the rule must not be whitelisted for baseline creation");
+        Assertions.assertFalse(names.contains("PRUNE_EMPTY_PARTITION"),
+                "its sibling stays excluded as before");
+    }
+
     @Test
     public void testMaterializedViewRulesEnumerated() {
         List<String> mvRules = SPMOptimizer.getMaterializedViewRuleNames();

@@ -202,6 +202,27 @@ public class TimeUtils {
         return longToTimeStringWithFormat(timeStamp, getDatetimeMsFormatWithTimeZone());
     }
 
+    /**
+     * {@link #longToTimeStringWithms(Long)} rendered in an EXPLICIT zone instead of the
+     * current session / global one: the audit loader must register the very zone a row's
+     * time column is rendered in (round-40 #8) - two independent reads of the global
+     * time_zone could observe a `SET GLOBAL time_zone` in between, and the row was then
+     * stored under a zone nobody had registered.
+     *
+     * @param timeStamp the epoch millis to render
+     * @param timeZone  the zone ID (null = the system zone, see
+     *                  {@link #getOrSystemTimeZone(String)})
+     * @return the {@code yyyy-MM-dd HH:mm:ss.SSS} rendering in that zone
+     */
+    public static String longToTimeStringWithms(Long timeStamp, String timeZone) {
+        if (timeStamp == null || timeStamp <= 0L) {
+            return FeConstants.null_string;
+        }
+        DateTimeFormatter dateFormat = DATETIME_MS_FORMAT.withZone(
+                getOrSystemTimeZone(timeZone).toZoneId());
+        return dateFormat.format(Instant.ofEpochMilli(timeStamp));
+    }
+
     public static Date getHourAsDate(String hour) {
         String fullHour = hour;
         if (fullHour.length() == 1) {

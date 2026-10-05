@@ -20,6 +20,7 @@ package org.apache.doris.nereids.spm.manager;
 import org.apache.doris.nereids.spm.BaselinePlan;
 import org.apache.doris.nereids.spm.BaselineSource;
 import org.apache.doris.nereids.spm.BaselineStatus;
+import org.apache.doris.nereids.spm.SPMUtils;
 import org.apache.doris.statistics.repository.ResultRow;
 
 import org.junit.jupiter.api.Assertions;
@@ -131,6 +132,15 @@ public class BaselineManagerConcurrencyTest {
                 long planSqlHash) {
             long[] entry = keyedReservations.get(bindSqlDigest + '\u0001' + planSqlHash);
             return entry == null ? null : new BaselineManager.SeqReservation(entry[0], entry[1]);
+        }
+
+        /** Round-40 #7: the marker DELETE of a resolved ambiguous write. */
+        @Override
+        public void retirePendingSeqState(String bindSqlDigest, long planSqlHash, long markerId) {
+            long[] entry = keyedReservations.get(bindSqlDigest + '\u0001' + planSqlHash);
+            if (entry != null && entry[0] == markerId) {
+                keyedReservations.remove(bindSqlDigest + '\u0001' + planSqlHash);
+            }
         }
 
         /** The table-wide newest stored update_time (round-39 #9). */
@@ -3045,6 +3055,188 @@ public class BaselineManagerConcurrencyTest {
         } finally {
             BaselineManager.idAllocatorStoreForTest = null;
             manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-40 #5: a FULL registry of committed-but-unpublished creates must not keep
+     * rejecting the retry of one of ITS OWN keys. The retry now resolves the remembered
+     * write before the capacity check: the row had long become readable, so the record is
+     * adopted (and retired) instead of throwing "registry is full".
+     */
+    @Test
+    public void testFullRegistryRetryAdoptsItsPublishedRow() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            List<Long> reservedIds = fillPendingRegistry(manager, store, "d-f5-");
+            Assertions.assertEquals(64, manager.pendingCreateCountForTest());
+            publishPendingRows(store, "d-f5-", reservedIds);
+            store.failInsert = false;
+
+            // every row is readable now: the retry of the FIRST key adopts its reserved
+            // id - before the fix it threw "registry is full" BEFORE resolvePendingCreate
+            long adopted = manager.createBaseline(baseline("d-f5-0", "p-d-f5-0"));
+            Assertions.assertEquals(reservedIds.get(0).longValue(), adopted,
+                    "the retry must adopt the publication of its own key");
+            Assertions.assertEquals(63, manager.pendingCreateCountForTest(),
+                    "the adopted record is retired");
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-40 #5: a create of a DIFFERENT key while the registry is full RECONCILES the
+     * records first - their rows became readable (or their fence expired) and they stop
+     * fencing - instead of refusing admission forever. Nothing is evicted while still
+     * unresolved (round-39 #12 keeps that property).
+     */
+    @Test
+    public void testFullRegistryReconcilesPublishedCreatesForANewKey() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            List<Long> reservedIds = fillPendingRegistry(manager, store, "d-f5b-");
+            publishPendingRows(store, "d-f5b-", reservedIds);
+            store.failInsert = false;
+
+            long fresh = manager.createBaseline(baseline("d-f5b-new", "p-d-f5b-new"));
+            Assertions.assertTrue(fresh > reservedIds.get(63),
+                    "the new create proceeds on a reconciled registry: " + fresh);
+            Assertions.assertEquals(0, manager.pendingCreateCountForTest(),
+                    "every readable record was retired by the reconciliation");
+            Assertions.assertNull(
+                    store.pendingSeqReservation("d-f5b-0", SPMUtils.hashOf("p-d-f5b-0")),
+                    "the durable markers of the reconciled records are retired too");
+            Assertions.assertEquals(1, store.rowsOf(fresh).size());
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-40 #7: adopting the committed row of an ambiguous create must RETIRE its
+     * durable marker. Left behind, the marker made a DROP + immediate re-CREATE of the
+     * same bind/plan defer for the whole marker fence: the probe found the old marker and
+     * the (dropped) row's absence and reported "still awaiting publication".
+     */
+    @Test
+    public void testDurableMarkerIsRetiredAfterTheAdoption() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            store.failInsert = true;
+            Assertions.assertThrows(IllegalStateException.class,
+                    () -> manager.createBaseline(baseline("d-ret", "p-ret")));
+            long reserved = store.reservedHighWater;
+            Assertions.assertNotNull(
+                    store.pendingSeqReservation("d-ret", SPMUtils.hashOf("p-ret")),
+                    "the ambiguous create appended the durable marker");
+
+            // the committed row publishes and the retry adopts it - the marker is retired
+            BaselinePlan committed = baseline("d-ret", "p-ret");
+            committed.setId(reserved);
+            store.replaceRows(reserved, List.of(committed));
+            store.failInsert = false;
+            Assertions.assertEquals(reserved,
+                    manager.createBaseline(baseline("d-ret", "p-ret")));
+            Assertions.assertNull(
+                    store.pendingSeqReservation("d-ret", SPMUtils.hashOf("p-ret")),
+                    "a resolved marker must stop fencing");
+
+            // DROP the adopted baseline and immediately re-CREATE the same bind/plan
+            Assertions.assertTrue(manager.dropBaseline(reserved));
+            long recreated = manager.createBaseline(baseline("d-ret", "p-ret"));
+            Assertions.assertTrue(recreated > reserved,
+                    "the re-create must not be blocked by the stale marker: " + recreated);
+            Assertions.assertEquals(1, store.rowsOf(recreated).size());
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * round-40 #12: the durable adoption must check the reserved row's SCHEMA
+     * FINGERPRINT. L1 committed under F1 and missed its probes; L2 takes over, an ALTER
+     * TABLE changes the schema to F2, and the retry on L2 finds the now-readable F1 row.
+     * Adopting it would report success for a baseline every replay rejects as stale - the
+     * row is retired and a fresh one is created under F2 (exactly like the in-memory
+     * registry path).
+     */
+    @Test
+    public void testDurableAdoptionRejectsAStaleFingerprint() {
+        BaselineManager manager = BaselineManager.getInstance();
+        manager.clearForTest();
+        SimulatedStore store = new SimulatedStore();
+        try {
+            BaselineManager.idAllocatorStoreForTest = store;
+            store.failInsert = true;
+            BaselinePlan original = baseline("d-fp", "p-fp");
+            original.setSchemaFingerprint("F1");
+            Assertions.assertThrows(IllegalStateException.class,
+                    () -> manager.createBaseline(original));
+            long reserved = store.reservedHighWater;
+
+            // a NEW leader (empty registry): the committed F1 row is readable, but the
+            // current schema is F2
+            manager.clearForTest();
+            BaselineManager.idAllocatorStoreForTest = store;
+            BaselinePlan committed = baseline("d-fp", "p-fp");
+            committed.setId(reserved);
+            committed.setSchemaFingerprint("F1");
+            store.replaceRows(reserved, List.of(committed));
+            store.failInsert = false;
+
+            BaselinePlan retry = baseline("d-fp", "p-fp");
+            retry.setSchemaFingerprint("F2");
+            long id = manager.createBaseline(retry);
+            Assertions.assertTrue(id > reserved,
+                    "the stale F1 row must not be adopted: " + id);
+            Assertions.assertTrue(store.rowsOf(reserved).isEmpty(),
+                    "the stale committed row is retired: " + store.rowsOf(reserved));
+            Assertions.assertEquals(1, store.rowsOf(id).size());
+            Assertions.assertEquals("F2", store.rowsOf(id).get(0).getSchemaFingerprint(),
+                    "the fresh row carries the CURRENT fingerprint");
+        } finally {
+            BaselineManager.idAllocatorStoreForTest = null;
+            manager.clearForTest();
+        }
+    }
+
+    /**
+     * Fills the pending-create registry with {@code 64} KEY-distinct ambiguous creates
+     * (every INSERT throws before committing) and returns the id each attempt reserved.
+     */
+    private static List<Long> fillPendingRegistry(BaselineManager manager,
+            SimulatedStore store, String prefix) {
+        store.failInsert = true;
+        List<Long> reservedIds = new ArrayList<>();
+        for (int i = 0; i < 64; i++) {
+            final int key = i;
+            Assertions.assertThrows(IllegalStateException.class,
+                    () -> manager.createBaseline(baseline(prefix + key, "p-" + prefix + key)));
+            reservedIds.add(store.reservedHighWater);
+        }
+        return reservedIds;
+    }
+
+    /** Makes every committed-but-invisible row of {@link #fillPendingRegistry} readable. */
+    private static void publishPendingRows(SimulatedStore store, String prefix,
+            List<Long> reservedIds) {
+        for (int i = 0; i < reservedIds.size(); i++) {
+            BaselinePlan committed = baseline(prefix + i, "p-" + prefix + i);
+            committed.setId(reservedIds.get(i));
+            store.replaceRows(reservedIds.get(i), List.of(committed));
         }
     }
 

@@ -208,6 +208,19 @@ public class BaselineManager {
         }
 
         /**
+         * Retires the durable UNCONFIRMED marker of a RESOLVED ambiguous write
+         * (round-40 #7): the simulated equivalent of the marker DELETE. The default
+         * keeps simulators without keyed markers working.
+         *
+         * @param bindSqlDigest the baseline's bind digest
+         * @param planSqlHash   the hash of the baseline's plan SQL
+         * @param markerId      the id the marker was appended for
+         */
+        default void retirePendingSeqState(String bindSqlDigest, long planSqlHash,
+                long markerId) {
+        }
+
+        /**
          * The newest stored update_time of the WHOLE simulated table, in epoch SECONDS
          * (0 = none): see {@link StatusProtocolStoreForTest#newestStoredUpdateSecond()}
          * (round-39 #9).
@@ -407,6 +420,18 @@ public class BaselineManager {
             + SPM_BASELINES_SEQ_TABLE + " WHERE `bind_sql_digest` = '${bindSqlDigest}'"
             + " AND `plan_sql_hash` = ${planSqlHash} AND `unconfirmed` = 1"
             + " ORDER BY `reserve_time` DESC LIMIT 1";
+
+    /**
+     * Retires the UNCONFIRMED marker(s) of ONE resolved ambiguous write (round-40 #7):
+     * flipped by {@link #retireSeqPendingMarker}. The DELETE touches only
+     * {@code unconfirmed = 1} rows of that last_id - the plain reservation row appended
+     * before every create (and every other id ever reserved) stays, so MAX(last_id) and
+     * with it the id watermark never fall.
+     */
+    private static final String DELETE_PENDING_SEQ_MARKER_SQL = "DELETE FROM "
+            + SPM_BASELINES_SEQ_TABLE + " WHERE `bind_sql_digest` = '${bindSqlDigest}'"
+            + " AND `plan_sql_hash` = ${planSqlHash} AND `unconfirmed` = 1"
+            + " AND `last_id` = ${lastId}";
 
     /**
      * The consistency fence of the paginated snapshot read (see
@@ -795,13 +820,28 @@ public class BaselineManager {
         // in-memory duplicate validation (phase 1) and the publication (phase 2). Holding
         // the state lock across the I/O would stall every SPM query's rewrite lookup.
         synchronized (writerLock) {
+            // Resolve the remembered write of THIS key BEFORE the capacity check
+            // (round-40 #5): a full registry used to reject even a retry of one of its
+            // OWN keys before resolvePendingCreate could adopt the row that had become
+            // readable and retire the record - and nothing else ever reaps the registry,
+            // so the FE rejected every GLOBAL CREATE until restart / leadership change.
+            PendingResolution resolved = resolvePendingCreate(plan);
+            if (resolved.adoptedId != null) {
+                return resolved.adoptedId;
+            }
             // Admission fence BEFORE any write (round-39 #12): when the registry of
             // committed-but-unpublished creates is full, this CREATE must fail before it
             // can write, not after. Evicting the OLDEST pending record used to let a
             // retry of that first key see its reserved sequence id but neither its row
             // nor a pending entry - it then allocated a new id and both rows later
             // published ENABLED. Refusing admission keeps every unresolved identity
-            // recorded until it becomes readable (or its fence expires).
+            // recorded until it becomes readable (or its fence expires). A full registry
+            // is RECONCILED first (round-40 #5): records whose row became readable (or
+            // whose fence expired) stop fencing, so only genuinely unresolved identities
+            // can refuse the write.
+            if (pendingCreates.size() >= MAX_PENDING_CREATES) {
+                reconcilePendingCreates();
+            }
             if (pendingCreates.size() >= MAX_PENDING_CREATES) {
                 throw new IllegalStateException("SPM cannot create baseline: "
                         + pendingCreates.size() + " previously committed writes of other"
@@ -813,17 +853,6 @@ public class BaselineManager {
             // watermark read fails fails visibly and allocates nothing, instead of silently
             // colliding with a row written by a newer master.
             final long watermark = readPersistedWatermark();
-            // An earlier CREATE of the SAME baseline may have reported a retryable failure
-            // AFTER its INSERT reported success (the row was committed but not readable).
-            // That id is consumed and INVISIBLE, so neither MAX(id) nor the durable-key read
-            // below can see it: allocating a second id here would publish both rows later
-            // (different ids) and dropping the id the client was told about would leave the
-            // other one ACTIVE. Resolve the remembered write first - adopt it once it is
-            // readable, otherwise DEFER the retry until it is.
-            PendingResolution resolved = resolvePendingCreate(plan);
-            if (resolved.adoptedId != null) {
-                return resolved.adoptedId;
-            }
             // Durable half of the same fence (round-39 #4): the in-memory registry above
             // is per-FE, so a retry that runs on the new master after a handoff (or after
             // a restart) finds no record here although the original write COMMITTED - the
@@ -1209,6 +1238,9 @@ public class BaselineManager {
                     LOG.warn("SPM failed to retire the stale pending-create row (id={}): {}",
                             pending.plan.getId(), e.getMessage());
                 }
+                // the marker described THAT write; with the row retired it must not fence
+                // a later retry either (round-40 #7)
+                retireSeqPendingMarker(pending.plan, pending.plan.getId());
                 LOG.warn("SPM pending create of baseline {}: its schema fingerprint changed"
                                 + " ({} -> {}); replacing the stale committed row",
                         pending.plan.getId(), pending.plan.getSchemaFingerprint(),
@@ -1217,6 +1249,11 @@ public class BaselineManager {
             }
             Long adopted = adoptReadablePendingRow(pending.plan.getId(), plan);
             if (adopted != null) {
+                // the resolution RETIRES the durable marker (round-40 #7): without this,
+                // the marker outlived the adoption and a DROP + immediate re-CREATE of
+                // the same bind/plan deferred for the whole marker fence (the probe saw
+                // the old marker and the now-absent row)
+                retireSeqPendingMarker(pending.plan, pending.plan.getId());
                 return new PendingResolution(adopted, true);
             }
             LOG.warn("SPM pending create of baseline {}: the id no longer carries this"
@@ -1237,13 +1274,7 @@ public class BaselineManager {
      * @return the adopted id, or null when the id carries no matching row
      */
     private Long adoptReadablePendingRow(long pendingId, BaselinePlan plan) {
-        BaselinePlan winner = null;
-        for (BaselinePlan row : readPersistedParsedById(pendingId)) {
-            if (!sameIdentity(row, plan)) {
-                continue; // the id carries a DIFFERENT baseline: never adopt it
-            }
-            winner = winner == null ? row : pickDurableWinner(winner, row);
-        }
+        BaselinePlan winner = readableIdentityRow(pendingId, plan);
         if (winner == null) {
             return null;
         }
@@ -1251,6 +1282,51 @@ public class BaselineManager {
         LOG.info("SPM pending create of baseline {} adopted from the durable table",
                 winner.getId());
         return winner.getId();
+    }
+
+    /** The durable winner among the rows of one id carrying THIS baseline's identity. */
+    private static BaselinePlan readableIdentityRow(long pendingId, BaselinePlan plan) {
+        BaselinePlan winner = null;
+        for (BaselinePlan row : readPersistedParsedById(pendingId)) {
+            if (!sameIdentity(row, plan)) {
+                continue; // the id carries a DIFFERENT baseline: never adopt it
+            }
+            winner = winner == null ? row : pickDurableWinner(winner, row);
+        }
+        return winner;
+    }
+
+    /**
+     * Retires the records that no longer fence when the admission bound is hit
+     * (round-40 #5): with 64 committed-but-invisible writes the registry refused EVERY
+     * new create - including a retry of one of those very keys - although the rows had
+     * long become readable, and nothing else ever reaps it. A record whose durable row is
+     * READABLE now (a retry of that key finds it through the durable-key dedup, so no id
+     * can be lost) or whose fence expired (the write is treated as LOST, exactly like
+     * {@link #resolvePendingCreate}'s expiry) is dropped; still-unresolved identities
+     * stay recorded.
+     */
+    private void reconcilePendingCreates() {
+        Iterator<PendingCreate> iterator = pendingCreates.iterator();
+        while (iterator.hasNext()) {
+            PendingCreate pending = iterator.next();
+            if (durableRowReadable(pending.plan)) {
+                iterator.remove();
+                // the record stops fencing; its durable marker must also be retired or a
+                // later DROP + re-CREATE of the key would defer on the stale marker
+                // (round-40 #7)
+                retireSeqPendingMarker(pending.plan, pending.plan.getId());
+                LOG.info("SPM pending create registry: baseline {} became readable; its"
+                        + " record no longer fences", pending.plan.getId());
+                continue;
+            }
+            if (System.currentTimeMillis() - pending.since > PENDING_CREATE_FENCE_MILLIS) {
+                iterator.remove();
+                LOG.warn("SPM pending create of baseline {}: still not readable after {} ms;"
+                                + " assuming the write was lost and retiring the record",
+                        pending.plan.getId(), PENDING_CREATE_FENCE_MILLIS);
+            }
+        }
     }
 
     /**
@@ -3081,6 +3157,47 @@ public class BaselineManager {
     }
 
     /**
+     * Retires the durable UNCONFIRMED marker(s) of a RESOLVED ambiguous write (round-40
+     * #7): once the reserved row became readable (or was retired as stale), the identity
+     * no longer fences - without this the marker outlived its resolution and rejected a
+     * legitimate DROP + immediate re-CREATE of the same bind/plan for up to
+     * {@link #DURABLE_PENDING_CREATE_FENCE_MILLIS}, since the probe saw the old marker
+     * and the now-absent row. The DELETE removes only {@code unconfirmed = 1} markers of
+     * THAT last_id; the plain reservation row appended before every create (and every
+     * other id ever reserved) stays, so the sequence WATERMARK never falls. Best effort:
+     * a failed delete leaves the fence in place, which only delays a re-create.
+     *
+     * @param plan     the baseline whose marker is retired
+     * @param markerId the id the marker was appended for
+     */
+    private static void retireSeqPendingMarker(BaselinePlan plan, long markerId) {
+        if (plan.getBindSqlDigest() == null || plan.getPlanSql() == null) {
+            return;
+        }
+        long planSqlHash = SPMUtils.hashOf(plan.getPlanSql());
+        if (idAllocatorStoreForTest != null) {
+            idAllocatorStoreForTest.retirePendingSeqState(plan.getBindSqlDigest(),
+                    planSqlHash, markerId);
+            return;
+        }
+        if (!persistenceEnabled()) {
+            return;
+        }
+        Map<String, String> params = new HashMap<>();
+        params.put("bindSqlDigest", StatisticsUtil.escapeSQL(plan.getBindSqlDigest()));
+        params.put("planSqlHash", String.valueOf(planSqlHash));
+        params.put("lastId", String.valueOf(markerId));
+        try {
+            StatisticsUtil.execUpdate(DELETE_PENDING_SEQ_MARKER_SQL, params,
+                    BASELINE_WRITE_TIMEOUT_SECONDS);
+        } catch (Exception e) {
+            LOG.warn("SPM could not retire the unconfirmed-create marker of baseline {}"
+                    + " (a later re-create of the key may defer until the fence expires): {}",
+                    markerId, e.getMessage());
+        }
+    }
+
+    /**
      * The DURABLE half of the unconfirmed-create fence (round-39 #4). The in-memory
      * {@link #pendingCreates} registry is per-FE: after a leader handoff (or a restart)
      * the retry of a committed-but-unpublished CREATE runs on an FE that never saw the
@@ -3120,10 +3237,48 @@ public class BaselineManager {
         }
         if (probeDurableRow(reservation.id, plan.getBindSqlDigest(), plan.getPlanSql())
                 == DurablePresence.PRESENT) {
+            BaselinePlan readable = readableIdentityRow(reservation.id, plan);
+            if (readable == null) {
+                // the id no longer carries this baseline: fall through, the normal create
+                // path owns the outcome
+                return null;
+            }
+            if (!Objects.equals(readable.getSchemaFingerprint(),
+                    plan.getSchemaFingerprint())) {
+                // Round-40 #12: the write committed under schema F1 and an ALTER TABLE
+                // changed the schema to F2 while it was still unreadable. Adopting F1
+                // would report success for a row every replay rejects as stale - the
+                // in-memory registry path replaces exactly this case. Retire the stale
+                // row (best effort: the durable-key check below retires it as soon as a
+                // read sees it) and let the normal path allocate a fresh row under F2.
+                try {
+                    persistDeleteByIdentity(readable);
+                } catch (RuntimeException e) {
+                    LOG.warn("SPM failed to retire the stale durable pending-create row"
+                            + " (id={}): {}", reservation.id, e.getMessage());
+                }
+                // the marker described THAT write; with the row retired it must not fence
+                // a later retry either (round-40 #7)
+                retireSeqPendingMarker(plan, reservation.id);
+                LOG.warn("SPM durable pending create of baseline {}: its schema fingerprint"
+                                + " changed ({} -> {}); replacing the stale committed row",
+                        reservation.id, readable.getSchemaFingerprint(),
+                        plan.getSchemaFingerprint());
+                return null;
+            }
             // readable now: ADOPT the reserved row - the same path as the in-memory
             // registry, and the only way the retry returns the id the first write
             // consumed instead of allocating a second one
-            return adoptReadablePendingRow(reservation.id, plan);
+            publishBaseline(readable);
+            // Round-40 #7: the resolution RETIRES the durable marker. Leaving it behind
+            // made a DROP + immediate re-CREATE of the same bind/plan defer for up to
+            // DURABLE_PENDING_CREATE_FENCE_MILLIS: the probe saw the old marker and the
+            // (dropped) row's absence. The marker's DELETE keeps the plain reservation
+            // row, so the id watermark never falls.
+            retireSeqPendingMarker(plan, reservation.id);
+            LOG.info("SPM durable pending create of baseline {} adopted from the durable"
+                    + " table", readable.getId());
+            return readable.getId();
         }
         if (System.currentTimeMillis() - reservation.reserveTimeMs
                 <= DURABLE_PENDING_CREATE_FENCE_MILLIS) {

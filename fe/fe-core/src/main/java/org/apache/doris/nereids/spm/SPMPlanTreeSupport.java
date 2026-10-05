@@ -82,6 +82,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUsingJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
@@ -253,7 +254,14 @@ public final class SPMPlanTreeSupport {
      * <p>Comparing INPUT IDENTITIES rather than node paths is deliberate: the replay is a
      * MANUAL frozen plan whose structure may legitimately differ from the caller's, so
      * only what the caller itself asked for (values AND the input they truncate) can
-     * justify a cap.
+     * justify a cap. The input identity carries the OCCURRENCE of the relation it names
+     * (round-40 #1): two caps over the same table are only equivalent when they truncate
+     * the SAME occurrence, otherwise a cap moved between same-table occurrences passed
+     * the multiset check and truncated the wrong side of e.g. a self join. The occurrence
+     * is the relation's per-name ORDINAL in walk order - NOT its alias, because the
+     * frozen text of a baseline is the DECOMPILED plan and the decompiler renames every
+     * derived alias (an identical-text baseline must keep hitting its own query: the
+     * alias-based form rejected it because the caller's `x` became `t_1`).
      *
      * @param replayed the replayed tree AFTER the limit merge
      * @param userPlan the caller's own tree
@@ -279,9 +287,23 @@ public final class SPMPlanTreeSupport {
      * different input than the caller's own cap of that value, and the positional merge
      * leaves it there (round-35 #3: a manual plan capped t2 while the caller's own cap
      * sat on t1; with one matching t1 row and two matching t2 rows the variant returned
-     * ONE row where the caller's own plan returns two). The key therefore includes the
-     * QUALIFIED NAMES of every relation beneath the cap, so a replayed cap only counts as
-     * one the caller also has when it truncates the same input.
+     * ONE row where the caller's own plan returns two). The key therefore includes every
+     * relation beneath the cap, so a replayed cap only counts as one the caller also has
+     * when it truncates the same input.
+     *
+     * <p>The input identities alone are not enough either when the SAME table occurs more
+     * than once: a manual plan can move {@code ORDER BY k LIMIT 1} from the first table
+     * instance to a second instance of the SAME table, and a caller raising only the
+     * outer LIMIT from 1 to 2 then compared {@code 1:0:t} against {@code 1:0:t} and
+     * accepted the replay - although t={1,2} yields (1,1),(2,1) instead of (1,1),(1,2)
+     * (round-40 #1). Each input therefore carries its OCCURRENCE ORDINAL among the
+     * relations of the same name, assigned in walk order: a cap moved to another
+     * occurrence of the same input gets a different key and the variant is skipped (its
+     * placement cannot be proven equivalent), which is always safe - the caller's own
+     * query then simply plans normally. The ordinal (rather than the alias name) is what
+     * keeps an IDENTICAL-text baseline matchable: its frozen text is the DECOMPILED plan,
+     * whose derived aliases are regenerated, while the relative order of the relation
+     * occurrences is preserved.
      *
      * <p>The walk covers the plans OUTSIDE children() as well - CTE bodies
      * (LogicalCTE.extraPlans()) and expression-owned subquery plans (IN / EXISTS / scalar,
@@ -292,100 +314,171 @@ public final class SPMPlanTreeSupport {
      * same cap twice.
      */
     private static void collectRowLimits(Plan plan, Map<String, Integer> out) {
-        collectRowLimits(plan, out, Collections.newSetFromMap(new IdentityHashMap<>()));
+        // pass 1: assign every relation its per-name occurrence ordinal in walk order;
+        // pass 2: collect the caps with those ordinals (the two walks are the same
+        // pre-order traversal - children, extraPlans, expressions - so an ordinal is
+        // identical on both sides whenever the two trees render the occurrences in the
+        // same relative order)
+        IdentityHashMap<Plan, Integer> relationOrdinals = new IdentityHashMap<>();
+        assignRelationOrdinals(plan, new HashMap<>(), relationOrdinals,
+                Collections.newSetFromMap(new IdentityHashMap<>()));
+        collectRowLimits(plan, out, relationOrdinals,
+                Collections.newSetFromMap(new IdentityHashMap<>()));
     }
 
-    private static void collectRowLimits(Plan plan, Map<String, Integer> out, Set<Plan> visited) {
+    private static void collectRowLimits(Plan plan, Map<String, Integer> out,
+            IdentityHashMap<Plan, Integer> relationOrdinals, Set<Plan> visited) {
         if (plan == null || !visited.add(plan)) {
             return;
         }
         if (plan instanceof LogicalLimit) {
             out.merge(rowLimitKey(((LogicalLimit<?>) plan).getLimit(),
-                    ((LogicalLimit<?>) plan).getOffset(), plan), 1, Integer::sum);
+                    ((LogicalLimit<?>) plan).getOffset(), plan, relationOrdinals),
+                    1, Integer::sum);
         } else if (plan instanceof LogicalTopN) {
             out.merge(rowLimitKey(((LogicalTopN<?>) plan).getLimit(),
-                    ((LogicalTopN<?>) plan).getOffset(), plan), 1, Integer::sum);
+                    ((LogicalTopN<?>) plan).getOffset(), plan, relationOrdinals),
+                    1, Integer::sum);
         }
         for (Plan child : plan.children()) {
-            collectRowLimits(child, out, visited);
+            collectRowLimits(child, out, relationOrdinals, visited);
         }
         for (Plan extra : plan.extraPlans()) {
-            collectRowLimits(extra, out, visited);
+            collectRowLimits(extra, out, relationOrdinals, visited);
         }
         for (Expression expression : plan.getExpressions()) {
-            collectRowLimits(expression, out, visited);
+            collectRowLimits(expression, out, relationOrdinals, visited);
         }
     }
 
     /** Recurses one expression tree looking for subquery plans (see walkSubqueryPlans). */
     private static void collectRowLimits(Expression expression, Map<String, Integer> out,
-            Set<Plan> visited) {
+            IdentityHashMap<Plan, Integer> relationOrdinals, Set<Plan> visited) {
         if (expression instanceof SubqueryExpr) {
-            collectRowLimits(((SubqueryExpr) expression).getQueryPlan(), out, visited);
+            collectRowLimits(((SubqueryExpr) expression).getQueryPlan(), out,
+                    relationOrdinals, visited);
         }
         if (expression instanceof UnboundStar) {
             for (NamedExpression replaced : ((UnboundStar) expression).getReplacedAlias()) {
-                collectRowLimits(replaced, out, visited);
+                collectRowLimits(replaced, out, relationOrdinals, visited);
             }
         }
         for (Expression child : expression.children()) {
-            collectRowLimits(child, out, visited);
+            collectRowLimits(child, out, relationOrdinals, visited);
         }
     }
 
-    /** The identity of one row-limiting node: its values AND the input it truncates. */
-    private static String rowLimitKey(long limit, long offset, Plan limitNode) {
+    /** Pre-order walk assigning each relation node its per-name occurrence ordinal. */
+    private static void assignRelationOrdinals(Plan plan, Map<String, Integer> counters,
+            IdentityHashMap<Plan, Integer> ordinals, Set<Plan> visited) {
+        if (plan == null || !visited.add(plan)) {
+            return;
+        }
+        String name = relationNameOf(plan);
+        if (name != null) {
+            ordinals.put(plan, counters.merge(name, 1, Integer::sum));
+        }
+        for (Plan child : plan.children()) {
+            assignRelationOrdinals(child, counters, ordinals, visited);
+        }
+        for (Plan extra : plan.extraPlans()) {
+            assignRelationOrdinals(extra, counters, ordinals, visited);
+        }
+        for (Expression expression : plan.getExpressions()) {
+            assignRelationOrdinals(expression, counters, ordinals, visited);
+        }
+    }
+
+    /** Recurses one expression tree for relation ordinals (see assignRelationOrdinals). */
+    private static void assignRelationOrdinals(Expression expression,
+            Map<String, Integer> counters, IdentityHashMap<Plan, Integer> ordinals,
+            Set<Plan> visited) {
+        if (expression instanceof SubqueryExpr) {
+            assignRelationOrdinals(((SubqueryExpr) expression).getQueryPlan(), counters,
+                    ordinals, visited);
+        }
+        if (expression instanceof UnboundStar) {
+            for (NamedExpression replaced : ((UnboundStar) expression).getReplacedAlias()) {
+                assignRelationOrdinals(replaced, counters, ordinals, visited);
+            }
+        }
+        for (Expression child : expression.children()) {
+            assignRelationOrdinals(child, counters, ordinals, visited);
+        }
+    }
+
+    /**
+     * The identity of one row-limiting node: its values AND the occurrence-tagged
+     * relations it truncates (see the collectRowLimits javadoc).
+     */
+    private static String rowLimitKey(long limit, long offset, Plan limitNode,
+            IdentityHashMap<Plan, Integer> relationOrdinals) {
         Set<String> inputs = new TreeSet<>();
-        collectRelationInputs(limitNode, inputs,
+        collectRelationInputs(limitNode, relationOrdinals, inputs,
                 Collections.newSetFromMap(new IdentityHashMap<>()));
         return limit + ":" + offset + ":" + String.join(",", inputs);
     }
 
     /**
-     * The QUALIFIED name of every relation beneath a row-limiting node (children, CTE
-     * bodies and expression-owned subquery plans included). A subtree without a relation
-     * (a FROM-less child) contributes nothing - the key then identifies the cap by its
+     * The OCCURRENCE-TAGGED name of every relation beneath a row-limiting node (children,
+     * CTE bodies and expression-owned subquery plans included): {@code db.t#N} with N the
+     * node's per-name ordinal in the tree's walk order. A subtree without a relation (a
+     * FROM-less child) contributes nothing - the key then identifies the cap by its
      * values alone, exactly as the caller's equivalent cap does.
      */
-    private static void collectRelationInputs(Plan plan, Set<String> out, Set<Plan> visited) {
+    private static void collectRelationInputs(Plan plan,
+            IdentityHashMap<Plan, Integer> relationOrdinals, Set<String> out,
+            Set<Plan> visited) {
         if (plan == null || !visited.add(plan)) {
             return;
         }
-        if (plan instanceof UnboundRelation) {
-            List<String> parts = ((UnboundRelation) plan).getNameParts();
-            if (parts != null && !parts.isEmpty()) {
-                out.add(String.join(".", parts));
-            }
-        } else if (plan instanceof LogicalCatalogRelation) {
-            out.add(((LogicalCatalogRelation) plan).getTable().getNameWithFullQualifiers());
-        } else if (plan instanceof UnboundTVFRelation) {
-            out.add(((UnboundTVFRelation) plan).getFunctionName());
+        String name = relationNameOf(plan);
+        if (name != null) {
+            Integer ordinal = relationOrdinals.get(plan);
+            out.add(ordinal == null ? name : name + "#" + ordinal);
         }
         for (Plan child : plan.children()) {
-            collectRelationInputs(child, out, visited);
+            collectRelationInputs(child, relationOrdinals, out, visited);
         }
         for (Plan extra : plan.extraPlans()) {
-            collectRelationInputs(extra, out, visited);
+            collectRelationInputs(extra, relationOrdinals, out, visited);
         }
         for (Expression expression : plan.getExpressions()) {
-            collectRelationInputs(expression, out, visited);
+            collectRelationInputs(expression, relationOrdinals, out, visited);
         }
     }
 
     /** Recurses one expression tree for relation inputs (see collectRelationInputs). */
-    private static void collectRelationInputs(Expression expression, Set<String> out,
+    private static void collectRelationInputs(Expression expression,
+            IdentityHashMap<Plan, Integer> relationOrdinals, Set<String> out,
             Set<Plan> visited) {
         if (expression instanceof SubqueryExpr) {
-            collectRelationInputs(((SubqueryExpr) expression).getQueryPlan(), out, visited);
+            collectRelationInputs(((SubqueryExpr) expression).getQueryPlan(),
+                    relationOrdinals, out, visited);
         }
         if (expression instanceof UnboundStar) {
             for (NamedExpression replaced : ((UnboundStar) expression).getReplacedAlias()) {
-                collectRelationInputs(replaced, out, visited);
+                collectRelationInputs(replaced, relationOrdinals, out, visited);
             }
         }
         for (Expression child : expression.children()) {
-            collectRelationInputs(child, out, visited);
+            collectRelationInputs(child, relationOrdinals, out, visited);
         }
+    }
+
+    /** The qualified name of one relation node, or null when the node is not a relation. */
+    private static String relationNameOf(Plan plan) {
+        if (plan instanceof UnboundRelation) {
+            List<String> parts = ((UnboundRelation) plan).getNameParts();
+            return parts == null || parts.isEmpty() ? null : String.join(".", parts);
+        }
+        if (plan instanceof LogicalCatalogRelation) {
+            return ((LogicalCatalogRelation) plan).getTable().getNameWithFullQualifiers();
+        }
+        if (plan instanceof UnboundTVFRelation) {
+            return ((UnboundTVFRelation) plan).getFunctionName();
+        }
+        return null;
     }
 
     // ==================== whole-tree transform (parameterize / substitute) ====================
@@ -1888,10 +1981,23 @@ public final class SPMPlanTreeSupport {
      * query in an {@link UnboundResultSink} (which carries NO output items of its own and
      * rejects withOutputExprs) and a top-level LIMIT / TOP N sits above the projection as
      * well, so the list that reaches the caller lives on the outermost
-     * {@link LogicalProject} (or on a resolved sink). The shapes are already proven equal
-     * by the structural check, and an arity mismatch (SELECT *, SELECT * EXCEPT(...) - the
-     * user's tree keeps the star as ONE item) leaves the tree untouched, because those
-     * labels are real column names, not captured expression text.
+     * {@link LogicalProject}, {@link LogicalAggregate} / {@link LogicalWindow} (which
+     * produce the select list directly, without a separate projection above them) or on a
+     * resolved sink. The shapes are already proven equal by the structural check, and an
+     * arity mismatch (SELECT *, SELECT * EXCEPT(...) - the user's tree keeps the star as
+     * ONE item) leaves the tree untouched, because those labels are real column names,
+     * not captured expression text.
+     *
+     * <p>A node that PRODUCES the caller's rows must stop the walk (round-41 #1):
+     * descending past an aggregate without a projection above it (or past a window) used
+     * to land on an INNER derived-table project and rename ITS items position by
+     * position. When the frozen plan had reordered that projection (the optimizer
+     * projects the frozen {@code (C_ACCTBAL, substring(...) AS cc)} while the caller's
+     * text spells {@code (substr(...) AS cc, c_acctbal)}), the positional rename swapped
+     * the derived column NAMES and every outer reference bound to the swapped side - the
+     * replay of TPCH q22 (GROUP BY cc, sum(c_acctbal) over such a derived plan) grouped by
+     * {@code c_acctbal} and summed the country code instead. The rename must only ever
+     * touch the node whose output items ARE the caller-visible list.
      *
      * @param rewritten the replayed tree (frozen text or parameterized fallback)
      * @param userPlan  the caller's own (namespace-qualified) tree
@@ -1959,9 +2065,7 @@ public final class SPMPlanTreeSupport {
         if (!changed) {
             return rewritten;
         }
-        Plan rebuilt = rewrittenNode instanceof LogicalProject
-                ? ((LogicalProject<?>) rewrittenNode).withProjects(aligned)
-                : ((LogicalSink<?>) rewrittenNode).withOutputExprs(aligned);
+        Plan rebuilt = rebuildWithOutputItems(rewrittenNode, aligned);
         // rebuild the skipped wrapper chain (innermost ancestor first)
         for (Plan ancestor : rewrittenAncestors) {
             rebuilt = ancestor.withChildren(java.util.List.of(rebuilt));
@@ -1969,13 +2073,36 @@ public final class SPMPlanTreeSupport {
         return (LogicalPlan) rebuilt;
     }
 
+    /** Rebuilds one output-carrying node with a new caller-visible item list (see
+     * {@link #carriesOutputList}). */
+    private static Plan rebuildWithOutputItems(Plan node, List<NamedExpression> items) {
+        if (node instanceof LogicalProject) {
+            return ((LogicalProject<?>) node).withProjects(items);
+        }
+        if (node instanceof LogicalAggregate) {
+            // the aggregate IS the query block's output: an aggregate-rooted query
+            // (SELECT cc, count(*) ... GROUP BY cc) has no projection above it, so the
+            // aligned list must go through withAggOutput
+            return ((LogicalAggregate<?>) node).withAggOutput(items);
+        }
+        if (node instanceof LogicalWindow) {
+            return ((LogicalWindow<?>) node).withExpressionsAndChild(items, node.child(0));
+        }
+        return ((LogicalSink<?>) node).withOutputExprs(items);
+    }
+
     /**
      * Whether this node directly carries the caller-visible output list: a projection
-     * (always), or a SINK that resolves its own output items - the unbound result sink of
-     * a raw parse holds an EMPTY list and only wraps its child.
+     * (always), an AGGREGATE or WINDOW (their output expressions ARE the caller-visible
+     * select list - the walk must stop there instead of descending into an inner query
+     * block, see {@link #alignRootOutputLabels}), or a SINK that resolves its own output
+     * items - the unbound result sink of a raw parse holds an EMPTY list and only wraps
+     * its child.
      */
     private static boolean carriesOutputList(Plan node) {
-        if (node instanceof LogicalProject) {
+        if (node instanceof LogicalProject
+                || node instanceof LogicalAggregate
+                || node instanceof LogicalWindow) {
             return true;
         }
         return node instanceof LogicalSink && !((LogicalSink<?>) node).getOutputExprs().isEmpty();
@@ -2038,9 +2165,16 @@ public final class SPMPlanTreeSupport {
 
     /** The caller-visible output list of a node that {@link #carriesOutputList}. */
     private static List<NamedExpression> outputItemsOf(Plan node) {
-        return node instanceof LogicalProject
-                ? ((LogicalProject<?>) node).getProjects()
-                : ((LogicalSink<?>) node).getOutputExprs();
+        if (node instanceof LogicalProject) {
+            return ((LogicalProject<?>) node).getProjects();
+        }
+        if (node instanceof LogicalAggregate) {
+            return ((LogicalAggregate<?>) node).getOutputExpressions();
+        }
+        if (node instanceof LogicalWindow) {
+            return ((LogicalWindow<?>) node).getWindowExpressions();
+        }
+        return ((LogicalSink<?>) node).getOutputExprs();
     }
 
     /** One output item renamed to {@code label}, keeping the parse-time class. */

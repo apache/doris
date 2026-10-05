@@ -17,13 +17,20 @@
 
 package org.apache.doris.plugin.audit;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.statistics.repository.ResultRow;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -45,29 +52,70 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>The registry is in-memory: after a restart the zones are re-recorded by whichever
  * FE still renders audit rows, and the cluster table's per-FE row keeps the previous
- * knowledge while it is being refreshed. Entries unused for longer than
- * {@link #RETAIN_MILLIS} are pruned: a zone can only render rows WHILE it is current,
- * publication lag is bounded by the publication fences, and the capture's own
- * late-completion lookback is a day - a zone silent for longer cannot render anything
- * the capture still scans.
+ * knowledge while it is being refreshed. A zone is evicted ONLY once the DURABLE CAPTURE
+ * PROGRESS has passed its last use (round-40 #4): the capture may keep a window pending
+ * for many hours (scanner failures, withheld publications), and a zone that still owns a
+ * row inside such a window must stay part of the required scan set until the window
+ * completed - the previous 24h time TTL (and the 32-zone cap) removed exactly that
+ * knowledge, after which the leader could exhaust the window scanning only its own zones
+ * and checkpoint past the pruned zone's row.
  */
 public final class AuditWriterZones {
 
-    /** How long a silent zone stays part of the required scan set (see the javadoc). */
-    public static final long RETAIN_MILLIS = 24 * 60 * 60 * 1000L;
-
-    /** Hard bound of the registry: real deployments change the global time_zone rarely. */
+    /**
+     * Soft bound of the registry: beyond it the least recently used zone the capture has
+     * already passed is dropped. A zone the capture has NOT passed yet is never dropped
+     * (see {@link #evictCoveredZones}) - the registry then grows by the number of zones
+     * the cluster really rendered in, an inherently small set (the engine's time_zone
+     * values).
+     */
     static final int MAX_ZONES = 32;
 
+    private static final Logger LOG = LogManager.getLogger(AuditWriterZones.class);
+
     private static final ConcurrentHashMap<String, Long> WRITER_ZONES = new ConcurrentHashMap<>();
+
+    private static final String SELECT_CAPTURE_WATERMARK_SQL =
+            "SELECT `last_scan_timestamp` FROM `__internal_schema`.`spm_capture_checkpoint`"
+                    + " WHERE `id` = 1";
+    private static final int WATERMARK_READ_TIMEOUT_SECONDS = 10;
+
+    /**
+     * How often the durable capture watermark is re-read (see
+     * {@link #refreshCaptureCoveredThrough}). The value only gates EVICTION, so a stale
+     * (older) value merely keeps a zone longer - never drops one too early.
+     */
+    private static final long COVERED_THROUGH_REFRESH_MILLIS = 30_000L;
+
+    /**
+     * The start of the next window the SPM capture will scan
+     * ({@code spm_capture_checkpoint.last_scan_timestamp}): every audit row RENDERED
+     * before this instant belongs to a COMPLETED window. 0 = no progress known (nothing
+     * is evicted / dropped).
+     */
+    private static volatile long coveredThrough = 0;
+    private static volatile long coveredThroughReadAt = 0;
+
+    /**
+     * Test seam for the durable capture watermark (null in production): a scripted test
+     * drives eviction deterministically without an internal table.
+     */
+    @VisibleForTesting
+    static volatile java.util.function.LongSupplier captureCoveredThroughForTest;
+
+    /**
+     * Test seam for the zone the writer is about to render in (null in production): lets
+     * a test switch the zone between a row's registration and its rendering.
+     */
+    @VisibleForTesting
+    static volatile java.util.function.Supplier<String> currentWriterZoneForTest;
 
     private AuditWriterZones() {
     }
 
     /**
      * Records one zone the audit writer rendered a row with (the last-use instant is kept
-     * per zone). Beyond {@link #MAX_ZONES} the LEAST recently used zone is dropped: it is
-     * the farthest from owning a row.
+     * per zone).
      *
      * @param zoneId   the zone ID the row was rendered in
      * @param atMillis the render instant (epoch millis)
@@ -78,24 +126,36 @@ public final class AuditWriterZones {
             return;
         }
         WRITER_ZONES.merge(zoneId, atMillis, Math::max);
-        if (WRITER_ZONES.size() > MAX_ZONES) {
-            String oldestZone = null;
-            long oldestUsed = Long.MAX_VALUE;
-            for (Map.Entry<String, Long> entry : WRITER_ZONES.entrySet()) {
-                if (entry.getValue() < oldestUsed) {
-                    oldestUsed = entry.getValue();
-                    oldestZone = entry.getKey();
-                }
-            }
-            if (oldestZone != null && !oldestZone.equals(zoneId)) {
-                WRITER_ZONES.remove(oldestZone);
-            }
-        }
+        evictCoveredZones(zoneId);
     }
 
-    /** Records the zone the audit writer renders timestamps with RIGHT NOW. */
-    public static void noteCurrentWriterZone() {
-        note(currentWriterZoneId(), System.currentTimeMillis());
+    /**
+     * Drops the least recently used zone(s) the durable capture has already passed
+     * (round-40 #4) while the registry is over {@link #MAX_ZONES}. A zone whose last use
+     * is NOT covered by capture progress is left in place: it can still own a row of an
+     * uncompleted window, and reporting it is what makes the capture scan that window in
+     * the zone before advancing the watermark.
+     */
+    private static void evictCoveredZones(String protectedZone) {
+        long covered = captureCoveredThrough();
+        while (WRITER_ZONES.size() > MAX_ZONES) {
+            String candidate = null;
+            long oldest = Long.MAX_VALUE;
+            for (Map.Entry<String, Long> entry : WRITER_ZONES.entrySet()) {
+                if (entry.getValue() < covered && entry.getValue() < oldest
+                        && !entry.getKey().equals(protectedZone)) {
+                    oldest = entry.getValue();
+                    candidate = entry.getKey();
+                }
+            }
+            if (candidate == null) {
+                LOG.debug("audit writer zones: {} zones registered and none of them is"
+                        + " covered by capture progress yet; keeping every zone that may"
+                        + " still own an unconsumed row", WRITER_ZONES.size());
+                return;
+            }
+            WRITER_ZONES.remove(candidate);
+        }
     }
 
     /**
@@ -104,18 +164,73 @@ public final class AuditWriterZones {
      * {@code AuditLogScanner#auditWriteZone} - keep the two in sync).
      */
     static String currentWriterZoneId() {
+        java.util.function.Supplier<String> seam = currentWriterZoneForTest;
+        if (seam != null) {
+            return seam.get();
+        }
         return TimeUtils.getOrSystemTimeZone(
                 VariableMgr.getDefaultSessionVariable().getTimeZone()).toZoneId().getId();
     }
 
-    /** The zones used within {@link #RETAIN_MILLIS}, with their last-use instants. */
+    /**
+     * Re-reads {@link #coveredThrough} at most once per
+     * {@link #COVERED_THROUGH_REFRESH_MILLIS} (called from the horizon reporter's tick -
+     * never from the per-row render path). A failed read keeps the previous value: an
+     * older watermark can only retain a zone too long, never drop one too early.
+     */
+    static void refreshCaptureCoveredThrough() {
+        if (captureCoveredThroughForTest != null) {
+            return; // scripted tests own the value
+        }
+        long now = System.currentTimeMillis();
+        if (now - coveredThroughReadAt < COVERED_THROUGH_REFRESH_MILLIS) {
+            return;
+        }
+        coveredThroughReadAt = now;
+        try {
+            Env env = Env.getCurrentEnv();
+            if (env == null || !env.isReady()) {
+                return; // no live internal table (unit tests / startup): keep the value
+            }
+            List<ResultRow> rows = StatisticsUtil.executeQuery(SELECT_CAPTURE_WATERMARK_SQL,
+                    Collections.emptyMap(), WATERMARK_READ_TIMEOUT_SECONDS);
+            if (rows == null || rows.isEmpty()) {
+                return;
+            }
+            String text = rows.get(0).getWithDefault(0, "");
+            if (text == null || text.isEmpty()) {
+                return;
+            }
+            coveredThrough = Math.max(0L, Long.parseLong(text.trim()));
+        } catch (Throwable t) {
+            // keep the previous value: an unreadable watermark must not free zones whose
+            // rows the capture may still owe a scan for
+            LOG.debug("audit writer zones: cannot read the capture watermark: {}",
+                    t.getMessage());
+        }
+    }
+
+    /**
+     * The durable capture watermark (see {@link #coveredThrough}): 0 when nothing was
+     * captured yet. Cheap; the hot render path reads the cached value.
+     */
+    public static long captureCoveredThrough() {
+        java.util.function.LongSupplier seam = captureCoveredThroughForTest;
+        if (seam != null) {
+            return Math.max(0L, seam.getAsLong());
+        }
+        return coveredThrough;
+    }
+
+    /** The zones whose last use is NOT covered by capture progress, with their last use. */
     public static Map<String, Long> snapshot() {
-        long cutoff = System.currentTimeMillis() - RETAIN_MILLIS;
+        long covered = captureCoveredThrough();
         Map<String, Long> zones = new LinkedHashMap<>();
         for (Map.Entry<String, Long> entry : WRITER_ZONES.entrySet()) {
-            if (entry.getValue() >= cutoff) {
-                zones.put(entry.getKey(), entry.getValue());
+            if (entry.getValue() < covered) {
+                continue;
             }
+            zones.put(entry.getKey(), entry.getValue());
         }
         return zones;
     }
@@ -173,9 +288,11 @@ public final class AuditWriterZones {
         return zones;
     }
 
-    /** For tests: forget every recorded zone. */
+    /** For tests: forget every recorded zone and the cached capture watermark. */
     @VisibleForTesting
     public static void resetForTest() {
         WRITER_ZONES.clear();
+        coveredThrough = 0;
+        coveredThroughReadAt = 0;
     }
 }

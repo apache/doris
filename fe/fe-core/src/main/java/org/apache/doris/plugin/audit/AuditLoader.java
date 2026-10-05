@@ -35,6 +35,8 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Queues;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -42,7 +44,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 
@@ -227,9 +228,6 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     public void close() throws IOException {
         super.close();
         isClosed = true;
-        if (runningLoader == this) {
-            runningLoader = null;
-        }
         if (loadThread != null) {
             try {
                 loadThread.join();
@@ -246,9 +244,17 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                 Thread.currentThread().interrupt();
             }
         }
-        // nothing more will be published from here: drop this FE's reported fence so the
-        // capture does not wait for an FE that is gone
+        // A batch whose load reported Publish Timeout is COMMITTED but may become
+        // readable only AFTER this FE stops (round-40 #10): clearing the row
+        // unconditionally would let the capture advance past its rows. reportLocalHorizon
+        // reads the pending fence at WRITE time and KEEPS the row while one exists; with
+        // no such batch the row is deleted so the capture does not wait for a gone FE
+        // (never-sent events die with the FE and need no fence). runningLoader stays set
+        // until after this final report - it is how the write path sees the fence.
         AuditPublicationHorizon.clearLocalReport();
+        if (runningLoader == this) {
+            runningLoader = null;
+        }
     }
 
     public boolean eventFilter(AuditEvent.EventType type) {
@@ -359,14 +365,19 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     private void fillLogBuffer(AuditEvent event, StringBuilder logBuffer) {
         // should be same order as InternalSchema.AUDIT_SCHEMA
 
-        // record the zone this row's time column is RENDERED in (round-39 #3): the SPM
-        // capture must scan a window in every zone that can own rows, and a zone change
-        // between two capture cycles is only observable HERE, at a render
-        AuditWriterZones.noteCurrentWriterZone();
+        // The zone this row's time column is RENDERED in (round-39 #3), read ONCE and
+        // used for BOTH the registration and the rendering (round-40 #8): two
+        // independent reads of the global time_zone could observe a
+        // `SET GLOBAL time_zone` in between (and back before the next report), leaving
+        // the row stored under a zone nobody had registered - a capture scanning only
+        // the registered (UTC) rendering then checkpointed past it.
+        String writerZoneId = AuditWriterZones.currentWriterZoneId();
+        AuditWriterZones.note(writerZoneId, System.currentTimeMillis());
 
         // uuid and time
         appendField(logBuffer, event.queryId);
-        logBuffer.append(TimeUtils.longToTimeStringWithms(event.timestamp)).append(AUDIT_TABLE_COL_SEPARATOR);
+        logBuffer.append(TimeUtils.longToTimeStringWithms(event.timestamp, writerZoneId))
+                .append(AUDIT_TABLE_COL_SEPARATOR);
 
         // cs info
         appendField(logBuffer, event.clientIp);
@@ -534,21 +545,35 @@ public class AuditLoader extends Plugin implements AuditPlugin {
 
     /**
      * Whether a stream-load response PROVES the batch is published (visible in the shared
-     * audit table). Only an HTTP-OK response whose content does not report
-     * {@code Publish Timeout} does: that status means the transaction is COMMITTED while
-     * its rows are still unreadable, and the previous unconditional batch reset let the
-     * capture advance past them (round-36 #2).
+     * audit table). Only a HTTP-OK response with a COMPLETE, parseable body whose
+     * {@code Status} is {@code Success} does (round-40 #9): a body that could not be read
+     * (or was only partially read, see {@link AuditStreamLoader}) says NOTHING about the
+     * transaction, and the previous "does not contain 'publish timeout'" test treated it
+     * as published - a committed Publish Timeout whose body read failed then reset its
+     * batch WITHOUT a fence and the capture could checkpoint past the still-unreadable
+     * rows. Every other outcome (Publish Timeout, any failure status, an unreadable
+     * body) keeps fencing until the batch's sample row is observed or the bound expires.
      */
     @VisibleForTesting
     static boolean batchPublicationConfirmed(AuditStreamLoader.LoadResponse response) {
-        if (response == null || response.status != 200) {
+        if (response == null || response.status != 200 || !response.contentComplete) {
             return false;
         }
         String content = response.respContent;
-        if (content == null) {
-            return true;
+        if (content == null || content.trim().isEmpty()) {
+            return false;
         }
-        return !content.toLowerCase(Locale.ROOT).contains("publish timeout");
+        try {
+            JsonElement parsed = JsonParser.parseString(content);
+            if (!parsed.isJsonObject()) {
+                return false;
+            }
+            JsonElement status = parsed.getAsJsonObject().get("Status");
+            return status != null && !status.isJsonNull()
+                    && "success".equalsIgnoreCase(status.getAsString().trim());
+        } catch (RuntimeException e) {
+            return false; // not a parseable stream-load response: ambiguous, keep fencing
+        }
     }
 
     /**
@@ -575,6 +600,55 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                         dropped.oldestEventTime, MAX_PENDING_PUBLISH_FENCES,
                         PUBLISH_FENCE_MAX_MILLIS);
             }
+        }
+        // Publish the fence RIGHT AWAY instead of waiting for the reporter's tick
+        // (round-40 #10): the batch is COMMITTED, and a crash before the next tick would
+        // otherwise leave no durable trace of it - the reader then drops this FE's row
+        // at death and the capture checkpoints past rows that may still publish. Best
+        // effort: the reporter re-reports on its own cadence anyway, and
+        // reportLocalHorizon can never DELETE the row while the fence is pending (it
+        // reads the fence value at WRITE time).
+        reportCommittedFence();
+    }
+
+    /**
+     * The OLDEST event time of a batch whose stream load reported Publish Timeout (or
+     * failed ambiguously): that transaction is COMMITTED, so its rows may publish even
+     * AFTER this FE stops. The horizon row carries this value so the cluster fence keeps
+     * holding past the FE's death (see AuditPublicationHorizon). 0 = nothing pending.
+     */
+    long oldestPendingPublishFenceEventTime() {
+        synchronized (this) {
+            long oldest = 0;
+            for (PublishFence fence : pendingPublishFences) {
+                if (oldest == 0 || fence.oldestEventTime < oldest) {
+                    oldest = fence.oldestEventTime;
+                }
+            }
+            return oldest;
+        }
+    }
+
+    /**
+     * The committed-but-unreadable fence this FE owes the cluster, or 0 when no such
+     * batch is pending (or no loader runs). Read by the horizon reporter and by the
+     * shared-table writer itself so a report can never clear the durable fence.
+     */
+    public static long oldestCommittedPublishFenceEventTime() {
+        AuditLoader loader = runningLoader;
+        return loader == null ? 0L : loader.oldestPendingPublishFenceEventTime();
+    }
+
+    /** Best-effort immediate report of this FE's committed-but-unreadable batches. */
+    private void reportCommittedFence() {
+        try {
+            long pending = oldestPendingPublishFenceEventTime();
+            if (pending > 0) {
+                AuditPublicationHorizon.reportLocalHorizon(pending);
+            }
+        } catch (Throwable t) {
+            LOG.warn("audit loader: cannot report the committed publish fence: {}",
+                    t.getMessage());
         }
     }
 
@@ -739,6 +813,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         public void run() {
             long lastReported = -1;
             long lastReportAt = 0;
+            long lastReportedCommitted = -1;
             String lastReportedZones = "";
             while (!isClosed) {
                 try {
@@ -759,14 +834,21 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                     continue;
                 }
                 long now = System.currentTimeMillis();
+                // keep the durable capture watermark fresh for the zone eviction gate
+                // (round-40 #4) - the read is throttled inside
+                AuditWriterZones.refreshCaptureCoveredThrough();
                 // the audit WRITER's zone history travels with every report (round-39 #3):
                 // a zone change must reach the capture even while nothing is outstanding,
                 // so a changed registry reports immediately and keeps the (zero-horizon)
                 // row fresh on the keepalive cadence
                 String zones = AuditWriterZones.encode();
-                boolean changed = horizon != lastReported;
+                // a committed-but-unreadable batch is part of the durable state even when
+                // the horizon VALUE is unchanged (round-40 #10): its marker must reach
+                // the shared row or a crash would drop the fence
+                long committed = oldestCommittedPublishFenceEventTime();
+                boolean changed = horizon != lastReported || committed != lastReportedCommitted;
                 boolean zonesChanged = !zones.equals(lastReportedZones);
-                boolean keepAlive = (horizon > 0 || !zones.isEmpty())
+                boolean keepAlive = (horizon > 0 || !zones.isEmpty() || committed > 0)
                         && now - lastReportAt >= HORIZON_KEEPALIVE_MILLIS;
                 if (changed || zonesChanged || keepAlive) {
                     // Remember the value only when the shared row CONFIRMS it (round-37
@@ -775,6 +857,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                     // master-visible fence until the 60s keepalive.
                     if (AuditPublicationHorizon.reportLocalHorizon(horizon)) {
                         lastReported = horizon;
+                        lastReportedCommitted = committed;
                         lastReportAt = now;
                         lastReportedZones = zones;
                     }

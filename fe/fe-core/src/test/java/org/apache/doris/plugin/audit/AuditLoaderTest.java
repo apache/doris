@@ -20,6 +20,7 @@ package org.apache.doris.plugin.audit;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.catalog.InternalSchema;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.plugin.AuditEvent;
 
 import com.google.common.base.Splitter;
@@ -355,7 +356,11 @@ public class AuditLoaderTest {
         }
     }
 
-    // round-36 #2: the response is the only evidence of the load's real outcome.
+    // round-36 #2 / round-40 #9: the response is the only evidence of the load's real
+    // outcome, and only a COMPLETE, parseable Success response proves publication. An
+    // unreadable body says nothing - the earlier "does not contain 'publish timeout'"
+    // test treated it as published, so a committed Publish Timeout whose body read
+    // failed reset the batch WITHOUT a fence.
     @Test
     public void testBatchPublicationConfirmationReadsTheLoadResponse() {
         Assertions.assertFalse(AuditLoader.batchPublicationConfirmed(null),
@@ -370,10 +375,94 @@ public class AuditLoaderTest {
         Assertions.assertTrue(AuditLoader.batchPublicationConfirmed(
                 new AuditStreamLoader.LoadResponse(200, "OK",
                         "{\"Status\": \"Success\", \"TxnId\": 7}")),
-                "a clean success is published");
-        Assertions.assertTrue(AuditLoader.batchPublicationConfirmed(
+                "a clean parsed success is published");
+        Assertions.assertFalse(AuditLoader.batchPublicationConfirmed(
                 new AuditStreamLoader.LoadResponse(200, "OK", null)),
-                "an OK response without content stays confirmed (the pre-existing contract)");
+                "an OK response WITHOUT a readable body says nothing about the transaction");
+        Assertions.assertFalse(AuditLoader.batchPublicationConfirmed(
+                new AuditStreamLoader.LoadResponse(200, "OK",
+                        "{\"Status\": \"Success\", \"TxnId\": 7}", false)),
+                "a body the reader gave up on (incomplete) is AMBIGUOUS, never published");
+        Assertions.assertFalse(AuditLoader.batchPublicationConfirmed(
+                new AuditStreamLoader.LoadResponse(200, "OK", "{\"Status\": \"Fail\"}")),
+                "any non-Success status keeps fencing (bounded by the publish-fence bound)");
+        Assertions.assertFalse(AuditLoader.batchPublicationConfirmed(
+                new AuditStreamLoader.LoadResponse(200, "OK", "<html>proxy error</html>")),
+                "an unparsable body is ambiguous, never published");
+    }
+
+    // round-40 #8: the zone a row's time column is RENDERED in is the zone that must be
+    // registered for it - two independent reads of the global time_zone could observe a
+    // `SET GLOBAL time_zone` in between (and back before the next report), leaving the
+    // row stored under a zone nobody had registered and a capture skipping it forever.
+    @Test
+    public void testWriterZoneRegistrationMatchesTheRenderedTime() throws Exception {
+        AuditLoader loader = new AuditLoader();
+        // simulate the zone switching between what used to be TWO reads: the second
+        // "read" returns another zone
+        java.util.concurrent.atomic.AtomicInteger reads =
+                new java.util.concurrent.atomic.AtomicInteger();
+        AuditWriterZones.resetForTest();
+        AuditWriterZones.currentWriterZoneForTest =
+                () -> reads.getAndIncrement() == 0 ? "UTC" : "Asia/Tokyo";
+        try {
+            long ts = 1_780_000_000_000L;
+            AuditEvent event = new AuditEvent.AuditEventBuilder()
+                    .setQueryId("qid-zone").setTimestamp(ts).setStmt("select 1").build();
+            StringBuilder buffer = new StringBuilder();
+            Deencapsulation.invoke(loader, "fillLogBuffer", event, buffer);
+            List<String> fields = Splitter.on(AuditLoader.AUDIT_TABLE_COL_SEPARATOR)
+                    .splitToList(buffer.toString());
+            Assertions.assertEquals(1, reads.get(),
+                    "the writer zone must be read ONCE for both the registration and the"
+                            + " rendering");
+            Assertions.assertEquals(Set.of("UTC"), AuditWriterZones.zones(),
+                    "the zone the row was rendered in is the registered one");
+            Assertions.assertEquals(TimeUtils.longToTimeStringWithms(ts, "UTC"), fields.get(1),
+                    "the time column is rendered in the SAME zone that was registered: "
+                            + fields.get(1));
+        } finally {
+            AuditWriterZones.currentWriterZoneForTest = null;
+            AuditWriterZones.resetForTest();
+        }
+    }
+
+    // round-40 #10: a Publish-Timeout batch is COMMITTED, so closing this FE must not
+    // clear its durable fence - the rows may become readable after the FE stopped. With
+    // no such batch the row IS cleared (the capture must not wait for a gone FE).
+    @Test
+    public void testCloseKeepsCommittedFencesUntilTheyPublish() throws Exception {
+        AuditLoader loader = new AuditLoader();
+        setPrivateField(loader, "auditEventQueue", Queues.newLinkedBlockingDeque());
+        setRunningLoader(loader);
+        List<Long> reports = new ArrayList<>();
+        AuditPublicationHorizon.localHorizonWriterForTest = horizon -> {
+            reports.add(horizon);
+            return true;
+        };
+        try {
+            Deencapsulation.invoke(loader, "retainPublishFence", 10_000L, "qid-timeout");
+            Assertions.assertEquals(10_000L, AuditLoader.oldestCommittedPublishFenceEventTime(),
+                    "the retained batch is the committed fence of this FE");
+            reports.clear();
+            loader.close();
+            Assertions.assertEquals(Arrays.asList(10_000L), reports,
+                    "close() must keep the committed fence instead of clearing the row: "
+                            + reports);
+
+            // control: no committed batch -> the row is cleared on close
+            AuditLoader clean = new AuditLoader();
+            setPrivateField(clean, "auditEventQueue", Queues.newLinkedBlockingDeque());
+            setRunningLoader(clean);
+            reports.clear();
+            clean.close();
+            Assertions.assertEquals(Arrays.asList(0L), reports,
+                    "with nothing committed the fence is dropped so the capture does not"
+                            + " wait for a gone FE: " + reports);
+        } finally {
+            AuditPublicationHorizon.localHorizonWriterForTest = null;
+            setRunningLoader(null);
+        }
     }
 
     // round-37 #7: internal statements (e.g. the horizon reporter's own SQL) are never

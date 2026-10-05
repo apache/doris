@@ -832,7 +832,12 @@ public class InternalSchemaInitializer extends Thread {
     static final Map<String, ScalarType> SPM_BASELINES_SEQ_UPGRADE_COLUMNS = new LinkedHashMap<>();
 
     static {
-        SPM_BASELINES_SEQ_UPGRADE_COLUMNS.put("bind_sql_digest", ScalarType.createVarchar(4096));
+        // STRING, not a fixed VARCHAR: the digest is the canonical rendering of the WHOLE
+        // bind statement without a length cap (round-40 #6, see
+        // InternalSchema#SPM_BASELINES_SEQ_SCHEMA); a >4096-char bind failed the
+        // reservation INSERT although a fresh table's column accepts it.
+        SPM_BASELINES_SEQ_UPGRADE_COLUMNS.put("bind_sql_digest",
+                ScalarType.createType(PrimitiveType.STRING));
         SPM_BASELINES_SEQ_UPGRADE_COLUMNS.put("plan_sql_hash",
                 ScalarType.createType(PrimitiveType.BIGINT));
         SPM_BASELINES_SEQ_UPGRADE_COLUMNS.put("reserve_time",
@@ -848,7 +853,9 @@ public class InternalSchemaInitializer extends Thread {
      * The columns an UPGRADED cluster must gain on a pre-existing spm_audit_horizon table
      * (new clusters get them from the create SQL): writer_zones carries the audit
      * writer's zone history of that FE, so the capture can require a window pass in every
-     * zone that may own rows (round-39 #3).
+     * zone that may own rows (round-39 #3); committed_fence_ms marks the oldest batch
+     * whose publication outcome is AMBIGUOUS, so the fence survives the FE's death - its
+     * committed rows can still publish (round-40 #10).
      */
     @VisibleForTesting
     static final Map<String, ScalarType> SPM_AUDIT_HORIZON_UPGRADE_COLUMNS = new LinkedHashMap<>();
@@ -856,6 +863,8 @@ public class InternalSchemaInitializer extends Thread {
     static {
         SPM_AUDIT_HORIZON_UPGRADE_COLUMNS.put("writer_zones",
                 ScalarType.createType(PrimitiveType.STRING));
+        SPM_AUDIT_HORIZON_UPGRADE_COLUMNS.put("committed_fence_ms",
+                ScalarType.createType(PrimitiveType.BIGINT));
     }
 
     /**

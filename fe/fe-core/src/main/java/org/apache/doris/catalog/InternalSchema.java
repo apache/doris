@@ -349,8 +349,15 @@ public class InternalSchema {
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
         SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("last_id",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NOT_NULLABLE));
+        // STRING, not VARCHAR(4096): the digest is the CANONICAL rendering of the
+        // whole bind statement (SPMPlanner stores BaselinePlan#bindSqlDigest from
+        // LogicalPlan#toSpmDigest without a length cap - spm_baselines.bind_sql_digest
+        // is STRING for the same reason), and a valid SELECT with hundreds of projected
+        // expressions exceeds 4096 chars. A fixed VARCHAR then failed the RESERVATION
+        // INSERT (which runs before the baseline row), so a valid GLOBAL CREATE errored
+        // out before writing anything (round-40 #6).
         SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("bind_sql_digest",
-                ScalarType.createVarchar(4096), ColumnNullableType.NULLABLE));
+                ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
         SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("plan_sql_hash",
                 ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
         SPM_BASELINES_SEQ_SCHEMA.add(new ColumnDef("reserve_time",
@@ -443,7 +450,11 @@ public class InternalSchema {
         // the writer's local rendering, so the capture must scan a window in EVERY zone
         // that can own rows before completing it - a zone change is invisible to the
         // leader's own observations when it happens between two capture cycles (round-39
-        // #3).
+        // #3). committed_fence_ms is the oldest batch this FE sent whose outcome is
+        // AMBIGUOUS (Publish Timeout / an error that may hide a commit): such a batch's
+        // rows can still PUBLISH after the FE dies, so the reader must keep fencing for
+        // it even when the FE is provably gone - only an ordinary (never sent) backlog
+        // dies with its FE (round-40 #10).
         SPM_AUDIT_HORIZON_SCHEMA = new ArrayList<>();
         SPM_AUDIT_HORIZON_SCHEMA.add(new ColumnDef("fe_name",
                 ScalarType.createVarchar(128), ColumnNullableType.NOT_NULLABLE));
@@ -453,6 +464,8 @@ public class InternalSchema {
                 ScalarType.createType(PrimitiveType.DATETIME), ColumnNullableType.NOT_NULLABLE));
         SPM_AUDIT_HORIZON_SCHEMA.add(new ColumnDef("writer_zones",
                 ScalarType.createType(PrimitiveType.STRING), ColumnNullableType.NULLABLE));
+        SPM_AUDIT_HORIZON_SCHEMA.add(new ColumnDef("committed_fence_ms",
+                ScalarType.createType(PrimitiveType.BIGINT), ColumnNullableType.NULLABLE));
     }
 
     // Get copied schema for statistic table

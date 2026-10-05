@@ -36,6 +36,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Round-36: the cluster-wide audit PUBLICATION horizon.
@@ -67,6 +68,9 @@ public class AuditPublicationHorizonTest {
         mgr = new WorkloadRuntimeStatusMgr();
         processor = new AuditEventProcessor(null);
         mockedEnv = Mockito.mockStatic(Env.class);
+        // the writer-zone registry is process-wide: every read-back / encode in this
+        // class must start from a known (empty) registry
+        AuditWriterZones.resetForTest();
     }
 
     @AfterEach
@@ -75,6 +79,8 @@ public class AuditPublicationHorizonTest {
         AuditPublicationHorizon.horizonRowsReaderForTest = null;
         AuditPublicationHorizon.localHorizonWriterForTest = null;
         AuditPublicationHorizon.feAliveProbeForTest = null;
+        AuditWriterZones.captureCoveredThroughForTest = null;
+        AuditWriterZones.resetForTest();
     }
 
     private static AuditEvent event(long timestamp) {
@@ -324,5 +330,74 @@ public class AuditPublicationHorizonTest {
                 AuditPublicationHorizon::clusterHorizon,
                 "an undecidable reporter must keep the fence: dropping it could miss the"
                         + " event it still owes");
+    }
+
+    // ==================== round-40 #10: committed fences survive their FE ===============
+
+    /**
+     * A batch whose stream load reported Publish Timeout is COMMITTED but unreadable: its
+     * rows can publish AFTER the FE died, so the {@code committed_fence_ms} marker keeps
+     * the fence alive past the FE - dropping the row at death let the capture checkpoint
+     * past rows that then appeared behind the watermark. After the SAME bound the loader
+     * itself applies the batch is conclusively lost and the fence releases.
+     */
+    @Test
+    public void testCommittedFenceOfAGoneFeSurvivesItsDeath() {
+        long now = System.currentTimeMillis();
+        long staleAt = now - AuditPublicationHorizon.ROW_STALE_MILLIS - 1;
+        AuditPublicationHorizon.feAliveProbeForTest = feName -> false;
+        // horizon 0 (the reporter wrote "nothing outstanding" before the batch timed
+        // out): only the committed marker fences
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                new Object[] {"fe-dead", 0L, staleAt, "", 20_000L});
+        Assertions.assertEquals(20_000L, AuditPublicationHorizon.clusterHorizon(),
+                "the committed batch's rows may still publish although the FE is gone");
+
+        // the fence survives while the row is inside the survival bound even when it is
+        // overdue; past the bound it is conclusively lost
+        long pastBound = now - AuditPublicationHorizon.COMMITTED_FENCE_SURVIVAL_MILLIS
+                - AuditPublicationHorizon.ROW_STALE_MILLIS - 1;
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                new Object[] {"fe-dead", 20_000L, pastBound, "", 20_000L});
+        Assertions.assertEquals(0L, AuditPublicationHorizon.clusterHorizon(),
+                "a bound-expired committed fence is conclusively lost, exactly like the"
+                        + " loader treats its own fence");
+    }
+
+    /** A fresh row's committed marker fences even when the horizon column is zero. */
+    @Test
+    public void testFreshCommittedFenceContributesToTheClusterHorizon() {
+        long now = System.currentTimeMillis();
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                new Object[] {"fe-busy", 0L, now, "", 9_000L});
+        Assertions.assertEquals(9_000L, AuditPublicationHorizon.clusterHorizon(),
+                "a committed-but-unreadable batch is part of the fence");
+    }
+
+    // ==================== round-40 #2: stale rows keep their zones =====================
+
+    /**
+     * The writer zones of an OVERDUE row stay part of the required scan set until
+     * durable capture progress has passed the row's last refresh: a follower can publish
+     * a row under -05:00 and then stop reporting (crash / stalled keepalive) while an
+     * uncompleted window still contains it - dropping the zone here let a UTC leader
+     * exhaust the window and checkpoint past the row stored as 05:00.
+     */
+    @Test
+    public void testStaleRowZonesStayRequiredUntilTheCaptureHasPassedThem() {
+        long now = System.currentTimeMillis();
+        long staleAt = now - AuditPublicationHorizon.ROW_STALE_MILLIS - 1;
+        String zones = "America/New_York=" + (now - 60_000L);
+        AuditPublicationHorizon.horizonRowsReaderForTest = () -> Collections.singletonList(
+                new Object[] {"fe-stopped", 0L, staleAt, zones});
+
+        AuditWriterZones.captureCoveredThroughForTest = () -> staleAt - 1;
+        Assertions.assertEquals(Set.of("America/New_York"),
+                AuditPublicationHorizon.clusterWriterZones(),
+                "the row's zone may still own a row of an uncompleted window");
+
+        AuditWriterZones.captureCoveredThroughForTest = () -> staleAt + 1;
+        Assertions.assertEquals(Set.of(), AuditPublicationHorizon.clusterWriterZones(),
+                "durable progress past the last refresh covers every row the FE rendered");
     }
 }

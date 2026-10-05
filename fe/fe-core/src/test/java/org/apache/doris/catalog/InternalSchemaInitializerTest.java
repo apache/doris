@@ -461,6 +461,41 @@ class InternalSchemaInitializerTest {
     }
 
     /**
+     * Round-40 schema invariants:
+     *
+     * - #6: the seq identity column stores the FULL canonical bind digest (SPMPlanner
+     *   has no length cap, and spm_baselines.bind_sql_digest is STRING): a fixed VARCHAR
+     *   failed the RESERVATION INSERT for a valid >4096-char bind, so a GLOBAL CREATE
+     *   errored before writing anything. Both the create schema and the upgrade map must
+     *   use the unbounded value type.
+     * - #10: the horizon table carries the committed-publication fence marker, so the
+     *   reader can keep fencing for a COMMITTED batch after its FE died.
+     */
+    @Test
+    public void testRound40SchemaColumnsAndTypes() {
+        Type digestType = InternalSchema.SPM_BASELINES_SEQ_SCHEMA.stream()
+                .filter(def -> "bind_sql_digest".equalsIgnoreCase(def.getName()))
+                .map(ColumnDef::getType).findFirst().orElse(null);
+        Assertions.assertNotNull(digestType, "the seq table must carry the identity column");
+        Assertions.assertEquals(PrimitiveType.STRING, digestType.getPrimitiveType(),
+                "the full digest has no length cap: the column must be STRING");
+        ScalarType upgradeType =
+                InternalSchemaInitializer.SPM_BASELINES_SEQ_UPGRADE_COLUMNS.get("bind_sql_digest");
+        Assertions.assertNotNull(upgradeType,
+                "an upgraded cluster must gain the identity column");
+        Assertions.assertEquals(PrimitiveType.STRING, upgradeType.getPrimitiveType(),
+                "the upgrade must use the unbounded value type as well");
+
+        Assertions.assertTrue(InternalSchema.SPM_AUDIT_HORIZON_SCHEMA.stream()
+                        .anyMatch(def -> "committed_fence_ms".equalsIgnoreCase(def.getName())),
+                "the horizon table must carry the committed-publication fence");
+        Assertions.assertTrue(
+                InternalSchemaInitializer.SPM_AUDIT_HORIZON_UPGRADE_COLUMNS
+                        .containsKey("committed_fence_ms"),
+                "an upgraded cluster must gain the committed-publication fence");
+    }
+
+    /**
      * The durable checkpoint UPSERT (PlanCaptureManager#CHECKPOINT_INSERT_SQL) binds its
      * VALUES by POSITION, so the explicit column list must stay one-to-one with the
      * canonical schema order. Dropping the list (a bare positional INSERT) or letting it

@@ -19,6 +19,7 @@ package org.apache.doris.nereids.spm;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.spm.capture.AuditLogScanner;
 import org.apache.doris.nereids.spm.manager.BaselineManager;
@@ -27,6 +28,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
@@ -186,6 +189,55 @@ public class SPMFrozenTreeReplayTest {
 
         Assertions.assertNull(rewritten,
                 "a frozen plan-only placeholder (no user value) must reject the rewrite");
+    }
+
+    /**
+     * round-41 #1: the caller-label realignment must not descend PAST the node that
+     * produces the caller's rows. An aggregate-rooted query (GROUP BY without a
+     * projection above the aggregate) has no root project, so the walk used to cross the
+     * aggregate and land on the INNER derived-table project, renaming its items position
+     * by position. The decompiler renders the frozen plan's own item order (here
+     * (b, substring(..) AS cc)), which can differ from the caller's own text order (here
+     * (cc, b)); the positional rename then SWAPPED the derived column names and the outer
+     * references (GROUP BY cc, sum(b)) bound to the wrong side - the real TPCH q22 replay
+     * grouped by c_acctbal and summed the country code. The walk must stop at the
+     * aggregate (its outputs ARE the caller-visible list) and leave the inner block alone.
+     */
+    @Test
+    public void testAggregateRootAlignKeepsInnerDerivedLabels() throws Exception {
+        installConnectContext();
+        SPMPlanner planner = new SPMPlanner();
+        String bindSql = "SELECT cc, count(*) AS n, sum(b) AS s "
+                + "FROM (SELECT substr(p, 1, 2) AS cc, b FROM t1) t GROUP BY cc";
+        // frozen text as the decompiler renders an aggregate-rooted query: the derived
+        // projection is reordered (the computed column last) and the aggregate carries
+        // the output list itself
+        String frozenPlanSql = "SELECT cc, count(*) AS n, sum(b) AS s "
+                + "FROM (SELECT b, substring(p, _spm_const_var(1), _spm_const_var(2)) AS cc "
+                + "FROM t1) t GROUP BY cc";
+        manager.createBaseline(frozenBaseline(bindSql, frozenPlanSql));
+
+        LogicalPlan userPlan = parse(bindSql);
+        long deadline = System.currentTimeMillis() + 5000;
+        LogicalPlan rewritten = planner.tryRewritePlan(userPlan, deadline);
+
+        Assertions.assertNotNull(rewritten, "the aggregate-rooted baseline must replay");
+        Assertions.assertTrue(planner.getUsedBaselineId() > 0, "used baseline id must be set");
+        LogicalProject<?> derivedProject = findDerivedProject(rewritten);
+        Assertions.assertNotNull(derivedProject,
+                "the frozen replay must keep its derived projection: " + rewritten.treeString());
+        Assertions.assertEquals(2, derivedProject.getProjects().size(),
+                "the derived projection must keep both items: " + rewritten.treeString());
+        // the inner query block's labels are NOT caller-visible output labels: the
+        // alignment must leave them exactly as the frozen text spelled them
+        Assertions.assertEquals("b", derivedProject.getProjects().get(0).getName(),
+                "the derived item order must not be renamed: " + rewritten.treeString());
+        Expression computed = derivedProject.getProjects().get(1);
+        Assertions.assertTrue(computed instanceof UnboundAlias,
+                "the computed column must stay an explicit alias: " + rewritten.treeString());
+        Assertions.assertEquals("cc", ((UnboundAlias) computed).getAlias().orElse(null),
+                "the computed derived column must keep its own label: "
+                        + rewritten.treeString());
     }
 
     // ==================== text classification: only REAL placeholder calls are frozen ====================
@@ -460,6 +512,20 @@ public class SPMFrozenTreeReplayTest {
     /** Parses a single SELECT SQL into an unbound logical plan. */
     private static LogicalPlan parse(String sql) {
         return (LogicalPlan) new NereidsParser().parseSingle(sql);
+    }
+
+    /** The projection of the first derived table / subquery alias in the tree. */
+    private static LogicalProject<?> findDerivedProject(Plan plan) {
+        if (plan instanceof LogicalSubQueryAlias<?> && plan.child(0) instanceof LogicalProject) {
+            return (LogicalProject<?>) plan.child(0);
+        }
+        for (Plan child : plan.children()) {
+            LogicalProject<?> found = findDerivedProject(child);
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
     }
 
     /** Concatenates the SQL text of every expression, recursing into subquery plans. */

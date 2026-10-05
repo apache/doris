@@ -111,10 +111,27 @@ public class AuditStreamLoader {
         return sb.toString();
     }
 
-    private String getContent(HttpURLConnection conn) {
+    /**
+     * One response body read: the text plus whether it was read to its END (round-40
+     * #9). An {@code IOException} mid-read leaves a partial body that carries NO
+     * evidence about the transaction - the caller's publication check must treat it as
+     * AMBIGUOUS instead of "no publish timeout in it, so published".
+     */
+    private static final class FetchedContent {
+        final String text;
+        final boolean complete;
+
+        FetchedContent(String text, boolean complete) {
+            this.text = text;
+            this.complete = complete;
+        }
+    }
+
+    private static FetchedContent fetchContent(HttpURLConnection conn) {
         BufferedReader br = null;
         StringBuilder response = new StringBuilder();
         String line;
+        boolean complete = false;
         try {
             if (100 <= conn.getResponseCode() && conn.getResponseCode() <= 399) {
                 br = new BufferedReader(new InputStreamReader(conn.getInputStream()));
@@ -124,11 +141,12 @@ public class AuditStreamLoader {
             while ((line = br.readLine()) != null) {
                 response.append(line);
             }
+            complete = true;
         } catch (IOException e) {
             LOG.warn("get content error,", e);
         }
 
-        return response.toString();
+        return new FetchedContent(response.toString(), complete);
     }
 
     private static void writeCompressedBody(OutputStream outputStream, StringBuilder payload) throws IOException {
@@ -150,7 +168,7 @@ public class AuditStreamLoader {
             // fe send back http response code TEMPORARY_REDIRECT 307 and new be location
             if (status != 307) {
                 throw new Exception("status is not TEMPORARY_REDIRECT 307, status: " + status
-                        + ", response: " + getContent(feConn) + ", request is: " + toCurl(feConn));
+                        + ", response: " + fetchContent(feConn).text + ", request is: " + toCurl(feConn));
             }
             String location = feConn.getHeaderField("Location");
             if (location == null) {
@@ -164,12 +182,13 @@ public class AuditStreamLoader {
             // get respond
             status = beConn.getResponseCode();
             String respMsg = beConn.getResponseMessage();
-            String response = getContent(beConn);
+            FetchedContent content = fetchContent(beConn);
+            String response = content.text;
 
             LOG.info("AuditLoader plugin load with label: {}, response code: {}, msg: {}, content: {}",
                     label, status, respMsg, response);
 
-            return new LoadResponse(status, respMsg, response);
+            return new LoadResponse(status, respMsg, response, content.complete);
 
         } catch (Exception e) {
             e.printStackTrace();
@@ -199,11 +218,24 @@ public class AuditStreamLoader {
         public int status;
         public String respMsg;
         public String respContent;
+        /**
+         * Whether {@link #respContent} was read to its END (round-40 #9): a body the
+         * reader gave up on says NOTHING about the transaction, so the publication check
+         * must keep fencing for it. Constructor callers that hand in a complete string
+         * get {@code true}.
+         */
+        public boolean contentComplete;
 
         public LoadResponse(int status, String respMsg, String respContent) {
+            this(status, respMsg, respContent, true);
+        }
+
+        public LoadResponse(int status, String respMsg, String respContent,
+                boolean contentComplete) {
             this.status = status;
             this.respMsg = respMsg;
             this.respContent = respContent;
+            this.contentComplete = contentComplete;
         }
 
         @Override

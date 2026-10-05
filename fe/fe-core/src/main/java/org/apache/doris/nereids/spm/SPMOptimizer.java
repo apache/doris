@@ -105,6 +105,16 @@ public class SPMOptimizer {
             "ELIMINATE_JOIN_BY_FK",              // FK constraint JOIN elimination
             "ELIMINATE_GROUP_BY_KEY",            // UKFK GROUP BY key elimination
             "ELIMINATE_GROUP_BY_KEY_BY_UNIFORM", // uniform-distribution GROUP BY key elimination
+            // GROUP BY elimination to a row-wise projection on a DECLARED UNIQUE key:
+            // SELECT k, SUM(v) FROM t GROUP BY k collapses to SELECT k, v FROM t once
+            // DataTrait proves {k} UNIQUE+NOT NULL - a proof the DECLARED UNIQUE(k)
+            // constraint feeds, and which schemaFingerprint does NOT capture (it hashes
+            // only the table id + base columns). After DROP CONSTRAINT and a second row
+            // with the same k the original query returns one summed row while the frozen
+            // replay returns two unsummed rows. Same uniqueness family as the _KEY /
+            // unlock rules above - exclude it, and the replay re-plans the aggregate
+            // against the CURRENT constraint state.
+            "ELIMINATE_GROUP_BY",
             // ORDER BY key elimination by a declared UNIQUE key: ORDER BY a, b LIMIT 1 can
             // collapse to ORDER BY a LIMIT 1, and the frozen SQL keeps the reduced order.
             // Dropping the UNIQUE declaration (or its backing constraint state) changes no
@@ -184,7 +194,19 @@ public class SPMOptimizer {
             "ELIMINATE_INTERSECTION_ON_EMPTYRELATION",
             "ELIMINATE_EXCEPT_ON_EMPTYRELATION",
             "ELIMINATE_LIMIT_ON_EMPTY_RELATION",
-            "PRUNE_EMPTY_PARTITION"
+            "PRUNE_EMPTY_PARTITION",
+            // Partition pruning freezes the CURRENT partition set: `SELECT p FROM t
+            // WHERE p = 99` with only p1 VALUES IN (1) prunes every partition and the
+            // rule emits a LogicalEmptyRelation, which the decompiler stores as WHERE
+            // FALSE. ADD PARTITION p99 + a 99 row changes no value schemaFingerprint
+            // hashes (the table id and base columns are unchanged), so the same query
+            // kept hitting the frozen baseline and returned zero rows instead of the
+            // new row (reviewer round-40 #11). Excluding the rule keeps the live scan +
+            // filter in the captured plan; the frozen SQL carries no partition pin
+            // (only a MANUAL PARTITION(...) is ever rendered), so the replay re-derives
+            // the selection against the partition set of ITS time - exactly like a
+            // normal query.
+            "OLAP_SCAN_PARTITION_PRUNE"
     );
 
     /**
