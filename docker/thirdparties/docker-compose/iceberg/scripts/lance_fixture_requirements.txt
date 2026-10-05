@@ -40,7 +40,9 @@
 #
 # One fixture is the exception: legacy_vector_index.lance must carry a vector index without
 # index details, which only writers before 0.20 produce, so lance_build_legacy_vector_index.py
-# builds it with pylance 0.18.2 and the catalog build carries it over as-is.
+# builds it with pylance 0.18.2 and the catalog build carries it over as-is. Likewise
+# unicode_branch.lance is built by pylance 12.0.0, because Lance 7 stores a non-ASCII branch
+# directory percent-encoded, which Lance 12 does not find (see lance_build_unicode_branch.py).
 #
 # The pylance and lance-namespace pins are enforced rather than advisory:
 # check_pinned_writer() refuses to build or verify the fixture unless the installed versions

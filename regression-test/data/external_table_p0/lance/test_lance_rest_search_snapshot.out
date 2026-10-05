@@ -44,3 +44,16 @@
 6
 8
 
+-- !unicode_branch_scan --
+12	204
+
+-- !unicode_branch_search --
+201	4.0
+202	16.0
+203	36.0
+
+-- !unicode_branch_two_phase --
+201	doc 201	2.25
+202	doc 202	12.25
+203	doc 203	30.25
+

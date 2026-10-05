@@ -43,6 +43,9 @@ The generated catalog contains:
                           A vector index written by pylance 0.18.2, without index details;
                           carried over as-is because this writer cannot rebuild it
                           (see lance_build_legacy_vector_index.py).
+  - unicode_branch.lance
+                          A branch named with a letter newer than the JDK's Unicode, written by
+                          pylance 12.0.0; carried over as-is (see lance_build_unicode_branch.py).
   - The `doris` namespace with two full-text-search fixtures, one indexed vector table per cell of the
     algorithm x element type x metric matrix (hash-prefixed directories), listed in
     VECTOR_TABLES below; BREADTH_TABLE, one table carrying the remaining cells at plan
@@ -113,6 +116,8 @@ from lance_build_search_snapshot import (
     check as check_search_snapshot,
 )
 from lance_build_time_travel import check as check_time_travel
+from lance_build_unicode_branch import UNICODE_BRANCH_DIR
+from lance_build_unicode_branch import check as check_unicode_branch
 from lance_namespace_urllib3_client.models import (
     CreateNamespaceRequest,
     CreateTableRequest,
@@ -961,7 +966,7 @@ def build(root: Path, all_types_source: Path, time_travel_source: Path, carried_
     shutil.copytree(all_types_source, root / ALL_TYPES_DIR)
     # Not rebuilt: their commit times are hard-coded in the time-travel and search-snapshot suites.
     shutil.copytree(time_travel_source, root / TIME_TRAVEL_DIR)
-    for name in (SEARCH_SNAPSHOT_DIR, SEARCH_SNAPSHOT_PRUNED_DIR, LEGACY_VECTOR_INDEX_DIR):
+    for name in (SEARCH_SNAPSHOT_DIR, SEARCH_SNAPSHOT_PRUNED_DIR, LEGACY_VECTOR_INDEX_DIR, UNICODE_BRANCH_DIR):
         shutil.copytree(carried_root / name, root / name)
     build_search_snapshot_evolved(root / SEARCH_SNAPSHOT_EVOLVED_DIR)
     build_multi_frag(root)
@@ -1762,6 +1767,7 @@ def check_catalog(root: Path) -> None:
     check_time_travel(root / TIME_TRAVEL_DIR)
     check_search_snapshot(root)
     check_legacy_vector_index(root / LEGACY_VECTOR_INDEX_DIR)
+    check_unicode_branch(root / UNICODE_BRANCH_DIR)
     check_multivector(root / "multivector.lance")
 
     full_fts = namespace.describe_table(DescribeTableRequest(id=[NAMESPACE, FTS_TABLE]))
@@ -1833,7 +1839,7 @@ def main() -> int:
     if not time_travel_source.is_dir():
         print(f"missing time_travel source: {time_travel_source}", file=sys.stderr)
         return 1
-    for name in (SEARCH_SNAPSHOT_DIR, SEARCH_SNAPSHOT_PRUNED_DIR, LEGACY_VECTOR_INDEX_DIR):
+    for name in (SEARCH_SNAPSHOT_DIR, SEARCH_SNAPSHOT_PRUNED_DIR, LEGACY_VECTOR_INDEX_DIR, UNICODE_BRANCH_DIR):
         if not (output / name).is_dir():
             print(f"missing carried-over source: {output / name}", file=sys.stderr)
             return 1

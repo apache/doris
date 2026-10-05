@@ -496,10 +496,16 @@ final class LanceCatalogClient implements AutoCloseable {
     }
 
     /**
-     * Rejects a branch name Lance would reject ({@code check_valid_branch}). A managed table's
-     * branch is opened by the URI {@link #branchUri} joins, which Lance does not validate, and the
-     * object store resolves dot segments, including percent-encoded ones. Other tables check a
+     * Rejects a branch name that could leave the table's {@code tree/} directory or change the URI
+     * {@link #branchUri} joins for a managed table, which Lance does not validate on that path;
+     * the object store resolves dot segments, including percent-encoded ones. Other tables check a
      * branch out through Lance, which validates the name itself.
+     *
+     * <p>This never rejects a name Lance's {@code check_valid_branch} accepts, whichever Unicode
+     * version either side uses: ASCII allows exactly Lance's letters, digits, '.', '-', '_' and
+     * '/', and outside ASCII only whitespace and control characters, which are never
+     * alphanumeric, are rejected. Lance cannot create a branch with a name it would reject, and the
+     * namespace decides whether such a branch exists.
      */
     static void checkBranchName(String branch) {
         String reason = null;
@@ -509,8 +515,7 @@ final class LanceCatalogClient implements AutoCloseable {
             reason = "it starts or ends with '/' or contains an empty segment";
         } else if (branch.contains("..") || branch.endsWith(".lock")) {
             reason = "it contains '..' or ends with '.lock'";
-        } else if (!branch.codePoints().allMatch(c -> c == '/' || c == '.' || c == '-' || c == '_'
-                || isLanceAlphanumeric(c))) {
+        } else if (!branch.codePoints().allMatch(LanceCatalogClient::isBranchNameCharacter)) {
             reason = "only letters, digits, '.', '-', '_' and '/' between segments are allowed";
         }
         if (reason != null) {
@@ -518,18 +523,14 @@ final class LanceCatalogClient implements AutoCloseable {
         }
     }
 
-    /**
-     * Rust's {@code char::is_alphanumeric}, which {@code check_valid_branch} applies: the Unicode
-     * Alphabetic property or a numeric general category. {@link Character#isLetterOrDigit} is
-     * narrower; it rejects combining vowel signs and numbers such as '²' that Lance accepts.
-     */
-    private static boolean isLanceAlphanumeric(int codePoint) {
-        if (Character.isAlphabetic(codePoint)) {
-            return true;
+    private static boolean isBranchNameCharacter(int codePoint) {
+        if (codePoint < 0x80) {
+            return (codePoint >= 'a' && codePoint <= 'z') || (codePoint >= 'A' && codePoint <= 'Z')
+                    || (codePoint >= '0' && codePoint <= '9') || codePoint == '.' || codePoint == '-'
+                    || codePoint == '_' || codePoint == '/';
         }
-        int type = Character.getType(codePoint);
-        return type == Character.DECIMAL_DIGIT_NUMBER || type == Character.LETTER_NUMBER
-                || type == Character.OTHER_NUMBER;
+        return !Character.isWhitespace(codePoint) && !Character.isSpaceChar(codePoint)
+                && !Character.isISOControl(codePoint);
     }
 
     /**

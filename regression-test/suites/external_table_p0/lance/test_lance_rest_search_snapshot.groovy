@@ -24,6 +24,9 @@ suite("test_lance_rest_search_snapshot", "p0,external") {
      *   search_snapshot                  managed_versioning=false: versions come from _versions/
      *   search_snapshot_managed          managed_versioning=true, records every version and dev
      *   search_snapshot_managed_partial  managed_versioning=true, records every main version but 6
+     *   unicode_branch_managed           managed_versioning=true, unicode_branch.lance: version 1
+     *                                    has row_id 1..8; branch dev\u1c89 adds row_id 201..204
+     *                                    in its version 2 (see lance_build_unicode_branch.py)
      *
      * For a managed table the namespace decides which versions exist, as for FOR VERSION AS OF
      * (see test_lance_rest_time_travel); the search TVFs follow the same rules.
@@ -41,6 +44,9 @@ suite("test_lance_rest_search_snapshot", "p0,external") {
     String plain = "${catalogName}.`default`.search_snapshot"
     String managed = "${catalogName}.`default`.search_snapshot_managed"
     String partial = "${catalogName}.`default`.search_snapshot_managed_partial"
+    String unicodeManaged = "${catalogName}.`default`.unicode_branch_managed"
+    // U+1C89 was added in Unicode 16: Lance accepts the name, and JDK 17 leaves it unassigned.
+    String unicodeBranch = "dev\u1c89"
     def vectorSearch = { String target, String selector, String query = "[0,1,2,3]" ->
         """vector_search(
                 "table"="${target}",
@@ -142,6 +148,35 @@ suite("test_lance_rest_search_snapshot", "p0,external") {
         sql """SET enable_lance_lazy_materialization = ${originalLazy}"""
         order_qt_managed_branch_tag_fts """SELECT row_id FROM ${fullTextSearch(managed, ', "tag"="dev_rel"')}"""
         order_qt_managed_fts_version_4 """SELECT row_id FROM ${fullTextSearch(managed, ', "version"="4"')}"""
+
+        // A managed branch whose name has a letter newer than the JDK's Unicode tables is opened by
+        // the URI Doris joins, for table scans, searches and the second phase alike.
+        order_qt_unicode_branch_scan """
+            SELECT count(*), max(row_id) FROM ${unicodeManaged}@branch('name'='${unicodeBranch}')
+        """
+        explain {
+            sql("SELECT row_id FROM ${vectorSearch(unicodeManaged, ', "branch"="' + unicodeBranch + '"')}")
+            contains "lanceVersion=2"
+            contains "lanceBranch=${unicodeBranch}"
+        }
+        qt_unicode_branch_search """
+            SELECT row_id, _distance
+            FROM ${vectorSearch(unicodeManaged, ', "branch"="' + unicodeBranch + '"', "[200,201,202,203]")}
+            ORDER BY _distance, row_id
+        """
+        sql """SET enable_lance_lazy_materialization = true"""
+        String unicodeTwoPhase = """
+            SELECT row_id, body, _distance
+            FROM ${vectorSearch(unicodeManaged, ', "branch"="' + unicodeBranch + '"', "[200.25,201.25,202.25,203.25]")}
+            ORDER BY _distance
+            LIMIT 3
+        """
+        explain {
+            sql "verbose ${unicodeTwoPhase}"
+            contains "VMaterializeNode"
+        }
+        qt_unicode_branch_two_phase "${unicodeTwoPhase}"
+        sql """SET enable_lance_lazy_materialization = ${originalLazy}"""
 
         // The namespace does not record version 6 of the partial table, so it cannot be searched
         // even though storage holds it; the latest version is still 7.
