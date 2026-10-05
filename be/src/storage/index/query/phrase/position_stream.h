@@ -29,21 +29,14 @@ class PositionStream {
 public:
     Status reset(PositionCursor* positions) {
         _positions = positions;
-        _whole = positions->frequency() <= 1;
         return _positions->next_position(&_position, &_available);
     }
 
-    bool whole(PhrasePositionSpan* span) const {
-        if (!_whole) {
-            return false;
-        }
-        *span = {&_position, &_position + (_available ? 1 : 0)};
-        return true;
-    }
+    bool whole(PhrasePositionSpan* /*span*/) const { return false; }
 
     Status advance_to(uint32_t target, uint32_t* position, bool* available) {
-        while (_available && _position < target) {
-            RETURN_IF_ERROR(_positions->next_position(&_position, &_available));
+        if (_available && _position < target) {
+            RETURN_IF_ERROR(_positions->next_position_at_least(target, &_position, &_available));
         }
         *position = _position;
         *available = _available;
@@ -56,7 +49,6 @@ private:
     PositionCursor* _positions = nullptr;
     uint32_t _position = 0;
     bool _available = false;
-    bool _whole = false;
 };
 
 } // namespace doris::index_query

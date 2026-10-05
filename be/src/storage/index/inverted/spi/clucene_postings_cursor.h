@@ -137,20 +137,36 @@ public:
     }
 
     Status next_position(uint32_t* position, bool* available) override {
+        return next_position_at_least(0, position, available);
+    }
+
+    Status next_position_at_least(uint32_t target, uint32_t* position, bool* available) override {
         DORIS_CHECK(_position_open);
         *available = false;
         if (_position_remaining == 0) {
             return Status::OK();
         }
+        uint32_t current = _position;
+        uint32_t remaining = _position_remaining;
         ErrorContext error_context;
         try {
-            *position = _read_next_position();
-            *available = true;
+            while (remaining != 0) {
+                current += static_cast<uint32_t>(_raw_positions->nextDeltaPosition());
+                --remaining;
+                if (current >= target) {
+                    *position = current;
+                    *available = true;
+                    break;
+                }
+            }
         } catch (CLuceneError& error) {
             error_context.eptr = std::current_exception();
             error_context.err_msg = error.what();
         }
-        FINALLY({});
+        FINALLY({
+            _position = current;
+            _position_remaining = remaining;
+        });
         return Status::OK();
     }
 
@@ -259,12 +275,6 @@ private:
         }
         _prox_cursor = ordinal + 1;
         return _freqs[ordinal];
-    }
-
-    uint32_t _read_next_position() {
-        _position += static_cast<uint32_t>(_raw_positions->nextDeltaPosition());
-        --_position_remaining;
-        return _position;
     }
 
     void _check_iterator() const {

@@ -73,8 +73,8 @@ Status SniiIndexReader::_get_logical_reader(
     const bool enable_searcher_cache =
             context->runtime_state != nullptr &&
             context->runtime_state->query_options().enable_inverted_index_searcher_cache;
-    const auto index_file_key = _index_file_reader->get_index_file_cache_key(&_index_meta);
-    InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_key);
+    InvertedIndexSearcherCache::CacheKey searcher_cache_key(
+            _index_file_reader->get_index_file_cache_key(&_index_meta));
 
     bool cache_hit = false;
     if (enable_searcher_cache) {

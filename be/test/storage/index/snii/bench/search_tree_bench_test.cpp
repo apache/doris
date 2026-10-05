@@ -128,7 +128,9 @@ ScoreMap collected_scores(const CollectionSimilarity& similarity, const roaring:
         const float tolerance = 1e-5F * std::max(1.0F, std::abs(reference->second));
         if (!std::isfinite(measured->second) ||
             std::abs(measured->second - reference->second) > tolerance) {
-            return ::testing::AssertionFailure() << "Wrong score for row " << row;
+            return ::testing::AssertionFailure()
+                   << "Wrong score for row " << row << ": actual=" << measured->second
+                   << ", expected=" << reference->second;
         }
         if (reference->second + tolerance < cutoff) {
             return ::testing::AssertionFailure() << "Row " << row << " is below the top-k cutoff";
@@ -306,6 +308,7 @@ struct SearchCase {
     bool scored = false;
     uint32_t top_k = 0;
     bool cross_field = false;
+    const char* default_operator = "or";
     std::function<roaring::Roaring(ClauseOracle&)> expected_nulls = nullptr;
 };
 
@@ -504,6 +507,24 @@ std::vector<SearchCase> search_cases() {
                                  return rows;
                              },
                      .scored = true});
+    // Single-token TERM clauses have the same matches under either token operator.
+    const std::pair<const char*, const char*> scored_variants[] = {
+            {"scored_or", "scored_or_and_tokens"},
+            {"scored_and", "scored_and_and_tokens"},
+            {"topk_or", "topk_or_and_tokens"},
+            {"cross_scored_or", "cross_scored_or_and_tokens"},
+            {"cross_topk_or", "cross_topk_or_and_tokens"},
+            {"scored_or_256", "scored_or_256_and_tokens"}};
+    for (const auto& [original, label] : scored_variants) {
+        auto found = std::ranges::find_if(cases, [original](const SearchCase& search_case) {
+            return std::string_view(search_case.label) == original;
+        });
+        DORIS_CHECK(found != cases.end());
+        SearchCase variant = *found;
+        variant.label = label;
+        variant.default_operator = "and";
+        cases.push_back(std::move(variant));
+    }
     append_expansion_cases(&cases);
     return cases;
 }
@@ -568,7 +589,7 @@ protected:
             binding.slot_index = 1;
             param.field_bindings.push_back(binding);
         }
-        param.default_operator = "or";
+        param.default_operator = search_case.default_operator;
         param.__isset.default_operator = true;
         if (search_case.minimum_should_match >= 0) {
             param.minimum_should_match = search_case.minimum_should_match;

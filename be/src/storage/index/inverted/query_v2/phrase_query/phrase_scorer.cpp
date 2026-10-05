@@ -153,13 +153,17 @@ bool PhraseScorer<TPostings>::phrase_match() {
         }
     }
     const auto load = [this](size_t term, index_query::PhrasePositionSpan* span) {
-        _terms[term]->positions_with_offset(0, _positions[term]);
+        if constexpr (std::is_same_v<TPostings, SegmentPostingsPtr>) {
+            _positions[term].clear();
+            RETURN_IF_ERROR(_terms[term]->cursor().append_positions(
+                    static_cast<uint32_t>(_terms[term]->doc_set().ordinal()), 0, _positions[term]));
+        } else {
+            _terms[term]->positions_with_offset(0, _positions[term]);
+        }
         *span = {_positions[term].data(), _positions[term].data() + _positions[term].size()};
         return Status::OK();
     };
-    [[maybe_unused]] const Status status =
-            _verifier.verify(load, _similarity != nullptr, &_phrase_count);
-    DCHECK(status.ok()) << status;
+    THROW_IF_ERROR(_verifier.verify(load, _similarity != nullptr, &_phrase_count));
     return _phrase_count > 0.0F;
 }
 

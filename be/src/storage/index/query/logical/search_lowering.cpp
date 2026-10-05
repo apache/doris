@@ -366,6 +366,9 @@ Status lower_match(InvertedIndexQueryType query_type, std::string_view value,
         lower_phrase_prefix(std::move(tokens), out);
     } else if (query_type == InvertedIndexQueryType::MATCH_PHRASE_EDGE_QUERY) {
         lower_phrase_edge(std::move(tokens), out);
+    } else if (tokens.size() == 1 && tokens.front().is_single_term()) {
+        out->value =
+                Term {.field = {}, .term = std::move(std::get<std::string>(tokens.front().term))};
     } else {
         // A row equal to the value holds every one of its tokens.
         out->value =

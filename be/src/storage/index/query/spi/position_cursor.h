@@ -34,6 +34,24 @@ public:
     virtual ~PositionCursor() = default;
     virtual uint32_t frequency() const = 0;
     virtual Status next_position(uint32_t* position, bool* available) = 0;
+    // Consumes unread positions through the first one at or after target.
+    virtual Status next_position_at_least(uint32_t target, uint32_t* position, bool* available) {
+        *available = false;
+        uint32_t next = 0;
+        bool has_next = false;
+        while (true) {
+            RETURN_IF_ERROR(next_position(&next, &has_next));
+            if (!has_next) {
+                return Status::OK();
+            }
+            if (next >= target) {
+                *position = next;
+                *available = true;
+                return Status::OK();
+            }
+        }
+    }
+
     // The next positions into `out`, filling it unless fewer are left: a *count below out.size()
     // means the document has none after them.
     virtual Status next_positions(std::span<uint32_t> out, size_t* count) {

@@ -323,14 +323,16 @@ TEST_F(ListedTermsTest, DISABLED_SparseDisjunctionScaling) {
         auto input = std::make_shared<FakeIndexSource>();
         input->batches = true;
         input->set_doc_count(1000000);
-        std::vector<QueryPtr> clauses;
         for (uint32_t i = 0; i < count; ++i) {
             input->add(many_term(i), {posting(i * 500, {0}), posting(999999, {0, 2})});
-            clauses.push_back(term(many_term(i)));
         }
-        const auto query = boolean(OperatorType::OP_OR, clauses);
         const std::string label = "sparse_or/SNII/" + std::to_string(count);
         for (uint32_t sample = 0; sample < 32; ++sample) {
+            std::vector<QueryPtr> clauses;
+            for (uint32_t i = 0; i < count; ++i) {
+                clauses.push_back(term(many_term(i)));
+            }
+            const auto query = boolean(OperatorType::OP_OR, clauses);
             input->prefetches.clear();
             input->opened_together.clear();
             benchmark::wait_for_turn(label, sample);

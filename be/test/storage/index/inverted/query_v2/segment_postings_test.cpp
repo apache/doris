@@ -25,6 +25,7 @@
 
 #include "CLucene/index/DocRange.h"
 #include "storage/index/inverted/spi/clucene_postings_cursor.h"
+#include "storage/index/query/fake_index_source.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
@@ -312,6 +313,79 @@ TEST_F(SegmentPostingsTest, CommonPositionCursorStreamsAndSkipsUnselectedDocumen
     EXPECT_EQ(reader->skipped, 4);
     expect_remaining_positions(*positions);
     EXPECT_EQ(reader->reads, 3);
+}
+
+void expect_advanced_position(index_query::PositionCursor& positions, uint32_t target,
+                              uint32_t expected) {
+    uint32_t position = 0;
+    bool available = false;
+    ASSERT_TRUE(positions.next_position_at_least(target, &position, &available).ok());
+    ASSERT_TRUE(available);
+    EXPECT_EQ(position, expected);
+}
+
+void check_position_advancement(index_query::PostingsCursor& source) {
+    index_query::PostingsBlock block;
+    bool eof = false;
+    ASSERT_TRUE(source.next_block(&block, &eof).ok());
+    ASSERT_FALSE(eof);
+    index_query::PositionCursor* positions = nullptr;
+    ASSERT_TRUE(source.open_positions(0, &positions).ok());
+    expect_advanced_position(*positions, 2, 2);
+    expect_advanced_position(*positions, 2, 2);
+    uint32_t position = 0;
+    bool available = false;
+    ASSERT_TRUE(positions->next_position(&position, &available).ok());
+    ASSERT_TRUE(available);
+    EXPECT_EQ(position, 7);
+    expect_advanced_position(*positions, 8, 9);
+    ASSERT_TRUE(positions->next_position_at_least(10, &position, &available).ok());
+    EXPECT_FALSE(available);
+    ASSERT_TRUE(positions->finish_doc().ok());
+    ASSERT_TRUE(source.open_positions(1, &positions).ok());
+    expect_advanced_position(*positions, 4, 5);
+}
+
+TEST_F(SegmentPostingsTest, PositionAdvanceConsumesOnlyThroughItsTarget) {
+    ClucenePostingsCursor clucene {TermPositionsPtr(
+            new MockTermPositions({1, 2}, {5, 1}, {1, 1}, {{0, 2, 2, 7, 9}, {5}}, 2))};
+    check_position_advancement(clucene);
+    using FakeCursor = index_query::testing::FakePostingsCursor;
+    FakeCursor fake({{.doc = 1, .positions = {0, 2, 2, 7, 9}}, {.doc = 2, .positions = {5}}}, true,
+                    true);
+    check_position_advancement(fake);
+}
+
+TEST_F(SegmentPostingsTest, PositionAdvanceRetainsProgressAfterAReadError) {
+    class FailOncePositions final : public MockTermPositions {
+    public:
+        FailOncePositions() : MockTermPositions({1}, {4}, {1}, {{3, 5, 7, 9}}, 1) {}
+        int32_t nextDeltaPosition() override {
+            if (++reads == 2) {
+                _CLTHROWA(CL_ERR_IO, "Injected failure after a skipped position");
+            }
+            return MockTermPositions::nextDeltaPosition();
+        }
+        size_t reads = 0;
+    };
+    ClucenePostingsCursor source {TermPositionsPtr(new FailOncePositions())};
+    index_query::PostingsBlock block;
+    bool eof = false;
+    ASSERT_TRUE(source.next_block(&block, &eof).ok());
+    index_query::PositionCursor* positions = nullptr;
+    ASSERT_TRUE(source.open_positions(0, &positions).ok());
+    uint32_t position = 123;
+    bool available = true;
+    EXPECT_EQ(positions->next_position_at_least(7, &position, &available).code(),
+              ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
+    EXPECT_FALSE(available);
+    EXPECT_EQ(position, 123);
+    ASSERT_TRUE(positions->next_position_at_least(7, &position, &available).ok());
+    ASSERT_TRUE(available);
+    EXPECT_EQ(position, 7);
+    std::vector<uint32_t> remaining;
+    ASSERT_TRUE(positions->append_remaining_positions(0, remaining).ok());
+    EXPECT_EQ(remaining, (std::vector<uint32_t> {9}));
 }
 
 TEST_F(SegmentPostingsTest, CommonPositionCursorRejectsReplayAndInvalidatedBlocks) {

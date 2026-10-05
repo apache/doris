@@ -60,8 +60,10 @@
 #include "storage/index/inverted/query_v2/all_query/all_query.h"
 #include "storage/index/inverted/query_v2/bit_set_query/bit_set_query.h"
 #include "storage/index/inverted/query_v2/boolean_query/boolean_query_builder.h"
+#include "storage/index/inverted/query_v2/boolean_query/listed_terms.h"
 #include "storage/index/inverted/query_v2/boolean_query/operator.h"
 #include "storage/index/inverted/query_v2/collect/doc_set_collector.h"
+#include "storage/index/inverted/query_v2/complete_null_bitmap.h"
 #include "storage/index/inverted/query_v2/expand_query/expand_query.h"
 #include "storage/index/inverted/query_v2/phrase_prefix_query/phrase_prefix_query.h"
 #include "storage/index/inverted/query_v2/phrase_query/multi_phrase_query.h"
@@ -271,8 +273,8 @@ void InvertedIndexReader::insert_query_cache(const IndexQueryContextPtr& context
 Status InvertedIndexReader::handle_searcher_cache(
         const IndexQueryContextPtr& context,
         InvertedIndexCacheHandle* inverted_index_cache_handle) {
-    auto index_file_key = _index_file_reader->get_index_file_cache_key(&_index_meta);
-    InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_key);
+    InvertedIndexSearcherCache::CacheKey searcher_cache_key(
+            _index_file_reader->get_index_file_cache_key(&_index_meta));
     const auto& query_options = context->runtime_state->query_options();
 
     bool cache_hit = false;
@@ -439,20 +441,34 @@ Status run_leaf(const IndexQueryContextPtr& context, const std::wstring& field,
                 index_query::IndexSourcePtr source, uint32_t doc_count,
                 const std::shared_ptr<roaring::Roaring>& result) {
     SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_timer);
-    if (!scoring) {
-        std::span<const std::string> terms;
-        if (const auto* term = leaf.as<logical::Term>(); term != nullptr) {
-            terms = std::span(&term->term, 1);
-        } else if (const auto* set = leaf.as<logical::TermSet>();
-                   set != nullptr && (!set->require_all || set->terms.size() == 1) &&
-                   set->min_should_match == 0) {
-            terms = set->terms;
-        }
-        if (!terms.empty() && source->segments().empty()) {
-            SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_exec_timer);
+    std::span<const std::string> terms;
+    if (const auto* term = leaf.as<logical::Term>(); term != nullptr) {
+        terms = std::span(&term->term, 1);
+    } else if (const auto* set = leaf.as<logical::TermSet>();
+               set != nullptr && (!set->require_all || set->terms.size() == 1) &&
+               set->min_should_match == 0) {
+        terms = set->terms;
+    }
+    if (!terms.empty() && (!scoring || terms.size() > 1) && source->segments().empty()) {
+        SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_search_exec_timer);
+        if (!scoring) {
             index_query::RoaringDocIdSink sink(*result);
             return index_query::collect_term_rows(*source, terms, sink);
         }
+        query_v2::ListedTerms listed(std::move(source), nullptr);
+        for (size_t i = 0; i < terms.size(); ++i) {
+            auto similarity = std::make_shared<BM25Similarity>();
+            similarity->for_one_term(context, field,
+                                     inverted_index::StringHelper::to_wstring(terms[i]));
+            listed.add(i, terms[i], std::move(similarity));
+        }
+        const auto scorer = listed.scored_disjunction();
+        if (context->collection_similarity != nullptr) {
+            *result |= query_v2::collect_scored_rows(scorer, 0, *context->collection_similarity);
+        } else {
+            query_v2::collect_true_rows(scorer, result.get());
+        }
+        return Status::OK();
     }
     query_v2::WeightPtr weight;
     {
